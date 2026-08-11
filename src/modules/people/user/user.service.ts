@@ -18,7 +18,12 @@ import {
   UserSecullumSyncService,
   type SecullumSyncResult,
 } from '@modules/integrations/secullum/user-secullum-sync.service';
-import { USER_CONTRACT_TERMINATED_EVENT } from '../../../constants/events';
+import {
+  USER_CONTRACT_TERMINATED_EVENT,
+  BONUS_ELIGIBILITY_CHANGED_EVENT,
+  type BonusEligibilityChangeReason,
+  type BonusEligibilityChangedPayload,
+} from '../../../constants/events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository, PrismaTransaction } from './repositories/user.repository';
 import type {
@@ -1002,6 +1007,26 @@ export class UserService {
     } catch (err) {
       this.logger.error('Failed to emit secullum.user.created:', err);
     }
+
+    // Admissão só mexe no divisor B1 quando o vínculo já NASCE indeterminado —
+    // a elegibilidade começa na efetivação, e quem entra em experiência não é
+    // bonificável ainda. Cadastrar alguém já efetivado (readmissão, migração de
+    // histórico) entra no divisor no ato e muda o bônus de todos.
+    try {
+      const contract = await this.prisma.employmentContract.findFirst({
+        where: { userId: user.id, isCurrent: true },
+        select: { contractType: true },
+      });
+      if (contract?.contractType === CONTRACT_TYPE.INDETERMINATE) {
+        this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+          userId: user.id,
+          reason: 'USER_ADMITTED',
+        } satisfies BonusEligibilityChangedPayload);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to emit ${BONUS_ELIGIBILITY_CHANGED_EVENT} on create:`, err);
+    }
+
     return secullumSync;
   }
 
@@ -1079,6 +1104,15 @@ export class UserService {
     // "acabou de ser desligado" de "já estava desligado e alguém editou o
     // telefone". Só a TRANSIÇÃO dispara o fechamento da bonificação.
     let statusBeforeUpdate: string | null = null;
+    // Demais grandezas que decidem QUEM entra no divisor B1 e COM QUE PESO,
+    // capturadas antes da escrita. `statusBeforeUpdate` sozinho só enxerga a
+    // transição para TERMINATED, que é a minoria dos casos que mexem no
+    // divisor — ver BONUS_ELIGIBILITY_CHANGED_EVENT.
+    let terminationDateBeforeUpdate: Date | null = null;
+    let effectedAtBeforeUpdate: Date | null = null;
+    let contractTypeBeforeUpdate: string | null = null;
+    let positionIdBeforeUpdate: string | null = null;
+    let performanceLevelBeforeUpdate: number | null = null;
 
     try {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -1093,6 +1127,24 @@ export class UserService {
 
         statusBeforeUpdate =
           (existingUser as { currentContractStatus?: string | null }).currentContractStatus ?? null;
+
+        const contractBefore = (
+          existingUser as {
+            currentContract?: {
+              terminationDate?: Date | null;
+              effectedAt?: Date | null;
+              contractType?: string | null;
+            } | null;
+          }
+        ).currentContract;
+        terminationDateBeforeUpdate = contractBefore?.terminationDate ?? null;
+        effectedAtBeforeUpdate = contractBefore?.effectedAt ?? null;
+        contractTypeBeforeUpdate =
+          contractBefore?.contractType ??
+          ((existingUser as { currentContractType?: string | null }).currentContractType ?? null);
+        positionIdBeforeUpdate = (existingUser as { positionId?: string | null }).positionId ?? null;
+        performanceLevelBeforeUpdate =
+          (existingUser as { performanceLevel?: number | null }).performanceLevel ?? null;
 
         // Security: privilege-escalation/account-takeover guards (audit B1/B8, decision 12)
         await this.enforceUserWriteGuards(
@@ -1601,16 +1653,97 @@ export class UserService {
       //
       // Evento, e não chamada direta: `BonusModule` importa `UserModule`, então
       // injetar `BonusService` aqui fecharia um ciclo de DI.
+      const contractAfter = (
+        updatedUser as {
+          currentContract?: {
+            terminationDate?: Date | null;
+            effectedAt?: Date | null;
+            contractType?: string | null;
+          } | null;
+        }
+      )?.currentContract;
+
       if (dismissalJustHappened && statusBeforeUpdate !== CONTRACT_STATUS.TERMINATED) {
         try {
           this.eventEmitter.emit(USER_CONTRACT_TERMINATED_EVENT, {
             userId: id,
-            terminationDate:
-              (updatedUser as { currentContract?: { terminationDate?: Date | null } | null })
-                ?.currentContract?.terminationDate ?? null,
+            terminationDate: contractAfter?.terminationDate ?? null,
           });
         } catch (err) {
           this.logger.error(`Failed to emit ${USER_CONTRACT_TERMINATED_EVENT}:`, err);
+        }
+      } else {
+        // TUDO O MAIS que muda o divisor B1 do período corrente.
+        //
+        // O evento de demissão acima cobre só a TRANSIÇÃO ACTIVE → TERMINATED.
+        // Os casos abaixo mexem no divisor exatamente do mesmo jeito — e o
+        // divisor é um valor DO PERÍODO, então o bônus de todo mundo muda
+        // junto — mas nenhum deles disparava nada: a tela ficava até 30 min
+        // com número velho (cache SWR) e as linhas salvas até o cron do dia 5.
+        //
+        // Fora do `if` da demissão de propósito: quando a pessoa acabou de ser
+        // desligada, o listener de demissão já regrava o período inteiro, e um
+        // segundo evento só faria o mesmo trabalho duas vezes.
+        const emitEligibilityChange = (
+          reason: BonusEligibilityChangeReason,
+          extra?: Partial<BonusEligibilityChangedPayload>,
+        ) => {
+          try {
+            this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+              userId: id,
+              reason,
+              ...extra,
+            } satisfies BonusEligibilityChangedPayload);
+          } catch (err) {
+            this.logger.error(`Failed to emit ${BONUS_ELIGIBILITY_CHANGED_EVENT}:`, err);
+          }
+        };
+
+        const sameDate = (a: Date | null | undefined, b: Date | null | undefined): boolean => {
+          if (!a && !b) return true;
+          if (!a || !b) return false;
+          return new Date(a).getTime() === new Date(b).getTime();
+        };
+
+        // 1) A data de demissão de um JÁ-DESLIGADO foi corrigida. Este é o caso
+        //    que passava completamente batido: o status não transiciona (já era
+        //    TERMINATED), então o evento de demissão não dispara — mas mover a
+        //    data muda o peso da pessoa e o divisor de todo o período.
+        const terminationDateAfter = contractAfter?.terminationDate ?? null;
+        if (!sameDate(terminationDateBeforeUpdate, terminationDateAfter)) {
+          emitEligibilityChange('TERMINATION_DATE_CHANGED', {
+            previousTerminationDate: terminationDateBeforeUpdate,
+            terminationDate: terminationDateAfter,
+          });
+        }
+
+        // 2) Efetivação: a elegibilidade começa na EFETIVAÇÃO, não na admissão.
+        //    Vale tanto mudar `effectedAt` quanto o vínculo virar INDETERMINATE.
+        const effectedAtAfter = contractAfter?.effectedAt ?? null;
+        const contractTypeAfter = contractAfter?.contractType ?? null;
+        const becameIndeterminate =
+          contractTypeAfter === CONTRACT_TYPE.INDETERMINATE &&
+          contractTypeBeforeUpdate !== CONTRACT_TYPE.INDETERMINATE;
+        if (!sameDate(effectedAtBeforeUpdate, effectedAtAfter) || becameIndeterminate) {
+          emitEligibilityChange('CONTRACT_EFFECTED');
+        }
+
+        // 3) Cargo: entrar ou sair de um cargo bonificável adiciona/remove a
+        //    pessoa do conjunto inteiro, não só muda o peso dela.
+        const positionIdAfter = (updatedUser as { positionId?: string | null })?.positionId ?? null;
+        if (positionIdBeforeUpdate !== positionIdAfter) {
+          emitEligibilityChange('POSITION_CHANGED');
+        }
+
+        // 4) Nível de desempenho: o divisor só soma quem tem nível > 0, então
+        //    sair de 0 (ou voltar para 0) muda o denominador de todo mundo.
+        const performanceLevelAfter =
+          (updatedUser as { performanceLevel?: number | null })?.performanceLevel ?? null;
+        if (
+          performanceLevelBeforeUpdate !== performanceLevelAfter &&
+          ((performanceLevelBeforeUpdate ?? 0) === 0 || (performanceLevelAfter ?? 0) === 0)
+        ) {
+          emitEligibilityChange('PERFORMANCE_LEVEL_CHANGED');
         }
       }
 
@@ -2493,6 +2626,23 @@ export class UserService {
 
           result.exp2ToEffected++;
           result.totalProcessed++;
+
+          // A efetivação acabou de colocar esta pessoa no divisor B1 do período
+          // corrente, com peso parcial — e o divisor é um valor DO PERÍODO, ou
+          // seja, o bônus de todo mundo mudou junto. Emitido FORA da transação:
+          // dentro dela o listener dispararia antes do commit e leria o estado
+          // antigo.
+          try {
+            this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+              userId: user.id,
+              reason: 'CONTRACT_EFFECTED',
+            } satisfies BonusEligibilityChangedPayload);
+          } catch (err) {
+            this.logger.error(
+              `Failed to emit ${BONUS_ELIGIBILITY_CHANGED_EVENT} after effectivation:`,
+              err,
+            );
+          }
         } catch (error: any) {
           this.logger.error(`Failed to transition user ${user.id} from EXP2 to EFFECTED:`, error);
           result.errors.push({

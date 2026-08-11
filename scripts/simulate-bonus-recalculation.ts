@@ -21,9 +21,14 @@ import { BonusCalculationContextService } from '../src/modules/personnel-departm
 import { businessPeriodStart, businessPeriodEnd } from '../src/utils/business-period';
 import { roundCurrency, roundAverage } from '../src/utils/currency-precision.util';
 import { BONIFICATION_STATUS, TASK_STATUS } from '../src/constants/enums';
+import { neutralAbsenceService, ABSENCE_STUB_NOTICE } from './_bonus-absence-stub';
+
+// O aviso é IMPRESSO, não só documentado: um divisor sem o eixo de afastamento
+// pode divergir do real, e quem lê a saída precisa saber disso na hora.
+console.log('\n' + ABSENCE_STUB_NOTICE);
 
 const prisma = new PrismaClient();
-const eligibilityService = new BonusEligibilityService(prisma as never);
+const eligibilityService = new BonusEligibilityService(prisma as never, neutralAbsenceService() as never);
 const calcService = new BonusCalculationService();
 const contextService = new BonusCalculationContextService(prisma as never);
 

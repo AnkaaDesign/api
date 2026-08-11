@@ -15,6 +15,11 @@ import {
   BonusEligibilityService,
   type PeriodEligibility,
 } from '../src/modules/personnel-department/bonus/bonus-eligibility.service';
+import {
+  absenceFactorFor,
+  type AbsenceCoverage,
+  type PeriodAbsence,
+} from '../src/modules/personnel-department/bonus/bonus-absence.service';
 import { countBrazilianBusinessDaysInRange } from '../src/utils/brazilian-holidays.util';
 import { businessPeriodStart, businessPeriodEnd } from '../src/utils/business-period';
 
@@ -117,8 +122,54 @@ function contract(effected: string, terminated?: string, seq = 1): StubContract 
   };
 }
 
-async function resolve(users: StubUser[], year: number, month: number): Promise<PeriodEligibility> {
-  const svc = new BonusEligibilityService(makePrisma(users) as never);
+/**
+ * Stub do `BonusAbsenceService`: recebe a FRAÇÃO de afastamento por usuário e
+ * devolve a cobertura correspondente, usando a função de fator de verdade.
+ *
+ * A rede real (Secullum) é exercitada em `verify-bonus-absence.ts`; aqui o que
+ * se testa é a COMPOSIÇÃO — peso temporal × fator — dentro da elegibilidade.
+ */
+function makeAbsenceService(
+  fractionByUserId: Record<string, number> = {},
+  available = true,
+): { resolvePeriodAbsence: (users: any[]) => Promise<PeriodAbsence> } {
+  return {
+    resolvePeriodAbsence: async (users: any[]) => {
+      const byUserId = new Map<string, AbsenceCoverage>();
+      for (const u of users) {
+        const fraction = available ? (fractionByUserId[u.userId] ?? 0) : 0;
+        byUserId.set(u.userId, {
+          userId: u.userId,
+          absentDays: Math.round(fraction * u.eligibleDays * 100) / 100,
+          eligibleDays: u.eligibleDays,
+          fraction,
+          factor: available ? absenceFactorFor(fraction) : 1,
+          fromAfastamento: 0,
+          fromAtestadoDiario: 0,
+          ranges: [],
+          measured: available,
+        });
+      }
+      return {
+        available,
+        error: available ? undefined : 'stub: Secullum indisponível',
+        failedUsers: [],
+        byUserId,
+      };
+    },
+  };
+}
+
+async function resolve(
+  users: StubUser[],
+  year: number,
+  month: number,
+  absence?: { fractions?: Record<string, number>; available?: boolean },
+): Promise<PeriodEligibility> {
+  const svc = new BonusEligibilityService(
+    makePrisma(users) as never,
+    makeAbsenceService(absence?.fractions ?? {}, absence?.available ?? true) as never,
+  );
   return svc.resolvePeriodEligibility(year, month);
 }
 
@@ -354,6 +405,117 @@ async function main(): Promise<void> {
     check('divisor = Σ pesos (perf > 0)', r.divisor, sum);
     check('nenhum peso acima de 1', r.entries.every(e => e.weight <= 1), true);
     check('nenhum peso negativo', r.entries.every(e => e.weight >= 0), true);
+  }
+
+  // --- 13. Afastamento médico: a franquia de 40% ---
+  //
+  // A regra NÃO é binária. Até 40% dos dias elegíveis, ausência médica não
+  // reduz nada — falta acontece, e quem faltou 38% não está afastado. Passando
+  // daí, o peso vira exatamente o que sobrou (1 − fração).
+  console.log('\n13. Afastamento médico — franquia de 40%');
+  {
+    const users = [
+      user({ id: 'ok', name: 'Sem afastamento', contracts: [contract('2025-01-01')] }),
+      user({ id: 'y', name: 'Faltou 38%', contracts: [contract('2025-01-01')] }),
+      user({ id: 'borda', name: 'Faltou exatos 40%', contracts: [contract('2025-01-01')] }),
+      user({ id: 'x', name: 'Faltou 52%', contracts: [contract('2025-01-01')] }),
+    ];
+    const r = await resolve(users, Y, M, {
+      fractions: { y: 0.38, borda: 0.4, x: 0.52 },
+    });
+
+    check('sem afastamento continua 1', r.byUserId.get('ok')!.weight, 1);
+    check('38% NÃO reduz (dentro da franquia)', r.byUserId.get('y')!.weight, 1);
+    check('exatos 40% NÃO reduzem (franquia inclusiva)', r.byUserId.get('borda')!.weight, 1);
+    check('52% vira peso 0,48', r.byUserId.get('x')!.weight, 0.48);
+    check('divisor = 1 + 1 + 1 + 0,48', r.divisor, 3.48);
+    check('razão do afastado = MEDICAL_LEAVE', r.byUserId.get('x')!.reason, 'MEDICAL_LEAVE');
+    check('eixo temporal preservado separado', r.byUserId.get('x')!.temporalWeight, 1);
+    check('fator exposto para auditoria', r.byUserId.get('x')!.absenceFactor, 0.48);
+  }
+
+  // --- 14. Afastamento integral: some da lista ---
+  //
+  // Foi o pedido explícito: "em caso da proporção dela naquela regra ser 100%,
+  // some da lista". Peso 0 ⇒ trata igual a quem nunca foi elegível.
+  console.log('\n14. Afastamento integral (100%)');
+  {
+    const users = [
+      user({ id: 'a', name: 'Ativo', contracts: [contract('2025-01-01')] }),
+      user({ id: 'b', name: 'Ativo 2', contracts: [contract('2025-01-01')] }),
+      user({ id: 'jose', name: 'Afastado o mês inteiro', contracts: [contract('2025-01-01')] }),
+    ];
+    const r = await resolve(users, Y, M, { fractions: { jose: 1 } });
+
+    check('some da lista', r.entries.length, 2);
+    check('não está no índice', r.byUserId.has('jose'), false);
+    check('divisor cai para 2', r.divisor, 2);
+    check('registrado em fullyAbsent', r.fullyAbsent.map(f => f.userId), ['jose']);
+  }
+
+  // --- 15. Composição dos dois eixos ---
+  //
+  // "a não ser que seja demitido, por exemplo": o afastamento não substitui a
+  // proporcionalidade do vínculo, multiplica.
+  console.log('\n15. Demissão no meio do período E afastamento acima da franquia');
+  {
+    const mid = '2026-07-10';
+    const users = [
+      user({
+        id: 'ambos',
+        name: 'Desligado e afastado',
+        currentContractStatus: 'TERMINATED',
+        contracts: [contract('2025-01-01', mid)],
+      }),
+    ];
+    const temporalOnly = await resolve(users, Y, M);
+    const both = await resolve(users, Y, M, { fractions: { ambos: 0.5 } });
+
+    const t = temporalOnly.byUserId.get('ambos')!.weight;
+    check('o eixo temporal sozinho não muda', both.byUserId.get('ambos')!.temporalWeight, t);
+    check('peso final = temporal × 0,5', both.byUserId.get('ambos')!.weight, Math.round(t * 0.5 * 1e4) / 1e4);
+    check('razão continua TERMINATED_MID (o vínculo explica mais)', both.byUserId.get('ambos')!.reason, 'TERMINATED_MID');
+  }
+
+  // --- 16. Fail-safe: Secullum fora do ar ---
+  //
+  // Fator 1 para todos é o comportamento ANTERIOR à regra — seguro para ler.
+  // O que não pode é GRAVAR nesse estado: `calculateAndSaveBonuses` consulta
+  // `absenceDataAvailable` e se recusa, senão congelaria na folha o divisor
+  // inflado que a regra existe para corrigir.
+  console.log('\n16. Secullum indisponível (fail-safe)');
+  {
+    const users = [
+      user({ id: 'a', name: 'A', contracts: [contract('2025-01-01')] }),
+      user({ id: 'jose', name: 'Afastado', contracts: [contract('2025-01-01')] }),
+    ];
+    const r = await resolve(users, Y, M, { fractions: { jose: 1 }, available: false });
+
+    check('ninguém é excluído sem medição', r.entries.length, 2);
+    check('divisor volta ao comportamento anterior', r.divisor, 2);
+    check('mas a indisponibilidade é sinalizada', r.absenceDataAvailable, false);
+    check('com motivo legível', typeof r.absenceError === 'string', true);
+    check('marcado como não medido', r.byUserId.get('jose')!.absenceMeasured, false);
+  }
+
+  // --- 17. Readmissão não conta o dia da nova admissão duas vezes ---
+  //
+  // O fim do intervalo é inclusivo, então truncar o vínculo antigo NA data de
+  // admissão do novo somava esse dia nos dois — podendo empurrar o peso acima
+  // de 1 antes do clamp e inflar a parcela da pessoa no divisor.
+  console.log('\n17. Readmissão no mesmo dia (sem sobreposição)');
+  {
+    const users = [
+      user({
+        id: 'rr',
+        name: 'Readmitido no mesmo dia',
+        contracts: [contract('2025-01-01', '2026-07-15', 1), contract('2026-07-15', undefined, 2)],
+      }),
+    ];
+    const r = await resolve(users, Y, M);
+    const e = r.byUserId.get('rr')!;
+    check('cobre o período inteiro sem duplicar', e.eligibleDays, BD);
+    check('peso exatamente 1', e.weight, 1);
   }
 
   // ------------------------------------------------------------------

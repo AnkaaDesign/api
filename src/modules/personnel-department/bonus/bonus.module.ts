@@ -6,6 +6,7 @@ import { BonusService } from './bonus.service';
 import { BonusCalculationService } from './bonus-calculation.service';
 import { BonusCalculationContextService } from './bonus-calculation-context.service';
 import { BonusEligibilityService } from './bonus-eligibility.service';
+import { BonusAbsenceService } from './bonus-absence.service';
 import { BonusDiscountService } from './bonus-discount.service';
 import { BonusTerminationListener } from './bonus-termination.listener';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
@@ -37,6 +38,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
     BonusCalculationService,
     BonusCalculationContextService,
     BonusEligibilityService,
+    BonusAbsenceService,
     BonusDiscountService,
     BonusTerminationListener,
     SecullumBonusIntegrationService,
@@ -54,6 +56,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
     BonusCalculationService,
     BonusCalculationContextService,
     BonusEligibilityService,
+    BonusAbsenceService,
     BonusDiscountService,
     BonusRepository,
   ],

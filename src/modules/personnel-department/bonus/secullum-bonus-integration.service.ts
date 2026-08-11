@@ -887,6 +887,41 @@ export class SecullumBonusIntegrationService {
    * per-day numbers are schedule-aware (e.g. clocked in at 07:14 vs scheduled
    * 07:00 = 14 min Faltas) — our local calculateMissingHours can't infer that.
    */
+  /**
+   * Abono (tempo justificado) por dia, direto do `/Calculos`.
+   *
+   * Exposto para `BonusAbsenceService`: o atestado de UM dia só não gera
+   * registro em `/FuncionariosAfastamentos` — aparece apenas como abono aqui —,
+   * então a regra de afastamento precisa desta fonte além da lista de
+   * afastamentos. Reaproveita `parseCalculationTotals` para que a leitura das
+   * colunas do Secullum (que é frágil e já foi acertada uma vez) exista num
+   * lugar só.
+   *
+   * Devolve mapa VAZIO quando o `/Calculos` falha — quem chama trata a ausência
+   * de sinal como "sem afastamento", nunca como erro fatal.
+   */
+  async getPerDayAbono(
+    secullumEmployeeId: number,
+    startDate: string,
+    endDate: string,
+  ): Promise<{ perDayAbono: Map<string, number>; dailyCargaHours: number }> {
+    try {
+      const data = await this.secullumService.getCalculationsBySecullumId(
+        secullumEmployeeId,
+        startDate,
+        endDate,
+      );
+      const { perDayAbono, dailyCargaHours } = this.parseCalculationTotals(data);
+      return { perDayAbono, dailyCargaHours };
+    } catch (error) {
+      this.logger.warn(
+        `getPerDayAbono: /Calculos falhou para funcionário ${secullumEmployeeId} ` +
+          `(${startDate}..${endDate}): ${(error as Error)?.message ?? error}`,
+      );
+      return { perDayAbono: new Map<string, number>(), dailyCargaHours: 0 };
+    }
+  }
+
   private parseCalculationTotals(data: SecullumCalculationData | null): {
     faltasHours: number;
     atrasosHours: number;

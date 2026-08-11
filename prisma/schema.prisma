@@ -155,6 +155,21 @@ model Bonus {
   eligibleDays       Int?
   periodBusinessDays Int?
   periodDivisor      Decimal?        @db.Decimal(8, 4)
+  /// Segundo eixo do peso: DISPONIBILIDADE (afastamento médico no Secullum).
+  ///
+  /// `eligibilityWeight` acima já é o peso FINAL — o produto do eixo temporal
+  /// pelo fator abaixo. Estas duas colunas existem para que uma folha fechada
+  /// consiga explicar de onde o peso veio sem reconsultar o Secullum, que
+  /// reescreve o passado (um afastamento lançado com atraso muda a resposta de
+  /// meses atrás).
+  ///
+  /// absenceFactor = 1 quando a ausência ficou dentro da franquia de 40% dos
+  ///                 dias úteis ELEGÍVEIS da pessoa; senão `1 - fração`.
+  ///                 Fator 0 (afastado integral) nem chega a gerar linha.
+  /// absentDays    = dias-equivalentes de afastamento médico na janela elegível
+  ///                 (0,5 = meio dia). Férias, folga e compensação NÃO entram.
+  absenceFactor      Decimal         @default(1) @db.Decimal(6, 4)
+  absentDays         Decimal?        @db.Decimal(6, 2)
   /// Data de desligamento quando o vínculo encerrou DENTRO do período — deixa a
   /// UI mostrar "Desligado em DD/MM" sem reconsultar o contrato.
   terminatedAt       DateTime?

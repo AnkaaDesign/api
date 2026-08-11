@@ -47,6 +47,8 @@
     "seed:notifications": "tsx prisma/scripts/seed-notification-configs.ts",
     "test:bonus": "tsx scripts/verify-bonus-calculation.ts && tsx scripts/verify-bonus-proportional.ts",
     "bonus:audit-terminations": "tsx scripts/audit-termination-dates.ts",
+    "bonus:verify-absence": "tsx scripts/verify-bonus-absence.ts",
+    "bonus:preview-period": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/preview-bonus-period.ts",
     "bonus:verify-eligibility": "tsx scripts/verify-bonus-eligibility.ts",
     "bonus:simulate-recalc": "tsx scripts/simulate-bonus-recalculation.ts",
     "bonus:verify-integrity": "tsx scripts/verify-bonus-period-integrity.ts",

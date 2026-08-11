@@ -22,9 +22,14 @@
 
 import { PrismaClient } from '@prisma/client';
 import { BonusEligibilityService } from '../src/modules/personnel-department/bonus/bonus-eligibility.service';
+import { neutralAbsenceService, ABSENCE_STUB_NOTICE } from './_bonus-absence-stub';
+
+// O aviso é IMPRESSO, não só documentado: um divisor sem o eixo de afastamento
+// pode divergir do real, e quem lê a saída precisa saber disso na hora.
+console.log('\n' + ABSENCE_STUB_NOTICE);
 
 const prisma = new PrismaClient();
-const service = new BonusEligibilityService(prisma as never);
+const service = new BonusEligibilityService(prisma as never, neutralAbsenceService() as never);
 
 /** Divisores gravados antes da v3 não existem — linha antiga não é divergência. */
 const V3 = 'v3-proportional';

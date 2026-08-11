@@ -14,11 +14,16 @@ import { PrismaClient } from '@prisma/client';
 import { BonusEligibilityService } from '../src/modules/personnel-department/bonus/bonus-eligibility.service';
 import { businessPeriodStart, businessPeriodEnd } from '../src/utils/business-period';
 import { BONIFICATION_STATUS, TASK_STATUS } from '../src/constants/enums';
+import { neutralAbsenceService, ABSENCE_STUB_NOTICE } from './_bonus-absence-stub';
+
+// O aviso é IMPRESSO, não só documentado: um divisor sem o eixo de afastamento
+// pode divergir do real, e quem lê a saída precisa saber disso na hora.
+console.log('\n' + ABSENCE_STUB_NOTICE);
 
 const prisma = new PrismaClient();
 
 // O serviço só usa `this.prisma.user.findMany` — o PrismaClient satisfaz isso.
-const service = new BonusEligibilityService(prisma as never);
+const service = new BonusEligibilityService(prisma as never, neutralAbsenceService() as never);
 
 const poly = (b: number): number =>
   3.31 * b ** 5 - 61.07 * b ** 4 + 364.82 * b ** 3 - 719.54 * b ** 2 + 465.16 * b - 3.24;

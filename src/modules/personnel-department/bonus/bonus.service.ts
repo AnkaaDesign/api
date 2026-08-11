@@ -88,8 +88,18 @@ interface LiveBonusData {
   bonusExtras?: any[];
   bonusDiscounts?: any[];
   // ---- Proporcionalidade temporal (ver BonusEligibilityService) ----
-  /** [0,1] — fração de dias úteis do período em que a pessoa foi elegível. */
+  /**
+   * [0,1] — PESO FINAL: `temporalWeight × absenceFactor`. É o que entra no
+   * divisor e o que prorrateia o valor.
+   */
   eligibilityWeight: number;
+  /** Só o eixo do vínculo (admissão/demissão), sem o afastamento. */
+  temporalWeight: number;
+  /** Fator de disponibilidade (afastamento médico). Ver BonusAbsenceService. */
+  absenceFactor: number;
+  absentDays: number;
+  absenceFraction: number;
+  absenceRanges: Array<{ start: string; end: string; label: string }>;
   eligibleDays: number;
   periodBusinessDays: number;
   /** Divisor B1 do período (Σ dos pesos). Fracionário. */
@@ -136,6 +146,16 @@ interface LiveBonusCalculationResult {
   secullumAvailable: boolean;
   /** Human-readable reason when secullumAvailable is false. */
   secullumSyncError?: string | null;
+  /**
+   * Cobertura de afastamento médico pôde ser medida. Falso ⇒ todo mundo saiu
+   * com `absenceFactor = 1` por indisponibilidade, não por estar disponível.
+   * `calculateAndSaveBonuses` DEVE recusar a gravação nesse estado, pelo mesmo
+   * motivo que já recusa sem apuração de ponto.
+   */
+  absenceDataAvailable: boolean;
+  absenceError?: string | null;
+  /** Quem foi excluído do período por afastamento integral (peso 0). */
+  fullyAbsent: Array<{ userId: string; userName: string; absentDays: number }>;
 }
 
 // =====================
@@ -208,6 +228,38 @@ function getPeriodEnd(year: number, month: number): Date {
 }
 
 /**
+ * Dia AINDA NÃO FECHADO (hoje ou futuro).
+ *
+ * `analyzeUser` mantém dias futuros no `dailyBreakdown` para exibição mas os
+ * exclui de TODOS os totais — só dia fechado vira hora de atestado ou de falta.
+ * As funções de exibição abaixo não sabiam disso e varriam o breakdown inteiro,
+ * produzindo linhas que se contradiziam: um caso real em 08/2026 mostrava
+ * "Faltas - Atestado (80:00) — 26/07, …, 25/08", listando 31 datas para um
+ * total de 10 dias, porque o afastamento estava lançado no Secullum até 29/10 e
+ * os dias futuros já vinham marcados como atestado.
+ *
+ * A comparação é por string 'YYYY-MM-DD' — mesma técnica de `analyzeUser`, que
+ * assim tolera o formato DD/MM/YYYY do Secullum sem depender de `new Date`.
+ */
+function isTodayOrFutureDay(rawDate: string): boolean {
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+  const s = String(rawDate).trim();
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}` >= todayKey;
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  if (iso) return iso[1] >= todayKey;
+  const parsed = new Date(s);
+  if (isNaN(parsed.getTime())) return false;
+  const key = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(
+    parsed.getDate(),
+  ).padStart(2, '0')}`;
+  return key >= todayKey;
+}
+
+/**
  * Build a " — DD/MM, DD/MM (H:MM), …" suffix listing absence days that match
  * `predicate`, pulled from a SecullumBonusAnalysis.dailyBreakdown.
  *
@@ -235,6 +287,7 @@ function formatAbsenceDaysSuffix(
   for (const raw of breakdown) {
     if (!predicate(raw)) continue;
     if (!raw.date) continue;
+    if (isTodayOrFutureDay(raw.date)) continue;
     const parsed = new Date(raw.date);
     if (isNaN(parsed.getTime())) continue;
     entries.push({
@@ -276,6 +329,7 @@ function collectAbsenceDays(
   for (const raw of breakdown) {
     if (!predicate(raw)) continue;
     if (!raw.date) continue;
+    if (isTodayOrFutureDay(raw.date)) continue;
     const parsed = new Date(raw.date);
     if (isNaN(parsed.getTime())) continue;
     const iso = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(
@@ -594,6 +648,11 @@ export class BonusService {
       averageTaskPerUser: live.averageTasksPerEmployee,
       periodDivisor: live.periodDivisor,
       eligibilityWeight: live.eligibilityWeight,
+      temporalWeight: live.temporalWeight,
+      absenceFactor: live.absenceFactor,
+      absentDays: live.absentDays,
+      absenceFraction: live.absenceFraction,
+      absenceRanges: live.absenceRanges,
       eligibleDays: live.eligibleDays,
       periodBusinessDays: live.periodBusinessDays,
       performanceLevel: live.performanceLevel,
@@ -902,17 +961,24 @@ export class BonusService {
       let secullumSyncError: string | null = null;
 
       try {
+        // Sem vínculo no ponto eletrônico não há o que analisar — ver o mesmo
+        // filtro em `computeLiveBonusesForPeriod`. Lista vazia é no-op no
+        // `analyzeAllUsers` (não conta como indisponibilidade).
+        const singleUserSecullumId = (user as { secullumEmployeeId?: number | null })
+          .secullumEmployeeId;
         const secullumResult = await this.secullumBonusIntegrationService.analyzeAllUsers(
           year,
           month,
           // Pass ONLY the single user instead of all 16
-          [
-            {
-              id: user.id,
-              name: user.name,
-              secullumEmployeeId: (user as any).secullumEmployeeId,
-            },
-          ],
+          singleUserSecullumId != null
+            ? [
+                {
+                  id: user.id,
+                  name: user.name,
+                  secullumEmployeeId: singleUserSecullumId,
+                },
+              ]
+            : [],
         );
         secullumAnalysis = secullumResult.perUser.get(userId);
 
@@ -1078,6 +1144,11 @@ export class BonusService {
         weightedTasks: totalWeightedTasks,
         averageTaskPerUser: averageTasksPerUser,
         eligibilityWeight: detailWeight,
+        temporalWeight: userEligibility.temporalWeight,
+        absenceFactor: userEligibility.absenceFactor,
+        absentDays: userEligibility.absentDays,
+        absenceFraction: userEligibility.absenceFraction,
+        absenceRanges: userEligibility.absenceRanges,
         eligibleDays: userEligibility.eligibleDays,
         periodBusinessDays: detailEligibility.periodBusinessDays,
         periodDivisor: detailEligibility.divisor,
@@ -2298,17 +2369,42 @@ export class BonusService {
    */
   async calculateLiveBonuses(year: number, month: number): Promise<LiveBonusCalculationResult> {
     const cacheKey = `bonus:live-period:${year}:${month}`;
-    const cached = await this.cacheService.getObject<{
-      result: LiveBonusCalculationResult;
-      calculatedAt: string;
-    }>(cacheKey);
+    const [cached, fingerprint] = await Promise.all([
+      this.cacheService.getObject<{
+        result: LiveBonusCalculationResult;
+        calculatedAt: string;
+        taskFingerprint?: string;
+      }>(cacheKey),
+      this.periodTaskFingerprint(year, month),
+    ]);
 
     if (cached) {
       const age = Date.now() - new Date(cached.calculatedAt).getTime();
-      const isStale = age > this.LIVE_BONUS_FRESH_MS;
+      // DUAS razões para considerar velho, não uma.
+      //
+      // A idade sozinha não bastava: uma tarefa concluída muda `weightedTasks`
+      // e portanto o bônus de TODO MUNDO, mas a resposta continuava afirmando
+      // `isStale: false` por até 30 min. As mudanças de elegibilidade
+      // (admissão, demissão, efetivação) hoje derrubam o cache por evento; as
+      // de tarefa não têm evento — e não vale pendurar invalidação nos ~13 mil
+      // linhas de caminhos de escrita do TaskService, cada um um lugar a mais
+      // para esquecer.
+      //
+      // A impressão digital resolve os dois problemas de uma vez: qualquer
+      // caminho que mexa no conjunto de tarefas do período muda o par
+      // (contagem, maior updatedAt), venha de onde vier.
+      const taskSetChanged =
+        cached.taskFingerprint !== undefined && cached.taskFingerprint !== fingerprint;
+      const isStale = age > this.LIVE_BONUS_FRESH_MS || taskSetChanged;
 
       if (isStale && !this.ongoingLiveRevalidations.has(cacheKey)) {
         this.ongoingLiveRevalidations.add(cacheKey);
+        if (taskSetChanged) {
+          this.logger.log(
+            `[SWR] ${year}/${month}: conjunto de tarefas mudou ` +
+              `(${cached.taskFingerprint} → ${fingerprint}) — revalidando.`,
+          );
+        }
         void this.revalidateLiveBonusesCache(year, month, cacheKey);
       }
 
@@ -2320,7 +2416,7 @@ export class BonusService {
     try {
       await this.cacheService.setObject(
         cacheKey,
-        { result: fresh, calculatedAt },
+        { result: fresh, calculatedAt, taskFingerprint: fingerprint },
         this.LIVE_BONUS_CACHE_TTL_SEC,
       );
     } catch (err) {
@@ -2329,6 +2425,38 @@ export class BonusService {
       );
     }
     return { ...fresh, lastCalculatedAt: calculatedAt, isStale: false };
+  }
+
+  /**
+   * Assinatura barata do conjunto de tarefas que alimenta o numerador do
+   * período: `contagem:maiorUpdatedAt`.
+   *
+   * Uma agregação indexada, sem carregar linha nenhuma. Detecta tudo que
+   * importa: tarefa entrando no conjunto (conclusão) ou saindo dele (reabertura),
+   * pela contagem; e mudança de `bonification` numa tarefa que já estava lá,
+   * pelo `updatedAt`.
+   *
+   * Nunca lança: sem assinatura, o cache volta a se comportar só pela idade —
+   * o comportamento anterior, que é aceitável, e não vale derrubar a leitura
+   * do bônus por causa de uma agregação.
+   */
+  private async periodTaskFingerprint(year: number, month: number): Promise<string> {
+    try {
+      const agg = await this.prisma.task.aggregate({
+        where: {
+          status: TASK_STATUS.COMPLETED,
+          finishedAt: { gte: getPeriodStart(year, month), lte: getPeriodEnd(year, month) },
+        },
+        _count: { _all: true },
+        _max: { updatedAt: true },
+      });
+      return `${agg._count._all}:${agg._max.updatedAt?.getTime() ?? 0}`;
+    } catch (err) {
+      this.logger.warn(
+        `Task fingerprint failed for ${year}/${month}: ${(err as Error)?.message || err}`,
+      );
+      return 'unavailable';
+    }
   }
 
   /**
@@ -2341,11 +2469,19 @@ export class BonusService {
     cacheKey: string,
   ): Promise<void> {
     try {
+      // A assinatura é lida ANTES do cálculo, de propósito. Se uma tarefa for
+      // concluída durante a revalidação, o resultado não a viu — e guardar a
+      // assinatura de DEPOIS declararia esse resultado incompleto como
+      // atualizado, deixando a tarefa nova fora da conta até o cache expirar.
+      // Guardando a de antes, a próxima leitura detecta a diferença e
+      // revalida. Errar para o lado de "revalidar de novo" é barato; errar
+      // para o lado de "está fresco" esconde tarefa do numerador.
+      const taskFingerprint = await this.periodTaskFingerprint(year, month);
       const fresh = await this.computeLiveBonusesForPeriod(year, month);
       const calculatedAt = new Date().toISOString();
       await this.cacheService.setObject(
         cacheKey,
-        { result: fresh, calculatedAt },
+        { result: fresh, calculatedAt, taskFingerprint },
         this.LIVE_BONUS_CACHE_TTL_SEC,
       );
       this.logger.debug(`[SWR] Revalidated live bonuses for ${year}/${month} at ${calculatedAt}`);
@@ -2367,6 +2503,11 @@ export class BonusService {
   async invalidateLiveBonusesCache(year: number, month: number): Promise<void> {
     const periodKey = `bonus:live-period:${year}:${month}`;
     await this.cacheService.del(periodKey);
+    // Uma revalidação já em voo escreveria o resultado ANTIGO por cima do que
+    // acabamos de apagar — ela começou antes da mudança que motivou esta
+    // invalidação. Soltar o guard faz a próxima leitura disparar uma
+    // revalidação nova, que enxerga o estado de agora.
+    this.ongoingLiveRevalidations.delete(periodKey);
     // Defensive: also clear any per-user detail keys for this period. The pattern
     // is namespaced so it can't touch other modules' cache entries.
     try {
@@ -2388,6 +2529,7 @@ export class BonusService {
   private async computeLiveBonusesForPeriod(
     year: number,
     month: number,
+    opts?: { skipAbsenceCache?: boolean },
   ): Promise<LiveBonusCalculationResult> {
     try {
       // Get period dates (26th to 25th) - computed from year/month
@@ -2402,7 +2544,9 @@ export class BonusService {
       // Substitui o `BONIFIABLE_USER_WHERE` que lia o cache do User e portanto
       // respondia "quem é elegível AGORA" — apagando retroativamente do divisor
       // qualquer pessoa desligada depois do fechamento.
-      const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(year, month);
+      const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(year, month, {
+        skipAbsenceCache: opts?.skipAbsenceCache === true,
+      });
 
       // Dados de exibição (setor, secullumEmployeeId) para os elegíveis do período.
       // Note que o conjunto vem da elegibilidade temporal, NÃO de um `where` sobre
@@ -2577,6 +2721,11 @@ export class BonusService {
           rawAverageTasksPerEmployee: rawAverageTasksPerUser,
           isLive: true as const,
           eligibilityWeight: w,
+          temporalWeight: user.eligibility.temporalWeight,
+          absenceFactor: user.eligibility.absenceFactor,
+          absentDays: user.eligibility.absentDays,
+          absenceFraction: user.eligibility.absenceFraction,
+          absenceRanges: user.eligibility.absenceRanges,
           eligibleDays: user.eligibility.eligibleDays,
           periodBusinessDays: eligibility.periodBusinessDays,
           periodDivisor: eligibility.divisor,
@@ -2595,13 +2744,26 @@ export class BonusService {
       let secullumAvailable = true;
       let secullumSyncError: string | null = null;
       try {
+        // SÓ quem tem vínculo no ponto eletrônico.
+        //
+        // O `!` daqui empurrava `null` para dentro do Secullum: a chave de
+        // cache virava `secullum:batidas:null:<dia>` e a chamada ia buscar as
+        // batidas de um funcionário que não existe. Não corrompia nada hoje
+        // (chave distinta, análise vazia), mas era uma chamada por pessoa
+        // desligada em toda leitura do período — e um dia em que a API
+        // resolvesse tratar id ausente como "todos" viraria atribuição cruzada
+        // de ponto. A própria elegibilidade já sabe quem é (`withoutSecullum`):
+        // conta no divisor e recebe, mas fica sem apuração de ponto.
+        const usersWithSecullum = allBonifiableUsers.filter(
+          (u): u is typeof u & { secullumEmployeeId: number } => u.secullumEmployeeId != null,
+        );
         const secullumResult = await this.secullumBonusIntegrationService.analyzeAllUsers(
           year,
           month,
-          allBonifiableUsers.map(u => ({
+          usersWithSecullum.map(u => ({
             id: u.id,
             name: u.name,
-            secullumEmployeeId: u.secullumEmployeeId!,
+            secullumEmployeeId: u.secullumEmployeeId,
           })),
         );
 
@@ -2727,6 +2889,9 @@ export class BonusService {
         isLive: true,
         secullumAvailable,
         secullumSyncError,
+        absenceDataAvailable: eligibility.absenceDataAvailable,
+        absenceError: eligibility.absenceError ?? null,
+        fullyAbsent: eligibility.fullyAbsent,
       };
     } catch (error) {
       this.logger.error('Error calculating live bonuses:', error);
@@ -2999,6 +3164,11 @@ export class BonusService {
                   averageTaskPerUser: liveBonus.averageTasksPerEmployee,
                   periodDivisor: liveBonus.periodDivisor,
                   eligibilityWeight: liveBonus.eligibilityWeight,
+                  temporalWeight: liveBonus.temporalWeight,
+                  absenceFactor: liveBonus.absenceFactor,
+                  absentDays: liveBonus.absentDays,
+                  absenceFraction: liveBonus.absenceFraction,
+                  absenceRanges: liveBonus.absenceRanges,
                   eligibleDays: liveBonus.eligibleDays,
                   periodBusinessDays: liveBonus.periodBusinessDays,
                   performanceLevel: liveBonus.performanceLevel,
@@ -3085,6 +3255,11 @@ export class BonusService {
             // Proporcionalidade temporal — a UI usa para o "%" e o badge
             // "Desligado em DD/MM".
             eligibilityWeight: liveBonus.eligibilityWeight,
+            temporalWeight: liveBonus.temporalWeight,
+            absenceFactor: liveBonus.absenceFactor,
+            absentDays: liveBonus.absentDays,
+            absenceFraction: liveBonus.absenceFraction,
+            absenceRanges: liveBonus.absenceRanges,
             eligibleDays: liveBonus.eligibleDays,
             periodBusinessDays: liveBonus.periodBusinessDays,
             periodDivisor: liveBonus.periodDivisor,
@@ -3133,6 +3308,11 @@ export class BonusService {
             // Mesmos campos de proporcionalidade, para a UI não precisar tratar
             // duas formas de linha.
             eligibilityWeight: 0,
+            temporalWeight: 0,
+            absenceFactor: 1,
+            absentDays: 0,
+            absenceFraction: 0,
+            absenceRanges: [],
             eligibleDays: 0,
             periodBusinessDays: liveData.periodBusinessDays,
             periodDivisor: liveData.totalEligibleUsersForAverage,
@@ -3164,12 +3344,33 @@ export class BonusService {
         return nameA.localeCompare(nameB);
       });
 
+      // PAGINAÇÃO — depois do merge, nunca antes.
+      //
+      // `findManyWithWhere` aplica `skip`/`take` só nas linhas SALVAS, mas o
+      // universo do período corrente é montado a partir dos elegíveis VIVOS
+      // (que incluem quem ainda não tem linha). São conjuntos de tamanhos
+      // diferentes: paginar o primeiro e devolver o segundo dá uma página que
+      // não corresponde a pedido nenhum.
+      //
+      // HOJE ISSO É INÓCUO e a fatia abaixo é um no-op: `bonusGetManySchema`
+      // declara `page`/`limit`, o controller lê `query.skip`/`query.take`, e os
+      // dois chegam sempre `undefined` — a rota devolve o período inteiro e a
+      // tela pagina no cliente. A correção fica aqui para que o dia em que
+      // alguém ligar a paginação de servidor não produza uma lista que perde
+      // gente em silêncio.
+      const totalRecords = mergedBonuses.length;
+      const skip = filters.skip ?? 0;
+      const pageSize = filters.take;
+      const pagedBonuses =
+        pageSize != null ? mergedBonuses.slice(skip, skip + pageSize) : mergedBonuses.slice(skip);
+
       return {
         success: true,
-        data: mergedBonuses,
+        data: pagedBonuses,
         meta: {
           ...savedResult.meta,
-          totalRecords: mergedBonuses.length,
+          totalRecords,
+          returnedRecords: pagedBonuses.length,
           currentPeriod,
           isLiveCalculationIncluded: true,
           // Stats computed from live data for transparency
@@ -3294,7 +3495,12 @@ export class BonusService {
       // disparado por uma demissão gravou 30 linhas com divisor 29,82 quando a
       // elegibilidade real já era de 18 pessoas e divisor 15,14. A leitura, essa
       // sim, continua servindo do cache; o cache é invalidado no fim do método.
-      const liveData = await this.computeLiveBonusesForPeriod(yearNum, monthNum);
+      //
+      // `skipAbsenceCache` pelo mesmo motivo: a cobertura de afastamento tem
+      // frescor de 30 min, e gravar é o ato que congela o número na folha.
+      const liveData = await this.computeLiveBonusesForPeriod(yearNum, monthNum, {
+        skipAbsenceCache: true,
+      });
 
       // PAYROLL SAFETY GUARD — refuse to persist if Secullum is down.
       // Without time-clock data the bonuses would save with zero atestado/falta
@@ -3309,6 +3515,25 @@ export class BonusService {
         );
         throw new ServiceUnavailableException(
           `Integração Secullum indisponível — não é possível calcular descontos. Tente novamente em alguns minutos. (${reason})`,
+        );
+      }
+
+      // MESMO GUARD, PARA O FATOR DE AFASTAMENTO.
+      //
+      // Sem medir o afastamento todo mundo sai com fator 1 — que é o
+      // comportamento anterior à regra e é seguro para LER, mas persistir isso
+      // congela na folha exatamente o erro que a regra existe para corrigir:
+      // quem está afastado o período inteiro volta a pesar 1,0 no divisor e a
+      // derrubar o bônus de todos os colegas. A recusa é o mesmo contrato do
+      // guard acima — o cron tenta de novo do dia 5 ao 10.
+      if (!liveData.absenceDataAvailable) {
+        const reason = liveData.absenceError ?? 'Cobertura de afastamento não pôde ser medida.';
+        this.logger.error(
+          `Refusing to save bonuses for ${monthNum}/${yearNum} (afastamento): ${reason}`,
+        );
+        throw new ServiceUnavailableException(
+          `Não foi possível medir os afastamentos no Secullum — o divisor ficaria errado. ` +
+            `Tente novamente em alguns minutos. (${reason})`,
         );
       }
 
@@ -3492,6 +3717,11 @@ export class BonusService {
               periodBusinessDays: liveData.periodBusinessDays,
               periodDivisor: liveData.totalEligibleUsersForAverage,
               terminatedAt: isEligible ? eligibleBonus.terminatedAt : null,
+              // Parcela do afastamento dentro de `eligibilityWeight` — o
+              // Secullum reescreve o passado, então sem este snapshot uma folha
+              // fechada não consegue mais explicar o próprio peso.
+              absenceFactor: isEligible ? eligibleBonus.absenceFactor : 1,
+              absentDays: isEligible ? eligibleBonus.absentDays : null,
             };
 
             let bonusId: string;

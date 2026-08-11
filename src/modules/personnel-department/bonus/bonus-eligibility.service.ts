@@ -22,9 +22,23 @@
 //
 // Dias ÚTEIS (Mon–Fri menos feriados nacionais), não corridos: coerente com o
 // resto do módulo, que já soma +1% de assiduidade por dia útil.
+//
+// SEGUNDO EIXO: DISPONIBILIDADE (afastamento médico).
+//
+// O eixo temporal responde "quanto do período esta pessoa esteve CONTRATADA".
+// Não responde "quanto esteve DISPONÍVEL": quem esteve contratado o mês inteiro
+// mas afastado por atestado o mês inteiro entrava aqui com peso 1,0, segurava o
+// divisor para cima e derrubava o bônus de todos os colegas. `BonusAbsenceService`
+// mede essa fração no Secullum e devolve um FATOR que multiplica o peso temporal:
+//
+//     weight = temporalWeight × absenceFactor
+//
+// com franquia de 40% (até lá o fator é 1 — falta acontece). Ver o cabeçalho de
+// `bonus-absence.service.ts` para a regra completa e por que férias não contam.
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { BonusAbsenceService, type AbsenceCoverage } from './bonus-absence.service';
 import {
   CONTRACT_STATUS,
   CONTRACT_TYPE,
@@ -48,6 +62,7 @@ export type EligibilityReason =
   | 'EFFECTED_MID' // efetivado no meio do período
   | 'TERMINATED_MID' // desligado no meio do período
   | 'BOTH' // efetivado E desligado dentro do período
+  | 'MEDICAL_LEAVE' // contratado o período inteiro, mas afastado acima da franquia
   | 'NOT_ELIGIBLE'; // peso zero
 
 export interface EligibilityEntry {
@@ -58,8 +73,27 @@ export interface EligibilityEntry {
   performanceLevel: number;
   /** Dias úteis em que a pessoa esteve elegível dentro do período. */
   eligibleDays: number;
-  /** `eligibleDays / periodBusinessDays`, arredondado a 4 casas, em [0, 1]. */
+  /**
+   * PESO FINAL = `temporalWeight × absenceFactor`, arredondado a 4 casas, em
+   * [0, 1]. É o que entra no divisor E o que prorrateia o valor individual.
+   */
   weight: number;
+  /**
+   * Só o eixo temporal: `eligibleDays / periodBusinessDays`. Separado de
+   * `weight` para que a UI e a auditoria consigam dizer QUANTO veio do vínculo
+   * (admissão/demissão) e quanto veio do afastamento.
+   */
+  temporalWeight: number;
+  /** Dias-equivalentes de afastamento médico dentro da janela elegível. */
+  absentDays: number;
+  /** `absentDays / eligibleDays` em [0, 1]. */
+  absenceFraction: number;
+  /** 1 quando a fração está dentro da franquia de 40%; senão `1 - fração`. */
+  absenceFactor: number;
+  /** `false` quando não deu para medir o afastamento desta pessoa. */
+  absenceMeasured: boolean;
+  /** Faixas de afastamento médico que tocaram a janela (para exibição). */
+  absenceRanges: Array<{ start: string; end: string; label: string }>;
   /** Primeiro e último dia elegível dentro do período (null quando weight = 0). */
   eligibleFrom: Date | null;
   eligibleUntil: Date | null;
@@ -97,6 +131,22 @@ export interface PeriodEligibility {
   divisor: number;
   /** Todos os usuários com `weight > 0`, INCLUSIVE desligados no período. */
   entries: EligibilityEntry[];
+  /**
+   * `false` quando a cobertura de afastamento NÃO pôde ser medida (Secullum
+   * fora do ar). Todo mundo sai com `absenceFactor = 1`, que é o comportamento
+   * anterior à regra — seguro para LER, proibido para GRAVAR: persistir fator 1
+   * por indisponibilidade congela na folha exatamente o erro que a regra existe
+   * para corrigir. `calculateAndSaveBonuses` se recusa a gravar nesse estado.
+   */
+  absenceDataAvailable: boolean;
+  /** Motivo legível quando `absenceDataAvailable` é false. */
+  absenceError?: string;
+  /**
+   * Pessoas cujo peso foi ZERADO pelo afastamento (fração 100%). Não aparecem
+   * em `entries` — saem da lista como quem nunca foi elegível —, mas ficam
+   * registradas aqui para o log e para diagnóstico.
+   */
+  fullyAbsent: Array<{ userId: string; userName: string; absentDays: number }>;
   /**
    * Subconjunto de `entries` sem `secullumEmployeeId` — contam no divisor e
    * recebem bônus, mas ficam sem apuração de ponto (nem desconto de falta,
@@ -148,15 +198,25 @@ const endOfDay = (d: Date): Date =>
 export class BonusEligibilityService {
   private readonly logger = new Logger(BonusEligibilityService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bonusAbsenceService: BonusAbsenceService,
+  ) {}
 
   /**
    * Resolve a elegibilidade ponderada de todo o quadro para um período 26→25.
    *
    * Inclui quem foi desligado no meio do período (com peso proporcional) e
    * exclui quem já estava desligado antes do período começar.
+   *
+   * `opts.skipAbsenceCache` — usado pelo caminho que GRAVA, para não persistir
+   * uma cobertura de afastamento de até 30 min atrás.
    */
-  async resolvePeriodEligibility(year: number, month: number): Promise<PeriodEligibility> {
+  async resolvePeriodEligibility(
+    year: number,
+    month: number,
+    opts?: { skipAbsenceCache?: boolean },
+  ): Promise<PeriodEligibility> {
     const periodStart = businessPeriodStart(year, month);
     const periodEnd = businessPeriodEnd(year, month);
     const periodBusinessDays = countBrazilianBusinessDaysInRange(periodStart, periodEnd);
@@ -293,7 +353,7 @@ export class BonusEligibilityService {
 
       if (eligibleDays <= 0) continue;
 
-      const weight =
+      const temporalWeight =
         periodBusinessDays > 0 ? round4(Math.min(1, eligibleDays / periodBusinessDays)) : 0;
 
       const reason: EligibilityReason =
@@ -312,7 +372,14 @@ export class BonusEligibilityService {
         positionName: positionId ? (positionNameById.get(positionId) ?? null) : null,
         performanceLevel,
         eligibleDays,
-        weight,
+        // Preenchido na segunda passada, depois de medir o afastamento.
+        weight: temporalWeight,
+        temporalWeight,
+        absentDays: 0,
+        absenceFraction: 0,
+        absenceFactor: 1,
+        absenceMeasured: false,
+        absenceRanges: [],
         eligibleFrom,
         eligibleUntil,
         reason,
@@ -325,8 +392,67 @@ export class BonusEligibilityService {
       entries.push(entry);
     }
 
+    // ============================================================
+    // SEGUNDA PASSADA — fator de afastamento médico
+    // ============================================================
+    //
+    // Só agora, porque o denominador da fração de afastamento são os dias
+    // ELEGÍVEIS de cada pessoa, que a primeira passada acabou de calcular.
+    const secullumIdByUserId = new Map(users.map(u => [u.id, u.secullumEmployeeId]));
+    const absence = await this.bonusAbsenceService.resolvePeriodAbsence(
+      entries.map(e => ({
+        userId: e.userId,
+        userName: e.userName,
+        secullumEmployeeId: secullumIdByUserId.get(e.userId) ?? null,
+        eligibleFrom: e.eligibleFrom,
+        eligibleUntil: e.eligibleUntil,
+        eligibleDays: e.eligibleDays,
+      })),
+      { skipCache: opts?.skipAbsenceCache === true },
+    );
+
+    const fullyAbsent: PeriodEligibility['fullyAbsent'] = [];
+    const composed: EligibilityEntry[] = [];
+
+    for (const e of entries) {
+      const cov: AbsenceCoverage | undefined = absence.byUserId.get(e.userId);
+      if (cov) {
+        e.absentDays = cov.absentDays;
+        e.absenceFraction = cov.fraction;
+        e.absenceFactor = cov.factor;
+        e.absenceMeasured = cov.measured;
+        e.absenceRanges = cov.ranges;
+      }
+
+      e.weight = round4(Math.min(1, Math.max(0, e.temporalWeight * e.absenceFactor)));
+
+      // Afastamento integral zera o peso: a pessoa sai do divisor E da lista,
+      // exatamente como quem nunca foi elegível no período. Manter a linha com
+      // R$ 0,00 só produziria uma pessoa "no cálculo" que não está em cálculo
+      // nenhum.
+      if (e.weight <= 0) {
+        fullyAbsent.push({
+          userId: e.userId,
+          userName: e.userName,
+          absentDays: e.absentDays,
+        });
+        continue;
+      }
+
+      // O vínculo cobriu o período inteiro e mesmo assim o peso caiu: quem
+      // explica é o afastamento. Deixa a UI escolher o badge certo.
+      if (e.reason === 'FULL' && e.absenceFactor < 1) {
+        e.reason = 'MEDICAL_LEAVE';
+      }
+
+      composed.push(e);
+    }
+
+    entries.length = 0;
+    entries.push(...composed);
+
     // O divisor conta apenas quem tem performanceLevel > 0 — mesma regra de
-    // antes, agora ponderada pelo tempo.
+    // antes, agora ponderada pelo tempo E pela disponibilidade.
     const divisor = round4(
       entries.filter(e => e.performanceLevel > 0).reduce((sum, e) => sum + e.weight, 0),
     );
@@ -336,12 +462,20 @@ export class BonusEligibilityService {
     const partial = entries.filter(e => e.weight < 1);
     this.logger.log(
       `Elegibilidade ${month}/${year}: ${periodBusinessDays} dias úteis, ` +
-        `${entries.length} pessoas (${partial.length} parciais), divisor = ${divisor.toFixed(4)}`,
+        `${entries.length} pessoas (${partial.length} parciais), divisor = ${divisor.toFixed(4)}` +
+        (fullyAbsent.length > 0
+          ? ` — ${fullyAbsent.length} fora por afastamento integral: ${fullyAbsent
+              .map(f => f.userName)
+              .join(', ')}`
+          : '') +
+        (absence.available ? '' : ' [AFASTAMENTO NÃO MEDIDO — Secullum indisponível]'),
     );
     for (const e of partial) {
       this.logger.debug(
         `  ${e.userName}: ${e.eligibleDays}/${periodBusinessDays} dias úteis ` +
-          `(peso ${e.weight}, ${e.reason})`,
+          `(temporal ${e.temporalWeight} × afastamento ${e.absenceFactor}` +
+          (e.absentDays > 0 ? ` [${e.absentDays} dia(s), ${Math.round(e.absenceFraction * 100)}%]` : '') +
+          ` = peso ${e.weight}, ${e.reason})`,
       );
     }
     const withoutSecullum = entries.filter(e => !e.hasSecullumId);
@@ -364,6 +498,9 @@ export class BonusEligibilityService {
       entries,
       withoutSecullum,
       byUserId,
+      absenceDataAvailable: absence.available,
+      absenceError: absence.error,
+      fullyAbsent,
     };
   }
 
@@ -546,8 +683,17 @@ export class BonusEligibilityService {
       }
 
       // O sucessor trunca o intervalo, nunca o estende.
-      if (successorAdmission && (end == null || successorAdmission < end)) {
-        end = successorAdmission;
+      //
+      // Termina na VÉSPERA da admissão seguinte, não no próprio dia dela: o
+      // fim do intervalo é inclusivo (`endOfDay` no chamador), então usar a
+      // data de admissão faria o primeiro dia do vínculo novo contar também no
+      // vínculo antigo. Numa readmissão, esse dia era somado duas vezes em
+      // `eligibleDays` e podia empurrar o peso da pessoa acima de 1 antes do
+      // clamp — inflando a parcela dela no divisor.
+      if (successorAdmission && (end == null || successorAdmission <= end)) {
+        const dayBefore = new Date(successorAdmission);
+        dayBefore.setDate(dayBefore.getDate() - 1);
+        end = dayBefore;
       }
       if (end && end < effectedAt) continue;
 
