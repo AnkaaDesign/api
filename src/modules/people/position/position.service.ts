@@ -84,8 +84,10 @@ export class PositionService {
       }
     }
 
-    // Validar remuneração se fornecida
-    if (data.remuneration !== undefined && data.remuneration <= 0) {
+    // Validar remuneração se fornecida. `!= null` (e não `!== undefined`): num
+    // update, null significa "manter a remuneração atual" — e `null <= 0` é true
+    // em JS, o que rejeitaria indevidamente o campo de moeda limpo.
+    if (data.remuneration != null && data.remuneration <= 0) {
       throw new BadRequestException('Remuneração deve ser maior que zero.');
     }
   }
@@ -227,9 +229,12 @@ export class PositionService {
   ): Promise<PositionUpdateResponse> {
     try {
       const updatedPosition = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Buscar cargo existente com remunerações
+        // Buscar cargo existente com a remuneração vigente. O campo virtual
+        // `remuneration` é derivado de remunerations[0], então a ordenação é
+        // obrigatória — sem ela o Prisma devolve os registros em ordem arbitrária
+        // e a comparação abaixo criaria um registro de histórico indevido.
         const existingPosition = await this.positionRepository.findByIdWithTransaction(tx, id, {
-          include: { remunerations: true },
+          include: { remunerations: { orderBy: { createdAt: 'desc' }, take: 1 } } as any,
         });
 
         if (!existingPosition) {
@@ -531,7 +536,8 @@ export class PositionService {
       // (que depende da remuneração atual) já na fase de pré-escrita.
       const ids = updates.map(u => u.id);
       const existingPositions = await this.positionRepository.findByIds(ids, {
-        include: { remunerations: true },
+        // Ordenação obrigatória: remunerations[0] é lido como a remuneração vigente.
+        include: { remunerations: { orderBy: { createdAt: 'desc' }, take: 1 } } as any,
       });
       const existingMap = new Map(existingPositions.map(p => [p.id, p]));
 
