@@ -185,6 +185,7 @@ export class SignatureController {
     @Param('quoteId', ParseUUIDPipe) quoteId: string,
     @Query('anexo') anexo: string | undefined,
     @Query('trilha') trilha: string | undefined,
+    @Query('cliente') cliente: string | undefined,
     @Res() res: Response,
   ) {
     // `?anexo=0` gera o dossiê SEM o PDF assinado embutido. Vale quando não se
@@ -192,9 +193,15 @@ export class SignatureController {
     // nenhuma assinatura digital (ver `build()`).
     // `?trilha=0` omite as páginas de trilha das cópias legíveis. O anexo
     // continua com ela: é um artefato assinado, e tirar um byte quebra o A1.
+    // `?cliente=<uuid>` recorta nota e boleto para um dos clientes do
+    // faturamento. SEM `ParseUUIDPipe`: o id é conferido contra as configurações
+    // do próprio orçamento no montador, que é a validação que importa aqui, e o
+    // pipe transformaria a query vazia (`?cliente=`) em 400 num pedido que
+    // significa "dossiê completo".
     const result = await this.dossiers.build(quoteId, {
       attachSigned: anexo !== '0',
       dropAuditTrail: trilha === '0',
+      customerId: cliente,
     });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', contentDisposition('inline', result.filename));
@@ -354,12 +361,23 @@ export class PublicSignatureController {
    * que são documentos do próprio cliente. SEM o anexo assinado: ele carrega a
    * trilha de auditoria por construção, e ela não é peça de comunicação
    * comercial. O artefato completo continua no servidor, para disputa.
+   *
+   * `?cliente=<uuid>` recorta nota e boleto para um dos clientes do faturamento
+   * — o mesmo recorte que a página faz na tela. Só ESTREITA o que sai, então não
+   * abre nada que a capability do link já não desse.
    */
   @Get('publico/orcamento/:quoteId/dossie.pdf')
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  async publicDossier(@Param('quoteId', ParseUUIDPipe) quoteId: string, @Res() res: Response) {
-    const result = await this.dossiers.build(quoteId, { attachSigned: false });
+  async publicDossier(
+    @Param('quoteId', ParseUUIDPipe) quoteId: string,
+    @Query('cliente') cliente: string | undefined,
+    @Res() res: Response,
+  ) {
+    const result = await this.dossiers.build(quoteId, {
+      attachSigned: false,
+      customerId: cliente,
+    });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', contentDisposition('inline', result.filename));
     res.setHeader('Cache-Control', 'no-store');

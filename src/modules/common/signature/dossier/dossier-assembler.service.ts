@@ -42,6 +42,21 @@
  *    deixaria sem documento justamente as tarefas antigas — que nunca passaram
  *    pela assinatura e são a maioria hoje. Nesse modo não há anexo: não existe
  *    artefato assinado para preservar.
+ *
+ * 7. **Faturamento com mais de um cliente: `customerId` recorta o dossiê.**
+ *    Entram só a NFS-e e o boleto da fatura DAQUELE cliente — mandar ao cliente
+ *    A a nota e o título de cobrança do cliente B é vazar documento fiscal
+ *    alheio. E o ORÇAMENTO também é recortado (serviços, subtotal, desconto,
+ *    total e condição de pagamento daquela configuração), porém SOMENTE no
+ *    caminho não assinado, onde o documento é montado agora a partir dos dados.
+ *
+ *    Onde existe artefato assinado o orçamento sai inteiro, e isso não é
+ *    inconsistência: um PDF assinado não se recorta — remover uma página quebra
+ *    o A1 —, e re-renderizá-lo recortado seria entregar uma reconstrução no
+ *    lugar do documento que o cliente assinou, exatamente o que a decisão 1
+ *    proíbe. O que foi assinado é um contrato só, com o escopo inteiro e uma
+ *    linha de assinatura por cliente. A fatia de cada um continua visível na
+ *    tela do dossiê, que filtra por configuração.
  */
 
 import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
@@ -109,12 +124,20 @@ export class DossierAssemblerService {
    *   Com anexo, o cliente recebe a prova completa (e a trilha junto). Sem
    *   anexo, o dossiê vira um pacote apenas legível, sem nenhuma assinatura
    *   digital, e a prova fica só no servidor.
+   *
+   * @param options.customerId  Segmenta nota e boleto por cliente do faturamento
+   *   (ver decisão 7). Omitido = dossiê completo, que é o que o congelamento no
+   *   selo e a tela da tarefa pedem.
    */
   async build(
     quoteId: string,
-    options: { attachSigned?: boolean; dropAuditTrail?: boolean } = {},
+    options: { attachSigned?: boolean; dropAuditTrail?: boolean; customerId?: string | null } = {},
   ): Promise<DossierResult> {
     const attachSigned = options.attachSigned !== false;
+    // `''` chega da query string quando o front manda o parâmetro vazio, e
+    // tratá-lo como id faria a validação abaixo recusar um pedido que é, na
+    // verdade, "dossiê completo".
+    const customerId = options.customerId?.trim() || null;
     // Padrão: SEM trilha. O que o cliente recebe é orçamento, fotos, nota e
     // boleto; a trilha é instrumento de disputa e vive no artefato assinado que
     // fica no servidor (e no anexo, que a carrega por construção).
@@ -124,6 +147,13 @@ export class DossierAssemblerService {
       select: {
         id: true,
         budgetNumber: true,
+        customerConfigs: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            customerId: true,
+            customer: { select: { corporateName: true, fantasyName: true } },
+          },
+        },
         task: {
           select: {
             id: true,
@@ -135,6 +165,17 @@ export class DossierAssemblerService {
       },
     });
     if (!quote) throw new NotFoundException('Orçamento não encontrado.');
+
+    // Cliente que não está no faturamento é RECUSADO, não ignorado. Cair no
+    // dossiê completo em silêncio é justamente o defeito que a segmentação
+    // corrige: quem pediu a fatia de um cliente receberia os documentos de
+    // todos sem nenhum sinal de que o filtro não valeu.
+    const selectedConfig = customerId
+      ? (quote.customerConfigs.find(c => c.customerId === customerId) ?? null)
+      : null;
+    if (customerId && !selectedConfig) {
+      throw new BadRequestException('Este cliente não faz parte do faturamento deste orçamento.');
+    }
 
     // A chave é `finalFileId`, NÃO `status: COMPLETED`. O que o dossiê precisa
     // saber é "existe artefato assinado", e só o `finalize()` grava esse campo —
@@ -164,9 +205,14 @@ export class DossierAssemblerService {
     // pela assinatura eletrônica — e são a maioria. O rótulo do componente diz
     // que não está assinado, e não há anexo a preservar.
     const assinado = Boolean(envelope?.finalFile);
+    // O recorte por cliente alcança o ORÇAMENTO só quando ele é renderizado sob
+    // demanda. Havendo artefato assinado, o que entra são os bytes selados,
+    // inteiros: não há como recortar um PDF assinado, e re-renderizá-lo
+    // recortado entregaria uma reconstrução no lugar do documento que o cliente
+    // assinou (decisão 1 no cabeçalho). Ver a decisão 7.
     const signedPdf = assinado
       ? this.readSignedDocument(envelope!.finalFile!.path, envelope!.finalSha256)
-      : await this.envelopes.renderUnsignedQuoteDocument(quoteId);
+      : await this.envelopes.renderUnsignedQuoteDocument(quoteId, customerId);
 
     // Régua para cortar a trilha, quando pedido: o montador acrescenta as páginas
     // de trilha ao fim do original, então `original.pdf` marca onde o orçamento
@@ -206,7 +252,7 @@ export class DossierAssemblerService {
     }
 
     // ---- 3. Notas fiscais ----
-    for (const nfse of await this.listNfse(quote.task?.id)) {
+    for (const nfse of await this.listNfse(quote.task?.id, customerId)) {
       const component: DossierComponent = {
         kind: 'NFSE',
         label: `NFS-e nº ${nfse.nfseNumber ?? nfse.elotechNfseId}`,
@@ -229,7 +275,7 @@ export class DossierAssemblerService {
     }
 
     // ---- 4. Boletos ----
-    for (const slip of await this.listBankSlips(quote.task?.id)) {
+    for (const slip of await this.listBankSlips(quote.task?.id, customerId)) {
       const n = slip.installment?.number;
       const component: DossierComponent = {
         kind: 'BOLETO',
@@ -293,8 +339,14 @@ export class DossierAssemblerService {
     return {
       pdf,
       // Razão social + "Dossiê" + número: ver `document-filename.ts`. O número é
-      // o `budgetNumber` porque não existe sequência separada para o dossiê.
-      filename: dossierPdfFilename(quote.task?.customer, quote.budgetNumber),
+      // o `budgetNumber` porque não existe sequência separada para o dossiê. No
+      // modo segmentado quem nomeia é o cliente do RECORTE, não o da tarefa:
+      // baixar os dois dossiês de um faturamento com dois clientes gravava dois
+      // arquivos de mesmo nome, e o segundo sobrescrevia o primeiro.
+      filename: dossierPdfFilename(
+        selectedConfig?.customer ?? quote.task?.customer,
+        quote.budgetNumber,
+      ),
       components,
       attachmentName: attachSigned && assinado ? attachmentName : null,
       verificationCode: envelope?.verificationCode ?? null,
@@ -578,24 +630,45 @@ export class DossierAssemblerService {
     }
   }
 
-  private async listNfse(taskId: string | undefined) {
+  /**
+   * Notas AUTORIZADAS da tarefa — e só as do cliente pedido, quando há um.
+   *
+   * No modo segmentado a nota SEM fatura sai fora, mesmo estando ligada à
+   * tarefa: é por `Invoice.customerId` que uma NFS-e se atribui a um cliente
+   * (o `NfseDocument` não guarda cliente nenhum), e nota órfã — o histórico
+   * religado pelo id da tarefa — não tem a quem pertencer. Mandá-la no dossiê
+   * de um dos clientes seria atribuí-la a ele por omissão. No modo completo ela
+   * continua entrando, como sempre entrou.
+   */
+  private async listNfse(taskId: string | undefined, customerId: string | null) {
     if (!taskId) return [];
     return this.prisma.nfseDocument.findMany({
       where: {
         status: 'AUTHORIZED',
         elotechNfseId: { not: null },
-        OR: [{ taskId }, { invoice: { taskId } }],
+        ...(customerId
+          ? { invoice: { taskId, customerId } }
+          : { OR: [{ taskId }, { invoice: { taskId } }] }),
       },
       select: { id: true, elotechNfseId: true, nfseNumber: true },
       orderBy: { nfseNumber: 'asc' },
     });
   }
 
-  private async listBankSlips(taskId: string | undefined) {
+  /**
+   * Boletos vivos da tarefa — e só os do cliente pedido, quando há um.
+   *
+   * O corte é por `Invoice.customerId` e não por `customerConfigId` da parcela:
+   * a fatura é quem carrega o pagador de forma obrigatória (coluna NOT NULL),
+   * enquanto o vínculo da parcela com a configuração é opcional e some numa
+   * reversão de faturamento — e um boleto sem lastro de configuração cairia no
+   * dossiê de todo mundo.
+   */
+  private async listBankSlips(taskId: string | undefined, customerId: string | null) {
     if (!taskId) return [];
     return this.prisma.bankSlip.findMany({
       where: {
-        installment: { invoice: { taskId } },
+        installment: { invoice: customerId ? { taskId, customerId } : { taskId } },
         // CANCELLED/REJECTED não são cobrança viva: mandá-los ao cliente junto
         // do orçamento assinado seria pedir pagamento de um título morto.
         status: { in: ['ACTIVE', 'OVERDUE', 'PAID', 'REGISTERING'] },

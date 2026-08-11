@@ -190,6 +190,12 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
     orderBy: { createdAt: 'asc' },
     include: {
       customer: true,
+      // Nem o responsável entra no snapshot, pela mesma razão das parcelas: ele
+      // serve ao renderizador do orçamento RECORTADO por cliente, que endereça o
+      // documento ao contato daquela configuração — no faturamento dividido, o
+      // contato da tarefa é o de UM dos clientes, e usá-lo nos dois documentos
+      // endereça o orçamento de um cliente à pessoa do outro.
+      responsible: true,
       // As parcelas NÃO entram no snapshot (ver `build`, que escolhe campo a
       // campo) — não mudam o hash nem a materialidade. Elas existem aqui só para
       // o renderizador poder citar o vencimento REAL na cláusula de pagamento
