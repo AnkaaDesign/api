@@ -1606,6 +1606,52 @@ const taskTransform = (data: any): any => {
     delete data.preparationExcludeLogistic;
   }
 
+  // "Aguardando logística" gate — Agenda, Cronograma and the Fire TV panel.
+  //
+  // A task whose production work is finished is NOT auto-completed (see the comprehensive
+  // sync in service-order.service.ts and task-service-order-sync.ts): it stays IN_PRODUCTION
+  // until logistics does the check-out and calls PUT /tasks/:id/finish. During that window
+  // nobody but logistics can act on it, yet every board kept showing it as "Em Produção",
+  // which reads as "still being worked on". This flag drops it from those boards.
+  //
+  // Hidden when BOTH hold:
+  //   1. the task actually has production work (>= 1 non-CANCELLED PRODUCTION SO), and
+  //   2. no non-LOGISTIC service order of any type is still open.
+  //
+  // (1) keeps tasks without a quote — hence without PRODUCTION SOs — always visible, so a
+  // task can never vanish before it has been produced. (2) deliberately uses "not COMPLETED
+  // and not CANCELLED" rather than the narrower PENDING/IN_PROGRESS/WAITING_APPROVE list used
+  // by shouldDisplayInPreparation above, so PAUSED and WAITING_ARTWORK also count as open —
+  // this matches the all-services-concluded gate that guards finishing in task.service.ts.
+  // It is scoped to non-LOGISTIC types so the still-pending "Checklist Saída" LOGISTIC SO
+  // (the very thing logistics has left to do) does not keep the task on everyone's board.
+  if (data.excludeAwaitingLogistics !== undefined) {
+    if (data.excludeAwaitingLogistics === true) {
+      andConditions.push({
+        NOT: {
+          AND: [
+            {
+              serviceOrders: {
+                some: { type: 'PRODUCTION', status: { not: 'CANCELLED' } },
+              },
+            },
+            {
+              serviceOrders: {
+                none: {
+                  AND: [
+                    { type: { not: 'LOGISTIC' } },
+                    { status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+    delete data.excludeAwaitingLogistics;
+  }
+
   // Design-specific display logic:
   // Tasks should only display for design users until all layout service orders are completed
   // Also shows tasks that don't have an layout service order yet
@@ -2132,6 +2178,7 @@ export const taskGetManySchema = z
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
+    excludeAwaitingLogistics: z.boolean().optional(), // Hides tasks whose production work is done and that only await logistics check-out/finish
     shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
     shouldDisplayForFinancial: z.boolean().optional(), // Financial display logic: completed tasks with quote that is not settled
     financialTaskStatus: z.enum(['finished', 'unfinished', 'all']).optional(), // With shouldDisplayForFinancial: task-status scope — 'finished' (default, COMPLETED only), 'unfinished' (PREPARATION/WAITING_PRODUCTION/IN_PRODUCTION), or 'all'
