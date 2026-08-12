@@ -22,6 +22,8 @@ Fora deste diretório:
 | `api/painting-vision/tests/test_casos.py` | as asserções que travam o catálogo. Nenhuma correção pode deixar um caso verde vermelho |
 | `api/painting-engine/` | o motor de geometria (Python, sem banco, sem regra de negócio) |
 | `api/painting-vision/` | camada semântica (Qwen3-VL) + geração do plano de produção |
+| `api/PAINTING_TEACHING_LOOP_SPEC.md` | **como estas 66 artes viram conhecimento do motor**: estação de marcação e ciclo de correção em lote. Especificação, não implementado |
+| `api/PAINTING_ML_STRATEGY_2026-08-12.md` | por que não se treina IA de visão aqui, e onde estão os datasets já existentes. Superado em 2 pontos pelo doc acima |
 
 ## A regra que organiza tudo
 
