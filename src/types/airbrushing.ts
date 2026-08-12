@@ -12,6 +12,8 @@ import type {
 import type {
   AIRBRUSHING_STATUS,
   AIRBRUSHING_PAYMENT_STATUS,
+  AIRBRUSHING_DUE_DATE_RULE,
+  PAYMENT_METHOD,
   ORDER_BY_DIRECTION,
 } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
@@ -40,6 +42,16 @@ export interface Airbrushing extends BaseEntity {
   paymentStatus?: AIRBRUSHING_PAYMENT_STATUS;
   /** Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar. */
   paidAt?: Date | null;
+  /** Como o pintor é pago — alimenta a coluna "Forma" de Contas a Pagar. */
+  paymentMethod?: PAYMENT_METHOD | null;
+  /** Regra que deriva `dueDate` do término. Ver resolveAirbrushingDueDate(). */
+  dueDateRule?: AIRBRUSHING_DUE_DATE_RULE;
+  /** Prazo em dias da regra DAYS_AFTER_FINISH; null usa o padrão histórico de 7. */
+  paymentTermDays?: number | null;
+  /** Dia fixo (1-31) da regra DAY_OF_MONTH, truncado ao último dia do mês. */
+  dueDayOfMonth?: number | null;
+  /** Vencimento efetivo, materializado a cada escrita. É o que Contas a Pagar exibe. */
+  dueDate?: Date | null;
   taskId: string;
   painterId?: string | null;
   invoiceIds?: string[];

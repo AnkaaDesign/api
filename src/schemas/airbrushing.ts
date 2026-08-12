@@ -11,7 +11,12 @@ import {
   normalizeSearchTerm,
 } from './common';
 import type { Airbrushing } from '@types';
-import { AIRBRUSHING_STATUS, AIRBRUSHING_PAYMENT_STATUS } from '@constants';
+import {
+  AIRBRUSHING_STATUS,
+  AIRBRUSHING_PAYMENT_STATUS,
+  AIRBRUSHING_DUE_DATE_RULE,
+  PAYMENT_METHOD,
+} from '@constants';
 
 // =====================
 // Include Schema Based on Prisma Schema
@@ -191,6 +196,10 @@ export const airbrushingOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         paymentStatus: orderByDirectionSchema.optional(),
+        paymentMethod: orderByDirectionSchema.optional(),
+        // Vencimento ordena com NULLS LAST nos dois sentidos: aerografias sem
+        // término conhecido não têm vencimento e não devem encabeçar o DESC.
+        dueDate: orderByWithNullsSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
         painterId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
@@ -240,6 +249,8 @@ export const airbrushingOrderBySchema = z
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
           paymentStatus: orderByDirectionSchema.optional(),
+          paymentMethod: orderByDirectionSchema.optional(),
+          dueDate: orderByWithNullsSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
           painterId: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
@@ -457,6 +468,33 @@ export const airbrushingWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      paymentMethod: z
+        .union([
+          z.nativeEnum(PAYMENT_METHOD),
+          z.object({
+            equals: z.nativeEnum(PAYMENT_METHOD).nullable().optional(),
+            not: z.nativeEnum(PAYMENT_METHOD).nullable().optional(),
+            in: z.array(z.nativeEnum(PAYMENT_METHOD)).optional(),
+            notIn: z.array(z.nativeEnum(PAYMENT_METHOD)).optional(),
+          }),
+        ])
+        .nullable()
+        .optional(),
+
+      dueDate: z
+        .union([
+          z.coerce.date(),
+          z.object({
+            equals: z.coerce.date().nullable().optional(),
+            gte: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .nullable()
+        .optional(),
+
       createdAt: z
         .union([
           z.date(),
@@ -520,6 +558,14 @@ const airbrushingFilters = {
     })
     .optional(),
   finishDateRange: z
+    .object({
+      gte: z.coerce.date().optional(),
+      lte: z.coerce.date().optional(),
+    })
+    .optional(),
+  paymentMethods: z.array(z.nativeEnum(PAYMENT_METHOD)).optional(),
+  // "Período de Vencimento" sobre a data já materializada em dueDate.
+  dueDateRange: z
     .object({
       gte: z.coerce.date().optional(),
       lte: z.coerce.date().optional(),
@@ -637,6 +683,21 @@ const airbrushingTransform = (data: any): any => {
     delete data.finishDateRange;
   }
 
+  if (data.paymentMethods?.length) {
+    andConditions.push({ paymentMethod: { in: data.paymentMethods } });
+    delete data.paymentMethods;
+  }
+
+  if (data.dueDateRange) {
+    const dueDateCondition: any = {};
+    if (data.dueDateRange.gte) dueDateCondition.gte = data.dueDateRange.gte;
+    if (data.dueDateRange.lte) dueDateCondition.lte = data.dueDateRange.lte;
+    if (Object.keys(dueDateCondition).length > 0) {
+      andConditions.push({ dueDate: dueDateCondition });
+    }
+    delete data.dueDateRange;
+  }
+
   if (data.createdAt) {
     const createdAtCondition: any = {};
     if (data.createdAt.gte) createdAtCondition.gte = data.createdAt.gte;
@@ -713,6 +774,33 @@ export const airbrushingGetManySchema = z
 // CRUD Schemas
 // =====================
 
+/**
+ * Configuração de pagamento — idêntica em create, update e no create aninhado da
+ * tarefa. A coerência entre a regra e o campo que ela consome NÃO é validada aqui:
+ * num update parcial a regra e o campo chegam em requisições diferentes, então
+ * quem valida é AirbrushingService.assertDueDateConfig(), que enxerga o estado
+ * já mesclado com o persistido.
+ */
+const airbrushingPaymentConfigShape = {
+  paymentMethod: z.nativeEnum(PAYMENT_METHOD).nullable().optional(),
+  dueDateRule: z.nativeEnum(AIRBRUSHING_DUE_DATE_RULE).optional(),
+  paymentTermDays: z
+    .number({ invalid_type_error: 'Prazo de pagamento inválido' })
+    .int('O prazo deve ser um número inteiro de dias')
+    .min(0, 'O prazo não pode ser negativo')
+    .max(365, 'O prazo deve ser de no máximo 365 dias')
+    .nullable()
+    .optional(),
+  dueDayOfMonth: z
+    .number({ invalid_type_error: 'Dia de vencimento inválido' })
+    .int('O dia de vencimento deve ser um número inteiro')
+    .min(1, 'O dia de vencimento deve estar entre 1 e 31')
+    .max(31, 'O dia de vencimento deve estar entre 1 e 31')
+    .nullable()
+    .optional(),
+  dueDate: nullableDate.optional(),
+};
+
 export const airbrushingCreateSchema = z.preprocess(
   toFormData,
   z.object({
@@ -734,6 +822,7 @@ export const airbrushingCreateSchema = z.preprocess(
     paymentStatus: z
       .nativeEnum(AIRBRUSHING_PAYMENT_STATUS)
       .default(AIRBRUSHING_PAYMENT_STATUS.PENDING),
+    ...airbrushingPaymentConfigShape,
     taskId: z.string().uuid('Tarefa inválida'),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -793,6 +882,7 @@ export const airbrushingUpdateSchema = z.preprocess(
     finishedAt: nullableDate.optional(),
     status: z.nativeEnum(AIRBRUSHING_STATUS).optional(),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
+    ...airbrushingPaymentConfigShape,
     taskId: z.string().uuid('Tarefa inválida').optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -917,6 +1007,7 @@ export const airbrushingCreateNestedSchema = z
     finishedAt: nullableDate.optional(),
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PREPARATION),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
+    ...airbrushingPaymentConfigShape,
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
@@ -942,6 +1033,11 @@ export const mapAirbrushingToFormData = createMapToFormDataHelper<
   description: airbrushing.description,
   status: airbrushing.status,
   paymentStatus: airbrushing.paymentStatus,
+  paymentMethod: airbrushing.paymentMethod,
+  dueDateRule: airbrushing.dueDateRule,
+  paymentTermDays: airbrushing.paymentTermDays,
+  dueDayOfMonth: airbrushing.dueDayOfMonth,
+  dueDate: airbrushing.dueDate,
   taskId: airbrushing.taskId,
   painterId: airbrushing.painterId,
   invoiceIds: airbrushing.invoices?.map(file => file.id),

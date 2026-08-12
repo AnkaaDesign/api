@@ -46,6 +46,22 @@ model Airbrushing {
   paymentStatus         AirbrushingPaymentStatus @default(PENDING)
   /// Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar.
   paidAt                DateTime?
+  /// Como o pintor é pago. Alimenta a coluna "Forma" de Contas a Pagar. Quando é
+  /// explicitamente diferente de PIX, a chave Pix derivada do vínculo do pintor
+  /// deixa de ser exibida (null = método não definido, comportamento legado).
+  paymentMethod         PaymentMethod?
+  /// Regra que produz o vencimento — ver resolveAirbrushingDueDate() em utils/airbrushing.ts.
+  dueDateRule           AirbrushingDueDateRule   @default(DAYS_AFTER_FINISH)
+  /// Prazo em dias após o término (regra DAYS_AFTER_FINISH).
+  /// Null = AIRBRUSHING_DEFAULT_PAYMENT_TERM_DAYS (7), o prazo histórico.
+  paymentTermDays       Int?
+  /// Dia fixo de vencimento, 1-31, truncado ao último dia do mês (regra DAY_OF_MONTH).
+  dueDayOfMonth         Int?
+  /// Vencimento efetivo, materializado a cada escrita a partir da regra acima. Na
+  /// regra FIXED_DATE é o valor informado pelo usuário e nunca é recalculado.
+  /// Contas a Pagar lê esta coluna; só recai no cálculo em memória para linhas
+  /// antigas que nunca foram reescritas.
+  dueDate               DateTime?
   status                AirbrushingStatus        @default(PREPARATION)
   statusOrder           Int                      @default(1)
   taskId                String
@@ -3377,6 +3393,17 @@ enum AirbrushingStatus {
 enum AirbrushingPaymentStatus {
   PENDING
   PAID
+}
+
+/// Como o vencimento de uma aerografia é calculado a partir do término do serviço.
+/// O resultado é materializado em Airbrushing.dueDate e é o que Contas a Pagar exibe.
+enum AirbrushingDueDateRule {
+  /// Término + paymentTermDays (padrão 7). "Vence 3 dias depois de finalizar."
+  DAYS_AFTER_FINISH
+  /// Próximo dia dueDayOfMonth em/após o término. "Essa aerografia vence todo dia 30."
+  DAY_OF_MONTH
+  /// Data escolhida à mão; nunca recalculada.
+  FIXED_DATE
 }
 
 enum LayoutStatus {

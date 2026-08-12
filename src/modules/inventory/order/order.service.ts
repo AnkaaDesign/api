@@ -54,6 +54,7 @@ import {
   getOrderStatusLabel,
   calculateOrderItemTotal,
 } from '../../../utils/order';
+import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import {
   OrderCreateFormData,
   OrderUpdateFormData,
@@ -2810,9 +2811,6 @@ export class OrderService {
     return new Date(Date.UTC(y, m - 1, d + 1, 21, 0, 0));
   }
 
-  /** Payment term granted to a painter after an airbrushing job is finished. */
-  private static readonly AIRBRUSHING_PAYMENT_TERM_DAYS = 7;
-
   /**
    * Who an airbrushing painter is paid AS, for the Contas a Pagar "Tomador" /
    * "Chave Pix" cells. A terceirizado/PJ painter invoices through the provider on
@@ -2842,24 +2840,41 @@ export class OrderService {
   }
 
   /**
-   * Contas a Pagar due date for an airbrushing: {@link AIRBRUSHING_PAYMENT_TERM_DAYS}
-   * days after the job's finish date, at 18:00 São Paulo time (same SP-midnight-ish
-   * convention as {@link payableDueFromCreatedAt}; Brazil has no DST since 2019, so
-   * 18:00 SP = 21:00 UTC). The reference is the ACTUAL finish (`finishedAt`) when the
-   * job is done, falling back to the PLANNED `finishDate` so a not-yet-finished job
-   * still forecasts a vencimento. Null when neither date is known.
+   * Vencimento da aerografia em Contas a Pagar.
+   *
+   * `dueDate` é materializada pelo AirbrushingService a cada escrita, a partir da
+   * regra configurada na própria aerografia (N dias após o término, dia fixo do mês,
+   * ou data específica). Ler a coluna é o caminho normal — é ela que a tela exibe e
+   * por onde a lista ordena.
+   *
+   * O cálculo em memória só existe para linhas ANTIGAS que nunca foram reescritas
+   * desde a migração; nelas a regra é a default (7 dias após o término), então o
+   * resultado é idêntico ao que esta tela sempre mostrou.
    */
-  private airbrushingPayableDue(finish: Date | string | null | undefined): Date | null {
-    if (!finish) return null;
-    const finished = new Date(finish);
-    if (isNaN(finished.getTime())) return null;
-    const [y, m, d] = finished
-      .toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })
-      .split('-')
-      .map(Number);
-    return new Date(
-      Date.UTC(y, m - 1, d + OrderService.AIRBRUSHING_PAYMENT_TERM_DAYS, 21, 0, 0),
-    );
+  private airbrushingDueDate(ab: {
+    dueDate?: Date | null;
+    dueDateRule?: string | null;
+    paymentTermDays?: number | null;
+    dueDayOfMonth?: number | null;
+    finishedAt?: Date | null;
+    finishDate?: Date | null;
+  }): Date | null {
+    if (ab.dueDate) return ab.dueDate;
+    return resolveAirbrushingDueDate(ab, ab.finishedAt ?? ab.finishDate);
+  }
+
+  /**
+   * Chave Pix da aerografia. A chave é derivada do vínculo do pintor (CNPJ do
+   * prestador, ou o CPF dele), mas só faz sentido exibi-la quando o pagamento
+   * realmente sai por Pix. Um método explicitamente diferente esconde a chave;
+   * método nulo ("não definido") preserva o comportamento anterior à feature.
+   */
+  private airbrushingPixKey(
+    ab: { paymentMethod?: string | null },
+    painterDoc: { pixKey: string | null },
+  ): string | null {
+    if (ab.paymentMethod && ab.paymentMethod !== PAYMENT_METHOD.PIX) return null;
+    return painterDoc.pixKey;
   }
 
   async getPayables(): Promise<PayablesResponse> {
@@ -2910,6 +2925,14 @@ export class OrderService {
         // The due date is derived from the actual one when available.
         finishDate: true,
         finishedAt: true,
+        // Configuração de pagamento por aerografia. `dueDate` já vem materializada
+        // pelo AirbrushingService; a regra viaja junto só para o fallback das linhas
+        // antigas, anteriores à coluna, que nunca foram reescritas.
+        paymentMethod: true,
+        dueDate: true,
+        dueDateRule: true,
+        paymentTermDays: true,
+        dueDayOfMonth: true,
         taskId: true,
         painterId: true,
         // Painter identity for payment: a terceirizado/PJ painter is paid against the
@@ -3087,15 +3110,15 @@ export class OrderService {
           // debt yet, a finished one is awaiting payment (the OVERDUE sweep in
           // PayablesService promotes it once the 7-day term lapses).
           paymentState: finished ? 'AWAITING_PAYMENT' : 'EXPECTED',
-          dueDate: this.airbrushingPayableDue(ab.finishedAt ?? ab.finishDate),
-          method: null,
+          dueDate: this.airbrushingDueDate(ab),
+          method: ab.paymentMethod ?? null,
           taskId: ab.taskId,
           // Gates the settle action + the Chave Pix cell on the web/mobile lists,
           // exactly like a PENDING order awaiting "Requisitar Pagamento".
           paymentRequested: finished,
           settleVia: finished ? 'AIRBRUSHING' : 'NONE',
           payeeCnpj: painterDoc.cnpj,
-          pixKey: painterDoc.pixKey,
+          pixKey: this.airbrushingPixKey(ab, painterDoc),
         });
       }
 
@@ -3157,14 +3180,14 @@ export class OrderService {
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
           paymentState: 'PAID',
-          dueDate: this.airbrushingPayableDue(ab.finishedAt ?? ab.finishDate),
-          method: null,
+          dueDate: this.airbrushingDueDate(ab),
+          method: ab.paymentMethod ?? null,
           paidAt: ab.paidAt ?? null,
           taskId: ab.taskId,
           // Paid rows were necessarily payable; keep the painter's PIX key visible.
           paymentRequested: true,
           payeeCnpj: painterDoc.cnpj,
-          pixKey: painterDoc.pixKey,
+          pixKey: this.airbrushingPixKey(ab, painterDoc),
         });
       }
 

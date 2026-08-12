@@ -211,6 +211,13 @@ export enum AIRBRUSHING_PAYMENT_STATUS {
   PAID = 'PAID',
 }
 
+/** Como o vencimento da aerografia é derivado do término. Ver utils/airbrushing.ts. */
+export enum AIRBRUSHING_DUE_DATE_RULE {
+  DAYS_AFTER_FINISH = 'DAYS_AFTER_FINISH',
+  DAY_OF_MONTH = 'DAY_OF_MONTH',
+  FIXED_DATE = 'FIXED_DATE',
+}
+
 // =====================
 // Accounting Area — Departamento Pessoal & Medicina do Trabalho
 // =====================

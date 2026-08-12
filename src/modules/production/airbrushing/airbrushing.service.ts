@@ -17,7 +17,10 @@ import {
   SECTOR_PRIVILEGES,
   AIRBRUSHING_STATUS,
   AIRBRUSHING_PAYMENT_STATUS,
+  AIRBRUSHING_DUE_DATE_RULE,
+  LAYOUT_STATUS,
 } from '../../../constants/enums';
+import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import type {
   AirbrushingBatchCreateResponse,
   AirbrushingBatchDeleteResponse,
@@ -192,6 +195,114 @@ export class AirbrushingService {
   }
 
   /**
+   * Estado de vencimento resultante de mesclar o payload com o que está persistido.
+   * Num update parcial a regra e o campo que ela consome chegam em requisições
+   * diferentes, então nem o zod nem o payload sozinho conseguem julgar coerência —
+   * só a mescla consegue.
+   */
+  private mergeDueDateConfig(
+    existing: Record<string, any> | null,
+    data: Record<string, any>,
+  ): {
+    dueDateRule: AIRBRUSHING_DUE_DATE_RULE;
+    paymentTermDays: number | null;
+    dueDayOfMonth: number | null;
+    dueDate: Date | null;
+    finishReference: Date | null;
+  } {
+    const pick = <T>(key: string): T =>
+      (data[key] !== undefined ? data[key] : (existing?.[key] ?? null)) as T;
+
+    return {
+      dueDateRule:
+        pick<AIRBRUSHING_DUE_DATE_RULE>('dueDateRule') ?? AIRBRUSHING_DUE_DATE_RULE.DAYS_AFTER_FINISH,
+      paymentTermDays: pick<number | null>('paymentTermDays'),
+      dueDayOfMonth: pick<number | null>('dueDayOfMonth'),
+      dueDate: pick<Date | null>('dueDate'),
+      finishReference: pick<Date | null>('finishedAt') ?? pick<Date | null>('finishDate'),
+    };
+  }
+
+  /**
+   * Uma regra sem o campo que ela consome produziria um vencimento nulo silencioso —
+   * a aerografia sumiria da coluna Vencimento sem que ninguém soubesse por quê.
+   * Falha alto, no momento da escrita.
+   */
+  private assertDueDateConfig(config: ReturnType<AirbrushingService['mergeDueDateConfig']>): void {
+    if (config.dueDateRule === AIRBRUSHING_DUE_DATE_RULE.DAY_OF_MONTH && !config.dueDayOfMonth) {
+      throw new BadRequestException(
+        'Informe o dia do vencimento (1 a 31) para usar a regra de dia fixo do mês.',
+      );
+    }
+
+    if (config.dueDateRule === AIRBRUSHING_DUE_DATE_RULE.FIXED_DATE && !config.dueDate) {
+      throw new BadRequestException(
+        'Informe a data de vencimento para usar a regra de data específica.',
+      );
+    }
+  }
+
+  /**
+   * Materializa `dueDate` em `updateData` a partir da regra de vencimento.
+   *
+   * Roda em TODA escrita, e não só na conclusão, para que o vencimento acompanhe
+   * sozinho o término do serviço, uma correção posterior de `finishedAt` ou uma
+   * troca de regra — Contas a Pagar então só lê a coluna, sem recalcular nada.
+   * Enquanto a aerografia não terminou, a referência é o término PREVISTO, de modo
+   * que a linha já aparece com uma previsão de vencimento; quando ela é concluída,
+   * o `finishedAt` real assume e a data se firma.
+   *
+   * FIXED_DATE é a exceção deliberada: a data é do usuário, não uma função do
+   * término, então é gravada como veio e nunca recalculada.
+   */
+  private applyDueDate(existing: Record<string, any> | null, updateData: Record<string, any>): void {
+    const config = this.mergeDueDateConfig(existing, updateData);
+    this.assertDueDateConfig(config);
+
+    if (config.dueDateRule === AIRBRUSHING_DUE_DATE_RULE.FIXED_DATE) return;
+
+    updateData.dueDate = resolveAirbrushingDueDate(config, config.finishReference);
+  }
+
+  /**
+   * Quais layouts este papel pode receber.
+   *
+   * - Comercial/design/logística/gestão/admin enxergam tudo, inclusive reprovados —
+   *   é com eles que a aprovação acontece.
+   * - O AEROGRAFISTA recebe aprovados E rascunhos, mas NUNCA um reprovado. O
+   *   rascunho é deliberado: o pintor precisa se programar antes da arte fechar, e o
+   *   app marca esse arquivo com a tarja "não liberada para produção". Um layout
+   *   REPROVADO não é uma prévia, é uma arte descartada — mandá-lo para a oficina é
+   *   como mandar produzir o que o cliente recusou.
+   * - Todo o resto (incl. PRODUÇÃO) só recebe APROVADO, igual aos layouts de tarefa.
+   *
+   * `status === null` é tolerado como aprovado por causa de linhas antigas anteriores
+   * à coluna de status.
+   */
+  private filterLayoutsForRole<T extends { layouts?: any[] | null }>(entity: T, userRole?: string): T {
+    if (!userRole || !entity.layouts) return entity;
+
+    const FULL_ACCESS_ROLES = [
+      SECTOR_PRIVILEGES.COMMERCIAL,
+      SECTOR_PRIVILEGES.DESIGNER,
+      SECTOR_PRIVILEGES.LOGISTIC,
+      SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+      SECTOR_PRIVILEGES.ADMIN,
+    ] as string[];
+
+    if (FULL_ACCESS_ROLES.includes(userRole)) return entity;
+
+    const visible =
+      userRole === SECTOR_PRIVILEGES.AIRBRUSHING
+        ? entity.layouts.filter(layout => layout.status !== LAYOUT_STATUS.REPROVED)
+        : entity.layouts.filter(
+            layout => layout.status === LAYOUT_STATUS.APPROVED || layout.status === null,
+          );
+
+    return { ...entity, layouts: visible };
+  }
+
+  /**
    * Buscar muitas aerografias com filtros
    */
   async findMany(
@@ -201,34 +312,11 @@ export class AirbrushingService {
     try {
       const result = await this.airbrushingRepository.findMany(query);
 
-      // Filter layouts based on user role for each airbrushing
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
-      // Others can only see APPROVED layouts
+      // Recorta os layouts ao que este papel pode ver — ver filterLayoutsForRole.
       if (userRole) {
-        const canSeeAllLayouts = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'PRODUCTION_MANAGER',
-          'ADMIN',
-          // Painters own the airbrushing work — they must see all its layouts (which carry
-          // no approval workflow and are always DRAFT), not just APPROVED ones.
-          'AIRBRUSHING',
-        ].includes(userRole);
-
-        if (!canSeeAllLayouts) {
-          result.data = result.data.map(airbrushing => {
-            if (airbrushing.layouts) {
-              return {
-                ...airbrushing,
-                layouts: airbrushing.layouts.filter(
-                  layout => layout.status === 'APPROVED' || layout.status === null,
-                ),
-              };
-            }
-            return airbrushing;
-          });
-        }
+        result.data = result.data.map(airbrushing =>
+          this.filterLayoutsForRole(airbrushing, userRole),
+        );
       }
 
       return {
@@ -260,29 +348,10 @@ export class AirbrushingService {
         throw new NotFoundException('Aerografia não encontrada.');
       }
 
-      // Filter layouts based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
-      // Others can only see APPROVED layouts
-      if (airbrushing.layouts && userRole) {
-        const canSeeAllLayouts = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'PRODUCTION_MANAGER',
-          'ADMIN',
-          // Painters own the airbrushing work — they must see all its layouts (which carry
-          // no approval workflow and are always DRAFT), not just APPROVED ones.
-          'AIRBRUSHING',
-        ].includes(userRole);
+      // Recorta os layouts ao que este papel pode ver — ver filterLayoutsForRole.
+      const visible = userRole ? this.filterLayoutsForRole(airbrushing, userRole) : airbrushing;
 
-        if (!canSeeAllLayouts) {
-          airbrushing.layouts = airbrushing.layouts.filter(
-            layout => layout.status === 'APPROVED' || layout.status === null,
-          );
-        }
-      }
-
-      return { success: true, data: airbrushing, message: 'Aerografia carregada com sucesso.' };
+      return { success: true, data: visible, message: 'Aerografia carregada com sucesso.' };
     } catch (error: any) {
       this.logger.error('Erro ao buscar aerografia por ID:', error);
       if (error instanceof NotFoundException) {
@@ -317,6 +386,10 @@ export class AirbrushingService {
         const layoutStatuses = (data as any).layoutStatuses as
           | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
           | undefined;
+
+        // Materializa o vencimento já na criação, para que uma aerografia com
+        // término previsto apareça em Contas a Pagar com a previsão certa.
+        this.applyDueDate(null, data as Record<string, any>);
 
         // Criar a aerografia (layouts são tratadas separadamente abaixo)
         let newAirbrushing = await this.airbrushingRepository.createWithTransaction(tx, data, {
@@ -478,6 +551,13 @@ export class AirbrushingService {
         // are populated by simply advancing the job. An explicitly supplied value
         // always wins; an already-stamped timestamp is never overwritten.
         this.applyStatusTimestamps(existingAirbrushing, updateData);
+
+        // Recalcula o vencimento DEPOIS do carimbo de finishedAt acima — é
+        // justamente concluir a aerografia que fixa a data ("vence 3 dias após o
+        // término"). Roda também no caminho do pintor: ele não escreve nenhum campo
+        // de vencimento, mas o `finishedAt` que ele acabou de carimbar é a
+        // referência da regra, então a data precisa acompanhar.
+        this.applyDueDate(existingAirbrushing as Record<string, any>, updateData);
 
         // File-relation reconciliation must be INTENT-BASED. The repository maps every
         // provided *Ids array to a Prisma `set` (a full replace). A partial update — e.g. an
@@ -782,6 +862,10 @@ export class AirbrushingService {
             // Validar entidade completa
             await this.validateAirbrushing(airbrushingData, undefined, tx);
 
+            // Mesma materialização de vencimento do create() individual — este
+            // caminho fala com o repositório direto e não herda nada dele.
+            this.applyDueDate(null, airbrushingData as Record<string, any>);
+
             // Criar a aerografia (layouts tratadas separadamente abaixo)
             let newAirbrushing = await this.airbrushingRepository.createWithTransaction(
               tx,
@@ -926,6 +1010,13 @@ export class AirbrushingService {
                   `PUT /airbrushings/:id — the batch endpoint only edits scalar fields.`,
               );
             }
+
+            // O batch fala com o repositório direto, então precisa repetir o que
+            // update() faz. Sem isto, "Finalizar" em lote pela tabela concluía a
+            // aerografia SEM carimbar finishedAt — e um término sem data nunca
+            // produz vencimento, deixando a linha de Contas a Pagar sem Vencimento.
+            this.applyStatusTimestamps(existingAirbrushing, batchUpdateData);
+            this.applyDueDate(existingAirbrushing as Record<string, any>, batchUpdateData);
 
             // Atualizar a aerografia
             const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
@@ -1430,8 +1521,11 @@ export class AirbrushingService {
         }
       }
 
-      // Determine the status to use
-      const requestedStatus = layoutStatuses?.[fileId];
+      // Determine the status to use. The map is keyed by the File ID the CLIENT sent,
+      // so it must be read with `rawFileId` — a file cloned just above has a brand-new
+      // id that appears nowhere in the payload, and looking it up would silently drop
+      // the status the user picked.
+      const requestedStatus = layoutStatuses?.[rawFileId] ?? layoutStatuses?.[fileId];
       const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
 
       this.logger.log(
