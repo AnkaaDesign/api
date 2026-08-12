@@ -12,8 +12,14 @@ import {
   RecurrentPayableOccurrence,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { deriveTransactionState } from '../reconciliation/transaction-status';
-import { CreateRecurrentPayableDto, UpdateRecurrentPayableDto } from './dto/recurrent-payable.dto';
+import {
+  CreateOneOffPayableDto,
+  CreateRecurrentPayableDto,
+  UpdateRecurrentPayableDto,
+} from './dto/recurrent-payable.dto';
 
 /** São Paulo is UTC-3 year-round (no DST since 2019). Because the offset is
  *  constant, adding whole DAY_MS/WEEK_MS to an SP-midnight instant keeps it at
@@ -29,10 +35,35 @@ function isWeeklyFrequency(frequency: string): boolean {
   return WEEKLY_FREQUENCIES.has(frequency);
 }
 
+/** ONCE = a ONE-OFF bill (conta avulsa): a single obligation on a single date,
+ *  created eagerly with its lone occurrence and never materialized again. It
+ *  rides the RecurrentPayable pipeline so it appears in Contas a Pagar, settles,
+ *  reconciles and links its NF exactly like every other payable — but every
+ *  SCHEDULE-driven path (materialize, forecast-synthesis, the off-schedule
+ *  reaper, the Recorrentes dashboard) must skip it: it has no cadence to project.
+ */
+function isOneOffFrequency(frequency: string): boolean {
+  return frequency === 'ONCE';
+}
+
 function startOfDaySaoPaulo(d: Date): Date {
   const sp = new Date(d.getTime() + SP_OFFSET_MS);
   sp.setUTCHours(0, 0, 0, 0);
   return new Date(sp.getTime() - SP_OFFSET_MS);
+}
+
+/**
+ * The FREEZE BOUNDARY for every edit: an edit may only reach occurrences due
+ * STRICTLY AFTER today.
+ *
+ * Today's occurrence is already in play — the diarista came this morning, the
+ * boleto is on someone's desk — so re-planning or re-pricing it retroactively
+ * changes an obligation that is being settled right now. Past occurrences are
+ * history for the same reason, only more so. Editing a recurring bill states
+ * what happens NEXT; it never rewrites what was already owed.
+ */
+function startOfTomorrowSaoPaulo(d: Date): Date {
+  return addDays(startOfDaySaoPaulo(d), 1);
 }
 
 function addDays(d: Date, days: number): Date {
@@ -160,7 +191,44 @@ function monthsForFrequency(frequency: string, count: number): number {
 export class RecurrentPayableService {
   private readonly logger = new Logger(RecurrentPayableService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly changeLogService: ChangeLogService,
+  ) {}
+
+  /** Audit helper — every write in this service goes through it, so an edit can
+   *  never again be reconstructible only from database dumps. Never throws: an
+   *  audit failure must not roll back a settled payment. */
+  private async log(params: {
+    entityType: ENTITY_TYPE;
+    entityId: string;
+    action: CHANGE_ACTION;
+    field?: string;
+    oldValue?: unknown;
+    newValue?: unknown;
+    reason: string;
+    userId?: string | null;
+    metadata?: Record<string, unknown>;
+    triggeredBy?: CHANGE_TRIGGERED_BY;
+  }): Promise<void> {
+    try {
+      await this.changeLogService.logChange({
+        entityType: params.entityType,
+        entityId: params.entityId,
+        action: params.action,
+        field: params.field,
+        oldValue: params.oldValue,
+        newValue: params.newValue,
+        reason: params.reason,
+        triggeredBy: params.triggeredBy ?? CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: params.userId ?? null,
+        userId: params.userId ?? null,
+        metadata: params.metadata,
+      });
+    } catch (err) {
+      this.logger.warn(`ChangeLog write failed for ${params.entityType} ${params.entityId}: ${err}`);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // CRUD
@@ -222,10 +290,105 @@ export class RecurrentPayableService {
     return { success: true, message: 'Conta recorrente criada.', data: created };
   }
 
-  async update(id: string, dto: UpdateRecurrentPayableDto) {
+  /**
+   * Create a ONE-OFF payable (conta avulsa): a single obligation on a single
+   * date. The quick-create modal on Contas a Pagar is its only caller.
+   *
+   * It is stored as a RecurrentPayable with `frequency: ONCE` plus its lone
+   * occurrence, both written in one transaction. That is not a workaround — it is
+   * what makes the feature cheap and correct: a one-off then flows through the
+   * SAME pipeline as everything else (Contas a Pagar feed, pay/ignore actions,
+   * the CNPJ categorization sweep, bank settlement, NF linking, clearance
+   * derivation) with no second code path to keep in sync. Every SCHEDULE-driven
+   * path skips it via `isOneOffFrequency`, and `nextRun: null` keeps the cron out.
+   *
+   * `dueDate` arrives as a plain YYYY-MM-DD and is anchored to SP-midnight here —
+   * the same anchor every other occurrence uses, and what the
+   * (payableId, dueDate) unique key is built on. Parsing it server-side is what
+   * keeps a browser in another timezone from landing the bill on the wrong day.
+   */
+  async createOneOff(dto: CreateOneOffPayableDto, userId?: string) {
+    await this.assertCategory(dto.categoryId);
+    const [year, month, day] = dto.dueDate.split('-').map(Number);
+    const dueDate = spMidnight(year, month - 1, day);
+
+    const created = await this.prisma.$transaction(async db => {
+      const payable = await db.recurrentPayable.create({
+        data: {
+          name: dto.name,
+          description: dto.description ?? null,
+          payeeName: dto.payeeName ?? null,
+          payeeCnpj: dto.payeeCnpj ?? null,
+          payeeCpf: dto.payeeCpf ?? null,
+          pixKey: dto.paymentMethod === 'PIX' ? dto.pixKey ?? null : null,
+          categoryId: dto.categoryId,
+          // A one-off is always a known amount — there is no history to estimate
+          // from and nothing to true up later.
+          amountKind: 'FIXED',
+          fixedAmount: dto.amount,
+          estimatedAmount: dto.amount,
+          frequency: 'ONCE',
+          frequencyCount: 1,
+          // Kept for display only (the Vencimento column reads the occurrence).
+          dueDayOfMonth: day,
+          daysOfWeek: [],
+          paymentMethod: dto.paymentMethod ?? null,
+          expectsNf: dto.expectsNf,
+          isActive: true,
+          // Never materialize again — the single occurrence is created right here.
+          nextRun: null,
+          createdById: userId ?? null,
+        },
+      });
+      const occurrence = await db.recurrentPayableOccurrence.create({
+        data: {
+          recurrentPayableId: payable.id,
+          competence: competenceOf(dueDate),
+          dueDate,
+          estimatedAmount: dto.amount,
+          status: 'PENDING',
+          expectsNf: dto.expectsNf,
+          paymentMethod: dto.paymentMethod ?? null,
+        },
+      });
+      return { payable, occurrence };
+    });
+
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+      entityId: created.occurrence.id,
+      action: CHANGE_ACTION.CREATE,
+      reason:
+        `Conta avulsa "${dto.name}" criada para ${dto.dueDate} no valor de ` +
+        `R$ ${dto.amount.toFixed(2)}.`,
+      userId,
+      newValue: {
+        name: dto.name,
+        payeeName: dto.payeeName ?? null,
+        amount: dto.amount,
+        dueDate: dueDate.toISOString(),
+        categoryId: dto.categoryId,
+        paymentMethod: dto.paymentMethod ?? null,
+      },
+      metadata: { recurrentPayableId: created.payable.id, oneOff: true },
+    });
+
+    return {
+      success: true,
+      message: 'Conta a pagar criada.',
+      data: { ...created.payable, occurrences: [created.occurrence] },
+    };
+  }
+
+  async update(id: string, dto: UpdateRecurrentPayableDto, userId?: string) {
     const existing = await this.prisma.recurrentPayable.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Conta recorrente não encontrada.');
     if (dto.categoryId) await this.assertCategory(dto.categoryId);
+    if (isOneOffFrequency(existing.frequency)) {
+      throw new BadRequestException(
+        'Contas avulsas não têm cadência para reprogramar — edite ou cancele a própria conta a pagar.',
+      );
+    }
 
     // A cadence change must re-plan the future: existing future occurrences were
     // generated by the OLD schedule, so they're deleted and re-materialized.
@@ -273,31 +436,70 @@ export class RecurrentPayableService {
 
     const updated = await this.prisma.recurrentPayable.update({ where: { id }, data });
 
+    // Field-level audit of the bill itself, BEFORE the occurrence fan-out below —
+    // so the log reads "what the user changed", then "what that did to the
+    // already-materialized rows".
+    await this.logPayableFieldChanges(existing, updated, userId);
+
+    // Every occurrence edit is bounded by this window. `gte: tomorrow` is the
+    // whole "não mexe no retroativo" rule: today's obligation and all history are
+    // untouchable, and PAID / bank-linked / NF-linked rows are excluded on top of
+    // that because real money or a real document already landed on them.
+    const horizonStart = startOfTomorrowSaoPaulo(new Date());
+    const editableWindow: Prisma.RecurrentPayableOccurrenceWhereInput = {
+      recurrentPayableId: id,
+      dueDate: { gte: horizonStart },
+      status: { in: ['PENDING', 'OVERDUE'] },
+      bankTransactionId: null,
+      fiscalDocumentId: null,
+      // The FK from ReconciliationMatch is ON DELETE RESTRICT, so a matched
+      // occurrence would abort the whole deleteMany. A match can exist without
+      // `bankTransactionId` being set on the occurrence (the manual match path
+      // writes only the match), so this is a real case, not a theoretical one.
+      reconciliationMatches: { none: { reversedAt: null } },
+    };
+
     if (cadenceChanged && willBeActive) {
-      // Drop only future, untouched occurrences (no payment, no bank/NF link, no
-      // reconciliation match) — paid/linked history is preserved. The cron then
-      // re-materializes them under the new cadence (picking up the fresh amount/
-      // paymentMethod/expectsNf snapshot below in the same pass), so no separate
-      // sync is needed here.
-      const today = startOfDaySaoPaulo(new Date());
-      await this.prisma.recurrentPayableOccurrence.deleteMany({
-        where: {
-          recurrentPayableId: id,
-          dueDate: { gte: today },
-          status: { in: ['PENDING', 'OVERDUE'] },
-          bankTransactionId: null,
-          fiscalDocumentId: null,
-        },
+      // Future occurrences were planned by the OLD cadence — drop them so the
+      // cron re-materializes the new one. `nextRun` was re-armed to today above.
+      const doomed = await this.prisma.recurrentPayableOccurrence.findMany({
+        where: editableWindow,
+        select: { id: true, dueDate: true, estimatedAmount: true },
+        orderBy: { dueDate: 'asc' },
       });
+      if (doomed.length > 0) {
+        await this.prisma.recurrentPayableOccurrence.deleteMany({
+          where: { id: { in: doomed.map(o => o.id) } },
+        });
+        await this.log({
+          entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'occurrences',
+          oldValue: doomed.length,
+          newValue: 0,
+          reason:
+            `Mudança de cadência: ${doomed.length} ocorrência(s) futura(s) em aberto foram ` +
+            `removidas para serem replanejadas. Nada com vencimento até hoje foi alterado.`,
+          userId,
+          metadata: {
+            deletedDueDates: doomed.map(o => o.dueDate.toISOString()),
+            horizonStart: horizonStart.toISOString(),
+          },
+        });
+      }
+      // A cadence change can strand rows the window above can't reach (a future
+      // occurrence that is PAID or linked right now). Report them so they are
+      // visible instead of silently becoming permanent off-schedule debris —
+      // exactly how the Diária de Limpeza ended up with three phantom Mondays.
+      await this.warnStrandedFutureOccurrences(updated, horizonStart);
     } else {
       // Non-cadence fields (amount, paymentMethod, expectsNf) are snapshotted onto
       // each occurrence at materialization time — name/category/supplier/payee are
       // read live via the relation, so those already reflect edits everywhere.
       // Sync the snapshotted ones into already-materialized future occurrences so
       // an edit takes effect immediately instead of waiting for the next
-      // materialization. Past occurrences and anything already paid or linked to a
-      // bank transaction / NF are frozen — real money or reconciliation already
-      // happened against the old snapshot.
+      // materialization.
       const snapshotChanged =
         dto.amountKind !== undefined ||
         dto.fixedAmount !== undefined ||
@@ -306,48 +508,186 @@ export class RecurrentPayableService {
         dto.expectsNf !== undefined;
 
       if (snapshotChanged) {
-        const today = startOfDaySaoPaulo(new Date());
         const estimatedAmount = await this.computeEstimate(updated);
-        await this.prisma.recurrentPayableOccurrence.updateMany({
-          where: {
-            recurrentPayableId: id,
-            dueDate: { gte: today },
-            status: { in: ['PENDING', 'OVERDUE'] },
-            bankTransactionId: null,
-            fiscalDocumentId: null,
-          },
+        const repriced = await this.prisma.recurrentPayableOccurrence.updateMany({
+          where: editableWindow,
           data: {
             estimatedAmount,
             paymentMethod: updated.paymentMethod,
             expectsNf: updated.expectsNf,
           },
         });
-
-        // Turning "espera nota" OFF is a statement about the BILL, not about a
-        // period: vale-transporte, aluguel de pessoa física and diárias never
-        // issue one, for any competence. The window above only reaches future,
-        // unsettled occurrences, so without this the already-reconciled ones
-        // would sit at "Aguardando nota" forever with no way to close them —
-        // the bank line is settled and the note is never coming.
-        //
-        // Deliberately one-directional. Occurrences that already HAVE a note are
-        // excluded (nothing to quiet), and turning the flag ON is not applied
-        // retroactively: demanding notes for competences already closed would
-        // re-open settled history.
-        if (dto.expectsNf === false) {
-          await this.prisma.recurrentPayableOccurrence.updateMany({
-            where: {
-              recurrentPayableId: id,
-              expectsNf: true,
-              fiscalDocumentId: null,
+        if (repriced.count > 0) {
+          await this.log({
+            entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+            entityId: id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'occurrences.estimatedAmount',
+            oldValue: null,
+            newValue: estimatedAmount,
+            reason:
+              `${repriced.count} ocorrência(s) futura(s) em aberto atualizada(s) para ` +
+              `R$ ${estimatedAmount.toFixed(2)}. Nada com vencimento até hoje foi alterado.`,
+            userId,
+            metadata: {
+              horizonStart: horizonStart.toISOString(),
+              paymentMethod: updated.paymentMethod,
+              expectsNf: updated.expectsNf,
             },
-            data: { expectsNf: false },
+          });
+        }
+      }
+
+      // Turning "espera nota" OFF is a statement about the BILL, not about a
+      // period: vale-transporte, aluguel de pessoa física and diárias never issue
+      // one, for any competence. Without reaching backwards, already-reconciled
+      // occurrences sit at "Aguardando nota" forever — the bank line is settled
+      // and the note is never coming.
+      //
+      // But that IS a retroactive write, so it is no longer implicit: the caller
+      // has to ask for it (`applyExpectsNfToPast`), the form ships it unchecked,
+      // and it is logged. Occurrences that already HAVE a note are excluded, and
+      // turning the flag ON is never applied backwards — demanding notes for
+      // competences already closed would re-open settled history.
+      if (dto.expectsNf === false && dto.applyExpectsNfToPast === true) {
+        const quieted = await this.prisma.recurrentPayableOccurrence.updateMany({
+          where: {
+            recurrentPayableId: id,
+            expectsNf: true,
+            fiscalDocumentId: null,
+            dueDate: { lt: horizonStart },
+          },
+          data: { expectsNf: false },
+        });
+        if (quieted.count > 0) {
+          await this.log({
+            entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+            entityId: id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'occurrences.expectsNf',
+            oldValue: true,
+            newValue: false,
+            reason:
+              `RETROATIVO (solicitado explicitamente): ${quieted.count} ocorrência(s) de ` +
+              `competências já fechadas deixaram de esperar nota fiscal.`,
+            userId,
+            metadata: { horizonStart: horizonStart.toISOString(), retroactive: true },
           });
         }
       }
     }
 
     return { success: true, message: 'Conta recorrente atualizada.', data: updated };
+  }
+
+  /** Fields whose edits are worth a ChangeLog row of their own. */
+  private static readonly AUDITED_PAYABLE_FIELDS = [
+    'name',
+    'description',
+    'payeeName',
+    'payeeCnpj',
+    'payeeCpf',
+    'pixKey',
+    'categoryId',
+    'supplierId',
+    'amountKind',
+    'fixedAmount',
+    'estimatedAmount',
+    'frequency',
+    'frequencyCount',
+    'dueDayOfMonth',
+    'daysOfWeek',
+    'paymentMethod',
+    'expectsNf',
+    'isActive',
+  ] as const;
+
+  /** One ChangeLog row per field the update actually changed. */
+  private async logPayableFieldChanges(
+    before: RecurrentPayable,
+    after: RecurrentPayable,
+    userId?: string,
+  ): Promise<void> {
+    const norm = (v: unknown): string =>
+      v == null ? '' : Array.isArray(v) ? JSON.stringify([...v].sort()) : String(v);
+    for (const field of RecurrentPayableService.AUDITED_PAYABLE_FIELDS) {
+      const oldValue = (before as unknown as Record<string, unknown>)[field];
+      const newValue = (after as unknown as Record<string, unknown>)[field];
+      if (norm(oldValue) === norm(newValue)) continue;
+      await this.log({
+        entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+        entityId: after.id,
+        action: CHANGE_ACTION.UPDATE,
+        field,
+        oldValue,
+        newValue,
+        reason: `Campo "${field}" da conta recorrente "${after.name}" alterado.`,
+        userId,
+      });
+    }
+  }
+
+  /**
+   * Future occurrences that the freeze rules protect but that no longer fit the
+   * schedule. They are NOT touched here — a PAID or bank-linked row is real money
+   * — but they are logged loudly, because silently leaving them is precisely how
+   * three phantom Monday visits survived a Mon/Wed → Wed-only edit and then
+   * reappeared as open debt when a later repair un-paid them.
+   */
+  private async warnStrandedFutureOccurrences(
+    payable: RecurrentPayable,
+    horizonStart: Date,
+  ): Promise<void> {
+    const survivors = await this.prisma.recurrentPayableOccurrence.findMany({
+      where: { recurrentPayableId: payable.id, dueDate: { gte: horizonStart } },
+      select: { id: true, dueDate: true, status: true },
+      orderBy: { dueDate: 'asc' },
+    });
+    const stranded = survivors.filter(o => !this.matchesSchedule(payable, o.dueDate));
+    if (stranded.length === 0) return;
+    this.logger.warn(
+      `RecurrentPayable ${payable.name}: ${stranded.length} future occurrence(s) are already ` +
+        `paid/linked and no longer fit the schedule — left untouched: ` +
+        stranded.map(o => `${o.dueDate.toISOString().slice(0, 10)}(${o.status})`).join(', '),
+    );
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+      entityId: payable.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'occurrences.offSchedule',
+      oldValue: null,
+      newValue: stranded.length,
+      reason:
+        `${stranded.length} ocorrência(s) futura(s) fora da nova agenda foram MANTIDAS por já ` +
+        `estarem pagas ou conciliadas. Revise-as manualmente.`,
+      userId: undefined,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+      metadata: {
+        occurrences: stranded.map(o => ({
+          id: o.id,
+          dueDate: o.dueDate.toISOString(),
+          status: o.status,
+        })),
+      },
+    });
+  }
+
+  /** Does this due date still belong to the payable's configured schedule? */
+  private matchesSchedule(payable: RecurrentPayable, dueDate: Date): boolean {
+    // A one-off has no schedule to violate; its single date is the schedule.
+    if (isOneOffFrequency(payable.frequency)) return true;
+    if (isWeeklyFrequency(payable.frequency)) {
+      const expected = weeklyDueDates(
+        payable.daysOfWeek,
+        weeksPerCycle(payable.frequency, payable.frequencyCount),
+        payable.createdAt,
+        dueDate,
+        dueDate,
+      );
+      return expected.some(d => d.getTime() === dueDate.getTime());
+    }
+    const competence = competenceOf(dueDate);
+    return dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1).getTime() === dueDate.getTime();
   }
 
   async remove(id: string) {
@@ -461,6 +801,8 @@ export class RecurrentPayableService {
    *  fill a rolling horizon from today; monthly bills ensure the anchor month.
    *  Returns the count materialized/ensured. */
   async materializeDue(payable: RecurrentPayable, anchor: Date, now: Date): Promise<number> {
+    // A one-off already has its single occurrence; there is nothing to project.
+    if (isOneOffFrequency(payable.frequency)) return 0;
     if (isWeeklyFrequency(payable.frequency)) {
       const start = startOfDaySaoPaulo(now);
       const occ = await this.materializeWeeklyHorizon(
@@ -472,6 +814,157 @@ export class RecurrentPayableService {
     }
     await this.ensureMonthlyOccurrence(payable, competenceOf(anchor));
     return 1;
+  }
+
+  /**
+   * Cancel FUTURE occurrences that no longer fit their payable's schedule.
+   *
+   * Materialization only ever ADDS (`materializeForDueDate` is create-if-absent),
+   * so nothing used to remove a row planned under a cadence that has since
+   * changed. The edit path drops them, but only the ones it can see at that
+   * instant — a row that is transiently PAID survives the edit, and if it is
+   * later un-paid (a reconciliation repair, a manual estorno) it comes back as
+   * open debt on a day the bill is not due. That is exactly how the Diária de
+   * Limpeza accumulated three phantom Monday visits worth R$1.020 after moving to
+   * Wednesdays-only. Running this every night makes the debris impossible to
+   * accumulate regardless of which path created it.
+   *
+   * Only future + unpaid + unlinked rows are cancelled (never deleted — CANCELLED
+   * keeps them on record and revertible). Anything paid or linked is reported and
+   * left alone: it represents real money that a schedule edit cannot undo.
+   */
+  async reapOffScheduleOccurrences(
+    opts: { dryRun?: boolean } = {},
+  ): Promise<{
+    cancelled: number;
+    stranded: number;
+    horizonStart: Date;
+    details: Array<{
+      payableName: string;
+      frequency: string;
+      daysOfWeek: number[];
+      dueDayOfMonth: number | null;
+      occurrenceId: string;
+      dueDate: Date;
+      status: string;
+      estimatedAmount: number;
+      action: 'cancelled' | 'kept';
+    }>;
+  }> {
+    const horizonStart = startOfTomorrowSaoPaulo(new Date());
+    const payables = await this.prisma.recurrentPayable.findMany({ where: { isActive: true } });
+    let cancelled = 0;
+    let stranded = 0;
+    const details: Array<{
+      payableName: string;
+      frequency: string;
+      daysOfWeek: number[];
+      dueDayOfMonth: number | null;
+      occurrenceId: string;
+      dueDate: Date;
+      status: string;
+      estimatedAmount: number;
+      action: 'cancelled' | 'kept';
+    }> = [];
+
+    for (const payable of payables) {
+      // A one-off has no cadence to project — its lone date IS the schedule.
+      if (isOneOffFrequency(payable.frequency)) continue;
+      // A weekly bill with no weekdays configured would call EVERY date invalid
+      // and wipe its own future. The dto forbids that state; refuse to act on it
+      // anyway rather than trust the data.
+      if (isWeeklyFrequency(payable.frequency) && payable.daysOfWeek.length === 0) continue;
+
+      const future = await this.prisma.recurrentPayableOccurrence.findMany({
+        where: { recurrentPayableId: payable.id, dueDate: { gte: horizonStart } },
+        orderBy: { dueDate: 'asc' },
+      });
+      const offSchedule = future.filter(o => !this.matchesSchedule(payable, o.dueDate));
+      if (offSchedule.length === 0) continue;
+
+      const reapable = offSchedule.filter(
+        o =>
+          (o.status === 'PENDING' || o.status === 'OVERDUE') &&
+          o.bankTransactionId == null &&
+          o.fiscalDocumentId == null,
+      );
+      // Never cancel out from under a live match — the FK is RESTRICT and, more
+      // importantly, a matched row is bank-backed.
+      const matched = reapable.length
+        ? new Set(
+            (
+              await this.prisma.reconciliationMatch.findMany({
+                where: { recurrentOccurrenceId: { in: reapable.map(o => o.id) }, reversedAt: null },
+                select: { recurrentOccurrenceId: true },
+              })
+            ).map(m => m.recurrentOccurrenceId as string),
+          )
+        : new Set<string>();
+      const doomed = reapable.filter(o => !matched.has(o.id));
+      const doomedIds = new Set(doomed.map(o => o.id));
+
+      const describe = (o: (typeof offSchedule)[number], action: 'cancelled' | 'kept') => ({
+        payableName: payable.name,
+        frequency: payable.frequency as string,
+        daysOfWeek: payable.daysOfWeek,
+        dueDayOfMonth: payable.dueDayOfMonth,
+        occurrenceId: o.id,
+        dueDate: o.dueDate,
+        status: o.status as string,
+        estimatedAmount: Number(o.estimatedAmount),
+        action,
+      });
+      for (const o of offSchedule) {
+        details.push(describe(o, doomedIds.has(o.id) ? 'cancelled' : 'kept'));
+      }
+
+      for (const occ of doomed) {
+        if (opts.dryRun) {
+          cancelled++;
+          continue;
+        }
+        await this.prisma.recurrentPayableOccurrence.update({
+          where: { id: occ.id },
+          data: { status: 'CANCELLED' },
+        });
+        await this.log({
+          entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+          entityId: occ.id,
+          action: CHANGE_ACTION.CANCEL,
+          field: 'status',
+          oldValue: occ.status,
+          newValue: 'CANCELLED',
+          reason:
+            `Ocorrência de ${occ.dueDate.toISOString().slice(0, 10)} não pertence mais à agenda ` +
+            `de "${payable.name}" e foi cancelada automaticamente.`,
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+          metadata: {
+            recurrentPayableId: payable.id,
+            frequency: payable.frequency,
+            daysOfWeek: payable.daysOfWeek,
+            dueDayOfMonth: payable.dueDayOfMonth,
+          },
+        });
+        cancelled++;
+      }
+
+      const untouchable = offSchedule.length - doomed.length;
+      if (untouchable > 0) {
+        stranded += untouchable;
+        this.logger.warn(
+          `RecurrentPayable ${payable.name}: ${untouchable} off-schedule future occurrence(s) are ` +
+            `paid/linked/matched and were left alone.`,
+        );
+      }
+    }
+
+    if (cancelled) {
+      this.logger.log(
+        `Recurrent-payable reaper${opts.dryRun ? ' (DRY RUN)' : ''}: ` +
+          `${cancelled} off-schedule occurrence(s) ${opts.dryRun ? 'would be' : ''} cancelled`,
+      );
+    }
+    return { cancelled, stranded, horizonStart, details };
   }
 
   /** Flip past-due PENDING occurrences to OVERDUE (a real persisted state, not
@@ -493,7 +986,10 @@ export class RecurrentPayableService {
     competence: string,
     allowMaterialize: boolean,
   ): Promise<RecurrentPayableOccurrence[]> {
-    if (allowMaterialize) {
+    // A one-off must NEVER materialize: `ensureMonthlyOccurrence` would happily
+    // mint a fresh occurrence for every competence the user browses, turning a
+    // single bill into a perpetual monthly one.
+    if (allowMaterialize && !isOneOffFrequency(payable.frequency)) {
       if (isWeeklyFrequency(payable.frequency)) {
         const { from, to } = competenceRange(competence);
         await this.materializeWeeklyHorizon(payable, from, to);
@@ -510,6 +1006,8 @@ export class RecurrentPayableService {
   /** Ensure occurrences exist around a date (for the reconciliation/NF sweeps to
    *  have something to match) without advancing the live horizon/nextRun. */
   private async ensureOccurrencesAround(payable: RecurrentPayable, date: Date): Promise<void> {
+    // A one-off's occurrence already exists — the sweeps find it by date window.
+    if (isOneOffFrequency(payable.frequency)) return;
     const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
     if (isWeeklyFrequency(payable.frequency)) {
       await this.materializeWeeklyHorizon(payable, addDays(date, -w), addDays(date, w));
@@ -625,6 +1123,30 @@ export class RecurrentPayableService {
         paymentMethod: (opts.paymentMethod as never) ?? occ.paymentMethod,
       },
     });
+
+    // A manual baixa asserts money left WITHOUT a bank line behind it — legitimate,
+    // but it must not be anonymous. This is the same gap that made 210 receivable
+    // parcelas unattributable before 2026-08-09.
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+      entityId: occurrenceId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'status',
+      oldValue: occ.status,
+      newValue: 'PAID',
+      reason:
+        `Baixa manual de "${occ.recurrentPayable.name}" (venc. ` +
+        `${occ.dueDate.toISOString().slice(0, 10)}) no valor de R$ ${amount.toFixed(2)}. ` +
+        `Sem conciliação bancária no momento da baixa.`,
+      userId: opts.userId,
+      metadata: {
+        recurrentPayableId: occ.recurrentPayableId,
+        competence: occ.competence,
+        estimatedAmount: Number(occ.estimatedAmount),
+        paidAmount: amount,
+        awaitingBankReconciliation: true,
+      },
+    });
     return { success: true, message: 'Conta recorrente marcada como paga.', data };
   }
 
@@ -651,23 +1173,55 @@ export class RecurrentPayableService {
       where: { id: occurrenceId },
       data: { status: 'CANCELLED', paidById: opts.userId ?? null },
     });
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+      entityId: occurrenceId,
+      action: CHANGE_ACTION.CANCEL,
+      field: 'status',
+      oldValue: occ.status,
+      newValue: 'CANCELLED',
+      reason: `Ocorrência de ${occ.dueDate.toISOString().slice(0, 10)} ignorada — sai dos totais de Contas a Pagar.`,
+      userId: opts.userId,
+      metadata: { recurrentPayableId: occ.recurrentPayableId, competence: occ.competence },
+    });
     return { success: true, message: 'Conta recorrente ignorada neste mês.', data };
   }
 
   /** Revert an ignored (CANCELLED) occurrence back to an open obligation. */
   async unignoreOccurrence(
     occurrenceId: string,
+    opts: { userId?: string } = {},
   ): Promise<{ success: boolean; message: string; data: RecurrentPayableOccurrence }> {
     const occ = await this.prisma.recurrentPayableOccurrence.findUnique({
       where: { id: occurrenceId },
+      include: { recurrentPayable: true },
     });
     if (!occ) throw new NotFoundException('Ocorrência não encontrada.');
     if (occ.status !== 'CANCELLED') {
       throw new BadRequestException('Esta conta não está ignorada.');
     }
+    // Reopening a row the reaper cancelled would just get it cancelled again on
+    // the next run — and the user would have no idea why. Say so up front.
+    if (!this.matchesSchedule(occ.recurrentPayable, occ.dueDate)) {
+      throw new BadRequestException(
+        `Esta ocorrência (${occ.dueDate.toISOString().slice(0, 10)}) não pertence à agenda atual de ` +
+          `"${occ.recurrentPayable.name}". Ajuste a recorrência antes de reabri-la.`,
+      );
+    }
     const data = await this.prisma.recurrentPayableOccurrence.update({
       where: { id: occurrenceId },
       data: { status: 'PENDING', paidById: null },
+    });
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+      entityId: occurrenceId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'status',
+      oldValue: 'CANCELLED',
+      newValue: 'PENDING',
+      reason: `Ocorrência de ${occ.dueDate.toISOString().slice(0, 10)} reaberta como obrigação em aberto.`,
+      userId: opts.userId,
+      metadata: { recurrentPayableId: occ.recurrentPayableId, competence: occ.competence },
     });
     return { success: true, message: 'Conta recorrente reaberta.', data };
   }
@@ -690,7 +1244,9 @@ export class RecurrentPayableService {
    *  count occurrences, so a weekly bill contributes each visit. */
   async monthlyView(competence: string) {
     const payables = await this.prisma.recurrentPayable.findMany({
-      where: { isActive: true },
+      // One-off bills are not recurring and have no cadence to show here — they
+      // live only in Contas a Pagar, as the single obligation they are.
+      where: { isActive: true, frequency: { not: 'ONCE' } },
       include: {
         supplier: { select: { id: true, fantasyName: true, cnpj: true } },
         category: { select: { id: true, name: true, color: true } },
@@ -921,6 +1477,10 @@ export class RecurrentPayableService {
 
     for (const payable of payables) {
       const occs = await this.ensureOccurrencesForCompetence(payable, competence, isCurrent);
+      // A one-off contributes ONLY through its real occurrence. The synthesis
+      // fallback below projects a schedule, and a one-off has none — it would
+      // invent a forecast row in every month the bill does not fall in.
+      if (occs.length === 0 && isOneOffFrequency(payable.frequency)) continue;
       let openForecast = 0;
       let paidAmount = 0;
       let paidCount = 0;

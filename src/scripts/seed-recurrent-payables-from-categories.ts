@@ -106,7 +106,11 @@ const onlyDigits = (v: string | null): string | null => (v ? v.replace(/\D/g, ''
 async function main(): Promise<void> {
   const logger = new Logger('SeedRecurrentPayables');
   const prisma = new PrismaClient();
-  const service = new RecurrentPayableService(prisma as never);
+  // The seed only calls schedule/materialization helpers, never an audited write,
+  // so a no-op ChangeLog stand-in keeps this one-shot script free of the Nest DI
+  // container it does not otherwise need.
+  const noopChangeLog = { logChange: async () => undefined };
+  const service = new RecurrentPayableService(prisma as never, noopChangeLog as never);
 
   try {
     // --- Resolve every categoria name → id -----------------------------------

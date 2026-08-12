@@ -115,6 +115,59 @@ export const updateRecurrentPayableSchema = recurrentPayableBaseSchema
     { message: 'Informe o dia do vencimento (1-31).', path: ['dueDayOfMonth'] },
   );
 
+// Turning "espera nota" OFF can also quiet competences that are already closed
+// (a bill that never issues a note — vale-transporte, aluguel de PF, diárias —
+// would otherwise sit at "Aguardando nota" forever, since the settled bank line
+// is never getting a document). That IS a retroactive write, so it must be asked
+// for: the form ships it unchecked and every other edit stays strictly forward.
+export const updateRecurrentPayableWithScopeSchema = z.intersection(
+  updateRecurrentPayableSchema,
+  z.object({ applyExpectsNfToPast: z.boolean().optional().default(false) }),
+);
+
+/**
+ * A ONE-OFF payable (conta avulsa) — the quick-create modal on Contas a Pagar.
+ *
+ * Deliberately much smaller than the recurrent schema: no cadence, no amountKind
+ * (a one-off is always a known amount), just who/what/how much/when. `dueDate` is
+ * a plain calendar date; the service anchors it to SP-midnight so a browser in
+ * another timezone cannot land the bill a day off.
+ */
+export const createOneOffPayableSchema = z.object({
+  name: z.string().trim().min(1, 'Descrição é obrigatória').max(200),
+  description: z.string().trim().max(500).optional().nullable(),
+  payeeName: z.string().trim().max(200).optional().nullable(),
+  payeeCnpj: z
+    .string()
+    .trim()
+    .transform(v => v.replace(/\D/g, ''))
+    .refine(v => v.length === 0 || v.length === 14, 'CNPJ deve ter 14 dígitos')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
+  payeeCpf: z
+    .string()
+    .trim()
+    .transform(v => v.replace(/\D/g, ''))
+    .refine(v => v.length === 0 || v.length === 11, 'CPF deve ter 11 dígitos')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
+  pixKey: z
+    .string()
+    .trim()
+    .max(500, 'Chave Pix deve ter no máximo 500 caracteres')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
+  categoryId: z.string().uuid({ message: 'Categoria é obrigatória' }),
+  amount: z.number().positive('Informe um valor maior que zero'),
+  // Calendar date (YYYY-MM-DD), NOT a timestamp — see the note above.
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Vencimento inválido'),
+  paymentMethod: paymentMethodSchema.optional().nullable(),
+  expectsNf: z.boolean().default(false),
+});
+
 export const markOccurrencePaidSchema = z.object({
   // Required for VARIABLE occurrences (energy/water): the real amount paid.
   paidAmount: z.number().nonnegative().optional().nullable(),
@@ -122,5 +175,6 @@ export const markOccurrencePaidSchema = z.object({
 });
 
 export type CreateRecurrentPayableDto = z.infer<typeof createRecurrentPayableSchema>;
-export type UpdateRecurrentPayableDto = z.infer<typeof updateRecurrentPayableSchema>;
+export type UpdateRecurrentPayableDto = z.infer<typeof updateRecurrentPayableWithScopeSchema>;
+export type CreateOneOffPayableDto = z.infer<typeof createOneOffPayableSchema>;
 export type MarkOccurrencePaidDto = z.infer<typeof markOccurrencePaidSchema>;

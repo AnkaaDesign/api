@@ -3943,6 +3943,12 @@ enum ChangeLogEntityType {
   BANK_TRANSACTION
   RECONCILIATION_MATCH
   FISCAL_DOCUMENT
+  // Payables. Added 2026-08-12: editing a recurring bill DELETES and REWRITES
+  // already-materialized occurrences, and none of it was auditable — the only
+  // way to answer "what changed on the Diária de Limpeza, and when" was to diff
+  // nightly database dumps.
+  RECURRENT_PAYABLE
+  RECURRENT_PAYABLE_OCCURRENCE
 }
 
 enum ChangeLogAction {

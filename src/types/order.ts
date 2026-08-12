@@ -631,6 +631,13 @@ export interface PayableRow {
    */
   ignored?: boolean;
   /**
+   * RECURRENT_PAYABLE rows only — this is a ONE-OFF bill (conta avulsa) created
+   * from the quick-create modal, not a recurring one. It is stored as a
+   * `frequency: ONCE` RecurrentPayable so it settles/reconciles through the same
+   * pipeline, but it must never be badged "Recorrente" in the UI.
+   */
+  oneOff?: boolean;
+  /**
    * ORDER and AIRBRUSHING rows — whether the row is a real, payable debt yet.
    * PENDING orders are false until an ADMIN presses "Requisitar Pagamento";
    * airbrushing rows are false until the job is COMPLETED. False renders the row

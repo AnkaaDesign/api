@@ -17,11 +17,13 @@ import { SECTOR_PRIVILEGES } from '@constants';
 import { RecurrentPayableService } from './recurrent-payable.service';
 import { RecurrentPayableScheduler } from './recurrent-payable.scheduler';
 import {
+  createOneOffPayableSchema,
+  CreateOneOffPayableDto,
   createRecurrentPayableSchema,
   CreateRecurrentPayableDto,
   markOccurrencePaidSchema,
   MarkOccurrencePaidDto,
-  updateRecurrentPayableSchema,
+  updateRecurrentPayableWithScopeSchema,
   UpdateRecurrentPayableDto,
 } from './dto/recurrent-payable.dto';
 
@@ -63,12 +65,24 @@ export class RecurrentPayableController {
     return this.service.create(dto, userId);
   }
 
+  /** Create a ONE-OFF payable (conta avulsa) — the quick-create modal on Contas
+   *  a Pagar. Stored as a `frequency: ONCE` payable plus its single occurrence, so
+   *  it settles/reconciles through the same pipeline as every other payable. */
+  @Post('one-off')
+  async createOneOff(
+    @Body(new ZodValidationPipe(createOneOffPayableSchema)) dto: CreateOneOffPayableDto,
+    @UserId() userId: string,
+  ) {
+    return this.service.createOneOff(dto, userId);
+  }
+
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateRecurrentPayableSchema)) dto: UpdateRecurrentPayableDto,
+    @Body(new ZodValidationPipe(updateRecurrentPayableWithScopeSchema)) dto: UpdateRecurrentPayableDto,
+    @UserId() userId: string,
   ) {
-    return this.service.update(id, dto);
+    return this.service.update(id, dto, userId);
   }
 
   @Delete(':id')
@@ -105,8 +119,11 @@ export class RecurrentPayableController {
   /** Revert an ignored occurrence back to an open obligation. */
   @Post('occurrences/:occurrenceId/unignore')
   @HttpCode(HttpStatus.OK)
-  async unignoreOccurrence(@Param('occurrenceId') occurrenceId: string) {
-    return this.service.unignoreOccurrence(occurrenceId);
+  async unignoreOccurrence(
+    @Param('occurrenceId') occurrenceId: string,
+    @UserId() userId: string,
+  ) {
+    return this.service.unignoreOccurrence(occurrenceId, { userId });
   }
 
   /** Admin/manual trigger to materialize due occurrences now (mirrors the cron). */

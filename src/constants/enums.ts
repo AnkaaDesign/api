@@ -1426,6 +1426,12 @@ export enum ENTITY_TYPE {
   INSTALLMENT = 'INSTALLMENT',
   INVOICE = 'INVOICE',
   BANK_SLIP = 'BANK_SLIP',
+  // Payables. Added 2026-08-12: editing a recurring bill DELETES and REWRITES
+  // already-materialized occurrences, and none of it was auditable — the only
+  // way to answer "what changed on the Diária de Limpeza, and when" was to diff
+  // nightly database dumps. Every destructive edit now writes a row here.
+  RECURRENT_PAYABLE = 'RECURRENT_PAYABLE',
+  RECURRENT_PAYABLE_OCCURRENCE = 'RECURRENT_PAYABLE_OCCURRENCE',
 }
 
 export enum CHANGE_ACTION {
@@ -2071,6 +2077,9 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   INSTALLMENT = 'INSTALLMENT',
   INVOICE = 'INVOICE',
   BANK_SLIP = 'BANK_SLIP',
+  // Payables — see the note on ENTITY_TYPE above.
+  RECURRENT_PAYABLE = 'RECURRENT_PAYABLE',
+  RECURRENT_PAYABLE_OCCURRENCE = 'RECURRENT_PAYABLE_OCCURRENCE',
 }
 
 // Alias for Prisma compatibility

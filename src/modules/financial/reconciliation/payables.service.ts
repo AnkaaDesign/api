@@ -133,6 +133,10 @@ export class PayablesService {
           // Per-occurrence competence (rows now span current + next month).
           competence: occurrence.competence,
           subtype: isVariable ? 'Variável' : 'Fixo',
+          // A one-off (conta avulsa) rides the RecurrentPayable pipeline so it
+          // settles/reconciles identically, but it is NOT a recurring bill —
+          // the UI must not badge it "Recorrente".
+          oneOff: payable.frequency === 'ONCE',
         });
       }
 

@@ -35,7 +35,13 @@ export class RecurrentPayableScheduler {
   }
 
   /** Public entry point for the dev/manual trigger endpoint. */
-  async runDue(): Promise<{ materialized: number; failed: number; settled?: number; linked?: number }> {
+  async runDue(): Promise<{
+    materialized: number;
+    failed: number;
+    reaped?: number;
+    settled?: number;
+    linked?: number;
+  }> {
     const now = new Date();
     const fireFloor = new Date(now.getTime() - RecurrentPayableScheduler.MIN_FIRE_INTERVAL_MS);
 
@@ -46,10 +52,12 @@ export class RecurrentPayableScheduler {
         OR: [{ lastFiredAt: null }, { lastFiredAt: { lt: fireFloor } }],
       },
     });
-    if (due.length === 0) {
-      this.logger.debug('No recurrent payables due');
-      return { materialized: 0, failed: 0 };
-    }
+    // NOTE: no early return when nothing is due. The sweeps below (reap, settle,
+    // NF link, overdue aging) are about the EXISTING occurrence set, not about
+    // materializing new ones — bailing out here used to skip all of them on any
+    // day when no payable happened to be due, which is most days for a weekly
+    // bill that re-arms `nextRun` a week out.
+    if (due.length === 0) this.logger.debug('No recurrent payables due for materialization');
 
     let materialized = 0;
     let failed = 0;
@@ -95,15 +103,21 @@ export class RecurrentPayableScheduler {
       }
     }
 
-    // Close the loop: first give uncategorized debits the category of the recurring
-    // payee they were paid to (CNPJ match — the category source for no-NF bills),
-    // then settle occurrences whose category got a tagged bank debit (manual or
-    // auto), link inbound NFs for expectsNf payables, and age past-due open
-    // occurrences to OVERDUE.
+    // Close the loop. Order matters:
+    //   1. REAP occurrences that no longer fit their payable's schedule — BEFORE
+    //      any settling, so a phantom row can never absorb a real bank debit and
+    //      hide it from the occurrence it actually belongs to.
+    //   2. Give uncategorized debits the category of the recurring payee they were
+    //      paid to (CNPJ match — the category source for no-NF bills).
+    //   3. Settle occurrences whose category got a tagged bank debit (manual/auto).
+    //   4. Link inbound NFs for expectsNf payables.
+    //   5. Age past-due open occurrences to OVERDUE.
+    let reaped = 0;
     let settled = 0;
     let linked = 0;
     let overdue = 0;
     try {
+      reaped = (await this.service.reapOffScheduleOccurrences()).cancelled;
       await this.service.categorizeFromPayeeCnpj();
       settled = await this.service.reconcilePendingFromBank();
       linked = await this.service.linkPendingNfs();
@@ -113,8 +127,8 @@ export class RecurrentPayableScheduler {
     }
 
     this.logger.log(
-      `Recurrent-payable run done: ${materialized} materialized, ${settled} settled, ${linked} NF linked, ${overdue} overdue, ${failed} failed`,
+      `Recurrent-payable run done: ${materialized} materialized, ${reaped} reaped, ${settled} settled, ${linked} NF linked, ${overdue} overdue, ${failed} failed`,
     );
-    return { materialized, failed, settled, linked };
+    return { materialized, failed, reaped, settled, linked };
   }
 }
