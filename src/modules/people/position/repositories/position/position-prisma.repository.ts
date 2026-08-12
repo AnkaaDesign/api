@@ -15,6 +15,7 @@ import { BaseStringPrismaRepository } from '@modules/common/base/base-string-pri
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@types';
+import { getCurrentRemunerationValue } from '@utils/position';
 
 @Injectable()
 export class PositionPrismaRepository
@@ -44,13 +45,11 @@ export class PositionPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Position {
     const position = databaseEntity as Position;
 
-    // Add virtual remuneration field from latest remuneration record
-    if (position.remunerations && position.remunerations.length > 0) {
-      // Assuming remunerations are ordered by createdAt desc
-      position.remuneration = position.remunerations[0].value;
-    } else {
-      position.remuneration = 0; // Explicitly set to 0
-    }
+    // Campo virtual `remuneration` = remuneração VIGENTE. Resolvida pelo conteúdo das
+    // linhas (current/effectiveDate), nunca pela posição no array: quando o cliente pede
+    // `include: { remunerations: true }` o Prisma devolve as linhas sem ordenação e a
+    // primeira costuma ser a MAIS ANTIGA.
+    position.remuneration = getCurrentRemunerationValue(position.remunerations as any);
 
     return position;
   }
@@ -311,8 +310,8 @@ export class PositionPrismaRepository
     const direction = (remunerationOrder as any).remuneration === 'desc' ? -1 : 1;
 
     return [...positions].sort((a, b) => {
-      const aValue = a.remunerations && a.remunerations.length > 0 ? a.remunerations[0].value : 0;
-      const bValue = b.remunerations && b.remunerations.length > 0 ? b.remunerations[0].value : 0;
+      const aValue = getCurrentRemunerationValue(a.remunerations);
+      const bValue = getCurrentRemunerationValue(b.remunerations);
 
       return (aValue - bValue) * direction;
     });

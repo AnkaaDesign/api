@@ -3,6 +3,54 @@
 import type { Position } from '@types';
 
 // =====================
+// Remuneração vigente
+// =====================
+
+/** Linha de MonetaryValue mínima para resolver a remuneração vigente. */
+export interface RemunerationLike {
+  value: number;
+  current?: boolean;
+  effectiveDate?: Date | string | null;
+  createdAt?: Date | string | null;
+}
+
+const toTime = (value?: Date | string | null): number => {
+  if (!value) return 0;
+  const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+/**
+ * Resolve a remuneração vigente a partir das linhas de MonetaryValue já carregadas.
+ *
+ * NUNCA leia `remunerations[0]` direto: quando o cliente pede `include: { remunerations: true }`
+ * (sem `where`/`orderBy`), o Prisma devolve as linhas em ordem física — na prática a MAIS ANTIGA
+ * primeiro. Foi assim que a Simulação de Promoções passou a exibir o salário de março/2024 como
+ * se fosse o atual. Aqui a linha `current` sempre ganha; havendo mais de uma (erro de dados) ou
+ * nenhuma, vence a mais recente por `effectiveDate` e, no empate, por `createdAt`.
+ */
+export const getCurrentRemuneration = <T extends RemunerationLike>(
+  remunerations?: T[] | null,
+): T | null => {
+  if (!remunerations || remunerations.length === 0) return null;
+
+  const currentRows = remunerations.filter(r => r.current === true);
+  const candidates = currentRows.length > 0 ? currentRows : remunerations;
+
+  return candidates.reduce((best, row) => {
+    const bestEffective = toTime(best.effectiveDate);
+    const rowEffective = toTime(row.effectiveDate);
+    if (rowEffective !== bestEffective) return rowEffective > bestEffective ? row : best;
+    return toTime(row.createdAt) > toTime(best.createdAt) ? row : best;
+  });
+};
+
+/** Valor da remuneração vigente (0 quando o cargo não tem nenhuma linha carregada). */
+export const getCurrentRemunerationValue = (
+  remunerations?: RemunerationLike[] | null,
+): number => getCurrentRemuneration(remunerations)?.value ?? 0;
+
+// =====================
 // Display Formatters
 // =====================
 
@@ -105,4 +153,8 @@ export const positionUtils = {
   calculateHourlyRate,
 
   getRemunerationDistribution,
+
+  // Remuneração vigente
+  getCurrentRemuneration,
+  getCurrentRemunerationValue,
 };

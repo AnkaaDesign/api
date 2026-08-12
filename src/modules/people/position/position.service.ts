@@ -229,12 +229,18 @@ export class PositionService {
   ): Promise<PositionUpdateResponse> {
     try {
       const updatedPosition = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Buscar cargo existente com a remuneração vigente. O campo virtual
-        // `remuneration` é derivado de remunerations[0], então a ordenação é
-        // obrigatória — sem ela o Prisma devolve os registros em ordem arbitrária
-        // e a comparação abaixo criaria um registro de histórico indevido.
+        // Buscar cargo existente com a remuneração vigente. Filtrar por `current` é
+        // obrigatório: sem isso uma carga histórica com `createdAt` recente (a
+        // importação do Consiga já fez isso) vira a "vigente" e a comparação abaixo
+        // criaria um registro de histórico indevido.
         const existingPosition = await this.positionRepository.findByIdWithTransaction(tx, id, {
-          include: { remunerations: { orderBy: { createdAt: 'desc' }, take: 1 } } as any,
+          include: {
+            remunerations: {
+              where: { current: true },
+              orderBy: { effectiveDate: 'desc' },
+              take: 1,
+            },
+          } as any,
         });
 
         if (!existingPosition) {
@@ -536,8 +542,11 @@ export class PositionService {
       // (que depende da remuneração atual) já na fase de pré-escrita.
       const ids = updates.map(u => u.id);
       const existingPositions = await this.positionRepository.findByIds(ids, {
-        // Ordenação obrigatória: remunerations[0] é lido como a remuneração vigente.
-        include: { remunerations: { orderBy: { createdAt: 'desc' }, take: 1 } } as any,
+        // Filtro obrigatório: a linha lida aqui é tratada como a remuneração vigente,
+        // e `createdAt` sozinho não distingue reajuste de carga histórica.
+        include: {
+          remunerations: { where: { current: true }, orderBy: { effectiveDate: 'desc' }, take: 1 },
+        } as any,
       });
       const existingMap = new Map(existingPositions.map(p => [p.id, p]));
 

@@ -23,6 +23,7 @@ import {
   mapMaskSizeToPrisma,
   mapGlovesSizeToPrisma,
   mapRainBootsSizeToPrisma,
+  getCurrentRemunerationValue,
 } from '@utils';
 
 @Injectable()
@@ -60,12 +61,12 @@ export class UserPrismaRepository
       ledSector: ledSector ?? undefined,
     } as User;
 
-    // Calculate virtual remuneration field for the position if it exists
-    if (user.position && user.position.remunerations && user.position.remunerations.length > 0) {
-      // Set the virtual remuneration field from the latest remuneration record
-      user.position.remuneration = user.position.remunerations[0].value;
-    } else if (user.position) {
-      user.position.remuneration = 0;
+    // Campo virtual `remuneration` do cargo = remuneração VIGENTE. Resolvida pelo conteúdo
+    // das linhas (current/effectiveDate), nunca por `remunerations[0]`: um
+    // `include: { position: { include: { remunerations: true } } }` volta sem ordenação e a
+    // primeira linha costuma ser a MAIS ANTIGA.
+    if (user.position) {
+      user.position.remuneration = getCurrentRemunerationValue(user.position.remunerations as any);
     }
 
     return user;
