@@ -141,30 +141,43 @@ porque quem não manda `Accept-Encoding: br` recebe o `.glb` puro.
 
 ## 2. rsync para a árvore servida
 
-> ### São DUAS árvores enquanto a virada não acontecer
+> ### Uma árvore só, desde 2026-08-12
 >
-> `/srv/files/Estudio3D/v1/` é o **destino** e `/srv/studio-assets/v1/` é quem
-> **está no ar** — `STUDIO_ASSETS_ROOT` no `.env.production` ainda aponta para a
-> segunda (ver "Estado", no fim). Elas são árvores independentes, não hard links:
-> `stat -c %d:%i` nos mesmos arquivos devolve inodes diferentes.
+> A virada foi feita: `STUDIO_ASSETS_ROOT=/srv/files/Estudio3D` e
+> `/srv/studio-assets` saiu do ar. Não existe mais o par de árvores que obrigava
+> a publicar duas vezes — publique só no destino.
 >
-> **Publicar só no destino não muda nada no ar**, e o sintoma é silencioso: o
-> upload confere, o `sha256sum` bate, e o `curl` continua devolvendo os bytes
-> velhos com 200. Aconteceu em 2026-08-10 com o `set.glb` do distrito industrial.
->
-> Enquanto as duas existirem, publique nas **duas** — a de destino para não
-> ficar para trás (e entrar no rclone), a viva para o efeito acontecer.
+> Se algum dia voltarem a existir duas, a regra antiga vale de novo: publicar só
+> na que NÃO está no ar não muda nada, e o sintoma é silencioso — o upload
+> confere, o `sha256sum` bate, e o `curl` devolve os bytes velhos com 200.
+> Aconteceu em 2026-08-10 com o `set.glb` do distrito industrial.
+
+**Sincronize os CINCO diretórios, um a um — nunca `web/public/` inteiro.**
 
 ```bash
-for T in /srv/files/Estudio3D /srv/studio-assets; do
-  rsync -avn --delete web/public/ ankaa:$T/v1/   # ENSAIO
+for D in brands environments models renders textures; do
+  rsync -avn --delete "web/public/$D/" "ankaa:/srv/files/Estudio3D/v1/$D/"   # ENSAIO
 done
 ```
 
-**Rode o ensaio (`-n`) primeiro e leia a lista de `deleting …`.** O `--delete` é
-intencional e é o ponto do passo: é ele que tira da árvore servida o `cabs.json`
-aposentado (segunda fonte de verdade), o `scania.fbx` de 46 MB e os backups de
-carreta. Só deve remover:
+O que a árvore servida contém é exatamente o `STUDIO_ASSETS` de
+`web/src/config/assets.ts` — `models/vehicles/`, `textures/`, `environments/`,
+`brands/trucks/` e `renders/`. O resto de `public/` (`branding/`, `icons/`,
+`messages/`, `ghs/`, `vendor/`, `fonts/`, `.well-known/`, `favicon.ico`,
+`site.webmanifest`, `firebase-messaging-sw.js`) é **contrato da plataforma web**,
+servido na raiz do site pelo próprio web — não tem nada que fazer sob um mount
+`immutable` da API.
+
+> Uma versão anterior deste passo mandava `rsync web/public/ → v1/`, a árvore
+> toda. Em 2026-08-12 isso despejou os onze itens acima dentro de
+> `/srv/files/Estudio3D/v1/` — inofensivo (ninguém os pede por ali), mas eram
+> duplicatas do que o web já serve, e o rclone as levava para o Drive junto.
+> Foram removidos na mesma sessão. Daí o laço por diretório.
+
+**Rode o ensaio (`-n`) primeiro e leia a lista de `deleting …`.** O `--delete`
+é o ponto do passo: é ele que tira da árvore servida o `cabs.json` aposentado
+(segunda fonte de verdade), o `scania.fbx` de 46 MB e os backups de carreta. Só
+deve remover:
 
 - `models/vehicles/cabs.json`
 - `models/vehicles/scania.fbx`
@@ -172,7 +185,24 @@ carreta. Só deve remover:
 - `models/vehicles/trailer_old_probe.glb`
 
 Qualquer outra coisa na lista: **pare e investigue** — o servidor tem algo que a
-nossa árvore não tem.
+nossa árvore não tem. Foi o que aconteceu em 2026-08-12, quando o ensaio acusou
+**3.608 remoções**: quatro levas de render antigas (`renders.v4`,
+`renders.novo`, `renders.escura-20260809`, `renders.leva4-20260810`, ~170 MB)
+que só existiam em `/srv/studio-assets`. Publicou-se sem `--delete` e as levas
+morreram junto com a árvore, na virada.
+
+> **`rsync -a` NÃO preserva o grupo sem ser root**, e reescreve a permissão dos
+> diretórios a partir da origem — ou seja, derruba o setgid. Depois de publicar,
+> devolva o padrão dos irmãos de `/srv/files`:
+>
+> ```bash
+> ssh ankaa 'cd /srv/files/Estudio3D && chgrp -R ankaa v1 \
+>   && find v1 -type d -exec chmod g+rwxs {} + \
+>   && find v1 -type f -exec chmod g+rw {} +'
+> ```
+>
+> Confira com `find v1 ! -group ankaa | wc -l` e
+> `find v1 -type d ! -perm -g+s | wc -l` — os dois têm de dar **0**.
 
 ---
 
@@ -256,6 +286,43 @@ No DevTools do studio publicado:
 
 ---
 
+## Estado em 2026-08-12 — a virada FOI FEITA
+
+`STUDIO_ASSETS_ROOT=/srv/files/Estudio3D` (linha 119 do `.env.production`, com
+backup em `.env.production.bak-antes-virada-20260812`). A API foi reiniciada e
+quem serve agora é essa árvore.
+
+**Como isso foi PROVADO**, e não deduzido: as duas árvores tinham os mesmos
+bytes depois do rsync, então tamanho de resposta não distingue uma da outra. O
+que distingue é um arquivo que só existe em uma:
+
+```bash
+ssh ankaa 'echo estudio3d > /srv/files/Estudio3D/v1/virada-check.txt'
+curl -s https://api.ankaadesign.com.br/studio-assets/v1/virada-check.txt   # -> estudio3d
+```
+
+Use um nome SEM ponto na frente: `express.static` ignora dotfiles por padrão, e
+um `.virada-check.txt` volta 404 tanto faz a árvore — o que parece falha da
+virada e não é.
+
+Publicado nesta rodada (rodada do Truck Studio de 10–12/08): `set.glb` novo do
+distrito industrial (18.061.228 B), os `sky.hdr`/`sky-night.hdr` próprios do
+cenário — que fecham o item em aberto da §3 do `ARCHITECTURE.md` — e as 20
+chapas novas de livery em PNG. As duas chapas velhas (`traseira.png`,
+`lateral.png`) foram removidas da árvore servida.
+
+Árvore final: **1.025 arquivos · 533 MB · 49 cabines · 877 renders**, só os
+cinco diretórios, tudo `kennedy:ankaa` com setgid.
+
+**Pendência:** `/srv/studio-assets` (703 MB) ficou no disco. `/srv` é do root e
+`sudo` pede senha para tudo que não seja `systemctl`, então a remoção não pôde
+ser feita pela sessão. Ela está **inerte** — nada aponta para lá (`.env.example`
+e os dois `.bak` mencionam o caminho, só isso). Para remover:
+
+```bash
+sudo rm -rf /srv/studio-assets
+```
+
 ## Estado em 2026-08-10
 
 Publicado por `scp`, **nas duas árvores**, com conferência de `sha256sum` antes
@@ -283,11 +350,12 @@ Conferido por HTTP — os três manifestos em 200, `brands@2`, 60 entradas com
 `file`, 57 `sourceFile` no `hitch.json`, `cabs.json` e `scania.fbx` em 404, e a
 carreta em 31.319.392 B (tier web, não a fonte de 286 MB).
 
-**Falta a virada de caminho.** A árvore já existe em `/srv/files/Estudio3D/v1/`
-(cópia completa, permissões no padrão dos irmãos, entrando no rclone), mas
-`STUDIO_ASSETS_ROOT` no `.env.production` do servidor (linha 119) continua
-apontando para `/srv/studio-assets`. Enquanto essa linha não mudar, quem serve é
-a árvore antiga.
+**Falta a virada de caminho.** *(Feita em 2026-08-12 — ver o estado no topo.)* A
+árvore já existe em `/srv/files/Estudio3D/v1/` (cópia completa, permissões no
+padrão dos irmãos, entrando no rclone), mas `STUDIO_ASSETS_ROOT` no
+`.env.production` do servidor (linha 119) continua apontando para
+`/srv/studio-assets`. Enquanto essa linha não mudar, quem serve é a árvore
+antiga.
 
 A virada foi **tentada e revertida em 2026-08-09**: o restart necessário para
 aplicá-la esbarrou no `dist/` quebrado descrito no aviso do passo 3, e o 502 que
