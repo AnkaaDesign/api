@@ -730,7 +730,21 @@ export class PersonalService {
       },
     };
 
-    return this.bonusService.findManyWithWhere(userFilteredQuery);
+    const result = await this.bonusService.findManyWithWhere(userFilteredQuery);
+
+    // `findManyWithWhere` devolve a linha CRUA do banco. No período ainda
+    // aberto ela é projeção do último save: o histórico do app mostrava as
+    // tarefas ponderadas congeladas enquanto o DP, que passa pelo overlay,
+    // já mostrava o número vivo. A regra de frescor é a mesma dos outros
+    // caminhos de leitura — e só toca a linha do período corrente sem folha,
+    // no máximo uma por página.
+    if (Array.isArray(result?.data)) {
+      result.data = await Promise.all(
+        result.data.map((bonus: any) => this.bonusService.overlayLivePeriodNumbers(bonus)),
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -884,13 +898,21 @@ export class PersonalService {
     });
 
     // If saved bonus exists, return it (with position from payroll snapshot or user)
+    //
+    // A linha salva do período ABERTO é projeção do instante do último save —
+    // tarefas ponderadas, divisor e valor continuam se mexendo depois dele.
+    // `overlayLivePeriodNumbers` é a regra única de frescor (mesma que o DP
+    // usa em `findByIdOrLive` e na lista); sem ela esta tela era a única do
+    // sistema a mostrar o número congelado, e nenhum refresh o mudava.
+    // Período fechado e linha presa a folha passam intocados.
     if (savedBonus) {
       const position = (savedBonus as any).payroll?.position || savedBonus.user?.position || null;
+      const fresh = await this.bonusService.overlayLivePeriodNumbers(savedBonus);
       return {
         success: true,
         message: 'Bônus salvo encontrado para este período.',
         data: {
-          ...savedBonus,
+          ...fresh,
           position,
           isLive: false, // Indicates this is a saved bonus, not live
         },

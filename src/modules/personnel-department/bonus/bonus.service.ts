@@ -619,8 +619,13 @@ export class BonusService {
    *
    * Não toca: período FECHADO (a linha salva é a verdade histórica) nem linha
    * presa a folha (`payrollId` — virou dinheiro pago).
+   *
+   * PÚBLICO porque os endpoints PESSOAIS (`/bonuses/my-live-bonus`,
+   * `/bonuses/my-bonuses`) leem a linha salva por conta própria e precisam da
+   * mesma regra — sem isso o app do colaborador mostrava o número congelado no
+   * último save enquanto o web já mostrava o vivo.
    */
-  private async overlayLivePeriodNumbers(savedBonus: any): Promise<any> {
+  async overlayLivePeriodNumbers(savedBonus: any): Promise<any> {
     if (!savedBonus || savedBonus.payrollId != null) return savedBonus;
 
     const current = getCurrentPeriod();
@@ -635,15 +640,13 @@ export class BonusService {
     );
     if (!live) return savedBonus;
 
+    const { extras, discounts } = await this.loadModifiersForOverlay(savedBonus);
+
     const base = Number(live.baseBonus) || 0;
     return {
       ...savedBonus,
       baseBonus: base,
-      netBonus: this.applyModifiersToBase(
-        base,
-        savedBonus.bonusExtras || [],
-        savedBonus.bonusDiscounts || [],
-      ),
+      netBonus: this.applyModifiersToBase(base, extras, discounts),
       weightedTasks: live.weightedTasks,
       averageTaskPerUser: live.averageTasksPerEmployee,
       periodDivisor: live.periodDivisor,
@@ -659,6 +662,48 @@ export class BonusService {
       terminatedAt: live.terminatedAt,
       currentlyEmployed: live.currentlyEmployed,
     };
+  }
+
+  /**
+   * Desconto/extra da linha para o overlay recalcular o LÍQUIDO.
+   *
+   * Os caminhos de leitura do DP sempre pedem as duas relações no `include`,
+   * mas a lista pessoal do app pede só `user.position`. Com as relações
+   * ausentes, `applyModifiersToBase` veria dois arrays vazios, concluiria
+   * "sem modificadores" e devolveria a BASE como líquido — apagando desconto e
+   * extra da tela do colaborador. Por isso: array presente é usado como veio
+   * (vazio ali significa "não tem"), `undefined` é buscado no banco. No máximo
+   * uma linha por usuário chega aqui (só o período corrente sem folha).
+   */
+  private async loadModifiersForOverlay(
+    savedBonus: any,
+  ): Promise<{ extras: any[]; discounts: any[] }> {
+    const hasExtras = Array.isArray(savedBonus.bonusExtras);
+    const hasDiscounts = Array.isArray(savedBonus.bonusDiscounts);
+
+    if ((hasExtras && hasDiscounts) || !savedBonus.id) {
+      return {
+        extras: hasExtras ? savedBonus.bonusExtras : [],
+        discounts: hasDiscounts ? savedBonus.bonusDiscounts : [],
+      };
+    }
+
+    const [extras, discounts] = await Promise.all([
+      hasExtras
+        ? Promise.resolve(savedBonus.bonusExtras)
+        : this.prisma.bonusExtra.findMany({
+            where: { bonusId: savedBonus.id },
+            orderBy: { calculationOrder: 'asc' },
+          }),
+      hasDiscounts
+        ? Promise.resolve(savedBonus.bonusDiscounts)
+        : this.prisma.bonusDiscount.findMany({
+            where: { bonusId: savedBonus.id },
+            orderBy: { calculationOrder: 'asc' },
+          }),
+    ]);
+
+    return { extras, discounts };
   }
 
   /**
