@@ -16,6 +16,7 @@ import {
   AIRBRUSHING_PAYMENT_STATUS,
   AIRBRUSHING_DUE_DATE_RULE,
   PAYMENT_METHOD,
+  NFSE_STATUS,
 } from '@constants';
 
 // =====================
@@ -169,6 +170,23 @@ export const airbrushingIncludeSchema = z
               externalOperationBudget: z.boolean().optional(),
               externalOperationNfe: z.boolean().optional(),
               externalOperationReceipt: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    // NFS-e emitida pelo aerografista. Sem esta chave declarada o include era
+    // silenciosamente descartado (o objeto não é strict) e a coluna "NFS-e" da
+    // tabela ficava sempre vazia, sem erro nenhum para denunciar o motivo.
+    nfse: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              painter: z.boolean().optional(),
+              profile: z.boolean().optional(),
+              certificate: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -571,6 +589,12 @@ const airbrushingFilters = {
       lte: z.coerce.date().optional(),
     })
     .optional(),
+  // Situação da NFS-e emitida pelo aerografista. Aceita 'NONE' como valor
+  // sintético para "aerografia sem nota nenhuma" — que é justamente o caso que
+  // interessa investigar (concluída e sem nota).
+  nfseStatuses: z
+    .array(z.union([z.nativeEnum(NFSE_STATUS), z.literal('NONE')]))
+    .optional(),
 };
 
 // =====================
@@ -696,6 +720,23 @@ const airbrushingTransform = (data: any): any => {
       andConditions.push({ dueDate: dueDateCondition });
     }
     delete data.dueDateRange;
+  }
+
+  // Situação da NFS-e do aerografista. 'NONE' é sintético e vira "não existe
+  // linha de nota" — é o filtro que responde "quais aerografias concluídas
+  // ficaram sem nota?", que é o motivo de a coluna existir.
+  if (data.nfseStatuses?.length) {
+    const statuses = data.nfseStatuses.filter((s: string) => s !== 'NONE');
+    const wantsNone = data.nfseStatuses.length !== statuses.length;
+
+    const orConditions: any[] = [];
+    if (statuses.length > 0) orConditions.push({ nfse: { is: { status: { in: statuses } } } });
+    if (wantsNone) orConditions.push({ nfse: { is: null } });
+
+    if (orConditions.length > 0) {
+      andConditions.push(orConditions.length === 1 ? orConditions[0] : { OR: orConditions });
+    }
+    delete data.nfseStatuses;
   }
 
   if (data.createdAt) {

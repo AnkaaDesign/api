@@ -74,6 +74,9 @@ model Airbrushing {
   invoices              File[]                   @relation("AIRBRUSHING_INVOICES")
   receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
   reconciliationMatches ReconciliationMatch[]    @relation("AirbrushingMatches")
+  /// NFS-e que o aerografista (prestador) emite contra a Ankaa (tomadora) quando
+  /// esta aerografia é concluída. 1-1: a linha é a trava de idempotência.
+  nfse                  AirbrushingNfse?
 
   descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -732,6 +735,8 @@ model File {
   paintingFaceOverlays                   PaintingAnalysisFace[]    @relation("PAINTING_FACE_OVERLAY")
   airbrushingInvoices                    Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
   airbrushingReceipts                    Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingNfsePdfs                    AirbrushingNfse[]         @relation("AIRBRUSHING_NFSE_PDF")
+  airbrushingNfseXmls                    AirbrushingNfse[]         @relation("AIRBRUSHING_NFSE_XML")
   externalOperationInvoices              ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICES")
   externalOperationInvoiceReimbursements ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
   externalOperationReceipts              ExternalOperation[]       @relation("EXTERNAL_OPERATION_RECEIPTS")
@@ -2363,6 +2368,8 @@ model User {
   statisticsPagePreferences      StatisticsPagePreference[]   @relation("USER_STATISTICS_PAGE_PREFERENCES")
   statisticsPresets              StatisticsPreset[]           @relation("USER_STATISTICS_PRESETS")
   airbrushingsAsPainter          Airbrushing[]                @relation("AIRBRUSHING_PAINTER")
+  fiscalEmitterProfile           FiscalEmitterProfile?        @relation("USER_FISCAL_EMITTER")
+  airbrushingNfses               AirbrushingNfse[]            @relation("AIRBRUSHING_NFSE_PAINTER")
   salaryAdjustmentsApplied       SalaryAdjustment[]           @relation("SALARY_ADJUSTMENT_APPLIED_BY")
   positionHistories              UserPositionHistory[]        @relation("USER_POSITION_HISTORY_USER")
   positionHistoriesChanged       UserPositionHistory[]        @relation("USER_POSITION_HISTORY_CHANGED_BY")
@@ -3949,6 +3956,12 @@ enum ChangeLogEntityType {
   // nightly database dumps.
   RECURRENT_PAYABLE
   RECURRENT_PAYABLE_OCCURRENCE
+  // NFS-e de prestador terceiro. Adicionado 2026-08-14: a emissão automática da
+  // nota do aerografista move dinheiro e é irreversível depois de autorizada, e
+  // nada disso era auditável — não existia nem um entity type para NFS-e.
+  AIRBRUSHING_NFSE
+  FISCAL_EMITTER_PROFILE
+  FISCAL_CERTIFICATE
 }
 
 enum ChangeLogAction {
@@ -4425,6 +4438,255 @@ model NfseDocument {
   @@index([status])
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NFS-e do PRESTADOR TERCEIRO (aerografistas MEI) — Sistema Nacional / SEFIN
+//
+// Este bloco é o INVERSO do NfseDocument acima. Lá a Ankaa é a prestadora e o
+// Customer é o tomador, e a emissão sai pelo portal municipal da Elotech/Ibiporã.
+// Aqui o AEROGRAFISTA é o prestador e a Ankaa é a tomadora, e a emissão vai
+// direto à API nacional (sefin.nfse.gov.br), assinada com o certificado A1 do
+// próprio pintor.
+//
+// Por que não dá para reaproveitar a Elotech: aquele caminho é uma sessão de
+// portal presa ao subdomínio do município (ibipora.oxy.elotech.com.br) e ao
+// login CPF+senha da empresa. Outro CNPJ = outra credencial; outro município =
+// outro host. Não existe modo "software house emite por vários contribuintes".
+//
+// Por que a API nacional serve para qualquer pintor: a Res. CGSN 169/2022
+// (art. 106-A do Anexo da Res. 140/2018), em vigor desde 01/09/2023, obriga o
+// MEI a emitir NFS-e pelo padrão nacional em TODOS os municípios — conveniados
+// ou não. As regras de recepção E0016/E0037/E0038/E0039 dispensam expressamente
+// a checagem de convênio "quando o emitente da DPS for MEI na data de
+// competência". Então não há fallback municipal a manter.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Identidade fiscal de um prestador pessoa jurídica que emite NFS-e própria
+/// (hoje, os aerografistas MEI).
+///
+/// Modelo separado em vez de colunas em User porque são ~12 campos que só fazem
+/// sentido para quem é prestador, e User já carrega 140 colunas mais a convenção
+/// de colunas *Normalized geradas. O CNPJ aqui é a fonte da verdade da emissão;
+/// EmploymentContract.providerCnpj continua sendo o dado do vínculo/pagamento.
+model FiscalEmitterProfile {
+  id     String @id @default(uuid())
+  userId String @unique
+
+  /// CNPJ do MEI, 14 dígitos sem máscara. Vira prest/CNPJ na DPS e precisa bater
+  /// com o CNPJ de dentro do certificado A1 (extensão OtherName OID
+  /// 2.16.76.1.3.3), senão a SEFIN rejeita com E1209.
+  cnpj          String  @unique
+  corporateName String
+  tradeName     String?
+
+  /// Inscrição municipal. OPCIONAL no layout: a regra E0116 só a exige quando o
+  /// município mantém registro complementar do contribuinte no CNC. MEI comum não
+  /// tem — e nesse caso o elemento IM deve ser OMITIDO, nunca enviado vazio.
+  municipalRegistration String?
+
+  /// Código IBGE (7 dígitos) do município do emitente — vira cLocEmi.
+  /// Regra E0041: para MEI tem de ser o município do endereço no cadastro CNPJ,
+  /// e não onde o serviço foi executado.
+  municipalityIbgeCode String
+
+  /// prest/regTrib/opSimpNac — 1=Não optante, 2=Optante MEI, 3=Optante ME/EPP.
+  opSimpNac Int @default(2)
+
+  /// prest/regTrib/regEspTrib — a regra E0174 obriga 0 (Nenhum) para MEI.
+  /// regApTribSN é proibido para MEI (E0162) e por isso nem existe aqui.
+  regEspTrib Int @default(0)
+
+  /// Código de tributação nacional, 6 dígitos (item LC 116 + subitem + desdobro).
+  ///
+  /// Padrão 141201 (item 14.12 — funilaria e lanternagem). NÃO é escolha
+  /// arbitrária: é o código usado nas 42 NFS-e que o aerografista já emitiu pelo
+  /// portal, e o mesmo da configuração Elotech da própria empresa. O 14.05
+  /// ("pintura de objetos quaisquer") parece mais literal, mas divergir do
+  /// histórico do prestador criaria inconsistência fiscal sem ninguém perceber.
+  cTribNac String @default("141201")
+
+  /// Código de tributação municipal (até 3 chars). Não é validado para MEI (E0314).
+  cTribMun String?
+
+  /// Descrição padrão do serviço, usada quando a aerografia não tem descrição própria.
+  serviceDescription String @default("Prestação de serviços de aerografia e pintura artística em veículos")
+
+  /// Série da DPS deste emitente. Faixa 80000-89999 é reservada à transcrição
+  /// manual pela SEFIN — não usar.
+  serie String @default("00001")
+
+  /// 1=Produção, 2=Produção Restrita. Cada emitente vira a chave individualmente,
+  /// depois de fechar o ciclo emitir/consultar/cancelar em homologação.
+  environment Int @default(2)
+
+  /// Trava mestra por emitente. Enquanto false, a intenção de nota é registrada e
+  /// fica visível, mas nada é transmitido à SEFIN.
+  emissionEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User                @relation("USER_FISCAL_EMITTER", fields: [userId], references: [id], onDelete: Cascade)
+  certificates FiscalCertificate[]
+  sequences    FiscalDpsSequence[]
+  nfses        AirbrushingNfse[]
+
+  @@index([cnpj])
+}
+
+/// Certificado digital A1 (ICP-Brasil, .pfx/.p12) de um emitente.
+///
+/// Guardado CIFRADO no banco e deliberadamente NÃO como File: `GET /files/serve/:id`
+/// serve qualquer arquivo por id com `Access-Control-Allow-Origin: *`, então uma
+/// chave privada modelada como File seria baixável por qualquer um que adivinhasse
+/// o uuid.
+///
+/// Cifragem em envelope: uma DEK aleatória por certificado (AES-256-GCM) protege o
+/// PFX e a senha separadamente; a DEK é embrulhada por uma KEK derivada de
+/// FISCAL_CERT_KEK. kekVersion permite rotacionar a KEK re-embrulhando só as DEKs,
+/// sem tocar nos blobs.
+model FiscalCertificate {
+  id        String @id @default(uuid())
+  profileId String
+
+  /// CNPJ (ou CPF) lido de DENTRO do certificado, via SAN otherName OID
+  /// 2.16.76.1.3.3, com fallback para a convenção de CN "RAZAO SOCIAL:CNPJ".
+  holderDocument    String
+  subjectCommonName String
+  issuer            String
+  serialNumber      String
+  notBefore         DateTime
+  notAfter          DateTime
+
+  /// SHA-256 do PFX — impede recadastrar o mesmo arquivo duas vezes.
+  fingerprint String @unique
+
+  kekVersion         Int    @default(1)
+  wrappedDek         String
+  pfxCiphertext      Bytes
+  pfxIv              String
+  pfxAuthTag         String
+  passwordCiphertext String
+  passwordIv         String
+  passwordAuthTag    String
+
+  /// Só um certificado ativo por perfil ao mesmo tempo (garantido por índice
+  /// parcial na migration, que o Prisma não sabe declarar).
+  isActive  Boolean   @default(true)
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile FiscalEmitterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  nfses   AirbrushingNfse[]
+
+  @@index([profileId, isActive])
+  @@index([notAfter])
+}
+
+/// Sequência monotônica de nDPS por (emitente, série).
+///
+/// O layout exige nDPS crescente, e o idDps (município + inscrição + série + nDPS)
+/// é a chave que a SEFIN usa para deduplicar. Por isso o contador precisa ser
+/// durável e incrementado transacionalmente, não derivado de count().
+model FiscalDpsSequence {
+  id          String @id @default(uuid())
+  profileId   String
+  serie       String
+  /// 1 = Produção, 2 = Produção Restrita.
+  ///
+  /// Faz parte da chave porque a SEFIN mantém espaços de numeração SEPARADOS
+  /// por ambiente. Um contador único para os dois faz um teste em homologação
+  /// queimar números que depois colidem — rejeição E0014 na emissão seguinte.
+  environment Int    @default(1)
+  lastNumber  BigInt @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile FiscalEmitterProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, serie, environment])
+}
+
+/// NFS-e emitida pelo aerografista contra a Ankaa por uma aerografia concluída.
+///
+/// `airbrushingId` é @unique de propósito: ESTA LINHA é a trava de idempotência.
+/// Sete caminhos distintos levam uma aerografia a COMPLETED (update, batchUpdate,
+/// create, batchCreate, dois writes crus dentro de TaskService e a reabertura
+/// COMPLETED→IN_PRODUCTION→COMPLETED) e nenhum deles pode gerar uma segunda nota.
+///
+/// A linha é criada dentro da mesma transação que conclui a aerografia, mas a
+/// chamada à SEFIN acontece SEMPRE fora dela.
+model AirbrushingNfse {
+  id            String  @id @default(uuid())
+  airbrushingId String  @unique
+  /// Nulo quando o pintor ainda não tem perfil fiscal: a intenção é registrada
+  /// mesmo assim, em ERROR, para a falha ficar visível em vez de silenciosa.
+  profileId     String?
+  painterId     String?
+  certificateId String?
+
+  status      NfseStatus @default(PENDING)
+  environment Int        @default(2)
+
+  /// Identificação da DPS: "DPS" + 42 dígitos (cLocEmi 7 + tpInscr 1 + inscrição
+  /// 14 + série 5 + nDPS 15).
+  dpsId String? @unique
+  serie String?
+  nDps  BigInt?
+
+  /// Retorno da SEFIN. accessKey (chaveAcesso) tem exatamente 50 dígitos.
+  accessKey     String?   @unique
+  nfseNumber    String?
+  issuedAt      DateTime?
+  competence    DateTime?
+  serviceAmount Decimal?  @db.Decimal(15, 2)
+
+  /// XMLs preservados para auditoria fiscal. `dpsXml` é o que foi assinado e
+  /// transmitido byte a byte (reserializar invalida a assinatura, então é o único
+  /// registro fiel); `nfseXml` é o documento autorizado devolvido.
+  dpsXml  String?
+  nfseXml String?
+  alerts  Json?
+
+  errorMessage  String?
+  errorCode     String?
+  errorCount    Int       @default(0)
+  retryAfter    DateTime?
+  lastAttemptAt DateTime?
+
+  cancelledAt      DateTime?
+  cancelReasonCode Int?
+  cancelReason     String?
+  cancelEventXml   String?
+
+  /// DANFSe gerado a partir do XML autorizado, anexado às "Notas Fiscais" da
+  /// aerografia. Gerado em casa porque a API nacional de DANFSe foi desativada
+  /// (404 no ADN, 501 na SEFIN) e o PDF passou a ser responsabilidade do emitente.
+  pdfFileId        String?
+  /// XML autorizado guardado em "Notas Fiscais/XML", junto dos demais XMLs.
+  xmlFileId        String?
+  /// Documento fiscal criado a partir deste XML pelo mesmo ingestor do SIEG.
+  /// Do ponto de vista da Ankaa é uma nota de ENTRADA (o pintor é o prestador).
+  fiscalDocumentId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  airbrushing    Airbrushing           @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  profile        FiscalEmitterProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  painter        User?                 @relation("AIRBRUSHING_NFSE_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
+  certificate    FiscalCertificate?    @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+  pdfFile        File?                 @relation("AIRBRUSHING_NFSE_PDF", fields: [pdfFileId], references: [id], onDelete: SetNull)
+  xmlFile        File?                 @relation("AIRBRUSHING_NFSE_XML", fields: [xmlFileId], references: [id], onDelete: SetNull)
+  fiscalDocument FiscalDocument?       @relation("AIRBRUSHING_NFSE_FISCAL_DOC", fields: [fiscalDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([status, retryAfter])
+  @@index([profileId])
+  @@index([painterId])
+}
+
 model SicrediToken {
   id               String    @id @default(uuid())
   accessToken      String
@@ -4807,12 +5069,13 @@ model FiscalDocument {
   municipioPrestacao        String? // IBGE code or name
   itemListaServico          String? // ABRASF service list code
 
-  rawXmlFile   File?                     @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
-  nfseDocument NfseDocument?             @relation("NfseFiscalDocument", fields: [nfseDocumentId], references: [id], onDelete: SetNull)
-  matches      ReconciliationMatch[]     @relation("DocumentMatches")
-  items        FiscalDocumentItem[]
-  orderCodes   FiscalDocumentOrderCode[]
-  orders       Order[]                   @relation("ORDER_FISCAL_DOCUMENTS")
+  rawXmlFile       File?                     @relation("FiscalDocXml", fields: [rawXmlFileId], references: [id])
+  nfseDocument     NfseDocument?             @relation("NfseFiscalDocument", fields: [nfseDocumentId], references: [id], onDelete: SetNull)
+  airbrushingNfses AirbrushingNfse[]         @relation("AIRBRUSHING_NFSE_FISCAL_DOC")
+  matches          ReconciliationMatch[]     @relation("DocumentMatches")
+  items            FiscalDocumentItem[]
+  orderCodes       FiscalDocumentOrderCode[]
+  orders           Order[]                   @relation("ORDER_FISCAL_DOCUMENTS")
 
   @@index([docType])
   @@index([operationType])
@@ -7151,13 +7414,13 @@ model SignatureEnvelope {
   quoteTermsSha256 String?
 
   /// Artefato final: original + selos visuais + trilha de auditoria + PAdES.
-  finalFileId String?
+  finalFileId   String?
   /// Dossiê congelado no momento do selamento. O documento só é FINAL quando o
   /// envelope conclui — antes disso ele muda a cada assinatura coletada, e por isso
   /// o endpoint sob demanda continua existindo (é o preview do envelope aberto).
   dossierFileId String?
-  finalSha256 String?
-  sealedAt    DateTime?
+  finalSha256   String?
+  sealedAt      DateTime?
 
   padesLevel       String?
   certSubject      String?
@@ -7560,37 +7823,37 @@ enum PaintingIndirectMode {
 }
 
 model PaintingAnalysis {
-  id                 String                  @id @default(uuid())
+  id                 String                 @id @default(uuid())
   name               String
-  status             PaintingAnalysisStatus  @default(DRAFT)
+  status             PaintingAnalysisStatus @default(DRAFT)
   engineVersion      String?
-  serviceContext     PaintingServiceContext  @default(NEW_IMPLEMENT)
-  substrate          PaintingSubstrate       @default(CHAPA_FRISOS)
-  substrateSource    PaintingValueSource     @default(AUTO)
-  alreadyPrepared    Boolean                 @default(false)
+  serviceContext     PaintingServiceContext @default(NEW_IMPLEMENT)
+  substrate          PaintingSubstrate      @default(CHAPA_FRISOS)
+  substrateSource    PaintingValueSource    @default(AUTO)
+  alreadyPrepared    Boolean                @default(false)
   taskId             String?
   implementMeasureId String?
   processingError    String?
 
   // --- programa de superfície (pintura geral) — v3 -------------------------
   /// DERIVADO da arte no compute (fundo GENERAL_PAINT) — não é escolha do usuário.
-  generalPaint       Boolean                 @default(false)
-  paintSystemKey     String?
+  generalPaint     Boolean                 @default(false)
+  paintSystemKey   String?
   /// Override manual da cor final; vazio = a cor de fundo detectada na arte.
-  targetPaintId      String?
+  targetPaintId    String?
   /// ÚNICAS medidas digitadas (cm). Largura, teto, chassi e frames são inferidos
   /// a partir delas + a regra IMPLEMENT_DEFAULTS.
-  lengthCm           Float?
-  heightCm           Float?
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  task               Task?                   @relation("TASK_PAINTING_ANALYSES", fields: [taskId], references: [id], onDelete: SetNull)
-  implementMeasure   ImplementMeasure?       @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE", fields: [implementMeasureId], references: [id], onDelete: SetNull)
-  targetPaint        Paint?                  @relation("PAINTING_ANALYSIS_TARGET_PAINT", fields: [targetPaintId], references: [id], onDelete: SetNull)
-  paintSystem        PaintingPaintSystem?    @relation("PAINTING_ANALYSIS_SYSTEM", fields: [paintSystemKey], references: [key], onDelete: SetNull)
-  faces              PaintingAnalysisFace[]
-  plan               PaintingProductionPlan?
-  alerts             PaintingAnalysisAlert[]
+  lengthCm         Float?
+  heightCm         Float?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  task             Task?                   @relation("TASK_PAINTING_ANALYSES", fields: [taskId], references: [id], onDelete: SetNull)
+  implementMeasure ImplementMeasure?       @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE", fields: [implementMeasureId], references: [id], onDelete: SetNull)
+  targetPaint      Paint?                  @relation("PAINTING_ANALYSIS_TARGET_PAINT", fields: [targetPaintId], references: [id], onDelete: SetNull)
+  paintSystem      PaintingPaintSystem?    @relation("PAINTING_ANALYSIS_SYSTEM", fields: [paintSystemKey], references: [key], onDelete: SetNull)
+  faces            PaintingAnalysisFace[]
+  plan             PaintingProductionPlan?
+  alerts           PaintingAnalysisAlert[]
 
   @@index([taskId])
   @@index([status])

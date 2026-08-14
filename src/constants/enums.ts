@@ -1432,6 +1432,12 @@ export enum ENTITY_TYPE {
   // nightly database dumps. Every destructive edit now writes a row here.
   RECURRENT_PAYABLE = 'RECURRENT_PAYABLE',
   RECURRENT_PAYABLE_OCCURRENCE = 'RECURRENT_PAYABLE_OCCURRENCE',
+  // NFS-e de prestador terceiro. Added 2026-08-14: a emissão automática da nota
+  // do aerografista é irreversível depois de autorizada e não havia entity type
+  // para NFS-e nenhuma — nem para a da própria empresa.
+  AIRBRUSHING_NFSE = 'AIRBRUSHING_NFSE',
+  FISCAL_EMITTER_PROFILE = 'FISCAL_EMITTER_PROFILE',
+  FISCAL_CERTIFICATE = 'FISCAL_CERTIFICATE',
 }
 
 export enum CHANGE_ACTION {
@@ -2080,6 +2086,10 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   // Payables — see the note on ENTITY_TYPE above.
   RECURRENT_PAYABLE = 'RECURRENT_PAYABLE',
   RECURRENT_PAYABLE_OCCURRENCE = 'RECURRENT_PAYABLE_OCCURRENCE',
+  // NFS-e de prestador terceiro — see the note on ENTITY_TYPE above.
+  AIRBRUSHING_NFSE = 'AIRBRUSHING_NFSE',
+  FISCAL_EMITTER_PROFILE = 'FISCAL_EMITTER_PROFILE',
+  FISCAL_CERTIFICATE = 'FISCAL_CERTIFICATE',
 }
 
 // Alias for Prisma compatibility

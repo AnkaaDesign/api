@@ -22,7 +22,15 @@ export const COMPANY = {
   addressShort: 'Rua: Luis Carlos Zani, 2493 - Santa Paula, Ibiporã-PR',
   city: 'Ibiporã',
   state: 'PR',
-  zipCode: '86200-000',
+  /**
+   * CEP por rua. Ibiporã trocou o CEP geral único (86200-000) por CEPs de
+   * logradouro, e o cadastro do CNPJ ainda carrega o antigo.
+   *
+   * Não é detalhe cosmético: o CEP geral não existe na base dos Correios como
+   * CEP de entrega, e a SEFIN recusa a NFS-e com E0240 ("o CEP não existe ou
+   * não pertence ao município") ao validar o endereço do tomador.
+   */
+  zipCode: '86204-020',
 
   phone: '43 9 8428-3228',
   phoneClean: '5543984283228',

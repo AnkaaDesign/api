@@ -15,6 +15,7 @@ import type {
   AIRBRUSHING_DUE_DATE_RULE,
   PAYMENT_METHOD,
   ORDER_BY_DIRECTION,
+  NFSE_STATUS,
 } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { File, FileIncludes } from './file';
@@ -64,6 +65,47 @@ export interface Airbrushing extends BaseEntity {
   invoices?: File[];
   receipts?: File[];
   layouts?: Layout[];
+  /**
+   * NFS-e que o aerografista (prestador MEI) emite contra a Ankaa (tomadora)
+   * quando esta aerografia é concluída. Não confundir com `invoices`, que são
+   * arquivos de nota anexados à mão.
+   */
+  nfse?: AirbrushingNfse | null;
+}
+
+/**
+ * NFS-e emitida pelo aerografista pelo Sistema Nacional (SEFIN), assinada com o
+ * certificado A1 do próprio pintor. Uma por aerografia, no máximo.
+ */
+export interface AirbrushingNfse {
+  id: string;
+  airbrushingId: string;
+  profileId: string | null;
+  painterId: string | null;
+  certificateId: string | null;
+  status: NFSE_STATUS;
+  /** 1 = Produção, 2 = Produção Restrita (homologação). */
+  environment: number;
+  serie: string | null;
+  /** BigInt no banco; trafega como string para sobreviver ao JSON. */
+  nDps: string | null;
+  dpsId: string | null;
+  /** Chave de acesso da NFS-e — 50 dígitos. */
+  accessKey: string | null;
+  nfseNumber: string | null;
+  issuedAt: Date | null;
+  competence: Date | null;
+  serviceAmount: number | null;
+  errorMessage: string | null;
+  errorCode: string | null;
+  errorCount: number;
+  retryAfter: Date | null;
+  lastAttemptAt: Date | null;
+  cancelledAt: Date | null;
+  cancelReasonCode: number | null;
+  cancelReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // =====================

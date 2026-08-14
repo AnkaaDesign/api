@@ -48,6 +48,7 @@ import {
   SERVICE_ORDER_TYPE,
   CUT_STATUS,
   AIRBRUSHING_STATUS,
+  AIRBRUSHING_DUE_DATE_RULE,
   TASK_QUOTE_STATUS,
   INVOICE_STATUS,
 } from '../../../constants/enums';
@@ -106,6 +107,9 @@ import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
+import { PainterNfseService } from '@modules/integrations/nfse/painter/painter-nfse.service';
+// Fonte única do vencimento da aerografia — a mesma que o AirbrushingService usa.
+import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import { TaskQuoteService } from '../task-quote/task-quote.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
@@ -152,6 +156,10 @@ export class TaskService {
     // NOTE: TaskNotificationService injection removed - legacy notification path was deprecated
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
+    // NFS-e do aerografista: o formulário de tarefa escreve em tx.airbrushing.*
+    // diretamente, sem passar pelo AirbrushingService, então o gancho de emissão
+    // precisa ser repetido aqui.
+    private readonly painterNfseService: PainterNfseService,
     @Inject(forwardRef(() => TaskQuoteService))
     private readonly taskQuoteService: TaskQuoteService,
     @Inject(forwardRef(() => SignatureDeletionService))
@@ -5294,10 +5302,68 @@ export class TaskService {
                 }
               }
 
+              // Este caminho nunca carimbou finishedAt: concluir uma aerografia
+              // pelo formulário da tarefa deixava a aerografia COMPLETED sem
+              // data de término. Sem término não há competência para a NFS-e —
+              // ela cairia na data PREVISTA, que é outra coisa.
+              if (
+                updatePayload.status === AIRBRUSHING_STATUS.COMPLETED &&
+                existingAirbrushing?.status !== AIRBRUSHING_STATUS.COMPLETED
+              ) {
+                if (!existingAirbrushing?.finishedAt && updatePayload.finishedAt === undefined) {
+                  updatePayload.finishedAt = new Date();
+                }
+                if (!existingAirbrushing?.startedAt && updatePayload.startedAt === undefined) {
+                  updatePayload.startedAt = new Date();
+                }
+              }
+
+              // Vencimento: este caminho também nunca chamava applyDueDate. Como
+              // acabou de carimbar `finishedAt`, ele MUDOU a referência do
+              // cálculo — e sem recalcular o vencimento ficava congelado na data
+              // PREVISTA, que é justamente o que a regra "N dias após o término"
+              // não quer dizer. Contas a Pagar lê essa coluna.
+              //
+              // Regra FIXED_DATE nunca é recalculada: é valor do usuário, não
+              // função do término. Mesma fonte usada pelo AirbrushingService.
+              const dueRule =
+                updatePayload.dueDateRule ??
+                existingAirbrushing?.dueDateRule ??
+                AIRBRUSHING_DUE_DATE_RULE.DAYS_AFTER_FINISH;
+              if (dueRule !== AIRBRUSHING_DUE_DATE_RULE.FIXED_DATE) {
+                const finishReference =
+                  (updatePayload.finishedAt as Date | undefined) ??
+                  existingAirbrushing?.finishedAt ??
+                  (updatePayload.finishDate as Date | undefined) ??
+                  existingAirbrushing?.finishDate ??
+                  null;
+
+                updatePayload.dueDate = resolveAirbrushingDueDate(
+                  {
+                    dueDateRule: dueRule,
+                    paymentTermDays:
+                      updatePayload.paymentTermDays ?? existingAirbrushing?.paymentTermDays ?? null,
+                    dueDayOfMonth:
+                      updatePayload.dueDayOfMonth ?? existingAirbrushing?.dueDayOfMonth ?? null,
+                    dueDate: updatePayload.dueDate ?? existingAirbrushing?.dueDate ?? null,
+                  },
+                  finishReference,
+                );
+              }
+
               const updatedAirbrushing = await tx.airbrushing.update({
                 where: { id: airbrushingData.id },
                 data: updatePayload,
               });
+
+              // NFS-e do aerografista — conclusão pelo formulário da tarefa.
+              if (updatedAirbrushing.status === AIRBRUSHING_STATUS.COMPLETED) {
+                await this.painterNfseService.registerIntent(tx, {
+                  airbrushingId: updatedAirbrushing.id,
+                  painterId: updatedAirbrushing.painterId,
+                  resetFailed: existingAirbrushing?.status !== AIRBRUSHING_STATUS.COMPLETED,
+                });
+              }
 
               // Registrar mudanças no changelog
               await this.changeLogService.logChange({
@@ -5360,6 +5426,15 @@ export class TaskService {
                       : undefined,
                 },
               });
+
+              // NFS-e do aerografista — o formulário permite nascer concluída.
+              if (newAirbrushing.status === AIRBRUSHING_STATUS.COMPLETED) {
+                await this.painterNfseService.registerIntent(tx, {
+                  airbrushingId: newAirbrushing.id,
+                  painterId: newAirbrushing.painterId,
+                  resetFailed: true,
+                });
+              }
 
               // Registrar criação no changelog
               await this.changeLogService.logChange({

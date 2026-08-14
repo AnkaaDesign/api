@@ -523,7 +523,12 @@ export class SiegXmlParserService {
       cancelledAt: cancelled ? this.parseDateOrNull(infNFSe.dhProc) : null,
       issValue: this.toNumberOrNull(tribMun.vISSQN || valoresNFSe.vISS),
       issRate: this.toNumberOrNull(tribMun.pAliq),
-      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) === '1' : null,
+      // INVERTIDO até 14/08/2026: no leiaute nacional `tpRetISSQN` vale
+      // 1 = Não Retido, 2 = Retido pelo Tomador, 3 = Retido pelo Intermediário.
+      // A comparação com '1' marcava como RETIDO justamente o caso em que NÃO
+      // há retenção — e para prestador MEI a retenção é proibida (regra E0583),
+      // então toda nota de MEI aparecia com "ISS retido: Sim".
+      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) !== '1' : null,
       baseCalculo: this.toNumberOrNull(valoresNFSe.vBC || tribMun.vBC),
       valorLiquido,
       valorServicos,
@@ -591,7 +596,12 @@ export class SiegXmlParserService {
       nfNumber: nfNumber || null,
       issValue: this.toNumberOrNull(tribMun.vISSQN),
       issRate: this.toNumberOrNull(tribMun.pAliq),
-      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) === '1' : null,
+      // INVERTIDO até 14/08/2026: no leiaute nacional `tpRetISSQN` vale
+      // 1 = Não Retido, 2 = Retido pelo Tomador, 3 = Retido pelo Intermediário.
+      // A comparação com '1' marcava como RETIDO justamente o caso em que NÃO
+      // há retenção — e para prestador MEI a retenção é proibida (regra E0583),
+      // então toda nota de MEI aparecia com "ISS retido: Sim".
+      issRetained: tribMun.tpRetISSQN != null ? String(tribMun.tpRetISSQN) !== '1' : null,
       valorServicos,
       codigoTributacaoMunicipio: cServ.cTribMun ? String(cServ.cTribMun) : null,
       itemListaServico,

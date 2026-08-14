@@ -21,6 +21,7 @@ import {
   LAYOUT_STATUS,
 } from '../../../constants/enums';
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
+import { PainterNfseService } from '@modules/integrations/nfse/painter/painter-nfse.service';
 import type {
   AirbrushingBatchCreateResponse,
   AirbrushingBatchDeleteResponse,
@@ -52,7 +53,73 @@ export class AirbrushingService {
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
     private readonly fileReferenceService: FileReferenceService,
+    private readonly painterNfseService: PainterNfseService,
   ) {}
+
+  /**
+   * Registra a intenção de emitir a NFS-e do aerografista quando a aerografia
+   * chega a COMPLETED.
+   *
+   * Precisa ser chamado em TODO caminho que conclui uma aerografia, e são muitos:
+   * update, batchUpdate, create e batchCreate aqui, mais dois `tx.airbrushing.*`
+   * crus dentro de TaskService. Esquecer um deles significa aerografia concluída
+   * sem nota e sem nenhum sinal de que faltou.
+   *
+   * Grava só a INTENÇÃO, dentro da transação da conclusão. A chamada à SEFIN é
+   * feita depois do commit, pelo emissor — chamada de rede dentro de transação
+   * Prisma segura conexão do pool pelo tempo da rede.
+   */
+  private async registerNfseIntent(
+    tx: PrismaTransaction,
+    params: {
+      airbrushingId: string;
+      painterId: string | null | undefined;
+      previousStatus: string | null;
+      nextStatus: string | null | undefined;
+    },
+  ): Promise<void> {
+    if (params.nextStatus !== AIRBRUSHING_STATUS.COMPLETED) return;
+
+    await this.painterNfseService.registerIntent(tx, {
+      airbrushingId: params.airbrushingId,
+      painterId: params.painterId ?? null,
+      resetFailed: params.previousStatus !== AIRBRUSHING_STATUS.COMPLETED,
+    });
+  }
+
+  /**
+   * Dispara a emissão das notas já com a transação COMMITADA.
+   *
+   * Chamada de rede jamais dentro de `$transaction`: seguraria uma conexão do
+   * pool pelo tempo da rede e, num timeout da SEFIN, derrubaria a conclusão da
+   * aerografia junto. Aqui a aerografia já está salva.
+   *
+   * Falha é engolida de propósito: a linha PENDING sobrevive e a varredura de 15
+   * minutos assume. O inline existe só para a nota aparecer na hora.
+   *
+   * Respeita a MESMA trava mestra do cron (`PAINTER_NFSE_SCHEDULER_ENABLED`).
+   * Se o inline passasse por cima dela, desligar a trava não pararia a emissão
+   * automática — só a atrasaria até alguém concluir uma aerografia, que é a
+   * pior forma possível de uma trava falhar. Com ela desligada a intenção fica
+   * registrada e visível, e o botão "Reemitir" continua funcionando.
+   */
+  private async flushNfseEmissions(
+    airbrushingIds: string[],
+    status?: string | null,
+  ): Promise<void> {
+    if (status !== AIRBRUSHING_STATUS.COMPLETED || airbrushingIds.length === 0) return;
+    if (process.env.PAINTER_NFSE_SCHEDULER_ENABLED !== 'true') return;
+
+    try {
+      await this.painterNfseService.emitForAirbrushings(airbrushingIds);
+    } catch (error) {
+      this.logger.warn(
+        `[Airbrushing] Emissão imediata de NFS-e falhou (a varredura tentará novamente): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   /**
    * Validar entidade completa
@@ -169,14 +236,15 @@ export class AirbrushingService {
    * [AUTO-FILL] de Task). Mutates `updateData` in place.
    */
   private applyStatusTimestamps(
-    existing: { status: string; startedAt?: Date | null; finishedAt?: Date | null },
+    /** null na criação: não há status anterior com que comparar. */
+    existing: { status: string; startedAt?: Date | null; finishedAt?: Date | null } | null,
     updateData: Record<string, any>,
   ): void {
     const nextStatus = updateData.status;
-    if (!nextStatus || nextStatus === existing.status) return;
+    if (!nextStatus || nextStatus === existing?.status) return;
 
     const stampStart = () => {
-      if (!existing.startedAt && updateData.startedAt === undefined) {
+      if (!existing?.startedAt && updateData.startedAt === undefined) {
         updateData.startedAt = new Date();
       }
     };
@@ -186,7 +254,7 @@ export class AirbrushingService {
     }
 
     if (nextStatus === AIRBRUSHING_STATUS.COMPLETED) {
-      if (!existing.finishedAt && updateData.finishedAt === undefined) {
+      if (!existing?.finishedAt && updateData.finishedAt === undefined) {
         updateData.finishedAt = new Date();
       }
       // A job completed without ever passing through Em Produção still needs a start.
@@ -387,6 +455,12 @@ export class AirbrushingService {
           | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
           | undefined;
 
+        // Criar já como COMPLETED é permitido pelo zod, e este caminho nunca
+        // chamava applyStatusTimestamps: a aerografia nascia concluída SEM
+        // finishedAt. Sem término não há competência para a NFS-e nem
+        // vencimento em Contas a Pagar.
+        this.applyStatusTimestamps(null, data as Record<string, any>);
+
         // Materializa o vencimento já na criação, para que uma aerografia com
         // término previsto apareça em Contas a Pagar com a previsão certa.
         this.applyDueDate(null, data as Record<string, any>);
@@ -429,6 +503,15 @@ export class AirbrushingService {
           );
           if (refreshed) newAirbrushing = refreshed;
         }
+
+        // NFS-e do aerografista: o zod permite criar uma aerografia já com
+        // status COMPLETED, então este caminho também conclui.
+        await this.registerNfseIntent(tx, {
+          airbrushingId: newAirbrushing.id,
+          painterId: (newAirbrushing as any).painterId,
+          previousStatus: null,
+          nextStatus: (newAirbrushing as any).status,
+        });
 
         // Registrar no changelog
         await this.changeLogService.logChange({
@@ -582,6 +665,15 @@ export class AirbrushingService {
           { include },
         );
 
+        // NFS-e do aerografista: registra a intenção quando esta atualização
+        // concluiu a aerografia. Caminho da tela de detalhe e do app do pintor.
+        await this.registerNfseIntent(tx, {
+          airbrushingId: id,
+          painterId: (updatedAirbrushing as any).painterId,
+          previousStatus: existingAirbrushing.status,
+          nextStatus: (updatedAirbrushing as any).status,
+        });
+
         // Registrar mudanças no changelog
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -599,6 +691,9 @@ export class AirbrushingService {
 
         return updatedAirbrushing;
       });
+
+      // Emissão FORA da transação — ver flushNfseEmissions.
+      await this.flushNfseEmissions([id], (updatedAirbrushing as any)?.status);
 
       return {
         success: true,
@@ -862,8 +957,9 @@ export class AirbrushingService {
             // Validar entidade completa
             await this.validateAirbrushing(airbrushingData, undefined, tx);
 
-            // Mesma materialização de vencimento do create() individual — este
-            // caminho fala com o repositório direto e não herda nada dele.
+            // Mesmas correções do create() individual — este caminho fala com o
+            // repositório direto e não herda nada dele.
+            this.applyStatusTimestamps(null, airbrushingData as Record<string, any>);
             this.applyDueDate(null, airbrushingData as Record<string, any>);
 
             // Criar a aerografia (layouts tratadas separadamente abaixo)
@@ -892,6 +988,14 @@ export class AirbrushingService {
             }
 
             successfulCreations.push(newAirbrushing);
+
+            // NFS-e do aerografista — mesmo motivo do create() individual.
+            await this.registerNfseIntent(tx, {
+              airbrushingId: newAirbrushing.id,
+              painterId: (newAirbrushing as any).painterId,
+              previousStatus: null,
+              nextStatus: (newAirbrushing as any).status,
+            });
 
             // Registrar no changelog
             await this.changeLogService.logChange({
@@ -1027,6 +1131,16 @@ export class AirbrushingService {
             );
             successfulUpdates.push(updatedAirbrushing);
 
+            // NFS-e do aerografista — este é o caminho do "Finalizar" em lote
+            // pela tabela, que conclui várias aerografias de uma vez. Dispara
+            // uma vez POR LINHA.
+            await this.registerNfseIntent(tx, {
+              airbrushingId: id,
+              painterId: (updatedAirbrushing as any).painterId,
+              previousStatus: existingAirbrushing.status,
+              nextStatus: (updatedAirbrushing as any).status,
+            });
+
             // Registrar no changelog
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -1059,6 +1173,13 @@ export class AirbrushingService {
           totalFailed: failedUpdates.length,
         };
       });
+
+      // Emissão FORA da transação — ver flushNfseEmissions. Só as que ficaram
+      // concluídas nesta operação.
+      const completedIds = result.success
+        .filter((a: any) => a?.status === AIRBRUSHING_STATUS.COMPLETED)
+        .map((a: any) => a.id);
+      await this.flushNfseEmissions(completedIds, AIRBRUSHING_STATUS.COMPLETED);
 
       const successMessage =
         result.totalUpdated === 1
@@ -1400,6 +1521,30 @@ export class AirbrushingService {
       updateData.layoutIds = layoutEntityIds;
     } else {
       delete updateData.layoutIds;
+
+      // Aprovar/reprovar um layout pela tela de detalhe manda APENAS
+      // `layoutStatuses` — de propósito, para não reescrever a relação (o
+      // repositório usa `set`, que apagaria os anexos). Só que o guarda acima
+      // condiciona a aplicação dos status à presença de `layoutIds`, então o
+      // mapa era descartado, o update saía vazio e o servidor respondia 200 com
+      // "atualizada com sucesso": toast de sucesso e nada mudava.
+      //
+      // Aqui os status são aplicados de forma INDEPENDENTE da reconciliação. O
+      // retorno é descartado e `layoutIds` continua fora do updateData, então a
+      // relação permanece intocada.
+      const statusFileIds = Object.keys(opts.layoutStatuses ?? {});
+      if (!opts.skipAll && statusFileIds.length > 0) {
+        const updated = await this.convertFileIdsToLayoutIds(
+          statusFileIds,
+          id,
+          opts.layoutStatuses,
+          opts.userRole,
+          tx,
+        );
+        this.logger.log(
+          `${opts.logPrefix} Applied layout status changes for ${updated.length} layout(s) without touching the relation`,
+        );
+      }
     }
 
     // Tell the repository that the arrays surviving above are a deliberate, complete
@@ -1566,8 +1711,12 @@ export class AirbrushingService {
         const wantsStatusChange = !!requestedStatus && layout.status !== requestedStatus;
 
         if (wantsStatusChange && !hasApprovalPermission) {
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] User without approval permission (role=${userRole}) tried to change layout status from ${layout.status} to ${requestedStatus}. Ignoring status change.`,
+          // Recusa EXPLÍCITA em vez de ignorar em silêncio. Antes o servidor
+          // engolia a tentativa e respondia 200, e o interceptor do axios
+          // transformava isso em "Sucesso" — o usuário via um toast verde e o
+          // status não mudava. Mentir sobre o resultado é pior do que negar.
+          throw new BadRequestException(
+            'Apenas os setores Comercial e Administrador podem aprovar ou reprovar layouts.',
           );
         }
 
