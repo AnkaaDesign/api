@@ -4412,8 +4412,24 @@ model NfseDocument {
   cancelRequestedAt          DateTime?
   cancelResolvedAt           DateTime? // when it reached AUTORIZADO or REJEITADO
 
+  // ── Substitution (revert → re-bill → cancel the old note citing the new one) ──
+  // ABRASF 2.03 has an atomic SubstituirNfseEnvio (cancel + emit in one call), but Ibiporã
+  // ships it DISABLED: parameter HABILITASOLSUBSTITUICAONFSE = "N" ("Habilita menu de
+  // Solicitação de Substituição de NFS-e"), and there is no substitution route among the
+  // portal's emissao-nfse/* endpoints. So substitution here is OURS, in two steps, and these
+  // fields are the link between them — they let the retry cron resume a cancellation that
+  // failed, and they record which note replaced which.
+  //
+  // Distinct from cancelSubstituteNfseNumber above: that one is overwritten on every submit
+  // (it is what we SENT); this one is the durable INTENT and survives repeated rejections.
+  supersededByNfseDocumentId String?
+  supersededByNfseNumber     Int? // denormalized — this number is what the fiscal demands
+  supersededAt               DateTime? // when the replacement note reached AUTHORIZED
+
   invoice        Invoice?        @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
   task           Task?           @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  supersededBy   NfseDocument?   @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
+  supersedes     NfseDocument[]  @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
   // emission (set on import by nfseNumber + our company CNPJ). FK lives on
   // FiscalDocument.nfseDocumentId (@unique).
@@ -4423,6 +4439,7 @@ model NfseDocument {
   @@index([taskId])
   @@index([elotechNfseId])
   @@index([status])
+  @@index([supersededByNfseDocumentId])
 }
 
 model SicrediToken {

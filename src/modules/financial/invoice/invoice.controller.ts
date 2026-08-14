@@ -1643,8 +1643,16 @@ export class InvoiceController {
    * re-linked from Elotech whose invoice was removed. This is what the task quote page shows
    * so the NF is never "lost" from the task.
    */
+  // ACCOUNTING entra aqui porque é o setor que mais precisa da trilha fiscal — e porque as
+  // notificações de cancelamento (nfse.cancel_rejected / nfse.orphan_live) o levam para a
+  // página de faturamento da tarefa, que sem este endpoint renderizaria o histórico vazio.
   @Get('task/:taskId/nfse-history')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async taskNfseHistory(@Param('taskId', ParseUUIDPipe) taskId: string) {
     const docs = await this.prisma.nfseDocument.findMany({
       where: { taskId },
@@ -1664,6 +1672,11 @@ export class InvoiceController {
         cancelSubstituteNfseNumber: true,
         cancelRequestedAt: true,
         cancelResolvedAt: true,
+        // Substituição: o front usa supersededByNfseNumber para pré-preencher a nota
+        // substituta no reenvio do cancelamento — é o número que o fiscal exige.
+        supersededByNfseDocumentId: true,
+        supersededByNfseNumber: true,
+        supersededAt: true,
         createdAt: true,
         updatedAt: true,
       },

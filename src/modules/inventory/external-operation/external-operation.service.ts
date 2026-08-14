@@ -65,6 +65,8 @@ import {
   BANK_SLIP_STATUS,
   INVOICE_STATUS,
   NFSE_STATUS,
+  NFSE_LIVE_STATUSES,
+  NFSE_READY_FOR_BOLETO_STATUSES,
   SECTOR_PRIVILEGES,
 } from '../../../constants';
 
@@ -920,14 +922,21 @@ export class ExternalOperationService {
 
     // Stage 3: register boletos only for invoices that are ready:
     //   (a) generateInvoice=false — no NFS-e required
-    //   (b) generateInvoice=true  — NFS-e is now AUTHORIZED
+    //   (b) generateInvoice=true  — a note with a usable number exists at the prefeitura
     // Failed/blocked ones keep their bank slips in CREATING; the scheduler retries later.
+    //
+    // Mirrors the quote billing gate: CANCEL_REJECTED is a LIVE note (the fiscal refused to
+    // cancel it), so it must let the boleto through exactly like AUTHORIZED does.
     if (withdrawal.generateBankSlip) {
       try {
         let readyForBoleto: string[];
         if (withdrawal.generateInvoice) {
           const authorizedNfse = await this.prisma.nfseDocument.findMany({
-            where: { invoiceId: { in: invoiceIds }, status: NFSE_STATUS.AUTHORIZED },
+            where: {
+              invoiceId: { in: invoiceIds },
+              status: { in: [...NFSE_READY_FOR_BOLETO_STATUSES] },
+              nfseNumber: { not: null },
+            },
             select: { invoiceId: true },
           });
           readyForBoleto = [
@@ -1018,11 +1027,13 @@ export class ExternalOperationService {
         });
       }
 
-      // Best-effort cancel at Elotech for AUTHORIZED NFS-e
+      // Best-effort cancel at Elotech for every note still LIVE at the prefeitura.
+      // Not just AUTHORIZED: a note in CANCEL_REJECTED is alive too (the fiscal refused to
+      // kill it), and filtering it out here left it standing with nobody told about it.
       const authorizedNfses = await this.prisma.nfseDocument.findMany({
         where: {
           invoice: { externalOperationId: withdrawalId },
-          status: NFSE_STATUS.AUTHORIZED,
+          status: { in: [...NFSE_LIVE_STATUSES] },
           elotechNfseId: { not: null },
         },
         select: { id: true, nfseNumber: true, elotechNfseId: true },
