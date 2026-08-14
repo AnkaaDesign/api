@@ -6,6 +6,7 @@ import { NfseService } from './nfse.service';
 import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
+import { NFSE_LIVE_STATUSES } from '@constants';
 
 /**
  * Scheduler for automatic NFS-e emission.
@@ -730,26 +731,49 @@ export class NfseEmissionScheduler {
    * Reuses the configuration-driven dispatch; a no-op if the config key is absent.
    */
   private async dispatchCancellationOutcome(
-    invoiceId: string,
+    doc: { id: string; invoiceId: string | null; taskId: string | null },
     outcome: 'CANCELLED' | 'REJECTED',
     detail: { nfseNumber?: number | null; rejectionMessage?: string | null },
   ): Promise<void> {
     try {
-      const invoice = await this.prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          customer: { select: { fantasyName: true } },
-          task: { select: { id: true, name: true } },
-          externalOperation: { select: { id: true } },
-        },
-      });
-      if (!invoice) return;
+      // The invoice is USUALLY gone by the time the fiscal answers. Cancellation at Elotech is
+      // asynchronous (hours), and the billing revert that requested it deletes the Invoice in
+      // the same breath — NfseDocument.invoiceId is FK SetNull, so it lands here as null. This
+      // used to be passed straight into findUnique({ where: { id: null } }), which throws
+      // PrismaClientValidationError into the catch below and swallowed the whole notification.
+      // That is exactly how the rejection of NF 3199 ("Tati Minas 8,50") reached nobody on
+      // 13/08/2026 — the log even printed "para fatura null".
+      //
+      // The note outlives the invoice but keeps its taskId, so fall back to that.
+      const invoice = doc.invoiceId
+        ? await this.prisma.invoice.findUnique({
+            where: { id: doc.invoiceId },
+            include: {
+              customer: { select: { fantasyName: true } },
+              task: { select: { id: true, name: true } },
+              externalOperation: { select: { id: true } },
+            },
+          })
+        : null;
 
-      const customerName = invoice.customer?.fantasyName || 'N/A';
-      const taskId = invoice.task?.id ?? invoice.taskId ?? null;
-      const withdrawalId = invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
+      const fallbackTask =
+        !invoice && doc.taskId
+          ? await this.prisma.task.findUnique({
+              where: { id: doc.taskId },
+              select: { id: true, name: true, customer: { select: { fantasyName: true } } },
+            })
+          : null;
+
+      if (!invoice && !fallbackTask) return;
+
+      const customerName =
+        invoice?.customer?.fantasyName || fallbackTask?.customer?.fantasyName || 'N/A';
+      const taskId = invoice?.task?.id ?? invoice?.taskId ?? fallbackTask?.id ?? null;
+      const withdrawalId = invoice?.externalOperation?.id ?? invoice?.externalOperationId ?? null;
       const isWithdrawal = !!withdrawalId;
-      const taskName = isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A';
+      const taskName = isWithdrawal
+        ? 'Operação Externa'
+        : invoice?.task?.name || fallbackTask?.name || 'N/A';
       const refLabel = isWithdrawal ? 'da operação externa' : `da tarefa ${taskName}`;
       const webUrl = isWithdrawal
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
@@ -766,13 +790,16 @@ export class NfseEmissionScheduler {
         'system',
         {
           entityType: 'NfseDocument',
-          entityId: taskId ?? withdrawalId ?? invoiceId,
+          entityId: taskId ?? withdrawalId ?? doc.id,
           action: isCancelled ? 'cancelled' : 'cancel_rejected',
           data: {
             customerName,
             taskName,
             nfseNumber: detail.nfseNumber ?? 'N/A',
-            invoiceId,
+            // The fiscal's own words — the templates interpolate this, and it is the whole
+            // point of the notification: it tells the operator WHAT to fix on the resubmission.
+            rejectionMessage: detail.rejectionMessage ?? undefined,
+            invoiceId: doc.invoiceId ?? undefined,
             taskId: taskId || undefined,
             externalOperationId: withdrawalId || undefined,
           },
@@ -791,7 +818,8 @@ export class NfseEmissionScheduler {
       );
     } catch (error) {
       this.logger.error(
-        `Falha ao notificar resultado do cancelamento (${outcome}) para fatura ${invoiceId}:`,
+        `Falha ao notificar resultado do cancelamento (${outcome}) do NfseDocument ${doc.id} ` +
+          `(fatura ${doc.invoiceId ?? 'já excluída'}, tarefa ${doc.taskId ?? 'sem vínculo'}):`,
         error,
       );
     }
@@ -818,7 +846,7 @@ export class NfseEmissionScheduler {
           status: NfseStatus.CANCEL_REQUESTED,
           elotechNfseId: { not: null },
         },
-        select: { id: true, invoiceId: true, nfseNumber: true },
+        select: { id: true, invoiceId: true, taskId: true, nfseNumber: true },
       });
 
       if (pending.length === 0) return;
@@ -837,14 +865,14 @@ export class NfseEmissionScheduler {
             this.logger.log(
               `[NFSE_CANCEL_RECON] NFS-e #${doc.nfseNumber} cancellation APPROVED by fiscal`,
             );
-            await this.dispatchCancellationOutcome(doc.invoiceId, 'CANCELLED', {
+            await this.dispatchCancellationOutcome(doc, 'CANCELLED', {
               nfseNumber: doc.nfseNumber,
             });
           } else if (result.rejected) {
             this.logger.warn(
               `[NFSE_CANCEL_RECON] NFS-e #${doc.nfseNumber} cancellation REJECTED: ${result.rejectionMessage}`,
             );
-            await this.dispatchCancellationOutcome(doc.invoiceId, 'REJECTED', {
+            await this.dispatchCancellationOutcome(doc, 'REJECTED', {
               nfseNumber: doc.nfseNumber,
               rejectionMessage: result.rejectionMessage,
             });
@@ -861,10 +889,164 @@ export class NfseEmissionScheduler {
       this.logger.log(
         `[NFSE_CANCEL_RECON] Done. Checked: ${pending.length}, Resolved: ${resolved}`,
       );
+
+      await this.retrySupersededCancellations();
     } catch (error) {
       this.logger.error('[NFSE_CANCEL_RECON] Error during cancellation reconciliation:', error);
     } finally {
       this.isReconcilingCancellations = false;
+    }
+  }
+
+  /**
+   * Resume substitutions whose cancellation never completed.
+   *
+   * `supersedePreviousNfses` writes the `superseded*` columns BEFORE calling Elotech, so a note
+   * carrying them while still alive means the request failed, was rejected, or died mid-flight.
+   * The substitute number is already recorded, which is exactly what the fiscal demands — so the
+   * retry can be fully automatic.
+   *
+   * Throttled to one attempt per 24h per note: the fiscal reviews these by hand, and hammering
+   * the prefeitura every 20 minutes would be both useless and rude.
+   */
+  private async retrySupersededCancellations(): Promise<void> {
+    const RETRY_AFTER_HOURS = 24;
+    const cutoff = new Date(Date.now() - RETRY_AFTER_HOURS * 60 * 60 * 1000);
+
+    const stalled = await this.prisma.nfseDocument.findMany({
+      where: {
+        status: { in: [NfseStatus.AUTHORIZED, NfseStatus.CANCEL_REJECTED] },
+        supersededByNfseNumber: { not: null },
+        elotechNfseId: { not: null },
+        OR: [{ cancelRequestedAt: null }, { cancelRequestedAt: { lt: cutoff } }],
+      },
+      select: { id: true, nfseNumber: true, supersededByNfseNumber: true },
+    });
+
+    if (stalled.length === 0) return;
+    this.logger.log(
+      `[NFSE_SUPERSEDE_RETRY] Reenviando cancelamento de ${stalled.length} nota(s) já substituída(s)`,
+    );
+
+    for (const doc of stalled) {
+      try {
+        await this.municipalNfseService.cancelNfse(
+          doc.id,
+          `Nota substituída por refaturamento da ordem de serviço. O mesmo serviço foi ` +
+            `faturado novamente na NFS-e nº ${doc.supersededByNfseNumber}, que substitui esta.`,
+          1,
+          doc.supersededByNfseNumber,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `[NFSE_SUPERSEDE_RETRY] NFS-e #${doc.nfseNumber}: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Daily watch for notes left ALIVE at the prefeitura with no billing behind them.
+   *
+   * A billing revert deliberately leaves its NFS-e standing (there is no substitute to cite
+   * yet). That is correct only if a re-approval follows. When it does not, the result is ISS
+   * owed on a service nobody is billing — and absolutely nothing used to detect it: three
+   * Masterboi notes (3097/3098/3099, R$ 22.500,87) sat exactly like this for 63 days unnoticed.
+   */
+  @Cron('0 9 * * *', { name: 'nfse-orphan-live-notes', timeZone: 'America/Sao_Paulo' })
+  async alertOrphanLiveNotes(): Promise<void> {
+    if (process.env.NODE_ENV !== 'production') return;
+
+    const STALE_DAYS = 3;
+    const cutoff = new Date(Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000);
+
+    // Duas situações, o mesmo sintoma — uma nota fiscal viva que ninguém está tratando:
+    //
+    //  (a) órfã de fatura: o faturamento foi revertido e nunca refeito;
+    //  (b) cancelamento recusado e abandonado: o fiscal pediu correção e ninguém voltou.
+    //
+    // A (b) precisa entrar mesmo com fatura vinculada — as NF 3097/3098/3099 (Masterboi,
+    // R$ 22.500,87) ficaram exatamente assim por 63 dias, com as faturas PAGAS, e nada no
+    // sistema apontou para elas uma única vez.
+    const REJECTED_STALE_DAYS = 7;
+    const rejectedCutoff = new Date(Date.now() - REJECTED_STALE_DAYS * 24 * 60 * 60 * 1000);
+
+    const orphans = await this.prisma.nfseDocument.findMany({
+      where: {
+        nfseNumber: { not: null },
+        supersededByNfseNumber: null,
+        OR: [
+          {
+            invoiceId: null,
+            status: { in: [...NFSE_LIVE_STATUSES] },
+            updatedAt: { lt: cutoff },
+          },
+          {
+            status: NfseStatus.CANCEL_REJECTED,
+            cancelResolvedAt: { lt: rejectedCutoff },
+          },
+        ],
+      },
+      select: { id: true, invoiceId: true, taskId: true, nfseNumber: true, status: true },
+    });
+
+    if (orphans.length === 0) return;
+
+    this.logger.warn(
+      `[NFSE_ORPHAN_WATCH] ${orphans.length} NFS-e viva(s) sem tratamento: ` +
+        `${orphans.map(o => `#${o.nfseNumber} (${o.status})`).join(', ')}`,
+    );
+
+    for (const orphan of orphans) {
+      await this.dispatchOrphanLiveNote(orphan);
+    }
+  }
+
+  private async dispatchOrphanLiveNote(doc: {
+    id: string;
+    invoiceId: string | null;
+    taskId: string | null;
+    nfseNumber: number | null;
+  }): Promise<void> {
+    try {
+      const task = doc.taskId
+        ? await this.prisma.task.findUnique({
+            where: { id: doc.taskId },
+            select: { id: true, name: true, customer: { select: { fantasyName: true } } },
+          })
+        : null;
+
+      await this.dispatchService.dispatchByConfiguration('nfse.orphan_live', 'system', {
+        entityType: 'NfseDocument',
+        entityId: task?.id ?? doc.id,
+        action: 'orphan_live',
+        data: {
+          nfseNumber: doc.nfseNumber ?? 'N/A',
+          taskName: task?.name ?? 'N/A',
+          customerName: task?.customer?.fantasyName ?? 'N/A',
+          taskId: task?.id || undefined,
+        },
+        overrides: {
+          title: 'NFS-e ativa sem faturamento',
+          body:
+            `A NFS-e nº ${doc.nfseNumber} da tarefa "${task?.name ?? 'N/A'}" continua VÁLIDA na ` +
+            `prefeitura e está sem tratamento` +
+            (doc.invoiceId
+              ? `: o cancelamento foi recusado pelo fiscal e não houve novo pedido.`
+              : `: o faturamento foi revertido e não houve novo faturamento.`) +
+            ` Aprove o faturamento novamente (a nota será substituída) ou reenvie o ` +
+            `cancelamento informando a nota substituta.`,
+          relatedEntityType: 'NFSE',
+          ...(task?.id ? { webUrl: `/financeiro/faturamento/detalhes/${task.id}` } : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `[NFSE_ORPHAN_WATCH] Falha ao notificar NFS-e órfã ${doc.id}:`,
+        error,
+      );
     }
   }
 }

@@ -1850,6 +1850,124 @@ const CONFIGS: ConfigDef[] = [
       targeted: false,
     },
   },
+  // ── Desfecho do CANCELAMENTO de NFS-e ────────────────────────────────────────
+  // Estas duas chaves faltavam desde sempre. `nfse-emission.scheduler.ts` já as despachava,
+  // mas `dispatchByConfiguration` faz no-op silencioso quando a chave não existe no banco
+  // (notification-dispatch.service.ts), então NENHUM cancelamento de NFS-e — aprovado ou
+  // rejeitado pelo fiscal — jamais notificou ninguém nesta empresa. Foi assim que a rejeição
+  // da NF 3199 ("Tati Minas 8,50") passou despercebida em 13/08/2026.
+  // Sem WhatsApp de propósito: o fan-out é o custo, e o público aqui é interno e pequeno.
+  {
+    key: "nfse.cancelled",
+    name: "NFS-e Cancelada",
+    notificationType: "SYSTEM",
+    eventType: "nfse.cancelled",
+    description: "O fiscal da prefeitura APROVOU o cancelamento da NFS-e; a nota deixou de valer.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: false, mandatory: false, defaultOn: false },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "NFS-e Cancelada",
+        body: "A NFS-e nº {{nfseNumber}}{{#if customerName}} de {{customerName}}{{/if}}{{#if taskName}} (tarefa \"{{taskName}}\"){{/if}} foi cancelada na prefeitura.",
+      },
+      email: {
+        subject: "NFS-e nº {{nfseNumber}} cancelada — {{customerName}}",
+        body: "O cancelamento da NFS-e nº {{nfseNumber}} foi aprovado pelo fiscal.\n\nCliente: {{customerName}}\nTarefa: {{taskName}}\n\nA nota não vale mais.",
+      },
+    },
+    metadata: {
+      trigger: "nfse-cancellation-reconcile / cancelNfse",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "nfse.orphan_live",
+    name: "NFS-e Ativa Sem Faturamento",
+    notificationType: "SYSTEM",
+    eventType: "nfse.orphan_live",
+    description:
+      "Nota continua VÁLIDA na prefeitura, mas o faturamento foi revertido e nunca refeito — ISS devido sobre serviço que ninguém está cobrando.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: 1,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: false, mandatory: false, defaultOn: false },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "NFS-e Ativa Sem Faturamento",
+        body: "A NFS-e nº {{nfseNumber}}{{#if taskName}} da tarefa \"{{taskName}}\"{{/if}}{{#if customerName}} ({{customerName}}){{/if}} continua VÁLIDA na prefeitura, mas o faturamento foi revertido e não houve novo faturamento. Aprove o faturamento novamente (a nota será substituída) ou cancele a nota.",
+      },
+      email: {
+        subject: "NFS-e nº {{nfseNumber}} ativa sem faturamento — {{customerName}}",
+        body: "A NFS-e nº {{nfseNumber}} continua válida na prefeitura, porém o faturamento correspondente foi revertido e nunca refeito.\n\nCliente: {{customerName}}\nTarefa: {{taskName}}\n\nHá ISS devido sobre um serviço que não está sendo cobrado. Aprove o faturamento novamente ou cancele a nota.",
+      },
+    },
+    metadata: {
+      trigger: "nfse-orphan-live-notes (cron diário 09:00)",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "nfse.cancel_rejected",
+    name: "Cancelamento de NFS-e Rejeitado",
+    notificationType: "SYSTEM",
+    eventType: "nfse.cancel_rejected",
+    description:
+      "O fiscal RECUSOU o cancelamento da NFS-e — a nota continua VÁLIDA na prefeitura. Normalmente a recusa pede o motivo e o número da nota substituta.",
+    enabled: true,
+    importance: "URGENT",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Cancelamento de NFS-e Rejeitado",
+        body: "O cancelamento da NFS-e nº {{nfseNumber}}{{#if customerName}} de {{customerName}}{{/if}}{{#if taskName}} (tarefa \"{{taskName}}\"){{/if}} foi REJEITADO pela prefeitura — a nota continua válida.{{#if rejectionMessage}} Motivo: {{rejectionMessage}}.{{/if}} Corrija e reenvie a solicitação.",
+      },
+      push: {
+        title: "Cancelamento de NFS-e Rejeitado",
+        body: "NFS-e nº {{nfseNumber}} de {{customerName}} continua válida — cancelamento recusado",
+      },
+      email: {
+        subject: "Cancelamento da NFS-e nº {{nfseNumber}} rejeitado — {{customerName}}",
+        body: "O fiscal recusou o cancelamento da NFS-e nº {{nfseNumber}}. A nota CONTINUA VÁLIDA.\n\nCliente: {{customerName}}\nTarefa: {{taskName}}\n{{#if rejectionMessage}}Motivo da recusa: {{rejectionMessage}}\n{{/if}}\nCorrija e reenvie a solicitação pelo sistema.",
+      },
+    },
+    metadata: {
+      trigger: "nfse-cancellation-reconcile / cancelNfse",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
   // ─── NFS-e do aerografista (prestador MEI, Sistema Nacional) ─────────────────
   {
     key: "airbrushing.nfse.issued",

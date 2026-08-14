@@ -2801,6 +2801,46 @@ export enum NFSE_STATUS {
   ERROR = 'ERROR',
 }
 
+/**
+ * A nota EXISTE e está VIVA na prefeitura.
+ *
+ * `AUTHORIZED` é o caso óbvio. Os outros dois são igualmente vivos e é aí que o
+ * sistema errava: `CANCEL_REQUESTED` é uma nota emitida com um pedido de cancelamento
+ * aguardando o fiscal, e `CANCEL_REJECTED` é uma nota cujo pedido de cancelamento o
+ * fiscal RECUSOU — ou seja, a nota continua valendo, com mais força ainda.
+ *
+ * Havia 13 pontos escrevendo essa regra à mão, com quatro grafias diferentes
+ * (`'AUTHORIZED'`, `['AUTHORIZED','CANCEL_REJECTED']`, o trio completo, e
+ * `{ not: 'CANCELLED' }`). A divergência entre eles foi o que travou o faturamento da
+ * tarefa "Tati Minas 8,50" em 14/08/2026: a NF 3199 estava em `CANCEL_REJECTED`
+ * (viva), mas o portão de registro de boleto exigia exatamente `AUTHORIZED`.
+ */
+export const NFSE_LIVE_STATUSES = [
+  NFSE_STATUS.AUTHORIZED,
+  NFSE_STATUS.CANCEL_REQUESTED,
+  NFSE_STATUS.CANCEL_REJECTED,
+] as const;
+
+/**
+ * A nota tem número utilizável para amarrar um boleto (`seuNumero` e informativo).
+ *
+ * É `NFSE_LIVE_STATUSES` MENOS `CANCEL_REQUESTED`: com um cancelamento em análise não
+ * se emite cobrança amarrada a um número que pode morrer nas próximas horas. Esse caso
+ * é transitório de verdade — o cron `nfse-cancellation-reconcile` o resolve para
+ * `CANCELLED` ou `CANCEL_REJECTED` — então esperar não deadlocka.
+ */
+export const NFSE_READY_FOR_BOLETO_STATUSES = [
+  NFSE_STATUS.AUTHORIZED,
+  NFSE_STATUS.CANCEL_REJECTED,
+] as const;
+
+/**
+ * A emissão está em voo: nada foi mintado na prefeitura ainda, ou não sabemos.
+ * Nenhum teardown pode acontecer enquanto uma nota está aqui — ela pode ganhar vida
+ * logo depois de apagarmos a linha que aponta para ela.
+ */
+export const NFSE_IN_FLIGHT_STATUSES = [NFSE_STATUS.PENDING, NFSE_STATUS.PROCESSING] as const;
+
 export enum BANK_SLIP_TYPE {
   NORMAL = 'NORMAL',
   HIBRIDO = 'HIBRIDO',

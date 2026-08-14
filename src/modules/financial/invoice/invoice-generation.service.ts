@@ -280,13 +280,22 @@ export class InvoiceGenerationService {
         const shouldGenerateNfse = !options?.skipNfse && config.generateInvoice !== false;
 
         if (shouldGenerateNfse) {
-          // I20: never mint a SECOND live municipal note. A note that was already emitted
-          // (or is emitting / pending cancellation) survives invoice cancellation as task
-          // history (NfseDocument.invoiceId is SetNull, taskId durable). Re-approving billing
-          // would otherwise create a duplicate live NF for the same task. Reuse any existing
-          // note that is NOT terminally cancelled and NOT in-flight cancellation
-          // (CANCEL_REQUESTED — the reconciler still owns it): re-link it to the new invoice
-          // instead of creating a fresh one. Only mint a new note when none exists.
+          // I20: never mint a SECOND live municipal note *within the same billing cycle*.
+          // Partial approvals, retries and multi-config quotes must all converge on one note
+          // per invoice — hence `usedNfseIds`, which stops config B from stealing config A's
+          // note in the same run.
+          //
+          // But "same cycle" is the whole point, and it used to be missing. A note whose
+          // invoice was DELETED by a billing revert belongs to the PREVIOUS cycle: inheriting
+          // it made the re-approval silently reuse a note the operator had already decided to
+          // undo, and — when its cancellation had been rejected — dragged a CANCEL_REJECTED
+          // status onto the fresh invoice, which then failed every boleto gate. That is the
+          // "Tati Minas 8,50" deadlock.
+          //
+          // `invoiceId IS NULL` is the reliable marker of "my invoice was reverted away":
+          // no other path zeroes it (invoice cancellation marks CANCELLED, it never deletes).
+          // Such a note must be SUPERSEDED — a new note is minted here, and
+          // supersedePreviousNfses() then cancels the old one citing the new as substituta.
           const existingLiveNfse = await tx.nfseDocument.findFirst({
             where: {
               taskId: taskId,
@@ -294,6 +303,9 @@ export class InvoiceGenerationService {
               // Never re-point a note already claimed by an earlier config in this
               // same run — that note belongs to the other customer's invoice.
               id: { notIn: usedNfseIds },
+              // Current cycle only: orphaned notes are the previous cycle's, to be replaced.
+              invoiceId: { not: null },
+              invoice: { is: { status: { not: 'CANCELLED' } } },
             },
             orderBy: { createdAt: 'desc' },
           });

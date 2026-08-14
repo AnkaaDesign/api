@@ -144,8 +144,12 @@ export class ElotechOxyNfseService {
       throw new Error('Elotech OXY credentials not configured. Cannot emit municipal NFS-e.');
     }
 
+    // Ordered on purpose: without it Postgres returns an arbitrary row, so an invoice that ends
+    // up with more than one non-cancelled document (a re-link, a retry) could claim the wrong
+    // one and fail the CAS. The newest document is always the one this emission is about.
     let nfseDoc = await this.prisma.nfseDocument.findFirst({
       where: { invoiceId: invoice.id, status: { not: NfseStatus.CANCELLED } },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (nfseDoc && nfseDoc.status === NfseStatus.AUTHORIZED) {
@@ -1415,13 +1419,29 @@ export class ElotechOxyNfseService {
         availableLines,
       );
 
-      discriminacaoServico = invoice.description || [...headerLines, ...packedServices].join('\n');
+      // Uma `description` explícita substitui só o CORPO. O cabeçalho (pedido + veículo)
+      // é sempre preservado: perder o número do pedido invalida a nota para o cliente e
+      // obriga a cancelar e reemitir — foi por isso que a NF 3199 ("Tati Minas 8,50")
+      // precisou ser substituída. `||` sobre a string inteira descartava o cabeçalho junto.
+      discriminacaoServico = invoice.description
+        ? [...headerLines, invoice.description].join('\n')
+        : [...headerLines, ...packedServices].join('\n');
     } else {
-      const fallbackDesc =
-        invoice.description ||
-        `${cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : ''}Serviço ref. OS ${serialNumber}`;
+      const header = cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : '';
+      const fallbackDesc = invoice.description
+        ? `${header}${invoice.description}`
+        : `${header}Serviço ref. OS ${serialNumber}`;
       formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
       discriminacaoServico = fallbackDesc;
+    }
+
+    // O número do pedido é dado do cliente e a ausência dele custa uma nota inteira.
+    // Se não veio, registre — é barato aqui e caro depois.
+    if (!cleanOrderNumber) {
+      this.logger.warn(
+        `[MUNICIPAL] Emitindo NFS-e da tarefa ${invoice.task?.name ?? invoice.id} SEM número de ` +
+          `pedido. Se o cliente exigir o pedido na nota, ela terá de ser cancelada e substituída.`,
+      );
     }
 
     totalDescontosIncondicionados = Math.round(totalDescontosIncondicionados * 100) / 100;

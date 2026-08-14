@@ -9,7 +9,12 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { BANK_SLIP_STATUS, INSTALLMENT_STATUS, INVOICE_STATUS } from '@constants';
+import {
+  BANK_SLIP_STATUS,
+  INSTALLMENT_STATUS,
+  INVOICE_STATUS,
+  NFSE_READY_FOR_BOLETO_STATUSES,
+} from '@constants';
 import {
   bankDateToYMD,
   daysBetweenDueDates,
@@ -229,15 +234,28 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               ],
             },
             {
-              // H3b: never register boletos before a required NFS-e is AUTHORIZED —
+              // H3b: never register boletos before the required NFS-e has a usable number —
               // boleto lines/seuNumero embed the NFS-e number (contract rule, mirrors
               // the readyForBoleto gate in the billing pipelines). Allowed when the
-              // backer explicitly disabled NFS-e (generateInvoice=false) or when an
-              // AUTHORIZED NfseDocument exists for the invoice.
+              // backer explicitly disabled NFS-e (generateInvoice=false) or when the invoice
+              // has a note that is alive at the prefeitura and already numbered.
+              //
+              // This is the FALLBACK path, so it carried the same 'AUTHORIZED'-only bug as the
+              // inline gate — which is why nothing ever rescued the stranded boletos on its
+              // own. Both now read NFSE_READY_FOR_BOLETO_STATUSES.
               OR: [
                 { customerConfig: { generateInvoice: false } },
                 { externalOperation: { generateInvoice: false } },
-                { invoice: { nfseDocuments: { some: { status: 'AUTHORIZED' } } } },
+                {
+                  invoice: {
+                    nfseDocuments: {
+                      some: {
+                        status: { in: [...NFSE_READY_FOR_BOLETO_STATUSES] },
+                        nfseNumber: { not: null },
+                      },
+                    },
+                  },
+                },
               ],
             },
             {

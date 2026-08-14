@@ -46,6 +46,10 @@ import {
   INSTALLMENT_STATUS,
   BANK_SLIP_STATUS,
   INVOICE_STATUS,
+  NFSE_STATUS,
+  NFSE_LIVE_STATUSES,
+  NFSE_READY_FOR_BOLETO_STATUSES,
+  NFSE_IN_FLIGHT_STATUSES,
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
@@ -2202,14 +2206,36 @@ export class TaskQuoteService {
         this.logger.warn(`[INTERNAL_APPROVE] NfSe emission error: ${nfseError}`);
       }
 
+      // The new note now exists, so a note left alive by an earlier revert finally HAS a
+      // substituta to cite — request its cancellation. Strictly best-effort: a failure here
+      // must never block the boletos below. Coupling a fiscal cancellation to the billing
+      // pipeline is what produced the original deadlock, and it is not repeated.
+      try {
+        await this.supersedePreviousNfses(task.id, invoiceIds);
+      } catch (supersedeError) {
+        this.logger.warn(
+          `[INTERNAL_APPROVE] Falha ao substituir NFS-e anterior(es): ${supersedeError}`,
+        );
+      }
+
       // Only register bank slips for invoices that are ready:
       //   (a) generateInvoice=false — no NFS-e required, seuNumero uses truck plate
-      //   (b) generateInvoice=true  — NFS-e is now AUTHORIZED
+      //   (b) generateInvoice=true  — a note with a usable number exists at the prefeitura
       // Invoices in (b) that failed NFS-e keep their bank slips in CREATING state.
       // The bank slip scheduler picks them up once the NFS-e scheduler retries and authorizes.
+      //
+      // The gate reads NFSE_READY_FOR_BOLETO_STATUSES, not the bare 'AUTHORIZED' it used to:
+      // a note whose cancellation the fiscal REJECTED (CANCEL_REJECTED) is as alive as an
+      // authorized one, and buildSeuNumero already accepts it (it excludes only CANCELLED).
+      // Demanding 'AUTHORIZED' here stranded three boletos of "Tati Minas 8,50" in CREATING
+      // with a TMP- nossoNumero forever, which in turn blocked every later revert.
       const [authorizedNfse, noNfseRequired] = await Promise.all([
         this.prisma.nfseDocument.findMany({
-          where: { invoiceId: { in: invoiceIds }, status: 'AUTHORIZED' },
+          where: {
+            invoiceId: { in: invoiceIds },
+            status: { in: [...NFSE_READY_FOR_BOLETO_STATUSES] },
+            nfseNumber: { not: null },
+          },
           select: { invoiceId: true },
         }),
         this.prisma.invoice.findMany({
@@ -2345,6 +2371,103 @@ export class TaskQuoteService {
    * @param taskId Task whose billing artifacts are being verified
    * @param action Infinitive used in the error message ("reverter o faturamento", …)
    */
+  /**
+   * Close the substitution loop: cancel the notes a previous billing cycle left alive,
+   * citing the note just emitted as the substituta the prefeitura demands.
+   *
+   * Ibiporã ships ABRASF's atomic `SubstituirNfseEnvio` DISABLED
+   * (`HABILITASOLSUBSTITUICAONFSE = "N"`) and exposes no substitution route, so substitution
+   * has to be two of our own steps: the revert leaves the old note standing, this runs after
+   * the new note is authorized, and the old one is finally cancellable because a substitute
+   * number now exists to name.
+   *
+   * Best-effort by design — the caller swallows failures. Whatever does not complete here is
+   * retried by the `nfse-cancellation-reconcile` cron, which keys off the `superseded*`
+   * columns written BEFORE the Elotech call precisely so a crash mid-flight is resumable.
+   *
+   * @param taskId    Task whose previous-cycle notes should be superseded
+   * @param invoiceIds Invoices created by the approval that just ran
+   */
+  private async supersedePreviousNfses(taskId: string, invoiceIds: string[]): Promise<void> {
+    // The substituta: a note authorized in THIS round, with a real number. Without one there
+    // is nothing to cite, and cancelling without a substitute is the exact request the fiscal
+    // already refused — so we do nothing rather than burn another rejection.
+    const replacement = await this.prisma.nfseDocument.findFirst({
+      where: {
+        invoiceId: { in: invoiceIds },
+        status: NFSE_STATUS.AUTHORIZED,
+        nfseNumber: { not: null },
+      },
+      orderBy: { nfseNumber: 'desc' },
+      select: { id: true, nfseNumber: true },
+    });
+    if (!replacement?.nfseNumber) return;
+
+    // The superseded: notes of the same task still LIVE at the prefeitura but orphaned of an
+    // invoice — the signature of a reverted cycle. Chains (approve→revert→approve→revert) can
+    // leave several; every one of them points at the NEWEST note, never at each other, because
+    // the latest is the only one the fiscal recognizes as current.
+    const previous = await this.prisma.nfseDocument.findMany({
+      where: {
+        taskId,
+        id: { not: replacement.id },
+        invoiceId: null,
+        status: { in: [...NFSE_LIVE_STATUSES] },
+        elotechNfseId: { not: null },
+      },
+      select: { id: true, nfseNumber: true },
+    });
+    if (previous.length === 0) return;
+
+    this.logger.log(
+      `[SUPERSEDE] Tarefa ${taskId}: NFS-e nº ${previous
+        .map(p => p.nfseNumber ?? '?')
+        .join(', ')} será(ão) substituída(s) pela NFS-e nº ${replacement.nfseNumber}.`,
+    );
+
+    for (const old of previous) {
+      // Record the intent BEFORE calling Elotech. If the process dies mid-call, the cron finds
+      // the row and knows both what to retry and which number to cite.
+      await this.prisma.nfseDocument.update({
+        where: { id: old.id },
+        data: {
+          supersededByNfseDocumentId: replacement.id,
+          supersededByNfseNumber: replacement.nfseNumber,
+          supersededAt: new Date(),
+        },
+      });
+
+      try {
+        const outcome = await this.elotechNfseService.cancelNfse(
+          old.id,
+          // The generic "Cancelamento automático por reversão de faturamento." was itself part
+          // of the problem: it names no defect and cites no substitute, which is precisely what
+          // the fiscal asked for. Say both.
+          `Nota substituída por refaturamento da ordem de serviço. O mesmo serviço foi ` +
+            `faturado novamente na NFS-e nº ${replacement.nfseNumber}, que substitui esta.`,
+          1, // 1 = Erro na emissão
+          replacement.nfseNumber,
+        );
+        if (outcome?.cancelled) {
+          this.logger.log(`[SUPERSEDE] NFS-e #${old.nfseNumber} cancelada na prefeitura.`);
+        } else if (outcome?.pending) {
+          this.logger.log(
+            `[SUPERSEDE] NFS-e #${old.nfseNumber}: cancelamento aguardando o fiscal.`,
+          );
+        } else {
+          this.logger.warn(
+            `[SUPERSEDE] NFS-e #${old.nfseNumber} segue ATIVA: ` +
+              `${outcome?.rejectionMessage ?? 'desfecho não confirmado'}.`,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[SUPERSEDE] Falha ao pedir cancelamento da NFS-e #${old.nfseNumber}: ${error}`,
+        );
+      }
+    }
+  }
+
   private async assertBillingArtifactsConfirmed(taskId: string, action: string): Promise<void> {
     const blockers: string[] = [];
 
@@ -2354,21 +2477,42 @@ export class TaskQuoteService {
       select: {
         nossoNumero: true,
         status: true,
+        updatedAt: true,
         installment: { select: { number: true } },
       },
     });
 
-    // A slip still being registered has no real nossoNumero to baixar or even to write down.
+    // A slip that NEVER reached the bank has nothing to strand: no title exists at Sicredi to
+    // baixar, so deleting the row loses nothing. This is provable from the write protocol, not
+    // assumed — every one of the four sites that writes CREATING also writes a `TMP-`
+    // nossoNumero in the same statement (invoice-generation.service.ts:264,568 and
+    // invoice.controller.ts:463,484), and the ONLY transition out of CREATING toward the bank
+    // is the atomic CAS to REGISTERING (invoice-generation.service.ts:743, this scheduler's
+    // :365). createBoleto is therefore never called on a CREATING slip.
+    const neverSent = (s: (typeof slips)[number]) =>
+      !s.nossoNumero || s.nossoNumero.startsWith('TMP-') || s.nossoNumero.startsWith('ERR-');
+
+    // REGISTERING is the genuinely ambiguous state: a call may be in flight right now. It is
+    // bounded, though — the reaper in sicredi-boleto.scheduler.ts demotes REGISTERING older
+    // than 10 minutes to ERROR — so blocking on it is a finite wait, not a deadlock.
+    const REGISTERING_STALE_MS = 10 * 60 * 1000;
+    const inFlight = (s: (typeof slips)[number]) =>
+      s.status === BANK_SLIP_STATUS.REGISTERING &&
+      s.updatedAt.getTime() > Date.now() - REGISTERING_STALE_MS;
+
+    // The old predicate blocked on CREATING and on any `TMP-` nossoNumero. Both were wrong in
+    // the same direction: they blocked precisely the slips that provably do NOT exist at the
+    // bank, making the billing permanently unrevertable once a boleto failed to register — the
+    // Tati Minas deadlock. Worse, the `TMP-` clause also recaptured ERROR slips (the error path
+    // leaves nossoNumero at `TMP-`), silently defeating the exclusion of REJECTED/ERROR that
+    // the comment below deliberately documents.
     const awaitingRegistration = (s: (typeof slips)[number]) =>
-      s.status === BANK_SLIP_STATUS.CREATING ||
-      s.status === BANK_SLIP_STATUS.REGISTERING ||
-      !s.nossoNumero ||
-      s.nossoNumero.startsWith('TMP-');
+      inFlight(s) || (!neverSent(s) && s.status === BANK_SLIP_STATUS.CREATING);
 
     for (const slip of slips.filter(awaitingRegistration)) {
       blockers.push(
-        `O boleto da parcela ${slip.installment.number} ainda está em registro no Sicredi ` +
-          `(${slip.status}). Aguarde a confirmação do registro antes de ${action}.`,
+        `O boleto da parcela ${slip.installment.number} está sendo registrado no Sicredi ` +
+          `agora (${slip.status}). Aguarde cerca de 10 minutos e tente ${action} novamente.`,
       );
     }
 
@@ -2487,6 +2631,23 @@ export class TaskQuoteService {
 
     const results = await Promise.allSettled(
       activeSlips.map(async slip => {
+        // A slip that never reached the bank has no title to baixar — its nossoNumero is still
+        // the local `TMP-`/`ERR-` placeholder, so cancelBoleto would call Sicredi with an id
+        // the bank has never seen, fail, and abort the whole teardown. Short-circuit it.
+        // (Same invariant proven in assertBillingArtifactsConfirmed: CREATING is always
+        // pre-bank, because the CAS to REGISTERING is the only door to createBoleto.)
+        if (
+          !slip.nossoNumero ||
+          slip.nossoNumero.startsWith('TMP-') ||
+          slip.nossoNumero.startsWith('ERR-')
+        ) {
+          this.logger.log(
+            `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero || '(sem número)'} (${slip.status}) ` +
+              `nunca foi registrado no Sicredi; nada a baixar, registro liberado para exclusão.`,
+          );
+          return { slip, situacao: null };
+        }
+
         // REJECTED/ERROR mean the registration itself failed, so there may be no title to
         // baixar. Probe first: if the bank does not know it, there is nothing to strand and
         // the row can go — blocking on it forever would make the billing unrevertable.
@@ -2613,13 +2774,13 @@ export class TaskQuoteService {
     // that points at it. This also subsumes the old PROCESSING/PENDING NFS-e check.
     await this.assertBillingArtifactsConfirmed(task.id, 'reverter o faturamento');
 
-    // Collect NFS-e that are still ACTIVE at the prefeitura to cancel at Elotech before
-    // deleting records. AUTHORIZED and CANCEL_REJECTED notes are both live (a rejected
-    // cancellation means the note was NOT cancelled).
+    // Notes still LIVE at the prefeitura, for the record kept below. Anchored on taskId, not
+    // on the invoice: a note orphaned by an EARLIER revert has invoiceId = null, so the old
+    // `invoice: { taskId }` join silently missed exactly the notes that matter most.
     const authorizedNfses = await this.prisma.nfseDocument.findMany({
       where: {
-        invoice: { taskId: task.id },
-        status: { in: ['AUTHORIZED', 'CANCEL_REJECTED'] },
+        taskId: task.id,
+        status: { in: [...NFSE_LIVE_STATUSES] },
         elotechNfseId: { not: null },
       },
       select: { id: true, nfseNumber: true, elotechNfseId: true },
@@ -2655,44 +2816,26 @@ export class TaskQuoteService {
       );
     }
 
-    // Attempt to cancel active NFS-e at Elotech (best-effort). We do NOT block the revert when a
-    // cancellation can't complete: the note survives the revert linked to the task (invoiceId is
-    // set null by FK SetNull, taskId is kept), so it is never lost or orphaned. This deliberately
-    // avoids the deadlock where the prefeitura rejects a duplicate-cancellation demanding the
-    // SUBSTITUTE NF number — which only exists after re-billing, which needs the revert to happen
-    // first. The flow becomes: revert → re-bill (new NF) → cancel the old note citing the new one
-    // as substituta. Any note left active is logged and stays visible/cancellable on the task.
+    // The revert does NOT cancel the NFS-e. This is deliberate and is the fix for the whole
+    // class of incident: a cancellation requested here has no substitute note to cite, because
+    // the substitute only exists after re-billing — which cannot happen until the revert
+    // completes. The prefeitura of Ibiporã rejects exactly that ("Realizar nova solicitação de
+    // cancelamento, informando o MOTIVO do cancelamento e o NÚMERO da nota fiscal substituta"),
+    // leaving the note in CANCEL_REJECTED with nobody told and nothing able to move it.
+    //
+    // A fiscal document is never destroyed before its replacement exists. So the note simply
+    // STAYS: alive at the prefeitura, still linked to the task (invoiceId goes null by FK
+    // SetNull, taskId is durable), fully visible on the task's NFS-e history. The next billing
+    // approval mints a NEW note and supersedePreviousNfses() then cancels this one citing that
+    // new number as substituta — the two-step substitution this municipality forces on us.
     if (authorizedNfses.length > 0) {
-      const nfseOutcomes = await Promise.allSettled(
-        authorizedNfses.map(n =>
-          this.elotechNfseService.cancelNfse(
-            n.id,
-            'Cancelamento automático por reversão de faturamento.',
-            1,
-          ),
-        ),
-      );
-      nfseOutcomes.forEach((outcome, i) => {
-        const nfse = authorizedNfses[i];
-        if (outcome.status === 'fulfilled' && outcome.value?.cancelled) {
-          this.logger.log(`[REVERT_BILLING] Cancelled NFS-e #${nfse.nfseNumber} at Elotech`);
-        } else {
-          const detail =
-            outcome.status === 'rejected'
-              ? outcome.reason instanceof Error
-                ? outcome.reason.message
-                : String(outcome.reason)
-              : outcome.value?.rejected
-                ? `rejeitada: ${outcome.value.rejectionMessage ?? 'sem detalhes'}`
-                : outcome.value?.pending
-                  ? 'aguardando aprovação do fiscal'
-                  : 'não confirmada';
-          this.logger.warn(
-            `[REVERT_BILLING] NFS-e #${nfse.nfseNumber} segue ATIVA (${detail}). ` +
-              `Permanece vinculada à tarefa; cancele-a citando a nova NF como substituta após refaturar.`,
-          );
-        }
-      });
+      for (const nfse of authorizedNfses) {
+        this.logger.log(
+          `[REVERT_BILLING] NFS-e #${nfse.nfseNumber} permanece ATIVA na prefeitura e vinculada ` +
+            `à tarefa ${task.id}. Será substituída e cancelada quando o faturamento for ` +
+            `aprovado novamente (citando a nova nota como substituta).`,
+        );
+      }
     }
 
     await this.prisma.$transaction(async tx => {
