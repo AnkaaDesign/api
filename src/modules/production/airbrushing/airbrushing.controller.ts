@@ -166,6 +166,10 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    // ACCOUNTING opens the detail from Contas a Pagar to settle the painter payment.
+    // It already owns PUT :id and PUT :id/receipts below — without the read it could
+    // write an airbrushing it is not allowed to load back.
+    SECTOR_PRIVILEGES.ACCOUNTING,
     // AIRBRUSHING (painters) open the detail of their own airbrushing job.
     SECTOR_PRIVILEGES.AIRBRUSHING,
   )
@@ -241,6 +245,23 @@ export class AirbrushingController {
     },
   ): Promise<AirbrushingUpdateResponse> {
     return this.airbrushingService.attachReceipts(id, files, userId);
+  }
+
+  @Delete(':id/receipts/:fileId')
+  // Mesma porta financeira do attach acima: quem pode anexar o comprovante pode trocá-lo.
+  // Declarado ANTES de @Delete(':id') porque rota mais específica precisa vir primeiro.
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  )
+  async detachReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+    @UserId() userId: string,
+  ): Promise<AirbrushingUpdateResponse> {
+    return this.airbrushingService.detachReceipt(id, fileId, userId);
   }
 
   @Delete(':id')

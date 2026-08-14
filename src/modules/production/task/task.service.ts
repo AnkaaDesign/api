@@ -2242,6 +2242,11 @@ export class TaskService {
       // external Sicredi/Elotech calls and must run AFTER the tx commits.
       let taskOldStatusForQuoteCancel: TASK_STATUS | null = null;
 
+      // Aerografias que ESTA atualização concluiu. A intenção da NFS-e é gravada
+      // dentro da transação; a emissão é rede e roda depois do commit, pelo mesmo
+      // gancho que o AirbrushingService usa.
+      const completedAirbrushingIds: string[] = [];
+
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // ── Optimistic concurrency (opt-in) ──────────────────────────────────
         // `SELECT … FOR UPDATE` rather than a plain read-then-compare: under READ
@@ -5363,6 +5368,8 @@ export class TaskService {
                   painterId: updatedAirbrushing.painterId,
                   resetFailed: existingAirbrushing?.status !== AIRBRUSHING_STATUS.COMPLETED,
                 });
+                // A emissão em si é pós-commit — ver o flush no fim de update().
+                completedAirbrushingIds.push(updatedAirbrushing.id);
               }
 
               // Registrar mudanças no changelog
@@ -5434,6 +5441,8 @@ export class TaskService {
                   painterId: newAirbrushing.painterId,
                   resetFailed: true,
                 });
+                // A emissão em si é pós-commit — ver o flush no fim de update().
+                completedAirbrushingIds.push(newAirbrushing.id);
               }
 
               // Registrar criação no changelog
@@ -7024,6 +7033,11 @@ export class TaskService {
         observationChangedSOs: soObservationChanges,
         taskAutoTransitionedToWaitingProduction: wasAutoTransitioned,
       } = transactionResult;
+
+      // NFS-e do aerografista: concluir pelo formulário da TAREFA emite agora, e
+      // não só na varredura de 15 minutos — o mesmo que concluir pelo app do
+      // pintor já fazia. Trava mestra e tratamento de falha vivem no gancho.
+      await this.painterNfseService.flushAfterCompletion(completedAirbrushingIds);
 
       // When this update transitioned the task INTO CANCELLED (a direct cancel or
       // the all-COMMERCIAL-SOs-cancelled auto-cancel), cascade-cancel its quote:

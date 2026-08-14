@@ -147,6 +147,18 @@ export class AirbrushingPrismaRepository
     // Contas a Pagar can window "paid this month".
     if (formData.paymentStatus !== undefined) {
       updateData.paidAt = formData.paymentStatus === "PAID" ? new Date() : null;
+
+      // Desfazer o pagamento DESANEXA os comprovantes: o recibo é prova daquele
+      // pagamento, e o pagamento deixou de existir. Sem isso, estornar e pagar de novo
+      // com outro comprovante acumulava os dois na aerografia, e ninguém sabia qual
+      // valia. Só desanexa (o File permanece, o varredor de órfãos recolhe depois) —
+      // apagar o arquivo aqui destruiria um documento que pode estar em uso.
+      //
+      // Um `receiptIds` explícito no mesmo payload vence: é intenção declarada do
+      // chamador, e é ele quem o `setRelation` abaixo aplica.
+      if (formData.paymentStatus !== "PAID" && receiptIds === undefined) {
+        updateData.receipts = { set: [] };
+      }
     }
 
     // Handle optional relations with proper null handling

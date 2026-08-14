@@ -90,35 +90,17 @@ export class AirbrushingService {
   /**
    * Dispara a emissão das notas já com a transação COMMITADA.
    *
-   * Chamada de rede jamais dentro de `$transaction`: seguraria uma conexão do
-   * pool pelo tempo da rede e, num timeout da SEFIN, derrubaria a conclusão da
-   * aerografia junto. Aqui a aerografia já está salva.
-   *
-   * Falha é engolida de propósito: a linha PENDING sobrevive e a varredura de 15
-   * minutos assume. O inline existe só para a nota aparecer na hora.
-   *
-   * Respeita a MESMA trava mestra do cron (`PAINTER_NFSE_SCHEDULER_ENABLED`).
-   * Se o inline passasse por cima dela, desligar a trava não pararia a emissão
-   * automática — só a atrasaria até alguém concluir uma aerografia, que é a
-   * pior forma possível de uma trava falhar. Com ela desligada a intenção fica
-   * registrada e visível, e o botão "Reemitir" continua funcionando.
+   * A trava mestra, o "nunca dentro de transação" e o engolir da falha vivem em
+   * `PainterNfseService.flushAfterCompletion` — um lugar só, porque o TaskService
+   * conclui aerografia por fora daqui e precisa se comportar igual. O que sobra
+   * aqui é a pergunta local: esta operação CONCLUIU alguma coisa?
    */
   private async flushNfseEmissions(
     airbrushingIds: string[],
     status?: string | null,
   ): Promise<void> {
-    if (status !== AIRBRUSHING_STATUS.COMPLETED || airbrushingIds.length === 0) return;
-    if (process.env.PAINTER_NFSE_SCHEDULER_ENABLED !== 'true') return;
-
-    try {
-      await this.painterNfseService.emitForAirbrushings(airbrushingIds);
-    } catch (error) {
-      this.logger.warn(
-        `[Airbrushing] Emissão imediata de NFS-e falhou (a varredura tentará novamente): ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    if (status !== AIRBRUSHING_STATUS.COMPLETED) return;
+    await this.painterNfseService.flushAfterCompletion(airbrushingIds);
   }
 
   /**
@@ -259,6 +241,18 @@ export class AirbrushingService {
       }
       // A job completed without ever passing through Em Produção still needs a start.
       stampStart();
+    } else if (
+      existing?.status === AIRBRUSHING_STATUS.COMPLETED &&
+      existing.finishedAt &&
+      updateData.finishedAt === undefined
+    ) {
+      // Reabrir uma aerografia LIMPA o término. Sem isso, finalizar por engano no dia T
+      // e refinalizar de verdade em T+30 mantinha finishedAt = T (o carimbo acima só
+      // grava quando finishedAt está vazio), e applyDueDate — que roda logo depois e
+      // deriva o vencimento do término — reemitia o vencimento antigo: a linha nascia
+      // em Contas a Pagar já vencida. Limpar aqui faz o próximo COMPLETED carimbar
+      // término novo e, com ele, o vencimento correto.
+      updateData.finishedAt = null;
     }
   }
 
@@ -531,6 +525,12 @@ export class AirbrushingService {
         return newAirbrushing;
       });
 
+      // Emissão FORA da transação — ver flushNfseEmissions. Criar já concluída é
+      // uma conclusão como outra qualquer: sem este flush a intenção ficava
+      // registrada e a nota só saía na varredura seguinte, enquanto o mesmo
+      // status vindo por `update` emitia na hora.
+      await this.flushNfseEmissions([(airbrushing as any).id], (airbrushing as any)?.status);
+
       return {
         success: true,
         message: 'Aerografia criada com sucesso.',
@@ -751,6 +751,62 @@ export class AirbrushingService {
       this.logger.error(`Erro ao anexar comprovante à aerografia ${id}:`, error);
       throw new InternalServerErrorException(
         'Erro ao anexar comprovante. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Desanexar UM comprovante da aerografia — contrapartida exata de `attachReceipts`.
+   *
+   * Existe para que trocar/remover comprovante NÃO precise passar pelo PUT :id com
+   * `receiptIds`: aquele caminho mapeia para um `set` do Prisma (substituição total),
+   * então exige que o chamador tenha a lista inteira hidratada — quem só segura uma
+   * linha do Contas a Pagar nunca tem — e um payload montado com estado velho apaga
+   * anexos silenciosamente. Aqui a intenção é uma só e o alvo é explícito.
+   *
+   * DESANEXA, não apaga: o registro File continua, e o varredor de órfãos recolhe
+   * depois se ninguém mais apontar para ele. Apagar aqui destruiria um documento que
+   * pode estar em uso por outra entidade.
+   */
+  async detachReceipt(
+    id: string,
+    fileId: string,
+    userId?: string,
+  ): Promise<AirbrushingUpdateResponse> {
+    try {
+      const airbrushing = await this.prisma.airbrushing.findUnique({
+        where: { id },
+        include: { receipts: { select: { id: true } } },
+      });
+      if (!airbrushing) {
+        throw new NotFoundException('Aerografia não encontrada.');
+      }
+
+      // 404 em vez de no-op silencioso: pedir para remover um comprovante que não está
+      // ali quase sempre é a tela operando em cima de estado velho.
+      if (!airbrushing.receipts.some(r => r.id === fileId)) {
+        throw new NotFoundException('Comprovante não encontrado nesta aerografia.');
+      }
+
+      const updated = await this.prisma.airbrushing.update({
+        where: { id },
+        data: { receipts: { disconnect: { id: fileId } } },
+      });
+
+      this.logger.log(
+        `Comprovante ${fileId} desanexado da aerografia ${id}${userId ? ` por ${userId}` : ''}`,
+      );
+
+      return {
+        success: true,
+        message: 'Comprovante removido da aerografia.',
+        data: updated as unknown as Airbrushing,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Erro ao remover comprovante da aerografia ${id}:`, error);
+      throw new InternalServerErrorException(
+        'Erro ao remover comprovante. Por favor, tente novamente.',
       );
     }
   }
@@ -1028,6 +1084,15 @@ export class AirbrushingService {
           totalFailed: failedCreations.length,
         };
       });
+
+      // Emissão FORA da transação — ver flushNfseEmissions. Mesmo critério do
+      // batchUpdate: só as que ficaram concluídas nesta operação.
+      await this.flushNfseEmissions(
+        result.success
+          .filter((a: any) => a?.status === AIRBRUSHING_STATUS.COMPLETED)
+          .map((a: any) => a.id),
+        AIRBRUSHING_STATUS.COMPLETED,
+      );
 
       const successMessage =
         result.totalCreated === 1

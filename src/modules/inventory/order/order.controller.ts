@@ -422,6 +422,23 @@ export class OrderController {
     return this.orderService.attachReceipts(id, files, userId);
   }
 
+  @Delete(':id/receipts/:fileId')
+  // Same financial door as the attach above: whoever can attach a comprovante can
+  // replace a wrong one. The generic PUT :id (WAREHOUSE/ADMIN) stays untouched.
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  )
+  async detachReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+    @UserId() userId: string,
+  ): Promise<OrderUpdateResponse> {
+    return this.orderService.detachReceipt(id, fileId, userId);
+  }
+
   @Put(':id/request-payment')
   // "Requisitar Pagamento" (PENDING → AWAITING_PAYMENT) is ADMIN-only.
   @Roles(SECTOR_PRIVILEGES.ADMIN)

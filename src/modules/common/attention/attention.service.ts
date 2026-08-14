@@ -7,7 +7,6 @@ import {
   CutStatus,
   OrderStatus,
   PpeDeliveryStatus,
-  AirbrushingStatus,
   TaskQuoteStatus,
   SectorPrivileges,
   Prisma,
@@ -385,8 +384,11 @@ const CUSTOMER_MISSING_BILLING_DATA: Prisma.CustomerWhereInput = {
  * alert teaches people to ignore the whole system, which is why there is (for
  * example) no "budget still pending" rule — every budget is legitimately pending
  * for a while — only "budget pending PAST ITS EXPIRY", which is a real backlog.
+ *
+ * Exported for `tests/attention-audience.test.ts`, which guards the audiences —
+ * PRODUCTION must stay out (see the Produção section below).
  */
-const RULE_QUERIES: RuleQuery[] = [
+export const RULE_QUERIES: RuleQuery[] = [
   {
     ruleId: 'task.cleared-without-entry',
     entityType: 'TASK',
@@ -458,13 +460,28 @@ const RULE_QUERIES: RuleQuery[] = [
   },
 
   // ── Produção ──────────────────────────────────────────────────────────────
-  {
-    // Queued for the airbrushing bench.
-    ruleId: 'airbrushing.waiting-production',
-    entityType: 'AIRBRUSHING',
-    privileges: [SectorPrivileges.PRODUCTION],
-    where: () => ({ status: AirbrushingStatus.WAITING_PRODUCTION }),
-  },
+  //
+  // DELIBERADAMENTE VAZIA: o setor PRODUCTION não tem regra de atenção nenhuma.
+  //
+  // Havia uma — `airbrushing.waiting-production`, `privileges: [PRODUCTION]` — e ela é
+  // exatamente o caso que o comentário de `ppe-delivery.pending-review` acima proíbe: uma
+  // regra cuja casa (`/producao/aerografia`) o público não consegue abrir. No app, o gate
+  // é `production && isTeamLeader` (`canOpenAirbrushingDetail`), e o chão de fábrica perdeu
+  // a Aerografia em 29/07/2026 ("a produção deixa de ver cliente, chassi, preço e
+  // Aerografia") — um dia DEPOIS de a regra nascer, e sem que ninguém voltasse aqui.
+  //
+  // O filtro de audiência é um privilégio SÓ (`user.sector.privileges`), e TEAM_LEADER é
+  // virtual (derivado de `sector.leaderId`), então "só o líder" é indizível nesta camada:
+  // ou a fábrica inteira recebe, ou ninguém. O resultado era o pior dos dois — o botão de
+  // menu do app vibrava e piscava enquanto a gaveta não tinha para onde levar.
+  //
+  // Esvaziar `privileges` NÃO serviria: lista vazia significa "todo setor" (ver o filtro em
+  // `getSummary`), que é o oposto do pretendido.
+  //
+  // Quem de fato despacha WAITING_PRODUCTION -> IN_PRODUCTION é o AEROGRAFISTA
+  // (`kPainterStatusTransitions`), e o setor AIRBRUSHING existe. Se um dia a fila voltar a
+  // avisar alguém, é para ele — e escopada ao próprio pintor (`painterId: userId`, como
+  // `ppe-delivery.awaiting-my-signature` faz com `userId`), nunca à fila inteira.
 
   // ── Comercial / Financeiro ────────────────────────────────────────────────
   //

@@ -44,6 +44,7 @@ import {
   CHANGE_ACTION,
   SECTOR_PRIVILEGES,
   PAYMENT_METHOD,
+  AIRBRUSHING_DUE_DATE_RULE,
 } from '../../../constants/enums';
 import { ORDER_PAYMENT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { OrderRepository } from './repositories/order/order.repository';
@@ -55,6 +56,7 @@ import {
   calculateOrderItemTotal,
 } from '../../../utils/order';
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
+import { daysBetweenDueDates, todayInSaoPauloAtNoonUtc } from '../../../utils/due-date.util';
 import {
   OrderCreateFormData,
   OrderUpdateFormData,
@@ -83,6 +85,15 @@ import {
   OrderItemReceivedEvent,
   OrderCancelledEvent,
 } from './order.events';
+
+/**
+ * Regras de vencimento ancoradas no CALENDÁRIO (e não derivadas do término): a
+ * aerografia só entra em Contas a Pagar como pagável quando o dia chega.
+ */
+const CALENDAR_ANCHORED_DUE_RULES = new Set<string>([
+  AIRBRUSHING_DUE_DATE_RULE.DAY_OF_MONTH,
+  AIRBRUSHING_DUE_DATE_RULE.FIXED_DATE,
+]);
 
 @Injectable()
 export class OrderService {
@@ -3094,8 +3105,20 @@ export class OrderService {
       // The painter is owed 7 days after the job finishes. Until it is COMPLETED the
       // row is a forecast (muted "Previsto", no settle action, PIX key hidden) — the
       // same treatment SCHEDULED outflows and not-yet-requisitados orders get.
+      const spToday = todayInSaoPauloAtNoonUtc();
       for (const ab of airbrushings) {
-        const finished = ab.status === 'COMPLETED';
+        const completed = ab.status === 'COMPLETED';
+        const abDue = this.airbrushingDueDate(ab);
+        // DAYS_AFTER_FINISH DERIVA o vencimento do término, então terminar já é o que
+        // torna o valor devido. DAY_OF_MONTH e FIXED_DATE são datas de calendário que
+        // o usuário fixou: o dinheiro não é devido antes daquele dia chegar em SP,
+        // mesmo com o serviço pronto. Uma linha sem vencimento materializado falha
+        // ABERTA (vira pagável ao concluir), para não ficar presa como previsão eterna.
+        const dateArrived =
+          !CALENDAR_ANCHORED_DUE_RULES.has(ab.dueDateRule ?? '') ||
+          abDue == null ||
+          daysBetweenDueDates(abDue, spToday) <= 0;
+        const finished = completed && dateArrived;
         const painterDoc = this.painterPayeeDoc(ab.painter);
         rows.push({
           source: 'AIRBRUSHING',
@@ -3106,11 +3129,12 @@ export class OrderService {
           payeeName: painterDoc.name ?? 'Aerografia (sem pintor)',
           description: ab.task?.name ? `Aerografia — ${ab.task.name}` : 'Aerografia',
           amount: ab.price ?? 0,
-          // Airbrushing payment is binary (PENDING/PAID); an unfinished job is not a
-          // debt yet, a finished one is awaiting payment (the OVERDUE sweep in
-          // PayablesService promotes it once the 7-day term lapses).
+          // Airbrushing payment is binary (PENDING/PAID); um serviço não concluído — ou
+          // concluído mas com vencimento de calendário ainda por vir — não é dívida
+          // ainda. Concluído e vencido/vencendo hoje fica aguardando pagamento (o
+          // sweep de OVERDUE em PayablesService promove depois do prazo de carência).
           paymentState: finished ? 'AWAITING_PAYMENT' : 'EXPECTED',
-          dueDate: this.airbrushingDueDate(ab),
+          dueDate: abDue,
           method: ab.paymentMethod ?? null,
           taskId: ab.taskId,
           // Gates the settle action + the Chave Pix cell on the web/mobile lists,
@@ -3274,6 +3298,62 @@ export class OrderService {
       this.logger.error(`Erro ao anexar comprovante ao pedido ${orderId}:`, error);
       throw new InternalServerErrorException(
         'Erro ao anexar comprovante. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Detach ONE receipt (comprovante) from an order — the exact counterpart of
+   * attachReceipts.
+   *
+   * Without this, changing or removing a comprovante was only possible through the
+   * generic `PUT /orders/:id` with `receiptIds`, which is (a) WAREHOUSE/ADMIN-only, so
+   * the very roles that attach a receipt could never fix a wrong one, and (b) a Prisma
+   * `set` — a full replace that needs the whole list hydrated and silently drops
+   * attachments when built from stale state.
+   *
+   * DETACHES, does not delete: the File row survives for the orphan sweeper. Deleting
+   * here would destroy a document another entity may still reference.
+   */
+  async detachReceipt(
+    orderId: string,
+    fileId: string,
+    userId?: string,
+  ): Promise<OrderUpdateResponse> {
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { receipts: { select: { id: true } } },
+      });
+      if (!order) {
+        throw new NotFoundException('Pedido não encontrado. Verifique se o ID está correto.');
+      }
+
+      // 404 rather than a silent no-op: asking to remove a receipt that isn't attached
+      // almost always means the screen is acting on stale state.
+      if (!order.receipts.some(r => r.id === fileId)) {
+        throw new NotFoundException('Comprovante não encontrado neste pedido.');
+      }
+
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: { receipts: { disconnect: { id: fileId } } },
+      });
+
+      this.logger.log(
+        `Comprovante ${fileId} desanexado do pedido ${orderId}${userId ? ` por ${userId}` : ''}`,
+      );
+
+      return {
+        success: true,
+        message: 'Comprovante removido do pedido.',
+        data: updated as unknown as Order,
+      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) throw error;
+      this.logger.error(`Erro ao remover comprovante do pedido ${orderId}:`, error);
+      throw new InternalServerErrorException(
+        'Erro ao remover comprovante. Por favor, tente novamente.',
       );
     }
   }

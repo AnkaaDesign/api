@@ -177,6 +177,44 @@ export class PainterNfseService {
   // Emissão
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Emissão imediata depois de uma conclusão JÁ COMMITADA — o gancho único que
+   * todo caminho de conclusão chama.
+   *
+   * Existe porque a conclusão acontece em quatro lugares (`update`, `create`,
+   * `batchUpdate` e `batchCreate` do AirbrushingService) mais dois `tx.airbrushing.*`
+   * crus dentro do TaskService, e cada um deles repetia — ou esquecia — as três
+   * regras que valem aqui:
+   *
+   *  1. NUNCA dentro de `$transaction`. É chamada de rede: seguraria uma conexão do
+   *     pool pelo tempo da SEFIN e, num timeout, derrubaria a conclusão junto.
+   *  2. A MESMA trava mestra do cron (`PAINTER_NFSE_SCHEDULER_ENABLED`). Se o inline
+   *     passasse por cima dela, desligar a trava não pararia a emissão automática —
+   *     só a atrasaria até alguém concluir uma aerografia, que é a pior forma
+   *     possível de uma trava falhar. Desligada, a intenção fica registrada e
+   *     visível, e o botão "Reemitir" continua funcionando.
+   *  3. Falha é engolida. A linha PENDING sobrevive e a varredura de 15 minutos
+   *     assume; o inline existe só para a nota aparecer na hora.
+   *
+   * O TaskService chamava `registerIntent` e parava aí, então concluir uma aerografia
+   * pelo formulário da TAREFA só emitia na varredura seguinte, enquanto a mesma
+   * conclusão pelo app do pintor emitia na hora.
+   */
+  async flushAfterCompletion(airbrushingIds: string[]): Promise<void> {
+    if (airbrushingIds.length === 0) return;
+    if (process.env.PAINTER_NFSE_SCHEDULER_ENABLED !== 'true') return;
+
+    try {
+      await this.emitForAirbrushings(airbrushingIds);
+    } catch (error) {
+      this.logger.warn(
+        `[PAINTER_NFSE] Emissão imediata falhou (a varredura tentará novamente): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
   /** Emite as notas das aerografias indicadas. Nunca lança — devolve o resultado por linha. */
   async emitForAirbrushings(airbrushingIds: string[]): Promise<EmissionOutcome[]> {
     if (airbrushingIds.length === 0) return [];
