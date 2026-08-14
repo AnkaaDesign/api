@@ -2026,7 +2026,7 @@ const CONFIGS: ConfigDef[] = [
     notificationType: "SYSTEM",
     eventType: "airbrushing.nfse.issued",
     description:
-      "A NFS-e do aerografista foi autorizada pela SEFIN para uma aerografia concluída.",
+      "A NFS-e do aerografista foi autorizada pela SEFIN para uma aerografia concluída (despachada duas vezes: à retaguarda pelos setores acima e, direcionada, ao próprio prestador).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: false,
@@ -2036,7 +2036,7 @@ const CONFIGS: ConfigDef[] = [
     sectors: ["ADMIN", "FINANCIAL", "ACCOUNTING"],
     channels: {
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
-      PUSH: { enabled: false, mandatory: false, defaultOn: false },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
       WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
@@ -2049,7 +2049,10 @@ const CONFIGS: ConfigDef[] = [
     metadata: {
       trigger: "painter-nfse.scheduler",
       registry: "seed-notification-configs",
-      targeted: false,
+      // Híbrido: o mesmo evento sai por setor (retaguarda) E direcionado ao
+      // aerografista, com textos diferentes. Sem sobreposição de destinatários —
+      // o pintor não pertence a nenhum dos setores listados.
+      targeted: true,
     },
   },
   {
@@ -2114,6 +2117,50 @@ const CONFIGS: ConfigDef[] = [
       trigger: "painter-nfse.scheduler",
       registry: "seed-notification-configs",
       targeted: false,
+    },
+  },
+  {
+    key: "airbrushing.payment.received",
+    name: "Pagamento Recebido",
+    notificationType: "SYSTEM",
+    eventType: "airbrushing.payment.received",
+    description:
+      "Pagamento de uma aerografia registrado como pago, encerrando a obrigação em Contas a Pagar (notificação direcionada ao aerografista).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Pagamento Recebido",
+        body: "O pagamento{{#if price}} de {{price}}{{/if}} da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi registrado.",
+      },
+      push: {
+        title: "Pagamento Recebido",
+        body: "{{#if price}}{{price}} — {{/if}}aerografia {{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}",
+      },
+      email: {
+        subject: "Pagamento Recebido{{#if taskName}} - {{taskName}}{{/if}}",
+        body: "O pagamento{{#if price}} de {{price}}{{/if}} da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi registrado.\n",
+      },
+      whatsapp: {
+        body: "O pagamento{{#if price}} de {{price}}{{/if}} da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi registrado.",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — transição paymentStatus → PAID no AirbrushingService (update/batchUpdate) e na seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
     },
   },
   // ─── order ───────────────────────────────────────────────────────────────────
