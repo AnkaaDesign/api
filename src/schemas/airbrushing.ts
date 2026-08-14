@@ -903,6 +903,16 @@ export const airbrushingCreateSchema = z.preprocess(
         ),
       )
       .optional(),
+    // Status dos layouts que sobem NESTA requisição (multipart), na MESMA ordem dos blobs.
+    // O cliente não conhece o File ID desses arquivos — só o servidor, depois de gravá-los —
+    // então o casamento é por índice: newLayoutStatuses[i] ↔ files.layouts[i].
+    newLayoutStatuses: z
+      .array(
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de layout inválido' }),
+        }),
+      )
+      .optional(),
   }),
 );
 
@@ -961,6 +971,14 @@ export const airbrushingUpdateSchema = z.preprocess(
             errorMap: () => ({ message: 'Status de layout inválido' }),
           }),
         ),
+      )
+      .optional(),
+    // Ver airbrushingCreateSchema: status por ÍNDICE dos blobs que sobem nesta requisição.
+    newLayoutStatuses: z
+      .array(
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de layout inválido' }),
+        }),
       )
       .optional(),
   }),

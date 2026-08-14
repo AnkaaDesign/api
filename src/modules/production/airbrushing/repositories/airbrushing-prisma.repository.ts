@@ -81,7 +81,21 @@ export class AirbrushingPrismaRepository
     // created by the service (convertFileIdsToLayoutIds) AFTER the airbrushing
     // exists, since Layout requires airbrushingId. They are intentionally not
     // connected here.
-    const { taskId, painterId, invoiceIds, receiptIds, layoutIds: _layoutIds, ...rest } = formData;
+    //
+    // `layoutStatuses` (mapa File ID → Layout.status) e `newLayoutStatuses` (o mesmo, por
+    // ÍNDICE dos blobs desta requisição) são campos de TRANSPORTE, consumidos pelo serviço:
+    // deixá-los em `rest` faz o Prisma rejeitar a criação inteira com unknown-argument.
+    // Mesmo tratamento do mapper de update.
+    const {
+      taskId,
+      painterId,
+      invoiceIds,
+      receiptIds,
+      layoutIds: _layoutIds,
+      layoutStatuses: _layoutStatuses,
+      newLayoutStatuses: _newLayoutStatuses,
+      ...rest
+    } = formData as any;
 
     const createInput: Prisma.AirbrushingCreateInput = {
       ...rest,
@@ -129,6 +143,7 @@ export class AirbrushingPrismaRepository
       receiptIds,
       layoutIds,
       layoutStatuses: _layoutStatuses,
+      newLayoutStatuses: _newLayoutStatuses,
       _allowRelationClear: _clearMarker,
       ...rest
     } = formData as any;

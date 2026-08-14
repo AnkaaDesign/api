@@ -507,6 +507,15 @@ export class AirbrushingService {
         const layoutStatuses = (data as any).layoutStatuses as
           | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
           | undefined;
+        // Status dos layouts que sobem NESTA requisição, casados por índice com os blobs
+        // (o cliente não tem como chavear por File ID — o id só nasce aqui embaixo).
+        const newLayoutStatuses = (data as any).newLayoutStatuses as
+          | Array<'DRAFT' | 'APPROVED' | 'REPROVED'>
+          | undefined;
+        // Nenhum dos dois é coluna de Airbrushing: chegar ao repositório com eles faz o
+        // Prisma rejeitar a escrita inteira com "unknown argument".
+        delete (data as any).layoutStatuses;
+        delete (data as any).newLayoutStatuses;
 
         // Criar já como COMPLETED é permitido pelo zod, e este caminho nunca
         // chamava applyStatusTimestamps: a aerografia nascia concluída SEM
@@ -544,7 +553,11 @@ export class AirbrushingService {
           await this.convertFileIdsToLayoutIds(
             layoutFileIds,
             newAirbrushing.id,
-            layoutStatuses,
+            this.mergeNewLayoutStatuses(
+              layoutStatuses,
+              uploadedLayoutFileIds,
+              newLayoutStatuses,
+            ),
             userRole,
             tx,
           );
@@ -656,8 +669,14 @@ export class AirbrushingService {
         const layoutStatuses = (data as any).layoutStatuses as
           | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
           | undefined;
+        // Status dos layouts que sobem NESTA requisição, por índice dos blobs — o cliente
+        // não conhece o File ID deles (só existe depois do upload, logo abaixo).
+        const newLayoutStatuses = (data as any).newLayoutStatuses as
+          | Array<'DRAFT' | 'APPROVED' | 'REPROVED'>
+          | undefined;
         this.logger.log(
-          `[Airbrushing Update] layoutStatuses received: ${JSON.stringify(layoutStatuses)}`,
+          `[Airbrushing Update] layoutStatuses received: ${JSON.stringify(layoutStatuses)}, ` +
+            `newLayoutStatuses: ${JSON.stringify(newLayoutStatuses)}`,
         );
 
         // AIRBRUSHING (painters) may only drive the job's workflow. The @Roles gate lets
@@ -681,9 +700,10 @@ export class AirbrushingService {
           newFileIds = await this.processAirbrushingFileUploads(id, files, userId, tx);
         }
 
-        // Build update data. layoutStatuses is not a Prisma field.
+        // Build update data. Nem layoutStatuses nem newLayoutStatuses são campos Prisma.
         const updateData: any = { ...data };
         delete updateData.layoutStatuses;
+        delete updateData.newLayoutStatuses;
 
         if (isPainterRestricted) {
           const PAINTER_WRITABLE_FIELDS = new Set(['status', 'startedAt', 'finishedAt']);
@@ -726,7 +746,14 @@ export class AirbrushingService {
         // of that type were uploaded in this request.
         await this.reconcileFileRelations(tx, id, data, updateData, {
           newFileIds,
-          layoutStatuses,
+          // Os layouts recém-enviados entram no mapa aqui, já com o File ID que o upload
+          // acabou de criar — é o que permite aprovar um layout no mesmo salvamento em
+          // que ele foi anexado, sem precisar salvar, reabrir e aprovar depois.
+          layoutStatuses: this.mergeNewLayoutStatuses(
+            layoutStatuses,
+            newFileIds.layoutIds,
+            newLayoutStatuses,
+          ),
           userRole,
           skipAll: isPainterRestricted,
           logPrefix: '[Airbrushing Update]',
@@ -1672,7 +1699,9 @@ export class AirbrushingService {
 
     // layoutStatuses drives Layout.status but is not a column on Airbrushing — reaching
     // the repository with it makes Prisma reject the whole write with an unknown-arg error.
+    // Idem newLayoutStatuses (a variante por índice, para os blobs desta requisição).
     delete updateData.layoutStatuses;
+    delete updateData.newLayoutStatuses;
 
     // A relation is reconciled only when the payload explicitly provided its IDs OR new
     // files of that type were uploaded in this request. Anything else: leave it alone.
@@ -1781,6 +1810,33 @@ export class AirbrushingService {
   private canApproveLayouts(userRole?: string): boolean {
     const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
     return userRole ? allowedRoles.includes(userRole as any) : false;
+  }
+
+  /**
+   * Junta os dois canais de status de layout num único mapa `fileId → status`.
+   *
+   * Um layout já existente é identificado pelo File ID, e o cliente manda o mapa pronto.
+   * Um layout que sobe NESTA requisição ainda não tem File ID no cliente — o id nasce aqui
+   * no servidor, durante o upload —, então o status vem por ÍNDICE, alinhado à ordem dos
+   * blobs em `files.layouts`. `uploadedFileIds` é o retorno do upload NA MESMA ORDEM, e é
+   * ele que fecha o par: `newStatuses[i]` pertence a `uploadedFileIds[i]`.
+   *
+   * Sem isto, o status escolhido para um arquivo recém-anexado era descartado em silêncio:
+   * o layout nascia Rascunho e só dava para aprová-lo salvando e reabrindo o formulário.
+   */
+  private mergeNewLayoutStatuses(
+    existing: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined,
+    uploadedFileIds: string[],
+    newStatuses: Array<'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined,
+  ): Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined {
+    if (!newStatuses?.length || !uploadedFileIds.length) return existing;
+
+    const merged = { ...(existing ?? {}) };
+    uploadedFileIds.forEach((fileId, i) => {
+      const status = newStatuses[i];
+      if (status) merged[fileId] = status;
+    });
+    return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
   /**
