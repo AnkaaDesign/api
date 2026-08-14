@@ -1676,7 +1676,11 @@ export class SignatureEnvelopeService {
     // colhidas — o pior desfecho possível deste fluxo.
     const sealTermsUnchanged =
       !!freshAtSeal &&
-      this.snapshots.matchesFrozenTerms(freshAtSeal.snapshot, frozenTermsAtSeal) !== null;
+      this.snapshots.matchesFrozenTerms(
+        freshAtSeal.snapshot,
+        frozenTermsAtSeal,
+        env.quoteSnapshot as unknown as QuoteSnapshot,
+      ) !== null;
 
     if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256 && sealTermsUnchanged) {
       // Deriva cosmética às vésperas do selo: o PDF em disco é o mesmo, o hash
@@ -2012,7 +2016,14 @@ export class SignatureEnvelopeService {
     // congelado sob a v1 contra a projeção v2 daria diferença sempre — e todos
     // os envelopes vivos seriam invalidados no deploy por uma mudança que, para
     // eles, nunca foi material.
-    const matchedVersion = this.snapshots.matchesFrozenTerms(loaded.snapshot, frozenTermsHash);
+    const matchedVersion = this.snapshots.matchesFrozenTerms(
+      loaded.snapshot,
+      frozenTermsHash,
+      // O congelado entra para que um envelope pré-v3 não morra por um chassi
+      // preenchido — o campo saiu do recorte material, mas o hash dele ainda o
+      // contém. Ver `matchesFrozenTerms`.
+      before as QuoteSnapshot,
+    );
 
     if (matchedVersion !== null) {
       // DERIVA COSMÉTICA — o documento congelado em disco não mudou uma vírgula,

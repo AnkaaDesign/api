@@ -733,9 +733,17 @@ export function diffQuoteSnapshots(
     before: normText(before.truck?.plate),
     after: normText(after.truck?.plate),
   });
+  // O chassi é CADASTRO, não condição comercial. Na prática ele quase nunca
+  // existe na hora do orçamento — implemento 0 km ainda em fabricação — e é
+  // preenchido semanas depois, quando o veículo chega. Tratá-lo como material
+  // fazia esse preenchimento derrubar uma coleta inteira (ou marcar um orçamento
+  // já assinado como "mudou"), que é o mesmo erro do nº 590 com outro campo: o
+  // veículo é o mesmo, a proposta é a mesma, ninguém teria motivo para
+  // reconsiderar a assinatura. Quem identifica materialmente o objeto do
+  // contrato é a PLACA, logo acima — essa continua derrubando.
   scalar(out, {
     key: 'truckChassis',
-    severity: 'MATERIAL',
+    severity: 'COSMETIC',
     group: 'VEHICLE',
     label: 'Chassi',
     before: normText(before.truck?.chassisNumber),

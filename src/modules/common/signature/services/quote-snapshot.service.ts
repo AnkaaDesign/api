@@ -25,7 +25,7 @@
  *   Transaction Authorization §2.6: ninguém fica preso a termos que se moveram.
  *
  * - COSMÉTICO (todo o resto do snapshot): grafia de nomes, nome fantasia do
- *   cliente, nome/série da tarefa, categoria do veículo. Mudou ⇒ apenas um
+ *   cliente, nome/série da tarefa, categoria e CHASSI do veículo. Mudou ⇒ apenas um
  *   evento `SNAPSHOT_DRIFTED` na trilha. Nada é invalidado: o PDF assinado já
  *   está congelado em disco e continua exibindo exatamente o que o signatário
  *   viu — corrigir o cadastro depois não reescreve o documento nem altera uma
@@ -129,15 +129,24 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
  * v2 (2026-07-29): o canal do OTP passou de telefone para e-mail, então o que
  * entra no recorte material passou de `phoneDigits` para `emailNormalized`.
  *
- * A v1 continua calculável — `materialProjection` aceita a versão — porque
- * envelope congelado sob a v1 tinha o telefone como canal de verdade, e
- * reavaliá-lo pela regra nova derrubaria assinaturas por uma troca que, para
- * ele, nunca foi material.
+ * v3 (2026-08-14): o CHASSI saiu do recorte. Ele é cadastro do veículo, não
+ * condição comercial: o implemento costuma estar em fabricação quando o
+ * orçamento é assinado, e o número só é registrado depois. Enquanto era
+ * material, preencher esse campo derrubava a coleta — ou marcava um orçamento
+ * já assinado como alterado — sem que uma vírgula da proposta tivesse mudado.
+ * A PLACA continua no recorte: é ela que identifica materialmente o objeto do
+ * contrato.
+ *
+ * As versões antigas continuam calculáveis — `materialProjection` aceita a
+ * versão — porque envelope congelado sob a v1 tinha o telefone como canal de
+ * verdade, e o congelado sob v1/v2 tinha o chassi como termo. Reavaliá-los pela
+ * regra nova derrubaria assinaturas por mudanças que, para eles, nunca foram
+ * materiais.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 2;
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 3;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
-export const SUPPORTED_MATERIAL_VERSIONS = [2, 1] as const;
+export const SUPPORTED_MATERIAL_VERSIONS = [3, 2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -164,8 +173,16 @@ export interface QuoteMaterialProjection {
   layoutFileIds: string[];
   /** Quem se vincula: id + documento. Razão social e nome fantasia são cosméticos. */
   customer: { id: string | null; document: string | null } | null;
-  /** O objeto do contrato. Categoria e tipo de implemento são cosméticos. */
-  truck: { plate: string | null; chassisNumber: string | null } | null;
+  /**
+   * O objeto do contrato — a PLACA. Categoria, tipo de implemento e, desde a
+   * v3, o CHASSI são cosméticos.
+   *
+   * `chassisNumber` é opcional porque só é emitido ao recalcular um hash v1/v2:
+   * a chave precisa continuar existindo naquelas versões para que o hash antigo
+   * seja reproduzível, e precisa desaparecer na v3 (o canonicalizador descarta
+   * `undefined`, exatamente como faz com o canal do OTP nos signatários).
+   */
+  truck: { plate: string | null; chassisNumber?: string | null } | null;
   /**
    * Identidade dos signatários e o CANAL do OTP — não a grafia do nome.
    *
@@ -350,7 +367,10 @@ export class QuoteSnapshotService {
       truck: s.truck
         ? {
             plate: normText(s.truck.plate),
-            chassisNumber: normText(s.truck.chassisNumber),
+            // Igual aos signatários: emitir a chave da OUTRA versão quebraria a
+            // reprodutibilidade do hash antigo, que é o que permite reconhecer
+            // um envelope não-alterado depois da mudança de recorte.
+            ...(version >= 3 ? {} : { chassisNumber: normText(s.truck.chassisNumber) }),
           }
         : null,
       // O canal muda com a versão. Emitir a chave da OUTRA versão quebraria a
@@ -385,10 +405,34 @@ export class QuoteSnapshotService {
    * mudou?" — sem precisar de migração de dados nem de adivinhação.
    *
    * Devolve a versão que casou, ou `null` quando nenhuma casa (aí mudou mesmo).
+   *
+   * `frozen` é o snapshot congelado do envelope, e serve a UMA coisa: envelopes
+   * anteriores à v3 têm o chassi dentro do hash. Sem ele, um envelope vivo hoje
+   * ainda seria derrubado ao alguém preencher o chassi — o recorte novo não o
+   * salva, porque a v3 nunca reproduz um hash v2. Reinjetar o chassi CONGELADO
+   * na projeção legada pergunta o que de fato importa: "tirando o campo que
+   * deixou de ser material, este envelope mudou?". Opcional porque nem todo
+   * chamador tem o snapshot em mãos; sem ele o comportamento é o de antes.
    */
-  matchesFrozenTerms(snapshot: QuoteSnapshot, frozenHash: string): number | null {
+  matchesFrozenTerms(
+    snapshot: QuoteSnapshot,
+    frozenHash: string,
+    frozen?: QuoteSnapshot | null,
+  ): number | null {
     for (const version of SUPPORTED_MATERIAL_VERSIONS) {
       if (this.materialHash(snapshot, version) === frozenHash) return version;
+
+      // Só as versões que ainda carregavam o chassi, e só quando ele é o ÚNICO
+      // ponto de divergência — qualquer outra diferença continua derrubando.
+      if (version < 3 && frozen) {
+        const asFrozenChassis: QuoteSnapshot = {
+          ...snapshot,
+          truck: snapshot.truck
+            ? { ...snapshot.truck, chassisNumber: frozen.truck?.chassisNumber ?? null }
+            : null,
+        };
+        if (this.materialHash(asFrozenChassis, version) === frozenHash) return version;
+      }
     }
     return null;
   }

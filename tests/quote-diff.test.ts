@@ -24,7 +24,14 @@ import {
   diffQuoteSnapshots,
   type QuoteChange,
 } from '../src/modules/common/signature/services/quote-diff';
-import type { QuoteSnapshot } from '../src/modules/common/signature/services/quote-snapshot.service';
+import {
+  QuoteSnapshotService,
+  type QuoteSnapshot,
+} from '../src/modules/common/signature/services/quote-snapshot.service';
+
+// O serviço só toca no Prisma nos métodos que carregam o orçamento; projeção e
+// hash são puros, então um construtor vazio basta para exercitá-los.
+const snapshots = new QuoteSnapshotService(null as never);
 
 let failures = 0;
 
