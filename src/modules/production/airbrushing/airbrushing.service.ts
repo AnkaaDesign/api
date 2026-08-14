@@ -22,6 +22,10 @@ import {
 } from '../../../constants/enums';
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import { PainterNfseService } from '@modules/integrations/nfse/painter/painter-nfse.service';
+import {
+  AirbrushingNotificationService,
+  type AirbrushingNotifyIntent,
+} from '@modules/common/notification/airbrushing-notification.service';
 import type {
   AirbrushingBatchCreateResponse,
   AirbrushingBatchDeleteResponse,
@@ -54,6 +58,7 @@ export class AirbrushingService {
     private readonly fileService: FileService,
     private readonly fileReferenceService: FileReferenceService,
     private readonly painterNfseService: PainterNfseService,
+    private readonly airbrushingNotifier: AirbrushingNotificationService,
   ) {}
 
   /**
@@ -490,6 +495,10 @@ export class AirbrushingService {
     userRole?: string,
   ): Promise<AirbrushingCreateResponse> {
     try {
+      // Notificações do pintor: decididas dentro da transação, despachadas
+      // depois do commit — ver AirbrushingNotificationService.
+      const notifyIntents: AirbrushingNotifyIntent[] = [];
+
       const airbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar entidade completa
         await this.validateAirbrushing(data, undefined, tx);
@@ -557,6 +566,18 @@ export class AirbrushingService {
           nextStatus: (newAirbrushing as any).status,
         });
 
+        // Criar já com pintor designado É uma atribuição: o pintor precisa saber
+        // do serviço tanto quanto se tivesse sido designado depois.
+        this.airbrushingNotifier.registerIntent(notifyIntents, {
+          airbrushingId: newAirbrushing.id,
+          actorUserId: userId,
+          previous: null,
+          next: {
+            painterId: (newAirbrushing as any).painterId,
+            paymentStatus: (newAirbrushing as any).paymentStatus,
+          },
+        });
+
         // Registrar no changelog
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -580,6 +601,7 @@ export class AirbrushingService {
       // registrada e a nota só saía na varredura seguinte, enquanto o mesmo
       // status vindo por `update` emitia na hora.
       await this.flushNfseEmissions([(airbrushing as any).id], (airbrushing as any)?.status);
+      await this.airbrushingNotifier.flush(notifyIntents);
 
       return {
         success: true,
@@ -613,6 +635,9 @@ export class AirbrushingService {
     userRole?: string,
   ): Promise<AirbrushingUpdateResponse> {
     try {
+      // Ver create(): decisão dentro da transação, despacho depois do commit.
+      const notifyIntents: AirbrushingNotifyIntent[] = [];
+
       const updatedAirbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar aerografia existente
         const existingAirbrushing = await this.airbrushingRepository.findByIdWithTransaction(
@@ -724,6 +749,21 @@ export class AirbrushingService {
           nextStatus: (updatedAirbrushing as any).status,
         });
 
+        // Caminho principal das duas notificações: é aqui que a tela de detalhe
+        // designa o pintor e que Contas a Pagar marca o pagamento como PAID.
+        this.airbrushingNotifier.registerIntent(notifyIntents, {
+          airbrushingId: id,
+          actorUserId: userId,
+          previous: {
+            painterId: (existingAirbrushing as any).painterId,
+            paymentStatus: (existingAirbrushing as any).paymentStatus,
+          },
+          next: {
+            painterId: (updatedAirbrushing as any).painterId,
+            paymentStatus: (updatedAirbrushing as any).paymentStatus,
+          },
+        });
+
         // Registrar mudanças no changelog
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -744,6 +784,7 @@ export class AirbrushingService {
 
       // Emissão FORA da transação — ver flushNfseEmissions.
       await this.flushNfseEmissions([id], (updatedAirbrushing as any)?.status);
+      await this.airbrushingNotifier.flush(notifyIntents);
 
       return {
         success: true,
@@ -1052,6 +1093,9 @@ export class AirbrushingService {
     userRole?: string,
   ): Promise<AirbrushingBatchCreateResponse<AirbrushingCreateFormData>> {
     try {
+      // Ver create(): decisão dentro da transação, despacho depois do commit.
+      const notifyIntents: AirbrushingNotifyIntent[] = [];
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const successfulCreations: Airbrushing[] = [];
         const failedCreations: any[] = [];
@@ -1103,6 +1147,17 @@ export class AirbrushingService {
               nextStatus: (newAirbrushing as any).status,
             });
 
+            // Notificação do pintor — mesmo motivo do create() individual.
+            this.airbrushingNotifier.registerIntent(notifyIntents, {
+              airbrushingId: newAirbrushing.id,
+              actorUserId: userId,
+              previous: null,
+              next: {
+                painterId: (newAirbrushing as any).painterId,
+                paymentStatus: (newAirbrushing as any).paymentStatus,
+              },
+            });
+
             // Registrar no changelog
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -1143,6 +1198,7 @@ export class AirbrushingService {
           .map((a: any) => a.id),
         AIRBRUSHING_STATUS.COMPLETED,
       );
+      await this.airbrushingNotifier.flush(notifyIntents);
 
       const successMessage =
         result.totalCreated === 1
@@ -1188,6 +1244,9 @@ export class AirbrushingService {
     userRole?: string,
   ): Promise<AirbrushingBatchUpdateResponse<AirbrushingUpdateFormData>> {
     try {
+      // Ver create(): decisão dentro da transação, despacho depois do commit.
+      const notifyIntents: AirbrushingNotifyIntent[] = [];
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const successfulUpdates: Airbrushing[] = [];
         const failedUpdates: any[] = [];
@@ -1256,6 +1315,22 @@ export class AirbrushingService {
               nextStatus: (updatedAirbrushing as any).status,
             });
 
+            // Notificação do pintor — o "marcar como pago" em lote pela tabela
+            // passa por aqui, e é uma das formas mais comuns de quitar várias
+            // aerografias de uma vez.
+            this.airbrushingNotifier.registerIntent(notifyIntents, {
+              airbrushingId: id,
+              actorUserId: userId,
+              previous: {
+                painterId: (existingAirbrushing as any).painterId,
+                paymentStatus: (existingAirbrushing as any).paymentStatus,
+              },
+              next: {
+                painterId: (updatedAirbrushing as any).painterId,
+                paymentStatus: (updatedAirbrushing as any).paymentStatus,
+              },
+            });
+
             // Registrar no changelog
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -1295,6 +1370,7 @@ export class AirbrushingService {
         .filter((a: any) => a?.status === AIRBRUSHING_STATUS.COMPLETED)
         .map((a: any) => a.id);
       await this.flushNfseEmissions(completedIds, AIRBRUSHING_STATUS.COMPLETED);
+      await this.airbrushingNotifier.flush(notifyIntents);
 
       const successMessage =
         result.totalUpdated === 1

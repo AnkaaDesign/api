@@ -9,9 +9,12 @@ import { AirbrushingPrismaRepository } from './repositories/airbrushing-prisma.r
 // Fornece o PainterNfseService, que registra a intenção de emitir a NFS-e do
 // aerografista dentro da mesma transação que conclui a aerografia.
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
+// Fornece o AirbrushingNotificationService, que avisa o aerografista quando um
+// serviço é atribuído a ele e quando o pagamento dele é registrado.
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, FileModule, NfseModule],
+  imports: [PrismaModule, ChangeLogModule, FileModule, NfseModule, NotificationModule],
   controllers: [AirbrushingController],
   providers: [
     AirbrushingService,

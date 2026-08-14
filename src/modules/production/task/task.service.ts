@@ -108,6 +108,10 @@ import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { PainterNfseService } from '@modules/integrations/nfse/painter/painter-nfse.service';
+import {
+  AirbrushingNotificationService,
+  type AirbrushingNotifyIntent,
+} from '@modules/common/notification/airbrushing-notification.service';
 // Fonte única do vencimento da aerografia — a mesma que o AirbrushingService usa.
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import { TaskQuoteService } from '../task-quote/task-quote.service';
@@ -160,6 +164,10 @@ export class TaskService {
     // diretamente, sem passar pelo AirbrushingService, então o gancho de emissão
     // precisa ser repetido aqui.
     private readonly painterNfseService: PainterNfseService,
+    // Mesmo motivo do painterNfseService acima: a seção de aerografia deste
+    // formulário grava painterId/paymentStatus por fora do AirbrushingService,
+    // então o gancho que avisa o pintor precisa ser repetido aqui.
+    private readonly airbrushingNotifier: AirbrushingNotificationService,
     @Inject(forwardRef(() => TaskQuoteService))
     private readonly taskQuoteService: TaskQuoteService,
     @Inject(forwardRef(() => SignatureDeletionService))
@@ -2246,6 +2254,12 @@ export class TaskService {
       // dentro da transação; a emissão é rede e roda depois do commit, pelo mesmo
       // gancho que o AirbrushingService usa.
       const completedAirbrushingIds: string[] = [];
+
+      // Notificações do aerografista (serviço atribuído / pagamento recebido)
+      // geradas por ESTA atualização. Mesma divisão da NFS-e: a decisão é feita
+      // dentro da transação, onde o estado anterior existe, e o despacho roda
+      // depois do commit — ver AirbrushingNotificationService.
+      const airbrushingNotifyIntents: AirbrushingNotifyIntent[] = [];
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // ── Optimistic concurrency (opt-in) ──────────────────────────────────
@@ -5372,6 +5386,21 @@ export class TaskService {
                 completedAirbrushingIds.push(updatedAirbrushing.id);
               }
 
+              // Notificação do pintor: o formulário da tarefa é onde a aerografia
+              // costuma ganhar um responsável.
+              this.airbrushingNotifier.registerIntent(airbrushingNotifyIntents, {
+                airbrushingId: updatedAirbrushing.id,
+                actorUserId: userId,
+                previous: {
+                  painterId: existingAirbrushing?.painterId,
+                  paymentStatus: existingAirbrushing?.paymentStatus,
+                },
+                next: {
+                  painterId: updatedAirbrushing.painterId,
+                  paymentStatus: updatedAirbrushing.paymentStatus,
+                },
+              });
+
               // Registrar mudanças no changelog
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -5444,6 +5473,17 @@ export class TaskService {
                 // A emissão em si é pós-commit — ver o flush no fim de update().
                 completedAirbrushingIds.push(newAirbrushing.id);
               }
+
+              // Notificação do pintor: nascer com pintor designado é atribuição.
+              this.airbrushingNotifier.registerIntent(airbrushingNotifyIntents, {
+                airbrushingId: newAirbrushing.id,
+                actorUserId: userId,
+                previous: null,
+                next: {
+                  painterId: newAirbrushing.painterId,
+                  paymentStatus: newAirbrushing.paymentStatus,
+                },
+              });
 
               // Registrar criação no changelog
               await this.changeLogService.logChange({
@@ -7038,6 +7078,10 @@ export class TaskService {
       // não só na varredura de 15 minutos — o mesmo que concluir pelo app do
       // pintor já fazia. Trava mestra e tratamento de falha vivem no gancho.
       await this.painterNfseService.flushAfterCompletion(completedAirbrushingIds);
+
+      // Serviço atribuído / pagamento recebido — pós-commit pelo mesmo motivo:
+      // o despacho grava fora da `tx` e dispara push.
+      await this.airbrushingNotifier.flush(airbrushingNotifyIntents);
 
       // When this update transitioned the task INTO CANCELLED (a direct cancel or
       // the all-COMMERCIAL-SOs-cancelled auto-cancel), cascade-cancel its quote:

@@ -25,6 +25,10 @@ import { NotificationSchedulerService } from './notification-scheduler.service';
 import { NotificationReminderScheduler } from './notification-reminder.scheduler';
 import { NotificationReminderSchedulerService } from './notification-reminder-scheduler.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
+// Regra única das notificações do aerografista (atribuição / pagamento). Mora
+// aqui, e não no AirbrushingModule, porque o TaskService também escreve
+// painterId/paymentStatus e precisa do mesmo gancho sem criar ciclo de módulos.
+import { AirbrushingNotificationService } from './airbrushing-notification.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationRecipientResolverService } from './notification-recipient-resolver.service';
@@ -114,6 +118,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationReminderScheduler,
     NotificationReminderSchedulerService,
     NotificationDispatchService,
+    AirbrushingNotificationService,
     NotificationFilterService,
     EmailTemplateService,
     DeepLinkService,
@@ -158,6 +163,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationSchedulerService,
     NotificationReminderSchedulerService,
     NotificationDispatchService,
+    AirbrushingNotificationService,
     NotificationConfigurationService,
     EmailTemplateService,
     DeepLinkService,

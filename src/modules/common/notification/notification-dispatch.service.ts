@@ -2213,6 +2213,29 @@ export class NotificationDispatchService {
           `/(tabs)/financeiro/orcamento/detalhes/${encodeURIComponent(quoteTaskId)}`,
         );
       }
+      case 'AIRBRUSHING':
+        // A aerografia tem página de detalhe PRÓPRIA nos dois lados
+        // (web/src/constants/routes.ts e mobile .../producao/aerografia/detalhes/[id]),
+        // então não é keyed pela tarefa como a ordem de serviço: linkar para a
+        // tarefa faria o pintor cair no cronograma em vez do serviço dele.
+        return this.deepLinkService.generatePathLinks(
+          `/producao/aerografia/detalhes/${encodeURIComponent(entityId)}`,
+          `/(tabs)/producao/aerografia/detalhes/${encodeURIComponent(entityId)}`,
+        );
+      case 'AIRBRUSHINGNFSE':
+        // A NFS-e do aerografista não tem tela própria: a nota é lida dentro da
+        // aerografia. Emissores passam data.airbrushingId; sem ele o link seria
+        // /aerografia/<id da nfse> e daria 404, então preferimos não linkar.
+        if (typeof data?.airbrushingId === 'string' && data.airbrushingId) {
+          return this.deepLinkService.generatePathLinks(
+            `/producao/aerografia/detalhes/${encodeURIComponent(data.airbrushingId)}`,
+            `/(tabs)/producao/aerografia/detalhes/${encodeURIComponent(data.airbrushingId)}`,
+          );
+        }
+        this.logger.debug(
+          `No airbrushingId in context for AirbrushingNfse ${entityId} — skipping deep link generation`,
+        );
+        return null;
       case 'MAINTENANCESCHEDULE':
         return this.deepLinkService.generatePathLinks(
           `/estoque/manutencao/agendamentos/detalhes/${encodeURIComponent(entityId)}`,
