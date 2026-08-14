@@ -80,7 +80,7 @@ export class AirbrushingController {
     @Query(new ZodQueryValidationPipe(airbrushingGetManySchema)) query: AirbrushingGetManyFormData,
     @User() user: UserPayload,
   ): Promise<AirbrushingGetManyResponse> {
-    return this.airbrushingService.findMany(query, user.role);
+    return this.airbrushingService.findMany(query, user.role, user.sub);
   }
 
   @Post()
@@ -178,7 +178,7 @@ export class AirbrushingController {
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @User() user: UserPayload,
   ): Promise<AirbrushingGetUniqueResponse> {
-    return this.airbrushingService.findById(id, query.include, user.role);
+    return this.airbrushingService.findById(id, query.include, user.role, user.sub);
   }
 
   @Put(':id')

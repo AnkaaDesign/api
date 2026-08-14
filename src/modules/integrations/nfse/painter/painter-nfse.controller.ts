@@ -14,6 +14,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -28,7 +29,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '@constants/enums';
 import { FiscalCertificateService } from './fiscal-certificate.service';
 import {
@@ -166,9 +167,37 @@ export class PainterNfseController {
 
   // ── Nota da aerografia ─────────────────────────────────────────────────────
 
+  /**
+   * O aerografista só alcança a NOTA DELE.
+   *
+   * O papel abre a porta; a posse é que decide QUAL registro. Sem esta checagem,
+   * bastaria trocar o uuid na URL para ler o faturamento de outro pintor —
+   * valor, CNPJ e chave de acesso. Papéis financeiros passam direto: a visão
+   * deles é do negócio inteiro, por definição.
+   */
+  private async assertOwnAirbrushingIfPainter(
+    airbrushingId: string,
+    user: UserPayload,
+  ): Promise<void> {
+    if (user.role !== SECTOR_PRIVILEGES.AIRBRUSHING) return;
+
+    const owner = await this.prisma.airbrushing.findUnique({
+      where: { id: airbrushingId },
+      select: { painterId: true },
+    });
+    if (!owner || owner.painterId !== user.sub) {
+      throw new ForbiddenException('Esta aerografia não é sua.');
+    }
+  }
+
   @Get('airbrushings/:id/nfse')
-  @Roles(...NFSE_VIEWERS)
-  async getNfse(@Param('id', ParseUUIDPipe) airbrushingId: string) {
+  // O aerografista entra aqui além dos papéis financeiros: a nota é emitida no
+  // CNPJ DELE, ele é o prestador. O acesso é escopado logo abaixo — ver a nota de
+  // OUTRO pintor continua fora, mesma regra de posse dos recibos.
+  @Roles(...NFSE_VIEWERS, SECTOR_PRIVILEGES.AIRBRUSHING)
+  async getNfse(@Param('id', ParseUUIDPipe) airbrushingId: string, @User() user: UserPayload) {
+    await this.assertOwnAirbrushingIfPainter(airbrushingId, user);
+
     const nfse = await this.prisma.airbrushingNfse.findUnique({
       where: { airbrushingId },
       select: {
@@ -212,8 +241,12 @@ export class PainterNfseController {
 
   /** XML autorizado — é o documento fiscal de guarda obrigatória. */
   @Get('airbrushings/:id/nfse/xml')
-  @Roles(...NFSE_VIEWERS)
-  async getNfseXml(@Param('id', ParseUUIDPipe) airbrushingId: string) {
+  @Roles(...NFSE_VIEWERS, SECTOR_PRIVILEGES.AIRBRUSHING)
+  async getNfseXml(@Param('id', ParseUUIDPipe) airbrushingId: string, @User() user: UserPayload) {
+    // Mesmo escopo do GET da nota: o XML é o documento de guarda obrigatória do
+    // PRESTADOR, então o pintor baixa o dele — e só o dele.
+    await this.assertOwnAirbrushingIfPainter(airbrushingId, user);
+
     const nfse = await this.prisma.airbrushingNfse.findUnique({
       where: { airbrushingId },
       select: { nfseXml: true, accessKey: true },

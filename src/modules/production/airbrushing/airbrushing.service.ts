@@ -365,11 +365,52 @@ export class AirbrushingService {
   }
 
   /**
+   * Recorta a NFS-e ao que este usuário pode ver.
+   *
+   * O include `nfse` é legítimo (a TABELA da web tem coluna de status da nota),
+   * mas `GET /airbrushings/:id` está aberto a 13 papéis enquanto o endpoint
+   * dedicado `GET /airbrushings/:id/nfse` só admite quatro. Sem este recorte,
+   * pedir `?include={"nfse":true}` contornava aquele gate e entregava dado
+   * fiscal — chave de acesso, valor, CNPJ do prestador — para PRODUÇÃO,
+   * ESTOQUE, MANUTENÇÃO e até EXTERNO.
+   *
+   * O aerografista vê a NOTA DELE: ela é emitida no CNPJ dele, ele é o
+   * prestador. Ver a de outro pintor continua fora — é a mesma regra de posse
+   * que já vale para recibos e notas fiscais anexadas.
+   */
+  private filterNfseForRole<T extends { nfse?: any; painterId?: string | null }>(
+    entity: T,
+    userRole?: string,
+    userId?: string,
+  ): T {
+    if (!entity || entity.nfse === undefined || entity.nfse === null) return entity;
+
+    const FINANCE_ROLES = [
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.ACCOUNTING,
+      SECTOR_PRIVILEGES.FINANCIAL,
+      SECTOR_PRIVILEGES.COMMERCIAL,
+    ] as string[];
+
+    if (userRole && FINANCE_ROLES.includes(userRole)) return entity;
+
+    const isOwnPainter =
+      userRole === SECTOR_PRIVILEGES.AIRBRUSHING &&
+      !!userId &&
+      !!entity.painterId &&
+      entity.painterId === userId;
+    if (isOwnPainter) return entity;
+
+    return { ...entity, nfse: undefined };
+  }
+
+  /**
    * Buscar muitas aerografias com filtros
    */
   async findMany(
     query: AirbrushingGetManyFormData,
     userRole?: string,
+    userId?: string,
   ): Promise<AirbrushingGetManyResponse> {
     try {
       const result = await this.airbrushingRepository.findMany(query);
@@ -380,6 +421,11 @@ export class AirbrushingService {
           this.filterLayoutsForRole(airbrushing, userRole),
         );
       }
+      // A NFS-e é recortada SEMPRE, mesmo sem papel conhecido: na dúvida, dado
+      // fiscal não sai.
+      result.data = result.data.map(airbrushing =>
+        this.filterNfseForRole(airbrushing, userRole, userId),
+      );
 
       return {
         success: true,
@@ -402,6 +448,7 @@ export class AirbrushingService {
     id: string,
     include?: AirbrushingInclude,
     userRole?: string,
+    userId?: string,
   ): Promise<AirbrushingGetUniqueResponse> {
     try {
       const airbrushing = await this.airbrushingRepository.findById(id, { include });
@@ -411,7 +458,10 @@ export class AirbrushingService {
       }
 
       // Recorta os layouts ao que este papel pode ver — ver filterLayoutsForRole.
-      const visible = userRole ? this.filterLayoutsForRole(airbrushing, userRole) : airbrushing;
+      const withLayouts = userRole ? this.filterLayoutsForRole(airbrushing, userRole) : airbrushing;
+      // A NFS-e é recortada SEMPRE, mesmo sem papel conhecido: na dúvida, dado
+      // fiscal não sai.
+      const visible = this.filterNfseForRole(withLayouts, userRole, userId);
 
       return { success: true, data: visible, message: 'Aerografia carregada com sucesso.' };
     } catch (error: any) {
