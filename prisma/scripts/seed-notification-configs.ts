@@ -1968,6 +1968,57 @@ const CONFIGS: ConfigDef[] = [
       targeted: false,
     },
   },
+  // ─── aerografia (ciclo do aerografista: serviço → nota → pagamento) ─────────
+  //
+  // As três notificações do PINTOR são DIRECIONADAS (sectors: []) porque o setor
+  // Aerografia inteiro no allowedSectors faria o pintor A receber o serviço, a
+  // nota e o pagamento do pintor B. O fallback por setor do dispatch resolve para
+  // ninguém de propósito: sem destinatário resolvível a notificação é descartada
+  // com aviso, que é o certo quando o pintor foi desligado ou removido.
+  {
+    key: "airbrushing.assigned",
+    name: "Novo Serviço Atribuído",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.assigned",
+    description:
+      "Aerografia designada a um aerografista, na criação ou ao trocar o responsável (notificação direcionada ao aerografista designado).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Novo Serviço Atribuído a Você",
+        body: "Você foi designado(a) para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+      push: {
+        title: "Novo Serviço Atribuído",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia atribuída a você",
+      },
+      email: {
+        subject: "Novo Serviço Atribuído a Você{{#if taskName}} - {{taskName}}{{/if}}",
+        body: "Você foi designado(a) para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.\n{{#if customerName}}Cliente: {{customerName}}\n{{/if}}{{#if description}}Serviço: {{description}}\n{{/if}}",
+      },
+      whatsapp: {
+        body: "Você foi designado(a) para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — create/update/batchCreate/batchUpdate do AirbrushingService e a seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
   // ─── NFS-e do aerografista (prestador MEI, Sistema Nacional) ─────────────────
   {
     key: "airbrushing.nfse.issued",

@@ -213,22 +213,57 @@ export class PainterNfseScheduler {
     }
   }
 
-  /** Notificação é melhor-esforço: nunca pode quebrar a varredura. */
+  /**
+   * Notificação é melhor-esforço: nunca pode quebrar a varredura.
+   *
+   * `toUserIds` escolhe a rota: sem ele o despacho é por SETOR (a audiência de
+   * retaguarda declarada no config — financeiro/contabilidade/admin); com ele é
+   * DIRECIONADO. A nota emitida usa as duas, com textos diferentes, porque são
+   * dois fatos distintos: para a retaguarda é "a nota de fulano saiu", para o
+   * prestador é "a sua nota saiu". Não há sobreposição de destinatários — o
+   * aerografista não está em nenhum dos setores da retaguarda — então ninguém
+   * recebe duas vezes.
+   *
+   * `airbrushingId` alimenta o deep link: a NFS-e não tem tela própria, quem
+   * tem é a aerografia (ver o case AIRBRUSHINGNFSE no dispatch service).
+   */
   private async dispatch(
     configKey: string,
-    payload: { entityId: string; title: string; body: string },
+    payload: {
+      entityId: string;
+      title: string;
+      body: string;
+      airbrushingId?: string | null;
+      toUserIds?: string[];
+    },
   ): Promise<void> {
     try {
-      await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
+      const context = {
         entityType: 'AIRBRUSHING_NFSE',
         entityId: payload.entityId,
         action: 'ALERT',
-        data: { title: payload.title, body: payload.body },
+        data: {
+          title: payload.title,
+          body: payload.body,
+          ...(payload.airbrushingId ? { airbrushingId: payload.airbrushingId } : {}),
+        },
         overrides: {
           title: payload.title,
           body: payload.body,
         },
-      } as never);
+      };
+
+      if (payload.toUserIds?.length) {
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          configKey,
+          'system',
+          context as never,
+          payload.toUserIds,
+        );
+        return;
+      }
+
+      await this.dispatchService.dispatchByConfiguration(configKey, 'system', context as never);
     } catch (error) {
       this.logger.warn(
         `[PAINTER_NFSE_ALERT] Notificação "${configKey}" não enviada: ${
@@ -243,7 +278,9 @@ export class PainterNfseScheduler {
       where: { id: nfseId },
       select: {
         accessKey: true,
+        nfseNumber: true,
         errorMessage: true,
+        painterId: true,
         painter: { select: { name: true } },
         airbrushing: { select: { id: true, task: { select: { name: true } } } },
       },
@@ -252,18 +289,37 @@ export class PainterNfseScheduler {
 
     const painter = row.painter?.name ?? 'aerografista';
     const task = row.airbrushing?.task?.name ?? 'tarefa';
+    const airbrushingId = row.airbrushing?.id ?? null;
 
     if (outcome === 'AUTHORIZED') {
       await this.dispatch('airbrushing.nfse.issued', {
         entityId: nfseId,
+        airbrushingId,
         title: 'NFS-e de aerografia emitida',
         body: `Nota de ${painter} referente a ${task} foi autorizada.`,
       });
+
+      // O prestador também é avisado da própria nota. Ele não está em nenhum
+      // dos setores da retaguarda, então este é o único caminho até ele — e
+      // sem isso o aerografista descobre que a nota saiu só quando o pagamento
+      // aparece.
+      if (row.painterId) {
+        await this.dispatch('airbrushing.nfse.issued', {
+          entityId: nfseId,
+          airbrushingId,
+          toUserIds: [row.painterId],
+          title: 'Sua nota fiscal foi emitida',
+          body:
+            `A NFS-e${row.nfseNumber ? ` nº ${row.nfseNumber}` : ''} referente a ${task} ` +
+            'foi autorizada e já está anexada à aerografia.',
+        });
+      }
       return;
     }
 
     await this.dispatch('airbrushing.nfse.rejected', {
       entityId: nfseId,
+      airbrushingId,
       title: 'NFS-e de aerografia rejeitada',
       body: `Nota de ${painter} referente a ${task} falhou: ${row.errorMessage ?? 'sem detalhe'}`,
     });
