@@ -134,6 +134,24 @@ export class PainterNfseService {
    *
    * Não lança: uma falha aqui não pode impedir a aerografia de ser concluída.
    */
+  /**
+   * Data a partir da qual a emissão automática vale, vinda de
+   * `PAINTER_NFSE_EMIT_FROM` (ISO-8601). Ausente ou inválida = sem corte, que é o
+   * comportamento de uma instalação nova, sem histórico para trás.
+   */
+  private emitFromCutoff(): Date | null {
+    const raw = process.env.PAINTER_NFSE_EMIT_FROM;
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      this.logger.warn(
+        `[PAINTER_NFSE] PAINTER_NFSE_EMIT_FROM inválida ("${raw}") — ignorada, sem corte histórico.`,
+      );
+      return null;
+    }
+    return parsed;
+  }
+
   async registerIntent(
     tx: Prisma.TransactionClient,
     params: {
@@ -153,6 +171,34 @@ export class PainterNfseService {
         where: { airbrushingId: params.airbrushingId },
         select: { id: true, status: true },
       });
+
+      // ── Corte histórico ──────────────────────────────────────────────────
+      // A emissão vale do corte para frente. Sem isto, ligar a chave num sistema
+      // que já rodava anos emitiria nota retroativa de trabalho antigo: este
+      // registro dispara em QUALQUER salvamento cujo status seja COMPLETED, não
+      // só na transição, então bastava alguém abrir e salvar uma aerografia
+      // concluída em 2025 para nascer uma NFS-e real com competência daquele mês.
+      //
+      // O corte só barra a CRIAÇÃO. Linha que já existe segue seu curso normal —
+      // senão mexer no corte abandonaria notas legítimas no meio do caminho.
+      if (!existing) {
+        const cutoff = this.emitFromCutoff();
+        if (cutoff) {
+          const ab = await tx.airbrushing.findUnique({
+            where: { id: params.airbrushingId },
+            select: { finishedAt: true, createdAt: true },
+          });
+          // finishedAt é a referência; quando ele falta (linhas antigas que
+          // concluíram sem carimbo) o createdAt evita liberar por omissão.
+          const reference = ab?.finishedAt ?? ab?.createdAt ?? null;
+          if (reference && reference < cutoff) {
+            this.logger.log(
+              `[PAINTER_NFSE] Aerografia ${params.airbrushingId} concluída em ${reference.toISOString()} é anterior ao corte ${cutoff.toISOString()} — sem emissão retroativa.`,
+            );
+            return;
+          }
+        }
+      }
 
       if (existing) {
         // Reabrir e reconcluir uma aerografia cuja nota falhou dá nova chance;

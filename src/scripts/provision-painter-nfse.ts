@@ -151,7 +151,11 @@ async function main() {
       console.log('Emissão automática permanece desligada (rode com --habilitar para ligar).');
     }
   } finally {
-    await app.close();
+    // O desligamento do container derruba sockets (Baileys/Redis) e o
+    // onModuleDestroy deles estoura "Connection is closed". Isso é ruído de
+    // encerramento: deixar propagar marcaria como FALHA um provisionamento que já
+    // gravou tudo.
+    await app.close().catch(() => undefined);
   }
 }
 
