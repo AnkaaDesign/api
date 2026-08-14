@@ -50,6 +50,7 @@
     "test:painter-nfse": "tsx tests/painter-nfse.test.ts",
     "verify:painter-nfse-wiring": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/verify-painter-nfse-wiring.ts",
     "setup:painter-nfse-test": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/setup-painter-nfse-test.ts",
+    "provision:painter-nfse": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/provision-painter-nfse.ts",
     "probe:painter-nfse": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-nfse-emission.ts",
     "probe:painter-nfse-artifacts": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-nfse-artifacts.ts",
     "probe:danfse": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-danfse.ts",
