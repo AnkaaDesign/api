@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estação de marcação — motor de pintura</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>%F0%9F%8E%AF</text></svg>">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<header class="topo">
+  <div class="marca">
+    <strong>Estação de marcação</strong>
+    <span class="sub" id="sub-run">carregando…</span>
+  </div>
+  <nav class="abas">
+    <button class="aba is-on" data-aba="arte">Arte</button>
+    <button class="aba" data-aba="painel">Painel do lote</button>
+    <button class="aba" data-aba="params">Parâmetros</button>
+  </nav>
+  <div class="topo-dir">
+    <span class="progresso" id="progresso"></span>
+    <a class="btn" href="/api/export" download>Exportar marcações</a>
+  </div>
+</header>
+
+<main class="corpo">
+  <aside class="lista" id="lista">
+    <input id="busca" class="busca" type="search" placeholder="filtrar artes…" autocomplete="off">
+    <div id="lista-itens"></div>
+  </aside>
+
+  <section class="conteudo" id="conteudo">
+    <div class="vazio">Escolha uma arte na lista.</div>
+  </section>
+</main>
+
+<template id="tpl-marca">
+  <div class="marca-bloco">
+    <div class="verbos"></div>
+    <textarea rows="2" placeholder="O que está errado aqui, e o que você faria?"></textarea>
+    <div class="marca-meta">
+      <label>vale para
+        <select class="escopo">
+          <option value="SO_ESTA_ARTE">só esta arte</option>
+          <option value="SEMPRE_QUE">sempre que…</option>
+          <option value="SEMPRE">sempre</option>
+        </select>
+      </label>
+      <label class="cond-wrap" hidden>quando
+        <input class="condicao" type="text" placeholder="…o símbolo está na mesma placa do texto">
+      </label>
+      <div class="confianca">
+        <button class="conf is-on" data-conf="CERTO">certo</button>
+        <button class="conf" data-conf="ACHO">acho</button>
+      </div>
+      <span class="salvo"></span>
+    </div>
+  </div>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

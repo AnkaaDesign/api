@@ -1,0 +1,27 @@
+{
+ "slug": "100fronteiras-15-lateral",
+ "observacoes": {
+  "elemento:r51": {
+   "verbos": [
+    "FUNDIR COM…"
+   ],
+   "texto": "esse elemento deveria esta junto com o elemento 4",
+   "escopo": "SO_ESTA_ARTE",
+   "condicao": "",
+   "confianca": "CERTO"
+  },
+  "elemento:r52": {
+   "verbos": [
+    "FUNDIR COM…"
+   ],
+   "texto": "deveria esta com o elemento 2",
+   "escopo": "SO_ESTA_ARTE",
+   "condicao": "",
+   "confianca": "CERTO"
+  }
+ },
+ "status": "PENDENTE",
+ "arte": "100FRONTEIRAS 15 lateral.png",
+ "engineVersion": "0.2.0",
+ "atualizadoEm": "2026-08-13T09:53:57"
+}
