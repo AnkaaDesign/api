@@ -234,13 +234,25 @@ export class PainterNfseController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.OK)
   async emitNow(@Param('id', ParseUUIDPipe) airbrushingId: string) {
-    const nfse = await this.prisma.airbrushingNfse.findUnique({
+    let nfse = await this.prisma.airbrushingNfse.findUnique({
       where: { airbrushingId },
       select: { id: true, status: true },
     });
+
+    // Sem intenção registrada: ou a aerografia é anterior ao corte histórico (a
+    // emissão automática a ignora de propósito), ou concluiu antes da feature
+    // existir. Nos dois casos, clicar em "Emitir" É a decisão de emitir — registra
+    // a intenção na hora em vez de devolver um 404 sem saída.
+    if (!nfse) {
+      await this.painterNfse.ensureIntentForManualEmission(airbrushingId);
+      nfse = await this.prisma.airbrushingNfse.findUnique({
+        where: { airbrushingId },
+        select: { id: true, status: true },
+      });
+    }
     if (!nfse) {
       throw new NotFoundException(
-        'Não há intenção de NFS-e para esta aerografia. Conclua a aerografia primeiro.',
+        'Não foi possível registrar a intenção de NFS-e para esta aerografia.',
       );
     }
 

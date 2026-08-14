@@ -159,7 +159,14 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  console.error(`\nFALHOU: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Saída forçada: o container abre socket de WhatsApp (Baileys) e conexão de
+    // Redis que seguram o event loop mesmo depois do close. Sem isto o script
+    // termina o trabalho e fica pendurado para sempre.
+    process.exit(0);
+  })
+  .catch(error => {
+    console.error(`\nFALHOU: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });

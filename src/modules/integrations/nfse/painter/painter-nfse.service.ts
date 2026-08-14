@@ -25,7 +25,7 @@
  * perde: com número novo a cada tentativa, uma resposta perdida viraria duplicidade.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants/enums';
@@ -152,6 +152,34 @@ export class PainterNfseService {
     return parsed;
   }
 
+  /**
+   * Cria a intenção de nota para uma emissão pedida À MÃO, mesmo que a aerografia
+   * seja anterior ao corte histórico.
+   *
+   * O corte impede que trabalho antigo vire nota SOZINHO. Um operador que abre a
+   * aerografia e clica em "Emitir" está declarando o contrário — e sem esta porta
+   * ele receberia "não há intenção de NFS-e", sem nenhum caminho para emitir.
+   */
+  async ensureIntentForManualEmission(airbrushingId: string): Promise<void> {
+    const airbrushing = await this.prisma.airbrushing.findUnique({
+      where: { id: airbrushingId },
+      select: { id: true, status: true, painterId: true },
+    });
+    if (!airbrushing) {
+      throw new NotFoundException('Aerografia não encontrada.');
+    }
+    if (airbrushing.status !== AirbrushingStatus.COMPLETED) {
+      throw new BadRequestException('Conclua a aerografia antes de emitir a NFS-e.');
+    }
+
+    await this.registerIntent(this.prisma as unknown as Prisma.TransactionClient, {
+      airbrushingId,
+      painterId: airbrushing.painterId ?? null,
+      resetFailed: true,
+      ignoreCutoff: true,
+    });
+  }
+
   async registerIntent(
     tx: Prisma.TransactionClient,
     params: {
@@ -164,6 +192,12 @@ export class PainterNfseService {
        * salvamento reabre três tentativas fadadas ao mesmo erro.
        */
       resetFailed: boolean;
+      /**
+       * Ignora o corte histórico. Só o pedido MANUAL de emissão usa isto: o corte
+       * existe para impedir emissão retroativa AUTOMÁTICA, não para tirar do
+       * operador a chance de emitir uma nota antiga que ele decidiu emitir.
+       */
+      ignoreCutoff?: boolean;
     },
   ): Promise<void> {
     try {
@@ -181,7 +215,7 @@ export class PainterNfseService {
       //
       // O corte só barra a CRIAÇÃO. Linha que já existe segue seu curso normal —
       // senão mexer no corte abandonaria notas legítimas no meio do caminho.
-      if (!existing) {
+      if (!existing && !params.ignoreCutoff) {
         const cutoff = this.emitFromCutoff();
         if (cutoff) {
           const ab = await tx.airbrushing.findUnique({
