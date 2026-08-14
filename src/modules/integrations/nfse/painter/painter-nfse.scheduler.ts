@@ -46,10 +46,19 @@ export class PainterNfseScheduler {
   }
 
   /**
-   * Emite o que estiver pendente.
+   * Rede de segurança da emissão — NÃO é o caminho principal.
    *
-   * A cada 15 minutos e não uma vez por dia: a nota do prestador é insumo de
-   * Contas a Pagar, e segurar por um dia inteiro atrasaria o pagamento do pintor.
+   * Concluir uma aerografia já emite na hora (`flushAfterCompletion`, pós-commit).
+   * Esta varredura existe para o que aquele caminho não alcança: retentativa de
+   * falha transitória, linha cuja intenção foi gravada mas cujo flush morreu com o
+   * processo entre o commit e a chamada, e linhas represadas de quando a trava
+   * mestra (ou o `emissionEnabled` do pintor) ainda estava desligada.
+   *
+   * A cada 15 minutos e NÃO uma vez por dia. Não é sobre o caminho feliz — é que a
+   * varredura é quem HONRA o backoff: quem decide quando retentar é o `retryAfter`
+   * de cada linha (curva de 5min→12h em RETRY_BACKOFF_MS), e uma varredura diária
+   * aplainaria todo esse desenho num piso de 24 h, tornando o backoff decorativo.
+   * A consulta é indexada e devolve zero linha quase sempre.
    */
   @Cron('*/15 * * * *', TZ)
   async emitPending(): Promise<void> {

@@ -75,10 +75,29 @@ export function buildCompanyTomador() {
   };
 }
 
-/** Intervalo entre retentativas de falha transitória. */
-const RETRY_DELAY_MS = 5 * 60 * 1000;
-/** Teto de tentativas, mesmo do NfseDocument. */
-export const MAX_EMISSION_ATTEMPTS = 3;
+/**
+ * Backoff entre retentativas de falha TRANSITÓRIA, indexado pela tentativa já feita.
+ *
+ * Era um intervalo FIXO de 5 min com teto de 3 tentativas. Como a varredura roda a
+ * cada 15 min, as três tentativas se esgotavam dentro de ~1 hora: qualquer queda da
+ * SEFIN mais longa que isso matava PERMANENTEMENTE toda nota concluída na janela, e
+ * elas só reapareciam no alerta das 08:00, exigindo intervenção manual. Emissão
+ * fiscal depende de um terceiro que sai do ar por horas — o backoff tem de cobrir
+ * isso sozinho.
+ *
+ * Esta curva cobre ~17h de indisponibilidade sem intervenção. Falha PERMANENTE
+ * (rejeição de schema, E0041, E0240…) não entra aqui: continua com retryAfter null
+ * na primeira ocorrência, porque retentar não cura erro de conteúdo.
+ */
+const RETRY_BACKOFF_MS = [
+  5 * 60 * 1000, // 5 min
+  15 * 60 * 1000, // 15 min
+  60 * 60 * 1000, // 1 h
+  4 * 60 * 60 * 1000, // 4 h
+  12 * 60 * 60 * 1000, // 12 h
+];
+/** Teto de tentativas: a curva inteira mais a tentativa inicial. */
+export const MAX_EMISSION_ATTEMPTS = RETRY_BACKOFF_MS.length + 1;
 /** Tempo em PROCESSING a partir do qual a linha é considerada presa. */
 const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -615,6 +634,15 @@ export class PainterNfseService {
     code: string | null,
     permanent: boolean,
   ): Promise<void> {
+    // Lê o contador ANTES para escolher o degrau do backoff: `increment` não devolve
+    // o valor novo a tempo de compor o retryAfter no mesmo write. É o caminho de
+    // erro, de volume baixo — a leitura extra não pesa.
+    const current = await this.prisma.airbrushingNfse
+      .findUnique({ where: { id: nfseId }, select: { errorCount: true } })
+      .catch(() => null);
+    const attempt = (current?.errorCount ?? 0) + 1;
+    const backoff = RETRY_BACKOFF_MS[Math.min(attempt - 1, RETRY_BACKOFF_MS.length - 1)];
+
     await this.prisma.airbrushingNfse
       .update({
         where: { id: nfseId },
@@ -626,7 +654,7 @@ export class PainterNfseService {
           // retryAfter null tira a linha da janela da varredura para sempre:
           // é como um erro permanente para de queimar tentativa mas continua
           // visível como ERROR na tela.
-          retryAfter: permanent ? null : new Date(Date.now() + RETRY_DELAY_MS),
+          retryAfter: permanent ? null : new Date(Date.now() + backoff),
           lastAttemptAt: new Date(),
         },
       })
