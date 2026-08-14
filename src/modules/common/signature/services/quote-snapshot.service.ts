@@ -33,6 +33,15 @@
  *
  * A regra prática: se a correção não daria ao cliente motivo para reconsiderar a
  * assinatura, ela não pode custar a assinatura.
+ *
+ * CADASTRO TARDIO — um terceiro caso, entre os dois
+ * ------------------------------------------------------------------------
+ * Alguns campos materiais chegam DEPOIS da assinatura por natureza do negócio:
+ * implemento 0 km é orçado sem placa e sem chassi, que só existem quando o
+ * veículo fica pronto. Preencher o que estava em branco não é mudar a proposta —
+ * é completar o cadastro do mesmo veículo. Trocar um valor por OUTRO continua
+ * material. Como hash é comparação simétrica e essa regra não é, a assimetria
+ * mora em `tolerateLateRegistration`, não no recorte.
  */
 
 import { Injectable } from '@nestjs/common';
@@ -175,7 +184,8 @@ export interface QuoteMaterialProjection {
   customer: { id: string | null; document: string | null } | null;
   /**
    * O objeto do contrato — a PLACA. Categoria, tipo de implemento e, desde a
-   * v3, o CHASSI são cosméticos.
+   * v3, o CHASSI são cosméticos. A placa é material na TROCA, não no
+   * preenchimento: ver `tolerateLateRegistration`.
    *
    * `chassisNumber` é opcional porque só é emitido ao recalcular um hash v1/v2:
    * a chave precisa continuar existindo naquelas versões para que o hash antigo
@@ -406,35 +416,57 @@ export class QuoteSnapshotService {
    *
    * Devolve a versão que casou, ou `null` quando nenhuma casa (aí mudou mesmo).
    *
-   * `frozen` é o snapshot congelado do envelope, e serve a UMA coisa: envelopes
-   * anteriores à v3 têm o chassi dentro do hash. Sem ele, um envelope vivo hoje
-   * ainda seria derrubado ao alguém preencher o chassi — o recorte novo não o
-   * salva, porque a v3 nunca reproduz um hash v2. Reinjetar o chassi CONGELADO
-   * na projeção legada pergunta o que de fato importa: "tirando o campo que
-   * deixou de ser material, este envelope mudou?". Opcional porque nem todo
-   * chamador tem o snapshot em mãos; sem ele o comportamento é o de antes.
+   * `frozen` é o snapshot congelado do envelope, e existe por causa do CADASTRO
+   * TARDIO do veículo — ver `tolerateLateRegistration`. Opcional porque nem todo
+   * chamador tem o snapshot em mãos; sem ele o comportamento é o estrito.
    */
   matchesFrozenTerms(
     snapshot: QuoteSnapshot,
     frozenHash: string,
     frozen?: QuoteSnapshot | null,
   ): number | null {
+    const reconciled = frozen ? this.tolerateLateRegistration(snapshot, frozen) : null;
     for (const version of SUPPORTED_MATERIAL_VERSIONS) {
       if (this.materialHash(snapshot, version) === frozenHash) return version;
-
-      // Só as versões que ainda carregavam o chassi, e só quando ele é o ÚNICO
-      // ponto de divergência — qualquer outra diferença continua derrubando.
-      if (version < 3 && frozen) {
-        const asFrozenChassis: QuoteSnapshot = {
-          ...snapshot,
-          truck: snapshot.truck
-            ? { ...snapshot.truck, chassisNumber: frozen.truck?.chassisNumber ?? null }
-            : null,
-        };
-        if (this.materialHash(asFrozenChassis, version) === frozenHash) return version;
-      }
+      // A tolerância é o ÚNICO desvio: qualquer outra diferença no recorte
+      // continua derrubando, porque o resto da projeção segue intacto.
+      if (reconciled && this.materialHash(reconciled, version) === frozenHash) return version;
     }
     return null;
+  }
+
+  /**
+   * O snapshot atual com os campos de CADASTRO TARDIO do veículo devolvidos ao
+   * valor congelado — a pergunta que ele responde é "tirando o que não é
+   * alteração material, este envelope mudou?".
+   *
+   * Existe porque a comparação por hash é simétrica e a regra não é. Duas
+   * situações, ambas reais na oficina:
+   *
+   *  · CHASSI — deixou de ser material na v3, mas todo envelope congelado sob
+   *    v1/v2 ainda o carrega dentro do hash, e a v3 nunca reproduz um hash v2.
+   *    Sem reinjetar o valor congelado, uma coleta viva morreria ao alguém
+   *    preencher o chassi, apesar de o campo não ser mais material.
+   *
+   *  · PLACA — continua material: trocar uma placa por outra é outro veículo.
+   *    Mas implemento 0 km é orçado e assinado sem emplacar, e a placa chega
+   *    semanas depois. Preencher o que estava VAZIO não muda a proposta, então
+   *    só esse caso é tolerado — se havia placa congelada, ela tem de bater.
+   */
+  private tolerateLateRegistration(
+    current: QuoteSnapshot,
+    frozen: QuoteSnapshot,
+  ): QuoteSnapshot {
+    if (!current.truck) return current;
+    const hadPlate = normText(frozen.truck?.plate) !== null;
+    return {
+      ...current,
+      truck: {
+        ...current.truck,
+        chassisNumber: frozen.truck?.chassisNumber ?? null,
+        plate: hadPlate ? current.truck.plate : (frozen.truck?.plate ?? null),
+      },
+    };
   }
 
   /** Carrega, monta e hasheia num passo — o caminho usado pela detecção de mudança. */

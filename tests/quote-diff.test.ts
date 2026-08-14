@@ -197,6 +197,108 @@ console.log('\nCorreção de grafia — o caso do orçamento nº 590');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nChassi preenchido depois da assinatura');
+{
+  // O caso real: implemento 0 km, sem chassi na emissão do orçamento. O número
+  // é registrado semanas depois, quando o veículo chega — e derrubava a coleta.
+  const before = clone(baseSnapshot());
+  before.truck!.chassisNumber = null;
+  const after = clone(before);
+  after.truck!.chassisNumber = '93KP0Y1C1TE216711';
+  const changes = diffQuoteSnapshots(before, after);
+  const chassis = find(changes, 'truckChassis');
+
+  check('aparece na lista', !!chassis);
+  check('classificado como cosmético', chassis?.severity === 'COSMETIC', chassis?.severity);
+  check('nenhuma alteração material', !changes.some(c => c.severity === 'MATERIAL'));
+
+  // O que de fato decide a invalidação é o hash, não a lista acima.
+  check(
+    'o recorte material não se move',
+    snapshots.materialHash(before) === snapshots.materialHash(after),
+  );
+  check(
+    'envelope congelado sob a v2 sobrevive ao preenchimento',
+    snapshots.matchesFrozenTerms(after, snapshots.materialHash(before, 2), before) === 2,
+  );
+
+  // A placa continua sendo o identificador material do objeto do contrato.
+  const otherTruck = clone(after);
+  otherTruck.truck!.plate = 'XYZ9K88';
+  check(
+    'trocar a placa continua derrubando',
+    find(diffQuoteSnapshots(before, otherTruck), 'truckPlate')?.severity === 'MATERIAL' &&
+      snapshots.matchesFrozenTerms(otherTruck, snapshots.materialHash(before, 2), before) === null,
+  );
+
+  // A tolerância vale só para o chassi: qualquer outra diferença no recorte
+  // legado tem de continuar derrubando mesmo com o congelado em mãos.
+  const repriced = clone(after);
+  repriced.total = '13500.00';
+  check(
+    'preço alterado junto com o chassi ainda derruba',
+    snapshots.matchesFrozenTerms(repriced, snapshots.materialHash(before, 2), before) === null,
+  );
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nPlaca: preencher não derruba, trocar derruba');
+{
+  // Implemento 0 km é orçado e assinado sem placa — ela chega quando o veículo
+  // fica pronto. Mesma história do chassi, mas a placa continua no recorte
+  // material, então a assimetria vive na comparação, não na projeção.
+  const semPlaca = clone(baseSnapshot());
+  semPlaca.truck!.plate = null;
+  const emplacado = clone(semPlaca);
+  emplacado.truck!.plate = 'ABC1D23';
+
+  const fillIn = find(diffQuoteSnapshots(semPlaca, emplacado), 'truckPlate');
+  check('preenchimento aparece na lista', !!fillIn);
+  check('preenchimento é cosmético', fillIn?.severity === 'COSMETIC', fillIn?.severity);
+  check(
+    'emplacar não derruba a coleta',
+    snapshots.matchesFrozenTerms(emplacado, snapshots.materialHash(semPlaca), semPlaca) !== null,
+  );
+
+  // Sem o congelado em mãos a comparação é estrita — nenhum chamador passa a
+  // depender da tolerância por acidente.
+  check(
+    'sem baseline a comparação continua estrita',
+    snapshots.matchesFrozenTerms(emplacado, snapshots.materialHash(semPlaca)) === null,
+  );
+
+  // A outra metade da regra: havia placa congelada, então ela tem de bater.
+  const trocada = clone(emplacado);
+  trocada.truck!.plate = 'XYZ9K88';
+  const swap = find(diffQuoteSnapshots(emplacado, trocada), 'truckPlate');
+  check('troca de placa é material', swap?.severity === 'MATERIAL', swap?.severity);
+  check(
+    'troca de placa derruba mesmo com o congelado em mãos',
+    snapshots.matchesFrozenTerms(trocada, snapshots.materialHash(emplacado), emplacado) === null,
+  );
+
+  // Apagar a placa não é cadastro tardio — é o campo saindo do documento.
+  const apagada = clone(emplacado);
+  apagada.truck!.plate = null;
+  check(
+    'apagar a placa continua material',
+    find(diffQuoteSnapshots(emplacado, apagada), 'truckPlate')?.severity === 'MATERIAL',
+  );
+  check(
+    'apagar a placa derruba',
+    snapshots.matchesFrozenTerms(apagada, snapshots.materialHash(emplacado), emplacado) === null,
+  );
+
+  // Preencher a placa junto com uma alteração real não pode servir de carona.
+  const comDesconto = clone(emplacado);
+  comDesconto.discount = { type: 'PERCENTAGE', value: '10.00', reference: 'Cliente fiel' };
+  check(
+    'desconto novo junto com o emplacamento ainda derruba',
+    snapshots.matchesFrozenTerms(comDesconto, snapshots.materialHash(semPlaca), semPlaca) === null,
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nResponsável entra e sai');
 {
   const after = clone(baseSnapshot());

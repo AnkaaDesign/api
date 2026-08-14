@@ -2019,9 +2019,9 @@ export class SignatureEnvelopeService {
     const matchedVersion = this.snapshots.matchesFrozenTerms(
       loaded.snapshot,
       frozenTermsHash,
-      // O congelado entra para que um envelope pré-v3 não morra por um chassi
-      // preenchido — o campo saiu do recorte material, mas o hash dele ainda o
-      // contém. Ver `matchesFrozenTerms`.
+      // O congelado entra por causa do cadastro tardio do veículo: chassi e
+      // placa preenchidos DEPOIS da emissão não podem derrubar a coleta. Ver
+      // `tolerateLateRegistration`.
       before as QuoteSnapshot,
     );
 

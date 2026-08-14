@@ -542,12 +542,19 @@ function scalar(
     before: string | null;
     after: string | null;
     amountDelta?: number;
+    /**
+     * CADASTRO TARDIO: preencher um campo que estava VAZIO na assinatura sai
+     * como cosmético, mesmo o campo sendo material. Completar o cadastro não é
+     * mudar a proposta — trocar um valor por OUTRO continua sendo, e continua
+     * derrubando.
+     */
+    cosmeticOnFillIn?: boolean;
   },
 ): void {
   if (spec.before === spec.after) return;
   out.push({
     key: spec.key,
-    severity: spec.severity,
+    severity: spec.cosmeticOnFillIn && spec.before === null ? 'COSMETIC' : spec.severity,
     kind: 'CHANGED',
     group: spec.group,
     label: spec.label,
@@ -725,9 +732,15 @@ export function diffQuoteSnapshots(
   });
 
   // ---- Veículo ------------------------------------------------------------
+  // A placa continua sendo o identificador material do objeto do contrato: trocar
+  // ABC1D23 por XYZ9K88 é outro veículo, e derruba. Mas implemento 0 km sai da
+  // fábrica sem emplacar e é orçado assim — a placa chega depois, junto com o
+  // chassi. Preencher o que estava em branco é o mesmo cadastro tardio, e não
+  // pode custar assinatura.
   scalar(out, {
     key: 'truckPlate',
     severity: 'MATERIAL',
+    cosmeticOnFillIn: true,
     group: 'VEHICLE',
     label: 'Placa do veículo',
     before: normText(before.truck?.plate),
