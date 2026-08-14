@@ -107,8 +107,14 @@ async function main() {
     }
 
     // ── Corte histórico: só afeta a criação da INTENÇÃO automática ──
+    //
+    // A referência só faz sentido para quem JÁ está concluído. Uma aerografia
+    // ainda em aberto vai ganhar `finishedAt = agora` quando for concluída, e
+    // `registerNfseIntent` roda DEPOIS do update — então ela passa no corte por
+    // construção. Avaliar o createdAt dela aqui responderia a pergunta errada.
+    const jaConcluida = ab.status === 'COMPLETED';
     const referencia = ab.finishedAt ?? ab.createdAt;
-    const anteriorAoCorte = Boolean(cutoff && referencia && referencia < cutoff);
+    const anteriorAoCorte = jaConcluida && Boolean(cutoff && referencia && referencia < cutoff);
 
     console.log(`perfil fiscal ....... ${profile ? `CNPJ ${profile.cnpj}, ambiente ${profile.environment} (${profile.environment === 1 ? 'PRODUÇÃO' : 'homologação'}), emissão ${profile.emissionEnabled ? 'LIGADA' : 'desligada'}` : 'AUSENTE'}`);
     console.log(`certificado ......... ${cert ? `vence ${cert.notAfter.toLocaleDateString('pt-BR')}${certValid ? '' : ' (VENCIDO)'}` : 'AUSENTE'}`);
@@ -117,8 +123,13 @@ async function main() {
     if (ab.nfse) {
       console.log(`    já existe intenção (${ab.nfse.status}) — o corte não se aplica.`);
     } else if (anteriorAoCorte) {
-      console.log(`    NÃO — finalizada em ${referencia?.toISOString()}, antes do corte. Sem emissão retroativa.`);
-      console.log(`    (concluir de novo HOJE carimba finishedAt=agora e passa a valer)`);
+      console.log(`    NÃO — concluída em ${ab.finishedAt?.toISOString() ?? referencia?.toISOString()}, antes do corte. Sem emissão retroativa.`);
+      console.log(`    (reabrir e concluir de novo HOJE carimba finishedAt=agora e passa a valer)`);
+    } else if (!jaConcluida) {
+      console.log(`    SIM ao concluir — o corte não bloqueia (finishedAt vira agora, depois do corte).`);
+      if (problemas.filter(p => p !== 'aerografia não está CONCLUÍDA').length > 0) {
+        console.log(`    ...mas a emissão em si falharia: ${problemas.filter(p => p !== 'aerografia não está CONCLUÍDA').join('; ')}`);
+      }
     } else {
       console.log(`    sim, o corte não bloqueia.`);
     }
