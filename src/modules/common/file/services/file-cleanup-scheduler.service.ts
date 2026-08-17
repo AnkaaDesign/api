@@ -3,7 +3,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { promises as fs, existsSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { UPLOAD_CONFIG } from '../config/upload.config';
 
 interface OrphanedFile {
@@ -32,12 +32,37 @@ export class FileCleanupSchedulerService {
   // These folders contain files uploaded directly via Samba and won't have database records
   private readonly sambaExcludedFolders = ['Artes', 'Auxiliares', 'Fotos', 'Aerografias', 'Backup'];
 
+  // Whole subtrees that are NOT app-managed storage and must never be scanned.
+  //
+  // The Truck Studio asset tree (STUDIO_ASSETS_ROOT, see the mount in main.ts)
+  // lives inside FILES_ROOT so that files-sync.sh mirrors it with everything
+  // else. It is static artwork published by rsync — geometry, HDRIs, brand
+  // logos, card renders — and by design NONE of it has a row in `File`. To this
+  // scanner every single one of those files therefore looks orphaned, and on
+  // 2026-08-17 the 3 AM job deleted 157 of them (every truck .glb, every brand
+  // logo, every `_neutral.webp` card render) the moment they crossed the 7-day
+  // age threshold. Recovered from /mnt/backup/deleted/.
+  //
+  // The exclusion is by RESOLVED PATH, not by folder name: sambaExcludedFolders
+  // matches a basename anywhere in the tree, which would silently protect any
+  // unrelated directory that happened to share the name.
+  private readonly excludedRoots: string[];
+
   constructor(
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly prisma: PrismaService,
   ) {
     this.filesRoot = process.env.FILES_ROOT || './files';
     this.uploadDir = process.env.UPLOAD_DIR || './uploads';
+    this.excludedRoots = [resolve(process.env.STUDIO_ASSETS_ROOT || './studio-assets')];
+  }
+
+  /**
+   * True when the path is a non-app-managed subtree that must never be scanned.
+   */
+  private isExcludedRoot(path: string): boolean {
+    const resolved = resolve(path);
+    return this.excludedRoots.some(root => resolved === root || resolved.startsWith(root + sep));
   }
 
   /**
@@ -206,7 +231,7 @@ export class FileCleanupSchedulerService {
 
         // Skip specified directories
         if (entry.isDirectory()) {
-          if (skipDirs.includes(entry.name)) {
+          if (skipDirs.includes(entry.name) || this.isExcludedRoot(fullPath)) {
             this.logger.log(`Skipping excluded directory: ${fullPath}`);
             continue;
           }

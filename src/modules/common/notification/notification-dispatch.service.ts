@@ -39,6 +39,10 @@ import {
   NotificationConfigurationService,
   NotificationConfiguration as DBNotificationConfiguration,
 } from './notification-configuration.service';
+import {
+  configKeyOfNotification,
+  isWhatsAppNotificationAllowed,
+} from './whatsapp-notification-policy';
 
 // Import services (these need to be created separately or already exist)
 import { EmailService } from '../mailer/services/email.service';
@@ -407,9 +411,42 @@ export class NotificationDispatchService {
           await this.handleEmailChannel(notification, user, deliveryId);
           break;
 
-        case NOTIFICATION_CHANNEL.WHATSAPP:
+        case NOTIFICATION_CHANNEL.WHATSAPP: {
+          // Última trava antes da fila. Cobre TODOS os caminhos que chegam aqui —
+          // config, canal explícito em POST /notifications, notificação agendada
+          // que congelou o canal antes da política, e retentativa — porque todos
+          // passam por este switch. A cerimônia de assinatura não passa: ela usa a
+          // ponte própria, e é justamente o uso que deve sobreviver.
+          const configKey = configKeyOfNotification(notification.metadata);
+          if (!isWhatsAppNotificationAllowed(configKey)) {
+            this.logger.warn('WhatsApp bloqueado por política de notificação', {
+              notificationId: notification.id,
+              userId: user.id,
+              configKey: configKey ?? '(sem configKey)',
+            });
+            // `permanentlyFailed` é o mesmo marcador que
+            // retryFailedWhatsAppNotifications já usa para pular uma entrega:
+            // sem ele, o bloqueio viraria fila na próxima vez que um número
+            // parear.
+            await this.prisma.notificationDelivery.update({
+              where: { id: deliveryId },
+              data: {
+                status: DELIVERY_STATUS.FAILED as any,
+                errorMessage: `WhatsApp desligado para notificações (chave: ${configKey ?? 'nenhuma'}).`,
+                failedAt: new Date(),
+                metadata: { permanentlyFailed: true, blockedBy: 'whatsapp-notification-policy' },
+              },
+            });
+            return {
+              channel,
+              success: false,
+              deliveryId,
+              error: 'WhatsApp desligado para notificações.',
+            };
+          }
           await this.handleWhatsAppChannel(notification, user, deliveryId);
           break;
+        }
 
         case NOTIFICATION_CHANNEL.PUSH:
           // Push - sends to all registered devices (mobile + desktop)

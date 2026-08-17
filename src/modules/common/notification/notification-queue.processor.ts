@@ -9,6 +9,11 @@ import { EmailService } from '../mailer/services/email.service';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { PushService } from '../push/push.service';
 import { NOTIFICATION_CHANNEL } from '../../../constants';
+import {
+  configKeyOfNotification,
+  isWhatsAppNotificationAllowed,
+  whatsAppNotificationAllowlist,
+} from './whatsapp-notification-policy';
 
 /**
  * Helper interface for parsed action URLs
@@ -91,6 +96,25 @@ export class NotificationQueueProcessor implements OnModuleInit {
    */
   @OnEvent('whatsapp.ready')
   async onWhatsAppReady() {
+    // NÃO reenfileira histórico ao parear um número.
+    //
+    // Este evento dispara no instante em que alguém escaneia o QR. Com a política
+    // atual o número que pareia é o que carrega OTP de assinatura de contrato, e
+    // a primeira coisa que ele fazia era despejar até 50 mensagens internas
+    // atrasadas — exatamente o padrão de volume que fez o número anterior ser
+    // banido, e no pior momento possível: minuto zero de um número novo.
+    //
+    // A varredura só faz sentido se alguma chave estiver liberada em
+    // WHATSAPP_NOTIFICATION_ALLOWLIST; senão o worker bloquearia cada job um a um
+    // e o único efeito seria ruído na fila.
+    const allowlist = whatsAppNotificationAllowlist();
+    if (allowlist.size === 0) {
+      this.logger.log(
+        'WhatsApp conectado — varredura de pendências NÃO executada (WhatsApp desligado para notificações).',
+      );
+      return;
+    }
+
     this.logger.log('WhatsApp client is ready - checking for failed notifications to retry');
     await this.retryFailedWhatsAppNotifications();
   }
@@ -509,6 +533,26 @@ export class NotificationQueueProcessor implements OnModuleInit {
 
       if (!notification) {
         throw new Error(`Notification ${notificationId} not found`);
+      }
+
+      // Segunda trava da política, no worker. A do dispatch cobre quem ENFILEIRA;
+      // esta cobre quem CONSOME — inclusive jobs que já estavam na fila antes do
+      // deploy e os que `retryFailedWhatsAppNotifications` reenfileira direto, sem
+      // passar pelo roteador de canal. A cerimônia de assinatura não usa esta
+      // fila, então continua intacta.
+      const configKey = configKeyOfNotification(notification.metadata);
+      if (!isWhatsAppNotificationAllowed(configKey)) {
+        this.logger.warn(
+          `WhatsApp bloqueado por política — notificação ${notificationId} (chave: ${configKey ?? 'nenhuma'})`,
+        );
+        return {
+          success: false,
+          channel: NOTIFICATION_CHANNEL.WHATSAPP,
+          notificationId,
+          userId,
+          error: 'WhatsApp desligado para notificações.',
+          duration: Date.now() - startTime,
+        } as NotificationDeliveryResult;
       }
 
       await job.progress(20);

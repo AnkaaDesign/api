@@ -177,8 +177,9 @@ export function generateSignatureOtpEmail(data: OtpEmailData): {
   Expira em <strong>${data.expiryMinutes} minutos</strong> e só pode ser usado uma vez.
 </p>
 <div class="alert">
-  <strong>Nunca compartilhe este código.</strong> A ${COMPANY.name} não solicita este código
-  por telefone, WhatsApp, SMS ou e-mail. Se alguém pedir, é golpe.
+  <strong>Nunca repasse este código a ninguém.</strong> Nenhum atendente da ${COMPANY.name} vai
+  pedir que você envie ou dite este código — nem por telefone, nem por WhatsApp, nem respondendo
+  a este e-mail. Se alguém pedir, é golpe.
 </div>
 <p class="muted">Se você não solicitou este código, ignore esta mensagem — ele perde a validade
 sozinho e nenhuma assinatura será registrada.</p>`,

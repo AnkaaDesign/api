@@ -12,6 +12,9 @@ import makeWASocket, {
   Browsers,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
+  generateMessageID,
+  NACK_REASONS,
+  WAMessageStatus,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as QRCode from 'qrcode';
@@ -31,6 +34,36 @@ export enum WhatsAppConnectionStatus {
   READY = 'READY',
   AUTH_FAILURE = 'AUTH_FAILURE',
 }
+
+/**
+ * Veredito do SERVIDOR do WhatsApp sobre uma mensagem.
+ *
+ * POR QUE ISTO PRECISA EXISTIR
+ *   `sock.sendMessage()` resolve assim que o nó é escrito no socket, e o message
+ *   ID é gerado no CLIENTE. Ou seja: a promessa cumprida não prova nada sobre a
+ *   aceitação da mensagem. O servidor responde depois, de forma assíncrona, com
+ *   um ack que pode trazer `error`.
+ *
+ *   Em 2026-08-17 isso produziu dois `INVITATION_SENT` na trilha de auditoria da
+ *   assinatura do orçamento 883 para mensagens que o WhatsApp havia REJEITADO com
+ *   erro 463. Numa trilha com valor probatório, "não sei" registrado como
+ *   "enviado" é o pior resultado possível — daí `TIMEOUT` ser tratado como falha
+ *   e não como sucesso.
+ */
+export type WhatsAppSendVerdict =
+  | { outcome: 'ACCEPTED'; messageId: string }
+  | { outcome: 'REJECTED'; messageId: string; errorCode: string; reason: string }
+  | { outcome: 'TIMEOUT'; messageId: string };
+
+/** Rótulos dos nacks que sabemos explicar ao operador em português. */
+const NACK_LABELS: Record<string, string> = {
+  [String(NACK_REASONS.SenderReachoutTimelocked)]:
+    'conta restrita pelo WhatsApp (reach-out time-lock) ou sem TC token para este contato',
+  [String(NACK_REASONS.UnsupportedLIDGroup)]: 'grupo LID não suportado',
+  [String(NACK_REASONS.MissingMessageSecret)]: 'segredo da mensagem ausente',
+  [String(NACK_REASONS.DBOperationFailed)]: 'falha de operação no servidor do WhatsApp',
+  [String(NACK_REASONS.UnhandledError)]: 'erro não tratado no servidor do WhatsApp',
+};
 
 /**
  * Baileys-based WhatsApp service
@@ -64,6 +97,11 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly MAX_RECONNECT_ATTEMPTS = 8;
   private readonly RECONNECT_DELAY = 3000; // 3 seconds base
   private reconnectTimeout: NodeJS.Timeout | null = null;
+
+  // Correlação de ack: message ID -> quem está esperando o veredito do servidor.
+  // O ack observado em produção chega em ~300 ms; 20 s é folga, não expectativa.
+  private readonly pendingAcks = new Map<string, (verdict: WhatsAppSendVerdict) => void>();
+  private readonly ACK_TIMEOUT_MS = 20000;
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
@@ -288,6 +326,59 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         }
       }
     });
+
+    // Veredito do servidor. É AQUI que a rejeição aparece: o Baileys converte o
+    // ack de erro num `messages.update` com `status: ERROR` e põe o código do
+    // nack em `messageStubParameters[0]` (ver `messages-recv.js`, tratamento de
+    // NACK_REASONS). Sem este listener, a rejeição só existia como uma linha de
+    // log solta, sem vínculo com o envio que a causou.
+    this.sock.ev.on('messages.update', updates => {
+      for (const { key, update } of updates) {
+        const id = key?.id;
+        if (!id) continue;
+
+        const resolve = this.pendingAcks.get(id);
+        if (!resolve) continue;
+
+        const status = update?.status;
+        if (status === undefined || status === null) continue;
+
+        if (status === WAMessageStatus.ERROR) {
+          const errorCode = String(update.messageStubParameters?.[0] ?? 'desconhecido');
+          const reason = NACK_LABELS[errorCode] ?? `rejeitado pelo servidor (nack ${errorCode})`;
+          resolve({ outcome: 'REJECTED', messageId: id, errorCode, reason });
+          continue;
+        }
+
+        // SERVER_ACK (2) em diante significa que o servidor aceitou e assumiu a
+        // entrega. PENDING (1) é estado local e não decide nada.
+        if (status >= WAMessageStatus.SERVER_ACK) {
+          resolve({ outcome: 'ACCEPTED', messageId: id });
+        }
+      }
+    });
+  }
+
+  /**
+   * Espera o servidor se pronunciar sobre uma mensagem já escrita no socket.
+   *
+   * O registro do ouvinte acontece ANTES do `sendMessage` (ver o chamador): o ack
+   * de erro chegou em ~300 ms em produção, e registrar depois abre uma janela em
+   * que o veredito passa despercebido e todo envio vira TIMEOUT.
+   */
+  private waitForServerVerdict(messageId: string): Promise<WhatsAppSendVerdict> {
+    return new Promise<WhatsAppSendVerdict>(resolve => {
+      const timer = setTimeout(() => {
+        this.pendingAcks.delete(messageId);
+        resolve({ outcome: 'TIMEOUT', messageId });
+      }, this.ACK_TIMEOUT_MS);
+
+      this.pendingAcks.set(messageId, verdict => {
+        clearTimeout(timer);
+        this.pendingAcks.delete(messageId);
+        resolve(verdict);
+      });
+    });
   }
 
   /**
@@ -470,21 +561,57 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       // Log the content being sent for debugging
       this.logger.debug(`Sending message content: ${JSON.stringify(content).substring(0, 200)}`);
 
-      // Send message to the resolved JID with proper options
-      const sentMessage = await this.sock.sendMessage(jid, content, {
+      // O ID é gerado AQUI, e não lido da resposta, para que o ouvinte do ack já
+      // esteja armado quando o servidor responder. `messageId` é a opção que o
+      // Baileys expõe justamente para sobrescrever o ID gerado internamente.
+      const messageId = generateMessageID();
+      const verdictPromise = this.waitForServerVerdict(messageId);
+
+      await this.sock.sendMessage(jid, content, {
+        messageId,
         // Disable ephemeral messages
         ephemeralExpiration: undefined,
       });
 
+      // Escrever no socket NÃO é entregar. A partir daqui quem decide é o servidor.
+      const verdict = await verdictPromise;
+
+      if (verdict.outcome === 'REJECTED') {
+        this.logger.error(
+          `WhatsApp RECUSOU a mensagem para ${this.maskPhone(cleanPhone)} ` +
+            `(nack ${verdict.errorCode}: ${verdict.reason}). ID: ${messageId}`,
+        );
+        this.eventEmitter.emit('whatsapp.message_rejected', {
+          to: cleanPhone,
+          jid,
+          messageId,
+          errorCode: verdict.errorCode,
+          reason: verdict.reason,
+          timestamp: new Date(),
+        });
+        return false;
+      }
+
+      if (verdict.outcome === 'TIMEOUT') {
+        // Deliberadamente `false`. Ver o comentário de `WhatsAppSendVerdict`:
+        // sem confirmação do servidor não há como afirmar que foi entregue, e
+        // quem chama grava trilha de auditoria a partir deste booleano.
+        this.logger.error(
+          `Sem confirmação do servidor do WhatsApp em ${this.ACK_TIMEOUT_MS} ms para ` +
+            `${this.maskPhone(cleanPhone)} (ID: ${messageId}) — tratando como NÃO enviada.`,
+        );
+        return false;
+      }
+
       this.logger.log(
-        `Message sent successfully to ${this.maskPhone(cleanPhone)}, message ID: ${sentMessage?.key?.id}`,
+        `Message sent successfully to ${this.maskPhone(cleanPhone)}, message ID: ${messageId} (ack do servidor confirmado)`,
       );
 
       this.eventEmitter.emit('whatsapp.message_sent', {
         to: cleanPhone,
         jid: jid,
         content,
-        messageId: sentMessage?.key?.id,
+        messageId,
         timestamp: new Date(),
       });
 

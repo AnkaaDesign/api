@@ -152,10 +152,10 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
  * regra nova derrubaria assinaturas por mudanças que, para eles, nunca foram
  * materiais.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 3;
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 4;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
-export const SUPPORTED_MATERIAL_VERSIONS = [3, 2, 1] as const;
+export const SUPPORTED_MATERIAL_VERSIONS = [4, 3, 2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -201,10 +201,18 @@ export interface QuoteMaterialProjection {
    * redireciona a prova de autoria para outra caixa, e isso PRECISA derrubar o
    * envelope.
    *
-   * Na v1 o canal era o telefone (OTP por WhatsApp). Na v2 é o e-mail. A
-   * projeção é calculada na versão em que o envelope foi CONGELADO — ver
+   * Na v1 o canal era o telefone (OTP por WhatsApp). Na v2/v3 é o e-mail. Na
+   * **v4 são os dois**: o canal deixou de ser uma constante do código e passou a
+   * ser configuração (`SIGNATURE_DELIVERY_CHANNEL`) mais escolha do operador por
+   * envelope, então o recorte não tem como saber qual dos contatos carrega o
+   * código — e proteger só um deixaria a outra metade livre para ser trocada no
+   * meio de uma coleta.
+   *
+   * A projeção é calculada na versão em que o envelope foi CONGELADO — ver
    * `materialProjection` —, porque avaliar um envelope antigo pela regra nova
    * derrubaria assinaturas por uma mudança que, à época dele, não era material.
+   * É por isso que as três versões anteriores continuam sendo emitidas
+   * byte-a-byte como antes: envelope v3 em andamento tem de continuar batendo.
    */
   signers: Array<{ responsibleId: string; phoneDigits?: string; emailNormalized?: string }>;
 }
@@ -387,14 +395,27 @@ export class QuoteSnapshotService {
       // reprodutibilidade do hash antigo, que é justamente o que permite
       // reconhecer um envelope não-alterado depois da migração de canal.
       signers: s.signers
-        .map(sig =>
-          version >= 2
-            ? {
-                responsibleId: sig.responsibleId,
-                emailNormalized: (sig.emailNormalized ?? '').trim().toLowerCase(),
-              }
-            : { responsibleId: sig.responsibleId, phoneDigits: sig.phoneDigits },
-        )
+        .map(sig => {
+          // v4: o canal virou ESCOLHA por envelope (SIGNATURE_DELIVERY_CHANNEL /
+          // seletor da tarefa), então os DOIS contatos são materiais — não dá
+          // mais para saber, olhando só o recorte, por qual deles o código sai.
+          // Emitir ambos é o que faz uma troca de telefone derrubar uma coleta
+          // por WhatsApp e uma troca de e-mail derrubar uma por e-mail.
+          if (version >= 4) {
+            return {
+              responsibleId: sig.responsibleId,
+              emailNormalized: (sig.emailNormalized ?? '').trim().toLowerCase(),
+              phoneDigits: sig.phoneDigits,
+            };
+          }
+          if (version >= 2) {
+            return {
+              responsibleId: sig.responsibleId,
+              emailNormalized: (sig.emailNormalized ?? '').trim().toLowerCase(),
+            };
+          }
+          return { responsibleId: sig.responsibleId, phoneDigits: sig.phoneDigits };
+        })
         .sort((a, b) => a.responsibleId.localeCompare(b.responsibleId)),
     };
   }

@@ -155,7 +155,16 @@ async function main() {
     // onModuleDestroy deles estoura "Connection is closed". Isso é ruído de
     // encerramento: deixar propagar marcaria como FALHA um provisionamento que já
     // gravou tudo.
-    await app.close().catch(() => undefined);
+    //
+    // O `close()` também PENDURA: em 2026-08-14 esta chamada não retornou e o
+    // processo ficou 2 dias e 17 horas vivo depois de gravar tudo, segurando
+    // ~25 conexões de banco/Redis. O `process.exit(0)` lá embaixo nunca era
+    // alcançado porque o await é aqui em cima. Timebox, então: quem não fechou
+    // em 15s não vai fechar, e o processo sai mesmo assim.
+    await Promise.race([
+      app.close().catch(() => undefined),
+      new Promise(resolve => setTimeout(resolve, 15_000).unref()),
+    ]);
   }
 }
 

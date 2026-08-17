@@ -34,9 +34,11 @@ import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '@constants/enums';
 import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import {
+  signatureCreateEnvelopeSchema,
   signatureRefuseSchema,
   signatureRequestCodeSchema,
   signatureSignSchema,
+  type SignatureCreateEnvelopeFormData,
   type SignatureRefuseFormData,
   type SignatureRequestCodeFormData,
   type SignatureSignFormData,
@@ -67,6 +69,19 @@ export class SignatureController {
     private readonly dossiers: DossierAssemblerService,
   ) {}
 
+  /**
+   * Modo de entrega configurado, para a tela decidir se mostra o seletor.
+   *
+   * Rota separada e sem parâmetro de propósito: a resposta não depende do
+   * orçamento, e pendurá-la em `GET /quote/:id` faria a tela ter de carregar um
+   * envelope só para descobrir quais botões desenhar.
+   */
+  @Get('delivery-settings')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  deliverySettings() {
+    return { success: true, data: this.envelopes.getDeliverySettings() };
+  }
+
   /** Congela o documento e dispara os convites. */
   @Post('quote/:quoteId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
@@ -74,15 +89,21 @@ export class SignatureController {
     @Param('quoteId', ParseUUIDPipe) quoteId: string,
     @UserId() userId: string,
     @Req() req: Request,
+    @Body(new ZodValidationPipe(signatureCreateEnvelopeSchema))
+    body: SignatureCreateEnvelopeFormData,
   ) {
     const result = await this.envelopes.createEnvelope({
       quoteId,
       actorUserId: userId,
       ctx: ctxOf(req),
+      channel: body?.channel ?? null,
     });
     return {
       success: true,
-      message: 'Orçamento enviado para assinatura.',
+      message:
+        result.channel === 'WHATSAPP'
+          ? 'Orçamento enviado para assinatura por WhatsApp.'
+          : 'Orçamento enviado para assinatura por e-mail.',
       data: result,
     };
   }
@@ -146,11 +167,15 @@ export class SignatureController {
     @Req() req: Request,
   ) {
     const ok = await this.envelopes.resendInvitation(signerId, userId, ctxOf(req));
+    // O canal é o da COLETA, não o configurado agora — por isso vem do
+    // signatário. Ver `resendInvitation`.
+    const channel = await this.envelopes.channelOfSigner(signerId);
+    const via = channel === 'WHATSAPP' ? 'WhatsApp' : 'e-mail';
     return {
       success: ok,
       message: ok
-        ? 'Convite reenviado por e-mail.'
-        : 'Não foi possível enviar o e-mail. Copie o link e envie manualmente.',
+        ? `Convite reenviado por ${via}.`
+        : `Não foi possível enviar por ${via}. Copie o link e envie manualmente.`,
     };
   }
 
@@ -298,6 +323,7 @@ export class PublicSignatureController {
       token,
       cpf: body.cpf,
       cargo: body.cargo,
+      contactConfirm: body.contactConfirm,
       emailConfirm: body.emailConfirm,
       ctx: ctxOf(req),
     });

@@ -73,28 +73,48 @@
  *   config even where the channel is off — same convention as EMAIL, so
  *   re-enabling is a flag flip.
  *
- * WHATSAPP VOLUME POLICY (2026-07-29 — migration to the official Meta API)
- *   WhatsApp is being moved off Baileys onto the metered WhatsApp Business
- *   Platform, where every template message is billed and each surviving config
- *   needs its own Meta-approved template. The channel was therefore cut from
- *   61 configs to 12 — measured ~282 msgs/day down to ~24/day.
+ * WHATSAPP DESLIGADO POR COMPLETO (2026-08-17) — ESTA É A POLÍTICA VIGENTE
+ *   Nenhuma NotificationConfiguration usa WhatsApp. As 204 linhas WHATSAPP estão
+ *   em {enabled:false, mandatory:false, defaultOn:false}. O número anterior foi
+ *   BANIDO por volume, e o número novo é reservado a um único uso, que NÃO passa
+ *   por este registro:
  *
- *   WhatsApp is now reserved for the shop floor (PRODUCTION / WAREHOUSE, who
- *   are away from a desk — and note WAREHOUSE has ZERO push tokens, so for them
- *   in-app is the only alternative), for safety/compliance (EPI, advertências),
- *   and for boleto due/paid. THE 12 SURVIVORS:
+ *       a cerimônia de assinatura do orçamento — convite, aviso de
+ *       contra-assinatura e código de uso único (OTP), enviados ao CLIENTE.
  *
+ *   Esse fluxo vive em `src/modules/common/signature/` e é governado pela env
+ *   `SIGNATURE_DELIVERY_CHANNEL` (whatsapp | email | both), não por config de
+ *   notificação. Ele fala com responsáveis do cliente, não com colaboradores, e
+ *   por isso nunca dependeu deste seed.
+ *
+ *   CONSEQUÊNCIA PRÁTICA: reativar QUALQUER linha WHATSAPP aqui volta a misturar
+ *   tráfego interno com o número que hoje carrega a assinatura de contrato. Foi
+ *   exatamente essa mistura que derrubou o número anterior. Se o WhatsApp
+ *   interno voltar algum dia, ele deve ir para OUTRO número.
+ *
+ *   As 12 configs que sobreviveram ao corte de 2026-07-29 e que agora também
+ *   foram desligadas (ficam registradas para quem for investigar o histórico):
  *     item.low_stock, item.out_of_stock, order_schedule.run.failed   (almoxarifado)
  *     task.deadline_1hour, artwork.reproved, cut.request.created     (produção)
  *     ppe.requested, ppe.signature_required, ppe.signature_failed    (EPI — NR-6)
  *     warning.issued                                                 (advertência)
  *     bank_slip.due, bank_slip.paid                                  (boleto)
+ *   Todas continuam entregando por IN_APP e PUSH — o desligamento do WhatsApp
+ *   NÃO silenciou nenhum evento, só tirou um canal. Atenção a duas delas:
+ *   `warning.issued` e `ppe.signature_required` eram `mandatory:true` no
+ *   WhatsApp (compliance NR-6 / advertência); a obrigatoriedade permanece em
+ *   IN_APP, que é o canal inescapável desses casos.
  *
- *   Deliberately NOT on WhatsApp: task_quote.settled (orçamento quitado) and
- *   bank_slip.overdue — due+paid is the whole boleto surface. The task.field.*
- *   and service_order.status_changed_* families are off entirely; they were
- *   sector broadcasts of audit-trail edits (task.field.entryDate alone was 56
- *   msgs/day, 20% of the entire bill).
+ * HISTÓRICO — WHATSAPP VOLUME POLICY (2026-07-29, superada pela seção acima)
+ *   WhatsApp estava sendo migrado do Baileys para a WhatsApp Business Platform
+ *   metered, onde cada template é cobrado e cada config precisa do seu template
+ *   aprovado na Meta. O canal foi cortado de 61 para 12 configs — de ~282
+ *   msgs/dia para ~24/dia. Não foi suficiente: o número foi banido mesmo assim.
+ *
+ *   O critério de então era: chão de fábrica (PRODUCTION / WAREHOUSE, longe da
+ *   mesa — e WAREHOUSE tem ZERO tokens de push, então para eles o in-app era a
+ *   única alternativa), segurança/compliance (EPI, advertências) e boleto
+ *   due/paid. Deliberadamente fora: task_quote.settled e bank_slip.overdue.
  *
  *   When disabling, ALWAYS set the WHATSAPP row to {false,false,false}. Do NOT
  *   rely on `defaultOn: false` to keep a channel quiet: this seed converges
@@ -385,7 +405,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -641,7 +661,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: false },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -763,7 +783,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1093,7 +1113,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1464,7 +1484,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -1506,7 +1526,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2518,7 +2538,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2807,7 +2827,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2849,7 +2869,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -2887,7 +2907,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: true, defaultOn: true },
       PUSH: { enabled: true, mandatory: false, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -5816,7 +5836,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: false, defaultOn: true },
       PUSH: { enabled: true, mandatory: true, defaultOn: true },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: false, defaultOn: true },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {
@@ -8358,7 +8378,7 @@ const CONFIGS: ConfigDef[] = [
       IN_APP: { enabled: true, mandatory: true, defaultOn: false },
       PUSH: { enabled: true, mandatory: true, defaultOn: false },
       EMAIL: { enabled: false, mandatory: false, defaultOn: false },
-      WHATSAPP: { enabled: true, mandatory: true, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
     },
     templates: {
       inApp: {

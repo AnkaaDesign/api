@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MoneyRedactionInterceptor } from './modules/common/interceptors/money-redaction.interceptor';
 import { getRedisConfig } from './common/config/redis.config';
+import { SchedulerGuardService } from './common/services/scheduler-guard.service';
 
 import {
   SecurityMiddleware,
@@ -72,6 +73,7 @@ import { UpdateModule } from './modules/system/update/update.module';
 import { InstallModule } from './modules/system/install/install.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { SignatureModule } from './modules/common/signature/signature.module';
+import { SignatureWhatsAppBridgeModule } from './modules/common/signature/signature-whatsapp-bridge.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
 import { SicrediModule } from './modules/integrations/sicredi/sicredi.module';
@@ -163,6 +165,9 @@ import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painti
     InstallModule,
     WhatsAppModule,
     SignatureModule,
+    // Registra o transporte de WhatsApp na cerimônia de assinatura sem que
+    // SignatureModule precise importar WhatsAppModule — ver o cabeçalho da ponte.
+    SignatureWhatsAppBridgeModule,
     MessageModule,
     DeepLinkModule,
     SicrediModule,
@@ -178,6 +183,10 @@ import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painti
   controllers: [AppController],
   providers: [
     AppService,
+    // Desliga os schedulers quando o entrypoint é um script de manutenção — ver
+    // o comentário do arquivo. Mora na raiz porque `onApplicationBootstrap` da
+    // raiz roda depois do ScheduleExplorer.
+    SchedulerGuardService,
     // Global: strips monetary fields from every response for sectors outside
     // MONEY_PRIVILEGES. Registered app-wide on purpose — per-controller opt-in
     // is what let `GET /items` and `GET /users` ship prices and salaries to

@@ -125,7 +125,14 @@ export class BaileysAuthStateStore {
         const stored = await this.cacheService['redis'].get(key);
 
         if (stored) {
-          result[id] = JSON.parse(stored, BufferJSON.reviver);
+          const parsed = JSON.parse(stored, BufferJSON.reviver);
+          // Não devolve chave com valor nulo: para o Baileys, a ausência da
+          // entrada é o que significa "não existe". Cobre também o lixo deixado
+          // pela versão anterior deste store, que gravava a string "null" em vez
+          // de apagar a chave.
+          if (parsed !== null && parsed !== undefined) {
+            result[id] = parsed;
+          }
         }
       }
 
@@ -144,19 +151,36 @@ export class BaileysAuthStateStore {
    */
   private async setKeys(data: any): Promise<void> {
     try {
-      const promises: Promise<'OK'>[] = [];
+      const promises: Promise<unknown>[] = [];
+      let written = 0;
+      let removed = 0;
 
       for (const [category, entries] of Object.entries(data)) {
         for (const [id, value] of Object.entries(entries as any)) {
           const key = `${this.KEYS_PREFIX}${category}:${id}`;
+
+          // `null` é o sinal de REMOÇÃO no contrato do Baileys (`SignalDataMap`
+          // declara `SignalDataTypeMap[T] | null`), não um valor a guardar.
+          // Serializar isso gravava a string "null" e a chave sobrevivia até o
+          // TTL de 30 dias. Passou a importar a partir da 7.0.0-rc10, que
+          // introduziu o ciclo de vida completo do TC token (emissão, revogação,
+          // expiração e pruning) — justamente o token cuja ausência faz o
+          // servidor recusar a mensagem com o nack 463.
+          if (value === null || value === undefined) {
+            promises.push(this.cacheService['redis'].del(key));
+            removed++;
+            continue;
+          }
+
           const serialized = JSON.stringify(value, BufferJSON.replacer);
           // Use raw Redis client to avoid double-stringifying
           promises.push(this.cacheService['redis'].setex(key, this.TTL_SECONDS, serialized));
+          written++;
         }
       }
 
       await Promise.all(promises);
-      this.logger.debug(`Saved ${promises.length} keys to Redis`);
+      this.logger.debug(`Saved ${written} keys to Redis${removed ? `, removed ${removed}` : ''}`);
     } catch (error) {
       this.logger.error(`Failed to set keys: ${error.message}`);
       throw error;

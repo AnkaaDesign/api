@@ -246,13 +246,24 @@ export class WhatsAppController {
     try {
       const { phone, message } = sendMessageDto;
 
-      await this.whatsappService.sendMessage(phone, message);
+      // O booleano é o veredito do SERVIDOR do WhatsApp, não do socket. Ignorá-lo
+      // devolvia "Message sent successfully" para mensagem recusada — o mesmo
+      // defeito que fez a assinatura do orçamento 883 gravar INVITATION_SENT
+      // para dois convites rejeitados com o nack 463 em 2026-08-17.
+      const accepted = await this.whatsappService.sendMessage(phone, message);
+
+      if (!accepted) {
+        throw new BadRequestException(
+          'O WhatsApp não confirmou o envio da mensagem. Veja o log do servidor para o código do nack.',
+        );
+      }
 
       return {
         success: true,
         message: 'Message sent successfully',
       };
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       this.logger.error(`Failed to send message: ${error.message}`, error.stack);
       throw new BadRequestException(error.message || 'Failed to send message');
     }

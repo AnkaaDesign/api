@@ -106,7 +106,7 @@
     "@types/node-forge": "^1.3.14",
     "@types/unzipper": "^0.10.11",
     "@types/xml-crypto": "^1.4.6",
-    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "archiver": "^7.0.1",
     "axios": "^1.8.4",
     "bcrypt": "^6.0.0",

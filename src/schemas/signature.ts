@@ -112,6 +112,20 @@ export const signatureRequestCodeSchema = z.object({
     .trim()
     .min(2, 'Informe seu cargo na empresa.')
     .max(100, 'Cargo deve ter no máximo 100 caracteres.'),
+  /**
+   * Caracteres ocultos do CONTATO — da parte local do e-mail, ou dos dígitos do
+   * meio do telefone, conforme o canal em que a coleta foi emitida.
+   */
+  contactConfirm: z
+    .string()
+    .max(254, 'Confirmação de contato inválida.')
+    .nullish()
+    .transform(value => (value ?? '').trim().toLowerCase()),
+  /**
+   * @deprecated Nome anterior de `contactConfirm`, de quando o canal era sempre
+   * e-mail. Mantido para que uma página já aberta no navegador do cliente não
+   * pare de funcionar no deploy — o serviço aceita os dois e prefere o novo.
+   */
   emailConfirm: z
     .string()
     .max(254, 'Confirmação de e-mail inválida.')
@@ -120,6 +134,38 @@ export const signatureRequestCodeSchema = z.object({
 });
 
 export type SignatureRequestCodeFormData = z.infer<typeof signatureRequestCodeSchema>;
+
+// ---------------------------------------------------------------------------
+// POST /signature-envelopes/quote/:quoteId  (rota INTERNA)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emissão da coleta.
+ *
+ * A rota não recebia corpo nenhum. Passou a receber um só campo — o canal —, e
+ * ele é OPCIONAL: quando `SIGNATURE_DELIVERY_CHANNEL` é fixo (`whatsapp` ou
+ * `email`) a tela não desenha o seletor e não manda nada, e o servidor usa o
+ * canal configurado. Só faz diferença no modo `both`.
+ *
+ * Validar aqui é o que impede um corpo com `channel: "sms"` de chegar ao
+ * serviço; a checagem de que o canal está LIBERADO pela configuração é de
+ * domínio e fica em `resolveSignatureDeliveryChannel`, que tem contexto para
+ * dizer quais estão disponíveis.
+ */
+export const signatureCreateEnvelopeSchema = z
+  .object({
+    channel: z
+      .enum(['WHATSAPP', 'EMAIL'], {
+        errorMap: () => ({ message: 'Canal de envio inválido.' }),
+      })
+      .nullish(),
+  })
+  // Corpo ausente é o caso NORMAL (modo fixo), não um erro: sem isto um POST
+  // sem body cairia em "Expected object, received undefined".
+  .nullish()
+  .transform(value => value ?? {});
+
+export type SignatureCreateEnvelopeFormData = z.infer<typeof signatureCreateEnvelopeSchema>;
 
 // ---------------------------------------------------------------------------
 // POST /assinatura/publico/:token/assinar
