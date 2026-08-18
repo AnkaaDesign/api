@@ -126,7 +126,10 @@ export class TsaClient {
       const response = await fetch(this.url, {
         method: 'POST',
         headers,
-        body: reqDer,
+        // `Uint8Array`, não o `Buffer` cru: os tipos do fetch global (undici)
+        // não aceitam `Buffer` como `BodyInit` e o build inteiro parava aqui.
+        // Mesmos bytes, mesma requisição — Buffer já É um Uint8Array.
+        body: new Uint8Array(reqDer),
         signal: controller.signal,
       });
       if (!response.ok) {
