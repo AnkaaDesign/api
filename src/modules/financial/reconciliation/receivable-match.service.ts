@@ -64,10 +64,24 @@ const MATCH_PCT_TOLERANCE = 0.005;
 const PAID_LINK_WINDOW_DAYS = 45;
 
 /** Subset-sum is bounded: above this many matchable installments we only try the
- *  cheap "pay-all / windowed-all" sums and otherwise defer to the manual UI,
- *  rather than exploring 2^N subsets. Covers the real "paid their whole balance"
- *  pattern at O(1) and small partial batches at O(2^N). */
-const SUBSET_SUM_MAX_ITEMS = 14;
+ *  cheap "pay-all / windowed-all" sums and otherwise defer to the manual UI.
+ *
+ *  Raised 14 → 32 when the search became meet-in-the-middle (see `subsetSum`),
+ *  which costs O(2^(N/2)) instead of O(2^N): at 32 that is 2×65 536 subset sums,
+ *  cheaper than the old limit's worst case. The old 14 was not a tuning choice
+ *  so much as the point where the depth-first search stopped being affordable,
+ *  and it silently excluded ordinary customers — one lump PIX against a client
+ *  carrying 24 matchable parcelas never even ran the search, so the credit
+ *  produced no plan and no suggestion at all. */
+const SUBSET_SUM_MAX_ITEMS = 32;
+
+/** …but a subset-sum plan this large is only ever a SUGGESTION, never an
+ *  auto-apply. Picking k parcelas out of n so the total lands inside a 0,5 %
+ *  band is arithmetic, not evidence: the more parcelas the set draws in, the
+ *  more different combinations fit the same credit, and the arithmetic alone
+ *  cannot say which one the customer actually intended to pay. A human confirms
+ *  those. Single/exact and small batches stay auto-appliable as before. */
+const SUBSET_AUTO_MAX_ITEMS = 4;
 
 /** Open installment statuses an incoming receipt may settle. */
 const OPEN_INSTALLMENT_STATUSES = ['PENDING', 'PROCESSING', 'OVERDUE'] as const;
@@ -586,7 +600,17 @@ export class ReceivableMatchService {
       if (resolved) {
         if (resolved.auto) {
           const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
-          if (plan) {
+          // Confident identity is only half the question — the other half is
+          // whether the ALLOCATION is evidence or arithmetic. A wide subset-sum
+          // set lands on the credit by summing to it, and on a big pool many
+          // different sets do; that belongs in the suggestion panel where a human
+          // confirms it, not in an automatic write. Falling through leaves the
+          // credit PENDING with its near-miss score, and the suggestion endpoint
+          // still offers the very same plan for one-click confirmation.
+          const autoSafe =
+            !!plan &&
+            !(plan.kind.startsWith('subset') && plan.allocations.length > SUBSET_AUTO_MAX_ITEMS);
+          if (plan && autoSafe) {
             await this.applyReceivableAllocation(
               tx,
               plan.allocations,
@@ -672,7 +696,23 @@ export class ReceivableMatchService {
   private async bestCandidateScore(tx: RawCredit): Promise<number | null> {
     try {
       const [installments, boletos] = await Promise.all([
-        this.findScoredCandidates(tx, { exactValueOnly: false, windowDays: 60 }),
+        // `includePaidLink` is what makes this pool the SAME pool as
+        // `getReceivableCandidates`. Without it the scan only sees OPEN parcelas,
+        // while the detail page also offers already-PAID-but-unconciliated ones
+        // (link-only clearance) — and those are the dominant shape here, because
+        // the operator usually marks the parcela paid before the OFX arrives. The
+        // badge therefore stayed empty on credits whose detail page opened with a
+        // 66% candidate at the top, and the only way to light it up was to visit
+        // the page (whose GET re-stamps the column as a side effect).
+        this.findScoredCandidates(tx, {
+          exactValueOnly: false,
+          windowDays: 60,
+          includePaidLink: true,
+          // Same identity lane as getReceivableCandidates, for the same reason the
+          // `includePaidLink` above is here: this number is only honest if it is
+          // computed over the pool the detail page will actually render.
+          identityCustomerId: (await this.resolveCustomerForScore(tx)) ?? undefined,
+        }),
         this.findBoletoCandidates(tx),
       ]);
       const best = Math.max(
@@ -681,6 +721,17 @@ export class ReceivableMatchService {
         ...boletos.map(c => c.confidence),
       );
       return best >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(best) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Payer customer id for a credit, or null. Thin wrapper so the badge scorer can
+   *  reuse the identity lane without every caller building the index by hand. */
+  private async resolveCustomerForScore(tx: RawCredit): Promise<string | null> {
+    try {
+      const index = await this.buildCustomerIdentityIndex();
+      return this.resolveCustomer(tx, index)?.customerId ?? null;
     } catch {
       return null;
     }
@@ -916,25 +967,95 @@ export class ReceivableMatchService {
     tol: number,
     attr: (i: T) => number,
   ): T[] | null {
-    const sorted = items.map(i => ({ i, v: attr(i) })).sort((a, b) => b.v - a.v);
-    const n = sorted.length;
-    const chosen: T[] = [];
-    let found: T[] | null = null;
+    // Meet-in-the-middle, in integer cents.
+    //
+    // Split the pool in half, enumerate every subset sum on each side, sort one
+    // side and binary-search it for the complement of each sum on the other.
+    // O(2^(N/2) · N) instead of the old depth-first O(2^N) — which is the whole
+    // reason SUBSET_SUM_MAX_ITEMS could move from 14 to 32.
+    //
+    // Cents, not reais: the sums are compared against a tolerance band, and
+    // accumulating 20+ floating-point parcelas drifts by more than the band is
+    // wide on the cheap end (MATCH_ABS_TOLERANCE is R$ 2 on small credits).
+    //
+    // Returns the combination CLOSEST to the target. The DFS returned the first
+    // one that fell inside the band, which on a large pool is an arbitrary pick
+    // among many — with several near-identical parcelas (the common shape: six
+    // 7.502,00 fees on one customer) "first found" and "best fit" are routinely
+    // different sets.
+    const usable = items
+      .map(i => ({ i, c: Math.round(attr(i) * 100) }))
+      .filter(x => x.c > 0);
+    if (usable.length < 2) return null;
 
-    const dfs = (idx: number, sum: number): void => {
-      if (found) return;
-      if (chosen.length >= 2 && Math.abs(sum - target) <= tol) {
-        found = [...chosen];
-        return;
+    const targetC = Math.round(target * 100);
+    const tolC = Math.round(tol * 100);
+    const ceilC = targetC + tolC;
+
+    /** Every subset sum of `part`, as [sumInCents, bitmask]. Prunes anything
+     *  already past the ceiling — a superset of an over-budget set can only be
+     *  further over, since every parcela is positive. */
+    const enumerate = (part: { i: T; c: number }[]): Array<[number, number]> => {
+      let acc: Array<[number, number]> = [[0, 0]];
+      for (let k = 0; k < part.length; k++) {
+        const v = part[k].c;
+        const grown: Array<[number, number]> = [];
+        for (const [sum, mask] of acc) {
+          const next = sum + v;
+          if (next <= ceilC) grown.push([next, mask | (1 << k)]);
+        }
+        acc = acc.concat(grown);
       }
-      if (idx >= n || sum > target + tol) return;
-      chosen.push(sorted[idx].i);
-      dfs(idx + 1, sum + sorted[idx].v);
-      chosen.pop();
-      if (!found) dfs(idx + 1, sum);
+      return acc;
     };
-    dfs(0, 0);
-    return found;
+
+    const mid = usable.length >> 1;
+    const left = usable.slice(0, mid);
+    const right = usable.slice(mid);
+    const leftSums = enumerate(left);
+    const rightSums = enumerate(right).sort((a, b) => a[0] - b[0]);
+
+    const popcount = (m: number): number => {
+      let n = 0;
+      while (m) {
+        m &= m - 1;
+        n++;
+      }
+      return n;
+    };
+
+    let best: { diff: number; lMask: number; rMask: number } | null = null;
+    for (const [lSum, lMask] of leftSums) {
+      // Window of right-hand sums that can land inside the band.
+      const lo = targetC - tolC - lSum;
+      const hi = ceilC - lSum;
+      if (hi < 0) continue;
+      // First index with rightSums[idx][0] >= lo.
+      let a = 0;
+      let b = rightSums.length;
+      while (a < b) {
+        const m = (a + b) >> 1;
+        if (rightSums[m][0] < lo) a = m + 1;
+        else b = m;
+      }
+      for (let idx = a; idx < rightSums.length && rightSums[idx][0] <= hi; idx++) {
+        const [rSum, rMask] = rightSums[idx];
+        // The caller's contract: a subset plan means TWO OR MORE parcelas.
+        // A single one is the `single` branch's job and carries far more
+        // evidence (one parcela whose face value IS the credit).
+        if (popcount(lMask) + popcount(rMask) < 2) continue;
+        const diff = Math.abs(lSum + rSum - targetC);
+        if (!best || diff < best.diff) best = { diff, lMask, rMask };
+        if (diff === 0) break;
+      }
+      if (best && best.diff === 0) break;
+    }
+    if (!best) return null;
+
+    const out: T[] = [];
+    for (let k = 0; k < left.length; k++) if (best.lMask & (1 << k)) out.push(left[k].i);
+    for (let k = 0; k < right.length; k++) if (best.rMask & (1 << k)) out.push(right[k].i);
+    return out.length >= 2 ? out : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1302,7 +1423,14 @@ export class ReceivableMatchService {
    */
   private async findScoredCandidates(
     tx: { postedAt: Date; amount: Prisma.Decimal | number; counterpartyName?: string | null; counterpartyCnpjCpf?: string | null },
-    opts: { exactValueOnly: boolean; windowDays?: number; includePaidLink?: boolean },
+    opts: {
+      exactValueOnly: boolean;
+      windowDays?: number;
+      includePaidLink?: boolean;
+      /** When the payer resolves to a customer, that customer's whole matchable
+       *  balance joins the pool regardless of the date window. */
+      identityCustomerId?: string;
+    },
   ): Promise<ScoredCandidate[]> {
     const abs = Math.abs(Number(tx.amount));
     const windowDays = opts.windowDays ?? RECEIVABLE_WINDOW_DAYS;
@@ -1345,6 +1473,45 @@ export class ReceivableMatchService {
     const lanes: Prisma.InstallmentWhereInput[] = [openLane];
     if (opts.includePaidLink && this.linkPaidEnabled) lanes.push(paidLinkLane);
 
+    // Lane 3 — identity. When we know WHO paid, that customer's whole matchable
+    // balance belongs in the pool, date window or not.
+    //
+    // The window lanes above ask "which parcelas look like this value, around
+    // this date" — a question that is blind to the payer. So a credit from a
+    // customer whose parcelas fall outside the window, or whose value matches
+    // none of them individually (a lump payment), listed OTHER customers'
+    // parcelas and not its own. Worse, the query takes the 50 EARLIEST dueDates
+    // and only scores afterwards, so the payer's parcelas could be cut before
+    // `scoreCandidate` ever got to award them the 25 CNPJ + 15 name points that
+    // would have ranked them first. Identity is the strongest signal we have;
+    // it must select rows, not merely re-order the ones a date filter allowed.
+    const identityLane: Prisma.InstallmentWhereInput | null = opts.identityCustomerId
+      ? {
+          OR: [
+            { invoice: { customerId: opts.identityCustomerId } },
+            { customerConfig: { customer: { id: opts.identityCustomerId } } },
+            { externalOperation: { customer: { id: opts.identityCustomerId } } },
+          ],
+          AND: [
+            {
+              OR: [
+                { status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
+                ...(this.linkPaidEnabled
+                  ? [
+                      {
+                        status: 'PAID' as const,
+                        paidAt: { gte: paidLower, lte: paidUpper },
+                        reconciliationMatches: { none: { reversedAt: null } },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
+        }
+      : null;
+    if (identityLane) lanes.push(identityLane);
+
     const installments = await this.prisma.installment.findMany({
       where: {
         AND: [
@@ -1381,7 +1548,11 @@ export class ReceivableMatchService {
         externalOperation: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
       },
       orderBy: { dueDate: 'asc' },
-      take: 50,
+      // The cap is a pre-score cut ordered by dueDate, so anything past it is
+      // dropped for a reason unrelated to how well it fits. With a resolved payer
+      // the pool is bounded by that customer's own balance, so it can be wide
+      // enough to hold all of it.
+      take: opts.identityCustomerId ? 300 : 50,
     });
 
     const txCnpj = onlyDigits(tx.counterpartyCnpjCpf);
@@ -1482,12 +1653,21 @@ export class ReceivableMatchService {
     if (!tx) throw new NotFoundException('Transação não encontrada.');
     if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
+    // Resolve the payer first, with the SAME resolver the automatic path uses, so
+    // the operator's list can never know less about who paid than the matcher did.
+    // Deliberately not gated on `resolved.auto`: a fuzzy name hit is too weak to
+    // settle money on its own, but it is more than good enough to decide which
+    // parcelas are worth showing — which is all this list does.
+    const identity = await this.buildCustomerIdentityIndex();
+    const payer = this.resolveCustomer(tx, identity);
+
     const candidates = await this.findScoredCandidates(tx, {
       exactValueOnly: false,
       windowDays: 60,
       // Manual pool must never be narrower than the auto pool: offer parcelas
       // already stamped PAID but never conciliated, as link-only.
       includePaidLink: true,
+      identityCustomerId: payer?.customerId,
     });
     const installmentCandidates = candidates.map(c => ({
       installmentId: c.id,

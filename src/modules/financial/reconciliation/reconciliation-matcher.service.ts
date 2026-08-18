@@ -847,11 +847,22 @@ export class ReconciliationMatcherService {
       await this.prisma.bankTransaction
         .update({ where: { id: tx.id }, data: { topMatchScore: null } })
         .catch(() => undefined);
-    } else {
+    } else if (tx.type !== 'CREDIT') {
       // Record the best candidate's confidence so the list can show how close
       // the closest NF is ("Pendente · 40%"). Only badge a genuinely promising
       // candidate (>= floor) — the detail panel may also list weak notes to try,
       // but those must not light up the extrato. Best-effort; never blocks matching.
+      //
+      // CREDITs are excluded on purpose. `topMatchScore` is ONE column shared by
+      // both sides of the extrato, but a credit's candidates are receivables, not
+      // notas — `getCandidatesForTransaction` returns [] for every CREDIT by
+      // design (see the type guard there). Stamping that empty result wrote null
+      // over the score `ReceivableMatchService` had computed, so every run of the
+      // NF matcher (the "Reconciliar" button, which does NOT run the entrada leg)
+      // erased the "Pendente · NN%" chip of every pending credit in scope. Four
+      // identical TEDs then showed four different badges, decided purely by which
+      // one had been opened most recently. The entrada scorer owns this column for
+      // credits; the NF matcher must not touch it.
       try {
         const candidates = await this.getCandidatesForTransaction(tx.id);
         const best = candidates.length ? candidates[0].confidence : null;

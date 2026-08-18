@@ -30,6 +30,7 @@ import { TransactionCategoryService } from './transaction-category.service';
 import { CategoryFusionService } from './learning/category-fusion.service';
 import { RecurrenceLearnerService } from './recurrence-learner.service';
 import { OutflowForecastService } from './outflow-forecast.service';
+import { ReceivableMatchService } from './receivable-match.service';
 import {
   listCategoriesQuerySchema,
   ListCategoriesQueryDto,
@@ -79,6 +80,7 @@ export class ReconciliationController {
     private readonly fusion: CategoryFusionService,
     private readonly recurrence: RecurrenceLearnerService,
     private readonly outflowForecast: OutflowForecastService,
+    private readonly receivableMatch: ReceivableMatchService,
   ) {}
 
   @Post('import')
@@ -211,21 +213,30 @@ export class ReconciliationController {
 
     let matched: number;
     let bridged = 0;
+    // ENTRADA: the credit leg of the same scope. The import path and the 04:00
+    // cron have always run both legs; this endpoint ran only the saída/NF one, so
+    // "Reconciliar" left every pending credit untouched — and, before the type
+    // guard in `matchTransaction`, actively wiped its "Pendente · NN%" chip. Both
+    // legs here means the button refreshes the entrada score instead of aging it.
+    let inflow = 0;
     if (body.dateStart && body.dateEnd) {
       const start = new Date(body.dateStart);
       const end = new Date(body.dateEnd);
       matched = await this.matcher.matchDateRange(start, end);
       bridged = await this.matcher.bridgeBoletoCredits({ start, end });
+      inflow = await this.receivableMatch.matchInflowDateRange(start, end);
     } else if (body.transactionIds && body.transactionIds.length > 0) {
       matched = await this.matcher.matchByIds(body.transactionIds);
       bridged = await this.matcher.bridgeBoletoCredits({ ids: body.transactionIds });
+      inflow = await this.receivableMatch.matchInflowByIds(body.transactionIds);
     } else {
       // Global re-run for all PENDING transactions expecting a fiscal document.
       matched = await this.matcher.matchAll();
       bridged = await this.matcher.bridgeBoletoCredits();
+      inflow = await this.receivableMatch.matchInflowAll();
     }
     // Boleto liquidations are bridged to their PAID slip alongside NF matching.
-    matched += bridged;
+    matched += bridged + inflow;
     // Single "Verificar" pipeline also (re)derives item categories over the same
     // scope, so one action classifies, matches AND categorizes.
     const categorized = await this.service.categorize({
