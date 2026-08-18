@@ -729,6 +729,68 @@ export class InvoiceController {
   }
 
   /**
+   * Parse a client-supplied payment date for an installment settlement.
+   *
+   * `paidAt` is not cosmetic. Three subsystems key off it: reconciliation pulls
+   * PAID parcelas whose paidAt falls within PAID_LINK_WINDOW_DAYS of a bank
+   * credit's postedAt and then ranks candidates by distance from it
+   * (receivable-match.service), invoice-analytics buckets cash-in / DSO /
+   * avg-days-to-payment by it, and the nightly stale-paid sweep ages
+   * paid-but-unreconciled items by it. Stamping `now` on a payment that landed
+   * yesterday pushes the parcela a day away from its own bank line and can slide
+   * it out of the match window entirely — which is exactly what this parameter
+   * exists to fix.
+   *
+   * Rejected: unparseable input, and any date in the future (a forward-dated
+   * settlement corrupts all three subsystems at once). NOT rejected: dates
+   * before dueDate — paying early is legitimate, so there is no floor to check.
+   */
+  private parsePaidAt(raw: unknown): Date | undefined {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    if (typeof raw !== 'string' && !(raw instanceof Date)) {
+      throw new BadRequestException('Data de pagamento inválida.');
+    }
+    const parsed = raw instanceof Date ? raw : new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Data de pagamento inválida.');
+    }
+    // Compare CALENDAR DAYS in BRT, not instants. paidAt is a date-granularity
+    // concept and the web picker stamps 13:00 local on a date-only selection, so
+    // an instant comparison against `now` would reject a payment marked today at
+    // any time before 13:00 — the most ordinary case there is. Only a genuinely
+    // later day is refused.
+    if (this.brDateKey(parsed) > this.brDateKey(new Date())) {
+      throw new BadRequestException('A data de pagamento não pode ser futura.');
+    }
+    return parsed;
+  }
+
+  /** Calendar day in BRT as a lexicographically sortable YYYY-MM-DD key. */
+  private brDateKey(date: Date): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+
+  /** Payment date as DD/MM/AAAA in BRT — for audit trail text. */
+  private formatPaidAtBR(date: Date): string {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  }
+
+  /** True when two instants fall on different calendar days in BRT. */
+  private isDifferentDayBR(a: Date, b: Date): boolean {
+    return this.brDateKey(a) !== this.brDateKey(b);
+  }
+
+  /**
    * PUT /invoices/:installmentId/boleto/mark-paid
    * Cancel the boleto and mark the installment as paid via PIX/cash/other.
    */
@@ -740,6 +802,8 @@ export class InvoiceController {
     @Body()
     body: {
       paymentMethod: string;
+      /** Date the money actually arrived. Defaults to now when omitted. */
+      paidAt?: string | Date | null;
       receiptFileIds?: string[];
       observations?: string | null;
     },
@@ -801,7 +865,12 @@ export class InvoiceController {
     // invoice recalc) in ONE $transaction so a crash mid-mark-paid can never leave the
     // installment PAID while the invoice/quote stays stale. The Sicredi HTTP cancel above
     // is intentionally OUTSIDE the transaction (network side-effect, best-effort).
-    const now = new Date();
+    // The date the money arrived is NOT the date someone got around to typing the
+    // baixa — a payment received yesterday and recorded today belongs to yesterday.
+    // The Sicredi webhook path has always recorded the bank's real payment date
+    // (`event.dataEvento`); this makes the manual path agree with it.
+    const paidAt = this.parsePaidAt(body.paidAt) ?? new Date();
+    const isBackdated = this.isDifferentDayBR(paidAt, new Date());
     await this.prisma.$transaction(async tx => {
       // Update bank slip to cancelled, store payment method in sicrediStatus for display
       if (installment.bankSlip && installment.bankSlip.status !== BANK_SLIP_STATUS.CANCELLED) {
@@ -820,7 +889,7 @@ export class InvoiceController {
         data: {
           status: INSTALLMENT_STATUS.PAID,
           paidAmount: installment.amount,
-          paidAt: now,
+          paidAt,
           paymentMethod,
           observations: body.observations ?? undefined,
           ...(body.receiptFileIds && body.receiptFileIds.length > 0
@@ -855,6 +924,8 @@ export class InvoiceController {
         newValue: INSTALLMENT_STATUS.PAID,
         reason:
           `Baixa manual (${paymentMethod}) de R$ ${Number(installment.amount).toFixed(2)}` +
+          ` recebida em ${this.formatPaidAtBR(paidAt)}` +
+          (isBackdated ? ' (data retroativa informada na baixa)' : '') +
           (installment.bankSlip ? ' com cancelamento do boleto' : '') +
           '. Sem conciliação bancária no momento da baixa.',
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
@@ -863,6 +934,8 @@ export class InvoiceController {
         transaction: tx,
         metadata: {
           paymentMethod,
+          paidAt: paidAt.toISOString(),
+          backdated: isBackdated,
           invoiceId: installment.invoiceId,
           bankSlipId: installment.bankSlip?.id ?? null,
           awaitingBankReconciliation: true,
@@ -907,27 +980,66 @@ export class InvoiceController {
 
   /**
    * PUT /invoices/:installmentId/receipts
-   * Replace the set of payment receipts and/or update the observations text on
-   * a paid installment. Accepts the full desired list of receipt file IDs.
+   * Edit the settlement record of an ALREADY-PAID installment: the receipt file
+   * set (full desired list), the observations text, and the payment info itself
+   * — `paymentMethod` (Forma) and `paidAt` (Pago em).
+   *
+   * The payment-info half exists because the baixa is typed by a human after the
+   * fact: the parcela gets stamped with whatever was known at that moment, and
+   * the correct date/method often surfaces later (the OFX arrives, the customer
+   * says which account they used). Without this, a wrong `paidAt` was permanent
+   * — and a wrong `paidAt` silently misfiles the parcela in reconciliation,
+   * analytics and the stale-paid sweep. See parsePaidAt.
+   *
+   * Money is deliberately NOT editable here: amount/paidAmount/status stay put,
+   * so nothing this endpoint writes can change what the invoice is owed. That
+   * also means no recalcInvoicePaymentState is needed — neither paidAt nor
+   * paymentMethod feeds it.
    */
   @Put(':installmentId/receipts')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async updateInstallmentReceipts(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
-    @Body() body: { receiptFileIds?: string[]; observations?: string | null },
+    @Body()
+    body: {
+      receiptFileIds?: string[];
+      observations?: string | null;
+      paymentMethod?: string | null;
+      paidAt?: string | Date | null;
+    },
+    @UserId() userId?: string,
   ) {
-    if (body.receiptFileIds === undefined && body.observations === undefined) {
+    if (
+      body.receiptFileIds === undefined &&
+      body.observations === undefined &&
+      body.paymentMethod === undefined &&
+      body.paidAt === undefined
+    ) {
       throw new BadRequestException(
-        'Informe receiptFileIds e/ou observations para atualizar.',
+        'Informe receiptFileIds, observations, paymentMethod e/ou paidAt para atualizar.',
       );
     }
     if (body.receiptFileIds !== undefined && !Array.isArray(body.receiptFileIds)) {
       throw new BadRequestException('receiptFileIds deve ser uma lista.');
     }
 
+    // Same enum guard as the mark-paid boundary, so an invalid string can never
+    // reach the (enum-typed) column through the edit path either.
+    let paymentMethod: INSTALLMENT_PAYMENT_METHOD | undefined;
+    if (body.paymentMethod !== undefined && body.paymentMethod !== null) {
+      paymentMethod = body.paymentMethod as INSTALLMENT_PAYMENT_METHOD;
+      if (!Object.values(INSTALLMENT_PAYMENT_METHOD).includes(paymentMethod)) {
+        throw new BadRequestException(
+          `Método de pagamento inválido: ${body.paymentMethod}.`,
+        );
+      }
+    }
+    const paidAt = this.parsePaidAt(body.paidAt);
+
     const installment = await this.prisma.installment.findUnique({
       where: { id: installmentId },
+      include: { bankSlip: true },
     });
 
     if (!installment) {
@@ -938,18 +1050,84 @@ export class InvoiceController {
       throw new BadRequestException('Apenas parcelas pagas podem receber comprovante.');
     }
 
-    await this.prisma.installment.update({
-      where: { id: installmentId },
-      data: {
-        ...(body.observations !== undefined ? { observations: body.observations } : {}),
-        ...(body.receiptFileIds !== undefined
-          ? {
-              receiptFiles: {
-                set: body.receiptFileIds.map(id => ({ id })),
-              },
-            }
-          : {}),
-      },
+    const methodChanged =
+      paymentMethod !== undefined && paymentMethod !== installment.paymentMethod;
+    const paidAtChanged =
+      paidAt !== undefined &&
+      paidAt.getTime() !== (installment.paidAt?.getTime() ?? NaN);
+
+    await this.prisma.$transaction(async tx => {
+      await tx.installment.update({
+        where: { id: installmentId },
+        data: {
+          ...(body.observations !== undefined ? { observations: body.observations } : {}),
+          ...(paymentMethod !== undefined ? { paymentMethod } : {}),
+          ...(paidAt !== undefined ? { paidAt } : {}),
+          ...(body.receiptFileIds !== undefined
+            ? {
+                receiptFiles: {
+                  set: body.receiptFileIds.map(id => ({ id })),
+                },
+              }
+            : {}),
+        },
+      });
+
+      // Keep the slip's display marker in step with the method. mark-paid writes
+      // `PAID_<method>` here, and billing-step-review still falls back to it when
+      // the installment has no paymentMethod of its own — leaving it stale would
+      // make the two disagree about how the parcela was paid.
+      if (
+        methodChanged &&
+        installment.bankSlip &&
+        installment.bankSlip.sicrediStatus?.startsWith('PAID_')
+      ) {
+        await tx.bankSlip.update({
+          where: { id: installment.bankSlip.id },
+          data: { sicrediStatus: `PAID_${paymentMethod}` },
+        });
+      }
+
+      // Audit each corrected field separately — the ChangeLog is field-level, and
+      // "who moved this payment to another date" has to stay answerable.
+      if (paidAtChanged) {
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.INSTALLMENT,
+          entityId: installmentId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'paidAt',
+          oldValue: installment.paidAt,
+          newValue: paidAt,
+          reason:
+            `Data de pagamento corrigida de ` +
+            `${installment.paidAt ? this.formatPaidAtBR(installment.paidAt) : 'não informada'}` +
+            ` para ${this.formatPaidAtBR(paidAt!)}.`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId ?? null,
+          userId: userId ?? null,
+          transaction: tx,
+          metadata: { invoiceId: installment.invoiceId },
+        });
+      }
+
+      if (methodChanged) {
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.INSTALLMENT,
+          entityId: installmentId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'paymentMethod',
+          oldValue: installment.paymentMethod,
+          newValue: paymentMethod,
+          reason:
+            `Forma de pagamento corrigida de ` +
+            `${installment.paymentMethod ?? 'não informada'} para ${paymentMethod}.`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId ?? null,
+          userId: userId ?? null,
+          transaction: tx,
+          metadata: { invoiceId: installment.invoiceId },
+        });
+      }
     });
 
     // Move any receipt files that landed in a generic folder to the correct customer path.
@@ -982,10 +1160,27 @@ export class InvoiceController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
   async updateInstallmentReceiptLegacy(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
-    @Body() body: { receiptFileId?: string; receiptFileIds?: string[]; observations?: string | null },
+    @Body()
+    body: {
+      receiptFileId?: string;
+      receiptFileIds?: string[];
+      observations?: string | null;
+      paymentMethod?: string | null;
+      paidAt?: string | Date | null;
+    },
+    @UserId() userId?: string,
   ) {
     const ids = body.receiptFileIds ?? (body.receiptFileId ? [body.receiptFileId] : undefined);
-    return this.updateInstallmentReceipts(installmentId, { receiptFileIds: ids, observations: body.observations });
+    return this.updateInstallmentReceipts(
+      installmentId,
+      {
+        receiptFileIds: ids,
+        observations: body.observations,
+        paymentMethod: body.paymentMethod,
+        paidAt: body.paidAt,
+      },
+      userId,
+    );
   }
 
   /**
