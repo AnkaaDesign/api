@@ -222,7 +222,12 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
   services: { orderBy: { position: 'asc' } },
   layoutFiles: { orderBy: { createdAt: 'asc' } },
   customerConfigs: {
-    orderBy: { createdAt: 'asc' },
+    // `id` como critério de desempate: as configurações de um orçamento são
+    // gravadas na MESMA transação e saem com `createdAt` idêntico ao
+    // milissegundo, e aí `createdAt` sozinho não ordena nada — a ordem dos
+    // clientes no documento variava entre execuções. A página pública ordena
+    // igual (ver `findPublic`).
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: {
       customer: true,
       // Nem o responsável entra no snapshot, pela mesma razão das parcelas: ele

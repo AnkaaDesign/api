@@ -307,6 +307,11 @@ export const securityConfig = {
       // reinventar um. É o que fazia o PDF do orçamento cair como
       // `orcamento-assinado-3f2a1b8c.pdf` no fallback do bloqueador de pop-up.
       'content-disposition',
+      // Sinal de que o `?cliente=` do orçamento não pôde ser aplicado (o
+      // documento está congelado na coleta de assinaturas). Sem EXPOR, a página
+      // pública — que roda em outra origem — não consegue ler o cabeçalho e
+      // entrega o documento completo em silêncio.
+      'x-orcamento-recorte',
     ],
     credentials: true,
     maxAge: 86400, // 24 hours

@@ -81,7 +81,17 @@ export interface QuoteHtmlInput {
   truckCategoryLabel: string | null;
   truckImplementLabel: string | null;
 
-  services: Array<{ description: string; amount: number; observation: string | null }>;
+  /**
+   * `invoiceToName` só é impresso na visão COMPLETA de um faturamento dividido
+   * (ver `segments`), onde a mesma folha lista serviços de mais de um pagador e
+   * sem a coluna não há como saber qual linha é de quem.
+   */
+  services: Array<{
+    description: string;
+    amount: number;
+    observation: string | null;
+    invoiceToName?: string | null;
+  }>;
   subtotal: number;
   total: number;
   /**
@@ -99,7 +109,34 @@ export interface QuoteHtmlInput {
   deliveryDays: number | null;
   simultaneousTasks: number | null;
   paymentText: string;
+  /** N° do pedido de compra do cliente, quando informado na configuração. */
+  orderNumber?: string | null;
   guaranteeText: string;
+
+  /**
+   * Faturamento DIVIDIDO visto por inteiro — uma entrada por cliente.
+   *
+   * Preenchido apenas na visão completa (sem recorte) de um orçamento com duas
+   * ou mais configurações; a partir de duas entradas o documento troca a
+   * apuração única por uma apuração POR CLIENTE: coluna "Faturar para" nos
+   * serviços, subtotal/desconto/total de cada pagador antes do total geral e uma
+   * condição de pagamento por pagador.
+   *
+   * Sem isso o PDF completo imprimia o desconto e a condição de pagamento da
+   * PRIMEIRA configuração como se valessem para o orçamento inteiro — o desconto
+   * de um cliente aplicado sobre o subtotal dos dois —, enquanto a página
+   * pública já separava os totais. Quem baixava o anexo lia números que não
+   * existem.
+   */
+  segments?: Array<{
+    customerName: string;
+    subtotal: number;
+    discountLabel: string | null;
+    discountAmount: number;
+    total: number;
+    paymentText: string;
+    orderNumber: string | null;
+  }> | null;
 
   /** data:image/... das imagens de layout já resolvidas em disco. */
   layoutImages: string[];
@@ -135,6 +172,11 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // (`web/src/utils/budget-pdf-generator.ts:530-551`) que faltavam aqui. Sem o
   // número, o cliente não tem como apontar "o item 4" ao contestar; e a
   // observação numa sub-linha cinza fazia o mesmo serviço parecer dois.
+  // Visão completa de um faturamento dividido: a folha mistura serviços de dois
+  // pagadores, então cada linha diz para quem vai e cada cliente tem sua própria
+  // apuração. Com um cliente só (ou no recorte) nada disso aparece.
+  const split = (data.segments?.length ?? 0) >= 2 ? data.segments! : null;
+
   const servicesHtml = data.services
     .map(
       (s, index) => `
@@ -142,10 +184,21 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
         <div class="service-desc"><span class="service-index">${index + 1}</span> - ${escapeHtml(
           serviceLineText(s),
         )}</div>
+        ${split ? `<div class="service-customer">${escapeHtml(s.invoiceToName || '—')}</div>` : ''}
         <div class="service-amount">${formatCurrencyBRL(s.amount)}</div>
       </div>`,
     )
     .join('');
+
+  // Cabeçalho da tabela: existe só quando há a coluna do meio. Com duas colunas
+  // (serviço e valor) ele não informa nada que a leitura já não dê.
+  const servicesHeaderHtml = split
+    ? `<div class="service-row service-head">
+         <div class="service-desc">Serviço</div>
+         <div class="service-customer">Faturar para</div>
+         <div class="service-amount">Valor</div>
+       </div>`
+    : '';
 
   const discountLabel = composeDiscountLabel({
     percent: data.discountPercent ?? null,
@@ -153,7 +206,49 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     legacy: data.discountLabel,
   });
 
-  const totalsHtml = `
+  // Apuração por cliente. Quem não tem desconto sai numa linha só (nome + total),
+  // como na página pública; quem tem abre subtotal, desconto e total — sem isso o
+  // abatimento de um cliente do faturamento dividido não aparecia em lugar nenhum
+  // do documento completo.
+  const segmentsTotalsHtml = split
+    ? split
+        .map(seg =>
+          seg.discountAmount > 0
+            ? `<div class="segment-block">
+                 <div class="segment-name">${escapeHtml(seg.customerName)}</div>
+                 <div class="total-row segment-row">
+                   <span class="total-label">Subtotal</span>
+                   <span class="total-value">${formatCurrencyBRL(seg.subtotal)}</span>
+                 </div>
+                 <div class="total-row segment-row total-row-discount">
+                   <span class="total-label">${escapeHtml(seg.discountLabel ?? 'Desconto')}</span>
+                   <span class="total-value">- ${formatCurrencyBRL(seg.discountAmount)}</span>
+                 </div>
+                 <div class="total-row segment-row segment-row-total">
+                   <span class="total-label">Total</span>
+                   <span class="total-value">${formatCurrencyBRL(seg.total)}</span>
+                 </div>
+               </div>`
+            : `<div class="segment-block">
+                 <div class="total-row segment-row-single">
+                   <span class="total-label">${escapeHtml(seg.customerName)}</span>
+                   <span class="total-value">${formatCurrencyBRL(seg.total)}</span>
+                 </div>
+               </div>`,
+        )
+        .join('')
+    : '';
+
+  const totalsHtml = split
+    ? `
+    <div class="totals">
+      ${segmentsTotalsHtml}
+      <div class="total-row total-row-final">
+        <span class="total-label">Total</span>
+        <span class="total-value">${formatCurrencyBRL(data.total)}</span>
+      </div>
+    </div>`
+    : `
     <div class="totals">
       ${
         data.discountAmount > 0
@@ -172,6 +267,46 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
         <span class="total-value">${formatCurrencyBRL(data.total)}</span>
       </div>
     </div>`;
+
+  // Condições de pagamento: uma por cliente no faturamento dividido — elas
+  // divergem justamente por isso (um paga à vista, o outro parcelado), e o
+  // documento completo imprimia só a do primeiro. O N° do pedido acompanha a
+  // condição do cliente que o informou.
+  const orderNumberHtml = (value: string | null | undefined): string =>
+    value ? `<p class="terms-note"><strong>N° do Pedido:</strong> ${escapeHtml(value)}</p>` : '';
+
+  const paymentSectionHtml = split
+    ? (() => {
+        const blocks = split
+          .filter(seg => seg.paymentText || seg.orderNumber)
+          .map(
+            seg => `<div class="payment-block">
+                      <div class="payment-customer">${escapeHtml(seg.customerName)}</div>
+                      ${seg.paymentText ? `<p class="terms-content">${escapeHtml(seg.paymentText)}</p>` : ''}
+                      ${orderNumberHtml(seg.orderNumber)}
+                    </div>`,
+          )
+          .join('');
+        return blocks
+          ? `<div class="page-content-gap"></div>
+             <section class="terms-section">
+               <h2 class="terms-title">Condições de pagamento</h2>
+               ${blocks}
+             </section>`
+          : '';
+      })()
+    : data.paymentText || data.orderNumber
+      ? `<div class="page-content-gap"></div>
+         <section class="terms-section">
+           ${
+             data.paymentText
+               ? `<h2 class="terms-title">Condições de pagamento</h2>
+                  <p class="terms-content">${escapeHtml(data.paymentText)}</p>`
+               : ''
+           }
+           ${orderNumberHtml(data.orderNumber)}
+         </section>`
+      : '';
 
   const vehicleParts: string[] = [];
   if (data.serialNumber)
@@ -430,9 +565,49 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      empilhadas liam como um erro de impressao. */
   .service-row:last-child { border-bottom: none; }
   .service-desc { flex: 1; }
+
+  /* --- Tabela de 3 colunas (faturamento dividido) ---------------------------
+     GRADE, não flexbox. Em flex a coluna do valor tem a largura do CONTEÚDO, e
+     no cabeçalho o conteúdo é a palavra "Valor" — mais estreita que
+     "R$ 12.950,00". Resultado: a coluna do meio do cabeçalho começava uns 13mm
+     à direita da dos itens, e o título "FATURAR PARA" não ficava sobre a sua
+     própria coluna. Com grid-template-columns as três faixas são as MESMAS no
+     cabeçalho e em toda linha, por construção.
+     As larguras também resolvem a legibilidade: a razão social longa
+     ("Industria de Carrocerias Metalicas Ibipora LTDA") quebrava em TRÊS linhas
+     e cada serviço virava um bloco. Quem quebra tem de ser o nome do cliente —
+     por isso a faixa dele é FIXA (48mm — a medida em que a maior razão social do
+     cadastro cabe em UMA linha) e num corpo bem menor, e a linha inteira
+     encolhe um ponto. Tudo derivado de --service-size, então o ajustador de
+     página continua mandando no conjunto.
+     Os 7mm de vão antes do valor são deliberados: o nome do pagador é cinza e o
+     valor é preto e negrito, e a 4mm os dois liam como uma coisa só. */
+  .services-list.split .service-row {
+    display: grid;
+    grid-template-columns: 1fr 48mm 26mm;
+    column-gap: 7mm;
+    align-items: start;
+    font-size: calc(var(--service-size) - 1pt);
+  }
+  .service-customer {
+    text-align: right; color: var(--gray);
+    font-size: calc(var(--service-size) - 2.5pt); line-height: 1.25;
+    overflow-wrap: break-word;
+  }
+  /* Seletor com a mesma força de .services-list.split .service-row, senão
+     aquela regra vence e o cabeçalho sai do tamanho do corpo. */
+  .services-list.split .service-head {
+    font-size: calc(var(--service-size) - 2.5pt); font-weight: 600;
+    color: var(--gray); text-transform: uppercase; letter-spacing: .3px;
+    border-bottom: .5px solid #ccc; padding-bottom: 1mm;
+  }
+  .service-head .service-customer { font-size: inherit; }
   /* tabular-nums para que 9 e 10 alinhem a coluna do texto num orcamento longo. */
   .service-index { font-variant-numeric: tabular-nums; }
-  .service-amount { font-weight: 600; white-space: nowrap; }
+  /* text-align, não só o justify-content do flex: na GRADE a caixa ocupa a
+     faixa inteira, e sem isto os valores (e o título "Valor") ficavam colados à
+     esquerda da faixa, em bandeira. */
+  .service-amount { font-weight: 600; white-space: nowrap; text-align: right; }
 
   /* Largura TOTAL, como .totals-section do gerador de referencia
      (web/src/utils/budget-pdf-generator.ts): o rotulo cai na margem esquerda e o
@@ -453,12 +628,26 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     font-size: 11.5pt; font-weight: 700; color: var(--green);
   }
 
+  /* Apuração por cliente (faturamento dividido, visão completa). Cada bloco é
+     indivisível: subtotal e desconto separados do total do MESMO cliente por uma
+     quebra de página seriam ilegíveis. */
+  .segment-block { break-inside: avoid; margin-bottom: 2mm; }
+  .segment-name { font-size: 9.5pt; font-weight: 600; margin-bottom: .5mm; }
+  .segment-row { padding-left: 4mm; font-size: 9pt; }
+  .segment-row-total { border-top: .5px solid #ccc; margin-top: .5mm; padding-top: 1mm; font-weight: 600; }
+  .segment-row-single { font-size: 9.5pt; }
+  .segment-row-single .total-label { font-weight: 600; }
+
   /* Titulo e corpo do bloco andam juntos: "Condicoes de pagamento" orfao no pe
      de uma folha, com o texto na seguinte, e um defeito de leitura num
      documento contratual. */
   .terms-section { break-inside: avoid; }
   .terms-title { font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm; }
   .terms-content { font-size: 9pt; line-height: 1.5; text-align: justify; }
+  .terms-note { font-size: 8.5pt; color: var(--gray); margin-top: .8mm; }
+  .payment-block { break-inside: avoid; }
+  .payment-block + .payment-block { margin-top: 2mm; }
+  .payment-customer { font-size: 9pt; font-weight: 600; }
 
   .acceptance-clause {
     margin-top: 6mm; font-size: 7pt; line-height: 1.45; color: var(--gray);
@@ -558,7 +747,7 @@ ${part === 'content' || part === 'fused' ? `
 
     <section class="services-section">
       <h2 class="section-title-green">Serviços</h2>
-      <div class="services-list">${servicesHtml}</div>
+      <div class="services-list${split ? ' split' : ''}">${servicesHeaderHtml}${servicesHtml}</div>
       ${totalsHtml}
     </section>
 
@@ -576,15 +765,7 @@ ${part === 'content' || part === 'fused' ? `
         : ''
     }
 
-    ${
-      data.paymentText
-        ? `<div class="page-content-gap"></div>
-           <section class="terms-section">
-             <h2 class="terms-title">Condições de pagamento</h2>
-             <p class="terms-content">${escapeHtml(data.paymentText)}</p>
-           </section>`
-        : ''
-    }
+    ${paymentSectionHtml}
 
     ${
       data.guaranteeText

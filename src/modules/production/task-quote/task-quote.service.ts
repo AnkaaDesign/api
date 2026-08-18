@@ -3197,6 +3197,12 @@ export class TaskQuoteService {
             },
           },
           customerConfigs: {
+            // Mesma ordem do documento (`QUOTE_SNAPSHOT_INCLUDE`): sem orderBy o
+            // Prisma não garante ordem nenhuma, e "cliente 1 / cliente 2" da
+            // página podia sair trocado em relação ao PDF que ela oferece. O
+            // desempate por `id` não é zelo: as configurações nascem na mesma
+            // transação e têm `createdAt` idêntico ao milissegundo.
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: {
               id: true,
               // The FK itself — the public budget/dossiê pages match the

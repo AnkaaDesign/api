@@ -97,9 +97,11 @@ import {
 import { sha256Hex } from '../utils/canonical';
 import { describeSignatureSecretProblems, inspectSignatureSecrets } from '../utils/secrets';
 import {
+  composeDiscountLabel,
   formatCurrencyBRL,
   generateGuaranteeText,
   generatePaymentText,
+  joinNamesPtBr,
 } from '../document/quote-text';
 
 export interface RequestContext {
@@ -621,14 +623,47 @@ export class SignatureEnvelopeService {
           quote.services.filter(s => s.invoiceToCustomerId === segment.customerId)
         : quote.services;
 
-    const total = Number(segment ? segment.total : quote.total);
-    const subtotal = Number(segment ? segment.subtotal : quote.subtotal);
+    // Faturamento dividido visto POR INTEIRO (sem recorte, duas ou mais
+    // configurações). Aqui o documento não tem uma apuração só: cada cliente tem
+    // o seu subtotal, o seu desconto, o seu total e a sua condição de pagamento —
+    // era exatamente isso que a página pública mostrava e o PDF não.
+    const splitConfigs = !segment && quote.customerConfigs.length >= 2 ? quote.customerConfigs : null;
+
+    const customerLabel = (c: { corporateName: string | null; fantasyName: string | null } | null) =>
+      c?.corporateName ?? c?.fantasyName ?? 'Cliente';
+
+    // Nome do pagador de cada serviço. Sai das próprias configurações: o serviço
+    // carrega só o `invoiceToCustomerId` neste grafo, e todo cliente faturado tem
+    // configuração (é o que a cria).
+    const customerNameById = new Map(
+      quote.customerConfigs.map(c => [c.customerId, customerLabel(c.customer)]),
+    );
+
+    const total = Number(
+      segment ? segment.total : splitConfigs
+        ? // A soma das configurações, não `quote.total` — a mesma regra da página
+          // pública, que já não confia no total do orçamento quando o
+          // faturamento é dividido.
+          splitConfigs.reduce((sum, c) => sum + Number(c.total), 0)
+        : quote.total,
+    );
+    const subtotal = Number(
+      segment ? segment.subtotal : splitConfigs
+        ? splitConfigs.reduce((sum, c) => sum + Number(c.subtotal), 0)
+        : quote.subtotal,
+    );
 
     const discountValue = config?.discountValue != null ? Number(config.discountValue) : null;
     const discountType = config?.discountType ?? 'NONE';
     let discountAmount = 0;
     let discountLabel: string | null = null;
-    if (discountType === 'PERCENTAGE' && discountValue) {
+    // No faturamento dividido o desconto NÃO é do orçamento, é de cada cliente
+    // (vai em `segments` abaixo). Aplicar aqui o desconto da primeira
+    // configuração sobre a soma dos dois subtotais era um abatimento que não
+    // existe em lugar nenhum.
+    if (splitConfigs) {
+      // nada a apurar no nível do orçamento
+    } else if (discountType === 'PERCENTAGE' && discountValue) {
       discountAmount = Math.round(subtotal * discountValue) / 100;
       discountLabel = `${discountValue}%`;
     } else if (discountType === 'FIXED_VALUE' && discountValue) {
@@ -636,14 +671,88 @@ export class SignatureEnvelopeService {
       discountLabel = config?.discountReference ?? null;
     }
 
+    /** Vencimento da 1ª parcela REAL de uma configuração, quando já emitida. */
+    const firstDueDateOf = (c: (typeof quote.customerConfigs)[number]) =>
+      c.installments?.find(i => i.number === 1)?.dueDate ?? c.installments?.[0]?.dueDate ?? null;
+
+    const segments = splitConfigs
+      ? splitConfigs.map(c => {
+          const cSubtotal = Number(c.subtotal);
+          const cTotal = Number(c.total);
+          // O abatimento vem da DIFERENÇA gravada, não recalculado do percentual:
+          // é o que a página pública mostra e é o único número que fecha com o
+          // total da configuração. O percentual entra só no rótulo.
+          const cDiscount = Math.max(0, Math.round((cSubtotal - cTotal) * 100) / 100);
+          return {
+            customerName: customerLabel(c.customer),
+            subtotal: cSubtotal,
+            total: cTotal,
+            discountAmount: cDiscount,
+            discountLabel: cDiscount
+              ? composeDiscountLabel({
+                  percent:
+                    c.discountType === 'PERCENTAGE' && c.discountValue != null
+                      ? Number(c.discountValue)
+                      : null,
+                  reference: c.discountReference ?? null,
+                  legacy: null,
+                })
+              : null,
+            paymentText: generatePaymentText({
+              customPaymentText: c.customPaymentText ?? null,
+              paymentConfig: (c.paymentConfig as any) ?? null,
+              paymentCondition: c.paymentCondition ?? null,
+              total: cTotal,
+              firstDueDate: firstDueDateOf(c),
+            }),
+            orderNumber: c.orderNumber ?? null,
+          };
+        })
+      : null;
+
     const layoutImages = quote.layoutFiles
       .map(f => this.renderer.resolveLayoutImageDataUri(f))
       .filter((v): v is string => Boolean(v));
 
-    // Quem o documento identifica como cliente: no recorte é o cliente da
-    // configuração, e não o da tarefa — são diferentes justamente no faturamento
-    // dividido, que é o único caso em que isto roda.
-    const customer = segment?.customer ?? quote.task?.customer ?? null;
+    // Quem o documento identifica na frase de abertura é o cliente da TAREFA —
+    // aquele para quem o serviço é executado, dono do veículo descrito logo em
+    // seguida. Antes, no recorte, entrava o cliente da configuração: a proposta
+    // saía "para a <financiadora>" num serviço que não é dela. Quem paga cada
+    // fatia continua identificado onde importa: na coluna "Faturar para", na
+    // apuração por cliente, na condição de pagamento e na linha de assinatura.
+    const customer = quote.task?.customer ?? segment?.customer ?? null;
+
+    /**
+     * "À <fulano>" — TODOS os contatos a quem o documento é endereçado.
+     *
+     * Duas fontes, unidas e deduplicadas por id: o contato de cada configuração
+     * de faturamento (é o "responsável do cliente 1 e do cliente 2") e os
+     * responsáveis da TAREFA — que são, aliás, quem de fato assina o envelope
+     * (ver `signerSeeds`). Imprimir `responsibles[0]` deixava de fora o segundo
+     * responsável de toda tarefa que tem dois, e não é raro: são pessoas
+     * diferentes assinando o mesmo orçamento.
+     *
+     * No RECORTE continua valendo a regra estrita — só o contato daquela
+     * configuração —, porque ali o documento é de um pagador só e listar o
+     * contato do outro endereça o orçamento de um à pessoa do outro.
+     */
+    const contactNames: string[] = [];
+    const seenContactIds = new Set<string>();
+    const pushContact = (r: { id: string; name: string } | null | undefined) => {
+      if (!r?.name || seenContactIds.has(r.id)) return;
+      seenContactIds.add(r.id);
+      contactNames.push(r.name);
+    };
+    if (segment) {
+      pushContact(segment.responsible);
+      // Configuração sem contato próprio cai nos responsáveis da tarefa, como
+      // sempre — senão o recorte sai sem destinatário nenhum.
+      if (!contactNames.length) (quote.task?.responsibles ?? []).forEach(pushContact);
+    } else {
+      for (const c of quote.customerConfigs) pushContact(c.responsible);
+      (quote.task?.responsibles ?? []).forEach(pushContact);
+    }
+    const contactName = contactNames.length ? joinNamesPtBr(contactNames) : null;
 
     return this.renderer.render({
       budgetNumber: quote.budgetNumber,
@@ -653,10 +762,7 @@ export class SignatureEnvelopeService {
       customerDocumentFormatted: customer?.cnpj
         ? formatCnpj(customer.cnpj)
         : (customer?.cpf ?? null),
-      // No recorte, o "À <fulano>" é o contato DAQUELA configuração. Só cai no
-      // responsável da tarefa quando a configuração não tem um — e é justamente
-      // esse recuo que endereçava o orçamento da Ibiporã ao contato da RKO.
-      contactName: segment?.responsible?.name ?? quote.task?.responsibles?.[0]?.name ?? null,
+      contactName,
       serialNumber: quote.task?.serialNumber ?? null,
       plate: quote.task?.truck?.plate ?? null,
       chassisNumber: quote.task?.truck?.chassisNumber ?? null,
@@ -666,7 +772,13 @@ export class SignatureEnvelopeService {
         description: s.description,
         amount: Number(s.amount),
         observation: s.observation ?? null,
+        // Só é impresso na visão completa do faturamento dividido (ver
+        // `segments`); nas demais o builder ignora.
+        invoiceToName: s.invoiceToCustomerId
+          ? (customerNameById.get(s.invoiceToCustomerId) ?? null)
+          : null,
       })),
+      segments,
       subtotal,
       total,
       discountLabel,
@@ -686,11 +798,11 @@ export class SignatureEnvelopeService {
         // Quando o faturamento já emitiu as parcelas, a cláusula cita o
         // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
         // Antes da assinatura não há parcela e cai no `specificDate`.
-        firstDueDate:
-          config?.installments?.find(i => i.number === 1)?.dueDate ??
-          config?.installments?.[0]?.dueDate ??
-          null,
+        firstDueDate: config ? firstDueDateOf(config) : null,
       }),
+      // N° do pedido de compra do cliente: a página pública sempre o mostrou e o
+      // documento não. Na visão dividida ele acompanha cada cliente, em `segments`.
+      orderNumber: splitConfigs ? null : (config?.orderNumber ?? null),
       guaranteeText: generateGuaranteeText({
         customGuaranteeText: quote.customGuaranteeText ?? null,
         guaranteeYears: quote.guaranteeYears ?? null,
@@ -2811,10 +2923,57 @@ export class SignatureEnvelopeService {
    * decisão já tomada no dossiê. Um 404 aqui deixava sem download justamente os
    * orçamentos antigos, que nunca passaram pela assinatura eletrônica e são a
    * maioria; nenhum deles vai ganhar envelope retroativamente.
+   *
+   * @param customerId  Recorta o documento para um cliente do faturamento
+   *   dividido: os serviços dele, o subtotal/desconto/total da configuração
+   *   dele, a condição de pagamento dele e o contato dele. É o MESMO recorte que
+   *   a página `/cliente/:customerId/orcamento/:id` já fazia na TELA — e que o
+   *   download ignorava, entregando a quem pediu a fatia de um cliente um PDF
+   *   com os serviços e o total dos dois. Mesmo defeito, e mesma correção, do
+   *   `?cliente=` do dossiê.
+   *
+   *   Só alcança o caminho SOB DEMANDA. Havendo envelope, o que sai são os bytes
+   *   CONGELADOS daquele documento (selados, quando a coleta concluiu): não há
+   *   como recortar um PDF assinado, e re-renderizá-lo recortado entregaria uma
+   *   reconstrução no lugar do que está sendo assinado. Aí `segmentApplied`
+   *   volta `false`, para quem chama poder dizer isso a quem baixou — cair no
+   *   documento completo EM SILÊNCIO é justamente o defeito que o recorte
+   *   corrige.
    */
   async renderPublicQuoteDocument(
     quoteId: string,
-  ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
+    customerId?: string | null,
+  ): Promise<{ pdf: Buffer; etag: string; filename: string; segmentApplied: boolean }> {
+    const segmentId = customerId?.trim() || null;
+
+    // Cabeçalho do orçamento numa consulta só: serve para conferir o cliente do
+    // recorte e para nomear o arquivo nos dois caminhos. Uma busca indexada
+    // diante de uma renderização de PDF de ~65ms não pesa.
+    const quote = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: {
+        budgetNumber: true,
+        task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+        customerConfigs: {
+          select: {
+            customerId: true,
+            customer: { select: { corporateName: true, fantasyName: true } },
+          },
+        },
+      },
+    });
+    if (!quote) throw new NotFoundException('Orçamento não encontrado.');
+
+    // Cliente que não está no faturamento é RECUSADO, não ignorado — a mesma
+    // regra do dossiê. Servir o documento completo a quem pediu a fatia de um
+    // cliente, sem sinal nenhum de que o filtro não valeu, é o defeito.
+    const segmentConfig = segmentId
+      ? (quote.customerConfigs.find(c => c.customerId === segmentId) ?? null)
+      : null;
+    if (segmentId && !segmentConfig) {
+      throw new BadRequestException('Este cliente não faz parte do faturamento deste orçamento.');
+    }
+
     // Prefere a coleta CONCLUÍDA: uma reemissão invalidada não pode fazer o
     // artefato assinado sumir da vista do cliente. E, para coletas em
     // andamento, o prazo é respeitado — o `GET /task-quotes/public/:id`
@@ -2830,7 +2989,12 @@ export class SignatureEnvelopeService {
       orderBy: { version: 'desc' },
       select: { id: true },
     });
-    if (completed) return this.renderServedDocument(completed.id);
+    // Documento selado: sai inteiro, e com o nome de sempre. Nomeá-lo pelo
+    // cliente do recorte daria dois nomes ao MESMO arquivo — os bytes são
+    // idênticos nos dois pedidos —, sugerindo um recorte que não houve.
+    if (completed) {
+      return { ...(await this.renderServedDocument(completed.id)), segmentApplied: false };
+    }
 
     // Sem filtro de estado aqui. A página que consome isto já exibe o estado da
     // coleta (aguardando / invalidada / expirada), e recusar o documento só
@@ -2843,30 +3007,32 @@ export class SignatureEnvelopeService {
     });
     if (!env) {
       // Orçamento que nunca foi para assinatura: entrega o documento impresso,
-      // com as linhas de assinatura em branco. `renderUnsignedQuoteDocument` já
-      // devolve 404 quando o orçamento em si não existe.
-      const pdf = await this.renderUnsignedQuoteDocument(quoteId);
+      // com as linhas de assinatura em branco. Aqui o recorte por cliente vale —
+      // o documento é montado agora, a partir dos dados.
+      const pdf = await this.renderUnsignedQuoteDocument(quoteId, segmentId);
       // O nome do arquivo é o MESMO do orçamento assinado — quem baixa não
       // deveria conseguir distinguir pela pasta de Downloads se o documento
       // passou ou não pela assinatura eletrônica; isso é conteúdo do PDF, não do
-      // nome. Consulta própria porque `renderUnsignedQuoteDocument` devolve só
-      // os bytes e é compartilhada com o dossiê.
-      const quote = await this.prisma.taskQuote.findUnique({
-        where: { id: quoteId },
-        select: {
-          budgetNumber: true,
-          task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
-        },
-      });
+      // nome. No RECORTE quem nomeia é o cliente da fatia: os dois documentos de
+      // um faturamento de dois clientes têm conteúdo diferente e chegavam com o
+      // mesmo nome, e o segundo download sobrescrevia o primeiro.
       // ETag sobre os bytes servidos: a renderização é feita a partir dos dados
-      // ATUAIS, então não há hash congelado de onde derivar.
+      // ATUAIS, então não há hash congelado de onde derivar (e como os bytes
+      // mudam com o recorte, o ETag muda junto).
       return {
         pdf,
         etag: `"${sha256Hex(pdf).slice(0, 32)}"`,
-        filename: budgetPdfFilename(quote?.task?.customer, quote?.budgetNumber),
+        filename: budgetPdfFilename(
+          segmentConfig?.customer ?? quote.task?.customer,
+          quote.budgetNumber,
+        ),
+        segmentApplied: Boolean(segmentId),
       };
     }
-    return this.renderServedDocument(env.id);
+    // Coleta em andamento (ou anulada): sai o documento CONGELADO na emissão,
+    // com o estado das assinaturas carimbado. Não é recortável pela mesma razão
+    // que o selado não é — foi ele que foi ao cliente para assinar.
+    return { ...(await this.renderServedDocument(env.id)), segmentApplied: false };
   }
 
   /**
@@ -2941,9 +3107,12 @@ export class SignatureEnvelopeService {
     // Código vazio: sem envelope não há o que verificar, e imprimir um código
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
     const rendered = await this.renderQuoteDocument(quote, seeds, '', customerId);
-    // A faixa de rodapé com número do orçamento e paginação — a parte da faixa
-    // do documento assinado que existe sem coleta. Ver `stampPlainFooter`.
-    return this.assembler.stampPlainFooter(rendered.pdf, quote.budgetNumber);
+    // SEM faixa de rodapé: o orçamento sob demanda sai como a folha impressa,
+    // e a linha "Orcamento no N · pag. i/n" ao pé de cada página era ruído num
+    // documento que já se identifica no cabeçalho. A faixa do artefato ASSINADO
+    // é outra coisa e continua (envelope, hash e verificação — ver `stampSeals`),
+    // porque ali ela é prova, não numeração.
+    return rendered.pdf;
   }
 
   /**

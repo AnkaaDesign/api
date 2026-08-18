@@ -286,6 +286,18 @@ export function serviceLineText(service: QuoteServiceLine): string {
   return observation ? `${description} ${observation}` : description;
 }
 
+/**
+ * `A`, `A e B`, `A, B e C` — a enumeração como se escreve numa carta.
+ *
+ * Existe para o "À <fulano>" de um faturamento dividido, que é endereçado ao
+ * contato de cada pagador.
+ */
+export function joinNamesPtBr(names: string[]): string {
+  const list = names.map(n => n.trim()).filter(Boolean);
+  if (list.length <= 1) return list[0] ?? '';
+  return `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`;
+}
+
 // ===========================================================================
 // DESCONTO
 // ===========================================================================

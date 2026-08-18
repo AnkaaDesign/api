@@ -410,17 +410,39 @@ export class PublicSignatureController {
     res.send(result.pdf);
   }
 
+  /**
+   * `?cliente=<uuid>` recorta o orçamento para um dos clientes do faturamento
+   * dividido — os serviços dele, o total dele, a condição de pagamento dele —,
+   * o mesmo recorte que a página `/cliente/:customerId/orcamento/:id` faz na
+   * tela. Sem ele, escolher um cliente filtrava a tela e o PDF continuava
+   * saindo com os serviços e o total dos dois.
+   *
+   * SEM `ParseUUIDPipe`, pela mesma razão do dossiê: o id é conferido contra as
+   * configurações do próprio orçamento (que é a validação que importa), e o
+   * pipe transformaria a query vazia (`?cliente=`) em 400 num pedido que
+   * significa "documento completo".
+   */
   @Get('publico/orcamento/:quoteId/documento.pdf')
   @Public()
   // Cada requisição re-estampa o PDF em processo (~65ms / 730KB). Sem limite,
   // é um vetor de exaustão de CPU trivial.
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
-  async quoteDocument(@Param('quoteId', ParseUUIDPipe) quoteId: string, @Res() res: Response) {
-    const { pdf, etag, filename } = await this.envelopes.renderPublicQuoteDocument(quoteId);
+  async quoteDocument(
+    @Param('quoteId', ParseUUIDPipe) quoteId: string,
+    @Query('cliente') cliente: string | undefined,
+    @Res() res: Response,
+  ) {
+    const { pdf, etag, filename, segmentApplied } =
+      await this.envelopes.renderPublicQuoteDocument(quoteId, cliente);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
     res.setHeader('Content-Disposition', contentDisposition('inline', filename));
     res.setHeader('Cache-Control', 'no-store');
+    // Recorte pedido que saiu COMPLETO: o documento está congelado na coleta de
+    // assinaturas e não pode ser recortado. Vai no cabeçalho para a página
+    // avisar quem baixou, em vez de deixá-lo descobrir abrindo o PDF — é o
+    // mesmo raciocínio do `X-Dossie-Incompleto`.
+    if (cliente?.trim() && !segmentApplied) res.setHeader('X-Orcamento-Recorte', 'ignorado');
     res.send(pdf);
   }
 
