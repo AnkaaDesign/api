@@ -233,6 +233,12 @@ export interface TransactionSettlement {
    *  fan-out (one debit written in full into each of N occurrence matches) that
    *  no per-anchor check would see. */
   overAllocated: boolean;
+  /** A human declared this line resolved: the category explains it and there is
+   *  no obligation or document to attach. Only reachable from UNTIED/UNBACKED,
+   *  and it is what turns those yellows green — see `BankTransaction.settlementAckAt`. */
+  acknowledged: boolean;
+  /** The reason typed when it was marked resolved, for the tooltip. */
+  acknowledgedNote: string | null;
 }
 
 /** Tolerance for "these two amounts are the same money" (mirrors order-clearance). */
@@ -318,6 +324,9 @@ interface TransactionLike {
   id: string;
   amount: Prisma.Decimal | number;
   reconciliationStatus: string;
+  /** Set when a human marked the line resolved (see the field's doc in schema.prisma). */
+  settlementAckAt?: Date | null;
+  settlementAckNote?: string | null;
   matches?: MatchLike[] | null;
   categories?:
     | {
@@ -366,6 +375,11 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   // Does that category track real, recurring obligations? "Energia Elétrica" and
   // "Água" do; "Tarifa Bancária" and "Tributo" do not.
   const categoryHasObligations = (resolvingCategory?._count?.recurrentPayables ?? 0) > 0;
+  // "Marcar como resolvido": a declaração humana de que não há obrigação nem
+  // documento por trás desta linha. Só muda os dois amarelos que existem por
+  // FALTA DE ÂNCORA (UNTIED e UNBACKED) — nunca AWAITING_NF, cuja pergunta é
+  // sobre a nota e se responde na conta/pedido, nem DISPUTED, que é sobre valor.
+  const acknowledged = tx.settlementAckAt != null;
 
   // Allocation is summed PER ANCHOR KIND, never across kinds.
   //
@@ -408,6 +422,8 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     resolvedByCategory,
     allocated,
     overAllocated,
+    acknowledged,
+    acknowledgedNote: acknowledged ? tx.settlementAckNote ?? null : null,
   };
 
   if (tx.reconciliationStatus === 'IGNORED') return { ...empty, state: 'IGNORED' };
@@ -637,7 +653,11 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   // Folha, Tributo) is a legitimate, self-justifying close and must read GREEN —
   // it was rendering grey, which looks like unfinished work. Anything else is a
   // genuine orphan and needs a human.
-  if (!resolvedByCategory) return { ...empty, state: 'UNBACKED' };
+  if (!resolvedByCategory) {
+    return acknowledged
+      ? { ...empty, state: 'SETTLED', anchor: 'NONE', label: 'Resolvido manualmente' }
+      : { ...empty, state: 'UNBACKED' };
+  }
   return {
     ...empty,
     // A category only CLOSES a payment when nothing else is tracking it. When
@@ -645,7 +665,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // obligation exists somewhere and this bank line was never attached to it —
     // e.g. three COPEL meters against two "Energia Elétrica" contas, so one bill
     // a month falls through and reads as finished while nothing accounts for it.
-    state: categoryHasObligations ? 'UNTIED' : 'SETTLED',
+    state: categoryHasObligations && !acknowledged ? 'UNTIED' : 'SETTLED',
     anchor: 'CATEGORY',
     label: resolvedByCategory,
     expectsNf: false,
@@ -753,6 +773,9 @@ export function settlementStateWhere(
   };
   const unbacked: Prisma.BankTransactionWhereInput = {
     reconciliationStatus: 'RECONCILED',
+    // Marcada como resolvida à mão sai dos dois baldes amarelos — e cai no
+    // SETTLED, que é definido como "tudo que é terminal e não é amarelo".
+    settlementAckAt: null,
     matches: { none: { reversedAt: null } },
     categories: { none: { category: { isResolving: true } } },
   };
@@ -760,6 +783,7 @@ export function settlementStateWhere(
   // tied — the obligation exists, this payment just isn't attached to it.
   const untied: Prisma.BankTransactionWhereInput = {
     reconciliationStatus: 'RECONCILED',
+    settlementAckAt: null,
     matches: { none: { reversedAt: null } },
     categories: {
       some: {

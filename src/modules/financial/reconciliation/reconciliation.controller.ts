@@ -62,6 +62,10 @@ import {
 } from './dto/off-bank-resolution.dto';
 import { ignoreTransactionSchema, IgnoreTransactionDto } from './dto/ignore-transaction.dto';
 import { rerunMatchingSchema, RerunMatchingDto } from './dto/rerun-matching.dto';
+import {
+  acknowledgeSettlementSchema,
+  AcknowledgeSettlementDto,
+} from './dto/acknowledge-settlement.dto';
 import { changeCategorySchema, ChangeCategoryDto } from './dto/change-category.dto';
 import { changeItemCategorySchema, ChangeItemCategoryDto } from './dto/change-item-category.dto';
 import { classifyBatchSchema, ClassifyBatchDto } from './dto/classify-batch.dto';
@@ -182,6 +186,22 @@ export class ReconciliationController {
   @Post('transactions/:id/unmatch')
   unmatch(@Param('id') id: string, @Req() req: Request & { user?: { id?: string } }) {
     return this.service.unmatch(id, req.user?.id);
+  }
+
+  /**
+   * Declarar que esta linha está resolvida sem vínculo nenhum — o pagamento é
+   * real, a categoria o explica, e não existe conta recorrente nem nota fiscal
+   * para amarrar. Só aceita as linhas que estão justamente nesse estado
+   * ("Sem vínculo" / "Sem lastro"); `acknowledged: false` desfaz.
+   */
+  @Post('transactions/:id/acknowledge')
+  @UsePipes(new ZodValidationPipe(acknowledgeSettlementSchema))
+  acknowledgeSettlement(
+    @Param('id') id: string,
+    @Body() payload: AcknowledgeSettlementDto,
+    @Req() req: Request & { user?: { id?: string } },
+  ) {
+    return this.service.acknowledgeSettlement(id, payload, req.user?.id);
   }
 
   @Post('transactions/:id/ignore')

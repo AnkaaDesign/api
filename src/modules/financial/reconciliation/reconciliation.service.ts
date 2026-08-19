@@ -15,6 +15,7 @@ import { FiscalDocumentsFilterDto } from './dto/fiscal-documents-filter.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
 import { OffBankResolutionDto } from './dto/off-bank-resolution.dto';
 import { IgnoreTransactionDto } from './dto/ignore-transaction.dto';
+import { AcknowledgeSettlementDto } from './dto/acknowledge-settlement.dto';
 import { ChangeCategoryDto } from './dto/change-category.dto';
 import { ChangeItemCategoryDto } from './dto/change-item-category.dto';
 import { ClassifyBatchDto } from './dto/classify-batch.dto';
@@ -1107,6 +1108,102 @@ export class ReconciliationService {
     }
 
     return this.getFiscalDocument(fiscalDocumentId);
+  }
+
+  /**
+   * "Marcar como resolvido": o operador declara que esta linha não tem obrigação
+   * nem documento a vincular.
+   *
+   * Só as duas amarelas que existem por FALTA DE ÂNCORA aceitam a declaração —
+   * "Sem vínculo" (a categoria fecha, mas ela carrega contas recorrentes ativas)
+   * e "Sem lastro" (nem categoria resolvedora existe). As outras têm resposta
+   * própria e não podem ser pintadas de verde por aqui: "Aguardando nota" se
+   * resolve na conta/pedido (é a nota que falta, e o `expectsNf` da conta é que
+   * manda), "Pendente" ainda não foi conciliada, e "Em disputa" é divergência de
+   * VALOR — nenhuma delas some porque alguém afirmou que sumiu.
+   */
+  async acknowledgeSettlement(
+    transactionId: string,
+    payload: AcknowledgeSettlementDto,
+    userId?: string,
+  ) {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      include: {
+        ...CATEGORY_INCLUDE,
+        matches: {
+          where: { reversedAt: null },
+          // As âncoras ANINHADAS são obrigatórias aqui, não decoração: sem elas
+          // `deriveSettlement` não enxerga o pedido/ocorrência que sustenta a
+          // linha, cai no ramo da categoria e devolve "Sem vínculo" para uma
+          // linha que na verdade está "Aguardando nota" — que é exatamente o
+          // estado que esta rota tem de RECUSAR.
+          include: {
+            fiscalDocument: { select: { id: true } },
+            bankSlip: { select: { id: true, nossoNumero: true } },
+            ...SETTLEMENT_ANCHOR_INCLUDE,
+          },
+        },
+      },
+    });
+    if (!tx) throw new NotFoundException('Transação não encontrada');
+
+    const settlement = deriveSettlement(tx);
+    if (payload.acknowledged) {
+      if (settlement.acknowledged) {
+        throw new BadRequestException('Esta transação já está marcada como resolvida.');
+      }
+      if (settlement.state !== 'UNTIED' && settlement.state !== 'UNBACKED') {
+        throw new BadRequestException(
+          settlement.state === 'AWAITING_NF'
+            ? 'Esta linha está aguardando nota fiscal — desligue "espera nota" na conta recorrente ou vincule a nota.'
+            : settlement.state === 'OPEN'
+              ? 'Esta transação ainda não foi conciliada — classifique-a numa categoria antes.'
+              : 'Só uma transação sem vínculo (ou sem lastro) pode ser marcada como resolvida.',
+        );
+      }
+    } else if (!settlement.acknowledged) {
+      throw new BadRequestException('Esta transação não está marcada como resolvida.');
+    }
+
+    const now = new Date();
+    const note = payload.note?.trim() || null;
+    const updated = await this.prisma.bankTransaction.update({
+      where: { id: transactionId },
+      data: payload.acknowledged
+        ? { settlementAckAt: now, settlementAckById: userId ?? null, settlementAckNote: note }
+        : { settlementAckAt: null, settlementAckById: null, settlementAckNote: null },
+    });
+
+    try {
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.BANK_TRANSACTION,
+        entityId: transactionId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'settlementAckAt',
+        oldValue: tx.settlementAckAt,
+        newValue: payload.acknowledged ? now : null,
+        reason: payload.acknowledged
+          ? `Marcada como resolvida manualmente${note ? `: ${note}` : '.'} ` +
+            `Sem conta recorrente nem nota fiscal a vincular` +
+            `${settlement.resolvedByCategory ? ` — explicada pela categoria "${settlement.resolvedByCategory}".` : '.'}`
+          : 'Marcação manual removida — a linha volta a aparecer como pendente de vínculo.',
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: userId ?? null,
+        userId: userId ?? null,
+        metadata: { previousState: settlement.state },
+      });
+    } catch (err) {
+      this.logger.warn(`ChangeLog write failed for transaction ${transactionId}: ${err}`);
+    }
+
+    return {
+      success: true,
+      message: payload.acknowledged
+        ? 'Transação marcada como resolvida.'
+        : 'Marcação removida.',
+      data: { ...updated, settlement: deriveSettlement({ ...tx, ...updated }) },
+    };
   }
 
   async ignore(transactionId: string, payload: IgnoreTransactionDto, userId?: string) {

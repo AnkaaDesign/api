@@ -4976,6 +4976,22 @@ model BankTransaction {
   categorySource        ReconciliationSource?
   classifiedAt          DateTime?
   ignoredReason         String?
+  // --- "Marcar como resolvido": a linha fechada pela categoria que NÃO tem
+  // obrigação nem documento a vincular, e nunca vai ter.
+  //
+  // "Sem vínculo" existe porque uma categoria com contas recorrentes ativas não
+  // deveria fechar um pagamento sozinha — a obrigação existe em algum lugar e
+  // este débito não foi amarrado a ela. Só que às vezes ela não existe mesmo: um
+  // pagamento avulso à Vivo dentro de "Internet / Telefone", que tem PRTurbo e
+  // Claro cadastradas. Sem esta marcação a única saída era cadastrar uma conta
+  // que existe só para receber o débito, ou "Ignorar" — que é cinza e quer dizer
+  // outra coisa (fora do escopo da conciliação).
+  //
+  // É uma AFIRMAÇÃO de gente, como `Installment.externalClearedAt` do lado do
+  // recebimento: nada a verifica, então grava quem, quando e por quê.
+  settlementAckAt       DateTime?
+  settlementAckById     String?
+  settlementAckNote     String?
   // Best candidate confidence (0-100) computed by the matcher when an auto-match
   // did NOT succeed — lets the list show "Pendente · 40%" for quick triage.
   topMatchScore         Int?
