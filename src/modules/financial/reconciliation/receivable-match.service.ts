@@ -63,6 +63,25 @@ const MATCH_PCT_TOLERANCE = 0.005;
  *  credit (or vice-versa). */
 const PAID_LINK_WINDOW_DAYS = 45;
 
+/** Formas de pagamento que NUNCA produzem uma linha no extrato da empresa: o
+ *  cliente pagou direto na conta pessoal de um sócio. A parcela está quitada e
+ *  jamais terá crédito bancário correspondente, então oferecê-la como candidata
+ *  só polui a lista do operador e abre a porta para LINKAR um crédito real
+ *  (de outra parcela do mesmo cliente) na parcela errada.
+ *
+ *  Só o "marcar como pago" escreve esses valores — `resolveInstallmentPaymentMethod`
+ *  em invoice-generation.service.ts emite apenas PIX/BANK_SLIP na criação. Logo
+ *  toda parcela com um desses métodos já está PAID, e este filtro nunca remove
+ *  uma parcela em aberto do pool. É o análogo, do lado do recebível, do que
+ *  `off-bank-resolution.ts` faz com as notas de ENTRADA. */
+const OFF_BANK_PAYMENT_METHODS = ['ACCOUNT_GENIVALDO', 'ACCOUNT_SERGIO'] as const;
+
+/** Cláusula NULL-safe: mantém as parcelas sem método definido (a maioria das
+ *  abertas) e descarta só as pagas na conta de um sócio. */
+const notOffBank: Prisma.InstallmentWhereInput = {
+  OR: [{ paymentMethod: null }, { paymentMethod: { notIn: [...OFF_BANK_PAYMENT_METHODS] } }],
+};
+
 /** Subset-sum is bounded: above this many matchable installments we only try the
  *  cheap "pay-all / windowed-all" sums and otherwise defer to the manual UI.
  *
@@ -937,6 +956,9 @@ export class ReceivableMatchService {
             ],
           },
           { OR: statusOr },
+          // Idem pool automático: nunca linkar um crédito real numa parcela
+          // que foi paga fora do banco.
+          notOffBank,
         ],
         // Not already conciliated via an installment match…
         reconciliationMatches: { none: { reversedAt: null } },
@@ -1391,7 +1413,6 @@ export class ReceivableMatchService {
     confidence?: number,
   ): Promise<void> {
     const creditAbs = Math.abs(Number(tx.amount));
-    const totalAttr = allocations.reduce((s, a) => s + a.amount, 0);
     const matchType =
       source === ReconciliationSource.MANUAL
         ? ReconciliationMatchType.MANUAL
@@ -1399,8 +1420,47 @@ export class ReceivableMatchService {
     const invoiceIds = new Set<string>();
 
     await this.prisma.$transaction(async db => {
+      // Allocation is a BUDGET, not a label — the same guard the payable sweep
+      // carries (`payable-match.service.ts:writeMatch`). Two things leaked past
+      // the plan's own total without it:
+      //   - a plan may sum to slightly MORE than the credit and still pass the
+      //     `aggregateTolerance` test below, yet the loop wrote every line at its
+      //     FULL amount, so the transaction ended up allocated above its value;
+      //   - the nightly sweep re-reads credits, so a transaction that already
+      //     carries matches could be allocated a second time.
+      // Production, 19/08/2026: four credits over-allocated (R$ 2,00 / 5,00 /
+      // 5,01 / 7,50) — small in money, identical in mechanism to the R$ 13.413,10
+      // of double-recognised debits this same class of bug produced on the
+      // payable side before it was guarded there.
+      const existing = await db.reconciliationMatch.findMany({
+        where: { transactionId: tx.id, reversedAt: null },
+        select: { allocatedAmount: true },
+      });
+      const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);
+      let available = Number((creditAbs - spent).toFixed(2));
+      if (available <= 0.01) {
+        this.logger.warn(
+          `Inflow tx ${tx.id} not allocated: already fully allocated ` +
+            `(R$${spent.toFixed(2)} of R$${creditAbs.toFixed(2)}).`,
+        );
+        return;
+      }
+
+      let written = 0;
       for (const a of allocations) {
-        if (!a.linkOnly) {
+        const allocate = Number(Math.min(a.amount, available).toFixed(2));
+        if (allocate <= 0.01) {
+          this.logger.warn(
+            `Inflow tx ${tx.id}: budget exhausted, dropping remaining plan lines ` +
+              `(parcela ${a.installmentId} wanted R$${a.amount.toFixed(2)}).`,
+          );
+          break;
+        }
+        // Settle the parcela ONLY when the credit funded the whole planned line.
+        // A clamped line means the money covered part of it; re-stamping it PAID
+        // would assert a settlement the bank never paid for.
+        const funded = Number((a.amount - allocate).toFixed(2)) <= 0.01;
+        if (!a.linkOnly && funded) {
           const inst = await db.installment.findUniqueOrThrow({
             where: { id: a.installmentId },
             select: { amount: true },
@@ -1414,17 +1474,21 @@ export class ReceivableMatchService {
           data: {
             transactionId: tx.id,
             installmentId: a.installmentId,
-            allocatedAmount: new Decimal(a.amount),
+            allocatedAmount: new Decimal(allocate),
             matchType,
             confidenceScore: confidence ?? 90,
             matchedByUserId: userId ?? null,
           },
         });
+        available = Number((available - allocate).toFixed(2));
+        written = Number((written + allocate).toFixed(2));
         if (a.invoiceId) invoiceIds.add(a.invoiceId);
       }
       for (const invoiceId of invoiceIds) await this.recalcInvoice(db, invoiceId);
 
-      const fullyAllocated = Math.abs(totalAttr - creditAbs) <= aggregateTolerance(creditAbs);
+      const allocatedTotal = Number((spent + written).toFixed(2));
+      const fullyAllocated =
+        Math.abs(allocatedTotal - creditAbs) <= aggregateTolerance(creditAbs);
       await db.bankTransaction.update({
         where: { id: tx.id },
         data: {
@@ -1435,7 +1499,7 @@ export class ReceivableMatchService {
           topMatchScore: null,
         },
       });
-      await this.tagServiceRevenue(db, tx.id, new Decimal(totalAttr));
+      await this.tagServiceRevenue(db, tx.id, new Decimal(allocatedTotal));
     });
 
     for (const a of allocations) {
@@ -1575,6 +1639,8 @@ export class ReceivableMatchService {
         AND: [
           slipLane,
           { OR: lanes },
+          // Parcela paga na conta de um sócio nunca terá crédito no extrato.
+          notOffBank,
           // Never offer an installment whose slip is already tied to a bank
           // credit — that would clear the same money twice.
           { NOT: { bankSlip: { transactions: { some: {} } } } },
@@ -1990,8 +2056,26 @@ export class ReceivableMatchService {
     bankSlipId: string,
     userId?: string,
   ): Promise<void> {
-    const abs = new Decimal(Math.abs(Number(tx.amount)));
+    const creditAbs = Math.abs(Number(tx.amount));
     await this.prisma.$transaction(async db => {
+      // Budget guard — see `applyReceivableAllocation`. `manualMatchInstallment`
+      // checks that the PARCELA is unconciliated before reaching here, but never
+      // that the CREDIT still has room: a partially-allocated credit could be
+      // linked to a second paid boleto for its full value.
+      const existing = await db.reconciliationMatch.findMany({
+        where: { transactionId: tx.id, reversedAt: null },
+        select: { allocatedAmount: true },
+      });
+      const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);
+      const available = Number((creditAbs - spent).toFixed(2));
+      if (available <= 0.01) {
+        throw new BadRequestException(
+          `Este crédito já está integralmente alocado (R$${spent.toFixed(2)} de ` +
+            `R$${creditAbs.toFixed(2)}). Desfaça a conciliação existente antes de vincular outro boleto.`,
+        );
+      }
+      const abs = new Decimal(available);
+
       await db.reconciliationMatch.create({
         data: {
           transactionId: tx.id,
@@ -2012,7 +2096,9 @@ export class ReceivableMatchService {
           expectsFiscalDocument: true,
         },
       });
-      await this.tagServiceRevenue(db, tx.id, abs);
+      // Classify the WHOLE credit, not just this slice — any earlier allocation
+      // is already-tagged revenue on the same row.
+      await this.tagServiceRevenue(db, tx.id, new Decimal(creditAbs));
     });
   }
 
@@ -2237,10 +2323,29 @@ export class ReceivableMatchService {
     userId?: string,
     confidence?: number,
   ): Promise<void> {
-    const abs = new Decimal(Math.abs(Number(tx.amount)));
+    const creditAbs = Math.abs(Number(tx.amount));
     let invoiceId: string | null = null;
 
     await this.prisma.$transaction(async db => {
+      // Budget guard — same reasoning as `applyReceivableAllocation`. This path
+      // writes the FULL credit onto a single parcela and flips the row
+      // RECONCILED unconditionally, so a credit that already carries an
+      // allocation would be spent a second time by the nightly sweep.
+      const existing = await db.reconciliationMatch.findMany({
+        where: { transactionId: tx.id, reversedAt: null },
+        select: { allocatedAmount: true },
+      });
+      const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);
+      const available = Number((creditAbs - spent).toFixed(2));
+      if (available <= 0.01) {
+        this.logger.warn(
+          `Inflow tx ${tx.id} not settled onto parcela ${installmentId}: already ` +
+            `fully allocated (R$${spent.toFixed(2)} of R$${creditAbs.toFixed(2)}).`,
+        );
+        return;
+      }
+      const abs = new Decimal(available);
+
       const installment = await db.installment.findUniqueOrThrow({
         where: { id: installmentId },
         select: { id: true, amount: true, invoiceId: true, status: true },
@@ -2283,7 +2388,9 @@ export class ReceivableMatchService {
         },
       });
 
-      await this.tagServiceRevenue(db, tx.id, abs);
+      // The tag carries what the WHOLE credit is classified as, not just this
+      // slice — `spent` is already tagged revenue from an earlier allocation.
+      await this.tagServiceRevenue(db, tx.id, new Decimal(creditAbs));
 
       if (invoiceId) await this.recalcInvoice(db, invoiceId);
     });
