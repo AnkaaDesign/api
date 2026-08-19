@@ -106,6 +106,33 @@ const SERVICE_REVENUE_CATEGORY_SLUG = 'receita-servicos';
 
 const onlyDigits = (v: string | null | undefined): string => (v || '').replace(/\D/g, '');
 
+/**
+ * A COLLECTION credit: the Sicredi `LIQ.COBRANCA SIMPLES-COBnnnnnn` line that
+ * settles a whole day of liquidated boletos into ONE posting (the COBnnnnnn
+ * suffix is the boleto COUNT of the lote, not an id).
+ *
+ * This is a hard statement about what the money IS, and it decides which
+ * receivables may be offered against it: a lote is composed of boletos of our
+ * carteira and of nothing else. A PIX, a TED or a parcela someone marked "pago"
+ * by hand never travels inside a cobrança batch — those arrive on their own
+ * individual statement lines — so offering them as candidates can only ever
+ * produce a wrong reconciliation (and it did: a R$16.811,00 COB000002 credit
+ * was listing six R$17.000,00 parcelas hand-baixadas 39 days earlier at 48%).
+ *
+ * Detection is `subtype` first (the OFX parser already classifies these) with a
+ * memo/counterparty fallback, so a row imported before the parser learned the
+ * pattern is still recognised.
+ */
+const COLLECTION_MEMO_RE = /LIQ[\s.\-]*COBRAN|COBRAN[C\u00c7]A\s+SIMPLES|LIQUIDACAO[\s.\-]*(DE\s+)?COBRAN/i;
+
+const isCollectionCredit = (tx: {
+  subtype?: string | null;
+  memo?: string | null;
+  counterpartyName?: string | null;
+}): boolean =>
+  tx.subtype === 'BOLETO' ||
+  COLLECTION_MEMO_RE.test(`${tx.memo ?? ''} ${tx.counterpartyName ?? ''}`);
+
 type RawCredit = {
   id: string;
   postedAt: Date;
@@ -455,9 +482,25 @@ export class ReceivableMatchService {
   }> {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
-      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyName: true,
+        counterpartyCnpjCpf: true,
+        subtype: true,
+        memo: true,
+      },
     });
     if (!tx || tx.type !== 'CREDIT') return { suggestion: null };
+
+    // A collection credit has no payer to resolve: its counterparty is the bank's
+    // own "LIQ.COBRANCA SIMPLES-COBnnnnnn" literal, and its parcelas are reachable
+    // only through the boletos of the lote. Any customer this resolves to came
+    // from a fuzzy name hit on that literal, and every parcela it would then plan
+    // is by definition NOT a boleto — the one thing the credit cannot contain.
+    if (isCollectionCredit(tx)) return { suggestion: null };
 
     const index = await this.buildCustomerIdentityIndex();
     const resolved = this.resolveCustomer(tx, index);
@@ -589,8 +632,15 @@ export class ReceivableMatchService {
     // Collection credits (LIQ.COBRANCA) carry NO CNPJ/name — their real identity
     // is the Sicredi-synced PAID BankSlip. Resolve slip-first (single or lump COB
     // batch) BEFORE the CNPJ/name identity path, which can never resolve them.
-    if (tx.subtype === 'BOLETO' && this.boletoSlipMatchEnabled) {
-      if (await this.tryBoletoSlipAllocation(tx)) return true;
+    if (isCollectionCredit(tx)) {
+      if (this.boletoSlipMatchEnabled && (await this.tryBoletoSlipAllocation(tx))) return true;
+      // No slip resolved it → stop here. The identity and value-first paths below
+      // can only reach NON-boleto receivables (PIX/TED parcelas, parcelas baixadas
+      // by hand), and none of those can be inside a cobrança lote. Letting them run
+      // meant an exact-value coincidence could auto-settle a lote against a PIX
+      // parcela. Leave it PENDING with an honest (boleto-only) score.
+      await this.stampTopScore(tx.id, await this.bestCandidateScore(tx));
+      return false;
     }
 
     // ── Identity-first path ────────────────────────────────────────────────
@@ -695,6 +745,14 @@ export class ReceivableMatchService {
    */
   private async bestCandidateScore(tx: RawCredit): Promise<number | null> {
     try {
+      // Same pool rule as `getReceivableCandidates`: a collection credit scores
+      // against boletos only. Without this the chip advertised a percentage taken
+      // from a parcela the list will no longer even show.
+      if (isCollectionCredit(tx)) {
+        const boletos = await this.findBoletoCandidates(tx);
+        const top = Math.max(0, ...boletos.map(c => c.confidence));
+        return top >= TOP_MATCH_SCORE_BADGE_FLOOR ? Math.round(top) : null;
+      }
       const [installments, boletos] = await Promise.all([
         // `includePaidLink` is what makes this pool the SAME pool as
         // `getReceivableCandidates`. Without it the scan only sees OPEN parcelas,
@@ -1648,27 +1706,49 @@ export class ReceivableMatchService {
   async getReceivableCandidates(transactionId: string) {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
-      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyName: true,
+        counterpartyCnpjCpf: true,
+        subtype: true,
+        memo: true,
+      },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada.');
     if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+
+    // A collection credit (LIQ.COBRANCA lote) can only be composed of boletos —
+    // see `isCollectionCredit`. The direct-installment lanes below are, by
+    // construction, the NON-boleto pool (`slipLane` admits only parcelas with no
+    // slip or a CANCELLED one), so for these credits they are skipped entirely
+    // and the list is the boleto pool alone. Showing nothing is the honest
+    // answer when no boleto fits: the lote's boletos are then simply not in
+    // Ankaa (pre-go-live cobrança, or a slip that was never imported), and the
+    // operator has the "Conciliar por tarefa" search below as the escape hatch.
+    const collection = isCollectionCredit(tx);
 
     // Resolve the payer first, with the SAME resolver the automatic path uses, so
     // the operator's list can never know less about who paid than the matcher did.
     // Deliberately not gated on `resolved.auto`: a fuzzy name hit is too weak to
     // settle money on its own, but it is more than good enough to decide which
     // parcelas are worth showing — which is all this list does.
-    const identity = await this.buildCustomerIdentityIndex();
-    const payer = this.resolveCustomer(tx, identity);
+    const payer = collection
+      ? null
+      : this.resolveCustomer(tx, await this.buildCustomerIdentityIndex());
 
-    const candidates = await this.findScoredCandidates(tx, {
-      exactValueOnly: false,
-      windowDays: 60,
-      // Manual pool must never be narrower than the auto pool: offer parcelas
-      // already stamped PAID but never conciliated, as link-only.
-      includePaidLink: true,
-      identityCustomerId: payer?.customerId,
-    });
+    const candidates = collection
+      ? []
+      : await this.findScoredCandidates(tx, {
+          exactValueOnly: false,
+          windowDays: 60,
+          // Manual pool must never be narrower than the auto pool: offer parcelas
+          // already stamped PAID but never conciliated, as link-only.
+          includePaidLink: true,
+          identityCustomerId: payer?.customerId,
+        });
     const installmentCandidates = candidates.map(c => ({
       installmentId: c.id,
       number: c.number,
@@ -1741,7 +1821,12 @@ export class ReceivableMatchService {
     const valuePad = Math.max(5, abs * 0.05);
     const windowMs = 90 * 86_400_000;
     const lower = new Date(tx.postedAt.getTime() - windowMs);
-    const upper = new Date(tx.postedAt.getTime() + windowMs);
+    // Causality (same rule as the deterministic bridge): Sicredi credits a day's
+    // liquidations on the NEXT business day, so a boleto can never have been
+    // liquidated after the credit that paid it. The upper bound used to sit 90
+    // days in the FUTURE, which offered boletos liquidated months later. One day
+    // of grace absorbs timezone edges.
+    const upper = new Date(tx.postedAt.getTime() + 86_400_000);
     const txCnpj = onlyDigits(tx.counterpartyCnpjCpf);
 
     const slips = await this.prisma.bankSlip.findMany({
