@@ -1960,13 +1960,27 @@ export class ReceivableMatchService {
       // Allow topping up a partially-allocated installment; only a fully
       // settled (PAID) parcela is off-limits. The remaining-balance check below
       // (computed from paidAmount) prevents over-allocation.
-      if (inst.status === 'PAID') {
-        throw new BadRequestException('Uma das parcelas já está totalmente conciliada.');
-      }
-      const remaining = new Decimal(inst.amount).sub(inst.paidAmount ?? new Decimal(0));
+      // An already-PAID parcela is not an error here — it is the ordinary case of a
+      // baixa recorded before the OFX arrived. It just cannot be SETTLED again, so
+      // it is allocated as link-only: the credit is attached to it as evidence and
+      // the money fields are left exactly as they are. Rejecting it outright is what
+      // forced the UI to treat such parcelas as mutually exclusive with every other
+      // candidate, so picking one from a different serviço wiped the whole selection
+      // — a lump payment covering both open and already-baixadas parcelas could not
+      // be hand-picked at all.
+      const linkOnly = inst.status === 'PAID';
+      // Link-only settles nothing, so its ceiling is the parcela's face value, not
+      // an outstanding balance that is 0 by definition once paid.
+      const ceiling = linkOnly
+        ? new Decimal(inst.amount)
+        : new Decimal(inst.amount).sub(inst.paidAmount ?? new Decimal(0));
       if (new Decimal(a.amount).lte(0)) throw new BadRequestException('Cada alocação deve ser positiva.');
-      if (new Decimal(a.amount).gt(remaining.add(AMOUNT_TOLERANCE))) {
-        throw new BadRequestException('Alocação excede o saldo em aberto da parcela.');
+      if (new Decimal(a.amount).gt(ceiling.add(AMOUNT_TOLERANCE))) {
+        throw new BadRequestException(
+          linkOnly
+            ? 'Alocação excede o valor da parcela já baixada.'
+            : 'Alocação excede o saldo em aberto da parcela.',
+        );
       }
     }
 
@@ -1974,16 +1988,22 @@ export class ReceivableMatchService {
     await this.prisma.$transaction(async db => {
       for (const a of allocations) {
         const inst = byId.get(a.installmentId)!;
-        const newPaid = new Decimal(inst.paidAmount ?? 0).add(new Decimal(a.amount));
-        const fullyPaid = newPaid.gte(new Decimal(inst.amount).sub(AMOUNT_TOLERANCE));
-        await db.installment.update({
-          where: { id: inst.id },
-          data: {
-            paidAmount: newPaid,
-            status: fullyPaid ? 'PAID' : inst.status,
-            paidAt: fullyPaid ? tx.postedAt : null,
-          },
-        });
+        // Link-only: the parcela is already PAID and its money fields are the record
+        // of how it was received. Writing them again would double the paidAmount and
+        // overwrite `paidAt` with the credit's postedAt — losing the real payment
+        // date, which is the very field the reconciliation window matches on.
+        if (inst.status !== 'PAID') {
+          const newPaid = new Decimal(inst.paidAmount ?? 0).add(new Decimal(a.amount));
+          const fullyPaid = newPaid.gte(new Decimal(inst.amount).sub(AMOUNT_TOLERANCE));
+          await db.installment.update({
+            where: { id: inst.id },
+            data: {
+              paidAmount: newPaid,
+              status: fullyPaid ? 'PAID' : inst.status,
+              paidAt: fullyPaid ? tx.postedAt : null,
+            },
+          });
+        }
         await db.reconciliationMatch.create({
           data: {
             transactionId: tx.id,
