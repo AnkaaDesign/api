@@ -13,6 +13,43 @@ import {
 
 const RECEIVED_LOOKBACK_DAYS = 60;
 
+/** Period the caller is looking at (Contas a Receber's year + months selector).
+ *  Months are 2-digit strings ("01".."12"), exactly as the UI stores them. */
+export type ReceivablesPeriod = { year: number; months: string[] };
+
+/**
+ * PAID window for a requested period: from the first day of its earliest month
+ * to the last instant of its latest month.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The list is bucketed by month on the client, and a RECEIVED parcela's month is
+ * its `paidAt`. The server, however, only ever shipped receipts from the last
+ * RECEIVED_LOOKBACK_DAYS, so every month older than that rendered EMPTY — the
+ * navigation offered history the payload could not contain. It stayed invisible
+ * while `paidAt` was the date the baixa was typed (always "recent"); the moment
+ * the operator could set the REAL payment date, correcting a parcela to the day
+ * the customer actually paid deleted it from the screen (the Amendolândia case:
+ * two parcelas moved out of July, then showed up in no month at all).
+ *
+ * A gap month (e.g. Jan + Mar selected) is included in the range and filtered out
+ * again on the client — over-fetching a month is free, missing one is not.
+ */
+const paidWindowFor = (period: ReceivablesPeriod): { gte: Date; lte: Date } => {
+  const monthNums = period.months
+    .map(m => parseInt(m, 10))
+    .filter(m => Number.isFinite(m) && m >= 1 && m <= 12);
+  const first = Math.min(...monthNums);
+  const last = Math.max(...monthNums);
+  return {
+    // UTC boundaries with a day of slack on each side: `paidAt` is stored as a
+    // local-noon timestamp (see DateTimeInput's 13:00 anchor), so a strict
+    // month boundary in UTC can drop the first/last day of the month.
+    gte: new Date(Date.UTC(period.year, first - 1, 1, 0, 0, 0) - 86_400_000),
+    lte: new Date(Date.UTC(period.year, last, 1, 0, 0, 0) + 86_400_000),
+  };
+};
+
 /**
  * Unified Contas a Receber source — the ENTRADA analog of PayablesService.
  * Aggregates open (and recently received) Invoice installments into one
@@ -101,16 +138,26 @@ export class ReceivablesService {
     };
   }
 
-  async getReceivables(): Promise<ReceivablesResponse> {
+  async getReceivables(period?: ReceivablesPeriod | null): Promise<ReceivablesResponse> {
     try {
       const now = new Date();
       const receivedSince = new Date(now.getTime() - RECEIVED_LOOKBACK_DAYS * 86_400_000);
+      // With a period, receipts come from THAT period (see `paidWindowFor`);
+      // without one, the caller gets the recent-receipts default it always got.
+      const paidWindow =
+        period && period.months.length > 0
+          ? paidWindowFor(period)
+          : { gte: receivedSince };
 
       const installments = await this.prisma.installment.findMany({
         where: {
           OR: [
             { status: { in: ['PENDING', 'PROCESSING', 'OVERDUE'] } },
-            { status: 'PAID', paidAt: { gte: receivedSince } },
+            { status: 'PAID', paidAt: paidWindow },
+            // A parcela marked PAID with no payment date has no month of its own;
+            // it would otherwise be unreachable from every period. Anchor it to
+            // its due date so it lands somewhere a human can find it.
+            { status: 'PAID', paidAt: null, dueDate: paidWindow },
           ],
         },
         include: {

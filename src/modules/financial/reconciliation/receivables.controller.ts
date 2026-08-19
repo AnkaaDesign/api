@@ -40,10 +40,30 @@ export class ReceivablesController {
     private readonly taskMatchService: ReceivableTaskMatchService,
   ) {}
 
-  /** Unified Contas a Receber list (open + recently received installments). */
+  /**
+   * Unified Contas a Receber list.
+   *
+   * Open parcelas always come whole (the client buckets them by dueDate). Received
+   * ones are scoped to the period the screen is showing — `year` + `months` (CSV
+   * or JSON array of "01".."12", the shape the UI already puts in the URL). With
+   * no period the endpoint keeps its old behaviour: the last 60 days of receipts.
+   */
   @Get()
-  async getReceivables(): Promise<ReceivablesResponse> {
-    return this.receivablesService.getReceivables();
+  async getReceivables(
+    @Query('year') year?: string,
+    @Query('months') months?: string,
+  ): Promise<ReceivablesResponse> {
+    const parsedYear = year != null && year !== '' ? Number(year) : NaN;
+    const parsedMonths = (months ?? '')
+      .replace(/[[\]"']/g, '')
+      .split(',')
+      .map(m => m.trim())
+      .filter(m => /^(0[1-9]|1[0-2])$/.test(m));
+    const period =
+      Number.isFinite(parsedYear) && parsedYear > 2000 && parsedMonths.length > 0
+        ? { year: parsedYear, months: parsedMonths }
+        : null;
+    return this.receivablesService.getReceivables(period);
   }
 
   /** Open installments offered as candidates to conciliate an incoming credit. */
