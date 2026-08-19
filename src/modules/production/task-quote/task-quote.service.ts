@@ -1687,9 +1687,34 @@ export class TaskQuoteService {
         where: { customerConfig: { quoteId } },
       });
       if (installmentsAfterGen === 0) {
-        throw new BadRequestException(
-          'Não é possível liquidar este orçamento: nenhuma parcela foi gerada ' +
-            '(condição de pagamento ausente ou inválida). Configure o faturamento antes de liquidar.',
+        // Cortesia. A guarda acima existe para não marcar SETTLED um orçamento cujo
+        // faturamento ficou por configurar — mas ela não sabe distinguir isso de um
+        // serviço que simplesmente não cobra nada, e nesse caso "zero parcelas" é o
+        // estado CORRETO, não uma falha: não há dinheiro a registrar.
+        //
+        // Os dois geradores de parcela abrem com `if (total <= 0) return []`, então
+        // um orçamento de R$ 0,00 nunca produz parcela e ficava preso para sempre em
+        // BUDGET_APPROVED, sem nenhuma saída pela tela. Produção: orçamento 34
+        // (Grespan, placa EDJ8E82), conserto de cortesia, tarefa concluída em
+        // 22/01/2026 e impossível de liquidar desde então.
+        //
+        // A autoridade é a soma das configs de cliente, que é exatamente o valor que
+        // `generateInvoicesForTask` lê (`Number(config.total)`) para decidir o que
+        // faturar. Acima de zero, o bloqueio continua valendo integralmente.
+        const billable = await this.prisma.taskQuoteCustomerConfig.aggregate({
+          where: { quoteId },
+          _sum: { total: true },
+        });
+        const billableTotal = Number(billable._sum.total ?? 0);
+        if (billableTotal > 0.005) {
+          throw new BadRequestException(
+            'Não é possível liquidar este orçamento: nenhuma parcela foi gerada ' +
+              '(condição de pagamento ausente ou inválida). Configure o faturamento antes de liquidar.',
+          );
+        }
+        this.logger.log(
+          `[SETTLE_MANUALLY] Quote ${quoteId} liquidado sem lastro financeiro: nada a cobrar ` +
+            `(soma das configs = R$ ${billableTotal.toFixed(2)}) — cortesia.`,
         );
       }
     }
