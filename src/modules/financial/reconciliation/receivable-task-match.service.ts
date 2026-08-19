@@ -806,14 +806,43 @@ export class ReceivableTaskMatchService {
     // ---- 2b. still short → this credit is revenue the quote does not record
     // yet, so give the quote a service + a parcela for exactly the difference.
     //
-    // No opt-in: several credits landing on one job is the normal shape of this
-    // flow, not an exception. The operator searched for this task, selected it
-    // and typed the amount — demanding a confirmation checkbox on top of that
-    // only turned the documented workflow into an error state. Each credit ends
-    // up as its own parcela of its own value, which is what the money actually
-    // did.
+    // Several credits landing on one job is the normal shape of this flow, so it
+    // still needs no confirmation checkbox — but it is no longer unconditional.
+    //
+    // Guarded 19/08/2026. The original doctrine assumed the operator reaches this
+    // screen knowing the quote should grow. Production said otherwise: the
+    // candidate list returned nothing for LIQ.COBRANCA credits whose boleto had
+    // been CANCELLED, so "Conciliar por tarefa" was the only button left, and five
+    // quotes were silently inflated by R$ 45.384,83 of revenue nobody had billed.
+    // Four of them had to be deleted by hand.
+    //
+    // The discriminator is the authority rule branch 2a already states: the QUOTE
+    // decides what the job was worth. If every centavo of the quote's own total
+    // already carries a parcela, the job is fully billed and this credit is not
+    // new revenue — it is money for something already recorded, belonging on an
+    // existing parcela (now offered as a link-only candidate) or on another task.
+    // A quote that is NOT fully billed can still be extended, which is the case
+    // this flow was written for.
     const shortfall = round2(alloc.amount - capacity);
     if (shortfall > ALLOC_TOLERANCE) {
+      const quoteTotal = round2(
+        task.quote.customerConfigs.reduce((s, c) => s + Number(c.total), 0),
+      );
+      const billed = round2(
+        task.quote.customerConfigs.reduce(
+          (s, c) => s + c.installments.reduce((t, i) => t + Number(i.amount), 0),
+          0,
+        ),
+      );
+      if (quoteTotal > 0 && billed >= quoteTotal - ALLOC_TOLERANCE) {
+        throw new BadRequestException(
+          `O orçamento da tarefa ${this.taskLabel(task)} já está integralmente faturado ` +
+            `(${this.brl(billed)} em parcelas para um total de ${this.brl(quoteTotal)}). ` +
+            `Conciliar ${this.brl(alloc.amount)} aqui criaria receita que ninguém faturou. ` +
+            `Se o dinheiro é desta tarefa, aloque-o na parcela já existente pela lista de ` +
+            `candidatos; se o orçamento está errado, corrija o orçamento antes de conciliar.`,
+        );
+      }
       const extended = await this.extendQuote(db, {
         quote: task.quote,
         taskId: task.id,
