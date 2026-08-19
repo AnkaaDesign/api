@@ -57,6 +57,7 @@
     "probe:painter-nfse-cancel": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-nfse-cancel.ts",
     "probe:painter-previous-nfse": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-previous-nfse.ts",
     "probe:painter-nfse-reissue": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-nfse-reissue.ts",
+    "probe:painter-dps-numbering": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/probe-painter-dps-numbering.ts",
     "backfill:nfse-iss-retido": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/backfill-nfse-iss-retido.ts",
     "regenerate:danfse": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/regenerate-danfse.ts",
     "bonus:audit-terminations": "tsx scripts/audit-termination-dates.ts",
