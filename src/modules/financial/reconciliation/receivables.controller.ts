@@ -17,6 +17,12 @@ const matchInstallmentSchema = z.object({
 
 const unmatchSchema = z.object({ transactionId: z.string().uuid() });
 
+const externalClearanceSchema = z.object({
+  installmentId: z.string().uuid(),
+  cleared: z.boolean().default(true),
+  note: z.string().trim().max(500).optional().nullable(),
+});
+
 const allocateSchema = z.object({
   transactionId: z.string().uuid(),
   allocations: z
@@ -64,6 +70,32 @@ export class ReceivablesController {
     @UserId() userId: string,
   ) {
     return this.matchService.confirmReceivableSuggestion(body.transactionId, userId);
+  }
+
+  /**
+   * Declare a receipt reconciled with NO bank line behind it — the case of money
+   * paid into a partner's personal account, where the confirming statement line
+   * will never exist because it was never our account.
+   *
+   * ADMIN/ACCOUNTING only, narrower than this controller's class-level gate:
+   * FINANCIAL records and collects receipts, but asserting that money arrived
+   * somewhere we cannot see is an accounting call, and nothing in the system can
+   * contradict it afterwards.
+   */
+  @Post('external-clearance')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING)
+  async setExternalClearance(
+    @Body(new ZodValidationPipe(externalClearanceSchema))
+    body: { installmentId: string; cleared: boolean; note?: string | null },
+    @UserId() userId: string,
+  ) {
+    return this.receivablesService.setExternalClearance(
+      body.installmentId,
+      body.cleared,
+      body.note,
+      userId,
+    );
   }
 
   /** Manually conciliate a bank credit against an open installment. */

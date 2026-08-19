@@ -173,6 +173,12 @@ export class ReconciliationScheduler {
               status: 'PAID',
               paidAt: { not: null, lt: cutoff },
               reconciliationMatches: { none: { reversedAt: null } },
+              // A receipt declared conciliated by hand is not stale — the bank line
+              // it lacks is one that will never exist (money paid into a partner's
+              // personal account). Counting it every night would report the alarm
+              // forever without any action able to clear it, which is how a real
+              // signal gets tuned out.
+              externalClearedAt: null,
             },
           }),
         ]);

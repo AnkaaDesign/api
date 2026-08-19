@@ -1,5 +1,7 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { isDueDateOverdue } from '@utils/due-date.util';
 import {
   ReceivableRow,
@@ -21,7 +23,83 @@ const RECEIVED_LOOKBACK_DAYS = 60;
 export class ReceivablesService {
   private readonly logger = new Logger(ReceivablesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly changeLogService: ChangeLogService,
+  ) {}
+
+  /**
+   * Declare a receipt reconciled WITHOUT a bank line, or undo that declaration.
+   *
+   * A ReconciliationMatch requires a `transactionId`, so money that landed in a
+   * partner's personal account can never be conciliated the normal way — the
+   * matching bank line will never appear in our OFX, because it was never our
+   * account. Those parcelas were therefore stuck as "recebida, não conciliada"
+   * forever, and the nightly stale-paid sweep counted them every single night,
+   * which is how a real alarm turns into noise.
+   *
+   * This is an ASSERTION, not evidence: nothing verifies it, so it records who
+   * made it and why, and it is restricted to ADMIN/ACCOUNTING at the route.
+   */
+  async setExternalClearance(
+    installmentId: string,
+    cleared: boolean,
+    note: string | null | undefined,
+    userId?: string,
+  ) {
+    const installment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+      select: { id: true, status: true, amount: true, externalClearedAt: true, invoiceId: true },
+    });
+    if (!installment) throw new NotFoundException('Parcela não encontrada.');
+
+    // Only a received parcela can be declared conciliated: "o dinheiro entrou por
+    // fora" presupposes that it entered at all.
+    if (cleared && installment.status !== 'PAID') {
+      throw new BadRequestException(
+        'Apenas uma parcela já recebida pode ser marcada como conciliada.',
+      );
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction(async tx => {
+      await tx.installment.update({
+        where: { id: installmentId },
+        data: cleared
+          ? {
+              externalClearedAt: now,
+              externalClearedById: userId ?? null,
+              externalClearedNote: note?.trim() || null,
+            }
+          : { externalClearedAt: null, externalClearedById: null, externalClearedNote: null },
+      });
+
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.INSTALLMENT,
+        entityId: installmentId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'externalClearedAt',
+        oldValue: installment.externalClearedAt,
+        newValue: cleared ? now : null,
+        reason: cleared
+          ? `Conciliação declarada manualmente (recebimento fora da conta da empresa)` +
+            `${note?.trim() ? `: ${note.trim()}` : '.'} Sem linha de extrato correspondente.`
+          : 'Conciliação manual desfeita — a parcela volta a aguardar conciliação bancária.',
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: userId ?? null,
+        userId: userId ?? null,
+        transaction: tx,
+        metadata: { invoiceId: installment.invoiceId, amount: Number(installment.amount) },
+      });
+    });
+
+    return {
+      success: true,
+      message: cleared
+        ? 'Parcela marcada como conciliada.'
+        : 'Conciliação manual removida.',
+    };
+  }
 
   async getReceivables(): Promise<ReceivablesResponse> {
     try {
@@ -128,11 +206,19 @@ export class ReceivablesService {
         // merge both anchors so boleto-cleared parcelas count as reconciled too.
         const allMatches = [...inst.reconciliationMatches, ...(inst.bankSlip?.reconciliationMatches ?? [])];
         const match = allMatches[0] ?? null;
+        // Conciliação declarada à mão vale como CLEARED: o dinheiro entrou numa
+        // conta de sócio, então a linha de extrato que confirmaria isto não existe
+        // e nunca vai existir. Sem contar aqui, a parcela ficaria para sempre
+        // "recebida mas não conciliada" — que é exatamente o alarme reservado para
+        // dinheiro que talvez não tenha entrado.
+        const externallyCleared = !!inst.externalClearedAt;
         let clearanceState: 'UNCLEARED' | 'CLEARED' | 'DISPUTED' = 'UNCLEARED';
         if (match) {
           const tol = Math.max(2, amount * 0.005);
           const drift = Math.abs(Number(match.allocatedAmount) - amount);
           clearanceState = drift > tol ? 'DISPUTED' : 'CLEARED';
+        } else if (externallyCleared) {
+          clearanceState = 'CLEARED';
         }
 
         return {
@@ -153,12 +239,16 @@ export class ReceivablesService {
           totalInstallments,
           paymentMethod: inst.paymentMethod ?? null,
           hasBankSlip: !!inst.bankSlip,
-          reconciled: allMatches.length > 0,
+          reconciled: allMatches.length > 0 || externallyCleared,
+          // Distingue "bate com o extrato" de "alguém declarou que entrou por fora",
+          // para a lista poder rotular as duas coisas sem fingir que são a mesma.
+          externallyCleared,
+          externalClearedNote: inst.externalClearedNote ?? null,
           // The bank transaction this receipt was conciliated against (if any),
           // so the list row can link straight to its reconciliation detail.
           transactionId: match?.transactionId ?? null,
           clearanceState,
-          clearedAt: match?.matchedAt ?? null,
+          clearedAt: match?.matchedAt ?? inst.externalClearedAt ?? null,
         };
       });
 

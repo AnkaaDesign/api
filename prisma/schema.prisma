@@ -4343,6 +4343,15 @@ model Installment {
   status                InstallmentStatus         @default(PENDING)
   paymentMethod         InstallmentPaymentMethod?
   observations          String?
+  // Conciliação declarada à mão, sem linha de extrato. Um ReconciliationMatch
+  // exige `transactionId`, então dinheiro que entrou FORA da conta da empresa
+  // (recebimento na conta de um dos sócios) não tem como ser conciliado pelo
+  // caminho normal — nunca vai existir a transação bancária correspondente. Sem
+  // isto essas parcelas ficavam eternamente "paga sem conciliação" e apareciam
+  // na varredura de stale-paid todo dia. Marcar é privilégio de ADMIN/ACCOUNTING.
+  externalClearedAt     DateTime?
+  externalClearedById   String?
+  externalClearedNote   String?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   customerConfig        TaskQuoteCustomerConfig?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
