@@ -118,7 +118,12 @@ export class PayablesService {
           id: occurrence.id,
           payeeId: payable.supplierId ?? payable.id,
           payeeName: payable.supplier?.fantasyName ?? payable.payeeName ?? payable.name,
-          description: payable.name,
+          // With billed installations a competence holds one row per meter/line,
+          // and three rows all reading "Água - SAMAE Ibiporá" would be
+          // indistinguishable — the installation is what tells them apart.
+          description: occurrence.installation
+            ? `${payable.name} · ${occurrence.installation.label ?? occurrence.installation.code}`
+            : payable.name,
           amount,
           paymentState: paid ? 'PAID' : expected ? 'EXPECTED' : 'AWAITING_PAYMENT',
           ignored,

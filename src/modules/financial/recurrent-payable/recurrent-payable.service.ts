@@ -9,15 +9,18 @@ import {
   ReconciliationSource,
   ReconciliationStatus,
   RecurrentPayable,
+  RecurrentPayableInstallation,
   RecurrentPayableOccurrence,
 } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { deriveTransactionState } from '../reconciliation/transaction-status';
+import { nameSimilarity } from '../reconciliation/text-normalization';
 import {
   CreateOneOffPayableDto,
   CreateRecurrentPayableDto,
+  RecurrentPayableInstallationDto,
   UpdateRecurrentPayableDto,
 } from './dto/recurrent-payable.dto';
 
@@ -174,6 +177,34 @@ function dueDateForCompetence(competence: string, dueDayOfMonth: number): Date {
 
 /** Number of months a frequency advances per cycle. Monthly-family only — the
  *  meaningful kinds for a recurring bill. Unknown → 1 month. */
+/** Digits only, leading zeros trimmed — the canonical form both sides of an
+ *  installation-code comparison are reduced to. "00113942" and "113942" are the
+ *  same matrícula printed two ways. */
+export function codeKey(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '').replace(/^0+/, '');
+  return digits;
+}
+
+/**
+ * Does `text` carry this installation code as a STANDALONE token?
+ *
+ * Deliberately not a substring test. Statement memos put the payee's own CNPJ
+ * right next to the code (`… ID 00113942 SAMAE IBIPORA 78079639000100`), and a
+ * digits-only substring search would happily find "113942" inside an unrelated
+ * document number. Tokens are split on non-alphanumerics, reduced to digits, and
+ * compared whole.
+ */
+export function textHasInstallationCode(text: string | null | undefined, code: string): boolean {
+  const want = codeKey(code);
+  if (!want) return false;
+  return (text ?? '')
+    .split(/[^0-9A-Za-z]+/)
+    .some(token => {
+      const key = codeKey(token);
+      return key.length > 0 && key === want;
+    });
+}
+
 function monthsForFrequency(frequency: string, count: number): number {
   const base: Record<string, number> = {
     MONTHLY: 1,
@@ -186,6 +217,13 @@ function monthsForFrequency(frequency: string, count: number): number {
   };
   return (base[frequency] ?? 1) * Math.max(1, count);
 }
+
+/** An occurrence carrying the billed installation it belongs to. The label is
+ *  what Contas a Pagar and the Extrato's Vínculo column show next to the bill's
+ *  name, so three SAMAE debits read as three distinct obligations. */
+export type OccurrenceWithInstallation = RecurrentPayableOccurrence & {
+  installation: { id: string; code: string; label: string | null } | null;
+};
 
 @Injectable()
 export class RecurrentPayableService {
@@ -240,7 +278,11 @@ export class RecurrentPayableService {
     const data = await this.prisma.recurrentPayable.findMany({
       where,
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-      include: { supplier: { select: { id: true, fantasyName: true, cnpj: true } }, category: true },
+      include: {
+        supplier: { select: { id: true, fantasyName: true, cnpj: true } },
+        category: true,
+        installations: { orderBy: [{ isActive: 'desc' }, { code: 'asc' }] },
+      },
     });
     return { success: true, message: 'Contas recorrentes carregadas.', data };
   }
@@ -251,7 +293,12 @@ export class RecurrentPayableService {
       include: {
         supplier: { select: { id: true, fantasyName: true, cnpj: true } },
         category: true,
-        occurrences: { orderBy: { dueDate: 'desc' }, take: 12 },
+        installations: { orderBy: [{ isActive: 'desc' }, { code: 'asc' }] },
+        occurrences: {
+          orderBy: { dueDate: 'desc' },
+          take: 12,
+          include: { installation: { select: { id: true, code: true, label: true } } },
+        },
       },
     });
     if (!data) throw new NotFoundException('Conta recorrente não encontrada.');
@@ -285,9 +332,228 @@ export class RecurrentPayableService {
         // Materialize the current competence on the next cron tick.
         nextRun: dto.isActive ? startOfDaySaoPaulo(now) : null,
         createdById: userId ?? null,
+        installations: dto.installations?.length
+          ? {
+              create: dto.installations.map(i => ({
+                code: i.code,
+                label: i.label ?? null,
+                estimatedAmount: i.estimatedAmount ?? null,
+                isActive: i.isActive ?? true,
+              })),
+            }
+          : undefined,
       },
+      include: { installations: { orderBy: [{ isActive: 'desc' }, { code: 'asc' }] } },
     });
     return { success: true, message: 'Conta recorrente criada.', data: created };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Billed installations (matrícula SAMAE, UC COPEL, linha da operadora)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Reconcile the payable's installation list against what the form submitted.
+   *
+   * Adding one is free. REMOVING one is not: an installation with occurrences is
+   * deactivated, never deleted, because those occurrences are settled history and
+   * the FK is ON DELETE RESTRICT to make that impossible to get wrong by accident.
+   * A code change on an installation that already has occurrences is also refused
+   * — the code is how past debits were routed here, and rewriting it retroactively
+   * re-labels history that was matched under the old one. Both are surfaced as
+   * plain messages rather than silent no-ops.
+   *
+   * Changing the SET of installations re-plans the future the same way a cadence
+   * change does: `nextRun` is re-armed by the caller so the cron materializes the
+   * new slots, and future open occurrences of a deactivated installation are
+   * dropped by the caller's editable-window sweep.
+   */
+  private async syncInstallations(
+    payableId: string,
+    // The DTO's own element type. This project compiles with `strict: false`, so
+    // every key reads as optional here even though zod guarantees `code` at
+    // runtime — hence the explicit skip below rather than trusting the type.
+    desired: RecurrentPayableInstallationDto[],
+    userId?: string,
+  ): Promise<{ created: number; updated: number; deactivated: number; notes: string[] }> {
+    const existing = await this.prisma.recurrentPayableInstallation.findMany({
+      where: { recurrentPayableId: payableId },
+      include: { _count: { select: { occurrences: true } } },
+    });
+    const byId = new Map(existing.map(i => [i.id, i]));
+    const byCode = new Map(existing.map(i => [codeKey(i.code), i]));
+    const notes: string[] = [];
+    let created = 0;
+    let updated = 0;
+    let deactivated = 0;
+    const keptIds = new Set<string>();
+
+    for (const want of desired) {
+      if (!want?.code) continue;
+      const current =
+        (want.id ? byId.get(want.id) : undefined) ?? byCode.get(codeKey(want.code));
+      if (!current) {
+        const made = await this.prisma.recurrentPayableInstallation.create({
+          data: {
+            recurrentPayableId: payableId,
+            code: want.code,
+            label: want.label ?? null,
+            estimatedAmount: want.estimatedAmount ?? null,
+            isActive: want.isActive ?? true,
+          },
+        });
+        keptIds.add(made.id);
+        created++;
+        await this.log({
+          entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+          entityId: payableId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'installations',
+          oldValue: null,
+          newValue: { code: made.code, label: made.label },
+          reason: `Instalação "${made.label ?? made.code}" (${made.code}) adicionada à conta recorrente.`,
+          userId,
+        });
+        continue;
+      }
+
+      keptIds.add(current.id);
+      const codeChanged = codeKey(current.code) !== codeKey(want.code);
+      if (codeChanged && current._count.occurrences > 0) {
+        notes.push(
+          `O código da instalação "${current.label ?? current.code}" não foi alterado: ` +
+            `${current._count.occurrences} ocorrência(s) já foram vinculadas por ele. ` +
+            `Desative-a e cadastre o novo código.`,
+        );
+      }
+      const data: Prisma.RecurrentPayableInstallationUpdateInput = {};
+      if (codeChanged && current._count.occurrences === 0) data.code = want.code;
+      if ((want.label ?? null) !== current.label) data.label = want.label ?? null;
+      const wantEstimate = want.estimatedAmount ?? null;
+      const currentEstimate = current.estimatedAmount == null ? null : Number(current.estimatedAmount);
+      if (wantEstimate !== currentEstimate) data.estimatedAmount = wantEstimate;
+      const wantActive = want.isActive ?? true;
+      if (wantActive !== current.isActive) data.isActive = wantActive;
+      if (Object.keys(data).length === 0) continue;
+
+      await this.prisma.recurrentPayableInstallation.update({ where: { id: current.id }, data });
+      updated++;
+      await this.log({
+        entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+        entityId: payableId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'installations',
+        oldValue: {
+          code: current.code,
+          label: current.label,
+          estimatedAmount: currentEstimate,
+          isActive: current.isActive,
+        },
+        newValue: { code: want.code, label: want.label ?? null, estimatedAmount: wantEstimate, isActive: wantActive },
+        reason: `Instalação "${want.label ?? want.code}" da conta recorrente atualizada.`,
+        userId,
+      });
+    }
+
+    // Anything the form dropped. History is never deleted — it is retired.
+    for (const gone of existing.filter(i => !keptIds.has(i.id))) {
+      if (gone._count.occurrences > 0) {
+        if (gone.isActive) {
+          await this.prisma.recurrentPayableInstallation.update({
+            where: { id: gone.id },
+            data: { isActive: false },
+          });
+          deactivated++;
+          notes.push(
+            `A instalação "${gone.label ?? gone.code}" foi DESATIVADA em vez de removida: ` +
+              `${gone._count.occurrences} ocorrência(s) já vinculadas a ela permanecem no histórico.`,
+          );
+          await this.log({
+            entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+            entityId: payableId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'installations',
+            oldValue: { code: gone.code, isActive: true },
+            newValue: { code: gone.code, isActive: false },
+            reason:
+              `Instalação "${gone.label ?? gone.code}" desativada (tem ${gone._count.occurrences} ` +
+              `ocorrência(s) no histórico, portanto não pode ser excluída).`,
+            userId,
+          });
+        }
+        continue;
+      }
+      await this.prisma.recurrentPayableInstallation.delete({ where: { id: gone.id } });
+      await this.log({
+        entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+        entityId: payableId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'installations',
+        oldValue: { code: gone.code, label: gone.label },
+        newValue: null,
+        reason: `Instalação "${gone.label ?? gone.code}" removida (nunca teve ocorrências).`,
+        userId,
+      });
+    }
+
+    // Once a bill has installations, NOTHING routes to its old whole-bill slot any
+    // more: `routeToInstallation` only ever returns an installation or nothing.
+    // Any of those legacy occurrences still sitting open is debt that can never be
+    // settled — permanently overdue, permanently in the forecast. The future ones
+    // are dropped by the caller's re-plan; the ones already past the freeze
+    // boundary are reported instead of deleted, because that boundary exists
+    // precisely so this service never rewrites history on its own.
+    const stillActive = await this.prisma.recurrentPayableInstallation.count({
+      where: { recurrentPayableId: payableId, isActive: true },
+    });
+    if (stillActive > 0) {
+      const orphanSlots = await this.prisma.recurrentPayableOccurrence.findMany({
+        where: {
+          recurrentPayableId: payableId,
+          installationKey: '',
+          status: { in: ['PENDING', 'OVERDUE'] },
+          dueDate: { lt: startOfTomorrowSaoPaulo(new Date()) },
+        },
+        select: { id: true, competence: true, dueDate: true, estimatedAmount: true },
+        orderBy: { dueDate: 'asc' },
+      });
+      if (orphanSlots.length > 0) {
+        const total = orphanSlots.reduce((sum, o) => sum + Number(o.estimatedAmount ?? 0), 0);
+        notes.push(
+          `${orphanSlots.length} ocorrência(s) em aberto de competências anteriores (` +
+            `${orphanSlots[0].competence}–${orphanSlots[orphanSlots.length - 1].competence}, ` +
+            `R$ ${total.toFixed(2)}) foram criadas ANTES das instalações e não recebem mais ` +
+            `nenhum débito. Cancele-as em Contas a Pagar — nada foi alterado automaticamente.`,
+        );
+        this.logger.warn(
+          `RecurrentPayable ${payableId}: ${orphanSlots.length} pre-installation occurrence(s) ` +
+            `remain open and can no longer be settled: ` +
+            orphanSlots.map(o => `${o.competence}(${o.id})`).join(', '),
+        );
+        await this.log({
+          entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+          entityId: payableId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'occurrences.preInstallation',
+          oldValue: null,
+          newValue: orphanSlots.length,
+          reason:
+            `${orphanSlots.length} ocorrência(s) anteriores ao cadastro de instalações continuam ` +
+            `em aberto e não podem mais ser conciliadas. Mantidas para revisão manual.`,
+          userId,
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+          metadata: {
+            occurrences: orphanSlots.map(o => ({
+              id: o.id,
+              competence: o.competence,
+              dueDate: o.dueDate.toISOString(),
+            })),
+          },
+        });
+      }
+    }
+
+    return { created, updated, deactivated, notes };
   }
 
   /**
@@ -392,6 +658,18 @@ export class RecurrentPayableService {
 
     // A cadence change must re-plan the future: existing future occurrences were
     // generated by the OLD schedule, so they're deleted and re-materialized.
+    // The installation set is reconciled BEFORE the cadence branch below, because
+    // adding or retiring a meter changes how many occurrences a competence needs
+    // — which is the same kind of re-planning a cadence change triggers, and it
+    // reuses the same freeze window and the same nextRun re-arm.
+    const installationSync =
+      dto.installations !== undefined
+        ? await this.syncInstallations(id, dto.installations, userId)
+        : null;
+    const installationsChanged =
+      installationSync != null &&
+      installationSync.created + installationSync.updated + installationSync.deactivated > 0;
+
     const daysChanged =
       dto.daysOfWeek !== undefined &&
       !sameDaySet(dto.daysOfWeek, existing.daysOfWeek);
@@ -400,6 +678,10 @@ export class RecurrentPayableService {
       (dto.frequencyCount !== undefined && dto.frequencyCount !== existing.frequencyCount) ||
       (dto.dueDayOfMonth !== undefined && dto.dueDayOfMonth !== existing.dueDayOfMonth) ||
       daysChanged;
+    // Both a cadence edit and an installation edit change WHICH occurrences a
+    // competence should hold, so both re-plan the open future through the same
+    // freeze window.
+    const replanNeeded = cadenceChanged || installationsChanged;
     const willBeActive = dto.isActive ?? existing.isActive;
 
     const data: Prisma.RecurrentPayableUpdateInput = {};
@@ -431,8 +713,9 @@ export class RecurrentPayableService {
       if (dto.isActive && !existing.nextRun) data.nextRun = startOfDaySaoPaulo(new Date());
       if (!dto.isActive) data.nextRun = null;
     }
-    // A cadence change re-arms the cron from today so the new schedule fills in.
-    if (cadenceChanged && willBeActive) data.nextRun = startOfDaySaoPaulo(new Date());
+    // A cadence or installation change re-arms the cron from today so the new
+    // plan fills in.
+    if (replanNeeded && willBeActive) data.nextRun = startOfDaySaoPaulo(new Date());
 
     const updated = await this.prisma.recurrentPayable.update({ where: { id }, data });
 
@@ -459,9 +742,10 @@ export class RecurrentPayableService {
       reconciliationMatches: { none: { reversedAt: null } },
     };
 
-    if (cadenceChanged && willBeActive) {
-      // Future occurrences were planned by the OLD cadence — drop them so the
-      // cron re-materializes the new one. `nextRun` was re-armed to today above.
+    if (replanNeeded && willBeActive) {
+      // Future occurrences were planned by the OLD cadence / OLD installation set
+      // — drop them so the cron re-materializes the new one. `nextRun` was
+      // re-armed to today above.
       const doomed = await this.prisma.recurrentPayableOccurrence.findMany({
         where: editableWindow,
         select: { id: true, dueDate: true, estimatedAmount: true },
@@ -479,8 +763,9 @@ export class RecurrentPayableService {
           oldValue: doomed.length,
           newValue: 0,
           reason:
-            `Mudança de cadência: ${doomed.length} ocorrência(s) futura(s) em aberto foram ` +
-            `removidas para serem replanejadas. Nada com vencimento até hoje foi alterado.`,
+            `${cadenceChanged ? 'Mudança de cadência' : 'Mudança nas instalações faturadas'}: ` +
+            `${doomed.length} ocorrência(s) futura(s) em aberto foram removidas para serem ` +
+            `replanejadas. Nada com vencimento até hoje foi alterado.`,
           userId,
           metadata: {
             deletedDueDates: doomed.map(o => o.dueDate.toISOString()),
@@ -494,7 +779,7 @@ export class RecurrentPayableService {
       // exactly how the Diária de Limpeza ended up with three phantom Mondays.
       await this.warnStrandedFutureOccurrences(updated, horizonStart);
     } else {
-      // Non-cadence fields (amount, paymentMethod, expectsNf) are snapshotted onto
+      // No re-plan needed. Snapshotted fields (amount, paymentMethod, expectsNf) are copied onto
       // each occurrence at materialization time — name/category/supplier/payee are
       // read live via the relation, so those already reflect edits everywhere.
       // Sync the snapshotted ones into already-materialized future occurrences so
@@ -537,47 +822,51 @@ export class RecurrentPayableService {
           });
         }
       }
+    }
 
-      // Turning "espera nota" OFF is a statement about the BILL, not about a
-      // period: vale-transporte, aluguel de pessoa física and diárias never issue
-      // one, for any competence. Without reaching backwards, already-reconciled
-      // occurrences sit at "Aguardando nota" forever — the bank line is settled
-      // and the note is never coming.
-      //
-      // But that IS a retroactive write, so it is no longer implicit: the caller
-      // has to ask for it (`applyExpectsNfToPast`), the form ships it unchecked,
-      // and it is logged. Occurrences that already HAVE a note are excluded, and
-      // turning the flag ON is never applied backwards — demanding notes for
-      // competences already closed would re-open settled history.
-      if (dto.expectsNf === false && dto.applyExpectsNfToPast === true) {
-        const quieted = await this.prisma.recurrentPayableOccurrence.updateMany({
-          where: {
-            recurrentPayableId: id,
-            expectsNf: true,
-            fiscalDocumentId: null,
-            dueDate: { lt: horizonStart },
-          },
-          data: { expectsNf: false },
+    // Turning "espera nota" OFF is a statement about the BILL, not about a
+    // period: vale-transporte, aluguel de pessoa física and diárias never issue
+    // one, for any competence. Without reaching backwards, already-reconciled
+    // occurrences sit at "Aguardando nota" forever — the bank line is settled
+    // and the note is never coming.
+    //
+    // But that IS a retroactive write, so it is no longer implicit: the caller
+    // has to ask for it (`applyExpectsNfToPast`), the form ships it unchecked,
+    // and it is logged. Occurrences that already HAVE a note are excluded, and
+    // turning the flag ON is never applied backwards — demanding notes for
+    // competences already closed would re-open settled history.
+    if (dto.expectsNf === false && dto.applyExpectsNfToPast === true) {
+      const quieted = await this.prisma.recurrentPayableOccurrence.updateMany({
+        where: {
+          recurrentPayableId: id,
+          expectsNf: true,
+          fiscalDocumentId: null,
+          dueDate: { lt: horizonStart },
+        },
+        data: { expectsNf: false },
+      });
+      if (quieted.count > 0) {
+        await this.log({
+          entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'occurrences.expectsNf',
+          oldValue: true,
+          newValue: false,
+          reason:
+            `RETROATIVO (solicitado explicitamente): ${quieted.count} ocorrência(s) de ` +
+            `competências já fechadas deixaram de esperar nota fiscal.`,
+          userId,
+          metadata: { horizonStart: horizonStart.toISOString(), retroactive: true },
         });
-        if (quieted.count > 0) {
-          await this.log({
-            entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
-            entityId: id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'occurrences.expectsNf',
-            oldValue: true,
-            newValue: false,
-            reason:
-              `RETROATIVO (solicitado explicitamente): ${quieted.count} ocorrência(s) de ` +
-              `competências já fechadas deixaram de esperar nota fiscal.`,
-            userId,
-            metadata: { horizonStart: horizonStart.toISOString(), retroactive: true },
-          });
-        }
       }
     }
 
-    return { success: true, message: 'Conta recorrente atualizada.', data: updated };
+    return {
+      success: true,
+      message: ['Conta recorrente atualizada.', ...(installationSync?.notes ?? [])].join(' '),
+      data: updated,
+    };
   }
 
   /** Fields whose edits are worth a ChangeLog row of their own. */
@@ -729,18 +1018,39 @@ export class RecurrentPayableService {
    *  weekly debit binds to the right visit. */
   private static readonly MATCH_WINDOW_DAYS = 35;
 
-  /** Idempotently create (or return) the occurrence for an exact due date. The
-   *  (payableId, dueDate) unique is the idempotency backstop for races. */
+  /** The active installations a bill is materialized against, or `[null]` when it
+   *  has none — the single-obligation-per-period shape every bill had before
+   *  installations existed. Every materialization path fans out over this. */
+  private async materializationSlots(
+    payableId: string,
+  ): Promise<Array<RecurrentPayableInstallation | null>> {
+    const installations = await this.prisma.recurrentPayableInstallation.findMany({
+      where: { recurrentPayableId: payableId, isActive: true },
+      orderBy: { code: 'asc' },
+    });
+    return installations.length > 0 ? installations : [null];
+  }
+
+  /** Idempotently create (or return) the occurrence for an exact due date and
+   *  installation. The (payableId, dueDate, installationKey) unique is the
+   *  idempotency backstop for races. */
   private async materializeForDueDate(
     payable: RecurrentPayable,
     dueDate: Date,
+    installation: RecurrentPayableInstallation | null,
   ): Promise<RecurrentPayableOccurrence> {
-    const existing = await this.prisma.recurrentPayableOccurrence.findUnique({
-      where: { recurrentPayableId_dueDate: { recurrentPayableId: payable.id, dueDate } },
-    });
+    const installationKey = installation?.id ?? '';
+    const key = {
+      recurrentPayableId_dueDate_installationKey: {
+        recurrentPayableId: payable.id,
+        dueDate,
+        installationKey,
+      },
+    };
+    const existing = await this.prisma.recurrentPayableOccurrence.findUnique({ where: key });
     if (existing) return existing;
 
-    const estimatedAmount = await this.computeEstimate(payable);
+    const estimatedAmount = await this.computeEstimate(payable, installation);
     try {
       return await this.prisma.recurrentPayableOccurrence.create({
         data: {
@@ -751,35 +1061,53 @@ export class RecurrentPayableService {
           status: 'PENDING',
           expectsNf: payable.expectsNf,
           paymentMethod: payable.paymentMethod,
+          installationId: installation?.id ?? null,
+          installationKey,
         },
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        return this.prisma.recurrentPayableOccurrence.findUniqueOrThrow({
-          where: { recurrentPayableId_dueDate: { recurrentPayableId: payable.id, dueDate } },
-        });
+        return this.prisma.recurrentPayableOccurrence.findUniqueOrThrow({ where: key });
       }
       throw err;
     }
   }
 
-  /** Monthly-family: ensure the single occurrence for a competence exists.
-   *  Dedups by competence (invariant: one per month), so it is tolerant of a
-   *  changed dueDayOfMonth without creating a second row for the month. */
+  /** Monthly-family: ensure the competence's occurrence exists for ONE
+   *  installation slot. Dedups by (competence, installation) — the invariant is
+   *  one row per month PER INSTALLATION — so it stays tolerant of a changed
+   *  dueDayOfMonth without creating a second row for the month. */
   private async ensureMonthlyOccurrence(
     payable: RecurrentPayable,
     competence: string,
+    installation: RecurrentPayableInstallation | null,
   ): Promise<RecurrentPayableOccurrence> {
     const existing = await this.prisma.recurrentPayableOccurrence.findFirst({
-      where: { recurrentPayableId: payable.id, competence },
+      where: {
+        recurrentPayableId: payable.id,
+        competence,
+        installationKey: installation?.id ?? '',
+      },
       orderBy: { dueDate: 'asc' },
     });
     if (existing) return existing;
     const dueDate = dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1);
-    return this.materializeForDueDate(payable, dueDate);
+    return this.materializeForDueDate(payable, dueDate, installation);
   }
 
-  /** Weekly: materialize every due occurrence in [from,to]. Returns them. */
+  /** Monthly-family: every installation's occurrence for a competence. */
+  private async ensureMonthlyOccurrences(
+    payable: RecurrentPayable,
+    competence: string,
+  ): Promise<RecurrentPayableOccurrence[]> {
+    const out: RecurrentPayableOccurrence[] = [];
+    for (const slot of await this.materializationSlots(payable.id)) {
+      out.push(await this.ensureMonthlyOccurrence(payable, competence, slot));
+    }
+    return out;
+  }
+
+  /** Weekly: materialize every due occurrence in [from,to], per installation. */
   private async materializeWeeklyHorizon(
     payable: RecurrentPayable,
     from: Date,
@@ -792,8 +1120,11 @@ export class RecurrentPayableService {
       from,
       to,
     );
+    const slots = await this.materializationSlots(payable.id);
     const out: RecurrentPayableOccurrence[] = [];
-    for (const d of dates) out.push(await this.materializeForDueDate(payable, d));
+    for (const d of dates) {
+      for (const slot of slots) out.push(await this.materializeForDueDate(payable, d, slot));
+    }
     return out;
   }
 
@@ -812,8 +1143,8 @@ export class RecurrentPayableService {
       );
       return occ.length;
     }
-    await this.ensureMonthlyOccurrence(payable, competenceOf(anchor));
-    return 1;
+    const occurrences = await this.ensureMonthlyOccurrences(payable, competenceOf(anchor));
+    return occurrences.length;
   }
 
   /**
@@ -978,15 +1309,16 @@ export class RecurrentPayableService {
     return res.count;
   }
 
-  /** All occurrences of a payable that fall in a competence month. For weekly
-   *  bills this is several rows; for monthly, one. Materializes when allowed (the
-   *  current month / the unified feed) so rows are actionable before the cron. */
+  /** All occurrences of a payable that fall in a competence month. Several rows
+   *  for a weekly bill, one per billed installation for a monthly one, one when
+   *  it has neither. Materializes when allowed (the current month / the unified
+   *  feed) so rows are actionable before the cron. */
   async ensureOccurrencesForCompetence(
     payable: RecurrentPayable,
     competence: string,
     allowMaterialize: boolean,
-  ): Promise<RecurrentPayableOccurrence[]> {
-    // A one-off must NEVER materialize: `ensureMonthlyOccurrence` would happily
+  ): Promise<OccurrenceWithInstallation[]> {
+    // A one-off must NEVER materialize: `ensureMonthlyOccurrences` would happily
     // mint a fresh occurrence for every competence the user browses, turning a
     // single bill into a perpetual monthly one.
     if (allowMaterialize && !isOneOffFrequency(payable.frequency)) {
@@ -994,12 +1326,15 @@ export class RecurrentPayableService {
         const { from, to } = competenceRange(competence);
         await this.materializeWeeklyHorizon(payable, from, to);
       } else {
-        await this.ensureMonthlyOccurrence(payable, competence);
+        await this.ensureMonthlyOccurrences(payable, competence);
       }
     }
     return this.prisma.recurrentPayableOccurrence.findMany({
       where: { recurrentPayableId: payable.id, competence },
-      orderBy: { dueDate: 'asc' },
+      // Installation first so the month's rows read grouped by meter/line rather
+      // than interleaved when several share a due date.
+      orderBy: [{ dueDate: 'asc' }, { installationKey: 'asc' }],
+      include: { installation: { select: { id: true, code: true, label: true } } },
     });
   }
 
@@ -1012,15 +1347,26 @@ export class RecurrentPayableService {
     if (isWeeklyFrequency(payable.frequency)) {
       await this.materializeWeeklyHorizon(payable, addDays(date, -w), addDays(date, w));
     } else {
-      await this.ensureMonthlyOccurrence(payable, competenceOf(date));
+      await this.ensureMonthlyOccurrences(payable, competenceOf(date));
     }
   }
 
   /** Per-OCCURRENCE estimate. FIXED → the known amount (a per-visit fee for
    *  weekly bills, a monthly amount otherwise). VARIABLE → the seed estimate, or
    *  a bank-history average: per-month for monthly bills, per-debit for weekly
-   *  bills (so a single visit isn't estimated at the whole month's spend). */
-  private async computeEstimate(payable: RecurrentPayable): Promise<number> {
+   *  bills (so a single visit isn't estimated at the whole month's spend).
+   *
+   *  With billed installations the payable-level figures describe the WHOLE bill
+   *  — SAMAE's seeded R$880,04 is the three matrículas together. Handing that
+   *  number to each installation would forecast 3× the real obligation, so an
+   *  installation is estimated from, in order: its own configured amount, its own
+   *  bank history, then the payable's figure split evenly across the active
+   *  installations. */
+  private async computeEstimate(
+    payable: RecurrentPayable,
+    installation: RecurrentPayableInstallation | null = null,
+  ): Promise<number> {
+    if (installation) return this.computeInstallationEstimate(payable, installation);
     if (payable.amountKind === 'FIXED') {
       return Number(payable.fixedAmount ?? payable.estimatedAmount ?? 0);
     }
@@ -1028,6 +1374,101 @@ export class RecurrentPayableService {
     return isWeeklyFrequency(payable.frequency)
       ? this.perDebitAverage(payable.categoryId)
       : this.threeMonthAverage(payable.categoryId);
+  }
+
+  /** The per-installation ladder described on `computeEstimate`. */
+  private async computeInstallationEstimate(
+    payable: RecurrentPayable,
+    installation: RecurrentPayableInstallation,
+  ): Promise<number> {
+    if (installation.estimatedAmount != null) return Number(installation.estimatedAmount);
+
+    const own = await this.installationAverage(payable, installation);
+    if (own > 0) return own;
+
+    // No history yet (a matrícula added today). Split the bill-level figure
+    // across the active installations rather than repeating it on each.
+    const whole = Number(
+      payable.amountKind === 'FIXED'
+        ? payable.fixedAmount ?? payable.estimatedAmount ?? 0
+        : payable.estimatedAmount ?? 0,
+    );
+    if (whole <= 0) return 0;
+    const activeCount = await this.prisma.recurrentPayableInstallation.count({
+      where: { recurrentPayableId: payable.id, isActive: true },
+    });
+    return Math.round((whole / Math.max(1, activeCount)) * 100) / 100;
+  }
+
+  /** Average of the debits this INSTALLATION actually produced over the last 3
+   *  months — debits on the bill's category, from the bill's payee, whose memo
+   *  carries this installation's code. */
+  private async installationAverage(
+    payable: RecurrentPayable,
+    installation: RecurrentPayableInstallation,
+  ): Promise<number> {
+    const to = new Date();
+    const from = new Date(to);
+    from.setMonth(from.getMonth() - 3);
+    const txs = await this.prisma.bankTransaction.findMany({
+      where: {
+        postedAt: { gte: from, lte: to },
+        type: 'DEBIT',
+        categories: { some: { categoryId: payable.categoryId } },
+      },
+      select: { amount: true, memo: true, counterpartyName: true, counterpartyCnpjCpf: true },
+    });
+    const mine = txs.filter(
+      tx =>
+        this.identityMatches(payable, tx.counterpartyCnpjCpf, tx.counterpartyName) &&
+        (textHasInstallationCode(tx.memo, installation.code) ||
+          textHasInstallationCode(tx.counterpartyName, installation.code)),
+    );
+    if (mine.length === 0) return 0;
+    const total = mine.reduce((sum, tx) => sum + Math.abs(Number(tx.amount)), 0);
+    return Math.round((total / mine.length) * 100) / 100;
+  }
+
+  /** A counterparty name this close to the payee's is the same person. Set high:
+   *  the point is to rescue a correct link, not to invent one. */
+  private static readonly PAYEE_NAME_MATCH = 0.8;
+
+  /**
+   * Is this bank line's counterparty the bill's payee?
+   *
+   * Two signals, either of which is enough: the document (CNPJ/CPF), or the name.
+   *
+   * The document alone is not sufficient because the registered one is sometimes
+   * simply wrong — "Diária - Limpeza" carries Ankaa's OWN CNPJ where the
+   * diarista's CPF belongs, and 7 correctly-reconciled months would have been cut
+   * loose by a document-only gate. The name rescues those: "Laide Ferreira
+   * Thomaz" is in the memo of every one of her PIX debits.
+   *
+   * The gate is one-sided in the other direction too: a payable with NO payee
+   * identity at all, or a debit whose OFX carried no counterparty, passes — those
+   * are the pre-identity rows the category-only match was built for. What it DOES
+   * reject is a debit that names a demonstrably DIFFERENT payee, which is how the
+   * "Aluguel - Marcos Antonio Pelisson" occurrence came to be settled by Sandro
+   * Furlan Bochi's PIX, and a Claro occurrence by a Telefônica debit.
+   */
+  private identityMatches(
+    payable: Pick<RecurrentPayable, 'payeeCnpj' | 'payeeCpf' | 'payeeName' | 'name'>,
+    counterparty: string | null | undefined,
+    counterpartyName?: string | null,
+  ): boolean {
+    const expected = [payable.payeeCnpj, payable.payeeCpf]
+      .map(v => (v ?? '').replace(/\D/g, ''))
+      .filter(v => v.length > 0);
+    if (expected.length === 0) return true;
+    const actual = (counterparty ?? '').replace(/\D/g, '');
+    if (actual.length === 0) return true;
+    if (expected.includes(actual)) return true;
+
+    // The documents disagree — fall back to the name before rejecting.
+    const payeeName = payable.payeeName ?? payable.name;
+    return (
+      nameSimilarity(payeeName, counterpartyName) >= RecurrentPayableService.PAYEE_NAME_MATCH
+    );
   }
 
   /** Average of individual DEBIT amounts tagged to the category over the last 3
@@ -1266,6 +1707,9 @@ export class RecurrentPayableService {
       paidAt: string | null;
       transactionCount: number;
       nfLinked: boolean;
+      // Null for a bill with no billed installations; otherwise the meter/line
+      // this row is for, which is the only thing distinguishing same-month rows.
+      installation: { id: string; code: string; label: string | null } | null;
     };
 
     const items: Array<Record<string, unknown>> = [];
@@ -1299,11 +1743,11 @@ export class RecurrentPayableService {
           paidAt: o.paidAt ? o.paidAt.toISOString() : null,
           transactionCount: countMap.get(o.id) ?? 0,
           nfLinked: o.fiscalDocumentId != null,
+          installation: o.installation ?? null,
         }));
       } else {
         // No materialized rows (a non-current month) — synthesize the schedule as
         // transient forecast entries so the user sees what is coming/expected.
-        const estimate = await this.computeEstimate(payable);
         const dates = isWeeklyFrequency(payable.frequency)
           ? weeklyDueDates(
               payable.daysOfWeek,
@@ -1313,16 +1757,25 @@ export class RecurrentPayableService {
               to,
             )
           : [dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1)];
-        occViews = dates.map(d => ({
-          occurrenceId: null,
-          dueDate: d.toISOString(),
-          status: 'PENDING',
-          forecastAmount: estimate,
-          paidAmount: null,
-          paidAt: null,
-          transactionCount: 0,
-          nfLinked: false,
-        }));
+        // Synthesis must fan out over installations exactly as materialization
+        // does, or a past/future month under-reports a 3-meter bill by 2/3.
+        const slots = await this.materializationSlots(payable.id);
+        occViews = [];
+        for (const d of dates) {
+          for (const slot of slots) {
+            occViews.push({
+              occurrenceId: null,
+              dueDate: d.toISOString(),
+              status: 'PENDING',
+              forecastAmount: await this.computeEstimate(payable, slot),
+              paidAmount: null,
+              paidAt: null,
+              transactionCount: 0,
+              nfLinked: false,
+              installation: slot ? { id: slot.id, code: slot.code, label: slot.label } : null,
+            });
+          }
+        }
       }
 
       let pTotalForecast = 0;
@@ -1419,7 +1872,7 @@ export class RecurrentPayableService {
     allowMaterialize = true,
   ): Promise<
     Array<{
-      occurrence: RecurrentPayableOccurrence;
+      occurrence: OccurrenceWithInstallation;
       payable: RecurrentPayable & { supplier: { id: string; fantasyName: string } | null };
     }>
   > {
@@ -1427,7 +1880,7 @@ export class RecurrentPayableService {
       where: { isActive: true },
       include: { supplier: { select: { id: true, fantasyName: true } } },
     });
-    const rows: Array<{ occurrence: RecurrentPayableOccurrence; payable: (typeof payables)[number] }> = [];
+    const rows: Array<{ occurrence: OccurrenceWithInstallation; payable: (typeof payables)[number] }> = [];
     for (const payable of payables) {
       const occurrences = await this.ensureOccurrencesForCompetence(payable, competence, allowMaterialize);
       for (const occurrence of occurrences) rows.push({ occurrence, payable });
@@ -1503,7 +1956,6 @@ export class RecurrentPayableService {
       } else {
         // No materialized rows (a non-current month) — synthesize the schedule as
         // a transient forecast so the obligation isn't silently dropped.
-        const estimate = await this.computeEstimate(payable);
         const dates = isWeeklyFrequency(payable.frequency)
           ? weeklyDueDates(
               payable.daysOfWeek,
@@ -1513,9 +1965,15 @@ export class RecurrentPayableService {
               to,
             )
           : [dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1)];
+        // One projected obligation per due date PER INSTALLATION — same fan-out
+        // materialization performs, so Previsão de Saídas and Contas a Pagar
+        // enumerate the same obligations.
+        const slots = await this.materializationSlots(payable.id);
         for (const d of dates) {
-          occurrenceCount++;
-          openForecast += estimate;
+          for (const slot of slots) {
+            occurrenceCount++;
+            openForecast += await this.computeEstimate(payable, slot);
+          }
           if (!nextDue || d < nextDue) nextDue = d;
         }
       }
@@ -1620,11 +2078,25 @@ export class RecurrentPayableService {
           postedAt: { gte: from },
           categories: { some: { categoryId: payable.categoryId } },
         },
-        select: { id: true, postedAt: true, amount: true },
+        select: {
+          id: true,
+          postedAt: true,
+          amount: true,
+          memo: true,
+          counterpartyName: true,
+          counterpartyCnpjCpf: true,
+        },
         orderBy: { postedAt: 'asc' },
       });
       for (const tx of txs) {
         if (consumedTxIds.has(tx.id)) continue;
+        // The candidate set above is CATEGORY-wide, and a category routinely
+        // carries several payees ("Aluguel" has two landlords, "Energia Elétrica"
+        // has COPEL and the cooperativa). Without this gate the first payable in
+        // the loop absorbs whichever debit sorts first, regardless of who was
+        // actually paid. `payable-match.service.ts` applies the same hard identity
+        // rule to order installments.
+        if (!this.identityMatches(payable, tx.counterpartyCnpjCpf, tx.counterpartyName)) continue;
         const result = await this.applyBankSettlement(payable, tx);
         if (result === 'settled') {
           settled++;
@@ -1661,11 +2133,13 @@ export class RecurrentPayableService {
       if (!cnpj) continue;
       const docs = await this.prisma.fiscalDocument.findMany({
         where: { operationType: 'ENTRADA', emitCnpj: cnpj, issueDate: { gte: from } },
-        select: { id: true, issueDate: true },
+        // infCpl / nfNumber are what carry the matrícula or UC on a utility note,
+        // and totalValue is the fallback discriminator when they don't.
+        select: { id: true, issueDate: true, infCpl: true, nfNumber: true, totalValue: true },
         orderBy: { issueDate: 'asc' },
       });
       for (const doc of docs) {
-        if (await this.linkNf(payable, doc.id, doc.issueDate)) linked++;
+        if (await this.linkNf(payable, doc)) linked++;
       }
     }
     if (linked) this.logger.log(`Recurrent-payable NF sweep: ${linked} NF(s) linked`);
@@ -1684,13 +2158,26 @@ export class RecurrentPayableService {
    * silently absorbed. */
   private async applyBankSettlement(
     payable: RecurrentPayable,
-    tx: { id: string; postedAt: Date; amount: number | Prisma.Decimal },
+    tx: {
+      id: string;
+      postedAt: Date;
+      amount: number | Prisma.Decimal;
+      memo?: string | null;
+      counterpartyName?: string | null;
+    },
   ): Promise<'settled' | 'confirmed' | 'none'> {
     const amount = Math.abs(Number(tx.amount));
     // Make sure the occurrences around this debit exist so we have something to
     // bind to (e.g. a weekly bill's visits in the debit's week, or the debit
     // month's occurrence for a monthly bill).
     await this.ensureOccurrencesAround(payable, tx.postedAt);
+
+    // Which billed installation is this debit paying? For a bill with none, the
+    // whole payable is the single slot and this is a no-op.
+    const routing = await this.routeToInstallation(payable, tx);
+    if (routing.kind === 'unroutable') return 'none';
+    const slotFilter: Prisma.RecurrentPayableOccurrenceWhereInput =
+      routing.kind === 'installation' ? { installationKey: routing.installation.id } : {};
 
     const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
     const lo = addDays(tx.postedAt, -w);
@@ -1702,6 +2189,7 @@ export class RecurrentPayableService {
         recurrentPayableId: payable.id,
         status: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: lo, lte: hi },
+        ...slotFilter,
       },
     });
     if (open.length > 0) {
@@ -1732,6 +2220,7 @@ export class RecurrentPayableService {
         status: 'PAID',
         bankTransactionId: null,
         dueDate: { gte: lo, lte: hi },
+        ...slotFilter,
       },
     });
     if (paid.length > 0) {
@@ -1745,6 +2234,47 @@ export class RecurrentPayableService {
     }
 
     return 'none';
+  }
+
+  /**
+   * Decide which billed installation a debit belongs to, by looking for an
+   * installation code as a standalone token in the memo.
+   *
+   * Returning `unroutable` — and therefore leaving the debit at "Sem vínculo" —
+   * is the deliberate outcome when a bill HAS installations and the memo names
+   * none of them. Binding it to an arbitrary sibling is exactly the failure this
+   * whole model replaces: it produced a green row while the real obligation for
+   * that meter stayed open and invisible. An orphan row is a question the user
+   * can answer (usually: a matrícula is missing from the list); a wrong link is
+   * not, so the miss is logged with the memo that failed to route.
+   */
+  private async routeToInstallation(
+    payable: RecurrentPayable,
+    tx: { id: string; memo?: string | null; counterpartyName?: string | null },
+  ): Promise<
+    | { kind: 'whole' }
+    | { kind: 'installation'; installation: RecurrentPayableInstallation }
+    | { kind: 'unroutable' }
+  > {
+    const installations = await this.prisma.recurrentPayableInstallation.findMany({
+      where: { recurrentPayableId: payable.id, isActive: true },
+      orderBy: { code: 'asc' },
+    });
+    if (installations.length === 0) return { kind: 'whole' };
+
+    const hit = installations.find(
+      i =>
+        textHasInstallationCode(tx.memo, i.code) ||
+        textHasInstallationCode(tx.counterpartyName, i.code),
+    );
+    if (hit) return { kind: 'installation', installation: hit };
+
+    this.logger.warn(
+      `RecurrentPayable ${payable.name}: debit ${tx.id} carries none of the ` +
+        `${installations.length} configured installation codes ` +
+        `(${installations.map(i => i.code).join(', ')}) — left unlinked. Memo: ${tx.memo ?? '—'}`,
+    );
+    return { kind: 'unroutable' };
   }
 
   /** Idempotently record the bank line that cleared this occurrence as a
@@ -1823,11 +2353,27 @@ export class RecurrentPayableService {
     }
   }
 
+  /**
+   * Attach one inbound NF to the occurrence it documents.
+   *
+   * With billed installations a competence holds several occurrences sharing one
+   * due date, so `nearestByDate` alone is a coin flip that would file SAMAE's
+   * three notes against whichever row sorted first. The note is steered by, in
+   * order: the installation code printed on it (infCpl / número), then agreement
+   * between its total and the occurrence's settled amount, and only then by date.
+   */
   private async linkNf(
     payable: RecurrentPayable,
-    fiscalDocumentId: string,
-    issueDate: Date,
+    doc: {
+      id: string;
+      issueDate: Date;
+      infCpl?: string | null;
+      nfNumber?: string | null;
+      totalValue?: Prisma.Decimal | number | null;
+    },
   ): Promise<boolean> {
+    const fiscalDocumentId = doc.id;
+    const issueDate = doc.issueDate;
     // Don't re-link an NF already attached to one of this payable's occurrences.
     const already = await this.prisma.recurrentPayableOccurrence.findFirst({
       where: { recurrentPayableId: payable.id, fiscalDocumentId },
@@ -1837,20 +2383,48 @@ export class RecurrentPayableService {
 
     await this.ensureOccurrencesAround(payable, issueDate);
     const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
-    const candidates = await this.prisma.recurrentPayableOccurrence.findMany({
+    let candidates = await this.prisma.recurrentPayableOccurrence.findMany({
       where: {
         recurrentPayableId: payable.id,
         fiscalDocumentId: null,
         dueDate: { gte: addDays(issueDate, -w), lte: addDays(issueDate, w) },
       },
+      include: { installation: { select: { id: true, code: true, label: true } } },
     });
     if (candidates.length === 0) return false;
+
+    // 1) The installation named on the note wins outright.
+    const byCode = candidates.filter(
+      o =>
+        o.installation != null &&
+        (textHasInstallationCode(doc.infCpl, o.installation.code) ||
+          textHasInstallationCode(doc.nfNumber, o.installation.code)),
+    );
+    if (byCode.length > 0) candidates = byCode;
+    else {
+      // 2) Otherwise prefer an occurrence whose settled amount agrees with the
+      //    note's total — the meter that actually cost this much.
+      const total = doc.totalValue == null ? null : Number(doc.totalValue);
+      if (total != null && total > 0) {
+        const byValue = candidates.filter(o => {
+          const settled = o.paidAmount == null ? null : Number(o.paidAmount);
+          if (settled == null || settled <= 0) return false;
+          return Math.abs(settled - total) <= Math.max(2, total * 0.005);
+        });
+        if (byValue.length > 0) candidates = byValue;
+      }
+    }
+
     const occ = nearestByDate(candidates, issueDate);
     await this.prisma.recurrentPayableOccurrence.update({
       where: { id: occ.id },
       data: { fiscalDocumentId, nfLinkedAt: new Date() },
     });
-    this.logger.log(`RecurrentPayable ${payable.name} ${occ.competence} linked NF ${fiscalDocumentId}`);
+    this.logger.log(
+      `RecurrentPayable ${payable.name} ${occ.competence}` +
+        `${occ.installation ? ` [${occ.installation.label ?? occ.installation.code}]` : ''} ` +
+        `linked NF ${fiscalDocumentId}`,
+    );
     return true;
   }
 

@@ -141,6 +141,9 @@ export const SETTLEMENT_ANCHOR_INCLUDE = {
       recurrentPayable: {
         select: { id: true, name: true, payeeName: true, expectsNf: true },
       },
+      // Which meter/line this occurrence is for. Three SAMAE debits in one month
+      // are three distinct obligations, and the Vínculo column has to say which.
+      installation: { select: { id: true, code: true, label: true } },
     },
   },
   airbrushing: {
@@ -301,6 +304,7 @@ interface MatchLike {
     expectsNf?: boolean | null;
     fiscalDocumentId?: string | null;
     recurrentPayable?: { id: string; name: string; payeeName?: string | null } | null;
+    installation?: { id: string; code: string; label?: string | null } | null;
   } | null;
   airbrushing?: {
     id: string;
@@ -583,11 +587,16 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // `expectsNf` is per-occurrence (copied from the payable at generation), so
     // a landlord's rent never nags for a note while COPEL's energia does.
     const wantsNf = occ.expectsNf === true && !occ.fiscalDocumentId;
+    const installation = occ.installation;
     return {
       ...empty,
       state: open ? 'OPEN' : wantsNf ? 'AWAITING_NF' : 'SETTLED',
       anchor: 'RECURRENT_OCCURRENCE',
-      label: [payable?.name ?? 'Conta recorrente', monthLabel(occ.competence)]
+      label: [
+        payable?.name ?? 'Conta recorrente',
+        installation ? installation.label ?? installation.code : null,
+        monthLabel(occ.competence),
+      ]
         .filter(Boolean)
         .join(' · '),
       link: { kind: 'recurrent', id: payable?.id ?? null },

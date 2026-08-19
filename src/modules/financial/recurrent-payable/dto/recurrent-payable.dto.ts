@@ -20,6 +20,56 @@ const WEEKLY_FREQUENCIES = ['WEEKLY', 'BIWEEKLY'];
 
 const paymentMethodSchema = z.enum(['PIX', 'BANK_SLIP', 'CREDIT_CARD']);
 
+/**
+ * A BILLED INSTALLATION inside one bill: the SAMAE matrícula, the COPEL UC, the
+ * operator's line. The same payee issues one invoice — and one nota — per
+ * installation, and the statement carries one debit per installation with the
+ * code in the memo, so each needs its own occurrence to bind to.
+ *
+ * `code` is stored as typed but always COMPARED as digits-only with leading zeros
+ * trimmed, so "00113942" and "113942" are the same matrícula. Non-digit codes are
+ * rejected here rather than silently never matching anything.
+ */
+const installationSchema = z.object({
+  // Present when editing an existing row; absent when the form adds one.
+  id: z.string().uuid().optional().nullable(),
+  code: z
+    .string()
+    .trim()
+    .min(1, 'Informe o código da instalação (matrícula, UC, linha)')
+    .max(40, 'Código deve ter no máximo 40 caracteres')
+    .refine(v => /\d/.test(v), 'O código precisa conter dígitos — é assim que ele é reconhecido no extrato'),
+  label: z
+    .string()
+    .trim()
+    .max(120, 'Apelido deve ter no máximo 120 caracteres')
+    .transform(v => (v.length === 0 ? null : v))
+    .optional()
+    .nullable(),
+  // Per-installation estimate for VARIABLE bills. Null → the installation's own
+  // bank history, then the bill's estimate split across the active installations.
+  estimatedAmount: z.number().nonnegative().optional().nullable(),
+  isActive: z.boolean().optional().default(true),
+});
+
+const installationsSchema = z
+  .array(installationSchema)
+  .max(50, 'No máximo 50 instalações por conta')
+  .superRefine((list, ctx) => {
+    const seen = new Set<string>();
+    list.forEach((item, index) => {
+      const key = item.code.replace(/\D/g, '').replace(/^0+/, '');
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Código de instalação duplicado: "${item.code}".`,
+          path: [index, 'code'],
+        });
+      }
+      seen.add(key);
+    });
+  });
+
 const recurrentPayableBaseSchema = z.object({
   name: z.string().trim().min(1, 'Nome é obrigatório'),
   description: z.string().trim().optional().nullable(),
@@ -66,6 +116,10 @@ const recurrentPayableBaseSchema = z.object({
   paymentMethod: paymentMethodSchema.optional().nullable(),
   expectsNf: z.boolean().default(false),
   isActive: z.boolean().default(true),
+  // Omit to leave the current list untouched; send the full desired list to
+  // reconcile it (the service adds, updates, and retires — never deletes rows
+  // that already carry occurrences).
+  installations: installationsSchema.optional(),
 });
 
 export const createRecurrentPayableSchema = recurrentPayableBaseSchema
@@ -174,6 +228,7 @@ export const markOccurrencePaidSchema = z.object({
   paymentMethod: paymentMethodSchema.optional().nullable(),
 });
 
+export type RecurrentPayableInstallationDto = z.infer<typeof installationSchema>;
 export type CreateRecurrentPayableDto = z.infer<typeof createRecurrentPayableSchema>;
 export type UpdateRecurrentPayableDto = z.infer<typeof updateRecurrentPayableWithScopeSchema>;
 export type CreateOneOffPayableDto = z.infer<typeof createOneOffPayableSchema>;

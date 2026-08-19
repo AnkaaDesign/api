@@ -5405,6 +5405,7 @@ model RecurrentPayable {
   supplier        Supplier?                    @relation("SUPPLIER_RECURRENT_PAYABLES", fields: [supplierId], references: [id])
   category        TransactionCategory          @relation("CategoryRecurrentPayables", fields: [categoryId], references: [id])
   occurrences     RecurrentPayableOccurrence[] @relation("RecurrentPayableOccurrences")
+  installations   RecurrentPayableInstallation[] @relation("RecurrentPayableInstallations")
 
   descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized        String? /// accent-insensitive search (generated column, see migration)
@@ -5442,12 +5443,21 @@ model RecurrentPayableOccurrence {
   bankTransactionId     String?
   nfLinkedAt            DateTime?
   reconciledAt          DateTime?
+  // The billed installation this occurrence belongs to (SAMAE matrícula, COPEL
+  // UC, operator line). NULL for a bill that has a single obligation per period.
+  installationId        String?
+  // NON-NULL discriminator of the (payableId, dueDate, installationKey) unique.
+  // Postgres treats NULLs as distinct, so putting the nullable FK straight into
+  // the key would silently void the idempotency backstop that materialization
+  // relies on. The key is the installation's id, or "" when the bill has none.
+  installationKey       String                 @default("")
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   recurrentPayable      RecurrentPayable       @relation("RecurrentPayableOccurrences", fields: [recurrentPayableId], references: [id], onDelete: Cascade)
+  installation          RecurrentPayableInstallation? @relation("InstallationOccurrences", fields: [installationId], references: [id], onDelete: Restrict)
   reconciliationMatches ReconciliationMatch[]  @relation("RecurrentOccurrenceMatches")
 
-  @@unique([recurrentPayableId, dueDate])
+  @@unique([recurrentPayableId, dueDate, installationKey])
   @@index([recurrentPayableId])
   @@index([status])
   @@index([dueDate])
@@ -5455,6 +5465,44 @@ model RecurrentPayableOccurrence {
   @@index([recurrentPayableId, competence])
   @@index([bankTransactionId])
   @@index([fiscalDocumentId])
+  @@index([installationId])
+}
+
+/// One BILLED INSTALLATION inside a single recurring bill: a SAMAE matrícula, a
+/// COPEL UC, a phone line. The same payee issues one invoice — and one nota — per
+/// installation, and the statement carries ONE DEBIT PER INSTALLATION with the
+/// code printed in the memo (`DEBITO CONVENIOS-SAMAEIB ID 00113942 …`).
+///
+/// Without this, a payable materializes exactly one occurrence per competence, so
+/// only the first debit of the month finds an obligation to settle and every
+/// other one falls through to a category-only close — the "Sem vínculo" rows on
+/// the Extrato. SAMAE (3 matrículas) and COPEL (3 UCs) each stranded two debits a
+/// month that way.
+///
+/// Installations are DEACTIVATED, never deleted, once they have occurrences: the
+/// FK is ON DELETE RESTRICT precisely so history cannot be orphaned.
+model RecurrentPayableInstallation {
+  id                 String                       @id @default(uuid())
+  recurrentPayableId String
+  /// The code as it is printed on the statement ("00113942", "0000107981068").
+  /// Compared token-by-token against the memo, digits only, leading zeros
+  /// trimmed on both sides — never as a bare substring, or a code would match
+  /// inside the payee's own CNPJ.
+  code               String
+  /// Human label shown in the Vínculo column and in Contas a Pagar ("Matriz").
+  label              String?
+  /// Per-installation estimate for VARIABLE bills. NULL → this installation's own
+  /// 3-month bank history, then the payable's estimate split across installations.
+  estimatedAmount    Decimal?                     @db.Decimal(12, 2)
+  isActive           Boolean                      @default(true)
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  recurrentPayable   RecurrentPayable             @relation("RecurrentPayableInstallations", fields: [recurrentPayableId], references: [id], onDelete: Cascade)
+  occurrences        RecurrentPayableOccurrence[] @relation("InstallationOccurrences")
+
+  @@unique([recurrentPayableId, code])
+  @@index([recurrentPayableId])
+  @@index([isActive])
 }
 
 model TransactionCategory {
