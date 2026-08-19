@@ -1721,13 +1721,23 @@ export class ReceivableMatchService {
     if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
     // A collection credit (LIQ.COBRANCA lote) can only be composed of boletos —
-    // see `isCollectionCredit`. The direct-installment lanes below are, by
-    // construction, the NON-boleto pool (`slipLane` admits only parcelas with no
-    // slip or a CANCELLED one), so for these credits they are skipped entirely
-    // and the list is the boleto pool alone. Showing nothing is the honest
-    // answer when no boleto fits: the lote's boletos are then simply not in
-    // Ankaa (pre-go-live cobrança, or a slip that was never imported), and the
-    // operator has the "Conciliar por tarefa" search below as the escape hatch.
+    // see `isCollectionCredit`. That rules out the OPEN parcelas of the direct
+    // lane: a lote never settles a parcela that was not charged by boleto.
+    //
+    // It does NOT rule out the lane's link-only hits, and skipping the lane
+    // entirely was a dead end. `findBoletoCandidates` requires a slip in status
+    // PAID, so a parcela whose slip we CANCELLED (customer paid the replacement or
+    // the legacy charge) or whose slip was never imported is PAID, unlinked, and
+    // invisible to BOTH lanes. Production, 22/05/2026: R$ 5.009,40 of Frigorífico
+    // Jatobá — slip 600001777 CANCELLED, the money in via legacy boleto 261000889 —
+    // offered zero candidates on an exact-value, one-day-apart match.
+    //
+    // The cost of that dead end was not a missing suggestion. With no candidate,
+    // "Conciliar por tarefa" is the only button left, and it MINTS a quote: every
+    // phantom receivable we had to delete (R$ 45.384,83 across five quotes, all on
+    // LIQ.COBRANCA credits) was created from this exact screen. So the lane stays,
+    // filtered to link-only — attaching bank evidence to an already-settled parcela
+    // cannot mis-settle anything.
     const collection = isCollectionCredit(tx);
 
     // Resolve the payer first, with the SAME resolver the automatic path uses, so
@@ -1739,16 +1749,16 @@ export class ReceivableMatchService {
       ? null
       : this.resolveCustomer(tx, await this.buildCustomerIdentityIndex());
 
-    const candidates = collection
-      ? []
-      : await this.findScoredCandidates(tx, {
-          exactValueOnly: false,
-          windowDays: 60,
-          // Manual pool must never be narrower than the auto pool: offer parcelas
-          // already stamped PAID but never conciliated, as link-only.
-          includePaidLink: true,
-          identityCustomerId: payer?.customerId,
-        });
+    const scored = await this.findScoredCandidates(tx, {
+      exactValueOnly: false,
+      windowDays: 60,
+      // Manual pool must never be narrower than the auto pool: offer parcelas
+      // already stamped PAID but never conciliated, as link-only.
+      includePaidLink: true,
+      identityCustomerId: payer?.customerId,
+    });
+    // See the note on `collection` above: a lote contributes only link-only hits.
+    const candidates = collection ? scored.filter(c => c.linkOnly) : scored;
     const installmentCandidates = candidates.map(c => ({
       installmentId: c.id,
       number: c.number,
@@ -1832,7 +1842,18 @@ export class ReceivableMatchService {
     const slips = await this.prisma.bankSlip.findMany({
       where: {
         status: 'PAID',
-        transactions: { none: {} }, // not yet linked to a bank credit
+        // "Unlinked" needs BOTH tests, exactly like the matcher's own
+        // `tryBoletoBridge`. The scalar `BankTransaction.bankSlipId` is written
+        // ONLY for a 1:1 bridge — `applyBoletoSlipAllocation` deliberately leaves
+        // it null for a LOTE and anchors the batch on its match rows instead. So
+        // `transactions: { none: {} }` alone passes for every boleto that was
+        // bridged inside a multi-boleto lote, and this list re-offered it forever:
+        // 121 already-settled boletos, R$ 895.300,98, were on the menu. That is
+        // how a credit gets allocated twice — production, 14/05/2026: the R$
+        // 5.500,00 of Mar & Terra was offered its parcela 2, already settled by
+        // the 23/04 lote, instead of the parcela 3 the money actually paid.
+        transactions: { none: {} },
+        reconciliationMatches: { none: { reversedAt: null } },
         paidAmount: { gte: abs - valuePad, lte: abs + valuePad },
         OR: [{ paidAt: { gte: lower, lte: upper } }, { paidAt: null }],
       },
@@ -2182,6 +2203,7 @@ export class ReceivableMatchService {
           await this.recalcInvoice(db, inst.invoiceId);
         }
       }
+      await this.dropOrphanedConciliationSpine(db, installmentIds);
       await this.untagServiceRevenue(db, transactionId);
 
       await db.bankTransaction.update({
@@ -2288,5 +2310,103 @@ export class ReceivableMatchService {
         ? 'PARTIALLY_PAID'
         : 'ACTIVE';
     await db.invoice.update({ where: { id: invoiceId }, data: { paidAmount: totalPaid, status } });
+  }
+
+  /**
+   * Drop a billing spine that only ever existed to hold a conciliation.
+   *
+   * `ReceivableTaskMatchService.matchTasks` mints TaskQuote → config → Invoice →
+   * Installment for a task that had none, then allocates the credit onto it in the
+   * SAME transaction — so a minted parcela is born PAID and never represents a
+   * debt. Reversing that match used to delete the match and reopen the parcela
+   * while leaving the minted spine standing, which turned a corrected mistake into
+   * a receivable for money nobody ever owed. Production, 07/08/2026: two RDD quotes
+   * (R$ 15.922,08) were minted for a credit the boleto bridge had already settled,
+   * reversed two days later with the reason written in the match notes, and stayed
+   * on the books as overdue until someone audited the Sicredi lote by hand.
+   *
+   * Only an unambiguous artifact is removed. EVERY one of these must hold:
+   *  - every config carries the mint signature — `generateInvoice` and
+   *    `generateBankSlip` both false, which `mintQuote` sets deliberately so that
+   *    retroactive bookkeeping never emits an NFS-e nor registers a boleto;
+   *  - no parcela of the quote has a live match, a non-zero `paidAmount`, or a
+   *    bank slip;
+   *  - no invoice of the quote has an NFS-e.
+   *
+   * Anything else is a real quote that merely lost one allocation and is left
+   * exactly as it is. `Task.quoteId` is cleared so the task is billable again —
+   * which is precisely the state it was in before the reversed conciliation.
+   */
+  private async dropOrphanedConciliationSpine(
+    db: Prisma.TransactionClient,
+    installmentIds: string[],
+  ): Promise<void> {
+    if (installmentIds.length === 0) return;
+
+    const affected = await db.installment.findMany({
+      where: { id: { in: installmentIds } },
+      select: { customerConfig: { select: { quoteId: true } } },
+    });
+    const quoteIds = [
+      ...new Set(affected.map(a => a.customerConfig?.quoteId).filter((q): q is string => !!q)),
+    ];
+
+    for (const quoteId of quoteIds) {
+      const configs = await db.taskQuoteCustomerConfig.findMany({
+        where: { quoteId },
+        select: { id: true, generateInvoice: true, generateBankSlip: true },
+      });
+      // No configs at all is not a mint signature — it is a degenerate quote that
+      // predates this feature. Leave it alone.
+      if (configs.length === 0) continue;
+      if (!configs.every(c => c.generateInvoice === false && c.generateBankSlip === false)) continue;
+
+      const configIds = configs.map(c => c.id);
+      const stillHoldsMoney = await db.installment.count({
+        where: {
+          customerConfigId: { in: configIds },
+          OR: [
+            { reconciliationMatches: { some: { reversedAt: null } } },
+            { paidAmount: { gt: 0 } },
+            { bankSlip: { isNot: null } },
+          ],
+        },
+      });
+      if (stillHoldsMoney > 0) continue;
+
+      const invoices = await db.invoice.findMany({
+        where: { customerConfigId: { in: configIds } },
+        select: { id: true },
+      });
+      const invoiceIds = invoices.map(i => i.id);
+      if (invoiceIds.length > 0) {
+        const notes = await db.nfseDocument.count({ where: { invoiceId: { in: invoiceIds } } });
+        if (notes > 0) continue;
+      }
+
+      // Reversed match rows FK to the parcela with onDelete: Restrict, so they go
+      // first. They are already reversed — the live ones were excluded above.
+      const doomed = await db.installment.findMany({
+        where: { customerConfigId: { in: configIds } },
+        select: { id: true },
+      });
+      const doomedIds = doomed.map(d => d.id);
+      if (doomedIds.length > 0) {
+        await db.reconciliationMatch.deleteMany({ where: { installmentId: { in: doomedIds } } });
+        await db.installment.deleteMany({ where: { id: { in: doomedIds } } });
+      }
+      if (invoiceIds.length > 0) {
+        await db.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
+      }
+      await db.taskQuoteService.deleteMany({ where: { quoteId } });
+      await db.task.updateMany({ where: { quoteId }, data: { quoteId: null } });
+      await db.taskQuoteCustomerConfig.deleteMany({ where: { id: { in: configIds } } });
+      await db.taskQuote.delete({ where: { id: quoteId } });
+
+      this.logger.log(
+        `[UNMATCH] Removida espinha de faturamento criada pela conciliação (quote ${quoteId}) — ` +
+          `a reversão não deixa recebível para dinheiro que nunca foi devido.`,
+      );
+    }
   }
 }
