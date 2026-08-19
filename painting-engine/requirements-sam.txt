@@ -1,0 +1,19 @@
+# Extras do estágio de INSTÂNCIAS do `lineart` (MobileSAM).
+# Deliberadamente fora de requirements.txt: o engine de precificação roda no
+# NestJS por job e não pode passar a depender de torch. Sem estes pacotes o
+# `lineart` degrada para separação por cor e avisa no relatório.
+#
+#   .venv/bin/pip install -r requirements-sam.txt
+#
+# Licenças: MobileSAM e segment-anything são Apache-2.0; torch BSD-3.
+# NÃO trocar por `ultralytics` (AGPL-3.0) — contamina se isto virar serviço web.
+
+torch>=2.2
+torchvision>=0.17
+timm>=1.0
+opencv-python-headless>=4.10
+mobile_sam @ git+https://github.com/ChaoningZhang/MobileSAM.git
+
+# Checkpoint (~40 MB) baixa sozinho no primeiro uso para
+# ~/.cache/painting-engine/mobile_sam.pt. Override: PAINTING_ENGINE_SAM_CHECKPOINT
+# Fonte: https://huggingface.co/dhkim2810/MobileSAM
