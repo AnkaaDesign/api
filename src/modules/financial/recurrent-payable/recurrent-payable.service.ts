@@ -2167,6 +2167,25 @@ export class RecurrentPayableService {
     },
   ): Promise<'settled' | 'confirmed' | 'none'> {
     const amount = Math.abs(Number(tx.amount));
+
+    // A bank line is a BUDGET, not a label. `writeOccurrenceMatch` already
+    // refuses to allocate more than the debit is worth — but it runs AFTER the
+    // occurrence has been stamped PAID, so a debit that had nothing left to give
+    // still closed a row: the occurrence ended up PAID, carrying the FK of a
+    // payment that was already spent elsewhere, with no match row behind it.
+    //
+    // And because the sweep settles the NEAREST OPEN occurrence, once a month is
+    // closed the next-nearest is the FOLLOWING one: that is how an 11/08 debit
+    // came to settle the competence of SEPTEMBER (window is ±35 days), inventing
+    // a paid month that had not happened yet. Checking the budget FIRST kills
+    // both — a spent debit settles nothing at all.
+    const spent = await this.prisma.reconciliationMatch.aggregate({
+      where: { transactionId: tx.id, reversedAt: null },
+      _sum: { allocatedAmount: true },
+    });
+    const available = amount - Number(spent._sum.allocatedAmount ?? 0);
+    if (available <= 0.01) return 'none';
+
     // Make sure the occurrences around this debit exist so we have something to
     // bind to (e.g. a weekly bill's visits in the debit's week, or the debit
     // month's occurrence for a monthly bill).
