@@ -74,6 +74,12 @@ import {
   admissionUpdateSchema,
 } from '../../../schemas';
 
+/**
+ * Teto de anexos por documento num único envio. Frente/verso são 2; a CTPS
+ * costuma passar de 6 páginas. 10 dá folga sem virar porta para upload em massa.
+ */
+const ADMISSION_DOCUMENT_MAX_FILES = 10;
+
 @Controller('admissions')
 @UseGuards(AuthGuard)
 @Roles(SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
@@ -236,10 +242,13 @@ export class AdmissionController {
 
   // Documentação do colaborador — upload by userId, lazily creating the
   // admission process (DOCS_PENDING + default checklist) when absent
+  //
+  // Um documento aceita VÁRIOS arquivos no mesmo envio (RG frente + verso,
+  // páginas da CTPS). O campo multipart continua sendo "file", repetido.
   @Post('by-user/:userId/documents')
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FilesInterceptor('file', 1, multerConfig))
+  @UseInterceptors(FilesInterceptor('file', ADMISSION_DOCUMENT_MAX_FILES, multerConfig))
   async uploadDocumentByUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(admissionDocumentUploadSchema))
@@ -247,14 +256,14 @@ export class AdmissionController {
     @UserId() userId: string,
     @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<AdmissionDocumentUpdateResponse> {
-    return this.admissionService.uploadDocumentByUser(targetUserId, data, files?.[0], userId);
+    return this.admissionService.uploadDocumentByUser(targetUserId, data, files, userId);
   }
 
   // Document upload (multipart)
   @Post(':id/documents')
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FilesInterceptor('file', 1, multerConfig))
+  @UseInterceptors(FilesInterceptor('file', ADMISSION_DOCUMENT_MAX_FILES, multerConfig))
   async uploadDocument(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(admissionDocumentUploadSchema))
@@ -262,7 +271,7 @@ export class AdmissionController {
     @UserId() userId: string,
     @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<AdmissionDocumentUpdateResponse> {
-    return this.admissionService.uploadDocument(id, data, files?.[0], userId);
+    return this.admissionService.uploadDocument(id, data, files, userId);
   }
 
   // Status machine

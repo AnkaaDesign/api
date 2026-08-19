@@ -111,10 +111,8 @@ const DEFAULT_CHECKLIST: ADMISSION_DOCUMENT_TYPE[] = [
   ADMISSION_DOCUMENT_TYPE.BIRTH_MARRIAGE_CERTIFICATE,
   ADMISSION_DOCUMENT_TYPE.PHOTO,
 ];
-// Sempre obrigatórios.
-const HARD_REQUIRED_DOCUMENT_TYPES: ADMISSION_DOCUMENT_TYPE[] = [ADMISSION_DOCUMENT_TYPE.CPF, ADMISSION_DOCUMENT_TYPE.CTPS];
-// Obrigatório "um destes": RG OU CNH.
-const EITHER_REQUIRED_DOCUMENT_TYPES: ADMISSION_DOCUMENT_TYPE[] = [ADMISSION_DOCUMENT_TYPE.RG, ADMISSION_DOCUMENT_TYPE.DRIVER_LICENSE];
+// Nenhum tipo é obrigatório: o checklist orienta a coleta, mas não trava a
+// admissão. `AdmissionDocument.required` fica sempre false.
 
 @Injectable()
 export class AdmissionService {
@@ -237,7 +235,7 @@ export class AdmissionService {
       const admission = await this.prisma.admission.findFirst({
         where: { userId },
         orderBy: { createdAt: 'desc' },
-        include: include ?? { documents: { include: { file: true } }, user: true },
+        include: include ?? { documents: { include: { file: true, files: true } }, user: true },
       });
 
       return {
@@ -406,7 +404,7 @@ export class AdmissionService {
                 return {
                   type: type as any,
                   // Obrigatórios: CPF + CTPS (RG/CNH validados como grupo no avanço).
-                  required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type),
+                  required: false,
                   fileId,
                   status: inlineFileId
                     ? ADMISSION_DOCUMENT_STATUS.RECEIVED
@@ -427,7 +425,7 @@ export class AdmissionService {
         data: {
           admissionId: admission.id,
           type: type as any,
-          required: HARD_REQUIRED_DOCUMENT_TYPES.includes(type as ADMISSION_DOCUMENT_TYPE),
+          required: false,
           fileId,
           status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
         },
@@ -682,31 +680,15 @@ export class AdmissionService {
           );
         }
 
-        // Guard: cannot leave DOCS_PENDING (forward) while any required document
-        // is still PENDING (WAIVED/RECEIVED/SIGNED are all acceptable).
-        if (
-          currentStatus === ADMISSION_STATUS.DOCS_PENDING &&
-          !isCancelling &&
-          !isGoingBack
-        ) {
-          const docs = existing.documents || [];
-          // Obrigatórios fixos: CPF + CTPS.
-          const hardPending = docs.filter(
-            (doc: any) => HARD_REQUIRED_DOCUMENT_TYPES.includes(doc.type) && doc.status === ADMISSION_DOCUMENT_STATUS.PENDING,
-          );
-          // Obrigatório "um destes": RG ou CNH (satisfeito se pelo menos um não-pendente).
-          const eitherDocs = docs.filter((doc: any) => EITHER_REQUIRED_DOCUMENT_TYPES.includes(doc.type));
-          const eitherSatisfied = eitherDocs.length === 0 || eitherDocs.some((doc: any) => doc.status !== ADMISSION_DOCUMENT_STATUS.PENDING);
-          if (hardPending.length > 0 || !eitherSatisfied) {
-            throw new BadRequestException(
-              'Não é possível avançar: são obrigatórios CPF, CTPS e RG ou CNH (recebidos, assinados ou dispensados).',
-            );
-          }
-        }
-
+        // NENHUM documento da admissão bloqueia o avanço da etapa. O checklist
+        // é um lembrete de coleta, não uma trava: papéis chegam fora de ordem
+        // (CTPS digital, certidão que só sai depois) e travar DOCS_PENDING só
+        // fazia o DP dispensar documento no sistema para conseguir seguir —
+        // apagando justamente a informação de que ele ainda falta.
+        //
+        // O ASO segue sendo trava — esse é exigência legal (NR-7), não checklist.
         // Guard: cannot leave MEDICAL_EXAM (forward → CONTRACT) until the
-        // collaborator's ADMISSION exam is COMPLETED with result FIT
-        // (mirrors the required-documents guard above).
+        // collaborator's ADMISSION exam is COMPLETED with result FIT.
         if (
           currentStatus === ADMISSION_STATUS.MEDICAL_EXAM &&
           !isCancelling &&
@@ -956,26 +938,44 @@ export class AdmissionService {
   // Documents — POST /admissions/:id/documents (multipart)
   // =====================
 
+  /** Remove os temporários do multer quando a transação do upload falha. */
+  private cleanUpTempUploads(files: Express.Multer.File[]): void {
+    for (const file of files) {
+      if (!file?.path || !existsSync(file.path)) continue;
+      try {
+        unlinkSync(file.path);
+      } catch {
+        this.logger.warn(`Falha ao limpar arquivo temporário: ${file.path}`);
+      }
+    }
+  }
+
   private async uploadDocumentWithTransaction(
     tx: PrismaTransaction,
     admission: { id: string; user?: { name: string } | null },
     data: AdmissionDocumentUploadFormData,
-    file: Express.Multer.File,
+    files: Express.Multer.File[],
     userId?: string,
   ): Promise<any> {
     const id = admission.id;
 
-    const createdFile = await this.fileService.createFromUploadWithTransaction(
-      tx,
-      file,
-      'admissionDocuments',
-      userId,
-      {
-        entityId: id,
-        entityType: 'ADMISSION',
-        userName: (admission as any).user?.name,
-      },
-    );
+    // Um documento é um CONJUNTO de arquivos (RG frente + verso, páginas da
+    // CTPS). Sobem todos de uma vez; a ordem do array é a ordem de exibição.
+    const createdFiles: Array<{ id: string }> = [];
+    for (const file of files) {
+      const createdFile = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        file,
+        'admissionDocuments',
+        userId,
+        {
+          entityId: id,
+          entityType: 'ADMISSION',
+          userName: (admission as any).user?.name,
+        },
+      );
+      createdFiles.push(createdFile as { id: string });
+    }
 
     // OTHER allows multiple rows; every other type is upserted by type.
     const existingDocument =
@@ -990,26 +990,34 @@ export class AdmissionService {
       document = await tx.admissionDocument.update({
         where: { id: existingDocument.id },
         data: {
-          fileId: createdFile.id,
+          // ACUMULA: enviar o verso não pode apagar a frente já enviada. Para
+          // trocar um arquivo, remova-o pelo updateDocument (`removeFileIds`).
+          files: { connect: createdFiles.map((f) => ({ id: f.id })) },
+          // `fileId` é o anexo PRINCIPAL (miniatura + pipeline de assinatura,
+          // que operam sobre um arquivo só). Só é preenchido se ainda estiver
+          // vazio, para que o verso não roube a capa da frente.
+          ...(existingDocument.fileId ? {} : { fileId: createdFiles[0].id }),
           status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
           ...(data.note !== undefined ? { note: data.note } : {}),
         },
-        include: { file: true },
+        include: { file: true, files: true },
       });
     } else {
       document = await tx.admissionDocument.create({
         data: {
           admissionId: id,
           type: data.type as any,
-          required: HARD_REQUIRED_DOCUMENT_TYPES.includes(data.type as ADMISSION_DOCUMENT_TYPE),
-          fileId: createdFile.id,
+          required: false,
+          fileId: createdFiles[0].id,
+          files: { connect: createdFiles.map((f) => ({ id: f.id })) },
           status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
           note: data.note ?? null,
         },
-        include: { file: true },
+        include: { file: true, files: true },
       });
     }
 
+    const addedIds = createdFiles.map((f) => f.id);
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.ADMISSION,
       entityId: id,
@@ -1018,8 +1026,15 @@ export class AdmissionService {
       oldValue: existingDocument
         ? { status: existingDocument.status, fileId: existingDocument.fileId }
         : null,
-      newValue: { status: ADMISSION_DOCUMENT_STATUS.RECEIVED, fileId: createdFile.id },
-      reason: `Documento de admissão recebido: ${data.type}`,
+      newValue: {
+        status: ADMISSION_DOCUMENT_STATUS.RECEIVED,
+        fileId: document.fileId,
+        addedFileIds: addedIds,
+      },
+      reason:
+        addedIds.length > 1
+          ? `Documento de admissão recebido (${addedIds.length} arquivos): ${data.type}`
+          : `Documento de admissão recebido: ${data.type}`,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: id,
       userId: userId || null,
@@ -1032,11 +1047,12 @@ export class AdmissionService {
   async uploadDocument(
     id: string,
     data: AdmissionDocumentUploadFormData,
-    file: Express.Multer.File | undefined,
+    files: Express.Multer.File[] | undefined,
     userId?: string,
   ): Promise<AdmissionDocumentUpdateResponse> {
-    if (!file) {
-      throw new BadRequestException('O arquivo do documento é obrigatório.');
+    const uploads = files ?? [];
+    if (uploads.length === 0) {
+      throw new BadRequestException('Envie ao menos um arquivo para o documento.');
     }
 
     try {
@@ -1049,23 +1065,19 @@ export class AdmissionService {
           throw new NotFoundException('Admissão não encontrada.');
         }
 
-        return this.uploadDocumentWithTransaction(tx, admission as any, data, file, userId);
+        return this.uploadDocumentWithTransaction(tx, admission as any, data, uploads, userId);
       });
 
       return {
         success: true,
-        message: 'Documento da admissão enviado com sucesso.',
+        message:
+          uploads.length > 1
+            ? `${uploads.length} arquivos enviados com sucesso.`
+            : 'Documento da admissão enviado com sucesso.',
         data: document,
       };
     } catch (error: any) {
-      // Clean up the uploaded temp file on error
-      if (file && existsSync(file.path)) {
-        try {
-          unlinkSync(file.path);
-        } catch {
-          this.logger.warn(`Falha ao limpar arquivo temporário: ${file.path}`);
-        }
-      }
+      this.cleanUpTempUploads(uploads);
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao enviar documento da admissão:', error);
       throw new InternalServerErrorException(
@@ -1083,11 +1095,12 @@ export class AdmissionService {
   async uploadDocumentByUser(
     targetUserId: string,
     data: AdmissionDocumentUploadFormData,
-    file: Express.Multer.File | undefined,
+    files: Express.Multer.File[] | undefined,
     userId?: string,
   ): Promise<AdmissionDocumentUpdateResponse> {
-    if (!file) {
-      throw new BadRequestException('O arquivo do documento é obrigatório.');
+    const uploads = files ?? [];
+    if (uploads.length === 0) {
+      throw new BadRequestException('Envie ao menos um arquivo para o documento.');
     }
 
     try {
@@ -1110,23 +1123,19 @@ export class AdmissionService {
           admission = created.admission;
         }
 
-        return this.uploadDocumentWithTransaction(tx, admission, data, file, userId);
+        return this.uploadDocumentWithTransaction(tx, admission, data, uploads, userId);
       });
 
       return {
         success: true,
-        message: 'Documento da admissão enviado com sucesso.',
+        message:
+          uploads.length > 1
+            ? `${uploads.length} arquivos enviados com sucesso.`
+            : 'Documento da admissão enviado com sucesso.',
         data: document,
       };
     } catch (error: any) {
-      // Clean up the uploaded temp file on error
-      if (file && existsSync(file.path)) {
-        try {
-          unlinkSync(file.path);
-        } catch {
-          this.logger.warn(`Falha ao limpar arquivo temporário: ${file.path}`);
-        }
-      }
+      this.cleanUpTempUploads(uploads);
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao enviar documento da admissão do colaborador:', error);
       throw new InternalServerErrorException(
@@ -1146,10 +1155,19 @@ export class AdmissionService {
   ): Promise<AdmissionDocumentUpdateResponse> {
     try {
       const document = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const existing = await tx.admissionDocument.findUnique({ where: { id: documentId } });
+        const existing = await tx.admissionDocument.findUnique({
+          where: { id: documentId },
+          include: { files: { select: { id: true } } },
+        });
         if (!existing) {
           throw new NotFoundException('Documento da admissão não encontrado.');
         }
+
+        // Remoção de anexo: só aceita ids que pertencem A ESTE documento, para
+        // que um id solto no payload não consiga apagar arquivo de outra ficha.
+        const attachedIds = new Set(((existing as any).files ?? []).map((f: any) => f.id));
+        const removeIds = (data.removeFileIds ?? []).filter((fid) => attachedIds.has(fid));
+        const remainingIds = [...attachedIds].filter((fid) => !removeIds.includes(fid as string));
 
         const updated = await tx.admissionDocument.update({
           where: { id: documentId },
@@ -1158,9 +1176,21 @@ export class AdmissionService {
             ...(data.note !== undefined ? { note: data.note } : {}),
             ...(data.required !== undefined ? { required: data.required } : {}),
             ...(data.expiresAt !== undefined ? { expiresAt: data.expiresAt } : {}),
+            ...(removeIds.length
+              ? {
+                  files: { disconnect: removeIds.map((fid) => ({ id: fid })) },
+                  // `fileId` (anexo principal) precisa seguir existindo: se o
+                  // removido era ele, promove o próximo do conjunto — senão a
+                  // miniatura passaria a apontar para um arquivo apagado.
+                  ...(existing.fileId && removeIds.includes(existing.fileId)
+                    ? { fileId: (remainingIds[0] as string) ?? null }
+                    : {}),
+                }
+              : {}),
           },
-          include: { file: true },
+          include: { file: true, files: true },
         });
+
 
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.ADMISSION,
@@ -1184,13 +1214,24 @@ export class AdmissionService {
           transaction: tx,
         });
 
-        return updated;
+        return { updated, removeIds };
       });
+
+      // Fora da transação: `FileService.delete` abre a sua própria (e apaga o
+      // arquivo físico). Rodar aqui evita transação aninhada e garante que o
+      // arquivo só some depois que a desvinculação estiver commitada.
+      for (const fid of document.removeIds) {
+        try {
+          await this.fileService.delete(fid, userId);
+        } catch (e: any) {
+          this.logger.warn(`Falha ao excluir anexo ${fid} do documento: ${e?.message}`);
+        }
+      }
 
       return {
         success: true,
         message: 'Documento da admissão atualizado com sucesso.',
-        data: document as any,
+        data: document.updated as any,
       };
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;

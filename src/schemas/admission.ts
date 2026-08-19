@@ -331,6 +331,9 @@ export const admissionDocumentUpdateSchema = z.object({
   note: createDescriptionSchema(0, 1000).nullable().optional(),
   required: z.boolean().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
+  /// Remove anexos do conjunto do documento (ex.: o verso subiu trocado).
+  /// Desvincula do documento; o arquivo em si é apagado pelo serviço.
+  removeFileIds: z.array(z.string().uuid()).optional(),
 });
 
 // =====================

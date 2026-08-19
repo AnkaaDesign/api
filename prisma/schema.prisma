@@ -765,6 +765,7 @@ model File {
   userBenefitDeclaration                 UserBenefit?              @relation("USER_BENEFIT_DECLARATION")
   admissionDocuments                     AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILE")
   admissionDocumentsSigned               AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
+  admissionDocumentsAttached             AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILES")
   terminationDocuments                   TerminationDocument[]     @relation("TERMINATION_DOCUMENT_FILE")
   medicalExamAsos                        MedicalExam[]             @relation("MEDICAL_EXAM_ASO")
   leaves                                 Leave[]                   @relation("FileToLeave")
@@ -6776,7 +6777,9 @@ model AdmissionDocument {
   id                String                  @id @default(uuid())
   admissionId       String
   type              AdmissionDocumentType
-  required          Boolean                 @default(true)
+  /// Nenhum documento da admissão bloqueia o avanço da etapa — a coluna
+  /// permanece só como marcação informativa do checklist.
+  required          Boolean                 @default(false)
   status            AdmissionDocumentStatus @default(PENDING)
   fileId            String?
   expiresAt         DateTime?
@@ -6808,6 +6811,10 @@ model AdmissionDocument {
   admission         Admission               @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   file              File?                   @relation("ADMISSION_DOCUMENT_FILE", fields: [fileId], references: [id])
   signedFile        File?                   @relation("ADMISSION_DOCUMENT_SIGNED_FILE", fields: [signedFileId], references: [id])
+  /// Conjunto COMPLETO de anexos do documento (frente + verso, páginas da CTPS…).
+  /// `fileId` continua apontando para o PRIMEIRO anexo — é ele que alimenta a
+  /// miniatura e o pipeline de assinatura, que operam sobre um arquivo só.
+  files             File[]                  @relation("ADMISSION_DOCUMENT_FILES")
   signedBy          User?                   @relation("ADMISSION_DOCUMENT_SIGNED_BY", fields: [signedByUserId], references: [id])
 
   noteNormalized String? /// accent-insensitive search (generated column, see migration)

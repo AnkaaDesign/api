@@ -4,6 +4,7 @@
 
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -112,6 +113,37 @@ export class MedicalExamService {
     if (!allowed.includes(toStatus)) {
       throw new BadRequestException(`Transição de status inválida: ${fromStatus} → ${toStatus}.`);
     }
+  }
+
+  /**
+   * `admissionId`/`terminationId` são @unique no MedicalExam: cada processo tem
+   * NO MÁXIMO um ASO. O servidor já cria esse exame sozinho ao avançar a etapa
+   * (admission.service / termination.service), então uma segunda tentativa de
+   * agendar é sempre uma tela desatualizada — não um defeito do dado. Traduz o
+   * P2002 num 409 que diz isso, em vez do 500 genérico "tente novamente" que
+   * levava o operador a clicar repetidamente.
+   */
+  private translateUniqueViolation(error: any): ConflictException | null {
+    if (error?.code !== 'P2002') return null;
+    const target = error?.meta?.target;
+    const fields: string[] = Array.isArray(target)
+      ? target
+      : typeof target === 'string'
+        ? [target]
+        : [];
+    if (fields.includes('admissionId')) {
+      return new ConflictException(
+        'Este processo de admissão já possui um exame admissional (ASO) vinculado. Atualize a página para vê-lo.',
+      );
+    }
+    if (fields.includes('terminationId')) {
+      return new ConflictException(
+        'Este processo de rescisão já possui um exame demissional (ASO) vinculado. Atualize a página para vê-lo.',
+      );
+    }
+    return new ConflictException(
+      'Já existe um exame com estes dados. Atualize a página para vê-lo.',
+    );
   }
 
   private async medicalExamValidation(
@@ -406,8 +438,17 @@ export class MedicalExamService {
         data: exam as unknown as MedicalExam,
       };
     } catch (error: any) {
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
+      }
+      const conflict = this.translateUniqueViolation(error);
+      if (conflict) {
+        this.logger.warn(`Exame duplicado recusado: ${conflict.message}`);
+        throw conflict;
       }
       this.logger.error('Erro ao criar exame:', error);
       throw new InternalServerErrorException('Erro ao criar exame. Por favor, tente novamente.');
@@ -473,8 +514,17 @@ export class MedicalExamService {
         data: exam as unknown as MedicalExam,
       };
     } catch (error: any) {
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
+      }
+      const conflict = this.translateUniqueViolation(error);
+      if (conflict) {
+        this.logger.warn(`Exame duplicado recusado: ${conflict.message}`);
+        throw conflict;
       }
       this.logger.error('Erro ao atualizar exame:', error);
       throw new InternalServerErrorException(
@@ -940,9 +990,10 @@ export class MedicalExamService {
 
             success.push(created as unknown as MedicalExam);
           } catch (error: any) {
+            const conflict = this.translateUniqueViolation(error);
             failed.push({
               index,
-              error: error?.message || 'Erro ao criar exame.',
+              error: conflict?.message || error?.message || 'Erro ao criar exame.',
               data: itemData,
             });
           }
