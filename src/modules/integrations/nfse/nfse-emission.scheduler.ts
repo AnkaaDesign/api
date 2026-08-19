@@ -17,6 +17,47 @@ import { NFSE_LIVE_STATUSES } from '@constants';
  * Runs a daily job at 9 AM to emit PENDING NFS-e documents.
  * Also retries ERROR documents that have passed their retryAfter window (max 3 attempts).
  */
+/**
+ * The discount the NFS-e must carry, derived from the INVOICE TOTAL and not from
+ * the declared `discountType` / `discountValue`.
+ *
+ * Those two columns are a UI convenience, not the source of truth: production
+ * configs routinely carry `subtotal > total` while `discountType` is `'NONE'` and
+ * `discountValue` is null, because the total was edited directly instead of
+ * through the discount fields. Reading only the declared pair then emits the note
+ * for the PRE-discount sum of the service lines. NF 3139 (Nutrymax) went out at
+ * R$ 12.765,00 against an invoice of R$ 11.871,45 — R$ 893,55 of service value
+ * invoiced, and taxed, that was never charged to the customer and never collected
+ * by the boleto.
+ *
+ * The invoice total is what the customer owes and what the boleto collects, so the
+ * gap between the line-item sum and that total IS the discount, however it was
+ * entered. Expressing it as FIXED_VALUE makes the emitted net land exactly on
+ * `invoice.totalAmount` (see the `targetCents` note in
+ * `elotech-oxy-nfse.service.ts`) — a PERCENTAGE can only approximate it after
+ * rounding. The declared pair is still the fallback when there are no line items
+ * to measure against.
+ */
+const resolveGlobalDiscount = (
+  services: { amount: number }[] | undefined,
+  invoiceTotal: number,
+  declaredType: string | undefined,
+  declaredValue: number | undefined,
+): { type: string; value: number } | undefined => {
+  const declared =
+    declaredType && declaredType !== 'NONE' && declaredValue
+      ? { type: declaredType, value: declaredValue }
+      : undefined;
+  if (!services || services.length === 0) return declared;
+  const linesSum = Number(services.reduce((s, x) => s + x.amount, 0).toFixed(2));
+  if (linesSum <= 0) return declared;
+  const gap = Number((linesSum - invoiceTotal).toFixed(2));
+  // No gap (or a negative one — lines below the invoice total, which is not a
+  // discount) leaves whatever was declared in charge.
+  if (gap <= 0.005) return declared;
+  return { type: 'FIXED_VALUE', value: gap };
+};
+
 @Injectable()
 export class NfseEmissionScheduler {
   private readonly logger = new Logger(NfseEmissionScheduler.name);
@@ -426,10 +467,12 @@ export class NfseEmissionScheduler {
                 }
               : undefined;
             orderNumber = (invoice as any).customerConfig?.orderNumber || undefined;
-            globalDiscount =
-              configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
-                ? { type: configDiscountType, value: configDiscountValue }
-                : undefined;
+            globalDiscount = resolveGlobalDiscount(
+              services,
+              Number(invoice.totalAmount),
+              configDiscountType,
+              configDiscountValue,
+            );
           }
 
           // Build the input for municipal NFSe emission (Elotech OXY)
@@ -658,10 +701,12 @@ export class NfseEmissionScheduler {
               }
             : undefined;
           orderNumber = customerConfig?.orderNumber || undefined;
-          globalDiscount =
-            configDiscountType && configDiscountType !== 'NONE' && configDiscountValue
-              ? { type: configDiscountType, value: configDiscountValue }
-              : undefined;
+          globalDiscount = resolveGlobalDiscount(
+            services,
+            Number(invoice.totalAmount),
+            configDiscountType,
+            configDiscountValue,
+          );
         }
 
         const targetedResult = await this.municipalNfseService.emitNfse({
