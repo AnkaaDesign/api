@@ -34,6 +34,7 @@ import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-cust
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
+import { hasEntered } from '../../../../utils/task-cleared';
 
 // =====================
 // Query Pattern Definitions
@@ -2094,6 +2095,28 @@ export class TaskPrismaRepository
   ): Promise<Task> {
     try {
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data, userId);
+
+      // A liberação segue o caminhão, não a previsão (ver utils/task-cleared.ts): se a
+      // tarefa já tem data de entrada, o auto-unclear derivado de `forecastDate` acima
+      // não pode revogá-la. Um `cleared` explícito no payload já venceu a derivação lá
+      // dentro e não é tocado aqui. Data de entrada efetiva = a do payload quando ele a
+      // traz (inclusive `null`, que é remover a entrada), senão a que está gravada.
+      if (updateInput.cleared === false && (data as any).cleared === undefined) {
+        const effectiveEntryDate =
+          (data as any).entryDate !== undefined
+            ? (data as any).entryDate
+            : (
+                await transaction.task.findUnique({
+                  where: { id },
+                  select: { entryDate: true },
+                })
+              )?.entryDate;
+
+        if (hasEntered(effectiveEntryDate)) {
+          updateInput.cleared = true;
+        }
+      }
+
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 

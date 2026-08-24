@@ -63,6 +63,7 @@ import {
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
+import { hasEntered } from '../../../utils/task-cleared';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -13934,6 +13935,17 @@ export class TaskService {
           `[copyFromTask] UpdateData keys: ${JSON.stringify(Object.keys(updateData))}`,
         );
 
+        // Copiar a previsão zera `cleared` (acima) — mas não quando o caminhão já
+        // entrou: com data de entrada a tarefa segue liberada (utils/task-cleared.ts).
+        if (updateData.cleared === false) {
+          const effectiveEntryDate =
+            updateData.entryDate !== undefined ? updateData.entryDate : destinationTask.entryDate;
+
+          if (hasEntered(effectiveEntryDate as Date | null | undefined)) {
+            updateData.cleared = true;
+          }
+        }
+
         // Update the destination task with collected data
         if (Object.keys(updateData).length > 0) {
           this.logger.log(
@@ -13945,7 +13957,7 @@ export class TaskService {
           });
           this.logger.log(`[copyFromTask] Task update successful`);
 
-          // Copiar a previsão desfaz a liberação (acima) — tire o caminhão do pátio também.
+          // Mudou a liberação (acima)? Mova o caminhão junto.
           if (typeof updateData.cleared === 'boolean') {
             await syncTruckSpotWithCleared(tx, destinationTaskId, updateData.cleared);
           }
@@ -14229,7 +14241,7 @@ export class TaskService {
   ): Promise<TaskUpdateResponse> {
     const existingTask = await this.prisma.task.findUnique({
       where: { id: taskId },
-      select: { id: true, forecastDate: true, status: true },
+      select: { id: true, forecastDate: true, status: true, entryDate: true },
     });
 
     if (!existingTask) {
@@ -14242,15 +14254,19 @@ export class TaskService {
 
     const previousDate = existingTask.forecastDate;
 
+    // Reagendar desfaz a liberação — MENOS quando o caminhão já entrou: aí a previsão
+    // é só a expectativa de saída e a liberação segue o caminhão (utils/task-cleared.ts).
+    const clearedAfterReschedule = hasEntered(existingTask.entryDate);
+
     const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       const task = await tx.task.update({
         where: { id: taskId },
-        data: { forecastDate: data.forecastDate, cleared: false },
+        data: { forecastDate: data.forecastDate, cleared: clearedAfterReschedule },
         include: include || undefined,
       });
 
-      // Reagendar desfaz a liberação — o caminhão sai do pátio junto.
-      await syncTruckSpotWithCleared(tx, taskId, false);
+      // Perdeu a liberação? O caminhão sai do pátio junto.
+      await syncTruckSpotWithCleared(tx, taskId, clearedAfterReschedule);
 
       // Only create reschedule history when there was a previous forecast date.
       // Setting a forecast for the first time (previousDate is null) is not a reschedule.
