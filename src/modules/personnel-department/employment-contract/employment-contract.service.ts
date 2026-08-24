@@ -198,9 +198,23 @@ export class EmploymentContractService {
   }
 
   /**
-   * Transição de fase: encerra a fase aberta atual (closeOpenContractPhase) e abre
-   * uma nova fase para a nova modalidade (openContractPhase), ambas na mesma data.
-   * Usado tanto pela transição automática (cron) quanto pela efetivação manual.
+   * Transição de fase: encerra a fase aberta atual e abre a nova.
+   *
+   * `date` é o PRIMEIRO DIA DA FASE NOVA. A anterior é fechada na VÉSPERA —
+   * não no mesmo dia.
+   *
+   * Antes as duas usavam a mesma data e as fases se sobrepunham por um dia. Isso
+   * escapava da tela, mas não do dinheiro: `BonusEligibilityService` começa a
+   * contar a elegibilidade no início da fase INDETERMINATE, então a sobreposição
+   * dava um dia útil a mais de peso a quem foi efetivado — e o peso entra no
+   * divisor B1, que prorrateia o bônus de TODO MUNDO do período. Medido em
+   * 20/08/2026 no período 08/2026: dois efetivados contavam 18/22 e 8/22 em vez
+   * de 17/22 e 7/22.
+   *
+   * A convenção de fases inclusivas `[início, fim]` é a mesma que
+   * `computeContractDates` já aplica ao gerar as datas do vínculo
+   * (`exp2StartAt = exp1EndAt + 1`). Quem chama passa a data real da fase nova
+   * (`exp2StartAt`, `effectedAt`), não o dia em que o cron rodou.
    */
   async transitionContractPhase(
     tx: PrismaTransaction,
@@ -214,7 +228,9 @@ export class EmploymentContractService {
     },
   ): Promise<void> {
     const { contractId, userId, newContractType, date, triggeredBy, reason } = params;
-    await this.closeOpenContractPhase(tx, { contractId, endDate: date });
+    const previousEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    previousEnd.setDate(previousEnd.getDate() - 1);
+    await this.closeOpenContractPhase(tx, { contractId, endDate: previousEnd });
     await this.openContractPhase(tx, {
       contractId,
       userId,
@@ -275,8 +291,7 @@ export class EmploymentContractService {
 
     // Default de situação: vínculo nasce ACTIVE (CLT e off-folha). A situação é
     // binária; experiência é modalidade, não situação.
-    const status =
-      ((data as any).status as CONTRACT_STATUS | undefined) ?? CONTRACT_STATUS.ACTIVE;
+    const status = ((data as any).status as CONTRACT_STATUS | undefined) ?? CONTRACT_STATUS.ACTIVE;
 
     // Integridade categoria × modalidade.
     const integrityError = validateEmployeeContractTypeIntegrity({ employeeType, contractType });
@@ -334,7 +349,8 @@ export class EmploymentContractService {
       entityId: userId,
       action: CHANGE_ACTION.CREATE,
       entity: created,
-      reason: options?.changelogReason ?? `Novo vínculo (sequência ${sequence}) criado para ${user.name}`,
+      reason:
+        options?.changelogReason ?? `Novo vínculo (sequência ${sequence}) criado para ${user.name}`,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       userId: options?.userId || null,
       transaction: tx,
@@ -464,7 +480,9 @@ export class EmploymentContractService {
       };
     } catch (error: any) {
       this.logger.error('Erro ao buscar vínculos:', error);
-      throw new InternalServerErrorException('Erro ao buscar vínculos. Por favor, tente novamente.');
+      throw new InternalServerErrorException(
+        'Erro ao buscar vínculos. Por favor, tente novamente.',
+      );
     }
   }
 
@@ -660,7 +678,9 @@ export class EmploymentContractService {
       updated.contractType !== null
     ) {
       const transitionDate =
-        (updateData.effectedAt as Date | undefined) ?? (updated.effectedAt as Date | null) ?? new Date();
+        (updateData.effectedAt as Date | undefined) ??
+        (updated.effectedAt as Date | null) ??
+        new Date();
       await this.transitionContractPhase(tx, {
         contractId: id,
         userId: existing.userId,
@@ -792,7 +812,9 @@ export class EmploymentContractService {
     } catch (error: any) {
       if (error instanceof NotFoundException) throw error;
       this.logger.error('Erro ao excluir vínculo:', error);
-      throw new InternalServerErrorException('Erro ao excluir vínculo. Por favor, tente novamente.');
+      throw new InternalServerErrorException(
+        'Erro ao excluir vínculo. Por favor, tente novamente.',
+      );
     }
   }
 

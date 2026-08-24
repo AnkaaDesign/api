@@ -759,7 +759,8 @@ export class UserService {
 
     if (!effective.cpf) missing.push('CPF');
     if (effective.payrollNumber == null) missing.push('Número da folha');
-    if (!effective.admissionDate) missing.push('Data de admissão (início do período de experiência)');
+    if (!effective.admissionDate)
+      missing.push('Data de admissão (início do período de experiência)');
     if (!effective.sectorId) missing.push('Setor');
     if (!effective.positionId) missing.push('Cargo');
 
@@ -1141,8 +1142,10 @@ export class UserService {
         effectedAtBeforeUpdate = contractBefore?.effectedAt ?? null;
         contractTypeBeforeUpdate =
           contractBefore?.contractType ??
-          ((existingUser as { currentContractType?: string | null }).currentContractType ?? null);
-        positionIdBeforeUpdate = (existingUser as { positionId?: string | null }).positionId ?? null;
+          (existingUser as { currentContractType?: string | null }).currentContractType ??
+          null;
+        positionIdBeforeUpdate =
+          (existingUser as { positionId?: string | null }).positionId ?? null;
         performanceLevelBeforeUpdate =
           (existingUser as { performanceLevel?: number | null }).performanceLevel ?? null;
 
@@ -1182,12 +1185,10 @@ export class UserService {
           );
         }
 
-        const existingContractType = (existingUser as any).currentContractType as
-          | CONTRACT_TYPE
-          | null;
-        const existingContractStatus = (existingUser as any).currentContractStatus as
-          | CONTRACT_STATUS
-          | null;
+        const existingContractType = (existingUser as any)
+          .currentContractType as CONTRACT_TYPE | null;
+        const existingContractStatus = (existingUser as any)
+          .currentContractStatus as CONTRACT_STATUS | null;
 
         // A termination date implies the contract status becomes TERMINATED.
         if (
@@ -1221,7 +1222,11 @@ export class UserService {
         }
 
         // Validate the contract MODALITY transition within the current vínculo.
-        if (data.contractType && existingContractType && data.contractType !== existingContractType) {
+        if (
+          data.contractType &&
+          existingContractType &&
+          data.contractType !== existingContractType
+        ) {
           const transitionValidation = this.validateUserStatusTransition(
             existingContractType,
             data.contractType as CONTRACT_TYPE,
@@ -1475,7 +1480,8 @@ export class UserService {
           if (data.hasOwnProperty('hasArt481Clause'))
             contractUpdate.hasArt481Clause = (data as any).hasArt481Clause ?? false;
           if (data.hasOwnProperty('insalubrityDegreeOverride'))
-            contractUpdate.insalubrityDegreeOverride = (data as any).insalubrityDegreeOverride ?? null;
+            contractUpdate.insalubrityDegreeOverride =
+              (data as any).insalubrityDegreeOverride ?? null;
           if (data.hasOwnProperty('hazardPayOverride'))
             contractUpdate.hazardPayOverride = (data as any).hazardPayOverride ?? null;
           if (data.hasOwnProperty('stabilityType'))
@@ -2023,7 +2029,6 @@ export class UserService {
     };
   }
 
-
   /**
    * Excluir múltiplos usuários
    */
@@ -2344,6 +2349,27 @@ export class UserService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      /**
+       * O DIA SEGUINTE ao fim de uma fase — que é quando a próxima começa.
+       *
+       * `computeContractDates` já escreve a regra na criação do vínculo
+       * (`exp2StartAt = exp1EndAt + 1`), e `effectedAt` no banco é sempre
+       * `exp2EndAt + 1`. A transição precisa carimbar a MESMA data, senão a
+       * fase nova nasce sobrepondo o último dia da anterior.
+       *
+       * Isso não é cosmético: `BonusEligibilityService` mede a elegibilidade
+       * pelo início da fase INDETERMINATE, então um dia a mais aqui é um dia
+       * útil a mais de peso — e o peso é o que entra no divisor B1 e prorrateia
+       * o bônus de TODO MUNDO do período. Medido em 20/08/2026: José Moreira
+       * (fase aberta em 31/07 em vez de 01/08) e Paulo Henrique (14/08 em vez
+       * de 15/08) contavam 18/22 e 8/22 em vez de 17/22 e 7/22.
+       */
+      const dayAfter = (d: Date): Date => {
+        const next = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        next.setDate(next.getDate() + 1);
+        return next;
+      };
+
       // Find CURRENT CLT contracts in EXPERIENCE_PERIOD_1 whose exp1 ended today or
       // earlier AND which HAVE phase-2 dates configured. Without phase-2 dates the
       // contract has a single phase and must go straight to efetivação below (never
@@ -2363,7 +2389,10 @@ export class UserService {
           ...NOT_TERMINATED_CONTRACT_WHERE,
           contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
           employeeType: EMPLOYEE_TYPE.CLT,
-          exp1EndAt: { lt: tomorrow },
+          // `lt: today`, não `lt: tomorrow`: a fase 1 vai ATÉ `exp1EndAt`
+          // inclusive, então a fase 2 só começa no dia seguinte. Com `tomorrow`
+          // o cron avançava a fase no PRÓPRIO último dia da fase 1.
+          exp1EndAt: { lt: today },
           exp2StartAt: { not: null },
           exp2EndAt: { not: null },
           ...(userId ? { userId } : {}),
@@ -2389,11 +2418,17 @@ export class UserService {
             });
 
             // Histórico de fases: encerra a fase de experiência 1 e abre a fase 2.
+            //
+            // A data é a do CONTRATO, não a do dia em que o cron rodou: se o
+            // cron atrasar (feriado, API fora), a fase 2 continua tendo começado
+            // no dia certo. `exp2StartAt` já vem de `computeContractDates` como
+            // `exp1EndAt + 1`.
             await this.employmentContractService.transitionContractPhase(tx, {
               contractId: contract.id,
               userId: contract.userId,
               newContractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
-              date: today,
+              date:
+                contract.exp2StartAt ?? (contract.exp1EndAt ? dayAfter(contract.exp1EndAt) : today),
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               reason: 'Fim do período de experiência 1',
             });
@@ -2449,16 +2484,21 @@ export class UserService {
           ...(userId ? { userId } : {}),
           OR: [
             // Phase-2 contracts: efetivate when exp2 has passed.
+            //
+            // `lt: today`, não `lt: tomorrow`: a experiência vai ATÉ `exp2EndAt`
+            // inclusive; a efetivação é no dia SEGUINTE (é o que `effectedAt`
+            // guarda: sempre `exp2EndAt + 1`). Com `tomorrow` o cron efetivava
+            // no próprio último dia de experiência.
             {
               contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_2,
-              exp2EndAt: { not: null, lt: tomorrow },
+              exp2EndAt: { not: null, lt: today },
             },
             // Single-phase contracts (still EXPERIENCE_PERIOD_1, no exp2 dates):
             // efetivate when exp1 has passed.
             {
               contractType: CONTRACT_TYPE.EXPERIENCE_PERIOD_1,
               exp2EndAt: null,
-              exp1EndAt: { lt: tomorrow },
+              exp1EndAt: { lt: today },
             },
           ],
         },
@@ -2506,12 +2546,28 @@ export class UserService {
 
             // Efetivação (CLT art. 451): modalidade → INDETERMINATE, grava effectedAt
             // (status permanece ACTIVE; e promove o cargo se houver hierarquia superior).
+            // A data da efetivação é a do CONTRATO — o dia seguinte ao fim da
+            // experiência —, não o dia em que o cron rodou. Se o cron atrasar, a
+            // pessoa continua tendo sido efetivada no dia certo; carimbar
+            // `today` deslocaria a fase (e o peso da bonificação) junto com o
+            // atraso.
+            const experienceEnd = contract.exp2EndAt ?? contract.exp1EndAt;
+            const effectivationDate = contract.effectedAt
+              ? new Date(
+                  contract.effectedAt.getFullYear(),
+                  contract.effectedAt.getMonth(),
+                  contract.effectedAt.getDate(),
+                )
+              : experienceEnd
+                ? dayAfter(experienceEnd)
+                : today;
+
             await tx.employmentContract.update({
               where: { id: contract.id },
               data: {
                 contractType: CONTRACT_TYPE.INDETERMINATE,
                 // Stamp effectedAt only if not already set (idempotent re-runs).
-                ...(contract.effectedAt ? {} : { effectedAt: today }),
+                ...(contract.effectedAt ? {} : { effectedAt: effectivationDate }),
                 ...(shouldPromote && { positionId: nextPosition!.id }),
               },
             });
@@ -2522,7 +2578,7 @@ export class UserService {
               contractId: contract.id,
               userId: user.id,
               newContractType: CONTRACT_TYPE.INDETERMINATE,
-              date: today,
+              date: effectivationDate,
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               reason: 'Efetivação após período de experiência',
             });
