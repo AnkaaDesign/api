@@ -70,6 +70,7 @@ import {
   phoneMaskParts,
   onlyDigits,
   cpfMaskParts,
+  fitCargo,
 } from '../utils/identity';
 import {
   generateSignatureInvitationEmail,
@@ -177,6 +178,16 @@ function driftDetailOf(eventType: string, payload: unknown): string | null {
 export interface SignatureDeliveryResult {
   ok: boolean;
   reason: string | null;
+  /**
+   * Código estável da GUARDA DE SAÍDA do WhatsApp (`RECIPIENT_DAILY_CAP`,
+   * `BREAKER_ALL`, `COLD_OUTSIDE_WINDOW`, …), quando foi ela que recusou.
+   *
+   * Ausente numa falha de transporte. É essa diferença — política contra
+   * transporte — que decide o que se diz ao signatário: teto de guarda é por
+   * DIA ou por hora, e mandá-lo "tentar novamente em instantes" o punha a
+   * reapertar o botão contra uma parede que só cai amanhã.
+   */
+  code?: string | null;
 }
 
 @Injectable()
@@ -1010,6 +1021,10 @@ export class SignatureEnvelopeService {
           // disjuntor aberto ou telefone errado — três problemas com três
           // condutas diferentes.
           ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+        // O código da guarda de saída, quando foi ela que recusou. A trilha é
+        // o único lugar onde o motivo EXATO fica: o texto da guarda é escrito
+        // para o operador e não é repassado ao signatário.
+        ...(delivery.code ? { failureCode: delivery.code } : {}),
         },
       });
     }
@@ -1332,10 +1347,15 @@ export class SignatureEnvelopeService {
         // ramo do User, o signatário da Ankaa caía no campo livre e digitava um
         // cargo que o próprio sistema já conhece — e que, digitado à mão, entra
         // na declaração de poderes de representação.
+        // `fitCargo`: as funções vêm juntas por ", " e um contato com as nove
+        // do cadastro passa de 113 caracteres — acima do teto que o PRÓPRIO
+        // `signatureRequestCodeSchema` impõe ao devolver esse valor no envio.
+        // O cliente mandava de volta o que recebeu e levava 400 sem ter o que
+        // corrigir: nada na tela era digitado por ele.
         registryCargo:
-          formatResponsibleRoles(signer.responsible?.roles ?? []) ||
-          signer.user?.position?.name?.trim() ||
-          signer.user?.sector?.name?.trim() ||
+          fitCargo(formatResponsibleRoles(signer.responsible?.roles ?? [])) ||
+          fitCargo(signer.user?.position?.name ?? '') ||
+          fitCargo(signer.user?.sector?.name ?? '') ||
           null,
         signedAt: signer.signedAt,
       },
@@ -1591,9 +1611,7 @@ export class SignatureEnvelopeService {
       // verificação e para bloquear a próxima emissão.
       await this.challenges.supersedeAllForSigner(signer.id);
       throw new BadRequestException(
-        otpChannel === 'WHATSAPP'
-          ? 'Não foi possível enviar o código pelo WhatsApp. Tente novamente em instantes ou fale com a Ankaa.'
-          : 'Não foi possível enviar o código para o seu e-mail. Tente novamente em instantes ou fale com a Ankaa.',
+        this.otpDeliveryFailureMessage(otpChannel, delivery.code),
       );
     }
 
@@ -1607,6 +1625,39 @@ export class SignatureEnvelopeService {
       channel: otpChannel,
       expiresAt: challenge.expiresAt,
     };
+  }
+
+  /**
+   * O que o SIGNATÁRIO lê quando o código não sai.
+   *
+   * "Tente novamente em instantes" era mentira para toda recusa da guarda de
+   * saída: os tetos dela são por DIA e por hora, e o disjuntor segura por
+   * horas. O signatário reapertava o botão contra uma parede que só cai no dia
+   * seguinte, e a frase ainda o convencia de que era ele que estava com
+   * pressa.
+   *
+   * O TEXTO DA GUARDA NÃO É REPASSADO. Ele é escrito para o operador ("use
+   * e-mail nesta coleta", "peça ao cliente que mande uma mensagem para o
+   * número da Ankaa") e vira instrução sem sentido lida por quem está do outro
+   * lado — que não tem acesso a nenhuma das duas coisas. O motivo exato fica na
+   * trilha (`OTP_DELIVERY_FAILED`) e no log, que é onde o operador olha.
+   *
+   * A distinção é pela PRESENÇA do código, e não por uma lista de códigos:
+   * falha de transporte não tem código, e uma regra nova na guarda não pode
+   * ficar de fora por esquecimento de atualizar uma lista aqui.
+   */
+  private otpDeliveryFailureMessage(
+    channel: SignatureDeliveryChannel,
+    code?: string | null,
+  ): string {
+    const destino = channel === 'WHATSAPP' ? 'pelo WhatsApp' : 'para o seu e-mail';
+    if (code) {
+      return (
+        `Não foi possível enviar o código ${destino} agora. Tentar de novo em ` +
+        'seguida não resolve — fale com a Ankaa para concluir a assinatura.'
+      );
+    }
+    return `Não foi possível enviar o código ${destino}. Tente novamente em instantes ou fale com a Ankaa.`;
   }
 
   /** Etapa 2: validação do código + aplicação da assinatura. */

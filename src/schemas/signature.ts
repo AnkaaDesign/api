@@ -102,6 +102,16 @@ const clientTimestampSchema = z
  * do cadastro e o signatário NÃO o edita (é isso que dá peso probatório ao OTP);
  * ele só confirma que o conhece.
  */
+/**
+ * Teto de `cargo`, compartilhado com quem PRODUZ o valor.
+ *
+ * Existe como constante porque `registryCargo` não é digitado por ninguém: o
+ * envelope o monta a partir de `Responsible.roles`, e um contato com as nove
+ * funções do cadastro rendia 113 caracteres — a api recusava o próprio valor
+ * que acabara de emitir, e a assinatura não tinha como sair.
+ */
+export const SIGNATURE_CARGO_MAX_LENGTH = 100;
+
 export const signatureRequestCodeSchema = z.object({
   cpf: z
     .string({ required_error: 'Informe seu CPF.', invalid_type_error: 'Informe seu CPF.' })
@@ -111,7 +121,10 @@ export const signatureRequestCodeSchema = z.object({
     .string({ required_error: 'Informe seu cargo na empresa.' })
     .trim()
     .min(2, 'Informe seu cargo na empresa.')
-    .max(100, 'Cargo deve ter no máximo 100 caracteres.'),
+    .max(
+      SIGNATURE_CARGO_MAX_LENGTH,
+      `Cargo deve ter no máximo ${SIGNATURE_CARGO_MAX_LENGTH} caracteres.`,
+    ),
   /**
    * Caracteres ocultos do CONTATO — da parte local do e-mail, ou dos dígitos do
    * meio do telefone, conforme o canal em que a coleta foi emitida.

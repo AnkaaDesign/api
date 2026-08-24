@@ -1,3 +1,4 @@
+import { SIGNATURE_CARGO_MAX_LENGTH } from '@schemas/signature';
 /**
  * Normalização e mascaramento de identificadores para o selo e a trilha.
  *
@@ -246,4 +247,30 @@ export function normalizeVerificationCode(input: string): string {
     .replace(/U/g, 'V');
   if (clean.length !== 12) return clean;
   return `${clean.slice(0, 4)}-${clean.slice(4, 8)}-${clean.slice(8, 12)}`;
+}
+
+/**
+ * Encaixa um cargo no teto que `signatureRequestCodeSchema` impõe, sem partir
+ * palavra.
+ *
+ * `registryCargo` não é digitado por ninguém: sai de
+ * `formatResponsibleRoles(Responsible.roles)`, que junta TODAS as funções do
+ * contato com ", ". Com as nove do cadastro dá 113 caracteres — a api devolvia
+ * ao cliente um valor que ela mesma recusa no envio seguinte, e a assinatura
+ * morria em "Dados do corpo da requisição inválidos" sem que houvesse nada na
+ * tela para corrigir.
+ *
+ * O corte é na última vírgula que couber, e só então no último espaço: este
+ * texto entra na declaração de poderes de representação que o signatário
+ * aceita, e "…Gestor de Frota, Motor" não é um cargo que alguém possa declarar.
+ */
+export function fitCargo(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim();
+  if (value.length <= SIGNATURE_CARGO_MAX_LENGTH) return value;
+  const head = value.slice(0, SIGNATURE_CARGO_MAX_LENGTH);
+  for (const separator of [', ', ' ']) {
+    const cut = head.lastIndexOf(separator);
+    if (cut > 0) return head.slice(0, cut).trim();
+  }
+  return head.trim();
 }

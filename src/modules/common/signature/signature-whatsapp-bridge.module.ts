@@ -96,6 +96,11 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
           return {
             ok: false,
             reason: refused ? message_ : 'Não foi possível falar com o WhatsApp.',
+            // O código estável da guarda (`RECIPIENT_DAILY_CAP`, `BREAKER_ALL`,
+            // …). É o que deixa a cerimônia distinguir política de falha de
+            // transporte — e, com isso, parar de mandar o signatário tentar em
+            // instantes contra um teto que é diário.
+            code: refused ? ((error as { code?: string }).code ?? 'REFUSED') : null,
           };
         }
       },

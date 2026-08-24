@@ -45,7 +45,8 @@ import { CacheService } from '../cache/cache.service';
  * CRITICAL é o código de uso único da assinatura: o cliente está com a tela
  * aberta esperando. Ele nunca é primeiro contato do ponto de vista do
  * destinatário — foi ELE quem pediu, tocando no link. Por isso anda na frente da
- * fila, com intervalo curto, e não consome o teto de contato frio.
+ * fila, com intervalo curto, não consome o teto de contato frio e responde a um
+ * teto por destinatário próprio (`PER_RECIPIENT_PER_DAY_CRITICAL`).
  */
 export type OutboundPriority = 'CRITICAL' | 'NORMAL';
 
@@ -67,12 +68,44 @@ export interface OutboundBreakerState {
   reason: string;
 }
 
-/** Tetos. Os de contato frio são política de negócio, não limite técnico. */
-const COLD_PER_HOUR = 5;
-const COLD_PER_DAY = 20;
+/**
+ * Tetos. Os de contato frio são política de negócio, não limite técnico.
+ *
+ * OS DOIS GRUPOS NÃO CARREGAM O MESMO RISCO, e é por isso que subiram em
+ * proporções diferentes. O que a plataforma pune — e o que derrubou o número
+ * anterior — é abrir CONVERSA NOVA em rajada; os tetos `COLD_*` são os que
+ * governam isso, então sobem pouco e com relutância. Já o teto por
+ * destinatário conta mensagens numa conversa que JÁ existe, que não consome
+ * cota de `INDIVIDUAL_NEW_CHAT_MSG` nenhuma: subir esse é quase de graça.
+ */
+const COLD_PER_HOUR = 6;
+const COLD_PER_DAY = 25;
 /** Rede de segurança contra um lote acidental; não é um alvo. */
-const GLOBAL_PER_DAY = 200;
-const PER_RECIPIENT_PER_DAY = 6;
+const GLOBAL_PER_DAY = 300;
+const PER_RECIPIENT_PER_DAY = 12;
+
+/**
+ * Teto do CRITICAL no MESMO contador por destinatário.
+ *
+ * Existe porque o teto comum travava a cerimônia. `PER_RECIPIENT_PER_DAY` é
+ * uma medida contra INSISTÊNCIA — mandar mais uma para quem não respondeu — e
+ * o código de uso único é o oposto disso: o destinatário pediu, agora, com a
+ * tela aberta. Um signatário que já tinha recebido convite, lembrete e avisos
+ * chegava ao botão "Enviar código" e batia num teto que não foi feito para
+ * ele; a assinatura ficava impossível de concluir até o dia virar, e a tela
+ * ainda mandava tentar de novo em instantes.
+ *
+ * É a mesma leitura que já vale para o disjuntor logo abaixo: o 463 abre o
+ * disjuntor de contato FRIO e não o de tudo, justamente para não deixar o
+ * cliente preso no meio da cerimônia por um limite que não se aplica a ele.
+ *
+ * Não é isenção: continua havendo parede, e ela vale para o total do dia
+ * daquele número (convites, lembretes e códigos somados). O que impede
+ * enxurrada de OTP não é este teto — é o intervalo de 60 s entre reenvios e o
+ * bloqueio em cinco tentativas, na própria cerimônia, mais a deduplicação de
+ * corpo idêntico aqui do lado.
+ */
+const PER_RECIPIENT_PER_DAY_CRITICAL = 20;
 
 /** Janela em que o mesmo corpo para o mesmo número é recusado. */
 const IDENTICAL_BODY_TTL_SECONDS = 6 * 60 * 60;
@@ -443,12 +476,14 @@ export class WhatsAppOutboundGuard {
 
     const { day, hour, weekday } = spParts(new Date());
 
-    if (await this.overCap(`${this.PREFIX}to:${phone}:${day}`, PER_RECIPIENT_PER_DAY)) {
+    const recipientCap =
+      priority === 'CRITICAL' ? PER_RECIPIENT_PER_DAY_CRITICAL : PER_RECIPIENT_PER_DAY;
+    if (await this.overCap(`${this.PREFIX}to:${phone}:${day}`, recipientCap)) {
       return {
         allowed: false,
         cold,
         code: 'RECIPIENT_DAILY_CAP',
-        reason: `Este número já recebeu ${PER_RECIPIENT_PER_DAY} mensagens hoje.`,
+        reason: `Este número já recebeu ${recipientCap} mensagens hoje.`,
       };
     }
 
@@ -539,7 +574,13 @@ export class WhatsAppOutboundGuard {
     coldToday: number;
     coldThisHour: number;
     totalToday: number;
-    caps: { coldPerHour: number; coldPerDay: number; globalPerDay: number };
+    caps: {
+      coldPerHour: number;
+      coldPerDay: number;
+      globalPerDay: number;
+      perRecipientPerDay: number;
+      perRecipientPerDayCritical: number;
+    };
     breaker: OutboundBreakerState | null;
   }> {
     const { day, hour } = spParts(new Date());
@@ -553,6 +594,8 @@ export class WhatsAppOutboundGuard {
         coldPerHour: COLD_PER_HOUR,
         coldPerDay: COLD_PER_DAY,
         globalPerDay: GLOBAL_PER_DAY,
+        perRecipientPerDay: PER_RECIPIENT_PER_DAY,
+        perRecipientPerDayCritical: PER_RECIPIENT_PER_DAY_CRITICAL,
       },
       breaker: await this.breakerState(),
     };
