@@ -38,7 +38,7 @@ export interface NotificationPreference extends BaseEntity {
 export interface Preferences extends BaseEntity {
   userId: string;
   colorSchema: COLOR_SCHEMA;
-  pricesVisibleByDefault: boolean; // "Mostrar valores por padrão": start each page with money visible (true) or masked (false)
+  pricesVisibleByDefault: boolean; // "Valores em dinheiro": the user's saved money-visibility — true = money renders normally, false = masked (R$ ••••••). Shared by web and mobile; both the eye toggle and the Preferências radio write it.
   favorites?: string[]; // Array of FAVORITE_PAGES enum values
   dashboardLayoutWeb?: unknown | null; // DashboardLayout JSON; validated at the dashboard module
   dashboardLayoutMobile?: unknown | null;

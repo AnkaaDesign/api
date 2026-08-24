@@ -198,9 +198,9 @@ export const preferencesCreateSchema = z
         errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .default(COLOR_SCHEMA.LIGHT),
-    // "Mostrar valores por padrão": false = money starts masked on every load/navigation
-    // (the eye reveals it), true = starts visible (the eye hides it). Only the DEFAULT is
-    // persisted; the live on/off state is in-memory on the client.
+    // "Valores em dinheiro": the user's saved money-visibility — false (default) = every
+    // money value renders masked (R$ ••••••), true = renders normally. One setting shared
+    // by web and mobile; both the eye toggle and the Preferências radio write it.
     pricesVisibleByDefault: z.boolean().default(false).optional(),
     // Route-path strings. Relaxed from the FAVORITE_PAGES enum (2026-07): the
     // Flutter app persists its menu paths here and the enum lagged behind the
@@ -225,7 +225,7 @@ export const preferencesUpdateSchema = z
         errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .optional(),
-    // See create schema — only the DEFAULT visibility is persisted.
+    // See create schema — one saved money-visibility, shared by web and mobile.
     pricesVisibleByDefault: z.boolean().optional(),
     // Route-path strings (see create schema note — relaxed from FAVORITE_PAGES).
     favorites: z

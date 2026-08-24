@@ -2444,7 +2444,7 @@ model Preferences {
   id                     String      @id @default(uuid())
   userId                 String      @unique
   colorSchema            ColorSchema @default(LIGHT)
-  pricesVisibleByDefault Boolean     @default(false) /// "Mostrar valores por padrão": false (default) = money starts MASKED on every page load/navigation and the eye reveals it; true = money starts VISIBLE and the eye hides it. Only the DEFAULT is persisted — the current on/off state stays in memory and resets to this on reload/navigation.
+  pricesVisibleByDefault Boolean     @default(false) /// "Valores em dinheiro": the user's saved money-visibility. false (default) = every money value renders masked (R$ ••••••); true = they render normally. Written by BOTH controls on BOTH clients — the eye toggle (web sidebar / mobile drawer) and the Preferências radio — so the choice follows the account across devices and survives navigation, reload and app restart. Clients keep a local mirror only to avoid a wrong first frame; this column is the source of truth.
   favorites              String[]    @default([])
   dashboardLayoutWeb     Json?
   dashboardLayoutMobile  Json?
