@@ -14,7 +14,9 @@ import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { TruckService } from './truck.service';
+import { truckUpdateSchema } from '../../../schemas/truck';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
+import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import type { GarageId } from '../../../constants/garage';
 import { getGarageForSectorName, getSectorNameForGarage } from '../../../constants/garage';
 import type { UserPayload } from '@modules/common/auth/decorators/user.decorator';
@@ -235,7 +237,11 @@ export class TruckController {
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() data: TruckUpdateFormData,
+    // `TruckUpdateFormData` é só um tipo (`import type`, apagado em runtime) — a
+    // rota gravava a placa exatamente como chegasse: minúscula, com hífen, de
+    // qualquer tamanho. O `truckUpdateSchema` existia e não estava plugado em
+    // pipe nenhum, então toda a validação de placa vinha do caminho de Tarefa.
+    @Body(new ZodValidationPipe(truckUpdateSchema)) data: TruckUpdateFormData,
     @Query() query: any,
     @UserId() userId: string,
     @User() user: UserPayload,

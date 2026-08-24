@@ -8,6 +8,8 @@ import {
   cleanEmail,
   cleanSmsCode,
   cleanContactMethod,
+  cleanPlate,
+  cleanChassis,
 } from '@utils';
 import {
   isValidCNPJ,
@@ -17,6 +19,12 @@ import {
   isValidEmail,
   isValidSmsCode,
   isValidContactMethod,
+  isValidPlate,
+  PLATE_INVALID_MESSAGE,
+  CHASSIS_INVALID_MESSAGE,
+  CHASSIS_FORBIDDEN_LETTERS_MESSAGE,
+  CHASSIS_LENGTH_REGEX,
+  CHASSIS_FORBIDDEN_LETTERS,
 } from '@utils';
 import { z } from 'zod';
 
@@ -144,6 +152,47 @@ export const cnpjOptionalSchema = z
     },
     { message: 'CNPJ inválido' },
   );
+
+// Placa e chassi — campo ÚNICO, usado por todo schema que aceita esses valores
+// (truck.ts e o `truck` aninhado de task.ts). A ordem importa: NORMALIZA antes
+// de validar. A tela de orçamento manda a placa exatamente como foi digitada, e
+// a regra antiga exigia maiúsculas — "abb4886" virava 400 com o usuário olhando
+// para um campo que parecia certo.
+//
+// O valor gravado é sempre limpo (maiúsculo, só [A-Z0-9], sem separador): as
+// colunas `plateNormalized`/`chassisNumberNormalized` são geradas com
+// `lower(unaccent(col))` e PRESERVAM pontuação, então uma placa gravada como
+// "ABC-1234" desapareceria da busca por "abc1234". Hífen e espaço são camada de
+// apresentação, e vivem no `formatPlate`/`formatChassis` do front.
+//
+// Aceita os dois padrões brasileiros indistintamente: antigo AAA9999 e Mercosul
+// AAA9A99 (só divergem na 5ª posição).
+export const plateSchema = z
+  .string()
+  .nullable()
+  .optional()
+  .transform(val => (typeof val === 'string' ? cleanPlate(val) : val))
+  .transform(val => (val === '' ? null : val))
+  .refine(val => !val || isValidPlate(val), { message: PLATE_INVALID_MESSAGE });
+
+export const chassisNumberSchema = z
+  .string()
+  .nullable()
+  .optional()
+  .transform(val => (typeof val === 'string' ? cleanChassis(val) : val))
+  .transform(val => (val === '' ? null : val))
+  // Duas mensagens distintas de propósito: "17 caracteres" não ajuda em nada
+  // quem digitou um O no lugar do 0 num chassi que já tem 17.
+  .superRefine((val, ctx) => {
+    if (!val) return;
+    if (!CHASSIS_LENGTH_REGEX.test(val)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: CHASSIS_INVALID_MESSAGE });
+      return;
+    }
+    if (CHASSIS_FORBIDDEN_LETTERS.test(val)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: CHASSIS_FORBIDDEN_LETTERS_MESSAGE });
+    }
+  });
 
 export const phoneSchema = z
   .string()
@@ -750,6 +799,18 @@ export const normalizeSearchTerm = (value: string): string =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+
+/**
+ * Termo de busca para as colunas `plateNormalized`/`chassisNumberNormalized`.
+ *
+ * Essas colunas são geradas como `lower(immutable_unaccent(col))` — ou seja,
+ * PRESERVAM pontuação — enquanto o valor é gravado sempre limpo (`ABC1234`).
+ * Como a interface exibe a placa antiga com hífen (`ABC-1234`), quem copia da
+ * tela e cola na busca procuraria por algo que não existe no banco. Aqui o
+ * separador cai fora do TERMO, do mesmo jeito que cai fora do valor gravado.
+ */
+export const normalizeVehicleSearchTerm = (value: string): string =>
+  normalizeSearchTerm(value).replace(/[^a-z0-9]/g, '');
 
 // Create search OR conditions
 export const createSearchTransform = (searchingFor: string, fields: string[]) => {

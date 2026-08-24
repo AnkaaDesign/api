@@ -8,6 +8,7 @@ import {
   nullableDate,
   moneySchema,
   normalizeSearchTerm,
+  normalizeVehicleSearchTerm,
 } from './common';
 import type { TaskQuote } from '@types';
 import {
@@ -386,7 +387,7 @@ const taskQuoteTransform = (data: any) => {
       // Logomarca + série (direct task fields)
       { task: { nameNormalized: { contains: term } } },
       { task: { serialNumberNormalized: { contains: term } } },
-      { task: { truck: { plateNormalized: { contains: term } } } },
+      { task: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } } },
       // Cliente — task's own customer and each billing customer config
       { task: { customer: { fantasyNameNormalized: { contains: term } } } },
       { task: { customer: { corporateNameNormalized: { contains: term } } } },

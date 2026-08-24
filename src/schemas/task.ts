@@ -11,7 +11,10 @@ import {
   nullableDate,
   moneySchema,
   normalizeSearchTerm,
+  normalizeVehicleSearchTerm,
   cpfSchema,
+  plateSchema,
+  chassisNumberSchema,
 } from './common';
 import type { Task } from '@types';
 import {
@@ -1370,8 +1373,8 @@ const taskTransform = (data: any): any => {
       { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       // Truck search - plate, chassisNumber
-      { truck: { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
-      { truck: { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
+      { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
+      { truck: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
       // Billing customers ("Faturar Para") — the quote's customer configs, which
       // are usually different customers than the task's own customer
       { quote: { customerConfigs: { some: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
@@ -2487,27 +2490,12 @@ const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
 const taskTruckSchema = z
   .object({
     // Basic truck fields
-    plate: z
-      .string()
-      .nullable()
-      .optional()
-      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
-        message: 'Placa deve conter apenas letras maiúsculas, números e hífens',
-      }),
-    chassisNumber: z
-      .string()
-      .nullable()
-      .optional()
-      .refine(
-        val => {
-          if (!val) return true;
-          const cleaned = val.replace(/\s/g, '').toUpperCase();
-          return /^[A-Z0-9]{17}$/.test(cleaned);
-        },
-        {
-          message: 'Número do chassi deve ter exatamente 17 caracteres alfanuméricos',
-        },
-      ),
+    // Campo único, compartilhado com truckCreateSchema/truckUpdateSchema — ver
+    // `plateSchema`/`chassisNumberSchema` em schemas/common.ts. O chassi antes
+    // validava uma CÓPIA limpa e gravava o original, então espaço e minúscula
+    // entravam no banco (e saíam assim na NFS-e e no boleto).
+    plate: plateSchema,
+    chassisNumber: chassisNumberSchema,
     // Foto da plaqueta (VIN). Id de File já enviado; o upload multipart usa o campo `truckVinPlate`.
     vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
     spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null

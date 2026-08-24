@@ -496,6 +496,8 @@ export class PaintService {
   private async findPaintIdsByTaskSearch(searchTerm: string): Promise<string[]> {
     try {
       const searchPattern = `%${searchTerm}%`;
+      // A placa é gravada sem separador; o termo tem que perder o hífen também.
+      const platePattern = `%${searchTerm.replace(/[^a-zA-Z0-9]/g, '')}%`;
       this.logger.log(`Task search: searching for "${searchTerm}" with pattern "${searchPattern}"`);
 
       const result = await this.prisma.$queryRaw<{ id: string }[]>`
@@ -508,10 +510,10 @@ export class PaintService {
         LEFT JOIN "Truck" tr2 ON tr2."taskId" = t2.id
         WHERE LOWER(immutable_unaccent(t1.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
            OR LOWER(immutable_unaccent(t1."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(tr1.plate)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(tr1.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
            OR LOWER(immutable_unaccent(t2.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
            OR LOWER(immutable_unaccent(t2."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(tr2.plate)) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(tr2.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
       `;
 
       const ids = result.map(row => row.id);

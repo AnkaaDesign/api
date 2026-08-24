@@ -7,6 +7,9 @@ import {
   normalizeOrderBy,
   createNameSchema,
   normalizeSearchTerm,
+  normalizeVehicleSearchTerm,
+  plateSchema,
+  chassisNumberSchema,
 } from './common';
 import type { Truck } from '@types';
 import { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
@@ -235,8 +238,8 @@ const truckTransform = (data: any): any => {
     andConditions.push({
       OR: [
         // Direct truck fields
-        { plateNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-        { chassisNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+        { plateNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } },
+        { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } },
         // Related task
         { task: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
         { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
@@ -479,11 +482,6 @@ export const truckGetManySchema = z
   })
   .transform(truckTransform);
 
-// Brazilian license plate patterns (after hyphen removal by transform)
-// Old format: ABC1234 (3 letters + 4 numbers)
-// Mercosul format: ABC1D23 (3 letters + 1 number + 1 letter + 2 numbers)
-const brazilianPlateRegex = /^[A-Z]{3}[0-9]{4}$|^[A-Z]{3}[0-9][A-Z][0-9]{2}$/i;
-
 // =====================
 // CRUD Schemas
 // =====================
@@ -491,21 +489,8 @@ const brazilianPlateRegex = /^[A-Z]{3}[0-9]{4}$|^[A-Z]{3}[0-9][A-Z][0-9]{2}$/i;
 // Create schema
 export const truckCreateSchema = z.object({
   // Identification fields
-  plate: z
-    .string()
-    .max(8, 'Placa deve ter no máximo 8 caracteres')
-    .transform(val => val.toUpperCase().replace(/[^A-Z0-9]/g, ''))
-    .refine(val => brazilianPlateRegex.test(val), {
-      message: 'Formato de placa inválido (ex: ABC1234 ou ABC1D23)',
-    })
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
-  chassisNumber: z
-    .string()
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
+  plate: plateSchema,
+  chassisNumber: chassisNumberSchema,
   vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
 
   // Truck specifications
@@ -525,21 +510,8 @@ export const truckCreateSchema = z.object({
 // Update schema
 export const truckUpdateSchema = z.object({
   // Identification fields
-  plate: z
-    .string()
-    .max(8, 'Placa deve ter no máximo 8 caracteres')
-    .transform(val => val.toUpperCase().replace(/[^A-Z0-9]/g, ''))
-    .refine(val => brazilianPlateRegex.test(val), {
-      message: 'Formato de placa inválido (ex: ABC1234 ou ABC1D23)',
-    })
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
-  chassisNumber: z
-    .string()
-    .nullable()
-    .optional()
-    .transform(val => (val === '' ? null : val)),
+  plate: plateSchema,
+  chassisNumber: chassisNumberSchema,
   vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
 
   // Truck specifications

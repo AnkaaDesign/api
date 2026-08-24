@@ -167,6 +167,7 @@ export class ReceivableTaskMatchService {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
     const digits = ReceivableTaskMatchService.onlyDigits(term);
+    const plateTerm = normalized.replace(/[^a-z0-9]/g, '');
 
     const rows = await this.prisma.task.findMany({
       where: {
@@ -174,8 +175,10 @@ export class ReceivableTaskMatchService {
         OR: [
           { nameNormalized: { contains: normalized } },
           { serialNumberNormalized: { contains: normalized } },
-          { truck: { plateNormalized: { contains: normalized } } },
-          { truck: { chassisNumberNormalized: { contains: normalized } } },
+          // Placa e chassi entram no banco sem separador — o termo perde o
+          // hífen também, senão colar "ABC-1234" da tela não casa nada.
+          { truck: { plateNormalized: { contains: plateTerm } } },
+          { truck: { chassisNumberNormalized: { contains: plateTerm } } },
           { customer: { fantasyNameNormalized: { contains: normalized } } },
           { customer: { corporateNameNormalized: { contains: normalized } } },
           ...(digits.length >= 3

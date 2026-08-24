@@ -9,6 +9,7 @@ import {
   nullableDate,
   toFormData,
   normalizeSearchTerm,
+  normalizeVehicleSearchTerm,
 } from './common';
 import type { Airbrushing } from '@types';
 import {
@@ -626,7 +627,7 @@ const airbrushingTransform = (data: any): any => {
         // "Identificador" — the task serial, falling back to the truck plate (both are what the
         // Identificador column renders, so searching either must find the row).
         { task: { serialNumberNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
-        { task: { truck: { plateNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
+        { task: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(data.searchingFor) } } } },
       ],
     });
     delete data.searchingFor;

@@ -7,6 +7,7 @@ import {
   normalizeOrderBy,
   emailSchema,
   normalizeSearchTerm,
+  normalizeVehicleSearchTerm,
 } from './common';
 import type { Customer } from '@types';
 import { isValidCPF, isValidCNPJ, cleanCNPJ, cleanCPF } from '@utils';
@@ -593,7 +594,7 @@ const customerTransform = (data: any) => {
       { stateNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { neighborhoodNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { addressNormalized: { contains: normalizeSearchTerm(searchingFor) } },
-      { tasks: { some: { truck: { plateNormalized: { contains: normalizeSearchTerm(searchingFor) } } } } },
+      { tasks: { some: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchingFor) } } } } },
       { tasks: { some: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } },
     ];
 

@@ -3,7 +3,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { canAccessAnyPrivilege } from '../../../utils/privilege';
-import { normalizeSearchTerm } from '../../../schemas/common';
+import { normalizeSearchTerm, normalizeVehicleSearchTerm } from '../../../schemas/common';
 import { GlobalSearchFormData } from '../../../schemas/search';
 import { GlobalSearchEntity, GlobalSearchGroup, GlobalSearchResponse, GlobalSearchResultField, GlobalSearchResultItem } from '../../../types';
 import { scoreCandidate, ScoredField } from './search-scoring';
@@ -208,8 +208,10 @@ const taskSearcher: EntitySearcher = {
           { generalPainting: { codeNormalized: { contains: t } } },
           { logoPaints: { some: { nameNormalized: { contains: t } } } },
           { logoPaints: { some: { codeNormalized: { contains: t } } } },
-          { truck: { plateNormalized: { contains: t } } },
-          { truck: { chassisNumberNormalized: { contains: t } } },
+          // Placa e chassi são gravados sem separador; o termo tem que perder o
+          // hífen também, senão colar "ABC-1234" da tela não acha nada.
+          { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
+          { truck: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
               { serviceOrders: { some: { descriptionNormalized: { contains: t } } } },
             ]),
           },
