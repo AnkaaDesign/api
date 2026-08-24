@@ -1414,7 +1414,22 @@ export class TaskQuoteService {
       // um documento que se moveu por baixo dele (CC art. 431; OWASP Transaction
       // Authorization §2.6). Best-effort: nunca derruba a atualização em si.
       try {
+        // Cronometrado porque este gancho JÁ foi a causa de um "Salvando" de
+        // meio minuto: ele recarrega o grafo do orçamento, recalcula o snapshot
+        // e, quando a alteração é material, invalida a coleta em andamento. O
+        // que o tornava lento — os avisos de anulação saindo pelo transporte de
+        // WhatsApp, em série, com intervalo humano entre eles — saiu do caminho
+        // síncrono; a medição fica para que a próxima regressão apareça no log
+        // em vez de ser deduzida.
+        const startedAt = Date.now();
         await this.signatureEnvelopes.onQuoteContentChanged(id, userId || null);
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > 1500) {
+          this.logger.warn(
+            `Reavaliação de assinaturas do orçamento ${id} levou ${elapsed} ms — ` +
+              'o salvamento esperou por isso.',
+          );
+        }
       } catch (sigError) {
         this.logger.error(
           `Falha ao reavaliar assinaturas do orçamento ${id}: ${

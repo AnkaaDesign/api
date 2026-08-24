@@ -180,6 +180,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   SIGNATURE_REFUSED: 'Assinatura recusada',
   SIGNER_VOIDED: 'Assinatura invalidada por alteração do orçamento',
   CONTACT_CHANGED: 'Contato do signatário alterado pela Ankaa',
+  SNAPSHOT_DRIFTED: 'Cadastro alterado após o congelamento (sem efeito nas condições)',
   ENVELOPE_INVALIDATED: 'Envelope invalidado por alteração material do orçamento',
   ENVELOPE_EXPIRED: 'Envelope expirado',
   ENVELOPE_CANCELLED: 'Envelope cancelado',

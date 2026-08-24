@@ -223,6 +223,10 @@ export class WhatsAppOutboundGuard {
     return `${this.PREFIX}warm:${phone}`;
   }
 
+  private openedKey(phone: string): string {
+    return `${this.PREFIX}opened:${phone}`;
+  }
+
   /** Alguém respondeu deste número: ele deixa de ser primeiro contato. */
   async markInbound(phone: string): Promise<void> {
     if (!phone) return;
@@ -233,9 +237,31 @@ export class WhatsAppOutboundGuard {
     }
   }
 
-  async isWarm(phone: string): Promise<boolean> {
+  /**
+   * Já EXISTE conversa com este número — respondida ou apenas aberta por nós.
+   *
+   * A distinção entre as duas some de propósito, e a razão é o que o WhatsApp de
+   * fato mede: a restrição de reach-out e a cota de `INDIVIDUAL_NEW_CHAT_MSG`
+   * contam CONVERSAS NOVAS, não mensagens. A segunda mensagem para alguém que já
+   * recebeu a primeira não abre conversa nenhuma.
+   *
+   * Contar as duas como "frio" fazia UMA cerimônia de assinatura — convite,
+   * código de uso único, eventual aviso de anulação — consumir três das vinte
+   * vagas diárias de primeiro contato de um único cliente, e pagar o intervalo
+   * longo (11–23 s) em cada uma delas. O teto passava a limitar cinco clientes
+   * por dia em vez de vinte, e o operador esperava por isso.
+   *
+   * O que protege contra insistência em quem nunca respondeu continua de pé: o
+   * teto POR DESTINATÁRIO (6/dia), a deduplicação de corpo idêntico e o
+   * disjuntor.
+   */
+  async hasOpenConversation(phone: string): Promise<boolean> {
     try {
-      return await this.cache.exists(this.warmKey(phone));
+      const [warm, opened] = await Promise.all([
+        this.cache.exists(this.warmKey(phone)),
+        this.cache.exists(this.openedKey(phone)),
+      ]);
+      return warm || opened;
     } catch {
       // Falha de cache não pode transformar contato conhecido em frio e barrar
       // um envio legítimo — mas também não pode liberar o teto. Trata como FRIO:
@@ -372,8 +398,7 @@ export class WhatsAppOutboundGuard {
     reachoutActive?: boolean;
   }): Promise<OutboundVerdict> {
     const { phone, message, priority } = args;
-    const warm = await this.isWarm(phone);
-    const cold = !warm && priority !== 'CRITICAL';
+    const cold = !(await this.hasOpenConversation(phone)) && priority !== 'CRITICAL';
 
     const breaker = await this.breakerState();
     if (breaker && (breaker.scope === 'ALL' || cold)) {
@@ -480,12 +505,19 @@ export class WhatsAppOutboundGuard {
     }
   }
 
-  /** Contabiliza um envio que o SERVIDOR aceitou. */
+  /**
+   * Contabiliza um envio que o SERVIDOR aceitou.
+   *
+   * Marca também a conversa como ABERTA: a partir daqui as mensagens seguintes
+   * para este número não abrem conversa nova e não consomem o teto de primeiro
+   * contato. Ver `hasOpenConversation`.
+   */
   async recordSent(phone: string, message: string, cold: boolean): Promise<void> {
     const { day, hour } = spParts(new Date());
     const hourBucket = `${day}${String(hour).padStart(2, '0')}`;
     try {
       await Promise.all([
+        this.cache.set(this.openedKey(phone), new Date().toISOString(), WARM_TTL_SECONDS),
         this.counter(`${this.PREFIX}all:${day}`, 26 * 60 * 60),
         this.counter(`${this.PREFIX}to:${phone}:${day}`, 26 * 60 * 60),
         this.cache.set(this.bodyKey(phone, message), '1', IDENTICAL_BODY_TTL_SECONDS),

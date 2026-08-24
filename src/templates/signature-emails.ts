@@ -138,7 +138,7 @@ export function generateSignatureInvitationEmail(data: InvitationEmailData): {
   <strong>Este link é pessoal.</strong> Ele foi gerado para você, registra quem acessou o documento
   e vale até <strong>${esc(data.deadlineDate)}</strong>. Não encaminhe este e-mail.
 </div>
-<p class="muted"><strong>Como funciona:</strong> você lê o orçamento, informa seu CPF e cargo,
+<p class="muted"><strong>Como funciona:</strong> você lê o orçamento, confirma seus dados,
 recebe um código de uso único neste mesmo e-mail, digita o código e conclui. Ao final você recebe
 o documento assinado, com carimbo do tempo e código de verificação pública.</p>`,
     }),

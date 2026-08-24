@@ -50,6 +50,21 @@ export interface AssemblerAuditEvent {
   description: string;
   ipAddress: string | null;
   hash: string;
+  /**
+   * Segunda linha, indentada, com o CONTEÚDO do evento.
+   *
+   * Existe por causa do cadastro tardio do veículo. Implemento 0 km é orçado sem
+   * placa e sem chassi — eles chegam semanas depois — então o documento
+   * congelado, que é o que foi assinado, não pode tê-los. Sem esta linha o dado
+   * não existia em lugar nenhum do artefato: nem no corpo (congelado, e com
+   * razão), nem na trilha (que só imprimia o rótulo do evento). O leitor via
+   * "Cadastro alterado após o congelamento" sem saber o quê.
+   *
+   * A trilha é o lugar CERTO para isso: é encadeada por hash, então a linha
+   * carrega data, ordem e integridade próprias, e fica explícito que o dado veio
+   * DEPOIS — que é exatamente a verdade que um anexo no corpo esconderia.
+   */
+  detail?: string | null;
 }
 
 export interface AssembleInput {
@@ -519,6 +534,12 @@ export class QuoteAssemblerService {
       const when = formatDateTimeBR(e.occurredAt);
       const ip = e.ipAddress ? `  IP ${e.ipAddress}` : '';
       doc.text(winAnsi(`${String(e.sequence).padStart(3, '0')}  ${when}  ${e.description}${ip}`));
+      if (e.detail) {
+        doc
+          .fillColor('#1a1a1a')
+          .fontSize(6.5)
+          .text(winAnsi(`      ${e.detail}`), { indent: 0 });
+      }
       doc.fillColor(gray).fontSize(6).text(winAnsi(`      hash ${e.hash}`));
       doc.moveDown(0.15);
     }

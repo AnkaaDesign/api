@@ -1138,9 +1138,8 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
     //   ENFILEIRAÇÃO faria um lote de 30 convites avaliar os 30 contra o mesmo
     //   contador zerado e aprovar todos — o teto existiria só no papel, e o lote
     //   sairia inteiro, que é exatamente o padrão que derrubou o número anterior.
-    const warm = await this.guard.isWarm(cleanPhone);
-    const paceKind =
-      priority === 'CRITICAL' ? 'CRITICAL' : warm ? 'WARM' : 'COLD';
+    const known = await this.guard.hasOpenConversation(cleanPhone);
+    const paceKind = priority === 'CRITICAL' ? 'CRITICAL' : known ? 'WARM' : 'COLD';
 
     return this.guard.paced(paceKind, async () => {
       const verdict = await this.guard.evaluate({

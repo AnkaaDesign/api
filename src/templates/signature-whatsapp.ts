@@ -55,7 +55,15 @@ export function generateSignatureInvitationWhatsApp(data: WhatsAppInvitationData
     '',
     `Este link é *pessoal* — ele registra quem acessou o documento e vale até *${data.deadlineDate}*. Por favor, não encaminhe.`,
     '',
-    'Como funciona: você lê o orçamento, informa CPF e cargo, recebe um código de uso único aqui mesmo neste WhatsApp, digita o código e conclui.',
+    // "confirma seus dados", e não "informa CPF e cargo".
+    //
+    // O cargo vem do CADASTRO (`Responsible.roles`) e a cerimônia só o PERGUNTA
+    // quando não há nenhum em ficha — que é a minoria. O CPF idem: quando já
+    // está cadastrado, o signatário completa só os dígitos que a máscara
+    // esconde. Prometer que ele vai "informar CPF e cargo" descreve um
+    // formulário que a maioria não vê, e a primeira coisa que a pessoa faz ao
+    // abrir o link é procurar o campo que a mensagem citou.
+    'Como funciona: você lê o orçamento, confirma seus dados, recebe um código de uso único aqui mesmo neste WhatsApp, digita o código e conclui.',
   ].join('\n');
 }
 
@@ -90,7 +98,23 @@ export function generateSignatureOtpWhatsApp(data: WhatsAppOtpData): string {
 export interface WhatsAppVoidedData extends SignatureWhatsAppBase {
   reason: string;
   hadSigned: boolean;
-  changes: Array<{ label: string; subject: string; before: string; after: string }>;
+  /**
+   * Linhas JÁ FORMATADAS, uma por alteração.
+   *
+   * Antes isto era `{label, subject, before, after}` e o template montava
+   * `label: before → after` na mão. Duas coisas quebravam nisso, e as duas
+   * saíram para o cliente no orçamento nº 945:
+   *
+   *   1. Uma INCLUSÃO não tem "antes". `before` chegava nulo e o template
+   *      imprimia a palavra `null`: "Serviço incluído: null → R$ 0,02".
+   *   2. O `subject` — o nome do serviço — era ignorado. As quatro linhas de
+   *      quatro serviços diferentes saíam idênticas.
+   *
+   * Quem formata agora é `describeQuoteChange`, o mesmo formatador que escreve
+   * o motivo gravado no envelope e a linha do log ("Serviço incluído
+   * \"Aerografia Laterais\" (R$ 0,02)"). Um formatador só, e não três.
+   */
+  changes: string[];
 }
 
 /**
@@ -124,7 +148,7 @@ export function generateEnvelopeVoidedWhatsApp(data: WhatsAppVoidedData): string
   if (shown.length) {
     lines.push('', '*O que mudou:*');
     for (const c of shown) {
-      lines.push(`• ${c.label}: ${c.before} → ${c.after}`);
+      lines.push(`• ${c}`);
     }
     if (rest > 0) lines.push(`• e mais ${rest} ${rest === 1 ? 'alteração' : 'alterações'}.`);
   } else if (data.reason) {

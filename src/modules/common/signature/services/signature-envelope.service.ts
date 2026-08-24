@@ -43,7 +43,7 @@ import {
   QuoteSnapshotService,
   QuoteWithSnapshotGraph,
 } from './quote-snapshot.service';
-import type { QuoteChange } from './quote-diff';
+import { describeQuoteChange, type QuoteChange } from './quote-diff';
 import { QuoteRendererService } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import { budgetPdfFilename } from '../document/document-filename';
@@ -151,6 +151,26 @@ interface WhatsAppSender {
      */
     preview?: { url: string; title: string; description?: string } | null,
   ): Promise<{ ok: boolean; reason: string | null }>;
+}
+
+/**
+ * A linha de detalhe de um evento da trilha, quando ele tem conteúdo a mostrar.
+ *
+ * Hoje só `SNAPSHOT_DRIFTED` tem: é o evento que registra cadastro alterado
+ * DEPOIS do congelamento — tipicamente placa e chassi de implemento 0 km, que
+ * não existiam quando o documento foi congelado e por isso não estão no corpo
+ * dele. Ver `AssemblerAuditEvent.detail`.
+ *
+ * Truncado: a trilha é uma lista compacta, e uma alteração de dez campos viraria
+ * um parágrafo no meio dela. O que não couber continua inteiro no payload do
+ * evento, que é o que a rota de trilha serve.
+ */
+function driftDetailOf(eventType: string, payload: unknown): string | null {
+  if (eventType !== 'SNAPSHOT_DRIFTED') return null;
+  if (!payload || typeof payload !== 'object') return null;
+  const changes = (payload as Record<string, unknown>).changes;
+  if (typeof changes !== 'string' || !changes.trim()) return null;
+  return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
 }
 
 /** Resultado de um envio da cerimônia, com o motivo quando não saiu. */
@@ -298,6 +318,19 @@ export class SignatureEnvelopeService {
       SignatureDeliveryChannel,
       { ready: boolean; missing: string[]; ankaaMissing: string | null }
     >;
+    /**
+     * Identificação do veículo NO MOMENTO do envio.
+     *
+     * Não impede nada — é aviso. O documento é congelado com o que existe agora,
+     * e placa e chassi preenchidos depois NÃO entram nele (nem podem: o
+     * documento é o que foi assinado). É o caso comum do implemento 0 km, que é
+     * orçado antes de emplacar. O orçamento nº 945 saiu assim, e a placa
+     * ABB8468 chegou minutos depois — para sempre fora do corpo do documento.
+     *
+     * Preencher antes de enviar é a única forma de o dado constar do documento;
+     * depois disso ele só existe como linha da trilha de auditoria.
+     */
+    vehicle: { plate: string | null; chassisNumber: string | null; missing: string[] } | null;
   }> {
     const settings = this.getDeliverySettings();
 
@@ -312,6 +345,7 @@ export class SignatureEnvelopeService {
             responsibles: {
               select: { id: true, name: true, phone: true, email: true },
             },
+            truck: { select: { plate: true, chassisNumber: true } },
           },
         },
       },
@@ -389,6 +423,11 @@ export class SignatureEnvelopeService {
       };
     };
 
+    const truck = quote.task?.truck ?? null;
+    const missingVehicle: string[] = [];
+    if (!truck?.plate?.trim()) missingVehicle.push('placa');
+    if (!truck?.chassisNumber?.trim()) missingVehicle.push('chassi');
+
     return {
       ...settings,
       blockers,
@@ -397,6 +436,11 @@ export class SignatureEnvelopeService {
       channelStatus: {
         WHATSAPP: statusFor('WHATSAPP'),
         EMAIL: statusFor('EMAIL'),
+      },
+      vehicle: {
+        plate: truck?.plate ?? null,
+        chassisNumber: truck?.chassisNumber ?? null,
+        missing: missingVehicle,
       },
     };
   }
@@ -2030,7 +2074,22 @@ export class SignatureEnvelopeService {
       // Já aconteceu: no envelope 741 o signatário da Ankaa marcou
       // `firstViewedAt` em 29/07, minutos depois da emissão.
       if (ankaa && !ankaa.signedAt) {
-        await this.notifyAnkaaSigner(env.id, ankaa.id);
+        // SEM `await`: isto roda DENTRO do POST de assinatura, com o CLIENTE
+        // esperando na tela do celular. O aviso vai para a Ankaa, não para ele —
+        // e o transporte de WhatsApp tem ritmo humano (fila com intervalo, mais
+        // o ack do servidor), então segurar a resposta dele por causa da nossa
+        // mensagem interna é cobrar do cliente um tempo que não é dele.
+        //
+        // A mudança de estado que importa (assinatura aplicada, grupo 0
+        // completo) já está persistida quando este ponto é alcançado; o aviso
+        // grava INVITATION_SENT/FAILED na trilha quando o servidor responder.
+        void this.notifyAnkaaSigner(env.id, ankaa.id).catch(error =>
+          this.logger.error(
+            `Falha ao avisar o signatário da Ankaa do envelope ${env.id}: ${
+              error instanceof Error ? error.message : error
+            }`,
+          ),
+        );
       }
     }
 
@@ -2357,6 +2416,10 @@ export class SignatureEnvelopeService {
         description: EVENT_DESCRIPTIONS[e.eventType] ?? e.eventType,
         ipAddress: e.ipAddress,
         hash: e.hash,
+        // O QUE mudou, e não só que mudou. Ver `AssemblerAuditEvent.detail`:
+        // é aqui que "Placa do veículo: — → ABB8468" entra no artefato, já que
+        // o corpo do documento está congelado desde antes de a placa existir.
+        detail: driftDetailOf(e.eventType, e.payload),
       })),
       budgetNumber: env.quote.budgetNumber,
       envelopeId: env.id,
@@ -2538,9 +2601,36 @@ export class SignatureEnvelopeService {
    * congelado for de um formato que o diff não entende, a resposta sai sem ela
    * em vez de derrubar a página.
    */
+  /**
+   * Diferenças entre o snapshot congelado de cada envelope e o orçamento de hoje.
+   *
+   * TAMBÉM GRAVA A DERIVA, e isso é o conserto de um buraco real.
+   *
+   *   `onQuoteContentChanged` — o gancho que registra `SNAPSHOT_DRIFTED` — é
+   *   chamado de UM lugar: `TaskQuoteService.update`. Mas placa e chassi são
+   *   escritos por `PUT /tasks/:id` (escrita aninhada em `truck`), que não passa
+   *   por ali. Resultado medido no orçamento nº 945: a tela mostrava as duas
+   *   alterações porque as calcula ao vivo, e a trilha do documento não tinha
+   *   uma linha sequer sobre elas. O dado existia na memória de quem estava
+   *   olhando a tela, e em lugar nenhum do artefato.
+   *
+   *   Gravar aqui fecha o buraco por CÁLCULO em vez de por cobertura de ganchos:
+   *   qualquer caminho de escrita que mude o documento é notado na primeira vez
+   *   que alguém observa o envelope. `recordDriftOnce` deduplica por hash do
+   *   snapshot, então um estado gera no máximo uma linha, por mais que a tela
+   *   recarregue.
+   *
+   * Só deriva COSMÉTICA. A material tem caminho próprio (invalidação, com evento
+   * próprio) e registrá-la aqui duplicaria a mesma notícia com outro nome.
+   */
   private async changesSinceFrozen(
     quoteId: string,
-    envelopes: Array<{ id: string; quoteSnapshot: unknown; quoteSnapshotSha256: string }>,
+    envelopes: Array<{
+      id: string;
+      quoteSnapshot: unknown;
+      quoteSnapshotSha256: string;
+      status?: EnvelopeStatus | string;
+    }>,
   ): Promise<Map<string, QuoteChange[]>> {
     const out = new Map<string, QuoteChange[]>();
     if (!envelopes.length) return out;
@@ -2564,7 +2654,28 @@ export class SignatureEnvelopeService {
         continue;
       }
       try {
-        out.set(env.id, this.snapshots.changes(env.quoteSnapshot as QuoteSnapshot, fresh.snapshot));
+        const changes = this.snapshots.changes(
+          env.quoteSnapshot as QuoteSnapshot,
+          fresh.snapshot,
+        );
+        out.set(env.id, changes);
+
+        // Só onde o registro vale alguma coisa: coleta viva ou documento já
+        // selado. Numa coleta cancelada ou substituída a deriva não tem
+        // consequência, e a linha só engordaria a trilha.
+        const worthRecording =
+          env.status === EnvelopeStatus.RUNNING || env.status === EnvelopeStatus.COMPLETED;
+
+        if (worthRecording && changes.length && changes.every(c => c.severity !== 'MATERIAL')) {
+          // `void`: isto é o caminho de LEITURA de uma tela. Uma falha ao gravar
+          // a trilha não pode derrubar a listagem do envelope.
+          void this.recordDriftOnce(
+            env.id,
+            fresh.hash,
+            changes.map(c => `${c.label}: ${c.before || '—'} → ${c.after || '—'}`),
+            null,
+          ).catch(() => undefined);
+        }
       } catch (error) {
         this.logger.warn(
           `Diff do envelope ${env.id} falhou: ${error instanceof Error ? error.message : error}`,
@@ -2691,16 +2802,75 @@ export class SignatureEnvelopeService {
     //
     // REFUSED fica de fora: quem recusou já encerrou a participação, e é o mesmo
     // recorte que o `updateMany` acima usa para não sobrescrever a recusa.
+    // SEM `await` — e isto é o conserto de uma lentidão medida, não zelo.
+    //
+    // O aviso de anulação sai pelo MESMO transporte com ritmo humano que os
+    // convites usam: a guarda de saída espaça mensagens consecutivas (ver
+    // `WhatsAppOutboundGuard`). Com dois signatários isso somava ~32 s de espera
+    // DELIBERADA dentro do `PUT /task-quotes/:id` — medido em 24/08/2026,
+    // 16:20:22→16:20:54, com um intervalo de 15.394 ms entre os dois envios. O
+    // operador via "Salvando" esse tempo todo por causa de uma mensagem que não
+    // tem nada a ver com o salvamento.
+    //
+    // O que PRECISA ser síncrono já aconteceu acima: os signatários viraram
+    // VOIDED, o envelope virou INVALIDATED e o evento entrou na trilha. Isso é
+    // o estado do documento, e a resposta do PUT não pode sair antes dele. O
+    // aviso é comunicação, e cada resultado entra na trilha quando o servidor
+    // responde — exatamente como os convites (ver `dispatchInvitations`).
+    void this.notifyVoidedSigners(running, materialEntries, reason).catch(error =>
+      this.logger.error(
+        `Falha ao avisar os signatários da invalidação de ${running.id}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      ),
+    );
+
+    this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
+    return true;
+  }
+
+  /**
+   * Avisa os signatários de que a coleta caiu. Roda FORA do request — ver a
+   * chamada em `onQuoteContentChanged`.
+   *
+   * Erro aqui não desfaz nada: a invalidação já está persistida e registrada
+   * quando este método começa. O que se perde, no pior caso, é o aviso — e a
+   * trilha diz que ele não saiu.
+   */
+  private async notifyVoidedSigners(
+    running: {
+      id: string;
+      signers: Array<{
+        id: string;
+        status: EnvelopeSignerStatus;
+        declaredName: string;
+        declaredEmail: string | null;
+        declaredPhone: string | null;
+        authMethod: SignatureAuthMethod;
+        signedAt: Date | null;
+      }>;
+      quote?: { budgetNumber: number } | null;
+    },
+    materialEntries: QuoteChange[],
+    reason: string,
+  ): Promise<void> {
     const toNotify = running.signers.filter(s => s.status !== EnvelopeSignerStatus.REFUSED);
     for (const s of toNotify) {
+      // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
+      // anulada não deveria precisar abrir um link para descobrir qual preço
+      // mudou — a informação vai junto com a notícia.
+      //
+      // Os dois canais recebem a MESMA lista em formatos diferentes, porque
+      // renderizam diferente: o e-mail monta uma tabela (rótulo numa coluna,
+      // valor na outra, sem seta quando um dos lados não existe) e o WhatsApp é
+      // texto corrido, onde a linha tem de vir pronta. Ver a nota em
+      // `WhatsAppVoidedData.changes` para o que quebrava quando o template de
+      // texto tentava montá-la sozinho.
       const voidedPayload = {
         signerName: s.declaredName,
         budgetNumber: running.quote?.budgetNumber ?? '—',
         reason,
         hadSigned: !!s.signedAt,
-        // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
-        // anulada não deveria precisar abrir um link para descobrir qual preço
-        // mudou — a informação vai junto com a notícia.
         changes: materialEntries.map(c => ({
           label: c.label,
           subject: c.subject,
@@ -2708,12 +2878,13 @@ export class SignatureEnvelopeService {
           after: c.after,
         })),
       };
+      const voidedLines = materialEntries.map(describeQuoteChange);
       const channel = channelForAuthMethod(s.authMethod);
       const voidNotice = await this.deliverToSigner({
         signer: s,
         channel,
         email: generateEnvelopeVoidedEmail(voidedPayload),
-        whatsapp: generateEnvelopeVoidedWhatsApp(voidedPayload),
+        whatsapp: generateEnvelopeVoidedWhatsApp({ ...voidedPayload, changes: voidedLines }),
         kind: 'SIGNATURE_VOIDED',
       });
       const notified = voidNotice.ok;
@@ -2747,9 +2918,6 @@ export class SignatureEnvelopeService {
         );
       }
     }
-
-    this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
-    return true;
   }
 
   /**
