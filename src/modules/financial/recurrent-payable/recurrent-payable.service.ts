@@ -1554,7 +1554,7 @@ export class RecurrentPayableService {
       amount = opts.paidAmount;
     }
 
-    const data = await this.prisma.recurrentPayableOccurrence.update({
+    let data = await this.prisma.recurrentPayableOccurrence.update({
       where: { id: occurrenceId },
       data: {
         status: 'PAID',
@@ -1565,9 +1565,31 @@ export class RecurrentPayableService {
       },
     });
 
+    // The bank line for this bill is very often ALREADY in the extrato when the
+    // person records the baixa — COPEL de agosto: OFX importado às 17:50, baixa
+    // às 18:40 do mesmo dia — and nothing used to join the two. The occurrence
+    // closed on the ASSERTION axis, the debit closed on the CATEGORY axis, and
+    // the Extrato showed "Sem vínculo" with no lever anywhere in the UI to fix
+    // it. Close the loop in the same gesture.
+    const linkedTxId = await this.confirmOccurrenceFromBank(occurrenceId).catch(err => {
+      this.logger.warn(`Instant bank confirm failed for occurrence ${occurrenceId}: ${err}`);
+      return null;
+    });
+    let linkedTx: { postedAt: Date } | null = null;
+    if (linkedTxId) {
+      data = await this.prisma.recurrentPayableOccurrence.findUniqueOrThrow({
+        where: { id: occurrenceId },
+      });
+      linkedTx = await this.prisma.bankTransaction.findUnique({
+        where: { id: linkedTxId },
+        select: { postedAt: true },
+      });
+    }
+
     // A manual baixa asserts money left WITHOUT a bank line behind it — legitimate,
     // but it must not be anonymous. This is the same gap that made 210 receivable
-    // parcelas unattributable before 2026-08-09.
+    // parcelas unattributable before 2026-08-09. When the debit WAS found above,
+    // the log says so instead: the two axes agree and the row is not a loose end.
     await this.log({
       entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
       entityId: occurrenceId,
@@ -1578,17 +1600,140 @@ export class RecurrentPayableService {
       reason:
         `Baixa manual de "${occ.recurrentPayable.name}" (venc. ` +
         `${occ.dueDate.toISOString().slice(0, 10)}) no valor de R$ ${amount.toFixed(2)}. ` +
-        `Sem conciliação bancária no momento da baixa.`,
+        (linkedTxId
+          ? `Conciliada no ato com o débito de ${(linkedTx?.postedAt ?? new Date())
+              .toISOString()
+              .slice(0, 10)} no extrato.`
+          : 'Sem conciliação bancária no momento da baixa.'),
       userId: opts.userId,
       metadata: {
         recurrentPayableId: occ.recurrentPayableId,
         competence: occ.competence,
         estimatedAmount: Number(occ.estimatedAmount),
         paidAmount: amount,
-        awaitingBankReconciliation: true,
+        awaitingBankReconciliation: !linkedTxId,
+        ...(linkedTxId ? { bankTransactionId: linkedTxId } : {}),
       },
     });
-    return { success: true, message: 'Conta recorrente marcada como paga.', data };
+    return {
+      success: true,
+      message: linkedTxId
+        ? 'Conta recorrente marcada como paga e conciliada com o extrato.'
+        : 'Conta recorrente marcada como paga.',
+      data,
+    };
+  }
+
+  /**
+   * Attach the bank DEBIT that paid an already-PAID occurrence, when that debit
+   * is already in the extrato and unmistakable. Returns the transaction id it
+   * linked, or null. Safe to call twice.
+   *
+   * Deliberately NARROWER than the 05:15 sweep. The debit must carry the payee's
+   * identity, must route to THIS occurrence's installation slot, must be entirely
+   * unspoken-for, and its value must agree with the baixa within the usual
+   * tolerance (±R$2 / ±0,5%). A near miss is left alone on purpose: the sweep is
+   * the place that records a divergence as DISPUTED, and absorbing it silently at
+   * baixa time would hide a value gap behind a green chip — the shape that cost
+   * R$199,27 on the Claro de julho.
+   */
+  async confirmOccurrenceFromBank(occurrenceId: string): Promise<string | null> {
+    const occ = await this.prisma.recurrentPayableOccurrence.findUnique({
+      where: { id: occurrenceId },
+      include: { recurrentPayable: true },
+    });
+    if (!occ || occ.status !== 'PAID' || occ.bankTransactionId) return null;
+
+    const alreadyAnchored = await this.prisma.reconciliationMatch.count({
+      where: { recurrentOccurrenceId: occurrenceId, reversedAt: null },
+    });
+    if (alreadyAnchored > 0) return null;
+
+    const asserted = Number(occ.paidAmount ?? 0);
+    if (!(asserted > 0)) return null;
+    const tolerance = Math.max(2, asserted * 0.005);
+    const payable = occ.recurrentPayable;
+    const payeeCnpj = payable.payeeCnpj ?? null;
+
+    const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
+    const identityOr: Prisma.BankTransactionWhereInput[] = [
+      { categories: { some: { categoryId: payable.categoryId } } },
+    ];
+    if (payeeCnpj) identityOr.push({ counterpartyCnpjCpf: payeeCnpj });
+
+    const txs = await this.prisma.bankTransaction.findMany({
+      where: {
+        type: 'DEBIT',
+        postedAt: { gte: addDays(occ.dueDate, -w), lte: addDays(occ.dueDate, w) },
+        // Debits are negative: [-(asserted+tol), -(asserted-tol)].
+        amount: {
+          gte: new Prisma.Decimal(-(asserted + tolerance)),
+          lte: new Prisma.Decimal(-(asserted - tolerance)),
+        },
+        reconciliationStatus: { not: ReconciliationStatus.IGNORED },
+        settlementAckAt: null,
+        // Entirely unspoken-for: no NF, no boleto, no sibling occurrence has any
+        // claim on this money. Anything partial belongs to the sweep, not here.
+        matches: { none: { reversedAt: null } },
+        OR: identityOr,
+      },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        memo: true,
+        counterpartyName: true,
+        counterpartyCnpjCpf: true,
+      },
+      orderBy: { postedAt: 'asc' },
+    });
+
+    const mine: typeof txs = [];
+    for (const tx of txs) {
+      if (!this.identityMatches(payable, tx.counterpartyCnpjCpf, tx.counterpartyName)) continue;
+      const routing = await this.routeToInstallation(payable, tx);
+      // The debit must land on THIS occurrence's slot — a COPEL debit carrying
+      // UC 92828493 in the memo can never confirm the row for UC 113926715.
+      if (routing.kind === 'unroutable') continue;
+      const slot = routing.kind === 'installation' ? routing.installation.id : '';
+      if (slot !== occ.installationKey) continue;
+      mine.push(tx);
+    }
+    if (mine.length === 0) return null;
+
+    // Nearest to the due date; a tie goes to the earlier posting.
+    const chosen = mine.reduce((best, tx) =>
+      Math.abs(tx.postedAt.getTime() - occ.dueDate.getTime()) <
+      Math.abs(best.postedAt.getTime() - occ.dueDate.getTime())
+        ? tx
+        : best,
+    );
+
+    const debitAbs = Math.abs(Number(chosen.amount));
+    await this.prisma.recurrentPayableOccurrence.update({
+      where: { id: occurrenceId },
+      data: { bankTransactionId: chosen.id, reconciledAt: new Date() },
+    });
+    await this.writeOccurrenceMatch(chosen, occurrenceId, debitAbs, asserted);
+
+    // writeOccurrenceMatch swallows its own failures by design (a sweep must not
+    // die on one row). Here the caller needs the truth, so verify the match
+    // actually landed before claiming the link — and roll the FK back if it did
+    // not, rather than leaving an occurrence pointing at a debit no match backs.
+    const landed = await this.prisma.reconciliationMatch.count({
+      where: { recurrentOccurrenceId: occurrenceId, transactionId: chosen.id, reversedAt: null },
+    });
+    if (landed === 0) {
+      await this.prisma.recurrentPayableOccurrence.update({
+        where: { id: occurrenceId },
+        data: { bankTransactionId: null, reconciledAt: null },
+      });
+      return null;
+    }
+    this.logger.log(
+      `Occurrence ${occ.competence} of ${payable.name} confirmed at baixa time from tx ${chosen.id} (R$${debitAbs.toFixed(2)})`,
+    );
+    return chosen.id;
   }
 
   /** Ignore a single occurrence for its month (e.g. the diarista faltou, so the
@@ -2202,17 +2347,67 @@ export class RecurrentPayableService {
     const lo = addDays(tx.postedAt, -w);
     const hi = addDays(tx.postedAt, w);
 
-    // 1) Settle the NEAREST still-open occurrence by due date.
-    const open = await this.prisma.recurrentPayableOccurrence.findMany({
-      where: {
-        recurrentPayableId: payable.id,
-        status: { in: ['PENDING', 'OVERDUE'] },
-        dueDate: { gte: lo, lte: hi },
-        ...slotFilter,
-      },
+    // Two pools compete for this debit: occurrences still OPEN (which it should
+    // SETTLE) and occurrences already marked PAID by hand but with no bank line
+    // behind them (which it should CONFIRM). The choice between them is a
+    // question about DATES, and it used to be decided by the order the two
+    // queries were written: settle-an-open-one was tried first, and confirm was
+    // reached only when no open row existed at all.
+    //
+    // That ordering let a manual baixa ARM the very bug it looks like it should
+    // prevent. Closing agosto by hand removes agosto from the open pool, so the
+    // nearest OPEN row inside the ±35-day window becomes SETEMBRO — and the
+    // agosto debit settles a month that has not happened yet, spends its whole
+    // budget doing it, and leaves the agosto baixa "Sem vínculo" forever. Live on
+    // the three COPEL meters: débitos de 24/08, baixa manual às 18:40 do mesmo
+    // dia, setembro vencendo 25/09 a 32 dias de distância.
+    //
+    // Nearest-by-dueDate across BOTH pools is right in every shape we have:
+    // agosto a 1 dia bate setembro a 32, e a visita da própria semana (0 dias) de
+    // uma conta semanal continua batendo a baixa solta da semana passada (7 dias).
+    // Empate vai para a linha já PAGA — anexar prova ao que uma pessoa declarou é
+    // estritamente mais seguro do que inventar um pagamento que ninguém afirmou.
+    const [open, paidUnlinked] = await Promise.all([
+      this.prisma.recurrentPayableOccurrence.findMany({
+        where: {
+          recurrentPayableId: payable.id,
+          status: { in: ['PENDING', 'OVERDUE'] },
+          dueDate: { gte: lo, lte: hi },
+          ...slotFilter,
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+      this.prisma.recurrentPayableOccurrence.findMany({
+        where: {
+          recurrentPayableId: payable.id,
+          status: 'PAID',
+          bankTransactionId: null,
+          dueDate: { gte: lo, lte: hi },
+          ...slotFilter,
+        },
+        orderBy: { dueDate: 'asc' },
+      }),
+    ]);
+
+    const candidates = [
+      ...open.map(occ => ({ occ, alreadyPaid: false })),
+      ...paidUnlinked.map(occ => ({ occ, alreadyPaid: true })),
+    ];
+    if (candidates.length === 0) return 'none';
+
+    const distance = (c: (typeof candidates)[number]): number =>
+      Math.abs(c.occ.dueDate.getTime() - tx.postedAt.getTime());
+    const chosen = candidates.reduce((best, c) => {
+      const d = distance(c);
+      const b = distance(best);
+      if (d !== b) return d < b ? c : best;
+      // Deterministic tie-break: confirm before settle, then first by dueDate.
+      return !best.alreadyPaid && c.alreadyPaid ? c : best;
     });
-    if (open.length > 0) {
-      const occ = nearestByDate(open, tx.postedAt);
+
+    // 1) Settle a still-open occurrence.
+    if (!chosen.alreadyPaid) {
+      const occ = chosen.occ;
       const updated = await this.prisma.recurrentPayableOccurrence.update({
         where: { id: occ.id },
         data: {
@@ -2231,28 +2426,18 @@ export class RecurrentPayableService {
       return 'settled';
     }
 
-    // 2) No open occurrence — confirm the nearest already-PAID, not-yet-cleared
-    // occurrence (manual baixa) without changing its amount.
-    const paid = await this.prisma.recurrentPayableOccurrence.findMany({
-      where: {
-        recurrentPayableId: payable.id,
-        status: 'PAID',
-        bankTransactionId: null,
-        dueDate: { gte: lo, lte: hi },
-        ...slotFilter,
-      },
+    // 2) Confirm an already-PAID, not-yet-cleared occurrence (manual baixa)
+    // without changing its amount.
+    const occ = chosen.occ;
+    await this.prisma.recurrentPayableOccurrence.update({
+      where: { id: occ.id },
+      data: { bankTransactionId: tx.id, reconciledAt: new Date() },
     });
-    if (paid.length > 0) {
-      const occ = nearestByDate(paid, tx.postedAt);
-      await this.prisma.recurrentPayableOccurrence.update({
-        where: { id: occ.id },
-        data: { bankTransactionId: tx.id, reconciledAt: new Date() },
-      });
-      await this.writeOccurrenceMatch(tx, occ.id, amount, Number(occ.paidAmount ?? amount));
-      return 'confirmed';
-    }
-
-    return 'none';
+    await this.writeOccurrenceMatch(tx, occ.id, amount, Number(occ.paidAmount ?? amount));
+    this.logger.log(
+      `RecurrentPayable ${payable.name} ${occ.competence} confirmed from tx ${tx.id} (R$${amount})`,
+    );
+    return 'confirmed';
   }
 
   /**

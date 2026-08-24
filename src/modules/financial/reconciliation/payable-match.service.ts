@@ -13,6 +13,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '@modules/inventory/order/order.service';
 import { nameSimilarity } from './text-normalization';
+import { textHasInstallationCode } from '../recurrent-payable/recurrent-payable.service';
 
 /**
  * SAÍDA confirmation — the outflow analog of ReceivableMatchService.
@@ -59,6 +60,8 @@ type DebitTx = {
   id: string;
   postedAt: Date;
   amount: Prisma.Decimal | number;
+  /** Carries the billed-installation code (UC / matrícula) on utility debits. */
+  memo: string | null;
   counterpartyName: string | null;
   counterpartyCnpjCpf: string | null;
 };
@@ -118,6 +121,11 @@ export class PayableMatchService {
     return this.confirmWhere({ postedAt: { gte: start, lte: end } });
   }
 
+  /** Confirm every eligible debit — the unscoped "Verificar" branch. */
+  async confirmPayablesAll(): Promise<number> {
+    return this.confirmWhere({});
+  }
+
   private isEnabled(): boolean {
     // Default-on, mirroring RECONCILIATION_AUTO_MATCH_ENABLED. Set to "false" to
     // suspend the saída confirmation sweep without touching the receivable one.
@@ -143,13 +151,25 @@ export class PayableMatchService {
     const debits = await this.prisma.bankTransaction.findMany({
       where: {
         type: 'DEBIT',
-        reconciliationStatus: ReconciliationStatus.PENDING,
+        // NOT `reconciliationStatus: PENDING`. The classifier closes a debit on a
+        // resolving category (Energia, Água, Internet, Aluguel…) inside the SAME
+        // import loop, milliseconds before this sweep runs — `classifyAndPersist`
+        // is called per-id above `confirmPayablesByIds`. A PENDING gate therefore
+        // made this service structurally blind to exactly the recurring-bill
+        // family it exists to confirm, here AND on the 04:00 backstop: the three
+        // COPEL meters of 24/08 were RECONCILED-by-category 0,5 s after import and
+        // never seen again. What actually disqualifies a debit is already having
+        // an anchor, or a person having declared it resolved without one.
+        reconciliationStatus: { not: ReconciliationStatus.IGNORED },
+        matches: { none: { reversedAt: null } },
+        settlementAckAt: null,
         ...extra,
       },
       select: {
         id: true,
         postedAt: true,
         amount: true,
+        memo: true,
         counterpartyName: true,
         counterpartyCnpjCpf: true,
       },
@@ -176,12 +196,20 @@ export class PayableMatchService {
   // ---------------------------------------------------------------------------
 
   private async tryConfirmDebit(tx: DebitTx, dryRun: boolean): Promise<boolean> {
-    // Live status guard — a sibling pass may have reconciled it already.
+    // Live guard — a sibling pass may have anchored it already. Expressed on the
+    // anchor axis, not the status axis: "RECONCILED" is the normal resting state
+    // of a category-resolved debit that still has no obligation behind it.
     const live = await this.prisma.bankTransaction.findUnique({
       where: { id: tx.id },
-      select: { reconciliationStatus: true },
+      select: { reconciliationStatus: true, settlementAckAt: true },
     });
-    if (!live || live.reconciliationStatus !== ReconciliationStatus.PENDING) return false;
+    if (!live) return false;
+    if (live.reconciliationStatus === ReconciliationStatus.IGNORED) return false;
+    if (live.settlementAckAt) return false;
+    const anchored = await this.prisma.reconciliationMatch.count({
+      where: { transactionId: tx.id, reversedAt: null },
+    });
+    if (anchored > 0) return false;
 
     const abs = Math.abs(Number(tx.amount));
     const candidates = await this.findPaidCandidates(tx, abs);
@@ -383,14 +411,36 @@ export class PayableMatchService {
         id: true,
         paidAmount: true,
         paidAt: true,
+        installation: { select: { code: true } },
         recurrentPayable: {
-          select: { name: true, payeeName: true, supplier: { select: { fantasyName: true, cnpj: true } } },
+          select: {
+            name: true,
+            payeeName: true,
+            supplier: { select: { fantasyName: true, cnpj: true } },
+            installations: { where: { isActive: true }, select: { id: true } },
+          },
         },
       },
       take: 50,
     });
     for (const occ of occurrences) {
       if (!occ.paidAt || occ.paidAmount == null) continue;
+      // A bill with billed installations (SAMAE matrículas, COPEL UCs) debits
+      // once PER INSTALLATION on the same day, and this sweep matches on VALUE —
+      // which is blind to which meter it is looking at. That blindness is the
+      // exact failure the installation model was built to end, and it came back
+      // through this door: on 24/08 it confirmed UC 113926715's R$1.155,13 debit
+      // against UC 107981068's occurrence and vice-versa, because the two baixas
+      // had been typed crossed and the values still "fit". A debit may only
+      // confirm the occurrence of the installation NAMED IN ITS MEMO.
+      if ((occ.recurrentPayable?.installations?.length ?? 0) > 0) {
+        const code = occ.installation?.code;
+        if (!code) continue;
+        const named =
+          textHasInstallationCode(tx.memo, code) ||
+          textHasInstallationCode(tx.counterpartyName, code);
+        if (!named) continue;
+      }
       out.push({
         anchor: { kind: 'recurrentOccurrence', id: occ.id },
         paidAmount: Number(occ.paidAmount),
