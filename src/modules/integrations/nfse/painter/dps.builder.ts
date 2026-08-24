@@ -57,6 +57,19 @@ export interface DpsEmitente {
   municipioIbge: string;
   opSimpNac: number;
   regEspTrib: number;
+  /**
+   * Contato do PRESTADOR, declarado por ele nesta DPS (`prest/fone`, `prest/email`).
+   *
+   * Não confundir com o bloco `emit` da NFS-e: aquele é o retrato do CNPJ na
+   * base nacional, montado pela SEFIN, e traz o que o contador registrou — nas
+   * notas do Claudemir, `PARALEGAL@CONSIGA.COM.BR`. Estes campos são o canal do
+   * próprio pintor, e é o que a nota da Ankaa (nº 3220, via Elotech) também faz:
+   * manda `fone` e `email` dentro de `prest`.
+   *
+   * `email` só é validado na estrutura (E0148); `fone` não tem regra de negócio.
+   */
+  telefone?: string | null;
+  email?: string | null;
 }
 
 export interface DpsTomador {
@@ -79,8 +92,28 @@ export interface DpsTomador {
   numero?: string | null;
   complemento?: string | null;
   bairro?: string | null;
+  /**
+   * Telefone só com dígitos (o leiaute exige `[0-9]{6,20}`). Vai para o campo
+   * `toma/fone`, que a consulta pública do portal mostra na ficha do tomador.
+   */
+  telefone?: string | null;
   email?: string | null;
 }
+
+/**
+ * ⚠️ `toma/IM` (inscrição municipal do tomador) NÃO é enviado, de propósito.
+ *
+ * A regra E0228 só EXIGE a IM do tomador quando o emitente da DPS é o próprio
+ * tomador (tpEmit = 2) — não é o nosso caso, que emite como prestador. E a
+ * regra E0232 REJEITA a DPS quando a IM é informada sem haver registro
+ * complementar do contribuinte no CNC NFS-e do município emissor.
+ *
+ * A Ankaa tem inscrição municipal em Ibiporã (53459), mas no cadastro da
+ * prefeitura/Elotech — o município não é conveniado ao sistema nacional, então
+ * não há registro dela no CNC. Mandar a IM, aqui, é trocar um traço na ficha do
+ * tomador por rejeição de toda nota do aerografista. Por isso o campo fica
+ * vazio, exatamente como a consulta pública do portal mostra.
+ */
 
 export interface DpsServico {
   /** Código IBGE do município onde o serviço foi prestado. */
@@ -136,6 +169,22 @@ function optionalEl(name: string, value: string | number | null | undefined): st
 
 function onlyDigits(value: string): string {
   return value.replace(/\D/g, '');
+}
+
+/**
+ * Telefone no formato do leiaute (`TSTelefone` = `[0-9]{6,20}`): só dígitos e
+ * sem o código do país.
+ *
+ * O XSD aceitaria 6 dígitos, mas 6 dígitos não são um telefone — são um campo
+ * mal preenchido. Aqui só passa o que tem DDD + número (10 ou 11 dígitos); o
+ * resto vira ausência, que é honesta. O `55` inicial é retirado porque é assim
+ * que a própria nota da Ankaa grava (`43984283228`), e porque um número com
+ * código de país vira um "DDD 55" para quem lê.
+ */
+export function sanitizeTelefone(value: string | null | undefined): string | null {
+  const digits = onlyDigits(value ?? '');
+  const nacional = digits.length >= 12 && digits.startsWith('55') ? digits.slice(2) : digits;
+  return nacional.length === 10 || nacional.length === 11 ? nacional : null;
 }
 
 /**
@@ -240,9 +289,14 @@ export function buildDpsXml(input: DpsInput): BuiltDps {
     throw new Error('Descrição do serviço é obrigatória na DPS.');
   }
 
+  // Ordem do XSD (TCInfoPrestador): documento, CAEPF, IM, xNome, end, fone,
+  // email, regTrib. `regTrib` é o ÚLTIMO — contato antes dele. Fora de ordem, a
+  // SEFIN recusa por falha de esquema (E1235) antes de olhar o conteúdo.
   const prest = [
     el('CNPJ', cnpjEmitente),
     optionalEl('IM', emitente.inscricaoMunicipal),
+    optionalEl('fone', sanitizeTelefone(emitente.telefone)),
+    optionalEl('email', emitente.email),
     `<regTrib>${el('opSimpNac', emitente.opSimpNac)}${el('regEspTrib', emitente.regEspTrib)}</regTrib>`,
   ].join('');
 
@@ -267,6 +321,9 @@ export function buildDpsXml(input: DpsInput): BuiltDps {
     !tomador.cnpj && tomador.cpf ? el('CPF', onlyDigits(tomador.cpf)) : '',
     el('xNome', tomador.nome),
     enderecoTomador,
+    // A ordem é a do XSD (TCInfoPessoa): documento, CAEPF, IM, xNome, end,
+    // fone, email. Fora de ordem, a SEFIN rejeita por falha de esquema (E1235).
+    optionalEl('fone', sanitizeTelefone(tomador.telefone)),
     optionalEl('email', tomador.email),
   ].join('');
 

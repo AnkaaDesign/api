@@ -150,13 +150,48 @@ export const EMPTY = '-';
 /** NT 2.4.5, notas 2 a 4: "A altura mínima do bloco [colapsado] é de 0,32cm". */
 export const COLLAPSED_H = 0.32;
 
-/** Textos literais exigidos pela NT quando um bloco é colapsado (2.3.1 a 2.3.3). */
+/**
+ * Textos literais exigidos pela NT quando um bloco é colapsado (2.3.1 a 2.3.3).
+ *
+ * São transcrições, não paráfrases — acentuação inclusive. "DESTINATÁRIO" e
+ * "INTERMEDIÁRIO" estavam sem acento e não batiam com a norma.
+ */
 export const COLLAPSE_TEXT = {
   tomador: 'TOMADOR/ADQUIRENTE DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e',
-  destinatario: 'DESTINATARIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e',
-  intermediario: 'INTERMEDIARIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e',
+  destinatario: 'DESTINATÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e',
+  /**
+   * NT 2.3.2 e nota 3 do item 2.4.5: quando o destinatário da operação É o
+   * próprio tomador/adquirente, o bloco não fica "não identificado" — leva esta
+   * outra frase, também literal.
+   *
+   * A diferença não é cosmética. "NÃO IDENTIFICADO" afirma que o documento não
+   * diz quem recebeu o serviço; aqui o documento diz — é a mesma pessoa do
+   * bloco de cima.
+   */
+  destinatarioEhTomador: 'O DESTINATÁRIO É O PRÓPRIO TOMADOR/ADQUIRENTE DA OPERAÇÃO',
+  intermediario: 'INTERMEDIÁRIO DA OPERAÇÃO NÃO IDENTIFICADO NA NFS-e',
   issqnNaoSujeita: 'TRIBUTAÇÃO MUNICIPAL (ISSQN) - OPERAÇÃO NÃO SUJEITA AO ISSQN',
 } as const;
+
+/**
+ * Espaço vertical (cm) que precisa sobrar ABAIXO do quadro "Descrição do
+ * Serviço" para os blocos seguintes caberem na página.
+ *
+ * A NT 2.3.1/2.3.2 manda o quadro da descrição CRESCER com o espaço devolvido
+ * pelos blocos colapsados. Crescer sem limite, porém, empurraria o resto para
+ * fora da página única exigida pelo item 2.2 — daí o teto.
+ *
+ * Soma do pior caso, com todos os blocos abaixo na altura máxima:
+ *   ISSQN completo (título + regime + benefício + BC)  ROW_STEP*3 + FIELD_H = 2,57
+ *   Tributação federal (2 linhas)                      ROW_STEP   + FIELD_H = 1,28
+ *   IBS/CBS (4 linhas)                                 ROW_STEP*3 + FIELD_H = 2,57
+ *   Valor total (2 linhas de 0,67)                     0,69 + 0,67          = 1,36
+ *   folgas de 0,02 entre os quatro blocos                                   = 0,08
+ *   faixa "Informações Complementares"                                      = 0,39
+ *   conteúdo mínimo legível das informações complementares                  = 1,30
+ *                                                                    total ≈ 9,55
+ */
+export const RESERVA_ABAIXO_DESCRICAO = 9.6;
 
 /**
  * Descrição completa do regime, como o emissor oficial imprime. A NT manda usar

@@ -40,33 +40,11 @@ async function main() {
     console.log(`\n▸ Regerando o DANFSe de ${rows.length} nota(s)\n`);
 
     for (const row of rows) {
-      const antigo = row.pdfFileId;
-
-      const result = await artifacts.persist(row.id, { regenerateDanfse: true });
-
-      // Só remove o arquivo antigo depois que o novo existe — se a geração
-      // falhar, a aerografia continua com o PDF que tinha.
-      //
-      // DESVINCULAR ANTES DE APAGAR: o banco tem uma trava que recusa excluir
-      // File ainda referenciado ("está em uso e não pode ser excluído"). Sem o
-      // disconnect, o delete falha e a aerografia acumula um DANFSe obsoleto a
-      // cada regeração — foi exatamente o que aconteceu na primeira execução,
-      // porque o erro estava sendo engolido por um catch silencioso.
-      if (antigo && result.pdfFileId && result.pdfFileId !== antigo) {
-        try {
-          await prisma.airbrushing.update({
-            where: { id: row.airbrushingId },
-            data: { invoices: { disconnect: { id: antigo } } },
-          });
-          await prisma.file.delete({ where: { id: antigo } });
-        } catch (error) {
-          console.warn(
-            `    ⚠ não foi possível remover o DANFSe anterior (${antigo}): ${
-              error instanceof Error ? error.message.split('\n')[0] : String(error)
-            }`,
-          );
-        }
-      }
+      // Gerar o novo, trocar o vínculo e só então apagar o antigo é
+      // responsabilidade do serviço (`replaceDanfse`) — o cancelamento precisa
+      // exatamente do mesmo comportamento, e duplicar a ordem "desvincular
+      // antes de apagar" em dois lugares é como ela se perde.
+      const result = await artifacts.replaceDanfse(row.id);
 
       const status = result.errors.length === 0 ? 'ok' : `erros: ${result.errors.join(' | ')}`;
       console.log(`  nº ${row.nfseNumber ?? '?'} → ${result.pdfFileId ?? 'sem PDF'} (${status})`);
