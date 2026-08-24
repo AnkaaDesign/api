@@ -51,8 +51,17 @@ export const NON_CONSUMPTION_REASONS: ACTIVITY_REASON[] = [
 // Consumption window (spec §2.3, §2.8)
 // =====================
 
-/** Rolling lookback for monthlyConsumption aggregation. */
+/** Rolling lookback for monthlyConsumption aggregation. Anchored on the FIRST
+ *  day of the month N months back, so every bucket except the running one is a
+ *  complete calendar month. */
 export const CONSUMPTION_LOOKBACK_MONTHS = 6;
+
+/** The running month is normalized by the working days ELAPSED, not by the
+ *  month's full working-day count. Below this many elapsed working days the
+ *  sample is too thin to extrapolate from and the bucket is dropped — early in
+ *  a month a single large draw would otherwise project into a huge monthly
+ *  rate. Roughly one working week. */
+export const CURRENT_MONTH_MIN_WORKDAYS = 5;
 
 /** Minimum distinct calendar months of qualifying activity before an item
  *  can be classified. Below this, mc/rp/max all collapse to 0 and the item
@@ -326,6 +335,13 @@ export const TREND_PERCENT_CAP = 999;
 /** Months without qualifying consumption before auto-deactivation kicks in.
  *  REGULAR-only — TOOL and PPE never auto-deactivate. */
 export const DORMANT_ITEM_MONTHS_THRESHOLD = 4;
+
+/** Marker prefix on `Item.deactivationReason` written by the dormancy cron.
+ *  The weekly reactivation pass only ever un-retires items carrying it, so a
+ *  deactivation done BY A HUMAN ("we don't use this any more") is permanent
+ *  instead of bouncing back the next Sunday because the item happened to have
+ *  a consumption record inside the dormancy window. */
+export const AUTO_DEACTIVATION_REASON_PREFIX = 'Desativado automaticamente:';
 
 export const ITEM_SIMILARITY_THRESHOLD = 0.65;
 export const MAX_SIMILAR_ITEMS_TO_CHECK = 5;

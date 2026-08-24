@@ -38,7 +38,10 @@ import {
   XYZ_CATEGORY,
 } from '../../../constants/enums';
 import { DEFAULT_LEAD_TIME_DAYS, isFixedTarget } from '../../../constants/inventory-config';
-import { calculateReorderQuantity } from '../../../utils/stock-health';
+import {
+  buildTrailingMonthlyHistory,
+  calculateReorderQuantity,
+} from '../../../utils/stock-health';
 import { calculateSafetyStock } from '../../../utils/safety-stock';
 import {
   blendedFactorAcrossDays,
@@ -48,6 +51,11 @@ import { balanceDepletionAcrossItems } from '../../../utils/order-coverage';
 import { calculateNextRunDate as utilCalculateNextRunDate } from '../../../utils/order';
 import { nextBrazilianBusinessDay } from '../../../utils/brazilian-holidays.util';
 import { isInVacationPeriod } from '../../../constants/working-days-config';
+
+/** Hour (UTC) a scheduled order fires on its configured calendar day.
+ *  12:00Z = 09:00 in São Paulo — inside business hours, and on the RIGHT day
+ *  (see anchorToBusinessHour). */
+const SCHEDULE_FIRE_HOUR_UTC = 12;
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -88,7 +96,25 @@ export class OrderScheduleService {
     const base = fromDate || new Date();
     const raw = utilCalculateNextRunDate(schedule as any, base);
     if (!raw) return null;
-    return shiftToBusinessDay(raw);
+    return anchorToBusinessHour(shiftToBusinessDay(raw));
+  }
+
+  /** Next run strictly after `now`, advancing from `base` and looping while the
+   *  result is still in the past (stale/overdue schedules, or a cadence edit
+   *  anchored on an old `lastRun`). Mirrors the scheduler's own
+   *  `computeFutureNextRun`. */
+  private computeNextRunAfterNow(
+    schedule: OrderSchedule & { weeklyConfig?: any; monthlyConfig?: any; yearlyConfig?: any },
+    base: Date,
+  ): Date | null {
+    const now = new Date();
+    let next = this.calculateNextRunDate(schedule, base);
+    let guard = 0;
+    while (next && next.getTime() <= now.getTime() && guard < 120) {
+      next = this.calculateNextRunDate(schedule, next);
+      guard++;
+    }
+    return next;
   }
 
   /**
@@ -353,6 +379,54 @@ export class OrderScheduleService {
           data,
           { include },
         );
+
+        // Changing the cadence MUST move the next run. Without this the stored
+        // `nextRun` keeps the date the cron computed under the OLD config —
+        // e.g. switching "Adere — Fitas" from every 3 months on day 16 to every
+        // 4 months on day 10 left nextRun at 16/11, so the next order would
+        // still have fired 88 days after the last one instead of 122, and the
+        // new configuration would only take effect one cycle later.
+        //
+        // The new date is anchored on `lastRun` (the last order actually
+        // placed) so the cycle counts from real consumption, falling back to
+        // now for schedules that never fired, and is rolled forward until it
+        // sits in the future. An explicit `nextRun` in the payload always wins —
+        // it is the user overriding the date on purpose.
+        const cadenceFields = [
+          'frequency',
+          'frequencyCount',
+          'dayOfMonth',
+          'dayOfWeek',
+          'month',
+          'customMonths',
+          'specificDate',
+          'monthlySchedule',
+          'monthlyConfigId',
+          'weeklyConfigId',
+          'yearlyConfigId',
+        ] as const;
+        const cadenceChanged = cadenceFields.some(f => f in (data as Record<string, unknown>));
+        const nextRunProvided = 'nextRun' in (data as Record<string, unknown>);
+
+        if (cadenceChanged && !nextRunProvided && updatedSchedule.isActive) {
+          const scheduleWithConfig = await tx.orderSchedule.findUnique({
+            where: { id },
+            include: { monthlyConfig: true, weeklyConfig: true, yearlyConfig: true },
+          });
+          if (scheduleWithConfig) {
+            const recomputed = this.computeNextRunAfterNow(
+              scheduleWithConfig as any,
+              scheduleWithConfig.lastRun ?? new Date(),
+            );
+            const current = updatedSchedule.nextRun
+              ? new Date(updatedSchedule.nextRun).getTime()
+              : null;
+            if (recomputed && recomputed.getTime() !== current) {
+              await tx.orderSchedule.update({ where: { id }, data: { nextRun: recomputed } });
+              (updatedSchedule as any).nextRun = recomputed;
+            }
+          }
+        }
 
         // Log update
         const fieldsToTrack = [
@@ -1015,16 +1089,32 @@ export class OrderScheduleService {
       orderBy: [{ year: 'asc' }, { month: 'asc' }],
     });
     const snapshotsByItem = new Map<string, Array<{ year: number; month: number; seasonalFactor: number }>>();
-    // Trailing monthly consumption (oldest-first) → σ for the statistical
-    // safety-stock layer.
-    const historyByItem = new Map<string, number[]>();
+    // Raw snapshot rows per item, cleaned below into the σ series.
+    const rawHistoryByItem = new Map<
+      string,
+      Array<{ year: number; month: number; normalizedConsumption: number }>
+    >();
     for (const r of snapshotRows) {
       const arr = snapshotsByItem.get(r.itemId) ?? [];
       arr.push({ year: r.year, month: r.month, seasonalFactor: r.seasonalFactor });
       snapshotsByItem.set(r.itemId, arr);
-      const h = historyByItem.get(r.itemId) ?? [];
-      h.push(r.normalizedConsumption);
-      historyByItem.set(r.itemId, h);
+      const h = rawHistoryByItem.get(r.itemId) ?? [];
+      h.push({ year: r.year, month: r.month, normalizedConsumption: r.normalizedConsumption });
+      rawHistoryByItem.set(r.itemId, h);
+    }
+    // Trailing monthly consumption (oldest-first) → σ for the statistical
+    // safety-stock layer. MUST go through the same cleaning as the nightly
+    // recompute (trailing 12mo + vacation months dropped + winsorized): reading
+    // the snapshots raw let a single vacation month — normalized ×20/11 working
+    // days, INVENTORY_COUNT included — push σ to 8× its real value, which
+    // saturated the `min(ss, demand)` ceiling and doubled every order-up-to
+    // level on this path.
+    const historyByItem = new Map<string, number[]>();
+    for (const [itemId, rows] of rawHistoryByItem) {
+      historyByItem.set(
+        itemId,
+        buildTrailingMonthlyHistory(rows, asOfDate).map(h => h.consumption),
+      );
     }
 
     // Pending receipts (still-open orders) offset the need.
@@ -1814,6 +1904,19 @@ export class OrderScheduleService {
       );
     }
   }
+}
+
+/** Pins a computed `nextRun` to SCHEDULE_FIRE_HOUR_UTC on its own day.
+ *
+ *  The upstream calculation returns `startOfDay`, and the API process runs in
+ *  UTC — so a schedule configured for "day 10" was stored as 10/00:00Z, which
+ *  the hourly cron picks up at 00:05Z = 21:05 São Paulo on day NINE. Orders
+ *  landed the evening before the configured date, outside business hours.
+ *  Anchoring at 12:00Z puts the fire at 09:05 SP on the intended day. */
+function anchorToBusinessHour(d: Date): Date {
+  const out = new Date(d);
+  out.setUTCHours(SCHEDULE_FIRE_HOUR_UTC, 0, 0, 0);
+  return out;
 }
 
 /** Shifts a computed `nextRun` forward to the next valid Brazilian business

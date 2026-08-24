@@ -15,7 +15,9 @@ import {
   XYZ_CATEGORY,
 } from '@/constants/enums';
 import {
+  AUTO_DEACTIVATION_REASON_PREFIX,
   DORMANT_ITEM_MONTHS_THRESHOLD,
+  INVENTORY_COUNT_SHARE_CAP,
   ITEM_SIMILARITY_THRESHOLD,
   MAX_SIMILAR_ITEMS_TO_CHECK,
   PPE_CONSUMPTION_REASONS,
@@ -24,6 +26,7 @@ import {
 import { CORPUS_MONTHLY_INDEX } from '@/constants/seasonality-config';
 import {
   applyTrendAdjustment,
+  buildTrailingMonthlyHistory,
   calculateConsumptionTrend,
   calculateLeadTime,
   calculateMaxQuantity,
@@ -43,11 +46,7 @@ import {
   computeSeasonalProfile,
   type SeasonalCurve,
 } from '@/utils/seasonality';
-import {
-  detectSaturdayShifts,
-  isVacationDistortedMonth,
-  workingDaysForMonth,
-} from '@/utils/working-days';
+import { detectSaturdayShifts, workingDaysForMonth } from '@/utils/working-days';
 
 // ---------------------------------------------------------------------------
 // Types used across the nightly recompute pipeline
@@ -167,9 +166,19 @@ export class InventoryCronService {
 
     // PPE_DELIVERY is included so ON_DEMAND PPE items accumulate accurate
     // history; REGULAR items never carry it, so this is additive-only.
-    const snapshotReasons = [
+    //
+    // INVENTORY_COUNT is EXCLUDED under the same policy monthlyConsumption
+    // already applies (`INVENTORY_COUNT_SHARE_CAP`): a stock count is a balance
+    // correction, not demand. Leaving it in made the two halves of the system
+    // disagree about what counts as consumption — the snapshot for item 425 in
+    // Jan/2026 was 1132 units of which 930 were a single count, and after the
+    // ×20/11-working-day vacation normalization it read as 2058 against a ~470
+    // baseline, wrecking σ, the XYZ CV and the seasonal curve.
+    const snapshotReasons = ([
       ...new Set([...REGULAR_CONSUMPTION_REASONS, ACTIVITY_REASON.PPE_DELIVERY]),
-    ] as ACTIVITY_REASON[];
+    ] as ACTIVITY_REASON[]).filter(
+      r => INVENTORY_COUNT_SHARE_CAP > 0 || r !== ACTIVITY_REASON.INVENTORY_COUNT,
+    );
     const activities = await this.prisma.activity.findMany({
       where: {
         itemId,
@@ -684,7 +693,7 @@ export class InventoryCronService {
             data: {
               isActive: false,
               deactivatedAt: new Date(),
-              deactivationReason: `Desativado automaticamente: sem uso por ${DORMANT_ITEM_MONTHS_THRESHOLD} meses. Item similar ativo encontrado: "${bestMatch.name}" (similaridade: ${(bestMatch.similarity * 100).toFixed(0)}%)`,
+              deactivationReason: `${AUTO_DEACTIVATION_REASON_PREFIX} sem uso por ${DORMANT_ITEM_MONTHS_THRESHOLD} meses. Item similar ativo encontrado: "${bestMatch.name}" (similaridade: ${(bestMatch.similarity * 100).toFixed(0)}%)`,
             },
           });
 
@@ -746,6 +755,11 @@ export class InventoryCronService {
         stockModel: 'CONSUMPTION',
         ppeType: null,
         deactivatedAt: { lt: reactivationBufferDate },
+        // Only un-retire what THIS cron retired. A human who deactivates an
+        // item ("we don't buy this any more") must not have it resurrected the
+        // next Sunday just because the dormancy window still contains one of
+        // its old consumption records.
+        deactivationReason: { startsWith: AUTO_DEACTIVATION_REASON_PREFIX },
       },
       select: {
         id: true,
@@ -938,22 +952,10 @@ export class InventoryCronService {
     history: Array<{ year: number; month: number; normalizedConsumption: number; seasonalFactor: number }> | undefined,
     now: Date,
   ): Array<{ year: number; month: number; consumption: number }> {
-    if (!history || history.length === 0) return [];
-    const sorted = [...history].sort(
-      (a, b) => (a.year - b.year) * 12 + (a.month - b.month),
-    );
-    // Keep at most the trailing 12 calendar months from `now`, EXCLUDING
-    // vacation-shortened months whose ×20/workingDays normalization inflates
-    // them (not representative demand — would corrupt σ and the XYZ CV).
-    const cutoff = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-    const kept = sorted.filter(
-      r => new Date(r.year, r.month, 1) >= cutoff && !isVacationDistortedMonth(r.year, r.month),
-    );
-    // Winsorize the consumption values so a single contaminated/vacation-
-    // inflated month can't dominate the XYZ coefficient-of-variation or the
-    // safety-stock σ. Zeros are preserved; year/month alignment is unchanged.
-    const winsorized = winsorizeConsumptionSeries(kept.map(r => r.normalizedConsumption));
-    return kept.map((r, i) => ({ year: r.year, month: r.month, consumption: winsorized[i] }));
+    // Trailing 12mo + vacation months dropped + winsorized. Shared with
+    // `computeScheduleOrderPlan` so the nightly σ and the schedule-planner σ
+    // are the same number (see buildTrailingMonthlyHistory).
+    return buildTrailingMonthlyHistory(history, now);
   }
 
   /**

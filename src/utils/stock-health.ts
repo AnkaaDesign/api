@@ -30,6 +30,7 @@ import {
   CONSERVATIVE_RP_UPLIFT,
   MIN_REORDER_BAND_DAYS,
   CONSUMPTION_LOOKBACK_MONTHS,
+  CURRENT_MONTH_MIN_WORKDAYS,
   LEAD_TIME_LEGACY_BULK_RECEIVED_AT,
   CONSUMPTION_MIN_DISTINCT_MONTHS,
   DEFAULT_LEAD_TIME_DAYS,
@@ -65,11 +66,13 @@ import {
   type SeasonalCurve,
 } from './seasonality';
 import {
+  countWorkdaysInRange,
   detectSaturdayShifts,
+  isVacationDistortedMonth,
   normalizeToWorkdays,
   workingDaysForMonth,
 } from './working-days';
-import { subMonths } from 'date-fns';
+import { startOfMonth, subMonths } from 'date-fns';
 
 // ============================================================================
 // Shared types
@@ -166,7 +169,13 @@ function calculateMonthlyConsumptionRegular(
   flags: DataQualityFlag[],
 ): MonthlyConsumptionResult {
   const now = input.now ?? new Date();
-  const lookbackStart = subMonths(now, CONSUMPTION_LOOKBACK_MONTHS);
+  // Month-ALIGNED lookback. `subMonths(now, N)` lands mid-month, so the oldest
+  // bucket only ever held the tail of that month (e.g. Feb 24–28) while still
+  // being divided by a FULL month of working days — it then read as a
+  // near-empty month and dragged the weighted average down. Anchoring on the
+  // first day of that month makes every bucket except the current one a
+  // complete calendar month.
+  const lookbackStart = startOfMonth(subMonths(now, CONSUMPTION_LOOKBACK_MONTHS));
   const itemCreatedAt = new Date(input.item.createdAt);
 
   // Lifetime activity-count guard for phantom mc=quantity detection (spec §19).
@@ -235,7 +244,19 @@ function calculateMonthlyConsumptionRegular(
   let num = 0;
   let den = 0;
   for (const { year, month, qty } of byMonth.values()) {
-    const wd = workingDaysForMonth(year, month, saturdayShifts, input.holidaysFn);
+    let wd = workingDaysForMonth(year, month, saturdayShifts, input.holidaysFn);
+    // The current month is still running. Dividing a partial month's demand by
+    // its FULL working-day count understates the daily rate, and the decay
+    // weight (half-life 2mo) makes that the HEAVIEST bucket of the whole
+    // series — which is why mc dropped ~20% at every month turn and climbed
+    // back through the month. Normalize by the working days ELAPSED so far
+    // instead. Below CURRENT_MONTH_MIN_WORKDAYS the sample is too thin to
+    // extrapolate from, so the bucket is dropped rather than amplified.
+    if (year === now.getFullYear() && month === now.getMonth()) {
+      const elapsed = countWorkdaysInRange(new Date(year, month, 1), now, input.holidaysFn);
+      if (elapsed < CURRENT_MONTH_MIN_WORKDAYS) continue;
+      wd = Math.min(wd, elapsed);
+    }
     const monthDate = new Date(year, month, 1);
     const sf = resolveSeasonalFactor(monthDate, input.seasonalCtx);
     const monthsAgo = (now.getFullYear() - year) * 12 + (now.getMonth() - month);
@@ -631,6 +652,38 @@ export function winsorizeConsumptionSeries(values: ReadonlyArray<number>): numbe
   const cap = WINSORIZE_FACTOR * median(nonZero);
   if (!(cap > 0)) return [...values];
   return values.map(v => (v > cap ? cap : v));
+}
+
+/**
+ * Trailing monthly-demand series built from ConsumptionSnapshot rows — the ONE
+ * cleaning pipeline every σ / CV / trend consumer must go through:
+ *   1. keep at most the trailing 12 calendar months from `now`;
+ *   2. drop vacation-shortened months, whose ×20/workingDays normalization
+ *      inflates them into fake spikes (Jan 2026 for item 425 normalized to
+ *      2058 against a ~470 baseline);
+ *   3. winsorize at WINSORIZE_FACTOR × median so one contaminated month can't
+ *      dominate the standard deviation.
+ *
+ * The nightly recompute always did this; `computeScheduleOrderPlan` read the
+ * snapshots RAW and therefore sized safety stock off a σ that was 8× the real
+ * one — enough to saturate the `min(ss, demand)` ceiling and silently double
+ * every scheduled order-up-to level. Both callers now share this function so
+ * the two paths cannot drift apart again.
+ */
+export function buildTrailingMonthlyHistory(
+  history:
+    | ReadonlyArray<{ year: number; month: number; normalizedConsumption: number }>
+    | undefined,
+  now: Date,
+): Array<{ year: number; month: number; consumption: number }> {
+  if (!history || history.length === 0) return [];
+  const sorted = [...history].sort((a, b) => (a.year - b.year) * 12 + (a.month - b.month));
+  const cutoff = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+  const kept = sorted.filter(
+    r => new Date(r.year, r.month, 1) >= cutoff && !isVacationDistortedMonth(r.year, r.month),
+  );
+  const winsorized = winsorizeConsumptionSeries(kept.map(r => r.normalizedConsumption));
+  return kept.map((r, i) => ({ year: r.year, month: r.month, consumption: winsorized[i] }));
 }
 
 /** Caps the INVENTORY_COUNT contribution to the demand series at
