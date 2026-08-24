@@ -13,6 +13,11 @@ import { normalizeSearchTerm } from '@schemas';
 import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
 import { MessagePublishedEvent } from './message.events';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
+import {
+  isVisibleNow,
+  normalizeDisplayWindow,
+  resolveLifecycleStatus,
+} from './message-scheduling.util';
 
 import type { Message, MessageView, MessageTarget, MessageStatus } from '@prisma/client';
 
@@ -105,16 +110,97 @@ export class MessageService {
   }
 
   /**
+   * Aceita tanto o array de blocos quanto o objeto de chaves numéricas que alguns
+   * body-parsers produzem no lugar dele, devolvendo sempre um array na ordem certa.
+   * Chame só DEPOIS de `validateContentBlocks`.
+   */
+  private normalizeContentBlocks(contentBlocks: any[] | any): any[] {
+    if (Array.isArray(contentBlocks)) return contentBlocks;
+
+    if (contentBlocks && typeof contentBlocks === 'object') {
+      const keys = Object.keys(contentBlocks);
+      if (keys.length > 0 && keys.every(key => /^\d+$/.test(key))) {
+        return keys.sort((a, b) => Number(a) - Number(b)).map(key => contentBlocks[key]);
+      }
+    }
+
+    return contentBlocks as any[];
+  }
+
+  /**
    * Validate scheduling dates
    */
   private validateScheduling(data: CreateMessageDto | UpdateMessageDto): void {
-    if (data.startsAt && data.endsAt) {
-      const start = new Date(data.startsAt);
-      const end = new Date(data.endsAt);
-      if (end <= start) {
-        throw new BadRequestException('A data de término deve ser posterior à data de início');
-      }
+    if (!data.startsAt || !data.endsAt) return;
+
+    // Comparar os valores CRUS rejeitava a janela de um único dia: o composer manda
+    // duas datas iguais e `end <= start` disparava. A comparação tem de ser feita
+    // sobre a janela já materializada (00:00:00.000 → 23:59:59.999 em São Paulo).
+    const { startDate, endDate } = normalizeDisplayWindow(data.startsAt, data.endsAt);
+    if (endDate! <= startDate!) {
+      throw new BadRequestException('A data de término deve ser posterior à data de início');
     }
+  }
+
+  /**
+   * Público e leitura de uma mensagem, sempre sobre a MESMA população.
+   *
+   * O par exibido na lista ("19 / 30") vinha de dois universos diferentes: o
+   * numerador contava toda linha de `MessageView` já gravada e o denominador era a
+   * contagem VIVA de empregados. Bastava alguém ler e ser desligado depois para o
+   * par ficar impossível de fechar — e, com desligamentos suficientes, para passar
+   * de 100%. Aqui os dois lados saem do mesmo conjunto: quem hoje está empregado E
+   * pertence ao público da mensagem.
+   *
+   * `MessageTarget` é o retrato de quem foi endereçado no dia da publicação e
+   * continua intocado; os desligados apenas saem da conta e voltam em
+   * `formerEmployeeTargets`/`formerEmployeeViews` para a interface poder explicar
+   * a diferença em vez de escondê-la.
+   */
+  private buildStats(message: MessageWithRelations, employedUserIds: Set<string>) {
+    const targets = message.targets || [];
+    const allViews = message.views || [];
+
+    const audience =
+      targets.length > 0
+        ? new Set(targets.map(t => t.userId).filter(id => employedUserIds.has(id)))
+        : employedUserIds;
+
+    const views = allViews.filter(v => audience.has(v.userId));
+
+    return {
+      views: views.length,
+      uniqueViews: new Set(views.map(v => v.userId)).size,
+      targetUsers: audience.size,
+      dismissals: views.filter(v => v.dismissedAt !== null).length,
+      formerEmployeeTargets: targets.filter(t => !employedUserIds.has(t.userId)).length,
+      formerEmployeeViews: allViews.length - views.length,
+    };
+  }
+
+  /** IDs de todos os usuários com vínculo ativo — denominador de toda estatística. */
+  private async employedUserIds(): Promise<Set<string>> {
+    const rows = await this.prisma.user.findMany({
+      where: { ...EMPLOYED_USER_WHERE },
+      select: { id: true },
+    });
+    return new Set(rows.map(u => u.id));
+  }
+
+  /**
+   * O usuário ainda faz parte do quadro?
+   *
+   * Nada podava `MessageTarget` quando alguém era desligado e nenhuma das leituras
+   * checava vínculo, então um demitido que conseguisse abrir sessão continuava
+   * recebendo comunicado — inclusive todo broadcast, que por definição não tem
+   * lista de alvos para barrá-lo.
+   */
+  private async isEmployed(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, ...EMPLOYED_USER_WHERE },
+      select: { id: true },
+    });
+    return !!user;
   }
 
   /**
@@ -126,17 +212,9 @@ export class MessageService {
     userId: string,
     userRole: string,
   ): Promise<boolean> {
-    // Check if message is active
-    if (message.status !== 'ACTIVE') {
-      return false;
-    }
-
-    // Check date range
-    const now = new Date();
-    if (message.startDate && now < new Date(message.startDate)) {
-      return false;
-    }
-    if (message.endDate && now > new Date(message.endDate)) {
+    // Publicada E dentro da janela de exibição (mesma regra do agendador de ciclo
+    // de vida, para que STATUS e visibilidade real nunca discordem).
+    if (!isVisibleNow(message.status, message.startDate, message.endDate)) {
       return false;
     }
 
@@ -172,58 +250,22 @@ export class MessageService {
     this.logger.log(`Creating message: ${data.title}`);
 
     try {
-      // Log the raw incoming data for debugging
-      this.logger.log(`[create] RAW data received:`, JSON.stringify(data, null, 2));
-      this.logger.log(
-        `[create] contentBlocks type: ${typeof data.contentBlocks}, isArray: ${Array.isArray(data.contentBlocks)}`,
-      );
-
-      if (Array.isArray(data.contentBlocks) && data.contentBlocks.length > 0) {
-        this.logger.log(`[create] First block:`, JSON.stringify(data.contentBlocks[0]));
-        this.logger.log(`[create] All blocks:`, JSON.stringify(data.contentBlocks));
-      }
-
       this.validateContentBlocks(data.contentBlocks);
       this.validateScheduling(data);
 
-      // Normalize contentBlocks to array if it's an object with numeric keys
-      let contentBlocks: any[];
-
-      if (Array.isArray(data.contentBlocks)) {
-        contentBlocks = data.contentBlocks;
-        this.logger.log(
-          `[create] Using contentBlocks as-is (array), length: ${contentBlocks.length}`,
-        );
-      } else if (typeof data.contentBlocks === 'object') {
-        const keys = Object.keys(data.contentBlocks);
-        const isArrayLike = keys.every(key => /^\d+$/.test(key));
-        if (isArrayLike) {
-          contentBlocks = keys
-            .sort((a, b) => parseInt(a) - parseInt(b))
-            .map(key => (data.contentBlocks as any)[key]);
-          this.logger.log(`[create] Converted object to array, length: ${contentBlocks.length}`);
-        } else {
-          contentBlocks = data.contentBlocks as any[];
-          this.logger.log(`[create] Using as-is (object treated as array)`);
-        }
-      } else {
-        contentBlocks = data.contentBlocks as any[];
-        this.logger.log(`[create] Using as-is (unknown type)`);
-      }
-
-      // Verify contentBlocks are not empty arrays
-      const hasEmptyBlocks = contentBlocks.some(
-        block =>
-          Array.isArray(block) || (typeof block === 'object' && Object.keys(block).length === 0),
-      );
-      if (hasEmptyBlocks) {
-        this.logger.error(`[create] WARNING: Content blocks contain empty arrays or objects!`);
-        this.logger.error(`[create] Blocks: ${JSON.stringify(contentBlocks)}`);
-      }
+      const contentBlocks = this.normalizeContentBlocks(data.contentBlocks);
 
       // Get target user IDs (already resolved on frontend)
       // Empty array = all users
       const targetUserIds = data.targets || [];
+
+      // A janela vira dia-calendário cheio de São Paulo (ver message-scheduling.util).
+      const { startDate, endDate } = normalizeDisplayWindow(data.startsAt, data.endsAt);
+
+      // DRAFT é decisão humana; publicada, quem manda na situação é a janela:
+      // início no futuro nasce SCHEDULED, término no passado nasce EXPIRED.
+      const status = data.isActive ? resolveLifecycleStatus(startDate, endDate) : 'DRAFT';
+      const isLiveNow = status === 'ACTIVE';
 
       // Create message using Prisma (matches schema)
       // Store content as object with blocks array (frontend expects content.blocks)
@@ -231,13 +273,13 @@ export class MessageService {
         data: {
           title: data.title,
           content: { blocks: contentBlocks }, // Wrap blocks in object for frontend compatibility
-          status: data.isActive ? 'ACTIVE' : 'DRAFT',
-          startDate: data.startsAt ? new Date(data.startsAt) : null,
-          endDate: data.endsAt ? new Date(data.endsAt) : null,
+          status,
+          startDate,
+          endDate,
           createdById,
-          // Set publishedAt timestamp when creating ACTIVE messages
-          // This is required for messages to appear in getUnviewedForUser query
-          publishedAt: data.isActive ? new Date() : null,
+          // publishedAt marca a PRIMEIRA vez que a mensagem foi ao ar; agendada,
+          // só é carimbado pelo MessageLifecycleScheduler quando a janela abre.
+          publishedAt: isLiveNow ? new Date() : null,
         },
       });
 
@@ -254,17 +296,11 @@ export class MessageService {
 
       this.logger.log(`Message created successfully: ${message.id}`);
 
-      // Emit message.published ONLY when the message is created already-active
-      // AND already visible (no future startDate). A scheduled message with a
-      // future startDate is not yet visible in getUnviewedForUser, so notifying
-      // now would be premature; a scheduler should fire message.published once
-      // startDate is reached.
-      // TODO: add a @Cron that scans ACTIVE messages whose startDate has just
-      //       passed and were never notified, then emits message.published.
-      // Empty targetUserIds => ALL active users (decision in listener).
-      const startDate = data.startsAt ? new Date(data.startsAt) : null;
-      const isScheduledForFuture = startDate !== null && startDate.getTime() > Date.now();
-      if (data.isActive === true && !isScheduledForFuture) {
+      // Notifica só o que já está no ar. Mensagem agendada é notificada pelo
+      // MessageLifecycleScheduler no instante em que a janela abre — o TODO que
+      // deixava um agendamento publicar sem avisar ninguém.
+      // Empty targetUserIds => ALL employed users (decision in listener).
+      if (isLiveNow) {
         try {
           this.eventEmitter.emit(
             'message.published',
@@ -274,9 +310,9 @@ export class MessageService {
           // Never let a notification failure break the business transaction.
           this.logger.error('Error emitting message.published event:', emitError);
         }
-      } else if (isScheduledForFuture) {
+      } else if (status === 'SCHEDULED') {
         this.logger.log(
-          `Message ${message.id} scheduled for future (${startDate?.toISOString()}); suppressing message.published emit until visible.`,
+          `Mensagem ${message.id} agendada para ${startDate?.toISOString()}; notificação adiada até a janela abrir.`,
         );
       }
 
@@ -300,8 +336,21 @@ export class MessageService {
       const page = filters.page || 1;
       const limit = filters.limit || 10;
       const offset = (page - 1) * limit;
-      const sortBy = filters.sortBy || 'createdAt';
-      const sortOrder = filters.sortOrder || 'desc';
+      // Lista branca: `sortBy` chega da querystring e ia direto para o `orderBy`
+      // do Prisma — um campo inexistente derrubava a listagem inteira com 500.
+      const SORTABLE = [
+        'createdAt',
+        'updatedAt',
+        'publishedAt',
+        'startDate',
+        'endDate',
+        'title',
+        'status',
+      ];
+      const sortBy = SORTABLE.includes(filters.sortBy as string)
+        ? (filters.sortBy as string)
+        : 'createdAt';
+      const sortOrder = filters.sortOrder === 'asc' ? 'asc' : 'desc';
 
       // Build where conditions using Prisma
       const where: any = {};
@@ -326,7 +375,9 @@ export class MessageService {
           expired: 'EXPIRED',
           archived: 'ARCHIVED',
         };
-        const mapped = filters.status.map(s => statusMap[String(s).toLowerCase()] || String(s).toUpperCase()).filter(Boolean);
+        const mapped = filters.status
+          .map(s => statusMap[String(s).toLowerCase()] || String(s).toUpperCase())
+          .filter(Boolean);
         if (mapped.length > 0) {
           where.status = { in: mapped };
         }
@@ -339,7 +390,9 @@ export class MessageService {
 
       // Sector filter: messages targeted to users belonging to any of these sectors.
       if (Array.isArray(filters.sectorIds) && filters.sectorIds.length > 0) {
-        andConditions.push({ targets: { some: { user: { sectorId: { in: filters.sectorIds } } } } });
+        andConditions.push({
+          targets: { some: { user: { sectorId: { in: filters.sectorIds } } } },
+        });
       }
 
       // Creation date range filter (gte/lte ISO strings).
@@ -387,24 +440,12 @@ export class MessageService {
         },
       });
 
-      // Get total active users count for messages targeting all users
-      const totalActiveUsers = await this.prisma.user.count({ where: { ...EMPLOYED_USER_WHERE } });
+      // Numerador e denominador saem do MESMO conjunto (ver buildStats).
+      const employedUserIds = await this.employedUserIds();
 
       // Map messages to include stats
       const data = messages.map(message => {
-        const allViews = message.views || [];
-        const targets = message.targets || [];
-
-        // When targets are set, only count views from users in the target list
-        const targetUserIds = targets.length > 0 ? new Set(targets.map(t => t.userId)) : null;
-        const views = targetUserIds ? allViews.filter(v => targetUserIds.has(v.userId)) : allViews;
-
-        const stats = {
-          views: views.length,
-          uniqueViews: new Set(views.map(v => v.userId)).size,
-          targetUsers: targets.length > 0 ? targets.length : totalActiveUsers,
-          dismissals: views.filter(v => v.dismissedAt !== null).length,
-        };
+        const stats = this.buildStats(message, employedUserIds);
 
         // Remove views and targets from response, keep only stats and targetCount
         const { views: _views, targets: _targets, ...messageWithoutRelations } = message;
@@ -412,7 +453,8 @@ export class MessageService {
         return {
           ...messageWithoutRelations,
           stats,
-          targetCount: targets.length,
+          // Endereçados no dia da publicação (0 = broadcast), inclusive quem já saiu.
+          targetCount: (message.targets || []).length,
         };
       });
 
@@ -471,7 +513,17 @@ export class MessageService {
         throw new NotFoundException(`Mensagem com ID ${id} não encontrada`);
       }
 
-      return message;
+      // Mesmas estatísticas da listagem, já no detalhe. Sem isso cada cliente
+      // recalculava por conta própria a partir de `views`/`targets` — e o app
+      // mostrava "Destinatários 0" em toda mensagem broadcast, porque um
+      // broadcast simplesmente não tem linhas em MessageTarget para contar.
+      const stats = this.buildStats(message, await this.employedUserIds());
+
+      return {
+        ...message,
+        stats,
+        targetCount: message.targets.length,
+      } as Message;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -499,21 +551,9 @@ export class MessageService {
         this.validateScheduling(data);
       }
 
-      // Normalize contentBlocks to array if needed
-      let contentBlocks: any[] | undefined;
-      if (data.contentBlocks) {
-        if (Array.isArray(data.contentBlocks)) {
-          contentBlocks = data.contentBlocks;
-        } else if (typeof data.contentBlocks === 'object') {
-          const keys = Object.keys(data.contentBlocks);
-          const isArrayLike = keys.every(key => /^\d+$/.test(key));
-          if (isArrayLike) {
-            contentBlocks = keys
-              .sort((a, b) => parseInt(a) - parseInt(b))
-              .map(key => (data.contentBlocks as any)[key]);
-          }
-        }
-      }
+      const contentBlocks = data.contentBlocks
+        ? this.normalizeContentBlocks(data.contentBlocks)
+        : undefined;
 
       // Build update data object
       const updateData: any = {};
@@ -526,31 +566,54 @@ export class MessageService {
         updateData.content = { blocks: contentBlocks }; // Wrap blocks in object for frontend compatibility
       }
 
-      if (data.isActive !== undefined) {
-        updateData.status = data.isActive ? 'ACTIVE' : 'DRAFT';
+      // Janela EFETIVA depois da edição (o que veio no payload; senão o que já havia).
+      const { startDate: normalizedStart, endDate: normalizedEnd } = normalizeDisplayWindow(
+        data.startsAt,
+        data.endsAt,
+      );
+      const effectiveStart =
+        data.startsAt !== undefined ? normalizedStart : existingMessage.startDate;
+      const effectiveEnd = data.endsAt !== undefined ? normalizedEnd : existingMessage.endDate;
 
-        // Set publishedAt when activating a message for the first time
-        if (data.isActive && !existingMessage.publishedAt) {
-          updateData.publishedAt = new Date();
-        }
-        // Clear publishedAt when setting to draft
-        if (!data.isActive && existingMessage.publishedAt) {
+      if (data.startsAt !== undefined) {
+        updateData.startDate = normalizedStart;
+      }
+
+      if (data.endsAt !== undefined) {
+        updateData.endDate = normalizedEnd;
+      }
+
+      // A situação é recalculada sempre que a mensagem está publicada — inclusive
+      // quando só a janela mudou. Sem isso, esticar o prazo de uma mensagem
+      // EXPIRED a deixava expirada para sempre, e encurtá-lo mantinha ACTIVE.
+      const wasPublished = existingMessage.status !== 'DRAFT';
+      const willBePublished = data.isActive !== undefined ? data.isActive : wasPublished;
+      const keepsArchived = data.isActive === undefined && existingMessage.status === 'ARCHIVED';
+
+      if (
+        !keepsArchived &&
+        (data.isActive !== undefined || data.startsAt !== undefined || data.endsAt !== undefined)
+      ) {
+        updateData.status = willBePublished
+          ? resolveLifecycleStatus(effectiveStart, effectiveEnd)
+          : 'DRAFT';
+
+        if (willBePublished) {
+          updateData.archivedAt = null;
+          // Só carimba publishedAt quando de fato foi ao ar (agendada carimba depois).
+          if (updateData.status === 'ACTIVE' && !existingMessage.publishedAt) {
+            updateData.publishedAt = new Date();
+          }
+        } else if (existingMessage.publishedAt) {
+          // Voltou para rascunho: perde a marca de publicação.
           updateData.publishedAt = null;
         }
       }
 
-      if (data.startsAt !== undefined) {
-        updateData.startDate = data.startsAt ? new Date(data.startsAt) : null;
-      }
-
-      if (data.endsAt !== undefined) {
-        updateData.endDate = data.endsAt ? new Date(data.endsAt) : null;
-      }
-
-      // Detect a first-time DRAFT -> ACTIVE transition (publish).
-      // Guard on publishedAt === null so the notification fires only once,
-      // even if the message is later toggled draft/active again.
-      const isFirstPublish = data.isActive === true && !existingMessage.publishedAt;
+      // Detect a first-time publish. Guard on publishedAt === null so the
+      // notification fires only once, even if the message is later toggled
+      // draft/active again.
+      const isFirstPublish = updateData.status === 'ACTIVE' && !existingMessage.publishedAt;
 
       // Update message using Prisma
       const message = await this.prisma.message.update({
@@ -623,19 +686,13 @@ export class MessageService {
         // list gained new recipients who were never notified. Notify ONLY the
         // delta. Skip if the message is not currently visible (DRAFT, or scheduled
         // for the future) — those will be (re)notified on publish/schedule.
-        const isActiveNow = message.status === 'ACTIVE';
-        const isVisibleNow =
-          isActiveNow && (!message.startDate || message.startDate.getTime() <= Date.now());
+        const visibleNow = isVisibleNow(message.status, message.startDate, message.endDate);
 
-        if (isVisibleNow) {
+        if (visibleNow) {
           try {
             this.eventEmitter.emit(
               'message.published',
-              new MessagePublishedEvent(
-                message,
-                newlyAddedTargetUserIds,
-                message.createdById,
-              ),
+              new MessagePublishedEvent(message, newlyAddedTargetUserIds, message.createdById),
             );
             this.logger.log(
               `Notified ${newlyAddedTargetUserIds.length} newly added target(s) for message ${id}.`,
@@ -713,20 +770,25 @@ export class MessageService {
 
   /**
    * Activate (publish) a message (admin only). Mirrors update()'s publish path:
-   * sets ACTIVE, stamps publishedAt on the first publish, clears archivedAt, and
-   * emits message.published exactly once (guarded on publishedAt === null).
+   * carimba publishedAt na primeira publicação, limpa archivedAt e emite
+   * message.published exatamente uma vez (guardado em publishedAt === null).
+   *
+   * Reativar NÃO ressuscita a janela: se o prazo já venceu a mensagem volta como
+   * EXPIRED e se o início ainda não chegou volta como SCHEDULED — antes ela era
+   * forçada a ACTIVE e reaparecia para todo mundo fora do prazo.
    */
   async activate(id: string): Promise<Message> {
     this.logger.log(`Activating message: ${id}`);
 
     try {
       const existing = await this.findOne(id); // throws 404 if missing
-      const isFirstPublish = !existing.publishedAt;
+      const status = resolveLifecycleStatus(existing.startDate, existing.endDate);
+      const isFirstPublish = status === 'ACTIVE' && !existing.publishedAt;
 
       const message = await this.prisma.message.update({
         where: { id },
         data: {
-          status: 'ACTIVE',
+          status,
           archivedAt: null,
           ...(isFirstPublish ? { publishedAt: new Date() } : {}),
         },
@@ -792,7 +854,12 @@ export class MessageService {
    */
   async getUnviewedForUser(userId: string, userRole: string): Promise<Message[]> {
     try {
-      this.logger.log(`[getUnviewedForUser] Called with userId=${userId}, userRole=${userRole}`);
+      // Desligado não recebe comunicado. Sem esta trava um demitido que ainda
+      // conseguisse abrir sessão continuava vendo TODO broadcast (que, por não ter
+      // lista de alvos, não tinha como barrá-lo) e ainda entrava na estatística.
+      if (!(await this.isEmployed(userId))) {
+        return [];
+      }
 
       const now = new Date();
 
@@ -823,15 +890,10 @@ export class MessageService {
         orderBy: [{ createdAt: 'desc' }],
       });
 
-      this.logger.log(`[getUnviewedForUser] Query returned ${allMessages.length} messages`);
-
       // Filter by targeting rules
       const filteredMessages: Message[] = [];
       for (const message of allMessages) {
         const canView = await this.canUserViewMessage(message, userId, userRole);
-        this.logger.log(
-          `[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}`,
-        );
         if (canView) {
           // Create a clean message object without targets
           const messageWithoutTargets = {
@@ -855,8 +917,8 @@ export class MessageService {
         }
       }
 
-      this.logger.log(
-        `[getUnviewedForUser] Returning ${filteredMessages.length} filtered messages`,
+      this.logger.debug(
+        `[getUnviewedForUser] ${filteredMessages.length} mensagem(ns) para o usuário ${userId}`,
       );
       return filteredMessages;
     } catch (error) {
@@ -882,7 +944,9 @@ export class MessageService {
         throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
-      const canView = await this.canUserViewMessage(message, userId, userRole);
+      const canView =
+        (await this.isEmployed(userId)) &&
+        (await this.canUserViewMessage(message, userId, userRole));
 
       if (!canView) {
         throw new ForbiddenException('Você não tem permissão para visualizar esta mensagem');
@@ -940,7 +1004,9 @@ export class MessageService {
         throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
-      const canView = await this.canUserViewMessage(message, userId, userRole);
+      const canView =
+        (await this.isEmployed(userId)) &&
+        (await this.canUserViewMessage(message, userId, userRole));
 
       if (!canView) {
         throw new ForbiddenException('Você não tem permissão para visualizar esta mensagem');
@@ -994,7 +1060,9 @@ export class MessageService {
    */
   async getAllForUser(userId: string, userRole: string): Promise<Message[]> {
     try {
-      this.logger.log(`[getAllForUser] Called with userId=${userId}, userRole=${userRole}`);
+      if (!(await this.isEmployed(userId))) {
+        return [];
+      }
 
       const now = new Date();
 
@@ -1020,8 +1088,6 @@ export class MessageService {
         },
         orderBy: [{ createdAt: 'desc' }],
       });
-
-      this.logger.log(`[getAllForUser] Query returned ${allMessages.length} messages`);
 
       // Filter by targeting rules
       const filteredMessages: (Message & { viewedAt?: Date | null; dismissedAt?: Date | null })[] =
@@ -1061,7 +1127,9 @@ export class MessageService {
         }
       }
 
-      this.logger.log(`[getAllForUser] Returning ${filteredMessages.length} filtered messages`);
+      this.logger.debug(
+        `[getAllForUser] ${filteredMessages.length} mensagem(ns) para o usuário ${userId}`,
+      );
       return filteredMessages;
     } catch (error) {
       this.logger.error('Error fetching all messages for user:', error);
@@ -1077,6 +1145,8 @@ export class MessageService {
     uniqueViewers: number;
     targetedUsers: number;
     totalDismissals: number;
+    formerEmployeeTargets: number;
+    formerEmployeeViews: number;
   }> {
     try {
       const message = await this.prisma.message.findUnique({
@@ -1091,37 +1161,16 @@ export class MessageService {
         throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
-      let targetedUsers = 0;
-
-      // When targets are set, only count views from users in the target list
-      const targetUserIds =
-        message.targets && message.targets.length > 0
-          ? new Set(message.targets.map(t => t.userId))
-          : null;
-      const relevantViews = targetUserIds
-        ? (message.views || []).filter(v => targetUserIds.has(v.userId))
-        : message.views || [];
-
-      const totalViews = relevantViews.length;
-      const uniqueViewers = new Set(relevantViews.map(v => v.userId)).size;
-
-      // Simplified: no targets = ALL_USERS, has targets = count of targets
-      if (!message.targets || message.targets.length === 0) {
-        // ALL_USERS
-        targetedUsers = await this.prisma.user.count({ where: { ...EMPLOYED_USER_WHERE } });
-      } else {
-        // SPECIFIC_USERS (count unique user IDs in targets)
-        targetedUsers = message.targets.length;
-      }
-
-      // Count dismissals (messages marked as "don't show again")
-      const totalDismissals = relevantViews.filter(v => v.dismissedAt !== null).length;
+      // Mesma regra da listagem — uma única fonte de verdade (ver buildStats).
+      const stats = this.buildStats(message, await this.employedUserIds());
 
       return {
-        totalViews,
-        uniqueViewers,
-        targetedUsers,
-        totalDismissals,
+        totalViews: stats.views,
+        uniqueViewers: stats.uniqueViews,
+        targetedUsers: stats.targetUsers,
+        totalDismissals: stats.dismissals,
+        formerEmployeeTargets: stats.formerEmployeeTargets,
+        formerEmployeeViews: stats.formerEmployeeViews,
       };
     } catch (error) {
       if (error instanceof NotFoundException) {

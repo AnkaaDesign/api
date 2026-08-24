@@ -112,9 +112,11 @@ export class CreateMessageDto {
     description: 'Start date for message visibility (ISO date string)',
     example: '2026-01-06T00:00:00Z',
   })
+  // `null` limpa a janela (o @IsOptional do class-validator já deixa null passar);
+  // `undefined` no update significa "não mexa neste campo".
   @IsOptional()
   @IsDateString()
-  startsAt?: string;
+  startsAt?: string | null;
 
   @ApiPropertyOptional({
     description: 'End date for message visibility (ISO date string)',
@@ -122,5 +124,5 @@ export class CreateMessageDto {
   })
   @IsOptional()
   @IsDateString()
-  endsAt?: string;
+  endsAt?: string | null;
 }

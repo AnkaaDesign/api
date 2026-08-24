@@ -1,4 +1,16 @@
-import { IsOptional, IsEnum, IsBoolean, IsDateString, IsInt, IsArray, IsString, IsUUID, Min, Max, ValidateNested } from 'class-validator';
+import {
+  IsOptional,
+  IsEnum,
+  IsBoolean,
+  IsDateString,
+  IsInt,
+  IsArray,
+  IsString,
+  IsUUID,
+  Min,
+  Max,
+  ValidateNested,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -36,7 +48,7 @@ export class FilterMessageDto {
   searchingFor?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by message status (web values: draft | active | archived)',
+    description: 'Filter by message status (draft | scheduled | active | expired | archived)',
     isArray: true,
     type: String,
   })
@@ -107,11 +119,12 @@ export class FilterMessageDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    description: 'Sort by field',
+    description: 'Sort by field (valores fora da lista caem em createdAt)',
     default: 'createdAt',
-    enum: ['createdAt', 'updatedAt', 'title'],
+    enum: ['createdAt', 'updatedAt', 'publishedAt', 'startDate', 'endDate', 'title', 'status'],
   })
   @IsOptional()
+  @IsString()
   sortBy?: string;
 
   @ApiPropertyOptional({

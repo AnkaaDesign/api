@@ -55,18 +55,6 @@ export class MessageController {
     description: 'Forbidden - admin access required',
   })
   async create(@Body() createMessageDto: CreateMessageDto, @UserId() userId: string) {
-    // Debug: Log what the controller receives AFTER ValidationPipe transformation
-    console.log(
-      '[MessageController.create] Received DTO:',
-      JSON.stringify(createMessageDto, null, 2),
-    );
-    console.log('[MessageController.create] contentBlocks:', createMessageDto.contentBlocks);
-    console.log(
-      '[MessageController.create] First block type:',
-      typeof createMessageDto.contentBlocks[0],
-    );
-    console.log('[MessageController.create] First block:', createMessageDto.contentBlocks[0]);
-
     const message = await this.messageService.create(createMessageDto, userId);
     return {
       success: true,
@@ -123,11 +111,7 @@ export class MessageController {
     description: 'Unviewed messages retrieved successfully',
   })
   async getUnviewed(@UserId() userId: string, @User() user: UserPayload) {
-    console.log(`[MessageController.getUnviewed] userId=${userId}, role=${user.role}`);
     const messages = await this.messageService.getUnviewedForUser(userId, user.role);
-    console.log(
-      `[MessageController.getUnviewed] Received ${messages.length} messages from service`,
-    );
     return {
       success: true,
       data: messages,
