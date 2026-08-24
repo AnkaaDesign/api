@@ -73,6 +73,7 @@
     "test:painter-nfse-autoemit": "tsx tests/painter-nfse-autoemit.test.ts",
     "test:quote-diff": "tsx tests/quote-diff.test.ts",
     "test:due-date": "tsx tests/due-date.test.ts",
+    "test:cache-lock": "tsx tests/cache-lock.test.ts",
     "test:recurrent-installations": "tsx tests/recurrent-installations.test.ts",
     "audit:recurrent-links": "tsx scripts/audit-recurrent-payable-links.ts",
     "test:task-match": "tsx tests/task-match-allocation.test.ts",

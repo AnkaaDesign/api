@@ -258,6 +258,8 @@ export class ThrottlerService {
   }
 
   async onModuleDestroy() {
-    await this.redis.quit();
+    // Ver o comentário equivalente em `CacheService.onModuleDestroy`: barulho de
+    // desligamento não pode falhar o processo.
+    await this.redis.quit().catch(() => undefined);
   }
 }

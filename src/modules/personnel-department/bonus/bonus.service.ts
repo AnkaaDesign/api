@@ -3473,8 +3473,22 @@ export class BonusService {
       return await this.calculateAndSaveBonusesLocked(year, month, userId);
     } finally {
       if (token) {
+        // O retorno IMPORTA. `false` = a trava não era mais nossa quando
+        // tentamos soltar, e a próxima chamada vai esperar o TTL inteiro
+        // (300 s) em vez dos ~15 s da execução. Foi exatamente esse silêncio
+        // que escondeu o prefixo duplicado do `releaseLock` até 20/08/2026,
+        // quando quatro demissões seguidas fizeram a bonificação da rescisão
+        // falhar por "outro cálculo em andamento" que não existia.
         await this.cacheService
           .releaseLock(lockKey, token)
+          .then(released => {
+            if (!released) {
+              this.logger.warn(
+                `Trava ${lockKey} não foi liberada (já não era nossa — TTL estourado?). ` +
+                  'O próximo cálculo do período vai esperar o TTL expirar.',
+              );
+            }
+          })
           .catch(err => this.logger.warn(`Falha ao liberar ${lockKey}: ${err?.message ?? err}`));
       }
     }

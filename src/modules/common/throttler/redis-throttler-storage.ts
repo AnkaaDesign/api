@@ -262,7 +262,10 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   }
 
   async onApplicationShutdown(): Promise<void> {
-    await this.redis.quit();
+    // Encerrar não pode virar exit code: um `quit()` que cruza com um comando
+    // em voo rejeita com "Connection is closed" e derrubava um script de
+    // manutenção DEPOIS de ele ter concluído o trabalho.
+    await this.redis.quit().catch(() => undefined);
   }
 
   private isFileOperationKey(key: string): boolean {
