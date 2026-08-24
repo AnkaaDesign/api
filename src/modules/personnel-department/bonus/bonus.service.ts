@@ -2397,6 +2397,44 @@ export class BonusService {
         eligibleUsers > 0 ? roundAverage(totalWeightedTasks / eligibleUsers) : 0,
       rawAverageTasksPerEmployee:
         eligibleUsers > 0 ? roundAverage(totalRawTaskCount / eligibleUsers) : 0,
+      /**
+       * QUEM está no período e COM QUE PESO — o mesmo cadastro que a folha usa.
+       *
+       * Existe porque a Simulação montava a lista por conta própria
+       * (`currentContractStatus = ACTIVE` + cargo bonificável) e errava nos dois
+       * sentidos: mostrava quem o cálculo real EXCLUI (afastamento médico
+       * integral zera o peso e tira a pessoa da folha) e escondia quem o cálculo
+       * real INCLUI (desligado no meio do período recebe proporcional — é
+       * justamente o número da rescisão). Além disso pagava todo mundo como
+       * período inteiro, ignorando o `weight` de quem entrou ou saiu no meio.
+       *
+       * É de graça: `resolvePeriodEligibility` já foi chamado acima para o
+       * divisor. Devolver o cadastro evita que a regra seja reimplementada — e
+       * divirja — no front.
+       */
+      eligibility: eligibility.entries.map(e => ({
+        userId: e.userId,
+        userName: e.userName,
+        /** Peso final = temporal × afastamento. Prorrateia o valor individual. */
+        weight: e.weight,
+        temporalWeight: e.temporalWeight,
+        absenceFactor: e.absenceFactor,
+        eligibleDays: e.eligibleDays,
+        reason: e.reason,
+        terminatedInPeriod: e.terminatedInPeriod,
+        currentlyEmployed: e.currentlyEmployed,
+      })),
+      /**
+       * Zerados pelo afastamento integral. NÃO estão em `eligibility` — saem da
+       * folha como quem nunca foi elegível —, mas o cliente precisa saber que
+       * foram excluídos de propósito, e não esquecidos.
+       */
+      fullyAbsent: eligibility.fullyAbsent,
+      /**
+       * `false` = Secullum indisponível, todo mundo saiu com fator 1. Seguro
+       * para exibir, mas a tela deve avisar que o afastamento não foi medido.
+       */
+      absenceDataAvailable: eligibility.absenceDataAvailable,
     };
   }
 
