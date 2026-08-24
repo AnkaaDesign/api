@@ -27,7 +27,13 @@
 //
 // NUNCA LANÇA: uma falha aqui não pode desfazer a demissão, que já foi commitada.
 
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { BonusService } from './bonus.service';
@@ -51,6 +57,44 @@ import { getCurrentPeriod } from '../../../utils/bonus';
  */
 const MAX_LOOKBACK = 3;
 
+/**
+ * Uma falha de fechamento, classificada pelo que se deve FAZER com ela.
+ *
+ * `retryable` = o trabalho não foi feito por um motivo passageiro (a trava de
+ * gravação do período estava com outro processo e não saiu em 120 s). Não é
+ * problema de folha: é fila. Notificar o RH aqui é falso alarme — o certo é
+ * tentar de novo e só avisar se a segunda tentativa também não passar.
+ *
+ * Qualquer outra coisa (Secullum fora do ar, período fechado divergindo, linha
+ * que falhou na gravação) é terminal para este evento e vai direto para a
+ * notificação, porque depende de decisão ou de conserto humano.
+ */
+type SettleFailure = { message: string; retryable: boolean; period: string };
+
+/** A contenção de trava chega como `ServiceUnavailableException` do `BonusService`. */
+function isRetryable(err: unknown): boolean {
+  return err instanceof ServiceUnavailableException;
+}
+
+/**
+ * Falhas que a reconciliação adiada realmente conserta, separadas das que não.
+ *
+ * A rede de segurança só refaz o período CORRENTE. Uma falha de trava num
+ * período ANTIGO (varredura de lookback, correção de data retroativa) não seria
+ * refeita por ninguém — então silenciá-la como "passageira" trocaria um falso
+ * alarme por um problema mudo, que é pior. Essas voltam a ser terminais.
+ */
+function partitionFailures(
+  failures: SettleFailure[],
+  currentPeriodKey: string,
+): { deferred: SettleFailure[]; terminal: SettleFailure[] } {
+  const canDefer = (f: SettleFailure) => f.retryable && f.period === currentPeriodKey;
+  return {
+    deferred: failures.filter(canDefer),
+    terminal: failures.filter(f => !canDefer(f)),
+  };
+}
+
 @Injectable()
 export class BonusTerminationListener implements OnModuleInit {
   private readonly logger = new Logger(BonusTerminationListener.name);
@@ -62,6 +106,14 @@ export class BonusTerminationListener implements OnModuleInit {
    */
   private static readonly RECONCILE_DEBOUNCE_MS = 10_000;
   private readonly pendingReconcile = new Map<string, NodeJS.Timeout>();
+
+  /**
+   * Quem ainda merece notificação SE a reconciliação adiada também falhar,
+   * por período. Sobrevive aos reagendamentos do debounce de propósito: numa
+   * rajada de demissões, todo mundo que caiu na trava tem de ser avisado (ou
+   * poupado) pelo resultado da MESMA execução final.
+   */
+  private readonly pendingNotify = new Map<string, Set<string>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,7 +159,7 @@ export class BonusTerminationListener implements OnModuleInit {
   async onEligibilityChanged(payload: BonusEligibilityChangedPayload): Promise<void> {
     const { userId, reason } = payload;
     try {
-      const failures: string[] = [];
+      const failures: SettleFailure[] = [];
       const rewritten = new Set<string>();
 
       if (reason === 'TERMINATION_DATE_CHANGED') {
@@ -135,13 +187,28 @@ export class BonusTerminationListener implements OnModuleInit {
 
       const current = getCurrentPeriod();
       await this.bonusService.invalidateLiveBonusesCache(current.year, current.month);
-      this.scheduleCurrentPeriodReconcile(rewritten);
 
       if (failures.length > 0) {
         this.logger.error(
-          `[elegibilidade:${reason}] não reconciliada para ${userId}: ${failures.join('; ')}`,
+          `[elegibilidade:${reason}] não reconciliada para ${userId}: ` +
+            failures.map(f => f.message).join('; '),
         );
-        await this.notifyFailure(userId, failures);
+      }
+      const { deferred, terminal } = partitionFailures(
+        failures,
+        `${current.year}-${current.month}`,
+      );
+
+      // A reconciliação do corrente já ia acontecer de qualquer jeito; o que a
+      // falha por trava acrescenta é o direito deste usuário a ser notificado
+      // caso ela também não passe.
+      this.scheduleCurrentPeriodReconcile(rewritten, deferred.length > 0 ? [userId] : []);
+
+      if (terminal.length > 0) {
+        await this.notifyFailure(
+          userId,
+          terminal.map(f => f.message),
+        );
       }
     } catch (err) {
       this.logger.error(
@@ -167,28 +234,69 @@ export class BonusTerminationListener implements OnModuleInit {
    * O CACHE não é adiado — quem chama já o invalidou antes de agendar. A tela
    * fica correta na hora; o que espera é só a materialização das linhas.
    */
-  private scheduleCurrentPeriodReconcile(rewritten: Set<string>): void {
+  private scheduleCurrentPeriodReconcile(
+    rewritten: Set<string>,
+    notifyUserIds: string[] = [],
+  ): void {
     const { year, month } = getCurrentPeriod();
     const key = `${year}-${month}`;
-    if (rewritten.has(key)) return;
+
+    // Acumula ANTES do curto-circuito: se o período já foi regravado agora, o
+    // trabalho de quem esperava a trava está feito e ninguém precisa ser
+    // avisado — mas o registro tem de sair da fila junto.
+    const waiting = this.pendingNotify.get(key) ?? new Set<string>();
+    for (const id of notifyUserIds) waiting.add(id);
+
+    if (rewritten.has(key)) {
+      this.pendingNotify.delete(key);
+      return;
+    }
+    if (waiting.size > 0) this.pendingNotify.set(key, waiting);
 
     const existing = this.pendingReconcile.get(key);
     if (existing) clearTimeout(existing);
 
     const timer = setTimeout(() => {
       this.pendingReconcile.delete(key);
-      const failures: string[] = [];
-      void this.reconcileCurrentPeriod(new Set<string>(), failures)
-        .then(() => {
-          if (failures.length > 0) {
-            this.logger.error(
-              `[elegibilidade] reconciliação adiada de ${key} falhou: ${failures.join('; ')}`,
+      const toNotify = [...(this.pendingNotify.get(key) ?? [])];
+      this.pendingNotify.delete(key);
+
+      void (async () => {
+        const failures: SettleFailure[] = [];
+        try {
+          await this.reconcileCurrentPeriod(new Set<string>(), failures);
+        } catch (err) {
+          // Esta é a SEGUNDA tentativa: mesmo uma nova contenção de trava aqui
+          // é terminal, senão o adiamento vira laço infinito e o RH nunca fica
+          // sabendo que a bonificação da rescisão continua em aberto.
+          failures.push({
+            message: (err as Error)?.message ?? String(err),
+            retryable: false,
+            period: key,
+          });
+        }
+
+        if (failures.length === 0) {
+          // Deu certo na segunda: a rajada de demissões foi só fila na trava.
+          // Nenhuma notificação — era exatamente o falso alarme de 20/08/2026.
+          if (toNotify.length > 0) {
+            this.logger.log(
+              `[bonificação] ${key}: reconciliação adiada fechou o período — ` +
+                `${toNotify.length} desligamento(s) que tinham esbarrado na trava não precisam de aviso.`,
             );
           }
-        })
-        .catch(err =>
-          this.logger.error(`[elegibilidade] reconciliação adiada de ${key} falhou`, err as Error),
+          return;
+        }
+
+        const messages = failures.map(f => f.message);
+        this.logger.error(
+          `[elegibilidade] reconciliação adiada de ${key} falhou: ${messages.join('; ')}`,
         );
+        // Agora sim: a segunda tentativa também não passou, o RH precisa saber.
+        for (const userId of toNotify) {
+          await this.notifyFailure(userId, messages);
+        }
+      })();
     }, BonusTerminationListener.RECONCILE_DEBOUNCE_MS);
     // Não segura o processo no encerramento.
     timer.unref?.();
@@ -199,17 +307,16 @@ export class BonusTerminationListener implements OnModuleInit {
     const { userId } = payload;
 
     try {
-      const terminationDate = payload.terminationDate ?? (await this.resolveTerminationDate(userId));
+      const terminationDate =
+        payload.terminationDate ?? (await this.resolveTerminationDate(userId));
       if (!terminationDate) {
-        this.logger.warn(
-          `[demissão] usuário ${userId} sem data de desligamento — nada a fechar.`,
-        );
+        this.logger.warn(`[demissão] usuário ${userId} sem data de desligamento — nada a fechar.`);
         return;
       }
 
       const periods = this.periodsToSettle(terminationDate);
       const settled: string[] = [];
-      const failures: string[] = [];
+      const failures: SettleFailure[] = [];
       // Períodos que este laço realmente regravou — evita refazer o trabalho na
       // reconciliação do período corrente logo abaixo.
       const rewritten = new Set<string>();
@@ -222,15 +329,33 @@ export class BonusTerminationListener implements OnModuleInit {
       await this.reconcileCurrentPeriod(rewritten, failures);
 
       if (settled.length > 0) {
-        this.logger.log(
-          `[demissão] bonificação fechada para ${userId}: ${settled.join('; ')}`,
-        );
+        this.logger.log(`[demissão] bonificação fechada para ${userId}: ${settled.join('; ')}`);
       }
       if (failures.length > 0) {
         this.logger.error(
-          `[demissão] bonificação NÃO fechada para ${userId}: ${failures.join('; ')}`,
+          `[demissão] bonificação NÃO fechada para ${userId}: ` +
+            failures.map(f => f.message).join('; '),
         );
-        await this.notifyFailure(userId, failures);
+
+        const current = getCurrentPeriod();
+        const { deferred, terminal } = partitionFailures(
+          failures,
+          `${current.year}-${current.month}`,
+        );
+
+        if (terminal.length > 0) {
+          await this.notifyFailure(
+            userId,
+            terminal.map(f => f.message),
+          );
+        }
+        // Só esbarrou na trava do período corrente? Não é falha de folha, é
+        // fila: outra demissão da mesma rajada está gravando o período INTEIRO
+        // neste instante, e o período inteiro é justamente o que faltava fazer
+        // aqui. Reagenda e notifica só se a segunda tentativa também não passar.
+        if (deferred.length > 0) {
+          this.scheduleCurrentPeriodReconcile(new Set<string>(), [userId]);
+        }
       }
     } catch (err) {
       this.logger.error(
@@ -261,7 +386,7 @@ export class BonusTerminationListener implements OnModuleInit {
     year: number,
     month: number,
     rewritten: Set<string>,
-    failures: string[],
+    failures: SettleFailure[],
     opts?: { rewriteClosedPeriods?: boolean },
   ): Promise<string | null> {
     const label = `${String(month).padStart(2, '0')}/${year}`;
@@ -347,7 +472,7 @@ export class BonusTerminationListener implements OnModuleInit {
             `automaticamente para não reescrever um mês possivelmente já pago. ` +
             `Se for para corrigir: pnpm bonus:recalc-period ${year} ${month}`;
           this.logger.error(`[bonificação] ${msg}`);
-          failures.push(msg);
+          failures.push({ message: msg, retryable: false, period: `${year}-${month}` });
         } else {
           this.logger.log(
             `[bonificação] ${label}: período fechado e linha já existe para ${userId} — mantida.`,
@@ -364,13 +489,26 @@ export class BonusTerminationListener implements OnModuleInit {
       // divergindo do mesmo período.
       const result = await this.bonusService.calculateAndSaveBonuses(String(year), String(month));
       rewritten.add(`${year}-${month}`);
-      if (result.totalFailed > 0) failures.push(`${label}: ${result.totalFailed} linha(s)`);
+      if (result.totalFailed > 0) {
+        failures.push({
+          message: `${label}: ${result.totalFailed} linha(s)`,
+          retryable: false,
+          period: `${year}-${month}`,
+        });
+      }
       return `${label} (${result.totalSuccess} ok, ${result.totalFailed} falhas)`;
     } catch (err) {
       // Secullum fora do ar é o caso esperado aqui — `calculateAndSaveBonuses`
       // se recusa a gravar sem apuração de ponto (e sem medição de afastamento),
       // e está certo em se recusar. O cron tenta de novo do dia 5 ao 10.
-      failures.push(`${label}: ${(err as Error)?.message ?? err}`);
+      //
+      // Contenção de trava é o OUTRO caso e não se parece com este: o período
+      // está sendo gravado agora mesmo por outra demissão da rajada.
+      failures.push({
+        message: `${label}: ${(err as Error)?.message ?? err}`,
+        retryable: isRetryable(err),
+        period: `${year}-${month}`,
+      });
       return null;
     }
   }
@@ -398,7 +536,7 @@ export class BonusTerminationListener implements OnModuleInit {
    */
   private async reconcileCurrentPeriod(
     rewritten: Set<string>,
-    failures: string[],
+    failures: SettleFailure[],
   ): Promise<void> {
     const { year, month } = getCurrentPeriod();
     const label = `${String(month).padStart(2, '0')}/${year}`;
@@ -461,10 +599,20 @@ export class BonusTerminationListener implements OnModuleInit {
           `${savedDivisor ?? '?'} → ${eligibility.divisor} (${result.totalSuccess} ok, ` +
           `${result.totalFailed} falhas).`,
       );
-      if (result.totalFailed > 0) failures.push(`${label}: ${result.totalFailed} linha(s)`);
+      if (result.totalFailed > 0) {
+        failures.push({
+          message: `${label}: ${result.totalFailed} linha(s)`,
+          retryable: false,
+          period: `${year}-${month}`,
+        });
+      }
     } catch (err) {
       // Mesmo contrato do laço: nunca derruba a demissão, que já foi commitada.
-      failures.push(`${label} (corrente): ${(err as Error)?.message ?? err}`);
+      failures.push({
+        message: `${label} (corrente): ${(err as Error)?.message ?? err}`,
+        retryable: isRetryable(err),
+        period: `${year}-${month}`,
+      });
     }
   }
 
