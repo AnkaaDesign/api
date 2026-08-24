@@ -34,7 +34,12 @@ import { SignatureEnvelopeService } from './services/signature-envelope.service'
 
 /** Só o que a cerimônia usa do cliente — evita depender da classe concreta. */
 interface WhatsAppClient {
-  sendMessage(phone: string, message: string): Promise<unknown>;
+  sendMessage(
+    phone: string,
+    message: string,
+    priority?: 'CRITICAL' | 'NORMAL',
+    preview?: { url: string; title: string; description?: string } | null,
+  ): Promise<unknown>;
   isReady?(): boolean;
 }
 
@@ -63,20 +68,35 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
     // catch aqui é o que transforma isso em INVITATION_FAILED/OTP_DELIVERY_FAILED
     // em vez de um 500 na cara do operador.
     this.envelopes.setWhatsAppSender({
-      sendMessage: async (phone, message) => {
+      sendMessage: async (phone, message, priority, preview) => {
         try {
           // Devolve o booleano do transporte em vez de assumir `true`. Hoje o
           // Baileys sempre lança em caso de falha, mas o port é booleano: se um
           // dia ele passar a devolver `false` no lugar de lançar, um `true` fixo
           // aqui gravaria INVITATION_SENT/OTP_SENT para mensagem que não saiu.
-          return (await this.whatsapp!.sendMessage(phone, message)) !== false;
+          const ok =
+            (await this.whatsapp!.sendMessage(phone, message, priority, preview)) !== false;
+          return {
+            ok,
+            reason: ok ? null : 'O WhatsApp não confirmou a entrega da mensagem.',
+          };
         } catch (error) {
-          this.logger.error(
-            `Falha ao enviar WhatsApp de assinatura: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          return false;
+          const message_ = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Falha ao enviar WhatsApp de assinatura: ${message_}`);
+
+          // A recusa da GUARDA DE SAÍDA já vem com o texto pronto para o
+          // operador ("teto de primeiro contato desta hora atingido", "envio
+          // suspenso até 22:14"). Repassá-lo é o que transforma um "falhou" mudo
+          // numa instrução. O erro é reconhecido pelo `name` e não por
+          // `instanceof` de propósito: importar a classe concreta reintroduziria
+          // o acoplamento que esta ponte existe para não ter.
+          const refused =
+            error instanceof Error && error.name === 'WhatsAppOutboundRefusedError';
+
+          return {
+            ok: false,
+            reason: refused ? message_ : 'Não foi possível falar com o WhatsApp.',
+          };
         }
       },
     });

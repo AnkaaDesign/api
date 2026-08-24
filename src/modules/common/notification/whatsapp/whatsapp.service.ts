@@ -140,7 +140,17 @@ export class WhatsAppNotificationService {
 
       // 7. Send the message (text-only for now - buttons disabled until properly tested)
       const textToSend = messageFormat.fallbackText || messageFormat.text;
-      await this.whatsappClient.sendMessage(phoneValidation.formatted!, textToSend);
+      // O booleano é o veredito do SERVIDOR do WhatsApp. Descartá-lo marcava
+      // DELIVERED para mensagem recusada — e a guarda de saída passou a recusar
+      // por política também (teto de primeiro contato, disjuntor), caso em que
+      // ela LANÇA com o motivo em português, tratado pelo catch abaixo.
+      const accepted = await this.whatsappClient.sendMessage(
+        phoneValidation.formatted!,
+        textToSend,
+      );
+      if (!accepted) {
+        throw new Error('O WhatsApp não confirmou a entrega da mensagem.');
+      }
 
       // 8. Track delivery status
       const deliveredAt = new Date();

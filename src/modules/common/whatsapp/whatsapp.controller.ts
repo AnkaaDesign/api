@@ -9,12 +9,24 @@ import {
   BadRequestException,
   Logger,
   Inject,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@constants';
 import { BaileysWhatsAppService } from './baileys-whatsapp.service';
+import { WhatsAppOutboundGuard } from './whatsapp-outbound-guard';
 import { SendMessageDto } from './dto';
+import { COMPANY } from '@config/company';
+
+/**
+ * E-mail publicado no perfil comercial do WhatsApp.
+ *
+ * NÃO é `COMPANY.email`. Aquele é o endereço institucional que sai nos
+ * documentos; este é a caixa que de fato atende quem escreve pelo WhatsApp, e
+ * publicar um endereço que ninguém lê é pior do que não publicar nenhum.
+ */
+const WHATSAPP_BUSINESS_EMAIL = 'sergio_ankaa@hotmail.com';
 
 /**
  * WhatsApp controller for managing Baileys WhatsApp client
@@ -30,6 +42,7 @@ export class WhatsAppController {
   constructor(
     @Inject('WhatsAppService')
     private readonly whatsappService: BaileysWhatsAppService,
+    private readonly guard: WhatsAppOutboundGuard,
   ) {}
 
   /**
@@ -120,6 +133,102 @@ export class WhatsAppController {
       this.logger.error(`Failed to check authentication: ${error.message}`, error.stack);
       throw new BadRequestException('Failed to check WhatsApp authentication status');
     }
+  }
+
+  /**
+   * Posição da conta perante o WhatsApp: trava de primeiro contato e cota de
+   * conversas novas do ciclo.
+   *
+   * `?refresh=true` vai ao servidor; sem ele responde o último extrato conhecido
+   * (memória, ou Redis depois de um restart). O padrão é o cache de propósito:
+   * consulta wmex é chamada de rede na conta, e transformar um painel que
+   * atualiza sozinho numa enxurrada de consultas é justamente o tipo de tráfego
+   * automatizado que queremos evitar.
+   */
+  @Get('account-standing')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getAccountStanding(@Query('refresh') refresh?: string) {
+    try {
+      const standing =
+        refresh === 'true'
+          ? await this.whatsappService.fetchAccountStanding()
+          : ((await this.whatsappService.getAccountStanding()) ??
+            (await this.whatsappService.fetchAccountStanding()));
+
+      return {
+        success: true,
+        data: {
+          ...standing,
+          // Os números do dia moram na guarda de saída, não no extrato do
+          // servidor: um é o que o WhatsApp diz de nós, o outro é o que nós
+          // decidimos gastar. A tela precisa dos dois lado a lado para que
+          // "não consigo enviar" tenha uma resposta na primeira olhada.
+          outbound: await this.guard.usage(),
+          message: !standing.reachout
+            ? 'Não foi possível consultar a trava de primeiro contato.'
+            : standing.reachout.isActive
+              ? 'Conta sob trava de primeiro contato: mensagens para quem nunca ' +
+                'conversou com este número serão recusadas com o nack 463.'
+              : 'Sem trava de primeiro contato.',
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get account standing: ${error.message}`, error.stack);
+      throw new BadRequestException('Falha ao consultar a posição da conta no WhatsApp');
+    }
+  }
+
+  /**
+   * Preenche o perfil comercial da conta com os dados institucionais.
+   *
+   * Sem corpo: os valores vêm de `config/company.ts`, que já é a fonte da
+   * verdade do que a Ankaa é em todo documento que o servidor emite. Aceitar um
+   * corpo aqui abriria caminho para o perfil público divergir do que o orçamento
+   * assinado afirma — e é justamente a COINCIDÊNCIA entre os dois (o domínio do
+   * link e o site do perfil) que reduz o aviso de "cuidado com links".
+   */
+  @Post('business-profile/sync')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async syncBusinessProfile() {
+    try {
+      const standing = await this.whatsappService.updateBusinessProfile({
+        description:
+          `${COMPANY.name} — envelopamento, pintura e comunicação visual de ` +
+          'frotas e implementos rodoviários. Orçamentos e assinatura eletrônica ' +
+          `em ${COMPANY.website}.`,
+        email: WHATSAPP_BUSINESS_EMAIL,
+        address: COMPANY.address,
+        websites: [COMPANY.websiteUrl],
+      });
+      return {
+        success: true,
+        message: 'Perfil comercial do WhatsApp atualizado.',
+        data: standing.businessProfile,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to sync business profile: ${error.message}`, error.stack);
+      throw new BadRequestException(
+        error.message || 'Falha ao atualizar o perfil comercial do WhatsApp',
+      );
+    }
+  }
+
+  /**
+   * Rearma o disjuntor de saída antes da hora.
+   *
+   * Existe porque o disjuntor é deliberadamente pessimista: um 463 segura o
+   * contato frio por 12 h mesmo que a causa tenha sido um número errado. Quem
+   * sabe o que aconteceu é o operador. Reabrir sem saber é reincidir — daí a
+   * ação ser explícita, de ADMIN, e não um botão de "tentar de novo".
+   */
+  @Post('outbound/reset-breaker')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async resetBreaker() {
+    await this.guard.clearBreaker();
+    return { success: true, message: 'Disjuntor de saída rearmado.' };
   }
 
   /**

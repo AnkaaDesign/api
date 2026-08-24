@@ -82,6 +82,20 @@ export class SignatureController {
     return { success: true, data: this.envelopes.getDeliverySettings() };
   }
 
+  /**
+   * O que o modal de envio precisa: canais permitidos + quem está alcançável em
+   * cada um. Ver `getDeliveryPreflight`.
+   *
+   * Separado de `delivery-settings` porque depende do orçamento; e separado de
+   * `GET /quote/:quoteId` porque aquela rota lista ENVELOPES, e no caso mais
+   * comum (nenhuma coleta ainda) não há nada de onde tirar esta resposta.
+   */
+  @Get('quote/:quoteId/delivery-preflight')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async deliveryPreflight(@Param('quoteId', ParseUUIDPipe) quoteId: string) {
+    return { success: true, data: await this.envelopes.getDeliveryPreflight(quoteId) };
+  }
+
   /** Congela o documento e dispara os convites. */
   @Post('quote/:quoteId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
@@ -166,16 +180,21 @@ export class SignatureController {
     @UserId() userId: string,
     @Req() req: Request,
   ) {
-    const ok = await this.envelopes.resendInvitation(signerId, userId, ctxOf(req));
+    const delivery = await this.envelopes.resendInvitation(signerId, userId, ctxOf(req));
     // O canal é o da COLETA, não o configurado agora — por isso vem do
     // signatário. Ver `resendInvitation`.
     const channel = await this.envelopes.channelOfSigner(signerId);
     const via = channel === 'WHATSAPP' ? 'WhatsApp' : 'e-mail';
     return {
-      success: ok,
-      message: ok
+      success: delivery.ok,
+      message: delivery.ok
         ? `Convite reenviado por ${via}.`
-        : `Não foi possível enviar por ${via}. Copie o link e envie manualmente.`,
+        : // O motivo da guarda de saída é acionável ("teto de primeiro contato
+          // desta hora", "disjuntor aberto até tal hora") e é o que diz ao
+          // operador se ele deve esperar, trocar de canal ou mandar à mão.
+          `Não foi possível enviar por ${via}. ${
+            delivery.reason ?? ''
+          } Copie o link e envie manualmente.`.replace(/\s+/g, ' ').trim(),
     };
   }
 

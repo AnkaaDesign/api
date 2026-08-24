@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { EventEmitterModule as NestEventEmitterModule } from '@nestjs/event-emitter';
 import { BaileysWhatsAppService } from './baileys-whatsapp.service';
 import { BaileysAuthStateStore } from './baileys-auth-state.store';
+import { WhatsAppOutboundGuard } from './whatsapp-outbound-guard';
 import { WhatsAppController } from './whatsapp.controller';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
@@ -36,6 +37,7 @@ import { NotificationModule } from '../notification/notification.module';
   controllers: [WhatsAppController],
   providers: [
     BaileysAuthStateStore,
+    WhatsAppOutboundGuard,
     {
       provide: 'WhatsAppService',
       useClass: BaileysWhatsAppService,
@@ -45,6 +47,6 @@ import { NotificationModule } from '../notification/notification.module';
       useClass: UserPrismaRepository,
     },
   ],
-  exports: ['WhatsAppService', BaileysAuthStateStore],
+  exports: ['WhatsAppService', BaileysAuthStateStore, WhatsAppOutboundGuard],
 })
 export class WhatsAppModule {}

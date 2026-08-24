@@ -41,20 +41,20 @@ export type SignatureDeliveryMode = (typeof SIGNATURE_DELIVERY_MODES)[number];
 /**
  * Padrão quando a variável está ausente ou ilegível.
  *
- * E-MAIL, e a razão mudou em 2026-08-17.
+ * E-MAIL — e a razão mudou duas vezes.
  *
- * O default era `whatsapp` porque essa era a decisão vigente do negócio. Ela se
- * inverteu: o WhatsApp passou a recusar os convites com o nack 463
- * (`SenderReachoutTimelocked`) — a conta fica impedida de INICIAR conversa com
- * quem não tem TC token, e o token só existe para quem falou com o número nos
- * últimos 28 dias. Enquanto isso durar, todo envelope que nasce em WhatsApp
- * nasce impossível de assinar, porque o OTP segue o canal gravado no signatário
- * e não há queda para e-mail (ver `sendWhatsApp`).
+ * Em 2026-08-17 o padrão virou e-mail porque o WhatsApp passou a recusar os
+ * convites com o nack 463 (`SenderReachoutTimelocked`): a conta ficou impedida
+ * de INICIAR conversa com quem não tem TC token, e todo envelope nascido em
+ * WhatsApp nascia impossível de assinar.
  *
- * Daí o default ser o canal que FUNCIONA: uma variável ausente ou com erro de
- * digitação passa a degradar para o caminho que entrega, em vez de fabricar
- * envelopes natimortos em silêncio. O modo continua explícito em
- * `.env.production`; isto é a rede de segurança, não a configuração.
+ * Em 2026-08-24 a trava foi consultada no servidor (`fetchAccountReachoutTimelock`)
+ * e está INATIVA, e a configuração voltou para `both`. O PADRÃO, porém, continua
+ * e-mail, agora por outro motivo: ele é a rede de segurança para a variável
+ * AUSENTE ou digitada errado, e os dois erros não custam o mesmo. Cair em e-mail
+ * por engano atrasa uma coleta; cair em WhatsApp por engano põe tráfego não
+ * planejado num número cuja saúde é o ativo que este módulo inteiro protege.
+ * Fail-safe é o canal que não pode ser banido.
  */
 export const DEFAULT_SIGNATURE_DELIVERY_MODE: SignatureDeliveryMode = 'email';
 

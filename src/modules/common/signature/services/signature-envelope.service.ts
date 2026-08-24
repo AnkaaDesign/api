@@ -49,10 +49,11 @@ import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assemb
 import { budgetPdfFilename } from '../document/document-filename';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
-  ACCEPTANCE_CLAUSE,
+  acceptanceClauseFor,
   AUTH_METHOD_LABELS,
   VOID_WATERMARK_LABELS,
-  DECLARATIONS,
+  declarationsFor,
+  DECLARATION_KEYS,
   DECLARATIONS_VERSION,
   EVENT_DESCRIPTIONS,
   LEGAL_BASIS,
@@ -124,8 +125,38 @@ interface EmailSender {
  * nenhum dos dois.
  */
 interface WhatsAppSender {
-  /** Devolve `false` em qualquer falha; nunca lança. */
-  sendMessage(phone: string, message: string): Promise<boolean>;
+  /**
+   * Devolve `{ ok: false, reason }` em qualquer falha; nunca lança.
+   *
+   * O MOTIVO faz parte do contrato porque as recusas deixaram de ser todas
+   * iguais: a guarda de saída do transporte barra por teto de primeiro contato,
+   * por disjuntor aberto depois de um nack 463, por horário. "Falhou" faria o
+   * operador tentar de novo — que é exatamente a conduta que a guarda existe
+   * para impedir. O texto vem pronto em português, do transporte.
+   *
+   * `priority: 'CRITICAL'` é o código de uso único: vai na frente da fila e não
+   * consome o teto de primeiro contato, porque foi o próprio signatário quem o
+   * pediu tocando no link.
+   */
+  sendMessage(
+    phone: string,
+    message: string,
+    priority?: 'CRITICAL' | 'NORMAL',
+    /**
+     * Cartão de prévia do link. Só as mensagens que CARREGAM link mandam um.
+     *
+     * Sem ele a mensagem sai como uma URL crua — a forma canônica de um link de
+     * phishing, e a que faz o WhatsApp avisar o destinatário para desconfiar. O
+     * cartão é montado pelo transporte a partir daqui; ver `WhatsAppLinkPreview`.
+     */
+    preview?: { url: string; title: string; description?: string } | null,
+  ): Promise<{ ok: boolean; reason: string | null }>;
+}
+
+/** Resultado de um envio da cerimônia, com o motivo quando não saiu. */
+export interface SignatureDeliveryResult {
+  ok: boolean;
+  reason: string | null;
 }
 
 @Injectable()
@@ -226,6 +257,147 @@ export class SignatureEnvelopeService {
       mode,
       channels: channelsForMode(mode),
       defaultChannel: defaultChannelForMode(mode),
+    };
+  }
+
+  /**
+   * O que a tela precisa saber ANTES de abrir o modal de envio.
+   *
+   * POR QUE ISTO EXISTE, SE `createEnvelope` JÁ VALIDA
+   *   Porque validar no POST significa descobrir o problema DEPOIS do ato. O
+   *   operador escolhia o canal, confirmava, e só então tomava um 400 com uma
+   *   lista de nomes — sem nenhuma forma de saber, antes de clicar, que o outro
+   *   canal funcionaria. Com 9 de 170 responsáveis tendo e-mail cadastrado, esse
+   *   400 é o caso COMUM do canal e-mail, não a exceção.
+   *
+   *   Aqui a mesma regra é avaliada para os DOIS canais de uma vez, então o
+   *   modal desenha "WhatsApp — 3 responsáveis prontos" ao lado de "E-mail — 2
+   *   sem e-mail cadastrado" e a escolha é informada. As duas checagens moram na
+   *   mesma função (`contactMissingFor`) que o POST usa, para não divergirem: um
+   *   preflight que diz "pode" e um POST que responde 400 é pior que não ter
+   *   preflight nenhum.
+   *
+   * NÃO CONGELA NADA e não tem efeito colateral: é um GET.
+   */
+  async getDeliveryPreflight(quoteId: string): Promise<{
+    mode: SignatureDeliveryMode;
+    channels: SignatureDeliveryChannel[];
+    defaultChannel: SignatureDeliveryChannel;
+    /** Impedem QUALQUER canal — a tela desabilita o envio inteiro. */
+    blockers: string[];
+    recipients: Array<{
+      id: string;
+      name: string;
+      phoneMasked: string;
+      emailMasked: string;
+      hasPhone: boolean;
+      hasEmail: boolean;
+    }>;
+    ankaa: { name: string; hasPhone: boolean; hasEmail: boolean } | null;
+    channelStatus: Record<
+      SignatureDeliveryChannel,
+      { ready: boolean; missing: string[]; ankaaMissing: string | null }
+    >;
+  }> {
+    const settings = this.getDeliverySettings();
+
+    const quote = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: {
+        id: true,
+        expiresAt: true,
+        commercialUserId: true,
+        task: {
+          select: {
+            responsibles: {
+              select: { id: true, name: true, phone: true, email: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!quote) throw new NotFoundException('Orçamento não encontrado.');
+
+    const blockers: string[] = [];
+
+    const running = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId, status: EnvelopeStatus.RUNNING },
+      select: { id: true },
+    });
+    if (running) {
+      blockers.push(
+        'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
+          'Cancele-a antes de emitir outra.',
+      );
+    }
+
+    if (quote.expiresAt.getTime() <= Date.now()) {
+      blockers.push(
+        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+          'Atualize a data de validade antes de enviar para assinatura.',
+      );
+    }
+
+    const responsibles = quote.task?.responsibles ?? [];
+    if (responsibles.length === 0) {
+      blockers.push(
+        'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
+      );
+    }
+
+    // Best-effort: um orçamento sem representante comercial nem diretor
+    // cadastrado é um problema real, mas ele já vira 400 no POST com a mensagem
+    // certa. Aqui a ausência vira `ankaa: null`, e a tela não afirma nada sobre
+    // um signatário que não conseguiu resolver.
+    let ankaa: { name: string; hasPhone: boolean; hasEmail: boolean } | null = null;
+    try {
+      const user = await this.resolveAnkaaSigner(quote as never);
+      ankaa = {
+        name: user.name,
+        hasPhone: onlyDigits(user.phone).length >= 10,
+        hasEmail: !!user.email?.includes('@'),
+      };
+    } catch {
+      blockers.push(
+        'Nenhum representante da Ankaa pôde ser resolvido para este orçamento. ' +
+          'Defina o representante comercial ou cadastre o diretor.',
+      );
+    }
+
+    const recipients = responsibles.map(r => ({
+      id: r.id,
+      name: r.name,
+      phoneMasked: maskPhone(r.phone),
+      emailMasked: maskEmail(r.email),
+      hasPhone: onlyDigits(r.phone).length >= 10,
+      hasEmail: !!r.email?.includes('@'),
+    }));
+
+    const statusFor = (channel: SignatureDeliveryChannel) => {
+      const missing = recipients
+        .filter(r => (channel === 'WHATSAPP' ? !r.hasPhone : !r.hasEmail))
+        .map(r => r.name);
+      const ankaaMissing =
+        ankaa && (channel === 'WHATSAPP' ? !ankaa.hasPhone : !ankaa.hasEmail)
+          ? ankaa.name
+          : null;
+      return {
+        ready: recipients.length > 0 && missing.length === 0 && !ankaaMissing,
+        missing,
+        ankaaMissing,
+      };
+    };
+
+    return {
+      ...settings,
+      blockers,
+      recipients,
+      ankaa,
+      channelStatus: {
+        WHATSAPP: statusFor('WHATSAPP'),
+        EMAIL: statusFor('EMAIL'),
+      },
     };
   }
 
@@ -408,7 +580,13 @@ export class SignatureEnvelopeService {
       },
     ];
 
-    const rendered = await this.renderQuoteDocument(quote, signerSeeds, verificationCode);
+    const rendered = await this.renderQuoteDocument(
+      quote,
+      signerSeeds,
+      verificationCode,
+      null,
+      channel,
+    );
 
     if (rendered.overflowed) {
       throw new BadRequestException(
@@ -462,7 +640,7 @@ export class SignatureEnvelopeService {
           quoteTermsSha256: materialHash,
           verificationCode,
           legalBasis: LEGAL_BASIS,
-          acceptanceClause: ACCEPTANCE_CLAUSE,
+          acceptanceClause: acceptanceClauseFor(channel),
           createdById: args.actorUserId,
           sentAt: new Date(),
         },
@@ -550,7 +728,26 @@ export class SignatureEnvelopeService {
       documentHash: originalSha256,
     });
 
-    await this.dispatchInvitations(envelope.id);
+    // SEM `await`, de propósito — e a razão mudou de "é lento" para "não cabe".
+    //
+    // O envio passou a ter ritmo humano: a guarda de saída espaça mensagens
+    // consecutivas (ver `WhatsAppOutboundGuard`), e uma tarefa com 5 responsáveis
+    // — que existe, e há tarefas com 8, 16 e 22 — levaria mais de um minuto só
+    // de espera deliberada, dentro de um POST. Nginx corta antes, e o operador
+    // veria "erro ao emitir" para uma coleta que foi criada com sucesso e cujos
+    // convites estavam saindo.
+    //
+    // Nada de prova se perde: cada convite grava INVITATION_SENT ou
+    // INVITATION_FAILED na trilha quando o servidor do WhatsApp responde, e o
+    // card da tarefa lê o estado por signatário. O que muda é que o resultado
+    // aparece em segundos na tela em vez de segurar a resposta do POST.
+    void this.dispatchInvitations(envelope.id).catch(error =>
+      this.logger.error(
+        `Falha ao despachar os convites do envelope ${envelope.id}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      ),
+    );
 
     return { envelopeId: envelope.id, verificationCode, channel };
   }
@@ -593,6 +790,12 @@ export class SignatureEnvelopeService {
     signers: Array<{ id: string; name: string; subtitle: string; side: 'ANKAA' | 'CUSTOMER' }>,
     verificationCode: string,
     customerId?: string | null,
+    // O canal só governa o texto da cláusula de aceitação impressa no corpo. O
+    // padrão é o canal preferencial do modo configurado, que é o que o
+    // documento AVULSO (sem envelope) vai de fato usar se virar uma coleta.
+    channel: SignatureDeliveryChannel = defaultChannelForMode(
+      parseSignatureDeliveryMode(process.env.SIGNATURE_DELIVERY_CHANNEL).mode,
+    ),
   ) {
     const segment = customerId
       ? (quote.customerConfigs.find(c => c.customerId === customerId) ?? null)
@@ -702,7 +905,7 @@ export class SignatureEnvelopeService {
         subtitle: s.subtitle,
         side: s.side,
       })),
-      acceptanceClause: ACCEPTANCE_CLAUSE,
+      acceptanceClause: acceptanceClauseFor(channel),
       verificationCode,
       verificationUrl: this.verificationUrl(verificationCode),
     });
@@ -727,7 +930,7 @@ export class SignatureEnvelopeService {
       const signingUrl = this.signingUrl(signer.accessToken);
       const deadlineDate = envelope.deadlineAt.toLocaleDateString('pt-BR');
 
-      const ok = await this.deliverToSigner({
+      const delivery = await this.deliverToSigner({
         signer,
         channel,
         email: generateSignatureInvitationEmail({
@@ -742,17 +945,27 @@ export class SignatureEnvelopeService {
           signingUrl,
           deadlineDate,
         }),
+        whatsappPreview: this.signingLinkPreview(
+          envelope.quote.budgetNumber,
+          signingUrl,
+          'invite',
+        ),
         kind: 'SIGNATURE_INVITATION',
       });
 
       await this.audit.recordBestEffort(envelopeId, {
-        eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+        eventType: delivery.ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
         actorType: 'SYSTEM',
         actorId: signer.id,
         actorLabel: signer.declaredName,
         payload: {
           channel: auditChannelOf(channel),
           destination: this.maskContactFor(signer, channel),
+          // O MOTIVO entra na trilha. "Convite falhou" sem causa obrigava a ler
+          // o journal do servidor para saber se foi teto de primeiro contato,
+          // disjuntor aberto ou telefone errado — três problemas com três
+          // condutas diferentes.
+          ...(delivery.reason ? { failureReason: delivery.reason } : {}),
         },
       });
     }
@@ -809,26 +1022,55 @@ export class SignatureEnvelopeService {
     to: string | null | undefined,
     message: string,
     kind: string,
-  ): Promise<boolean> {
+    priority: 'CRITICAL' | 'NORMAL',
+    preview?: { url: string; title: string; description?: string } | null,
+  ): Promise<SignatureDeliveryResult> {
     const phone = onlyDigits(to);
     // Mesma guarda do e-mail: destinatário vazio não pode virar INVITATION_SENT.
     // 10 dígitos = DDD + 8 (fixo); abaixo disso não há número discável.
     if (phone.length < 10) {
       this.logger.error('Signatário sem telefone válido — mensagem não enviada.');
-      return false;
+      return { ok: false, reason: 'Signatário sem telefone válido no cadastro.' };
     }
     if (!this.whatsapp) {
       this.logger.error('Transporte de WhatsApp não configurado — mensagem não enviada.');
-      return false;
+      return { ok: false, reason: 'Transporte de WhatsApp indisponível no servidor.' };
     }
-    try {
-      return await this.whatsapp.sendMessage(phone, message);
-    } catch (error) {
-      this.logger.error(
-        `Falha ao enviar WhatsApp (${kind}): ${error instanceof Error ? error.message : error}`,
-      );
-      return false;
+    const result = await this.whatsapp.sendMessage(phone, message, priority, preview);
+    if (!result.ok) {
+      this.logger.error(`Falha ao enviar WhatsApp (${kind}): ${result.reason ?? 'sem motivo'}`);
     }
+    return result;
+  }
+
+  /**
+   * O cartão que acompanha o link de assinatura no WhatsApp.
+   *
+   * Um só lugar para os três fluxos que mandam link (convite, reenvio e aviso de
+   * contra-assinatura): o cartão é o que diz ao destinatário, ANTES de ele tocar
+   * em nada, que aquele link é de quem diz ser. Espalhar o texto por três
+   * chamadas garantiria que um deles envelhecesse.
+   *
+   * SEM VALOR FINANCEIRO aqui, de propósito. O corpo da mensagem já traz o
+   * total; a prévia é o pedaço que aparece em notificação de tela bloqueada e em
+   * captura de tela encaminhada, e o número do orçamento basta para a pessoa se
+   * situar.
+   */
+  private signingLinkPreview(
+    budgetNumber: string | number,
+    signingUrl: string,
+    kind: 'invite' | 'countersign',
+  ): { url: string; title: string; description: string } {
+    return {
+      url: signingUrl,
+      title:
+        kind === 'countersign'
+          ? `Orçamento nº ${budgetNumber} · Contra-assinatura`
+          : `Orçamento nº ${budgetNumber} · Assinatura eletrônica`,
+      description:
+        `${COMPANY.name} — revise o documento e assine pelo celular. ` +
+        'Link pessoal e intransferível.',
+    };
   }
 
   /** Contato do signatário no canal — o destino real da mensagem. */
@@ -867,17 +1109,29 @@ export class SignatureEnvelopeService {
     channel: SignatureDeliveryChannel;
     email: { subject: string; html: string };
     whatsapp: string;
+    /** Cartão de prévia, quando a mensagem de WhatsApp carrega um link. */
+    whatsappPreview?: { url: string; title: string; description?: string } | null;
     kind: string;
-  }): Promise<boolean> {
+  }): Promise<SignatureDeliveryResult> {
     if (args.channel === 'WHATSAPP') {
-      return this.sendWhatsApp(args.signer.declaredPhone, args.whatsapp, args.kind);
+      return this.sendWhatsApp(
+        args.signer.declaredPhone,
+        args.whatsapp,
+        args.kind,
+        // Só o código de uso único é crítico. Convite, reenvio, aviso de
+        // contra-assinatura e aviso de anulação são iniciativa NOSSA e entram na
+        // fila normal, com teto de primeiro contato.
+        args.kind === 'SIGNATURE_OTP' ? 'CRITICAL' : 'NORMAL',
+        args.whatsappPreview ?? null,
+      );
     }
-    return this.sendEmail(
+    const ok = await this.sendEmail(
       args.signer.declaredEmail,
       args.email.subject,
       args.email.html,
       args.kind,
     );
+    return { ok, reason: ok ? null : 'O servidor de e-mail recusou a mensagem.' };
   }
 
   // ===========================================================================
@@ -1045,7 +1299,7 @@ export class SignatureEnvelopeService {
         name: customer?.corporateName ?? customer?.fantasyName ?? '',
         cnpj: customer?.cnpj ? formatCnpj(customer.cnpj) : null,
       },
-      declarations: DECLARATIONS.map(d => ({
+      declarations: declarationsFor(channelForAuthMethod(signer.authMethod)).map(d => ({
         key: d.key,
         text: renderDeclaration(d.template, {
           budgetNumber: env.quote.budgetNumber,
@@ -1253,16 +1507,16 @@ export class SignatureEnvelopeService {
       process.env.NODE_ENV !== 'production' &&
       this.config.get<string>('SIGNATURE_DEV_ECHO_OTP') === 'true';
 
-    let ok: boolean;
+    let delivery: SignatureDeliveryResult;
     if (devEcho) {
       this.logger.warn(
         `[DEV] Código de assinatura de ${signer.declaredName} ` +
           `(${this.maskContactFor(signer, otpChannel)}): ` +
           `${challenge.code} — NENHUMA mensagem foi enviada.`,
       );
-      ok = true;
+      delivery = { ok: true, reason: null };
     } else {
-      ok = await this.deliverToSigner({
+      delivery = await this.deliverToSigner({
         signer,
         channel: otpChannel,
         email: generateSignatureOtpEmail(otpPayload),
@@ -1270,19 +1524,24 @@ export class SignatureEnvelopeService {
         kind: 'SIGNATURE_OTP',
       });
     }
-    await this.challenges.markDelivered(challenge.challengeId, null, ok ? 'sent' : 'failed');
+    await this.challenges.markDelivered(
+      challenge.challengeId,
+      null,
+      delivery.ok ? 'sent' : 'failed',
+    );
 
     await this.audit.record(env.id, {
-      eventType: ok ? 'OTP_SENT' : 'OTP_DELIVERY_FAILED',
+      eventType: delivery.ok ? 'OTP_SENT' : 'OTP_DELIVERY_FAILED',
       actorType: 'SYSTEM',
       actorId: signer.id,
       payload: {
         channel: auditChannelOf(otpChannel),
         destination: this.maskContactFor(signer, otpChannel),
+        ...(delivery.reason ? { failureReason: delivery.reason } : {}),
       },
     });
 
-    if (!ok) {
+    if (!delivery.ok) {
       // O código não chegou a ninguém: invalida-o em vez de deixá-lo PENDENTE.
       // Um desafio vivo que o signatário nunca viu só serve para confundir a
       // verificação e para bloquear a próxima emissão.
@@ -1328,7 +1587,7 @@ export class SignatureEnvelopeService {
 
     await this.assertSignable(env, signer);
 
-    const required = DECLARATIONS.map(d => d.key);
+    const required = [...DECLARATION_KEYS];
     const missing = required.filter(k => !args.acceptedDeclarationKeys.includes(k));
     if (missing.length) {
       throw new BadRequestException('É necessário aceitar todas as declarações para assinar.');
@@ -1416,7 +1675,7 @@ export class SignatureEnvelopeService {
     });
 
     const customer = env.quote.task?.customer ?? null;
-    const declarations = DECLARATIONS.map(d => ({
+    const declarations = declarationsFor(channelForAuthMethod(signer.authMethod)).map(d => ({
       key: d.key,
       // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
       // aquela pessoa leu, e o template pode mudar entre versões.
@@ -1935,7 +2194,7 @@ export class SignatureEnvelopeService {
     const channel = channelForAuthMethod(signer.authMethod);
     const signingUrl = this.signingUrl(signer.accessToken);
 
-    const ok = await this.deliverToSigner({
+    const delivery = await this.deliverToSigner({
       signer,
       channel,
       email: generateAnkaaCountersignEmail({
@@ -1948,11 +2207,16 @@ export class SignatureEnvelopeService {
         budgetNumber: signer.envelope.quote.budgetNumber,
         signingUrl,
       }),
+      whatsappPreview: this.signingLinkPreview(
+        signer.envelope.quote.budgetNumber,
+        signingUrl,
+        'countersign',
+      ),
       kind: 'SIGNATURE_ANKAA_NOTICE',
     });
 
     await this.audit.recordBestEffort(envelopeId, {
-      eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+      eventType: delivery.ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
       actorType: 'SYSTEM',
       actorId: signerId,
       actorLabel: signer.declaredName,
@@ -1960,6 +2224,7 @@ export class SignatureEnvelopeService {
         stage: 'ankaa',
         channel: auditChannelOf(channel),
         destination: this.maskContactFor(signer, channel),
+        ...(delivery.reason ? { failureReason: delivery.reason } : {}),
       },
     });
   }
@@ -2444,13 +2709,14 @@ export class SignatureEnvelopeService {
         })),
       };
       const channel = channelForAuthMethod(s.authMethod);
-      const notified = await this.deliverToSigner({
+      const voidNotice = await this.deliverToSigner({
         signer: s,
         channel,
         email: generateEnvelopeVoidedEmail(voidedPayload),
         whatsapp: generateEnvelopeVoidedWhatsApp(voidedPayload),
         kind: 'SIGNATURE_VOIDED',
       });
+      const notified = voidNotice.ok;
       // SIGNER_VOIDED só para quem tinha assinatura a perder: é esse o fato
       // probatório. Para os pendentes o aviso é cortesia, e o ENVELOPE_INVALIDATED
       // já registra a mudança de estado da coleta inteira.
@@ -2468,11 +2734,16 @@ export class SignatureEnvelopeService {
           // trilha é append-only e encadeada por hash, então um "email" fixo aqui
           // gravaria uma afirmação falsa sobre um envelope de WhatsApp que nenhuma
           // correção posterior conseguiria desfazer.
-          payload: { channel: auditChannelOf(channel), notified },
+          payload: {
+            channel: auditChannelOf(channel),
+            notified,
+            ...(voidNotice.reason ? { failureReason: voidNotice.reason } : {}),
+          },
         });
       } else if (!notified) {
         this.logger.warn(
-          `Signatário pendente ${s.id} não pôde ser avisado da invalidação do envelope ${running.id}.`,
+          `Signatário pendente ${s.id} não pôde ser avisado da invalidação do envelope ` +
+            `${running.id}: ${voidNotice.reason ?? 'sem motivo'}.`,
         );
       }
     }
@@ -3112,7 +3383,7 @@ export class SignatureEnvelopeService {
     signerId: string,
     actorUserId: string,
     ctx: RequestContext,
-  ): Promise<boolean> {
+  ): Promise<SignatureDeliveryResult> {
     const signer = await this.prisma.envelopeSigner.findUnique({
       where: { id: signerId },
       include: { envelope: { include: { quote: true } } },
@@ -3135,16 +3406,21 @@ export class SignatureEnvelopeService {
       isResend: true,
     };
 
-    const ok = await this.deliverToSigner({
+    const delivery = await this.deliverToSigner({
       signer,
       channel,
       email: generateSignatureInvitationEmail(invitation),
       whatsapp: generateSignatureInvitationWhatsApp(invitation),
+      whatsappPreview: this.signingLinkPreview(
+        signer.envelope.quote.budgetNumber,
+        invitation.signingUrl,
+        'invite',
+      ),
       kind: 'SIGNATURE_INVITATION_RESEND',
     });
 
     await this.audit.record(signer.envelopeId, {
-      eventType: ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+      eventType: delivery.ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
       actorType: 'OPERATOR',
       actorId: signer.id,
       actorLabel: signer.declaredName,
@@ -3154,9 +3430,10 @@ export class SignatureEnvelopeService {
         channel: auditChannelOf(channel),
         destination: this.maskContactFor(signer, channel),
         resentBy: actorUserId,
+        ...(delivery.reason ? { failureReason: delivery.reason } : {}),
       },
     });
-    return ok;
+    return delivery;
   }
 
   /** Canal em que uma coleta foi emitida — para a mensagem de retorno da rota. */
