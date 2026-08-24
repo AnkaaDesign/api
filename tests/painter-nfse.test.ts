@@ -47,22 +47,28 @@ import {
   buildServiceDescription,
   formatCompetence,
   formatDpsDateTime,
+  sanitizeTelefone,
 } from '../src/modules/integrations/nfse/painter/dps.builder';
+import { buildCompanyTomador } from '../src/modules/integrations/nfse/painter/painter-nfse.service';
 import { DpsSignerService } from '../src/modules/integrations/nfse/painter/dps.signer';
 import {
   SefinNacionalClient,
   type SefinError,
 } from '../src/modules/integrations/nfse/painter/sefin-nacional.client';
+import PDFDocument from 'pdfkit';
 import {
   formatAccessKey,
   formatCnpjCpf,
   formatCurrency,
+  generateDanfsePdf,
   parseNfseXml,
+  ufDoCodigoIbge,
 } from '../src/modules/integrations/nfse/painter/danfse.generator';
 import {
   BLOCK_LINE_WIDTH,
   COL,
   COLLAPSED_H,
+  COLLAPSE_TEXT,
   DESCRICAO,
   EMPTY,
   FONT_SIZE,
@@ -228,6 +234,76 @@ console.log('\n▸ Estrutura e recepção');
     'formatação de data/hora reflete o fuso de SP',
     formatDpsDateTime(new Date('2026-08-14T18:30:45.000Z')) === '2026-08-14T15:30:45-03:00',
     formatDpsDateTime(new Date('2026-08-14T18:30:45.000Z')),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n▸ Contato do prestador e do tomador (prest/toma: fone e email)');
+{
+  /**
+   * A ORDEM DOS ELEMENTOS é o que este bloco protege. O XSD v1.01 define
+   * sequências fechadas, e um filho fora de lugar é rejeição E1235 por falha de
+   * esquema — antes de qualquer validação de conteúdo:
+   *   TCInfoPrestador: CNPJ|CPF|NIF, CAEPF?, IM?, xNome?, end?, fone?, email?, regTrib
+   *   TCInfoPessoa   : CNPJ|CPF|NIF, CAEPF?, IM?, xNome,  end?, fone?, email?
+   * Repare que em `prest` o contato vem ANTES de `regTrib`, e em `toma` o
+   * endereço vem antes do contato. É assim que a nota da própria Ankaa
+   * (nº 3220, emitida pela Elotech e autorizada) grava.
+   */
+  const { xml } = buildDpsXml({
+    ...baseInput(),
+    emitente: {
+      ...baseInput().emitente,
+      telefone: '(46) 98525-8963',
+      email: 'claud@gmail.com',
+    },
+    tomador: buildCompanyTomador(),
+  });
+
+  const prest = xml.match(/<prest>.*?<\/prest>/s)?.[0] ?? '';
+  const toma = xml.match(/<toma>.*?<\/toma>/s)?.[0] ?? '';
+
+  check('prestador declara o telefone', prest.includes('<fone>46985258963</fone>'), prest);
+  check('prestador declara o e-mail', prest.includes('<email>claud@gmail.com</email>'), prest);
+  check(
+    'em prest, o contato vem ANTES de regTrib (ordem do XSD)',
+    prest.indexOf('<email>') < prest.indexOf('<regTrib>') &&
+      prest.indexOf('<fone>') < prest.indexOf('<email>'),
+    prest,
+  );
+  check(
+    'em toma, o contato vem DEPOIS do endereço (ordem do XSD)',
+    toma.indexOf('</end>') < toma.indexOf('<fone>') && toma.indexOf('<fone>') < toma.indexOf('<email>'),
+    toma,
+  );
+
+  // E0232: informar a IM do tomador sem registro no CNC do município emissor é
+  // rejeição. Ibiporã não é conveniada ao sistema nacional, então a Ankaa não
+  // tem registro lá — o campo fica fora de propósito.
+  check('tomador NÃO leva inscrição municipal (E0232)', !/<toma>[^]*?<IM>/.test(xml), toma);
+
+  check('telefone da Ankaa no tomador', toma.includes('<fone>43984283228</fone>'), toma);
+  check(
+    'e-mail do tomador é o que recebe o aviso da nota',
+    toma.includes('<email>sergio_ankaa@hotmail.com</email>'),
+    toma,
+  );
+
+  // Telefone: o XSD aceitaria 6 dígitos, mas 6 dígitos não são um telefone.
+  check('telefone com código do país perde o 55', sanitizeTelefone('554399867209') === '4399867209');
+  check('celular de 11 dígitos passa inteiro', sanitizeTelefone('46985258963') === '46985258963');
+  check('telefone formatado é limpo', sanitizeTelefone('(43) 98428-3228') === '43984283228');
+  check('número curto demais vira ausência', sanitizeTelefone('12345') === null);
+  check('campo vazio vira ausência', sanitizeTelefone('') === null && sanitizeTelefone(null) === null);
+
+  // Sem contato cadastrado, os elementos simplesmente não aparecem — nunca
+  // `<fone/>` vazio, que é falha de esquema.
+  const semContato = buildDpsXml(baseInput()).xml;
+  const prestSemContato = semContato.match(/<prest>.*?<\/prest>/s)?.[0] ?? '';
+  check(
+    'sem contato cadastrado, o prestador não emite elemento vazio',
+    !prestSemContato.includes('<fone>') && !prestSemContato.includes('<email>'),
+    prestSemContato,
   );
 }
 
@@ -650,6 +726,45 @@ console.log('\n▸ DANFSe — leitura do XML autorizado');
   );
   check('tomador é a Ankaa', data.tomador.documento === '13636938000144', String(data.tomador.documento));
   check('reconhece MEI (opSimpNac = 2)', data.prestadorOpSimpNac === '2', String(data.prestadorOpSimpNac));
+
+  // Contato do prestador: o cadastro do CNPJ na base nacional (`emit`) traz o
+  // e-mail e o telefone do CONTADOR — nas notas do Claudemir,
+  // `PARALEGAL@CONSIGA.COM.BR`. O que o pintor declarou na DPS (`prest`) é o
+  // canal dele, e é esse que o DANFSe deve mostrar. Os dois estão no XML, então
+  // a NT 2.1 é respeitada de qualquer forma.
+  const comContato = parseNfseXml(
+    nfseXml
+      .replace(
+        '<xNome>51.115.818 MARCOS AURELIO LIMA DE SOUZA</xNome>',
+        '<xNome>51.115.818 MARCOS AURELIO LIMA DE SOUZA</xNome><fone>4331582879</fone><email>PARALEGAL@CONSIGA.COM.BR</email>',
+      )
+      .replace(
+        '<prest><CNPJ>51115818000190</CNPJ>',
+        '<prest><CNPJ>51115818000190</CNPJ><fone>49996369871</fone><email>marcos@gmail.com</email>',
+      ),
+  );
+  check(
+    'e-mail do prestador é o declarado na DPS, não o do contador no cadastro',
+    comContato.prestador.email === 'marcos@gmail.com',
+    String(comContato.prestador.email),
+  );
+  check(
+    'telefone do prestador é o declarado na DPS',
+    comContato.prestador.telefone === '49996369871',
+    String(comContato.prestador.telefone),
+  );
+
+  const soCadastro = parseNfseXml(
+    nfseXml.replace(
+      '<xNome>51.115.818 MARCOS AURELIO LIMA DE SOUZA</xNome>',
+      '<xNome>51.115.818 MARCOS AURELIO LIMA DE SOUZA</xNome><email>PARALEGAL@CONSIGA.COM.BR</email>',
+    ),
+  );
+  check(
+    'sem contato declarado (notas antigas), cai no cadastro do CNPJ',
+    soCadastro.prestador.email === 'PARALEGAL@CONSIGA.COM.BR',
+    String(soCadastro.prestador.email),
+  );
   check('valor do serviço vem da DPS', data.valorServico === 5, String(data.valorServico));
   check('valor líquido vem da NFS-e', data.valorLiquido === 5, String(data.valorLiquido));
 
@@ -788,9 +903,154 @@ console.log('\n▸ Descrição do serviço (xDescServ)');
   check('trunca com reticências', gigante.endsWith('...'), gigante.slice(-10));
 }
 
-console.log(
-  failures === 0
-    ? '\n✅ Todas as verificações passaram.\n'
-    : `\n❌ ${failures} verificação(ões) falharam.\n`,
-);
-process.exit(failures === 0 ? 0 : 1);
+// ─────────────────────────────────────────────────────────────────────────────
+async function verificarDesenhoDaPagina(): Promise<void> {
+  console.log('\n▸ DANFSe — desenho na página (o que o PDF realmente mostra)');
+  /**
+   * O que este bloco protege é uma classe de defeito que NENHUM teste de
+   * conteúdo pega: o texto está no PDF, o parser leu certo, e mesmo assim o
+   * leitor não vê. Foi o que aconteceu com a descrição do serviço.
+   *
+   * Causa: no pdfkit, `lineBreak: false` NÃO impede a quebra — basta `width`
+   * estar definido para o LineWrapper agir. A segunda linha era desenhada
+   * ABAIXO da caixa e o bloco seguinte, desenhado depois, a cobria com o
+   * próprio fundo. Em 5 das 7 notas emitidas até 21/08/2026 a descrição
+   * aparecia cortada no meio da frase.
+   *
+   * Por isso a verificação é GEOMÉTRICA: intercepta cada `doc.text` e compara
+   * as coordenadas. Comparar strings não veria nada de errado.
+   */
+  interface Desenho {
+    texto: string;
+    y: number;
+    altura: number;
+  }
+
+  async function capturarDesenho(xml: string): Promise<Desenho[]> {
+    const proto = PDFDocument.prototype as unknown as Record<string, any>;
+    const original = proto.text;
+    const desenhos: Desenho[] = [];
+    proto.text = function (this: any, texto: any, x: any, y: any, options: any) {
+      const opts =
+        typeof x === 'object' && x !== null
+          ? x
+          : typeof y === 'object' && y !== null
+            ? y
+            : options;
+      if (typeof y === 'number' && texto !== null && texto !== undefined) {
+        desenhos.push({
+          texto: String(texto),
+          y,
+          altura: opts?.width
+            ? this.heightOfString(String(texto), { width: opts.width })
+            : this.currentLineHeight(true),
+        });
+      }
+      return original.call(this, texto, x, y, options);
+    };
+    try {
+      await generateDanfsePdf(xml);
+    } finally {
+      proto.text = original;
+    }
+    return desenhos;
+  }
+
+  const DESCRICAO_LONGA =
+    'Prestação de serviços de aerografia e pintura artística em veículos. ' +
+    'Referente aos serviços executados no veículo Bitruck Refrigerado de n série: 39007, ' +
+    'chassi: 9BS98X200T4117744. Cliente: Supermercado Vitoria Serv.';
+
+  const nfse = (partes: { toma?: string; ibsCbs?: string; desc?: string }): string => `<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infNFSe Id="NFS41098072262626218000103000000000003026088518059873">
+    <xLocEmi>Ibiporã</xLocEmi><nNFSe>30</nNFSe><cStat>107</cStat>
+    <emit><CNPJ>62626218000103</CNPJ><xNome>62.626.218 CLAUDEMIR RIBEIRO SOBRAL</xNome>
+      <enderNac><xLgr>AV DOS ESTUDANTES</xLgr><nro>3583</nro><xBairro>SETOR 3</xBairro><cMun>4109807</cMun><UF>PR</UF><CEP>86206015</CEP></enderNac>
+    </emit>
+    <valores><vLiq>600.00</vLiq></valores>
+    <DPS><infDPS Id="DPS410980726262621800010300001000000000000004">
+      <tpAmb>1</tpAmb><serie>00001</serie><nDPS>4</nDPS><dCompet>2026-08-20</dCompet><tpEmit>1</tpEmit><cLocEmi>4109807</cLocEmi>
+      <prest><CNPJ>62626218000103</CNPJ><regTrib><opSimpNac>2</opSimpNac><regEspTrib>0</regEspTrib></regTrib></prest>
+      ${partes.toma ?? '<toma><CNPJ>13636938000144</CNPJ><xNome>S. RODRIGUES &amp; G. RODRIGUES LTDA</xNome><end><endNac><cMun>4109807</cMun><CEP>86204020</CEP></endNac><xLgr>Rua Luis Carlos Zani</xLgr><nro>2493</nro><xBairro>Jardim Santa Paula</xBairro></end><fone>43984283228</fone><email>ankaadesign@outlook.com</email></toma>'}
+      <serv><locPrest><cLocPrestacao>4109807</cLocPrestacao></locPrest><cServ><cTribNac>141201</cTribNac><xDescServ>${partes.desc ?? DESCRICAO_LONGA}</xDescServ></cServ></serv>
+      <valores><vServPrest><vServ>600.00</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun></trib></valores>
+      ${partes.ibsCbs ?? ''}
+    </infDPS></DPS>
+  </infNFSe>
+</NFSe>`;
+
+  const desenhos = await capturarDesenho(nfse({}));
+  const descricao = desenhos.find(d => d.texto.startsWith('Prestação de serviços'));
+  const issqn = desenhos.find(d => d.texto === 'TRIBUTAÇÃO MUNICIPAL (ISSQN)');
+
+  check('a descrição do serviço é desenhada', Boolean(descricao));
+  check('a descrição precisa de mais de uma linha (é o caso real)', (descricao?.altura ?? 0) > 12, String(descricao?.altura));
+  check(
+    'o bloco seguinte começa ABAIXO do fim da descrição (nada some atrás dele)',
+    Boolean(descricao && issqn && issqn.y >= descricao.y + descricao.altura),
+    `descrição termina em ${(descricao?.y ?? 0) + (descricao?.altura ?? 0)}pt, ISSQN começa em ${issqn?.y}pt`,
+  );
+
+  // Destinatário — NT 008, itens 2.3.1/2.3.2 e notas 2 e 3 do item 2.4.5.
+  const textos = desenhos.map(d => d.texto);
+  check(
+    'sem grupo `dest` e com tomador identificado, declara que o destinatário é o próprio tomador',
+    textos.includes(COLLAPSE_TEXT.destinatarioEhTomador),
+  );
+  check(
+    'não diz "destinatário não identificado" quando o tomador está na nota',
+    !textos.includes(COLLAPSE_TEXT.destinatario),
+  );
+
+  const semTomador = (await capturarDesenho(nfse({ toma: '' }))).map(d => d.texto);
+  check(
+    'sem tomador algum, aí sim é "não identificado" (nota 2)',
+    semTomador.includes(COLLAPSE_TEXT.destinatario) &&
+      semTomador.includes(COLLAPSE_TEXT.tomador),
+  );
+
+  const comDest = await capturarDesenho(
+    nfse({
+      ibsCbs:
+        '<IBSCBS><indDest>1</indDest><dest><CNPJ>11222333000181</CNPJ><xNome>SUPERMERCADO VITORIA</xNome></dest></IBSCBS>',
+    }),
+  );
+  const textosDest = comDest.map(d => d.texto);
+  check(
+    'com grupo `dest` (leiaute da Reforma), imprime o bloco inteiro do destinatário',
+    textosDest.includes('DESTINATÁRIO DA OPERAÇÃO') &&
+      textosDest.includes('11.222.333/0001-81'),
+  );
+
+  // A UF não existe no endereço nacional do leiaute — vem do código do município.
+  check('UF derivada do código IBGE (4109807 = PR)', ufDoCodigoIbge('4109807') === 'PR');
+  check('UF derivada do código IBGE (3550308 = SP)', ufDoCodigoIbge('3550308') === 'SP');
+  check('código inválido não inventa UF', ufDoCodigoIbge('99') === null);
+
+  const dados = parseNfseXml(
+    nfse({
+      ibsCbs:
+        '<IBSCBS><indDest>0</indDest></IBSCBS>',
+    }),
+  );
+  check('lê indDest do grupo IBSCBS', dados.indDest === '0', String(dados.indDest));
+  check('tomador da Ankaa sai com UF', dados.tomador.uf === 'PR', String(dados.tomador.uf));
+  check('telefone do tomador é lido', dados.tomador.telefone === '43984283228', String(dados.tomador.telefone));
+}
+
+// A última bateria gera PDF de verdade, e gerar PDF é assíncrono (o QR Code é).
+// Por isso o resumo espera por ela em vez de sair antes.
+verificarDesenhoDaPagina()
+  .catch(erro => {
+    failures++;
+    console.error(`  ✗ a bateria de desenho da página falhou — ${String(erro)}`);
+  })
+  .finally(() => {
+    console.log(
+      failures === 0
+        ? '\n✅ Todas as verificações passaram.\n'
+        : `\n❌ ${failures} verificação(ões) falharam.\n`,
+    );
+    process.exit(failures === 0 ? 0 : 1);
+  });

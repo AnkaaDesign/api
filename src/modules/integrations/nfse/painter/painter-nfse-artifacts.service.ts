@@ -200,6 +200,54 @@ export class PainterNfseArtifactsService {
   }
 
   /**
+   * Refaz o DANFSe e **substitui** o anterior — o que `persist` sozinho não faz,
+   * porque ele é aditivo por natureza (só cria o que falta).
+   *
+   * Existe por causa do cancelamento. A marca d'água "CANCELADA" da NT 2.5.1 não
+   * vem do XML (a SEFIN não altera a nota ao cancelar: `cStat` continua 107),
+   * vem do estado da NOSSA linha. Quem gerou o PDF na emissão gerou uma nota
+   * limpa, e sem passar por aqui ela continuaria pendurada na aerografia com
+   * cara de nota válida — foi o que aconteceu com a nº 27 do Claudemir,
+   * cancelada em 20/08/2026 e reemitida como nº 30: as duas ficaram lado a lado
+   * no campo "Notas Fiscais", indistinguíveis.
+   *
+   * Ordem obrigatória: DESVINCULAR antes de apagar. O banco recusa excluir um
+   * File ainda referenciado ("está em uso e não pode ser excluído"), e o delete
+   * falharia em silêncio, acumulando um DANFSe obsoleto a cada chamada.
+   *
+   * Best-effort de ponta a ponta: quando isto roda, a nota já foi cancelada ou
+   * autorizada na SEFIN e o fato é irreversível. Falhar ao desenhar um PDF não
+   * pode virar erro de operação fiscal.
+   */
+  async replaceDanfse(nfseId: string): Promise<{ pdfFileId: string | null; errors: string[] }> {
+    const antes = await this.prisma.airbrushingNfse.findUnique({
+      where: { id: nfseId },
+      select: { pdfFileId: true, airbrushingId: true },
+    });
+
+    const result = await this.persist(nfseId, { regenerateDanfse: true });
+
+    const anterior = antes?.pdfFileId;
+    if (anterior && result.pdfFileId && result.pdfFileId !== anterior) {
+      try {
+        if (antes?.airbrushingId) {
+          await this.prisma.airbrushing.update({
+            where: { id: antes.airbrushingId },
+            data: { invoices: { disconnect: { id: anterior } } },
+          });
+        }
+        await this.prisma.file.delete({ where: { id: anterior } });
+      } catch (error) {
+        const msg = `Não foi possível remover o DANFSe anterior (${anterior}): ${this.msg(error)}`;
+        result.errors.push(msg);
+        this.logger.warn(`[PAINTER_NFSE_ARTIFACTS] ${msg}`);
+      }
+    }
+
+    return { pdfFileId: result.pdfFileId, errors: result.errors };
+  }
+
+  /**
    * Grava um buffer como File no contexto indicado.
    *
    * `FileService.createFromUploadWithTransaction` espera um arquivo de disco

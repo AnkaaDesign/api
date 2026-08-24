@@ -60,6 +60,17 @@ export interface DanfseData {
   prestadorOpSimpNac: string | null;
   prestadorRegApTribSN: string | null;
   tomador: DanfseParty;
+  /**
+   * Destinatário da operação — grupo `IBSCBS/dest` do leiaute (NT 005, item
+   * 2.1.1). Só existe nas notas do leiaute da Reforma Tributária; nas demais
+   * vem inteiro vazio.
+   */
+  destinatario: DanfseParty;
+  /**
+   * `IBSCBS/indDest` (NT 005): 0 = o destinatário é o próprio tomador/adquirente;
+   * 1 = é outra pessoa. Ausente nas notas anteriores à Reforma.
+   */
+  indDest: string | null;
 
   // ── Serviço (NT 2.1.7) ──
   cTribNac: string | null;
@@ -204,6 +215,30 @@ export function formatDateTime(value: string | null): string {
   });
 }
 
+/**
+ * UF a partir dos dois primeiros dígitos do código IBGE do município.
+ *
+ * O leiaute NÃO tem campo de UF no endereço nacional (`TCEndereco/endNac` só
+ * traz `cMun` e `CEP` — XSD v1.01), então o município do tomador saía como
+ * "Ibiporã / -" enquanto a consulta pública do portal mostra "Ibiporã/PR".
+ *
+ * Isto não é inventar dado que não está no XML (o que a NT 2.1 proíbe): a UF
+ * está DENTRO do código do município, é o prefixo dele. A tabela é a do IBGE e
+ * não muda — 26 estados e o Distrito Federal.
+ */
+const UF_POR_PREFIXO_IBGE: Record<string, string> = {
+  '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+  '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+  '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP', '41': 'PR',
+  '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF',
+};
+
+export function ufDoCodigoIbge(codigo: string | null): string | null {
+  const digits = (codigo ?? '').replace(/\D/g, '');
+  if (digits.length !== 7) return null;
+  return UF_POR_PREFIXO_IBGE[digits.slice(0, 2)] ?? null;
+}
+
 /** Código IBGE como o emissor oficial imprime: nn.nnnnn. */
 export function formatIbge(value: string | null): string {
   const digits = (value ?? '').replace(/\D/g, '');
@@ -299,7 +334,10 @@ function buildParty(node: any, ender: any, municipios: Record<string, string> = 
       pick(ender ?? {}, 'xMun') ??
       municipios[(pick(endNac, 'cMun') ?? pick(ender ?? {}, 'cMun') ?? '').replace(/\D/g, '')] ??
       null,
-    uf: pick(endNac, 'UF') ?? pick(ender ?? {}, 'UF'),
+    uf:
+      pick(endNac, 'UF') ??
+      pick(ender ?? {}, 'UF') ??
+      ufDoCodigoIbge(pick(endNac, 'cMun') ?? pick(ender ?? {}, 'cMun')),
     codigoIbge: pick(endNac, 'cMun') ?? pick(ender ?? {}, 'cMun'),
     cep: formatCep(pick(endNac, 'CEP') ?? pick(ender ?? {}, 'CEP')),
     endereco: [logradouro || null, bairro].filter(Boolean).join(' - ') || null,
@@ -318,6 +356,8 @@ export function parseNfseXml(nfseXml: string): DanfseData {
   const toma = dps.toma ?? {};
   const serv = dps.serv ?? {};
   const cServ = serv.cServ ?? {};
+  const ibsCbs = dps.IBSCBS ?? {};
+  const dest = ibsCbs.dest ?? {};
   const valoresDps = dps.valores ?? {};
   const tribMun = valoresDps.trib?.tribMun ?? {};
   const tribFed = valoresDps.trib?.tribFed ?? {};
@@ -354,14 +394,28 @@ export function parseNfseXml(nfseXml: string): DanfseData {
     ambGer: pick(inf, 'ambGer'),
     municipioEmitente: pick(inf, 'xLocEmi'),
 
+    // `emit` é o retrato do CNPJ na base nacional, montado pela SEFIN, e vence
+    // nos dados de IDENTIDADE (nome, endereço). No CONTATO é o contrário: o
+    // cadastro do CNPJ costuma trazer o e-mail e o telefone do CONTADOR — nas
+    // notas do Claudemir, `PARALEGAL@CONSIGA.COM.BR` —, enquanto `prest/fone` e
+    // `prest/email` são o que o próprio prestador declarou nesta DPS. Os dois
+    // estão no XML, então imprimir o declarado não fere a NT 2.1; imprimir o do
+    // contador é que dá ao leitor um canal que não é do emitente.
     prestador: buildParty(
-      { ...prest, ...emit },
+      {
+        ...prest,
+        ...emit,
+        ...(pick(prest, 'fone') ? { fone: pick(prest, 'fone') } : {}),
+        ...(pick(prest, 'email') ? { email: pick(prest, 'email') } : {}),
+      },
       emit.enderNac ?? emit.ender ?? prest.end ?? null,
       municipios,
     ),
     prestadorOpSimpNac: pick(prest, 'regTrib.opSimpNac'),
     prestadorRegApTribSN: pick(prest, 'regTrib.regApTribSN'),
     tomador: buildParty(toma, toma.end ?? null, municipios),
+    destinatario: buildParty(dest, dest.end ?? null, municipios),
+    indDest: pick(ibsCbs, 'indDest'),
 
     cTribNac: pick(cServ, 'cTribNac'),
     cTribMun: pick(cServ, 'cTribMun'),
@@ -448,7 +502,9 @@ import {
   HEADER_TEXT,
   PAGE_BORDER_INSET_CM,
   PAGE_BORDER_WIDTH,
+  PT_PER_CM,
   QR,
+  RESERVA_ABAIXO_DESCRICAO,
   RED_M100_Y100,
   ROW_STEP,
   SHADE_5_PERCENT,
@@ -487,6 +543,45 @@ interface Cell {
   /** Rótulos do bloco de identificação são 7pt CAIXA ALTA (NT 2.4.2). */
   identLabel?: boolean;
   h?: number;
+  /**
+   * Campo de texto corrido: o conteúdo QUEBRA em várias linhas dentro da caixa,
+   * até o fim dela. Só a "Descrição do Serviço" é assim; todo o resto da grade
+   * da NT é campo de uma linha.
+   */
+  multiline?: boolean;
+}
+
+/**
+ * Texto de UMA linha, garantido.
+ *
+ * ⚠️ `lineBreak: false` NÃO impede a quebra. No pdfkit (`_text`), basta
+ * `options.width` estar definido para o LineWrapper entrar em ação; `lineBreak`
+ * só decide se a largura é herdada das margens quando não foi informada. Ou
+ * seja: todo campo desta grade — que sempre informa `width` — quebrava em
+ * silêncio, e a linha excedente era desenhada ABAIXO da caixa, em cima do bloco
+ * seguinte, que depois a cobria com o próprio fundo. Era assim que a segunda
+ * linha da descrição do serviço "sumia": ela estava lá, escondida atrás da
+ * faixa cinza do bloco de ISSQN.
+ *
+ * O que realmente limita é `height` + `ellipsis`: o wrapper para ao encher a
+ * altura e fecha o que coube com reticências, como a NT 2.4.5 manda quando o
+ * conteúdo não cabe no campo. Nada é desenhado fora da caixa.
+ */
+function drawClampedText(
+  doc: PDFKit.PDFDocument,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  options: { align?: 'center' } = {},
+): void {
+  doc.text(text, x, y, {
+    width,
+    // Meio ponto de folga: `height` menor que a altura da linha não desenha nada.
+    height: doc.currentLineHeight(true) + 0.5,
+    ellipsis: '...',
+    align: options.align,
+  });
 }
 
 /**
@@ -519,10 +614,39 @@ function drawCell(doc: PDFKit.PDFDocument, cell: Cell): void {
   const valueY = labelY + labelSize + 1.4;
 
   doc.font(FONT_LABEL).fontSize(labelSize).fillColor(BLACK);
-  doc.text(cell.label, x + pad, labelY, { width: w - pad * 2, lineBreak: false });
+  drawClampedText(doc, cell.label, x + pad, labelY, w - pad * 2);
 
   doc.font(FONT_CONTENT).fontSize(FONT_SIZE.content).fillColor(BLACK);
-  doc.text(cell.value, x + pad, valueY, { width: w - pad * 2, lineBreak: false });
+  if (cell.multiline) {
+    // O texto usa a caixa inteira, do fim do rótulo até a borda de baixo. O que
+    // não couber vira reticências — e nada é desenhado fora da moldura.
+    doc.text(cell.value, x + pad, valueY, {
+      width: w - pad * 2,
+      height: Math.max(y + h - valueY - 1.5, doc.currentLineHeight(true) + 0.5),
+      ellipsis: '...',
+    });
+  } else {
+    drawClampedText(doc, cell.value, x + pad, valueY, w - pad * 2);
+  }
+}
+
+/**
+ * Altura (cm) que a caixa precisa ter para caber `texto` inteiro em `largura`.
+ *
+ * Mede com a MESMA fonte e corpo do desenho — por isso o `font`/`fontSize`
+ * antes. Soma o recuo do rótulo (o conteúdo começa abaixo dele) e a folga da
+ * borda de baixo.
+ */
+function alturaNecessaria(doc: PDFKit.PDFDocument, texto: string, larguraCm: number): number {
+  doc.font(FONT_CONTENT).fontSize(FONT_SIZE.content);
+  const recuoConteudo = 1.6 + FONT_SIZE.fieldLabel + 1.4; // igual ao valueY de drawCell
+  const alturaTexto = doc.heightOfString(texto, { width: cm(larguraCm - 0.16) });
+  // Uma linha de sobra, e ela é necessária: o pdfkit decide elidir olhando se a
+  // PRÓXIMA linha caberia, e não tem como saber que a linha atual é a última.
+  // Com a caixa medida no talo, a última linha do texto saía com reticências
+  // mesmo estando inteira dentro dela.
+  const sobra = doc.currentLineHeight(true);
+  return (recuoConteudo + alturaTexto + sobra + 2) / PT_PER_CM;
 }
 
 /** Faixa de título de bloco: 7pt, negrito, CAIXA ALTA, com sombreamento 5% (NT 2.4.1 / 2.2.3). */
@@ -547,10 +671,7 @@ function drawBlockTitle(
 
   doc.font(FONT_LABEL).fontSize(FONT_SIZE.blockTitle).fillColor(BLACK);
   // Centralizado verticalmente na caixa, seja qual for a altura dela.
-  doc.text(title, px + cm(0.08), py + (ph - FONT_SIZE.blockTitle) / 2, {
-    width: pw - cm(0.16),
-    lineBreak: false,
-  });
+  drawClampedText(doc, title, px + cm(0.08), py + (ph - FONT_SIZE.blockTitle) / 2, pw - cm(0.16));
 }
 
 /** Bloco colapsado: só a frase literal exigida pela NT 2.3, largura total. */
@@ -568,11 +689,7 @@ function drawCollapsedBlock(doc: PDFKit.PDFDocument, text: string, y: number): v
   doc.restore();
 
   doc.font(FONT_LABEL).fontSize(FONT_SIZE.blockTitle).fillColor(BLACK);
-  doc.text(text, px, py + (ph - FONT_SIZE.blockTitle) / 2, {
-    width: pw,
-    align: 'center',
-    lineBreak: false,
-  });
+  drawClampedText(doc, text, px, py + (ph - FONT_SIZE.blockTitle) / 2, pw, { align: 'center' });
 }
 
 /** Linhas de um bloco de parte (prestador/tomador), conforme a grade da NT 2.4.5. */
@@ -757,12 +874,9 @@ function drawHeader(doc: PDFKit.PDFDocument, d: DanfseData): void {
   }
   if (!logoDrawn) {
     doc.font(FONT_LABEL).fontSize(13).fillColor(BLACK);
-    doc.text('NFS-e', logoBox.x, logoBox.y + cm(0.18), { width: logoBox.w, lineBreak: false });
+    drawClampedText(doc, 'NFS-e', logoBox.x, logoBox.y + cm(0.18), logoBox.w);
     doc.font(FONT_CONTENT).fontSize(5.5);
-    doc.text('PADRÃO NACIONAL', logoBox.x, logoBox.y + cm(0.58), {
-      width: logoBox.w,
-      lineBreak: false,
-    });
+    drawClampedText(doc, 'PADRÃO NACIONAL', logoBox.x, logoBox.y + cm(0.58), logoBox.w);
   }
 
   // Centro: "DANFSe v2.0" + "Documento Auxiliar da NFS-e", 9pt negrito.
@@ -770,14 +884,14 @@ function drawHeader(doc: PDFKit.PDFDocument, d: DanfseData): void {
   const tx = cm(HEADER.titulo.x);
   const tw = cm(HEADER.titulo.w);
   doc.font(FONT_LABEL).fontSize(FONT_SIZE.headerTitle).fillColor(BLACK);
-  doc.text(HEADER_TEXT.titulo, tx, y + cm(homologacao ? 0.1 : 0.24), { width: tw, align: 'center', lineBreak: false });
-  doc.text(HEADER_TEXT.subtitulo, tx, y + cm(homologacao ? 0.44 : 0.62), { width: tw, align: 'center', lineBreak: false });
+  drawClampedText(doc, HEADER_TEXT.titulo, tx, y + cm(homologacao ? 0.1 : 0.24), tw, { align: 'center' });
+  drawClampedText(doc, HEADER_TEXT.subtitulo, tx, y + cm(homologacao ? 0.44 : 0.62), tw, { align: 'center' });
 
   if (homologacao) {
     // NT 2.4.3, observação: exigida apenas em homologação, negrito 9pt, vermelho
     // sólido, ABAIXO do título "Documento Auxiliar da NFS-e".
     doc.fillColor(RED_M100_Y100);
-    doc.text(HEADER_TEXT.semValidade, tx, y + cm(0.78), { width: tw, align: 'center', lineBreak: false });
+    drawClampedText(doc, HEADER_TEXT.semValidade, tx, y + cm(0.78), tw, { align: 'center' });
     doc.fillColor(BLACK);
   }
 
@@ -788,19 +902,16 @@ function drawHeader(doc: PDFKit.PDFDocument, d: DanfseData): void {
   // O emissor oficial imprime "Município: Nome - UF" e os ambientes como
   // NÚMERO cru ("Ambiente Gerador: 2"), não traduzidos.
   const ufEmitente = d.prestador.uf ? ` - ${d.prestador.uf}` : '';
-  doc.text(`Município: ${show(d.municipioEmitente)}${ufEmitente}`, mx + cm(0.08), y + cm(0.12), {
-    width: mw - cm(0.16),
-    lineBreak: false,
-  });
+  drawClampedText(
+    doc,
+    `Município: ${show(d.municipioEmitente)}${ufEmitente}`,
+    mx + cm(0.08),
+    y + cm(0.12),
+    mw - cm(0.16),
+  );
   doc.fontSize(FONT_SIZE.headerEnv);
-  doc.text(`Ambiente Gerador: ${show(d.ambGer)}`, mx + cm(0.08), y + cm(0.52), {
-    width: mw - cm(0.16),
-    lineBreak: false,
-  });
-  doc.text(`Tipo de Ambiente: ${d.tpAmb ?? EMPTY}`, mx + cm(0.08), y + cm(0.8), {
-    width: mw - cm(0.16),
-    lineBreak: false,
-  });
+  drawClampedText(doc, `Ambiente Gerador: ${show(d.ambGer)}`, mx + cm(0.08), y + cm(0.52), mw - cm(0.16));
+  drawClampedText(doc, `Tipo de Ambiente: ${d.tpAmb ?? EMPTY}`, mx + cm(0.08), y + cm(0.8), mw - cm(0.16));
 }
 
 /** NT 2.1.2 / 2.4.5: bloco "Dados da NFS-e", com chave, QR Code e identificação. */
@@ -874,18 +985,46 @@ function drawParties(doc: PDFKit.PDFDocument, d: DanfseData): number {
     },
   ]);
 
-  if (d.tomador.documento || d.tomador.nome) {
+  const temTomador = Boolean(d.tomador.documento || d.tomador.nome);
+  let cursor: number;
+  if (temTomador) {
     drawPartyBlock(doc, 'TOMADOR / ADQUIRENTE', BLOCK_Y.tomador, d.tomador);
+    cursor = BLOCK_Y.tomador + ROW_STEP * 3;
   } else {
     drawCollapsedBlock(doc, COLLAPSE_TEXT.tomador, BLOCK_Y.tomador);
+    cursor = BLOCK_Y.tomador + COLLAPSED_H + 0.02;
   }
 
-  // O XML da NFS-e não traz o grupo `dest`; o emissor oficial, lendo o mesmo
-  // documento, imprime "NÃO IDENTIFICADO". Era suposição minha que o
-  // destinatário fosse necessariamente o próprio tomador.
-  let cursor = BLOCK_Y.tomador + ROW_STEP * 3;
-  drawCollapsedBlock(doc, COLLAPSE_TEXT.destinatario, cursor);
-  cursor += COLLAPSED_H + 0.02;
+  // ── Destinatário da operação ────────────────────────────────────────────────
+  //
+  // "Destinatário" é um PAPEL À PARTE do tomador/adquirente, e existe só no
+  // grupo `IBSCBS/dest` do leiaute da Reforma Tributária (NT 005 SE/CGNFS-e,
+  // item 2.1.1). Quem manda nele é `IBSCBS/indDest`:
+  //   0 = tomador = adquirente = destinatário  → o grupo `dest` nem é enviado;
+  //   1 = o destinatário é outra pessoa        → aí sim vem o grupo `dest`.
+  //
+  // Nas notas do aerografista quem contrata e quem recebe o serviço é a mesma
+  // pessoa (a Ankaa), então não existe `dest` a imprimir — e não existirá nem
+  // quando migrarmos para o leiaute da Reforma, porque lá o caso é indDest = 0.
+  //
+  // Isso NÃO é "destinatário não identificado". A NT 008, item 2.3.2 e nota 3
+  // do item 2.4.5, dá a frase própria para este caso: o bloco declara que o
+  // destinatário é o próprio tomador — que está identificado logo acima, com
+  // CNPJ e razão social. A frase de "não identificado" (nota 2) é para quando o
+  // documento não diz quem recebeu, e dizê-la aqui era afirmar algo falso sobre
+  // a nota.
+  const temDestinatario = Boolean(d.destinatario.documento || d.destinatario.nome);
+  if (temDestinatario) {
+    drawPartyBlock(doc, 'DESTINATÁRIO DA OPERAÇÃO', cursor, d.destinatario);
+    cursor += ROW_STEP * 3;
+  } else if (d.indDest === '0' || (d.indDest === null && temTomador)) {
+    drawCollapsedBlock(doc, COLLAPSE_TEXT.destinatarioEhTomador, cursor);
+    cursor += COLLAPSED_H + 0.02;
+  } else {
+    drawCollapsedBlock(doc, COLLAPSE_TEXT.destinatario, cursor);
+    cursor += COLLAPSED_H + 0.02;
+  }
+
   // NT 2.3.1: sem intermediário na operação.
   drawCollapsedBlock(doc, COLLAPSE_TEXT.intermediario, cursor);
   cursor += COLLAPSED_H + 0.02;
@@ -916,17 +1055,34 @@ function drawService(doc: PDFKit.PDFDocument, d: DanfseData, y: number): number 
   drawTextBox(doc, truncate(show(d.descricaoTributacao), 167), descTribY, 0.4);
 
   // "Descrição do Serviço" é um dos quadros que absorvem o espaço recuperado
-  // pelos blocos colapsados (NT 2.3.1/2.3.2).
+  // pelos blocos colapsados (NT 2.3.1/2.3.2) — e é o ÚNICO campo da grade que
+  // aceita várias linhas: `xDescServ` tem 1300 caracteres de leiaute, contra os
+  // ~165 que cabem numa linha de 20,40cm a 7pt.
+  //
+  // Por isso a caixa CRESCE até caber o texto, em vez de ficar com a altura de
+  // um campo comum. Antes ela era fixa em FIELD_H e a segunda linha era
+  // desenhada por cima do bloco de baixo, que a cobria — a descrição parecia
+  // cortada no meio da frase, e foi o que aconteceu em 5 das 7 notas já
+  // emitidas.
   const descServY = descTribY + 0.42;
+  const descricao = truncate(show(d.descricaoServico), 1297);
+  const disponivel = BLOCK_Y.canhoto - 0.1 - RESERVA_ABAIXO_DESCRICAO - descServY;
+  const descServH = Math.min(
+    Math.max(alturaNecessaria(doc, descricao, WIDTH.full), FIELD_H),
+    Math.max(disponivel, FIELD_H),
+  );
+
   drawCell(doc, {
     label: 'Descrição do Serviço',
-    value: truncate(show(d.descricaoServico), 1297),
+    value: descricao,
     x: COL.c0,
     y: descServY,
     w: WIDTH.full,
+    h: descServH,
+    multiline: true,
   });
 
-  return descServY + FIELD_H + 0.02;
+  return descServY + descServH + 0.02;
 }
 
 /** Quadro de largura total sem rótulo, com o texto ocupando toda a caixa. */
@@ -938,6 +1094,7 @@ function drawTextBox(doc: PDFKit.PDFDocument, text: string, y: number, h: number
   doc.text(text, cm(COL.c0 + 0.08), cm(y + 0.08), {
     width: cm(WIDTH.full - 0.16),
     height: cm(h - 0.1),
+    ellipsis: '...',
     lineGap: -1,
   });
 }
@@ -1125,6 +1282,7 @@ function drawComplementary(doc: PDFKit.PDFDocument, d: DanfseData, y: number): v
   doc.text(linhas.join(' | '), cm(COL.c0 + 0.1), cm(contentY + 0.16), {
     width: cm(WIDTH.full - 0.16),
     height: cm(contentH - 0.2),
+    ellipsis: '...',
   });
 }
 
@@ -1144,13 +1302,16 @@ function drawCanhoto(doc: PDFKit.PDFDocument, d: DanfseData): void {
     doc.lineWidth(BLOCK_LINE_WIDTH).rect(cm(x), cm(y), cm(w), cm(h)).stroke(BLACK);
     doc.restore();
     doc.font(FONT_LABEL).fontSize(FONT_SIZE.fieldLabel).fillColor(BLACK);
-    doc.text(label, cm(x) + cm(0.08), cm(y) + 1.6, { width: cm(w) - cm(0.16), lineBreak: false });
+    drawClampedText(doc, label, cm(x) + cm(0.08), cm(y) + 1.6, cm(w) - cm(0.16));
     if (value) {
       doc.font(FONT_CONTENT).fontSize(FONT_SIZE.content).fillColor(BLACK);
-      doc.text(value, cm(x) + cm(0.08), cm(y) + 1.6 + FONT_SIZE.fieldLabel + 1.4, {
-        width: cm(w) - cm(0.16),
-        lineBreak: false,
-      });
+      drawClampedText(
+        doc,
+        value,
+        cm(x) + cm(0.08),
+        cm(y) + 1.6 + FONT_SIZE.fieldLabel + 1.4,
+        cm(w) - cm(0.16),
+      );
     }
   };
 

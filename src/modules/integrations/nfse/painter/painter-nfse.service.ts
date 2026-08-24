@@ -55,6 +55,25 @@ const COMPANY_MUNICIPALITY_IBGE = '4109807';
  * é omitido quando o CEP não tem 8 dígitos, em vez de ir incompleto.
  * `NFSE_TOMADOR_CEP` existe como escape para corrigir sem alterar código.
  */
+/**
+ * E-mail da Ankaa na ficha de TOMADOR da nota do pintor.
+ *
+ * Não é `COMPANY.email`. Aquele (`ankaadesign@outlook.com`) é o endereço
+ * institucional que sai nos documentos que a empresa emite, e mexer nele mudaria
+ * orçamento, assinatura e tudo mais. Este é o destino do aviso de uma nota que
+ * ENTRA — e o que importa aí é a caixa que alguém lê.
+ *
+ * Fica registrado o que a auditoria achou, porque os três valores divergem:
+ *   - `COMPANY.email`                → ankaadesign@outlook.com
+ *   - nota própria da Ankaa (nº 3220, Elotech) e cadastro do CNPJ na base
+ *     nacional (`emit/email`)        → ankaadesign@outlook.com.br  (com .br)
+ *   - decisão do Sergio (24/08/2026) → sergio_ankaa@hotmail.com
+ *
+ * Vale a decisão. `NFSE_TOMADOR_EMAIL` troca sem tocar em código, como o
+ * `NFSE_TOMADOR_CEP` logo abaixo.
+ */
+const NFSE_TOMADOR_EMAIL_PADRAO = 'sergio_ankaa@hotmail.com';
+
 export function buildCompanyTomador() {
   const cep = (process.env.NFSE_TOMADOR_CEP || COMPANY.zipCode || '').replace(/\D/g, '');
   const temCepValido = cep.length === 8;
@@ -62,7 +81,10 @@ export function buildCompanyTomador() {
   return {
     cnpj: COMPANY.cnpj,
     nome: COMPANY.corporateName,
-    email: COMPANY.email,
+    // O leiaute quer só dígitos e sem o código do país — quem normaliza é
+    // `sanitizeTelefone`, no builder.
+    telefone: COMPANY.phoneClean,
+    email: process.env.NFSE_TOMADOR_EMAIL || NFSE_TOMADOR_EMAIL_PADRAO,
     ...(temCepValido
       ? {
           municipioIbge: COMPANY_MUNICIPALITY_IBGE,
@@ -504,6 +526,16 @@ export class PainterNfseService {
       );
     }
 
+    // Contato do PRESTADOR: sai do usuário dono do perfil fiscal, não do cadastro
+    // do CNPJ. O que a SEFIN devolve em `emit/email` é o e-mail que o contador
+    // registrou (`PARALEGAL@CONSIGA.COM.BR`), e não o do pintor. Consultado pelo
+    // `profile.userId`, que é a ligação garantida (coluna única), e não pelo
+    // `painterId` da linha, que pode ter ficado para trás.
+    const contatoEmitente = await this.prisma.user.findUnique({
+      where: { id: profile.userId },
+      select: { email: true, phone: true },
+    });
+
     const certificate = await this.certificates.getActive(profile.id);
     if (!certificate) {
       throw new SefinError('O pintor não tem certificado digital A1 cadastrado.', true);
@@ -575,6 +607,8 @@ export class PainterNfseService {
         municipioIbge: profile.municipalityIbgeCode,
         opSimpNac: profile.opSimpNac,
         regEspTrib: profile.regEspTrib,
+        telefone: contatoEmitente?.phone,
+        email: contatoEmitente?.email,
       },
       tomador: buildCompanyTomador(),
       servico: {
@@ -930,6 +964,22 @@ export class PainterNfseService {
           ),
         );
     }
+
+    // O DANFSe da nota cancelada tem de ganhar a marca d'água "CANCELADA"
+    // (NT 2.5.1). Ela não vem do XML — a SEFIN não altera a nota ao cancelar —,
+    // vem do estado desta linha, e quem gerou o PDF na emissão gerou uma nota
+    // limpa. Sem isto, um documento com cara de válido continua pendurado no
+    // campo "Notas Fiscais" da aerografia, ao lado da nota que o substituiu.
+    //
+    // Best-effort: o cancelamento já aconteceu na SEFIN e é irreversível;
+    // falhar ao redesenhar um PDF não pode transformá-lo em erro.
+    await this.artifacts.replaceDanfse(row.id).catch(error =>
+      this.logger.warn(
+        `[PAINTER_NFSE] Não foi possível regerar o DANFSe cancelado de ${row.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ),
+    );
 
     await this.logChange(
       row.id,
