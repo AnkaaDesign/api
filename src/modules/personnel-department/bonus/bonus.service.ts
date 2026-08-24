@@ -640,16 +640,100 @@ export class BonusService {
     );
     if (!live) return savedBonus;
 
-    const { extras, discounts } = await this.loadModifiersForOverlay(savedBonus);
+    const { extras: savedExtras, discounts: savedDiscounts } =
+      await this.loadModifiersForOverlay(savedBonus);
 
     const base = Number(live.baseBonus) || 0;
+
+    // Trocar a BASE pelo valor vivo obriga a trocar tudo que é DERIVADO dela.
+    //
+    // O extra de assiduidade é gravado com `percentage` E `value` preenchidos —
+    // e `applyModifiersToBase` dá precedência ao `value`. Então, sem esta
+    // substituição, o líquido saía "base nova + extra da base VELHA": Alessandro
+    // em 08/2026 tinha `value` 19,64 (10% de 196,37) enquanto a base viva já era
+    // 267,77, cujos 10% são 26,78. A lista do DP já refazia essa troca; o
+    // detalhe e o app do colaborador não — mesma pessoa, mesmo período, dois
+    // líquidos, nas 11 linhas com extra de agosto. Mesmo raciocínio para
+    // "Tarefas Suspensas" e para as linhas de falta, todas derivadas da base.
+    const extras = savedExtras.filter(
+      (e: any) =>
+        e.reference !== 'Ponto Eletrônico' && e.reference !== 'Assiduidade do Ponto Eletrônico',
+    );
+    const discounts = savedDiscounts.filter(
+      (d: any) =>
+        d.reference !== 'Tarefas Suspensas' &&
+        !String(d.reference || '').startsWith('Faltas - Atestado') &&
+        !String(d.reference || '').startsWith('Faltas - Sem Justificativa'),
+    );
+    if (live.bonusExtraValue && live.bonusExtraValue > 0) {
+      extras.push({
+        id: `live-extra-ponto-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
+        bonusId: savedBonus.id,
+        reference: 'Assiduidade do Ponto Eletrônico',
+        percentage: live.bonusExtraPercentage,
+        value: live.bonusExtraValue,
+        calculationOrder: 1,
+      });
+    }
+    if (live.suspendedTasksDiscount > 0) {
+      discounts.push({
+        id: `live-discount-suspended-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
+        bonusId: savedBonus.id,
+        reference: 'Tarefas Suspensas',
+        value: live.suspendedTasksDiscount,
+        percentage: null,
+        calculationOrder: 1,
+      });
+    }
+    if (live.secullumAnalysis) {
+      for (const line of buildAbsenceDiscountLines(live.secullumAnalysis)) {
+        discounts.push({
+          id: `live-discount-${line.kind}-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
+          bonusId: savedBonus.id,
+          reference: line.reference,
+          ruleReference: line.ruleReference,
+          dates: line.dates,
+          percentage: line.percentage,
+          value: line.value,
+          ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+          calculationOrder: line.calculationOrder,
+        });
+      }
+    }
+
     return {
       ...savedBonus,
       baseBonus: base,
       netBonus: this.applyModifiersToBase(base, extras, discounts),
+      // As relações também precisam refletir o que entrou na conta — senão a
+      // tela lista o extra velho ao lado de um líquido calculado com o novo.
+      ...(Array.isArray(savedBonus.bonusExtras) ? { bonusExtras: extras } : {}),
+      ...(Array.isArray(savedBonus.bonusDiscounts) ? { bonusDiscounts: discounts } : {}),
       weightedTasks: live.weightedTasks,
       averageTaskPerUser: live.averageTasksPerEmployee,
       periodDivisor: live.periodDivisor,
+      // A LISTA de tarefas acompanha a contagem ponderada — senão a tela de
+      // detalhe mostra "Total de Tarefas 40" (a relação M2M congelada no último
+      // save) ao lado de "Tarefas Ponderadas 43,00" (o número vivo), uma
+      // ponderada MAIOR que o total, impossível por construção.
+      //
+      // Só sobrescreve quando o chamador pediu a relação: a lista pessoal do app
+      // não inclui `tasks`, e injetá-la aqui engordaria o payload sem motivo.
+      ...(Array.isArray(savedBonus.tasks)
+        ? {
+            tasks: (live.tasks || []).map((task: any) => ({
+              id: task.id,
+              name: task.name,
+              serialNumber: task.serialNumber ?? null,
+              status: task.status,
+              finishedAt: task.finishedAt,
+              bonification: task.bonification,
+              customer: task.customer ?? null,
+              sector: task.sector ?? null,
+              truck: task.truck ?? null,
+            })),
+          }
+        : {}),
       eligibilityWeight: live.eligibilityWeight,
       temporalWeight: live.temporalWeight,
       absenceFactor: live.absenceFactor,
@@ -2683,6 +2767,12 @@ export class BonusService {
           id: true,
           name: true,
           serialNumber: true,
+          // `status` é constante nesta query (o where já filtra COMPLETED), mas
+          // precisa vir selecionado: as duas montagens de resposta (linha viva e
+          // linha salva com overlay) copiam `task.status` para o payload, e sem
+          // ele a UI recebia `status: undefined` onde a linha salva trazia
+          // "COMPLETED".
+          status: true,
           bonification: true,
           finishedAt: true,
           createdById: true,
@@ -2905,19 +2995,32 @@ export class BonusService {
 
             // Add suspended tasks discount as a fixed discount
             if (bonus.suspendedTasksDiscount > 0) {
+              // Ordem 1 = a mesma que o save grava para "Tarefas Suspensas",
+              // para a cascata viva reproduzir a cascata persistida.
               discounts.push({
                 value: bonus.suspendedTasksDiscount,
                 percentage: null,
-                calculationOrder: -2,
+                calculationOrder: 1,
               });
             }
 
-            // Add absence discount as a percentage discount
-            if (totalAbsenceDiscountPercentage > 0) {
+            // Faltas entram como DUAS linhas em CASCATA — atestado (ordem 2) e
+            // sem justificativa (ordem 3) —, não como uma percentagem somada.
+            //
+            // Somar era o único motor do sistema que fazia isso. Os outros três
+            // (`recalculateNetBonus`, `applyModifiersToBase` e a lista do DP)
+            // cascateiam, e é a cascata que acaba GRAVADA: o save cria as linhas
+            // de desconto e chama `recalculateNetBonus` logo depois, por cima do
+            // valor que veio daqui. Resultado: a prévia viva não batia com o que
+            // o próprio save ia persistir. Igor Santos Faria em 06/2026, atestado
+            // 50% + injustificada 50%: `min(100, 50+50)` = 100% → R$ 0,00 na
+            // prévia e na Folha, contra `111,34 × 0,5 × 0,5` = R$ 27,84 gravado
+            // no banco. São 11 ocorrências históricas com os dois percentuais.
+            for (const line of buildAbsenceDiscountLines(analysis)) {
               discounts.push({
-                value: null,
-                percentage: totalAbsenceDiscountPercentage,
-                calculationOrder: -1,
+                value: line.value,
+                percentage: line.percentage,
+                calculationOrder: line.calculationOrder,
               });
             }
 
@@ -2937,8 +3040,18 @@ export class BonusService {
               }
             }
 
+            // Quanto as faltas tiraram DE FATO. Com cascata, `base × pct` deixa
+            // de descrever o valor removido (50%+50% tiram 75% da base, não
+            // 100%), e este campo alimenta tela.
+            const netWithoutAbsence = discounts
+              .filter(d => (d as any).calculationOrder < 2)
+              .reduce((v, d: any) => {
+                if (d.percentage != null) return Math.max(0, v - v * (Number(d.percentage) / 100));
+                if (d.value != null) return Math.max(0, v - Math.min(Number(d.value), v));
+                return v;
+              }, baseBonus + totalExtras);
             bonus.absenceDiscountValue = roundCurrency(
-              (baseBonus * totalAbsenceDiscountPercentage) / 100,
+              Math.max(0, netWithoutAbsence - currentValue),
             );
             bonus.netBonus = roundCurrency(currentValue);
 
@@ -3090,8 +3203,27 @@ export class BonusService {
       // então uma pessoa desligada sumia da lista do período corrente e a linha
       // `Bonus` dela — já carregada do banco em `savedBonusMap` — era descartada
       // em silêncio dentro do laço abaixo.
+      // `where.userId` do chamador precisa ser respeitado AQUI também.
+      //
+      // O laço do período corrente montava o universo só a partir de
+      // `liveData.bonuses` e depois filtrava apenas por setor e cargo — nunca
+      // por usuário. `GET /bonus/user/:userId` e
+      // `GET /bonus/user/:userId/month/:y/:m` pediam UMA pessoa e recebiam as 18
+      // do período. A lista da web mascarava isso refiltrando no cliente; o app
+      // não.
+      const requestedUserId = filters.where?.userId;
+      const requestedUserIds: string[] | null = Array.isArray(requestedUserId?.in)
+        ? requestedUserId.in
+        : typeof requestedUserId === 'string'
+          ? [requestedUserId]
+          : null;
+      const livePeriodUserIds = liveData.bonuses.map(b => b.userId);
+      const scopedUserIds = requestedUserIds
+        ? livePeriodUserIds.filter(id => requestedUserIds.includes(id))
+        : livePeriodUserIds;
+
       const allBonifiableUsers = await this.prisma.user.findMany({
-        where: { id: { in: liveData.bonuses.map(b => b.userId) } },
+        where: { id: { in: scopedUserIds } },
         include: {
           position: {
             include: {
@@ -3246,6 +3378,46 @@ export class BonusService {
                   weightedTasks: liveBonus.weightedTasks,
                   averageTaskPerUser: liveBonus.averageTasksPerEmployee,
                   periodDivisor: liveBonus.periodDivisor,
+                  // A LISTA de tarefas vem junto com a contagem ponderada, pelo
+                  // mesmo motivo que o divisor vem junto com o valor.
+                  //
+                  // `savedBonus.tasks` é a relação M2M congelada no instante em
+                  // que alguém gravou o período — enquanto `weightedTasks` já
+                  // era substituído pelo número VIVO logo acima. Toda tarefa
+                  // concluída depois daquele save abria uma fenda entre as duas
+                  // colunas da tela: em 24/08/2026 a coluna "Tarefas" mostrava
+                  // 40 (o snapshot de 20/08: 38 integrais + 2 parciais = 39,00)
+                  // ao lado de "Tarefas Ponderadas" 43,00 (44 tarefas vivas) —
+                  // uma ponderada MAIOR que o total, que é impossível por
+                  // construção (nenhuma tarefa pesa mais que 1,0).
+                  //
+                  // Dois cuidados, os dois custaram achado de auditoria:
+                  //
+                  // • SÓ quando o chamador pediu a relação. Sem o guard, uma
+                  //   rota que não inclui `tasks` (ex.: GET /bonus/user/:id/...)
+                  //   passava a carregar as 44 tarefas do período REPETIDAS em
+                  //   cada uma das 18 linhas — ~120 KB que ninguém renderiza.
+                  //
+                  // • MESMA projeção da linha sem save, logo abaixo. Com 5
+                  //   campos aqui e 9 lá, a mesma página devolvia duas formas de
+                  //   tarefa: quem tinha bônus salvo vinha sem `serialNumber`,
+                  //   `customer`, `sector` e `truck`, e quem não tinha vinha
+                  //   completo — "Identificador: -" em metade das linhas.
+                  ...(Array.isArray(savedBonus.tasks)
+                    ? {
+                        tasks: (liveBonus.tasks || []).map((task: any) => ({
+                          id: task.id,
+                          name: task.name,
+                          serialNumber: task.serialNumber ?? null,
+                          status: task.status,
+                          finishedAt: task.finishedAt,
+                          bonification: task.bonification,
+                          customer: task.customer ?? null,
+                          sector: task.sector ?? null,
+                          truck: task.truck ?? null,
+                        })),
+                      }
+                    : {}),
                   eligibilityWeight: liveBonus.eligibilityWeight,
                   temporalWeight: liveBonus.temporalWeight,
                   absenceFactor: liveBonus.absenceFactor,
@@ -3785,12 +3957,23 @@ export class BonusService {
               calcContext,
               user as { position: { id: string } | null },
             );
-            const paramsSnapshot = this.bonusCalculationService.buildParamsSnapshot({
-              salary: userSalary,
-              salaryRange: calcContext.salaryRange,
-              averageTasksPerUser,
-              config: { adjustment: periodAdjustment },
-            });
+            // O snapshot precisa guardar o B1 que produziu o `baseBonus` que
+            // está sendo GRAVADO na linha ao lado — e esse é a média RAW
+            // (suspensa = 1,0), não a ponderada. Guardando a ponderada, rodar o
+            // polinômio sobre `calculationParams` não reproduzia o valor pago
+            // sempre que houvesse tarefa suspensa — exatamente o que o snapshot
+            // existe para permitir. A ponderada vai junto, porque é ela que
+            // explica o `netBonus`.
+            const paramsSnapshot = {
+              ...this.bonusCalculationService.buildParamsSnapshot({
+                salary: userSalary,
+                salaryRange: calcContext.salaryRange,
+                averageTasksPerUser: liveData.rawAverageTasksPerEmployee,
+                config: { adjustment: periodAdjustment },
+              }),
+              /** B1 ponderado (suspensa = 0,0) — o que gera o líquido. */
+              weightedAverageTasksPerUser: averageTasksPerUser,
+            };
 
             // All users share the same period-level data
             const bonusPayload = {

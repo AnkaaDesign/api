@@ -787,7 +787,21 @@ export class BonusPrismaRepository
       }
     }
 
-    // ⚠️ DIVISOR OBSOLETO — NÃO USE ESTE CAMINHO.
+    // ⚠️ CAMINHO DE CÁLCULO OBSOLETO — NÃO USE.
+    //
+    // Não é só o divisor. Este arquivo é uma SEGUNDA implementação do bônus e
+    // diverge da folha em cinco pontos, todos silenciosos:
+    //   • não injeta o reajuste do período (`config.adjustment`) — o bônus sai
+    //     sem os +30% que o DP aplicou;
+    //   • não prorrateia por `eligibilityWeight` — paga período inteiro a quem
+    //     entrou ou saiu no meio;
+    //   • conta tarefas só FULL/PARTIAL, sem SUSPENDED/NO_BONIFICATION, logo
+    //     não tem o par bruto/líquido;
+    //   • não arredonda B1 antes do polinômio (o anchor é de grau 5: a
+    //     diferença vira reais);
+    //   • lê `user.performanceLevel` de HOJE, não o do período.
+    //
+    // O divisor abaixo é o pior dos cinco:
     //
     // Esta contagem é uma foto do "quem é elegível AGORA" e diverge do divisor
     // canônico em quatro eixos: não tem eixo temporal (uma demissão apaga a

@@ -18,6 +18,8 @@ import {
 } from '@nestjs/common';
 import { PersonalService } from './personal.service';
 import { BonusService } from '@modules/personnel-department/bonus/bonus.service';
+import { BonusEligibilityService } from '@modules/personnel-department/bonus/bonus-eligibility.service';
+import { roundCurrency } from '../../../utils/currency-precision.util';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -65,6 +67,7 @@ export class PersonalBonusController {
   constructor(
     private readonly personalService: PersonalService,
     private readonly bonusService: BonusService,
+    private readonly bonusEligibilityService: BonusEligibilityService,
   ) {}
 
   // =====================
@@ -176,7 +179,7 @@ export class PersonalBonusController {
   @HttpCode(HttpStatus.OK)
   @Roles(...ALL_ROLES)
   @UsePipes(new ZodValidationPipe(bonusSimulateSchema))
-  async simulateMyBonus(@Body() data: BonusSimulateFormData) {
+  async simulateMyBonus(@Body() data: BonusSimulateFormData, @UserId() userId?: string) {
     const result = await this.bonusService.simulate({
       averageTasksPerUser: data.averageTasksPerUser!,
       users: (data.users ?? []).map(u => ({
@@ -202,7 +205,72 @@ export class PersonalBonusController {
           }
         : undefined,
     });
-    return { success: true, data: result, message: 'Simulação calculada com sucesso.' };
+
+    // PRORRATEIO — `simulate()` devolve o valor de PERÍODO INTEIRO.
+    //
+    // Ele só recebe cargo, nível e B1; não tem como saber que quem está olhando
+    // entrou no dia 14 ou foi desligado no dia 17. O cálculo vivo prorrateia
+    // (`proratedBase = base × weight`), o simulador não — e o app mostra as duas
+    // telas a dois toques de distância. Sem isto, em 08/2026 o simulador dizia
+    // R$ 598 para quem recebe R$ 27 (peso 0,0455) e R$ 29 para quem recebe
+    // R$ 9,32 (peso 0,3182, pessoa ATIVA admitida no meio do período).
+    //
+    // Corrigido no SERVIDOR de propósito: o app lê `data.users[0].bonus` e
+    // arrumar isso no cliente exigiria uma release de loja para chegar a quem
+    // já está com a tela na mão.
+    const simulated = result as {
+      users?: Array<{ id?: string; bonus: number; baseBonus: number }>;
+      totals?: { totalBonus?: number };
+    };
+    if (userId && data.year && data.month && Array.isArray(simulated.users)) {
+      try {
+        const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(
+          data.year,
+          data.month,
+        );
+        const weight = eligibility.byUserId.get(userId)?.weight;
+        if (typeof weight === 'number' && weight < 1) {
+          for (const u of simulated.users) {
+            if (u.id !== userId) continue;
+            u.bonus = roundCurrency(u.bonus * weight);
+            u.baseBonus = roundCurrency(u.baseBonus * weight);
+            (u as Record<string, unknown>).eligibilityWeight = weight;
+          }
+          // O total precisa acompanhar, senão a resposta se contradiz.
+          if (simulated.totals) {
+            simulated.totals.totalBonus = roundCurrency(
+              simulated.users.reduce((sum, u) => sum + (u.bonus || 0), 0),
+            );
+          }
+        }
+      } catch (error) {
+        // Prorrateio é enfeite do valor, não o valor: falha aqui não pode
+        // derrubar a simulação inteira. Sai o valor de período inteiro, como
+        // antes, e o erro fica no log.
+        this.logger.warn(
+          `[My Bonus Simulate] Falha ao prorratear para ${userId}: ${(error as Error)?.message}`,
+        );
+      }
+    }
+
+    // A tabela salarial NÃO sai por aqui.
+    //
+    // Esta rota é `@Roles(...ALL_ROLES)` e aceita `users[].positionId` livre,
+    // enquanto `simulate()` devolve `salary` por usuário e o `salaryRange` do
+    // período — ou seja, 12 POSTs davam a tabela inteira a qualquer
+    // colaborador. `getMyPositions` foi escrito explicitamente para nunca expor
+    // salário; este endpoint desfazia aquilo. O app lê só `users[0].bonus`
+    // (`my_bonus_data.dart`), então remover é inócuo para o cliente.
+    const { salaryRange: _salaryRange, ...safeResult } = simulated as Record<string, unknown> & {
+      salaryRange?: unknown;
+    };
+    if (Array.isArray(safeResult.users)) {
+      safeResult.users = (safeResult.users as Array<Record<string, unknown>>).map(
+        ({ salary: _salary, ...rest }) => rest,
+      );
+    }
+
+    return { success: true, data: safeResult, message: 'Simulação calculada com sucesso.' };
   }
 
   /**
