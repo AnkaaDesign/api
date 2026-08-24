@@ -155,7 +155,12 @@ export class ReconciliationClassifierService {
         await this.fusion.applyDecision(tx.id, decision);
         const key = await this.tallyKey(decision);
         byCategory[key] = (byCategory[key] ?? 0) + 1;
-        if (decision.shouldReconcile) reconciled += 1;
+        // Only PENDING rows can actually be closed by a category — a PARTIAL one
+        // keeps its gap (see applyDecision). Counting it here reported closures
+        // the batch never made.
+        if (decision.shouldReconcile && tx.reconciliationStatus === ReconciliationStatus.PENDING) {
+          reconciled += 1;
+        }
       } catch (err) {
         this.logger.warn(`Failed to classify transaction ${tx.id}: ${err}`);
       }

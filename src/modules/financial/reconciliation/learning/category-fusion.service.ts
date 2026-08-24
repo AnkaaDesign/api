@@ -238,6 +238,17 @@ export class CategoryFusionService {
     if (tx.reconciliationStatus === ReconciliationStatus.RECONCILED) return;
     if (tx.categorySource === ReconciliationSource.MANUAL) return;
 
+    // A resolving category only CLOSES a payment that nothing else is tracking.
+    // A PARTIAL row already carries a live match whose allocations fall short of
+    // the payment, and `computeReconciliationStatus` gives the match precedence
+    // over the tag — so writing RECONCILED here does not reconcile the row, it
+    // ERASES the gap the PARTIAL existed to show. Seen in production: a R$212,27
+    // Claro debit matched at R$13,00 (a manual baixa lançada com o valor errado)
+    // was promoted to RECONCILED by this path and the missing R$199,27 vanished
+    // from the Extrato with no trace. Classify it — the tag is still useful and
+    // the Vínculo column needs it — just never let the tag close it.
+    const mayClose = tx.reconciliationStatus === ReconciliationStatus.PENDING;
+
     if (decision.tier === DecisionTier.AUTO_APPLY && decision.categoryId) {
       await db.bankTransaction.update({
         where: { id: txId },
@@ -248,7 +259,7 @@ export class CategoryFusionService {
           suggestedCategoryId: null,
           suggestionConfidence: null,
           suggestionProvenance: Prisma.JsonNull,
-          ...(decision.shouldReconcile
+          ...(decision.shouldReconcile && mayClose
             ? {
                 reconciliationStatus: ReconciliationStatus.RECONCILED,
                 reconciliationSource: ReconciliationSource.AUTO,
