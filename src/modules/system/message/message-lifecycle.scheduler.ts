@@ -77,13 +77,28 @@ export class MessageLifecycleScheduler {
         const isFirstPublish = next === 'ACTIVE' && !message.publishedAt;
 
         try {
-          const updated = await this.prisma.message.update({
-            where: { id: message.id },
+          // Transição CONDICIONAL, não `update` direto.
+          //
+          // O `@Cron` é registrado em TODO worker do cluster e a única proteção
+          // que existia aqui era o `isRunning` acima — uma flag DE PROCESSO, que
+          // não enxerga os outros workers. Dois deles liam a mesma mensagem
+          // SCHEDULED, os dois a transicionavam para ACTIVE e os dois emitiam
+          // `message.published`: push duplicado para todo o quadro.
+          //
+          // Com o status anterior no WHERE, só o primeiro update casa; o segundo
+          // devolve count 0 e desiste sem anunciar nada.
+          const claimed = await this.prisma.message.updateMany({
+            where: { id: message.id, status: message.status },
             data: {
               status: next,
               ...(isFirstPublish ? { publishedAt: now } : {}),
             },
           });
+
+          if (claimed.count === 0) {
+            // Outro worker já transicionou esta mensagem neste tick.
+            continue;
+          }
 
           transitioned++;
           this.logger.log(
@@ -91,7 +106,10 @@ export class MessageLifecycleScheduler {
           );
 
           if (isFirstPublish) {
-            await this.announce(updated.id, updated, message.createdById);
+            const updated = await this.prisma.message.findUnique({ where: { id: message.id } });
+            if (updated) {
+              await this.announce(updated.id, updated, message.createdById);
+            }
           }
         } catch (err) {
           this.logger.error(`Falha ao transicionar mensagem ${message.id}: ${err}`);

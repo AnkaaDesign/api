@@ -395,6 +395,18 @@ export class MessageService {
         });
       }
 
+      // Ocorrências de UM agendamento específico.
+      if (filters.scheduleId) {
+        where.scheduleId = filters.scheduleId;
+      }
+
+      // Recorrentes x avulsas. Omitido = TUDO, e é assim de propósito: mudar o
+      // default esconderia linhas da tela administrativa do app sem que uma
+      // linha de Dart tivesse sido tocada.
+      if (typeof filters.onlyRecurring === 'boolean') {
+        where.scheduleId = filters.onlyRecurring ? { not: null } : null;
+      }
+
       // Creation date range filter (gte/lte ISO strings).
       if (filters.createdAt && (filters.createdAt.gte || filters.createdAt.lte)) {
         const createdAt: any = {};
@@ -437,6 +449,10 @@ export class MessageService {
           },
           views: true,
           targets: true,
+          // Null na esmagadora maioria das linhas. Quando presente, é o
+          // agendamento que gerou a ocorrência — a web usa para agrupar; o app,
+          // que lê chaves nominais, simplesmente ignora a chave nova.
+          schedule: { select: { id: true, name: true, frequency: true } },
         },
       });
 

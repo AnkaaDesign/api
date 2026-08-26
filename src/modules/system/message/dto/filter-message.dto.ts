@@ -12,7 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 /**
  * Nested createdAt range filter (gte/lte ISO strings) sent by the web list filter.
@@ -93,6 +93,27 @@ export class FilterMessageDto {
   @IsOptional()
   @IsDateString()
   visibleAt?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filtrar as ocorrências de UM agendamento recorrente',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  scheduleId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'true = só ocorrências de agendamento recorrente; false = só mensagens avulsas. ' +
+      'Omitido, a lista devolve TUDO — o default não mudou de propósito, para que a tela ' +
+      'administrativa do app continue enxergando o mesmo conjunto de sempre.',
+    type: Boolean,
+  })
+  @IsOptional()
+  // A querystring entrega "true"/"false" como string; sem esta conversão o
+  // @IsBoolean rejeitaria o filtro com 400.
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @IsBoolean()
+  onlyRecurring?: boolean;
 
   @ApiPropertyOptional({
     description: 'Page number for pagination',

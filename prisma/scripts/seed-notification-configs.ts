@@ -1788,9 +1788,51 @@ const CONFIGS: ConfigDef[] = [
       },
     },
     metadata: {
-      trigger: "message.service.ts create/update (on publish)",
+      trigger: "message.service.ts create/update (on publish); message-schedule.service.ts materializeOccurrence",
       registry: "seed-notification-configs",
       targeted: true,
+    },
+  },
+  // ─── message_schedule ────────────────────────────────────────────────────────
+  {
+    key: "message_schedule.run.failed",
+    name: "Comunicado Agendado Não Publicado",
+    notificationType: "GENERAL",
+    eventType: "message_schedule.run.failed",
+    description:
+      "Um comunicado recorrente não foi publicado no horário — falha de execução, ou público que resolveu para vazio (nenhum usuário ativo no setor/cargo configurado). Sem este aviso, o agendamento para em silêncio e quem o criou segue achando que o comunicado saiu.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: true,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    // Os mesmos papéis que podem criar e editar comunicados
+    // (ver @Roles em message-schedule.controller.ts).
+    sectors: ["ADMIN", "PRODUCTION_MANAGER", "ACCOUNTING", "HUMAN_RESOURCES"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Comunicado Agendado Não Publicado",
+        body: "O comunicado recorrente \"{{scheduleName}}\" não foi publicado.{{#if errorMessage}} Motivo: {{errorMessage}}.{{/if}} Revise o agendamento.",
+      },
+      push: {
+        title: "Comunicado Agendado Não Publicado",
+        body: "Agendamento \"{{scheduleName}}\" não publicou — revise",
+      },
+      whatsapp: {
+        body: "O comunicado recorrente \"{{scheduleName}}\" não foi publicado.{{#if errorMessage}} Motivo: {{errorMessage}}.{{/if}} Revise o agendamento.",
+      },
+    },
+    metadata: {
+      trigger: "message-schedule.scheduler.ts notifyFailure()",
+      registry: "seed-notification-configs",
+      targeted: false,
     },
   },
   // ─── nfse ────────────────────────────────────────────────────────────────────
