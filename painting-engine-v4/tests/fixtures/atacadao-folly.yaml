@@ -1,0 +1,120 @@
+layout: ATACADAO FOLLY
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "ATACADÃO FOLLY lateral.png"
+    campo:
+      classe: TINTA          # VALIDAÇÃO MANUAL R4: o VERDE (com vinheta, fatiado em
+                             # classes) é o campo real (~55%+); a eleição por AGREGADO
+                             # de rampa corrige a chapa cinza de 40,7% que vencia antes
+      hex_aprox: "#34922B"
+    pintura_geral: true
+    n_tintas_aprox: 4        # verde-claro + verde-medio (degrade do bloco), verde-escuro, preto
+    tintas:
+      - {nome: verde-claro, hex: "#4CB140"}
+      - {nome: verde-medio, hex: "#34922B"}
+      - {nome: verde-escuro, hex: "#006633"}
+      - {nome: preto, hex: "#000000"}
+    elementos:
+      - nome: bloco-verde
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-medio]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "bloco ocupa ~55% esquerdos do painel; termina em recorte angular tipo seta contra o campo; borda RETA/angular, nao e faixa organica (sem fita)"
+      - nome: texto-ceasa-londrina
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: []
+        pousa_sobre: verde-medio
+        toca_tinta: false
+        notas: "'Ceasa - Londrina PR' branco italico dentro do bloco verde = cor da chapa: ilha de mascara, sai de graca"
+      - nome: emblema-f
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [verde-escuro, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "hexagono 'F' verde-escuro + meia-lua/triangulo preto a esquerda; filete do campo separa o preto do verde (nao se tocam)"
+      - nome: texto-atacadao-folly
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'ATACADAO' verde-escuro + 'FOLLY' preto, palavras separadas por vao do campo"
+      - nome: texto-desde-1994
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "letras finas e espacadas — traco fino"
+    de_graca:
+      - "texto-ceasa-londrina (branco = chapa) dentro do bloco verde"
+      - "filetes brancos internos do emblema-f (vaos entre as barras do F)"
+    ciclos_extras: []        # nada de cor aninhado em outra tinta
+    degrades:
+      - {onde: bloco-verde, de: verde-claro (topo), para: verde-medio/escuro (base), tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []          # borda do bloco e reta/angular, corte de maquina
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~10,3 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true            # unica transicao tinta-tinta e a interna do degrade, esfumada (sem corte a mao)
+    riscos_traco_fino:
+      - "'DESDE 1994': hastes finas e espacamento largo"
+      - "filetes do campo dentro do emblema-f (ilhas finas de mascara na depilacao)"
+    defeitos: []
+    perguntas:
+      - "'ATACADAO' sem til nas duas faces (arquivo diz ATACADÃO) — intencional da fonte ou erro de arte?"
+      - "Manter o degrade do bloco verde ou chapar num verde so (decisao comercial do revisor)?"
+      - "Referencia exata dos verdes (degrade da lateral x verde chapado da traseira)?"
+  traseira:
+    arquivo: "ATACADÃO FOLLY traseira.png"
+    campo:
+      classe: TINTA          # verde #43A338, L* 59,6, 88,6% — demao geral
+      hex_aprox: "#43A338"
+    pintura_geral: true
+    n_tintas_aprox: 2        # verde do fundo + branco dos elementos
+    tintas:
+      - {nome: verde, hex: "#43A338"}
+      - {nome: branco, hex: "#FFFFFF"}
+    elementos:
+      - nome: emblema-f
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "versao em negativo: emblema inteiro branco pintado sobre o fundo verde (3 demaos de branco sobre tinta)"
+      - nome: texto-atacadao-folly
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: texto-desde-1994
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "letras finas espacadas"
+    de_graca: []             # branco sobre campo verde e TINTA (regra 2), nao sai de graca
+    ciclos_extras:
+      - "logo e textos brancos sobre o fundo verde: adesivo novo apos secagem do fundo, branco em 3 demaos"
+    degrades: []             # traseira e verde chapado (n98=2), sem degrade
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~10,3 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true            # branco so encosta no campo
+    riscos_traco_fino:
+      - "'DESDE 1994' branco fino"
+      - "filetes verdes internos do emblema-f (ilhas de mascara finas dentro do branco)"
+    defeitos: []
+    perguntas:
+      - "Traseira em verde chapado (#43A338) enquanto a lateral tem degrade — confirmar que a traseira nao leva degrade."
+notas_gerais: "Sem medida declarada (altura padrao 2,45 m; lateral ~9,0 m pela proporcao). Layout barato na lateral (campo chapa, zero fronteira tinta-tinta, texto branco de graca); o custo da traseira e a demao geral verde + branco em 3 demaos."

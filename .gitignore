@@ -97,3 +97,12 @@ __pycache__/
 # Em dev isto costuma ser um symlink para web/public — commitar o link quebraria
 # a árvore de qualquer outra máquina.
 studio-assets/
+
+# Motor de pintura V4 (CV puro, Python). Versionamos código, testes e
+# ferramentas; NÃO o ambiente nem o que ele produz:
+#   .venv/         ~325 MB de OpenCV/numpy — reconstrói-se com requirements.txt
+#   saida/         ~51 MB de quadros, PNG e JSON de cada rodada do acervo
+#   .pytest_cache/ cache local do pytest
+painting-engine-v4/.venv/
+painting-engine-v4/saida/
+painting-engine-v4/.pytest_cache/

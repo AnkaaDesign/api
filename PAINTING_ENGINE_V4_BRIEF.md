@@ -668,6 +668,21 @@ dois casos parecidos, e cada uma vale como asserção de regressão:
 | **o que é cortável à mão?** | espessura **e** retilineidade, e nenhuma decide sozinha: forma reta fina se corta; forma da mesma espessura que muda de direção o tempo todo, não |
 | **duas cores separadas por um filete da cor do campo** | não se tocam: não geram recorte fino nem ciclo. É exatamente onde uma análise desatenta inventa contato |
 | **traseira × lateral** | traseira é **recomposição**, nunca a lateral em escala. Reaproveitar geometria entre faces errou em todos os casos vistos |
+| **branco é tinta ou chapa exposta?** (rodada 4) | **branco em campo pintado É TINTA** — a ficha do A&P conta 3,2 m² INCLUINDO o branco (o passo zero cobre o painel todo; o branco volta por sessão). A tese "branco = chapa via máscara" foi testada e derrubada pelo corpus. Brancos GRANDES (≥1,5 m²) viram **pergunta** (pintar × preservar a chapa com máscara — só se o implemento chega branco e novo); e aninhado da **família do campo** dentro de outra cor nunca é ciclo (é a própria demão — os "21 ciclos" do Aquarela) |
+| **borda aninhada paga faca?** (rodada 4) | depende da **rota**: depilação progressiva SIM (cobrir a tinta fresca ao redor do buraco é papel cortado rente — os 4,0 m do 100F); R2/ciclo NÃO (o adesivo é replotado — máquina); máscara prévia NÃO (o vinil nunca saiu). Só adjacência e depilação pagam hora |
+| **sombra suave × campo de brilho** (rodada 4) | teto de ÁREA (1,0 m²): a maior sombra legítima do acervo tem 0,80 m² (agromina); o "halo" de 2,88 m² do argus era o glow do lockup — aerografia com dia próprio |
+| **aerografia × rampa curva** (rodada 4) | quando o plano não explica (R²<0,35, ≥0,5 m²), tentar a **quadrática** antes: rampa CURVA suave (a estrada do SGT, glow radial do bismark) é degradê de janela; só textura que nem a quadrática explica (polvo, carne, foto) é arte à mão livre |
+| **campo fatiado pela vinheta** (rodada 4) | a eleição de campo é por **agregado de rampa** (classes ligadas por degrau suave ΔE≤20 somam massa): o verde do FOLLY chegava fatiado e a chapa cinza de 40,7% vencia. A vinheta-ZONA colada no campo (DEGRADE, ΔE≤20, contato majoritário com o campo) funde no campo — não vira "degradê na janela" com verniz e dia extra |
+| **verniz sobre aerografia: quando cura?** (rodada 4) | aerografia com dia próprio que vai receber adesivo por cima: o verniz entra **no fim do dia da aero** e cura de noite (a cobertura passa para a manhã seguinte) — não se gasta um dia só de cura. Base em degradê pintado NO dia das sessões continua quebrando o dia (2 amigos) |
+| **"sider" no nome do layout** (rodada 4) | fundo NEUTRO de um layout "sider" é lona de fábrica: campo vira material (sem demão geral) com divergência para o revisor. Campo COM croma (a traseira vermelha do astutilog: portas metálicas) continua tinta |
+| **fita amarela × branca cortada** (rodada 5) | por TRECHO do traçado e por SUBSTRATO: amarela (20 mm) = curva leve horizontal em qualquer chapa, e vertical leve SÓ na lisa; branca (45 mm) cortada = vertical na corrugada (cruzaria os frisos) ou curva apertada. A onda do A&P: lisa ⇒ amarela, corrugada ⇒ branca + corte |
+| **aerografia × arte vetorial de rampas** (rodada 5) | o discriminante é TEXTURA FOTOGRÁFICA no miolo erodido (fração de \|∇L\| > 3): sementes do morango/carne/polvo têm; a fita dourada do 2 amigos e a pincelada rasgada do 3 IRMÃOS (grunge é borda, corte de máquina) não têm — são degradê de janela |
+| **zona com DOIS trabalhos colados** (rodada 5) | bloco de MATIZ distinto e espacialmente coerente (a fita dourada na frente dos morangos), ou parte LISA grande, separa em zona própria — senão o texto sobre o banner perdia o ciclo verniz+dia (2 amigos, dia 4) |
+| **componente dentro de MOSAICO** (rodada 5) | nunca é ciclo/replot — mosaico é depilação progressiva por definição (R2-5) e a borda dele PAGA corte à mão (137: 2 triângulos "ciclo" sumiam da fronteira; ACM traseira idem) |
+| **stencil × conjunto fragmentado** (rodada 5) | stencil exige desenho GRANDE E SIMPLES: ≤20 componentes e ≤8 m de risco por metro (o script do 2 amigos: 3 comp, 5,9 m/m — stencil; o script+cubos do CAVALCANTE: 45 comp, 11,3 m/m — vinil) |
+| **envelopes de adesivo SOBREPOSTOS** (rodada 5) | fundem sempre: dois adesivos um sobre o outro não existem na oficina; se não cabe na bobina, é UM adesivo com EMENDA (o lockup do Agricola saía em 3 folhas sobrepostas) — exceto mosaico, que nunca funde com outro tipo |
+| **vinheta de RENDER sobre campo chapa** (rodada 5) | zona/classe ACROMÁTICA (croma ≤ 8) a ΔE ≤ 20 do campo-CHAPA neutro, com transição suave, LARGA (esp ≥ 60 mm, ≥ 0,3 m²) = sombreado do render — funde no campo (3 IRMÃOS: 5,8 m² de "aerografia" branca; astutilog: sombra da lona). Trava: sombra projetada é FINA e continua SOMBRA_SUAVE; a rampa dourada do BURES tem croma e não funde |
+| **filete que atravessa funde a arte** (rodada 5) | classe FINA (≤ 250 mm), comprida (≥ 60% do painel), lisa (≤ 12 vértices/m) DENTRO de um mega-elemento é depenada como FAIXA própria (o fio de 15 m do BAHIA SUL e o filete do SGT sumiam num elemento de 12 m²) |
 
 ### 8.5 Correção em lote, com regressão — inegociável
 
@@ -722,6 +737,120 @@ implementação tem de honrar:
 - **registro entre elementos vence aproveitamento de filme** quando os dois
   conflitam;
 - **mesma tinta em profundidades de aninhamento diferentes são duas demãos.**
+- **aerografias são o PRIMEIRO trabalho de arte** *(dono, 2026-08-21 — nunca
+  antes documentado)*: terminadas, são **cobertas com fita nas bordas e papel
+  no centro** — fita em toda a parte que será necessário cortar depois, papel
+  no centro porque cobrir só com máscara sairia muito caro. Só então começa o
+  restante da logomarca. Consequência de medição: a fronteira entre uma zona
+  aerografada e uma tinta chapada não é corte à mão de mascaramento — é a
+  **borda da aerografia**, paga em fita na cobertura.
+
+*(dono, 2026-08-21, 2ª rodada — corrigindo a interface em uso):*
+
+- **papel TK por orientação**: peça VERTICAL sai da bobina de **100 cm**;
+  peça HORIZONTAL da de **50 cm** — dois itens de material, desenhados com as
+  larguras reais.
+- **calendário por REGRA, nunca por horas**: a maioria dos trabalhos leva
+  **1 dia** (sem pintura geral) ou **2 dias** (com: dia 1 = lavagem →
+  empapelamento → demão de fundo, cura; dia 2 = a logomarca inteira).
+  **Aerografia tem dia próprio** — não se faz nada junto dela. Casos como o
+  2 amigos: 3+ dias. Estimativa de horas jamais quebra o dia.
+- **mosaico reto = corte fácil**: todas as sessões no mesmo dia — mascara só
+  as partes em contato, cobre e pinta a próxima cor.
+- **ciclo de readesivo: rota padrão SEM verniz (R2)** — pinta → seca →
+  reaplica → pinta, no mesmo dia; verniz + cura (+1 dia) quando a base é
+  degradê/aerografia (texto do 2 amigos sobre o banner envernizado) ou por
+  edição.
+- **folha saliente separa**: adesivo com padrão de altura dominante e UMA
+  parte que sobe/desce muito divide a FOLHA (corpo + saliência) para
+  economizar filme — o elemento continua um só.
+- **gigante e simples sobre pintura geral = STENCIL/espovo**, com o traçado
+  tranquilo em fita amarela e os trechos muito verticais em fita branca
+  cortada (script do 2 amigos). Sobre chapa, gigante segue de vinil
+  (o "100 FRONTEIRAS" é adesivo).
+- **degradê pinta a JANELA inteira do adesivo**: a rampa é passada na janela
+  e o vinil mascara — nunca esfumar componente a componente; o custo de
+  tinta é pela janela (G7).
+- **o quadro é cumulativo**: papel e coberturas ficam visíveis até a
+  remoção; o passo de cobrir mostra a máscara entrando sobre o recém-pintado
+  com o corte destacado.
+- **técnica por elemento e tinta por família são cliques**: adesivo ↔
+  stencil (via corte ou via fita amarela) ↔ fita ↔ aerografia; e a cor do
+  catálogo com seu preço — tudo recalculando na hora.
+
+*(dono, 21/08, rodada 5 — fita por trecho, folha por conteúdo, máscara, janela):*
+
+- **fita por TRECHO e por SUBSTRATO**: a fita AMARELA tem **20 mm** e faz
+  curvas leves e traçados mais horizontais — e também **verticais leves quando
+  a chapa é LISA** (sem frisos); trecho muito vertical em chapa corrugada
+  (a fita cruzaria os frisos), ou curva apertada, vai de fita **BRANCA de
+  45 mm aplicada e CORTADA** no traçado. Caso-régua: a onda do A&P — lisa ⇒
+  amarela; corrugada ⇒ branca + corte ("é muito vertical"). A análise carrega
+  **os dois cenários**; o substrato é premissa/pergunta. Elemento com um tipo
+  dominante (≥75% dos metros) leva TODA a metragem naquele tipo — a equipe
+  não troca de fita por trechos curtos.
+- **máscara em bobina de 60 cm**: ⚠️ SUPERADA na rodada 6 (abaixo) — máscara
+  só quando é preciso CORTAR; cobertura sem corte é papel. O que fica desta
+  regra: a bobina é de 60 cm, e o papel TK segue desenhado com os **veios na
+  direção da bobina** (peça vertical = 100 cm; peça horizontal = 50 cm, com
+  as linhas da madeira na horizontal).
+- **a folha divide por CONTEÚDO (o rabo do "g")**: adesivo cujo conteúdo segue
+  uma banda de altura e tem **partes pequenas** saindo dela divide a folha
+  (corpo + saliência) **apenas quando a economia de filme compensa** — e nunca
+  mais que 2 saliências por lado (mais que isso é conteúdo espalhado, não
+  saliência). O elemento continua um; quem divide é a folha.
+- **degradê em texto é UM degradê na janela** (reafirmação da R2-9 com arte de
+  referência): a rampa é contínua no retângulo do adesivo — nunca letra a
+  letra; cada letra mostra o trecho local da rampa única.
+- **um passo POR adesivo na aplicação** e **limpeza/desengraxe LOCALIZADO**
+  das áreas de trabalho antes da bancada (C12) — o passo a passo de referência
+  aprovado pelo dono mostra cada folha assentando e a área de limpeza.
+
+*(dono, 22/08, rodada 6 — cobertura por PARTE e papel; pintura por COR; o
+passo a passo e o QUADRO na gramática dos artefatos de referência):*
+
+- **o corpo da cobertura é SEMPRE papel — máscara/fita branca entram só como
+  BANDA na fronteira que será cortada** ("não será o item inteiro mascarado,
+  não tem necessidade"). O corte pertence à cobertura da cor que encosta em
+  cor AINDA POR PINTAR: é contra essa aresta cortada rente que a PRÓXIMA
+  tinta entra; fronteira com cor JÁ pintada não corta nada (foi cortada
+  quando a vizinha foi coberta). A banda é decidida POR POLILINHA da
+  fronteira real: traçado quase reto (flecha ≤ ~35 mm — cabe na fita de 45
+  com folga) = **FITA BRANCA aplicada e cortada**; traçado que serpenteia =
+  **MÁSCARA de 60 cm** (passadas múltiplas se a flecha passar de 600 mm).
+  Corpo: PAPEL TK 50 em faixas sobre a caixa de cada parte, preso com fita
+  branca; em contato com forma pendente o papel é RECORTADO rente
+  ("perfeito"); isolado, pode ser quadrado. Caso-régua: o A&P caiu de
+  9,45 m de máscara (item inteiro) para 0,39 m (só a banda da fronteira).
+- **a cobertura cobre a caixa de cada PARTE da cor** (componentes da máscara
+  da família aglutinados a ~150 mm; mínimo 200×200 mm; recortados pelo bbox
+  da família +100 mm) — nunca o bbox da FAMÍLIA (o branco do 137 mascarava a
+  face inteira: 48 m de máscara para 0,3 m² de tinta) nem o envelope de
+  mega-elemento (o verde das folhas da banana ganhava o painel inteiro).
+  Gate de sanidade: Σ caixas > 20× a tinta da família ⇒ recorta para o bbox
+  e a medida sai carimbada **ESTIMADA**, nunca "medido".
+- **pintura é UMA COR por rodada, da menor área para a maior** — FRONTEIRAS
+  e TRANSPORTADORA não entram na mesma rodada mesmo sem se encostar; a
+  depilação libera cada cor na sua vez, **NO LUGAR** (a bancada só PLOTA —
+  não existe "depilação de bancada").
+- **a última cor não é coberta** quando nada vem depois (sem degradê, fita,
+  stencil ou ciclo pendente, e sem corte na fronteira).
+- **empapelamento por TRECHO do lado**: vizinho que encosta só em PARTE do
+  lado cobre só aquele trecho — o resto do lado leva papel (a parte de baixo
+  do "100" do 100FRONTEIRAS ficava pelada).
+- **registro de mesma linha tem TETO de vão (~4× a altura)**: site+instagram
+  do 137, a ~12× a altura, são DOIS adesivos — não se carrega vinil vazio.
+- **fechamento em três tempos**: sai primeiro SÓ o papel das cores (todas as
+  cores reaparecem); o verniz entra com o empapelamento da face AINDA na
+  peça (não se enverniza chapa vazia); o desempapelamento é o último passo
+  antes da inspeção — a arte aparece inteira.
+- **o QUADRO segue a gramática dos artefatos de referência** (BURES v2 e
+  137 v2): um evento visual por passo; a única cor viva é a que entra NESTE
+  passo; o coberto é ocultado fisicamente (kraft/máscara opacos — o novo com
+  textura e fita, o antigo liso e dessaturado); vermelho `#C8102E` é
+  reservado a anotação (caixas, chips, corte) e nunca é material; a bancada
+  é o arquivo de corte (fundo branco, traço preto); as remoções mostram o
+  DEPOIS; a remoção final é a arte nua sobre chapa limpa, igual ao hero.
 
 A lista acima é resumo. **O detalhe, com os números medidos e o raciocínio, está
 nas fichas — e é lá que se resolve qualquer dúvida.**

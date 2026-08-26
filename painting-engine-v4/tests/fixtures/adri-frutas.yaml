@@ -1,0 +1,58 @@
+layout: ADRI FRUTAS
+fonte: assistente   # análise visual minha (21/08) — sentinela, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "ADRI FRUTAS lateral.png"
+    campo: {classe: CHAPA, hex: "#FFFFFF"}
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    n_tintas_aprox: 8   # vermelho, vermelho-claro (brilho do tomate), laranja, verde, preto/grafite, cinza, cinza-escuro, prata do "25"
+    elementos:
+      - nome: swoosh-canto-esquerdo
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [cinza, preto, laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: true   # preto encosta no cinza; conferir laranja×branco(campo)×cinza
+        notas: curvas orgânicas de ~7 m; banda branca entre cinza e laranja é CAMPO (não se tocam ali)
+      - nome: tagline-dedicacao
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: cinza   # SE confirmado sobre o cinza ⇒ ciclo extra
+        toca_tinta: true
+      - nome: logo-adri-legumes
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho, vermelho-claro, verde, laranja, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: true   # verde×vermelho (folhas no tomate), laranja×preto (cenoura na barra), vermelho×preto (A na elipse)
+        notas: lock-up inteiro = UM elemento/adesivo; altura ~2 m ⇒ emenda na bobina 120
+      - nome: selo-25-anos
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho, prata]
+        pousa_sobre: CAMPO
+        toca_tinta: true   # numeral prata sobre a fita vermelha ⇒ ciclo
+    de_graca:
+      - texto LEGUMES branco dentro da barra preta (não depilar)
+      - brilhos brancos dentro da cenoura
+    ciclos_extras:
+      - selo-25: numeral sobre fita vermelha
+      - tagline se estiver sobre o cinza
+    degrades: []
+    aerografias: []
+    faixas_fita:
+      - swoosh do canto esquerdo (bordas em fita se chapa lisa)
+    pares_tt_minimos: [[verde, vermelho], [laranja, preto], [preto, cinza]]
+    zero_tt: false
+    riscos_traco_fino:
+      - linha de contato (email/Ceasa) pequena
+      - pontas das folhas verdes
+    perguntas: [substrato, cor de chegada]
+  traseira:
+    arquivo: "ADRI FRUTAS traseira.png"
+    campo: {classe: CHAPA, hex: "#FFFFFF"}
+    pintura_geral: false
+    moldura: vermelha (~15 px) — remover antes de medir
+    notas: recomposição — só o logo, sem swoosh, sem selo, sem tagline

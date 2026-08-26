@@ -1,0 +1,102 @@
+layout: CASA DO PAO DE QUEIJO
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CASA DO PÃO DE QUEIJO.png"
+    campo:
+      classe: TINTA      # vermelho L* 36,5 dominando 34% + painel amarelo-ouro à direita
+      hex_aprox: "#AB151D"
+    pintura_geral: true  # demão de fundo vermelha no painel inteiro, primeiro
+    n_tintas_aprox: 5    # vermelho, amarelo-ouro, amarelo-claro, vermelho-claro, branco (fora as aerografias)
+    tintas:
+      - {nome: vermelho, hex: "#AB151D"}
+      - {nome: amarelo-ouro, hex: "#FFC200"}
+      - {nome: amarelo-claro, hex: "#FFF215"}
+      - {nome: vermelho-claro, hex: "#ED3949"}
+      - {nome: branco, hex: "#FFFFFF"}
+    elementos:
+      - nome: painel-amarelo-direita
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [amarelo-ouro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Bloco de fundo amarelo-ouro ocupando o terço direito; a borda esquerda encosta direto no vermelho — fronteira longa e quase vertical."
+      - nome: deliciosos-e
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Script manuscrito branco sobre o vermelho. Branco != campo => é TINTA (3 demãos), não sai de graça."
+      - nome: originais
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [amarelo-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Bold amarelo-claro #FFF215 — amarelo DIFERENTE do painel #FFC200. Parece haver sombra/contorno escuro fino nas letras (o #373535 do censo?) — não confirmado."
+      - nome: raios-sparks
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [amarelo-claro, vermelho-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Raios/tracinhos acima de 'Deliciosos' — traços curtos e finos."
+      - nome: circulo-pontilhado
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Círculo de traços brancos à esquerda — dezenas de ilhas pequenas de depilação."
+      - nome: faixa-url
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-claro, branco]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Fita/ribbon vermelho-claro com 'casadopaodequeijoecia.com.br' em branco DENTRO — branco aninhado em tinta = ciclo."
+      - nome: selo-logo
+        tipo: LOGOMARCA
+        tecnica: AEROGRAFIA
+        cores: [vermelho, branco]
+        pousa_sobre: amarelo-ouro
+        toca_tinta: true
+        notas: "Selo circular 'Casa do Pão de Queijo & Cia': aro metálico dourado/prata em degradê (aerografia), anel vermelho com texto branco, miolo com FOTO de pão de queijo em cozinha. Pousa sobre o painel amarelo e as coxinhas encostam nele."
+      - nome: fotos-produtos
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: []
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa de fotos realistas no rodapé (esfihas, pães de queijo, assados em pratos) cruzando o vermelho e o amarelo, + coxinhas grandes sobre o painel amarelo. Adesivo só de contorno externo. Pela regra de 21/08: aerografias PRIMEIRO, depois cobertas com fita+papel."
+    de_graca: []         # nada com a cor do campo vermelho
+    ciclos_extras:
+      - "texto branco da URL dentro da fita vermelho-claro"
+      - "selo-logo: texto branco sobre anel vermelho sobre aro metálico (empilhamento de pelo menos 2 ciclos)"
+    degrades:
+      - {onde: "aro metálico do selo-logo", de: "dourado claro", para: "dourado escuro/prata", tons_sugeridos: 2}
+    aerografias:
+      - {onde: "fotos de produtos no rodapé (3 grupos) + coxinhas à direita", notas: "tom contínuo fotográfico; n98 do censo = 621 mil cores confirma"}
+      - {onde: "miolo do selo-logo (foto de pão de queijo)", notas: "fotográfico"}
+    faixas_fita: []      # a borda do painel amarelo é quase reta/vertical; não parece caso de fita
+    pares_tt_minimos: []
+    # R5: sentinela CORRIGIDA pela doutrina — a divisa vermelho×amarelo é
+    # fronteira CONTRA O CAMPO (a demão geral vermelha cura no dia 1; o
+    # amarelo entra por adesivo e a aresta é corte de PLOTTER, G3); a URL
+    # branca dentro da fita é ANINHADA (rota R2, replot de máquina). Corte à
+    # mão real ≈ 0 nesta face.
+    zero_tt: true
+    riscos_traco_fino:
+      - "Hastes do script 'Deliciosos e' (hairlines)"
+      - "Círculo pontilhado (traços curtos)"
+      - "Raios acima do título"
+      - "Textos pequenos do selo ('& Cia', contorno do anel)"
+    defeitos: []         # face única; nada truncado ou espelhado visível; sem marca d'água aparente
+    perguntas:
+      - "Os DOIS amarelos (#FFC200 painel × #FFF215 ORIGINAIS) são intencionais ou deveriam ser um só?"
+      - "Fotos dos produtos: são mesmo para aerografia completa (custo alto) ou o cliente aceita simplificação? Reportado como aerografia conforme doutrina."
+      - "Existe traseira deste layout? Só recebi uma face."
+      - "As fotos são de banco de imagem? Verificar licença/marca d'água no arquivo original em alta."
+notas_gerais: "Layout pesado: campo em tinta (fundo vermelho geral), segundo fundo amarelo com fronteira longa, e MUITA aerografia fotográfica (rodapé inteiro + coxinhas + miolo do selo). O driver de custo é a aerografia, que pela regra do dono vem primeiro e depois é coberta para o restante da logomarca."

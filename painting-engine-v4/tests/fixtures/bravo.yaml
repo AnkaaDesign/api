@@ -1,0 +1,185 @@
+layout: BRAVO
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BRAVO.png"
+    campo:
+      classe: CHAPA      # #EEEFEE, L* 94,3 — neutro dentro da faixa 91–100
+      hex_aprox: "#EEEFEE"
+    pintura_geral: false
+    n_tintas_aprox: 7    # n98=303: degradês reais no chevron e na marca
+    tintas:
+      - {nome: cinza-logotipo, hex: "#5B5B5B"}
+      - {nome: cinza-escuro, hex: "#3E3D3C"}
+      - {nome: cinza-medio, hex: "#808080"}
+      - {nome: verde-claro, hex: "#8CC63E"}   # aproximado (degradê)
+      - {nome: verde-escuro, hex: "#1F7A33"}  # aproximado (degradê)
+      - {nome: vermelho-selo, hex: "#FF0000"}
+      - {nome: branco-selo, hex: "#FFFFFF"}   # só vira tinta onde o selo pousa sobre cinza
+    elementos:
+      - nome: chevron-3d-esquerdo
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [cinza-escuro, cinza-medio, verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Dois chevrons 3D empilhados sangrando na borda esquerda: faces
+          cinza em degradê + banda verde em degradê atravessando. Verde
+          encosta no cinza em toda a extensão. Arestas RETAS longas —
+          marcação com fita é opção de oficina (não é onda orgânica).
+      - nome: selo-rastreado-esquerdo
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo, branco-selo]
+        pousa_sobre: cinza-escuro
+        toca_tinta: true
+        notas: >
+          Octógono vermelho com borda e textos brancos POUSA SOBRE a face
+          cinza do chevron — aqui o branco NÃO sai de graça: vira tinta,
+          e o selo inteiro pede ciclo novo sobre o degradê pronto.
+      - nome: selo-rastreado-direito
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo, branco-selo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesmo selo, canto superior direito, sobre campo."
+      - nome: marca-bravo
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-escuro, cinza-escuro, cinza-logotipo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Símbolo de setas/chevrons verdes (degradê) intercaladas com peças
+          cinza (degradê), filetes claros do campo separando parte das
+          peças; "BRAVO" em cinza chapado #5B5B5B e "l o g í s t i c a"
+          espacejado. A peça verde parece ENCOSTAR no B — conferir no
+          original.
+      - nome: logo-kovell
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "K com degradê verde/teal + 'grupo kovell'; pequeno, canto inferior direito. Marca de terceiro (grupo)."
+    de_graca:
+      - "filetes claros entre as peças da marca e entre os chevrons (se confirmada a cor do campo)"
+    ciclos_extras:
+      - "selo esquerdo (vermelho + branco) pintado por cima do degradê cinza do chevron"
+    degrades:
+      - {onde: faces cinza do chevron esquerdo, de: "#3E3D3C", para: "#808080", tons_sugeridos: 2}
+      - {onde: banda verde do chevron esquerdo, de: "#8CC63E", para: "#1F7A33", tons_sugeridos: 3}
+      - {onde: peças da marca-bravo (verdes e cinzas), de: claro, para: escuro, tons_sugeridos: 2}
+    aerografias: []      # degradês esfumados, sem tom fotográfico
+    faixas_fita: []
+    pares_tt_minimos:
+      - [verde-claro, cinza-escuro]      # banda verde × faces do chevron
+      - [vermelho-selo, cinza-escuro]    # selo esquerdo sobre o chevron
+    zero_tt: false
+    riscos_traco_fino:
+      - "sub-texto do selo ('A ABERTURA DA PORTA...') ~6 mm na lateral — ilegível/inviável a pistola nesse tamanho"
+      - "'grupo' do logo kovell minúsculo"
+      - "'l o g í s t i c a' em peso fino espacejado"
+    defeitos:
+      - "grafia do selo: 'VÍA SATELITE' — 'VÍA' com acento indevido e 'SATELITE' sem acento (igual nas duas faces; arte de selo padrão/terceiro)"
+    perguntas:
+      - "Campo #EEEFEE (L* 94) tratado como CHAPA pela regra 91–100, mas os brancos puros dos selos divergem do campo: o fundo cinza-claríssimo é intencional (pintura geral) ou é só o fundo da arte? Decide se os brancos saem de graça."
+      - "Sem medida no arquivo: assumi 2,45 m de altura → lateral ~7,98 m. Confirmar."
+      - "Os degradês ficam (aerografia de esfumado) ou achatam em tons chapados? Reportado como degradê conforme doutrina."
+      - "Censo acusa #373535 além dos selos; pela área bate com borda/keyline fina no perímetro (visível no preview) — confirmar que não se pinta."
+  traseira:
+    arquivo: "BRAVO traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#EEEFEE"
+    pintura_geral: false
+    n_tintas_aprox: 7
+    tintas:
+      - {nome: cinza-logotipo, hex: "#5B5B5B"}
+      - {nome: cinza-escuro, hex: "#3E3D3C"}
+      - {nome: cinza-medio, hex: "#808080"}
+      - {nome: verde-claro, hex: "#8CC63E"}
+      - {nome: verde-escuro, hex: "#1F7A33"}
+      - {nome: vermelho-selo, hex: "#FF0000"}
+      - {nome: branco-selo, hex: "#FFFFFF"}
+    elementos:
+      - nome: chevron-3d-topo
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [cinza-escuro, cinza-medio, verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Recomposição: o chevron desce do topo em V com duas faces cinza em
+          degradê que se ENCONTRAM no vinco central (cinza×cinza) e banda
+          verde em degradê cruzando as duas faces.
+      - nome: selos-rastreado
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo, branco-selo]
+        pousa_sobre: cinza-escuro
+        toca_tinta: true
+        notas: "OS DOIS selos pousam sobre as faces cinza do chevron — branco vira tinta e cada selo pede ciclo sobre o degradê pronto. Texto idêntico ao da lateral."
+      - nome: velocidade-80
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [cinza-escuro, vermelho-selo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'VELOCIDADE MÁXIMA CONTROLADA' + roda '80 km/h' com anel vermelho; miolo branco/claro = campo."
+      - nome: como-estou-dirigindo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'COMO ESTOU DIRIGINDO? 67 3045-2767' — só existe na traseira (recomposição, não defeito)."
+      - nome: marca-bravo
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-escuro, cinza-escuro, cinza-logotipo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Mesmo lock-up da lateral, conteúdo idêntico ('BRAVO logística')."
+      - nome: logo-kovell
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Idêntico ao da lateral."
+    de_graca:
+      - "miolo claro do disco '80 km/h' e faixas claras entre os elementos (se cor do campo)"
+    ciclos_extras:
+      - "selo esquerdo sobre a face cinza-escura do chevron"
+      - "selo direito sobre a face cinza do chevron"
+    degrades:
+      - {onde: faces cinza do chevron do topo, de: "#3E3D3C", para: "#808080", tons_sugeridos: 2}
+      - {onde: banda verde do chevron do topo, de: "#8CC63E", para: "#1F7A33", tons_sugeridos: 3}
+      - {onde: peças da marca-bravo, de: claro, para: escuro, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [verde-claro, cinza-escuro]     # banda × faces
+      - [cinza-escuro, cinza-medio]     # vinco central entre as duas faces
+      - [vermelho-selo, cinza-escuro]   # selos sobre o chevron
+    zero_tt: false
+    riscos_traco_fino:
+      - "sub-texto dos selos pequeno (melhor que na lateral, ainda fino)"
+      - "'km/h' pequeno dentro do disco 80"
+      - "'grupo' do kovell minúsculo"
+    defeitos:
+      - "mesma grafia 'VÍA SATELITE' da lateral"
+    perguntas:
+      - "Traseira implícita ~2,59 m × 2,45 m — confirmar."
+notas_gerais: >
+  Traseira é recomposição legítima da lateral: mesmo chevron 3D, mesmos
+  selos, mesmo lock-up; acrescenta velocidade 80 e telefone — sem
+  truncamento, sem espelhamento, sem divergência de texto entre faces
+  (comparado visualmente). O driver de custo é o conjunto degradê:
+  pela regra de 21/08 os esfumados são o PRIMEIRO trabalho, depois
+  cobertos com fita nas bordas + papel, e só então entram selos (ciclo
+  sobre o cinza) e logotipos. Campo cinza-claríssimo #EEEFEE é a decisão
+  mais sensível do layout (chapa × pintura geral) — pergunta ao dono.

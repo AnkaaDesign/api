@@ -1,0 +1,62 @@
+layout: 2 AMIGOS
+fonte: doutrina   # caso extremo de referência, resolvido pelo dono (correção 2.6 + §10 do CONHECIMENTO)
+faces:
+  lateral:
+    arquivo: "2 amigos 15.png"
+    escala_mm_px: {valor: 0.8715, tol_pct: 3}   # 15,00 m declarados / 17212 px
+    campo: {classe: TINTA, hex: "#373535"}      # grafite escuro — demão de fundo no painel inteiro
+    pintura_geral: true
+    n_dias: {valor: 4, tol: 0}   # R2-4 + R5: 4 dias FIRMES — geral | aerografia |
+    # logomarca (banner degradê + verniz no fim) | texto sobre o banner
+    # envernizado. A fita dourada separa dos morangos (split por matiz) e o
+    # veto de textura a devolve para DEGRADÊ — sem isso o texto perdia o
+    # ciclo do dia 4 (dono, doutrina 2.6).
+    render: CONTINUO   # n98 = 424 mil — morangos fotográficos
+    elementos:
+      - nome: morangos
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        pousa_sobre: CAMPO
+        notas: >
+          fotográfico ⇒ aerografia (dono). REGRA NOVA 21/08: feita PRIMEIRO;
+          depois coberta com fita nas bordas + papel no centro (fita onde haverá
+          corte). Adesivo só do contorno externo.
+      - nome: banner-dourado
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        notas: pintura com degradê, cor sobre cor (dono)
+      - nome: texto-2-amigos-no-banner
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho, branco]
+        pousa_sobre: banner-dourado
+        notas: adesivo SOBRE o banner já pintado e ENVERNIZADO (ciclo) — dono
+      - nome: script-fruticula-2-amigos
+        tipo: TEXTO
+        tecnica: DEGRADE
+        cores: [prata/cinza]
+        pousa_sobre: CAMPO
+        notas: >
+          degradê PARCIAL com marcação: pinta o cinza base → fita+papel cobrindo
+          o topo → degradê só embaixo = máscara dentro da máscara (D3). Letra ~1 m:
+          tamanho nunca foi problema.
+      - nome: filetes-prata
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        notas: 3 filetes horizontais finos com curva no canto esquerdo
+      - nome: site-telefones
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO   # branco aqui É tinta (campo escuro)
+    ciclos_extras:
+      - texto sobre banner envernizado
+    degrades:
+      - {onde: banner dourado, tons_sugeridos: 2}
+      - {onde: script cinza, tons_sugeridos: 2, notas: parcial com split}
+    aerografias:
+      - {onde: morangos + folhas}
+    defeitos:
+      - rodapé com espelhamento SELETIVO por erro (registro do acervo) — conferir
+    perguntas: [substrato, cor de chegada]
+    notas: cronograma real ~8 dias (contra 4-5 da análise antiga errada)

@@ -1,0 +1,43 @@
+# fonte "ficha": números verificados com o dono (13/08/2026). São asserções duras.
+layout: 100 FRONTEIRAS
+fonte: ficha
+faces:
+  lateral:
+    arquivo: "100FRONTEIRAS 15,00 lateral.png"
+    escala_mm_px: {valor: 0.8708, tol_pct: 2}
+    painel_mm: {w: 15000, h: 2484, tol_pct: 2}
+    campo: {classe: CHAPA, hex: "#FFFFFF"}
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    n_tintas: {valor: 5, tol: 0}
+    tintas:
+      - {nome: laranja, hex: "#F39139", m2: 2.635}
+      - {nome: verde, hex: "#176D4A", m2: 0.966}
+      - {nome: grafite, hex: "#343434", m2: 0.557}
+      - {nome: amarelo, hex: "#EACF0A", m2: 0.188}
+      - {nome: azul, hex: "#033569", m2: 0.137}
+    tinta_m2_total: {valor: 4.48, tol_pct: 12}
+    fronteira_tt_m: {valor: 4.0, tol_pct: 15}
+    fronteira_pares:
+      - {par: [verde, amarelo], m: 2.70}
+      - {par: [amarelo, azul], m: 1.33}
+    ilhas_de_graca_n: {min: 37, max: 70}   # a ficha contou 37 SÓ NO DISCO; a face inteira tem também as contraformas das letras
+    aninhamento_max: 4    # verde ⊃ losango amarelo ⊃ disco azul ⊃ faixa campo ⊃ letras verdes
+    mesma_tinta_profundidades: [[verde-100, verde-ordem-progresso]]  # 2 demãos separadas
+    degrades_n: 0
+    aerografias_n: 0
+    adesivos_n: {valor: 2, tol: 0}   # "100 FRONTEIRAS" (bobina 120) + "TRANSPORTADORA" (bobina 50)
+    zero_tt: false
+    notas: >
+      Laranja, grafite e o verde do "100" não encostam em tinta nenhuma.
+      Menor ilha 5,2×6,1 mm. 51% das letras de ORDEM E PROGRESSO abaixo de 6 mm
+      (risco de depilação, não de corte).
+  traseira:
+    arquivo: "100FRONTEIRAS traseira.png"
+    campo: {classe: CHAPA, hex: "#E6E6E6"}
+    pintura_geral: false
+    painel_mm: {w: 2416, h: 2450, tol_pct: 4}
+    n_tintas: {valor: 5, tol: 0}
+    tinta_m2_total: {valor: 0.42, tol_pct: 20}
+    defeitos:
+      - dois terços do painel vazios — intencional ou arte incompleta? (pergunta)

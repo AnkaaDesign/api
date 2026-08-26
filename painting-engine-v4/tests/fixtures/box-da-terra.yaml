@@ -1,0 +1,94 @@
+layout: BOX DA TERRA
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BOX DA TERRA-final.png"
+    campo:
+      classe: CHAPA      # #FFFFFF, L* 100, 43,8% do painel
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 8    # render chapado (n98=8); 4 famílias em 2 tons cada
+    tintas:
+      - {nome: verde-claro, hex: "#A9C940"}
+      - {nome: verde-oliva, hex: "#697526"}
+      - {nome: roxo, hex: "#AB377F"}
+      - {nome: roxo-escuro, hex: "#8E2A63"}
+      - {nome: vermelho, hex: "#E5153E"}
+      - {nome: vermelho-escuro, hex: "#B81720"}
+      - {nome: laranja, hex: "#F19122"}
+      - {nome: laranja-escuro, hex: "#EDA31D"}
+    elementos:
+      - nome: logo-lockup
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [laranja, laranja-escuro, verde-claro, verde-oliva]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Cenoura pequena com 2 tons de laranja + CONTORNO e traços internos
+          em oliva; galhos horizontais finíssimos em oliva com folhas verdes
+          contornadas; texto "BOX DA TERRA" e "· HORTIFRUTI ·" em oliva sobre
+          campo. Os traços oliva pousam SOBRE o laranja da cenoura.
+      - nome: mural-folhas
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [verde-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Folhas gigantes no topo; veios/nervuras são filetes brancos (campo). Separadas dos vizinhos por filete branco."
+      - nome: mural-cenoura
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [laranja, laranja-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Cenoura gigante central em 2 tons de laranja CHAPADOS lado a lado
+          com fronteira dura ondulada (não é degradê); riscos de brilho são
+          filetes brancos (campo).
+      - nome: mural-fruta-vermelha
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [vermelho, vermelho-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Fruta redonda à esquerda-baixo do mural; cunha vermelho-escura encostada no vermelho vivo (sombra da cenoura). Filete branco a separa da cenoura."
+      - nome: mural-roxo
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [roxo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Beterraba/figo roxo à direita; risco de brilho branco (campo). Filete branco a separa da folha verde. Censo tem roxo-escuro #8E2A63 (0,4%) — sombra provável, não confirmada no preview."
+    de_graca:
+      - "veios/nervuras brancos das folhas grandes"
+      - "riscos de brilho brancos dentro da cenoura, da fruta vermelha e do roxo"
+      - "filetes brancos que separam os elementos do mural entre si"
+    ciclos_extras:
+      - "contorno + traços oliva sobre o laranja da cenoura do logo (pinta laranja → seca/verniz → adesivo novo → oliva)"
+    degrades: []         # os 2 tons são chapados com fronteira dura, sem esfumado
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [laranja, laranja-escuro]     # cenoura grande, fronteira ondulada longa
+      - [vermelho, vermelho-escuro]   # cunha de sombra na fruta
+      - [laranja, verde-oliva]        # contorno/traços do logo sobre a cenoura
+    zero_tt: false
+    riscos_traco_fino:
+      - "galhos do logo: traços oliva de ~10 mm ou menos, com folhinhas — depilação delicada"
+      - "contorno oliva da cenoura e das folhas do logo (traço fino contínuo)"
+      - "texto '· HORTIFRUTI ·' pequeno e espacejado, com pontos"
+    defeitos: []
+    perguntas:
+      - "Sem medida no nome do arquivo: assumi altura 2,45 m → largura implícita ~7,83 m. Confirmar a medida real."
+      - "Censo acusa preto #000000 em 0,13% (~39 mil px) que não aparece na leitura visual; pela área bate com borda/keyline fina no perímetro — confirmar que não é elemento a pintar."
+      - "Os pares claro/escuro (laranja, vermelho e roxo) ficam chapados mesmo, ou o cliente espera esfumado? Na arte a fronteira é dura."
+      - "Roxo-escuro #8E2A63: onde exatamente pousa a sombra do roxo (não confirmei no preview)?"
+notas_gerais: >
+  Campo chapa com mural de frutas em cores vivas: quase todo par de cores
+  vizinho é separado por FILETE BRANCO do campo — o que reduz muito o corte
+  à mão entre elementos. As fronteiras reais são internas aos elementos
+  (2 tons da mesma família + contorno oliva do logo). Um ciclo extra certo
+  (traços do logo). Elementos do mural sangram nas bordas do painel.
+  Adesivos: mural pede folhas grandes emendadas (envelopes > 116 cm);
+  logo-lockup é UM adesivo.

@@ -1,0 +1,66 @@
+layout: AVGLOG
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "AVGLOG lateral.png"
+    campo:
+      classe: CHAPA      # branco 83%
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4    # preto, vermelho, cinza, cinza-escuro (ver pergunta sobre unificar os escuros)
+    tintas:
+      - {nome: preto, hex: "#1A1A1A"}
+      - {nome: vermelho, hex: "#EA0000"}
+      - {nome: cinza, hex: "#666666"}
+      - {nome: cinza-escuro, hex: "#373535"}
+    elementos:
+      - nome: monograma-avg
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Triângulo 'A' vermelho + barras pretas anguladas + triângulo invertido do 'G'. Nas junções aparenta haver FILETES BRANCOS separando preto e vermelho (padrão do estilo); conferir no original — se encostarem, vira o único par tinta-tinta do layout."
+      - nome: texto-avg-log
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'AVG LOG' em caixa alta, corte estilo stencil (fendas brancas atravessando as letras)."
+      - nome: texto-transportes
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'TRANSPORTES' itálico cinza com fendas stencil."
+      - nome: linha-contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'WWW.AVGLOG.COM.BR', 'contato@avglog.com.br', '(31) 3532-7630' na base — três blocos alinhados, candidatos a UM adesivo por comprimento parecido (avaliar vão)."
+    de_graca:
+      - "fendas stencil e miolos brancos das letras/monograma (ilhas de vinil que ficam e saem no fim)"
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~5,4 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true        # nenhuma tinta encosta em outra (condicionado aos filetes do monograma — ver pergunta)
+    riscos_traco_fino:
+      - "fendas stencil de 'AVG LOG' e 'TRANSPORTES' — filetes brancos finos de vinil que precisam ficar no lugar durante a pintura"
+      - "'@' e pontuação do e-mail na linha de contatos (miolos pequenos)"
+    defeitos: []
+    perguntas:
+      - "Medida real da lateral? O nome do arquivo não declara; na altura padrão 2,45 m a largura implicada é ~8,5 m."
+      - "Os textos de contato (#373535) devem ser a MESMA tinta do preto (#1A1A1A) ou são dois escuros de propósito?"
+      - "No monograma, preto e vermelho encostam ou há filete branco nas junções? (decide se há corte à mão)"
+notas_gerais: >-
+  Render vetorial 100% chapado (n98=5). Layout simples de uma face só:
+  sem degradê, sem aerografia, sem faixa orgânica, sem aninhamento —
+  todas as cores pousam direto no campo branco; provável zero fronteira
+  tinta-tinta, então cada cor pinta em rodada livre (menor área primeiro).

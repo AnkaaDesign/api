@@ -1,0 +1,69 @@
+layout: CARLOTTI
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CARLOTTI carreta.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100, 87% do painel
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4    # azul, cinza; os escuros do emblema/contatos podem colapsar em 1
+    tintas:
+      - {nome: azul, hex: "#3F4096"}
+      - {nome: cinza, hex: "#737476"}
+      - {nome: cinza-escuro, hex: "#4C4B4D"}
+      - {nome: azul-escuro, hex: "#374795"}
+    elementos:
+      - nome: carlotti-principal
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul, cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Serifado gigante; o R é espelhado (Я) e CINZA de propósito — marca do logo, não defeito. Letras espaçadas, azul e cinza não se encostam."
+      - nome: trans-com-filetes
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "TRANS entre dois filetes horizontais cinza."
+      - nome: transportes-e-logistica
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: emblema-20-anos
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Lock-up '20' + script 'Anos' + 'desde - 2001'. O script parece cruzar o numeral; se forem duas tintas diferentes vira fronteira — parecem a MESMA cor escura."
+      - nome: bloco-contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Tupã-SP / (14) 3491-3900 / www.carlotti.com.br no canto inferior esquerdo — ESPELHADO (ver defeitos)."
+    de_graca: []
+    ciclos_extras: []
+    degrades: []
+    aerografias: []      # n98 = 3 cores: render vetorial chapado, nada de tom contínuo
+    faixas_fita: []
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~1,2 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true        # tudo pousa em campo branco; nenhuma tinta encosta em outra
+    riscos_traco_fino:
+      - "Filetes horizontais ao lado de TRANS (~7-8 mm na escala estimada)"
+      - "Script 'Anos' e texto 'desde - 2001' do emblema — hastes finas"
+    defeitos:
+      - "Bloco de contatos do canto inferior esquerdo está ESPELHADO (lê-se ao contrário: 'rb.moc.ittolrac.www'…). Todo o resto da arte lê correto — padrão do caso 'espelhado' já visto; provável sobra da arte do outro lado da carreta."
+    perguntas:
+      - "O bloco de contatos espelhado é defeito ou a arte é do lado do motorista com o bloco esquecido sem des-espelhar? Corrigir antes de cortar."
+      - "O emblema 20 Anos é uma cor escura só (azul-marinho) ou duas (azul + grafite)?"
+      - "Sem medida no nome do arquivo; pela proporção (~13,9 m com altura 2,45 m) é carreta de 14 m — confirmar."
+notas_gerais: "Layout limpo de 2 cores dominantes sobre chapa branca — sem ciclo, sem degradê, sem fronteira tinta-tinta. O único ponto sério é o bloco de contatos espelhado."

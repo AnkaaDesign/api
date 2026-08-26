@@ -1,0 +1,68 @@
+layout: Azzioly
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "Azzioly lateral.png"
+    campo:
+      classe: CHAPA      # branco 77,6%
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4    # azul-marinho, cinza, verde-agua, preto
+    tintas:
+      - {nome: azul-marinho, hex: "#002561"}
+      - {nome: cinza, hex: "#6C6E70"}
+      - {nome: verde-agua, hex: "#08A79D"}
+      - {nome: preto, hex: "#231F20"}
+    elementos:
+      - nome: bloco-canto-esquerdo
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Bloco azul-marinho maciço no canto esquerdo com grande curva côncava de concordância contra o branco — curva marcada com fita; substrato decide fita amarela vs branca cortada."
+      - nome: lockup-azzioly
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul-marinho, verde-agua, cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Monograma circular (arco azul-marinho + arco verde-água + 'Z's entrelaçados, aparente fragmento cinza no miolo) ao lado de 'AZZIOLY' cinza e 'TRANSPORTES' cinza espaçado. Entrelaces aparentam ter filetes/vãos BRANCOS separando as cores — conferir no original. Lock-up inteiro = um adesivo."
+      - nome: tagline-script
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Cursiva fina: '\"O segredo é ter Fé em Deus\"' — texto completo, com aspas; sem truncamento (diferente dos casos anteriores de frase religiosa cortada)."
+      - nome: site
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'AZZIOLY.COM.BR' em azul-marinho bold, à direita, abaixo do lock-up."
+    de_graca: []
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita:
+      - "curva de concordância do bloco azul-marinho do canto esquerdo"
+    pares_tt_minimos: []
+    zero_tt: true        # nenhuma fronteira tinta-tinta com confiança visual (condicionado aos entrelaces do monograma — ver pergunta)
+    riscos_traco_fino:
+      - "tagline cursiva preta — hastes e ligaduras finas (< ~10 mm em escala real), risco alto de depilação"
+      - "letras espaçadas de 'TRANSPORTES' (traço médio-fino, muitas peças pequenas soltas)"
+    defeitos:
+      - "Marcador '17' num círculo no canto superior esquerdo — anotação de prancheta/numeração de arte, não é para pintar."
+      - "Traço fino azul contornando o topo do painel (aparente MOLDURA da prancheta, não elemento) — confirmar antes de reportar como faixa."
+    perguntas:
+      - "Medida real da lateral? Sem declaração no nome; na altura padrão 2,45 m a largura implicada é ~14,6 m (sider?)."
+      - "Substrato (lona/corrugado/chapa lisa)? Decide a fita da curva do bloco azul e a viabilidade da cursiva fina."
+      - "No monograma, os arcos/'Z's azul-marinho e verde-água encostam ou há filete branco? (decide corte à mão e zero_tt)"
+      - "A linha azul no topo é moldura do arquivo ou faixa a pintar?"
+notas_gerais: >-
+  Render vetorial 100% chapado (n98=4). Uma face só. Tudo pousa no campo
+  branco; sem aninhamento, sem degradê, sem aerografia. Painel muito comprido
+  (18168 px): o lock-up central e o bloco do canto pedem emenda de bobina,
+  o que não é problema.

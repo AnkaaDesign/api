@@ -1,0 +1,53 @@
+layout: BIAVA
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "BIAVA.png"
+    campo:
+      classe: TINTA          # preto #000000, L* 0 — campo não neutro
+      hex_aprox: "#000000"
+    pintura_geral: true      # demão de fundo preta no painel INTEIRO, passo zero
+    n_tintas_aprox: 3        # preto (fundo) + cinza + vermelho
+    tintas:
+      - {nome: preto, hex: "#000000"}
+      - {nome: cinza-claro, hex: "#B3B3B3"}
+      - {nome: vermelho, hex: "#EF4A42"}
+    elementos:
+      - nome: monograma-b
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [cinza-claro, vermelho]
+        pousa_sobre: preto
+        toca_tinta: false
+        notas: "Monograma 'B' cinza com swoosh no topo + traços vermelhos em paralelogramo (2 a 3 traços) no flanco esquerdo/inferior. Vermelho e cinza NUNCA se encostam: filetes pretos do fundo (~40 mm) separam tudo — verificado em recorte ampliado."
+      - nome: texto-biava
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-claro]
+        pousa_sobre: preto
+        toca_tinta: false
+        notas: "BIAVA em itálico bold, cinza."
+      - nome: texto-transportes
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-claro]
+        pousa_sobre: preto
+        toca_tinta: false
+        notas: "TRANSPORTES em peso mais fino e espaçado; censo indica UM só cinza (#B3B3B3) para tudo — sem segundo tom."
+    de_graca:
+      - "Vãos pretos internos do monograma (filetes entre traços vermelhos e corpo cinza, miolo do B): cor do campo/fundo — ilhas de vinil que ficam, nada a pintar nem depilar."
+    ciclos_extras:
+      - "Fundo preto no painel inteiro → seca → adesivo aplicado por cima → cinza + vermelho: 1 ciclo inerente ao campo TINTA. Cinza e vermelho não se tocam, então pintam na mesma rodada do mesmo adesivo (menor área primeiro: vermelho)."
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true            # nenhum par de tintas de elemento se toca; contato com o fundo (campo) não conta pela regra 3
+    riscos_traco_fino: []
+    defeitos: []
+    perguntas:
+      - "O fundo preto cobre o baú todo (testeira, portas traseiras, saias) ou só a lateral do desenho?"
+      - "Cinza #B3B3B3 é tinta cinza-clara mesmo ou intenção de prata/alumínio?"
+      - "Medida não declarada — assumir altura padrão 2,45 m (proporção 17245x3048 implica ~13,9 m)?"
+      - "Só uma face fornecida — existe traseira (recomposição) a analisar?"
+notas_gerais: "Render vetorial chapado (n98=2). Layout de 3 tintas com campo TINTA: o custo dominante é a demão de fundo preta no painel inteiro (87,6% da área) antes de qualquer adesivo. Depois, um único ciclo de adesivo resolve cinza + vermelho (não se tocam). Zero corte à mão, zero degradê/aerografia."

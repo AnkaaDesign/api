@@ -1,0 +1,84 @@
+layout: SGT
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "SGT.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 6
+    tintas:
+      - {nome: laranja, hex: "#EA590C"}
+      - {nome: laranja-claro, hex: "#FAA532"}
+      - {nome: vermelho, hex: "#E30613"}
+      - {nome: amarelo, hex: "#FFCC2A"}
+      - {nome: cinza-estrada, hex: "#AAACAE"}
+      - {nome: cinza-escuro, hex: "#606163"}
+    elementos:
+      - nome: canto-laranja
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Grande área laranja chapada no canto esquerdo, atrás/abaixo da estrada. Na parte alta há claramente um respiro claro entre laranja e cinza; na baixa a fronteira é incerta (ver perguntas)."
+      - nome: estrada-cinza
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [cinza-estrada]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa cinza enorme em curva varrida do topo esquerdo ao rodapé direito (estrada). Borda superior esfuma do cinza para o claro/branco (highlight suave)."
+      - nome: linha-amarela
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [amarelo]
+        pousa_sobre: cinza-estrada
+        toca_tinta: true
+        notas: "Linha central da estrada: filete amarelo longo acompanhando toda a curva, sobre o cinza. Aninhada em tinta ⇒ ciclo extra; por ser filete em curva, forte candidata a fita."
+      - nome: logo-sgt
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [laranja-claro, laranja, vermelho, cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Lock-up à direita: 'SGT' itálico grande com degradê laranja→vermelho, linhas de velocidade na mesma transição, 'LOG' vertical em cinza-escuro e tagline embaixo. UM elemento, UM adesivo; isolado sobre o branco."
+      - nome: tagline
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'SISTEMA DE GESTÃO EM TRANSPORTE' em cinza-escuro, parte do lock-up."
+    de_graca:
+      - "recortes brancos entre as fatias/linhas de velocidade das letras SGT (ilhas de vinil)"
+    ciclos_extras:
+      - "linha-amarela sobre a estrada-cinza (pinta cinza → seca/verniz → adesivo novo → amarelo)"
+    degrades:
+      - {onde: letras SGT e linhas de velocidade, de: laranja, para: vermelho, tons_sugeridos: 3}
+      - {onde: borda superior da estrada, de: branco/claro, para: cinza-estrada, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita:
+      - "estrada-cinza (curva orgânica grande atravessando o painel inteiro)"
+      - "linha-amarela (filete contínuo em curva sobre a estrada)"
+    pares_tt_minimos:
+      - [amarelo, cinza-estrada]
+    zero_tt: false
+    riscos_traco_fino:
+      - "tagline 'SISTEMA DE GESTÃO EM TRANSPORTE' com hastes finas (~5 mm na escala implícita)"
+      - "linhas de velocidade finas do logo e os vãos brancos entre elas"
+      - "linha amarela: filete longo e estreito em curva (depilação/aplicação)"
+    defeitos: []
+    perguntas:
+      - "Substrato liso ou corrugado? Define fita amarela × fita branca cortada nas duas curvas."
+      - "O laranja encosta diretamente no cinza da estrada na parte baixa, ou há filete branco/claro em toda a fronteira?"
+      - "O esfumado claro na borda superior da estrada é intencional (esfumar com aerografia) ou pode sair chapado?"
+      - "Sem medida declarada: com altura 2,45 m o painel implícito dá ~13,6 m — confirmar o comprimento real do baú."
+notas_gerais: >-
+  Face única (sem traseira no material). Campo branco = chapa. Censo n98=215 =
+  render vetorial com degradês (as ~13,6k cores vêm do degradê do logo e do
+  sombreado da estrada). Degradê laranja→vermelho reportado como 3 tons por
+  atravessar de uma cor a outra (achatar é decisão do revisor). Único par
+  tinta-tinta com certeza visual: amarelo sobre cinza; laranja×cinza fica em
+  pergunta.

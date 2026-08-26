@@ -1,0 +1,74 @@
+layout: AP RANCHARIA
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "AP RANCHARIA lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: vermelho, hex: "#EE3338"}
+      - {nome: grafite, hex: "#373535"}
+      - {nome: cinza, hex: "#858789"}
+    elementos:
+      - nome: logo-ap
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Monograma AP todo vermelho com swoosh de faixas vermelhas atravessando as letras; as separações internas são filetes brancos do campo (ficam de graça)."
+      - nome: texto-transportadora
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "TRANSPORTADORA em itálico bold."
+      - nome: texto-rancharia-sp
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Rancharia-SP em cinza, logo abaixo de TRANSPORTADORA; separado por filete de campo, não encosta no grafite."
+      - nome: faixa-dupla-direita
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Duas bandas vermelhas curvas varrendo a metade direita do painel, do canto superior direito descendo; vão branco (campo) entre elas."
+      - nome: bloco-contato
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite, cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "LOGÍSTICA E TRANSPORTE RODOVIÁRIO e a palavra Fone em grafite; e-mail e os dois telefones em cinza. Palavras separadas por espaço de campo — grafite e cinza não se encostam."
+    de_graca:
+      - "Filetes brancos do swoosh dentro do logo AP (ilhas de vinil que ficam)."
+      - "Vão branco entre as duas bandas da faixa da direita."
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita:
+      - {onde: "faixa dupla da metade direita do painel", notas: "curva tranquila e comprida; fita amarela se chapa lisa — substrato não está na arte"}
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~1,0 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "Pontas afiladas das faixas do swoosh do logo AP (terminam em bico)."
+      - "Pontas afiladas das duas bandas da faixa da direita no encontro com a borda."
+    defeitos: []
+    perguntas:
+      - "Substrato da lateral (chapa lisa ou corrugada) para escolher fita amarela x branca na faixa dupla?"
+      - "Sem medida no nome do arquivo — vale a altura padrão 2,45 m? Qual o comprimento real do painel?"
+      - "O cinza de Rancharia-SP e o cinza do e-mail/telefones são a mesma tinta (o censo aponta um único cinza #858789)?"
+notas_gerais: >
+  Render vetorial chapado (n98=4). Campo branco = chapa, nada de fundo.
+  Três tintas, nenhuma encosta em outra (zero fronteira compartilhada):
+  trabalho todo de adesivo contra o campo, custo dominado por depilação
+  das faixas longas. Só há a face lateral neste layout.

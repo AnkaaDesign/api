@@ -1,0 +1,53 @@
+layout: CJ PILGER
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CJ PILGER.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100 — nada a pintar de fundo
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: verde, hex: "#006838"}
+      - {nome: preto, hex: "#231F20"}
+      - {nome: laranja, hex: "#F7941E"}
+    elementos:
+      - nome: monograma-cj-laranja
+        tipo: LOGOMARCA  # C/J verdes + fruta laranja (gomos + fruta inteira) + folhas verdes
+        tecnica: CHAPADA
+        cores: [verde, laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "gomos da laranja separados do C/J por filetes brancos (campo); a folha verde grande pousa SOBRE a fruta laranja e o swoosh inferior do C encosta na fruta — fronteira verde/laranja real"
+      - nome: texto-pilger
+        tipo: TEXTO      # script manuscrito
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "o descendente do 'g' desce entre 'Citricultura' e 'Comércio' sem encostar neles (filete de campo)"
+      - nome: texto-citricultura-comercio
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "duas palavras, uma de cada lado do descendente do 'g'"
+    de_graca:
+      - "filetes brancos entre os gomos da laranja, miolo/estrela central, sementes, filetes entre C/J e a fruta, veios das folhas — cor do campo, vinil que fica"
+    ciclos_extras:
+      - "folha verde sobre a fruta laranja: pinta a laranja, sela/seca, adesivo novo, pinta o verde (alternativa: corte à mão na fronteira)"
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [verde, laranja]
+    zero_tt: false
+    riscos_traco_fino:
+      - "ilhas brancas pequenas dentro dos gomos (sementes, ~16–20 mm) e veios das folhas — depilação de peças miúdas"
+    defeitos: []
+    perguntas:
+      - "a sobreposição folha/fruta vira ciclo (verde por cima) ou só fronteira cortada? decidir com o pintor"
+      - "sem medida declarada no nome do arquivo — assumida altura 2,45 m (largura ~8,5 m, truck); confirmar"
+notas_gerais: "Render vetorial limpíssimo (n98=4: branco + 3 tintas). Campo chapa: tudo que é branco sai de graça. Único ponto de mão de obra fina é o par verde/laranja dentro do monograma. Face única — sem traseira para comparar."

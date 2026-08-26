@@ -1,0 +1,70 @@
+layout: AGRICOLA PREMIUM
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "Agricola Premium (NEW) 6,30 lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 2    # dois tons de verde do lock-up; a foto é aerografia, não conta
+    tintas:
+      - {nome: verde-escuro, hex: "#45690C"}
+      - {nome: verde-claro, hex: "#72970E"}
+    elementos:
+      - nome: foto-hortifruti
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: [multiplas-fotograficas]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: >-
+          Ocupa ~40% da esquerda do painel, sangrando nas três bordas; a
+          fronteira direita é uma DIAGONAL RETA (corte simples de vinil, não é
+          curva orgânica). Abóbora, pimentões, tomate-cereja e morangos sobre
+          tábua de madeira — tom contínuo puro (n98 do censo ~969 mil cores).
+      - nome: logo-agricola-premium
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-escuro, verde-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: >-
+          Lock-up completo = UM elemento/UM adesivo: 7 estrelas + símbolo
+          (espiga de trigo sobre arcos de campo) + "AGRÍCOLA" + "PREMIUM".
+          Degradê vertical de verde nas letras e no símbolo.
+    de_graca: []
+    ciclos_extras: []    # nada aninhado em tinta; tudo pousa na chapa
+    degrades:
+      - {onde: logo-agricola-premium (letras e símbolo), de: verde-escuro, para: verde-claro, tons_sugeridos: 2}
+    aerografias:
+      - onde: foto-hortifruti
+        notas: >-
+          Regra 21/08: é o PRIMEIRO trabalho de arte; terminada, cobrir com
+          fita nas bordas + papel no centro antes de começar o lock-up.
+          Adesivo só do contorno externo (diagonal + bordas do painel).
+    faixas_fita: []      # a fronteira da foto é diagonal reta, não pede fita
+    pares_tt_minimos: []
+    zero_tt: true        # logo e foto separados por campo branco; nada se toca
+    riscos_traco_fino:
+      - "hastes da espiga de trigo e estrelas pequenas do símbolo"
+      - "letras espaçadas de AGRÍCOLA (serifa relativamente fina)"
+    defeitos:
+      - >-
+        MARCA D'ÁGUA de banco de imagem (Shutterstock) visível em vários
+        pontos da foto; no canto superior esquerdo o texto da marca aparece
+        ESPELHADO, sugerindo que a foto foi invertida horizontalmente.
+        Arte não finalizável como está.
+    perguntas:
+      - "Cliente vai fornecer a foto licenciada/limpa (sem marca d'água)?"
+      - "Degradê do logo: 2 tons de verde atendem, ou o cliente espera transição mais rica?"
+      - >-
+        O censo acusa vermelho puro #FF0000 (~0,07%) que não aparece na
+        leitura visual — linha-guia/marca de corte na arte? Verificar no original.
+      - "Filete de moldura cinza (#B7B6B6/#373535) é só enquadramento da arte ou entra na pintura?"
+notas_gerais: >-
+  Medida declarada no nome do arquivo: 6,30 m de comprimento (altura implicada
+  ~2,33 m pelo censo). Campo branco = chapa, sem demão de fundo. Trabalho
+  domina-se em duas frentes independentes: aerografia fotográfica grande à
+  esquerda (primeiro, pela regra 21/08) e lock-up verde em degradê à direita.
+  Nenhuma tinta chapada toca outra.

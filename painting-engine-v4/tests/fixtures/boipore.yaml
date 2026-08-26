@@ -1,0 +1,68 @@
+layout: BOIPORÉ
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BOIPORÉ lateral.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100, 64,3% da área
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: vermelho-tijolo, hex: "#AB3A36"}
+      - {nome: cinza-claro, hex: "#BDBFC1"}
+      - {nome: grafite, hex: "#373535"}
+    elementos:
+      - nome: boi-line-art
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "cabeça de boi em desenho de linha (traço caligráfico) envolvendo o bloco de texto; no preview há filete de campo entre as linhas e o texto vermelho — conferir no original"
+      - nome: texto-frigorifico-boipore
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho-tijolo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'FRIGORÍFICO BOIPORÉ' em duas linhas, letras bold retas"
+      - nome: slogan-qualidade
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "script 'Qualidade em Alimentos!'"
+      - nome: arco-vermelho-traseiro
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [vermelho-tijolo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "banda vermelha em arco do topo até a base fechando o canto traseiro; encosta no campo cinza ao longo de todo o arco"
+      - nome: campo-cinza-traseiro
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [cinza-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "canto traseiro em cinza claro (21% da área; L*~77 = TINTA, não chapa) atrás do arco vermelho"
+    de_graca: []
+    ciclos_extras: []    # vermelho e cinza são adjacentes, não aninhados
+    degrades: []         # n98=4: vetor 100% chapado, zero degradê
+    aerografias: []
+    faixas_fita:
+      - "arco vermelho traseiro: curva grande atravessando o painel de alto a baixo — marcar com fita; trecho superior bem vertical (se corrugado, fita branca cortada)"
+    pares_tt_minimos:
+      - [vermelho-tijolo, cinza-claro]   # fronteira ao longo de todo o arco
+    zero_tt: false
+    riscos_traco_fino:
+      - "terminações finas das linhas do boi (chifres, contornos que afinam)"
+      - "script 'Qualidade em Alimentos!' (hastes finas)"
+    defeitos: []
+    perguntas:
+      - "sem medida no nome do arquivo: com altura padrão 2,45 m a largura fica ≈ 8,5 m — confirmar o painel"
+      - "substrato liso ou corrugado (decide fita amarela × branca cortada para o arco)"
+      - "canto inferior direito: o cinza fecha até a borda inferior ou há filete branco sob o arco? conferir no original"
+notas_gerais: "Face única. Censo: n98=n99,5=4 — render vetorial totalmente chapado. Sessões: grafite não encosta em nada e pinta junto de qualquer rodada; vermelho × cinza se tocam no arco (corte à mão na fronteira). Menor área primeiro."

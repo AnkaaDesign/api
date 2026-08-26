@@ -1,0 +1,526 @@
+{
+  "_doc": "Parâmetros de oficina — cadastro, não código (brief §3.4). Cada valor traz fonte: dono | medido | chute. Chute = primeiro suspeito quando um plano sair estranho. Tudo editável.",
+  "escala": {
+    "altura_painel_mm": {
+      "valor": 2450,
+      "fonte": "dono",
+      "nota": "confirmada por censo de 11 laterais com medida (mediana 2457, σ125)"
+    },
+    "portao_altura_mm": {
+      "valor": [
+        2080,
+        2780
+      ],
+      "fonte": "medido",
+      "nota": "censo dava 2108–2631; o 2 amigos declarado implica 2731 (sider alto) — folga p/ não rejeitar medida boa"
+    },
+    "prior_mm_px": {
+      "valor": 0.85,
+      "fonte": "medido",
+      "nota": "só como ALERTA de arte fora do padrão, nunca como escala"
+    },
+    "alerta_divergencia_pct": {
+      "valor": 15,
+      "fonte": "chute"
+    }
+  },
+  "paleta": {
+    "massa_minima_semente_pct": {
+      "valor": 0.05,
+      "fonte": "medido",
+      "nota": "ACM: 14 cores ≥0,05% cobrem 98,2%"
+    },
+    "cobertura_vetorial_pct": {
+      "valor": 98.0,
+      "fonte": "medido",
+      "nota": "topo-N exatas ≥98% ⇒ render vetorial chapado"
+    },
+    "max_sementes_vetorial": {
+      "valor": 48,
+      "fonte": "chute"
+    },
+    "fusao_delta_e": {
+      "valor": 4.0,
+      "fonte": "medido",
+      "nota": "AAN pretos ΔE3,06 fundem; 137 azuis ΔE5,04 não"
+    },
+    "atribuicao_delta_e": {
+      "valor": 2.0,
+      "fonte": "chute",
+      "nota": "tolerância pixel→semente; resto vira resíduo/antialias"
+    },
+    "fusao_fina_delta_e": {
+      "valor": 6.0,
+      "fonte": "medido",
+      "nota": "classe PEQUENA e FINA a ΔE<6 de grande = mesmo tinta com antialias comido (A&P #F0F0F0)"
+    },
+    "fusao_fina_max_pct_tinta": {
+      "valor": 8.0,
+      "fonte": "chute",
+      "nota": "classe candidata a fusão fina tem de ser <8% da tinta"
+    },
+    "fusao_fina_traco_max_mm": {
+      "valor": 14.0,
+      "fonte": "chute",
+      "nota": "largura mediana de traço abaixo da qual o antialias come a cor da letra (A&P: letras de tel/site ~10-14 mm)"
+    },
+    "erosao_nucleo_mm": {
+      "valor": 1.7,
+      "fonte": "medido",
+      "nota": "classe cujo núcleo some na erosão de ~1,7mm (2px a 0,85mm/px) = banda de antialias; em MM porque as artes de 1,58mm/px (3 IRMÃOS, BRAVO) perdiam tintas com raio em px"
+    },
+    "gradiente_chapado_max": {
+      "valor": 1.0,
+      "fonte": "medido",
+      "nota": "|∇Lab| < 1 ΔE/px = interior chapado (semeadura em render contínuo)"
+    },
+    "pureza_modal_chapada_min": {
+      "valor": 0.65,
+      "fonte": "medido",
+      "nota": "chapada 0,95–1,00; rampa 0,10–0,12; banda vazia 0,12–0,65"
+    },
+    "pureza_modal_rampa_max": {
+      "valor": 0.12,
+      "fonte": "medido"
+    }
+  },
+  "campo": {
+    "chapa_L_min": {
+      "valor": 91.0,
+      "fonte": "medido",
+      "nota": "33 laterais em L*91–100; vazio total em 70–91; 137 (70,3) é TINTA"
+    },
+    "chapa_croma_max": {
+      "valor": 8.0,
+      "fonte": "chute",
+      "nota": "campo neutro; roxo/azul/vermelho é TINTA em qualquer L*"
+    }
+  },
+  "moldura": {
+    "max_px": {
+      "valor": 24,
+      "fonte": "medido",
+      "nota": "molduras de 1–6px no acervo; ADRI traseira ~15px. NUNCA cortar por linha uniforme (comeu 4308 colunas do 100F)"
+    }
+  },
+  "fronteira": {
+    "correcao_crofton": {
+      "valor": 0.7853981633974483,
+      "fonte": "medido",
+      "nota": "π/4 — transições h+v cruas superestimam ~27%"
+    }
+  },
+  "traco": {
+    "grade_mm": {
+      "valor": [
+        3,
+        5,
+        8,
+        10,
+        14
+      ],
+      "fonte": "medido",
+      "nota": "14mm = corto confirmado (teto); piso desconhecido (P2)"
+    },
+    "simplificacao_vertices_mm": {
+      "valor": 5.0,
+      "fonte": "medido",
+      "nota": "vértices/m após simplificar a 0,5cm; triângulo ≈1/m, filigrana dezenas"
+    }
+  },
+  "corte_mao": {
+    "traco_viavel_min_mm": {
+      "valor": 8.0,
+      "fonte": "chute",
+      "nota": "P2 aberto: piso de cortabilidade à mão desconhecido; 9,2mm confirmado (ACM)"
+    },
+    "vertices_m_max": {
+      "valor": 20.0,
+      "fonte": "chute",
+      "nota": "acima disso a forma muda de direção demais para cobrir cortando à mão"
+    }
+  },
+  "degrade": {
+    "sombra_espessura_max_mm": {
+      "valor": 45.0,
+      "fonte": "chute",
+      "nota": "zona contínua FINA que abraça formas = sombra/halo esfumado (AKTL: 25,2 mm)"
+    },
+    "sombra_finura_min": {
+      "valor": 8.0,
+      "fonte": "chute",
+      "nota": "perímetro/√área — quão 'casca' a zona é"
+    },
+    "consolidacao_tons_delta_e": {
+      "valor": 12.0,
+      "fonte": "medido",
+      "nota": "tons de rampa consolidados com passo largo (o pintor bate 2-3 tons)"
+    },
+    "tons_mesma_cor": {
+      "valor": 2,
+      "fonte": "dono",
+      "nota": "mesma cor clareando/escurecendo = 2 tons chapados + esfumar"
+    },
+    "tons_troca_cor": {
+      "valor": 3,
+      "fonte": "dono",
+      "nota": "atravessa para outra cor (azul→roxo) = 3 tons. SEM limiar calibrado — vira pergunta"
+    },
+    "sombra_area_max_m2": {
+      "valor": 1.0,
+      "fonte": "medido",
+      "nota": "teto de área da sombra: acima disso é campo de brilho/rampa (argus 2,88 m² e bismark 1,94 m² viravam 'sombra'); maior sombra legítima do acervo: 0,80 m² (agromina)"
+    }
+  },
+  "aerografia": {
+    "hue_entropia_min_bits": {
+      "valor": 2.0,
+      "fonte": "chute",
+      "nota": "R² baixo + entropia de matiz alta = tom contínuo/fotográfico"
+    },
+    "r2_rampa_min": {
+      "valor": 0.75,
+      "fonte": "chute"
+    },
+    "r2_quad_min": {
+      "valor": 0.6,
+      "fonte": "medido",
+      "nota": "rampa CURVA (estrada do SGT, glow radial) é suave: a quadrática explica (R²q alto) → DEGRADE; textura fotográfica (polvo, carne) não → AEROGRAFIA"
+    }
+  },
+  "faixa": {
+    "aspecto_min": {
+      "valor": 6.0,
+      "fonte": "chute",
+      "nota": "candidata a faixa/onda: elemento alongado e orgânico"
+    },
+    "fracao_largura_min": {
+      "valor": 0.45,
+      "fonte": "chute",
+      "nota": "atravessa boa parte do painel"
+    },
+    "vertical_max_graus": {
+      "valor": 55,
+      "fonte": "chute",
+      "nota": "P3 aberto: acima disso fita branca cortada; abaixo amarela"
+    }
+  },
+  "bobinas": {
+    "larguras_mm": {
+      "valor": [
+        500,
+        1200
+      ],
+      "fonte": "dono"
+    },
+    "folga_adesivo_mm": {
+      "valor": 80,
+      "fonte": "dono",
+      "nota": "entre o corte do plotter e a borda da folha"
+    },
+    "papel_tk_vertical_mm": {
+      "valor": 1000,
+      "fonte": "dono",
+      "nota": "R2-1 (21/08): peça de papel VERTICAL usa bobina de 100 cm"
+    },
+    "papel_tk_horizontal_mm": {
+      "valor": 500,
+      "fonte": "dono",
+      "nota": "R2-1 (21/08): peça de papel HORIZONTAL usa bobina de 50 cm"
+    }
+  },
+  "calendario": {
+    "_nota": "R2-4 (dono, 21/08): calendário por REGRA, nunca por horas. 1 dia sem pintura geral; 2 com (dia 1 = preparo+demão, cura); aerografia tem dia PRÓPRIO; verniz intermediário quebra dia; rota R2 (reaplicar sem verniz) fica no mesmo dia.",
+    "aerografia_dia_proprio_min_m2": {
+      "valor": 0.3,
+      "fonte": "chute",
+      "nota": "abaixo disso a aerografia entra no início do dia da logomarca"
+    }
+  },
+  "stencil": {
+    "_nota": "R2-8 (dono, 21/08): elemento MUITO grande e simples de cortar é stencil/espovo. R3-8: automático só ≥5 m sobre pintura geral (o script do 2 amigos, ~8,5 m); o lockup do A&P (3,4 m) é ADESIVO pela ficha — entre 3 e 5 m vira pergunta.",
+    "comprimento_min_mm": {
+      "valor": 5000,
+      "fonte": "dono",
+      "nota": "calibrado pelos dois casos: 2 amigos = stencil, A&P = adesivo"
+    },
+    "pergunta_min_mm": {
+      "valor": 3000,
+      "fonte": "chute"
+    },
+    "altura_min_mm": {
+      "valor": 600,
+      "fonte": "chute"
+    },
+    "espessura_min_mm": {
+      "valor": 35,
+      "fonte": "chute",
+      "nota": "o script do 2 amigos tem traço de 41 mm e é stencil (dono); barra filigrana <35"
+    }
+  },
+  "fita_branca": {
+    "_nota": "R3 (dono, 21/08, 3ª rodada): fita branca de 45 mm sela a junta papel↔adesivo; entre DOIS adesivos, quando 2 passadas bastam para esconder a chapa do vão, usa-se só fita (sem papel).",
+    "largura_mm": {
+      "valor": 45,
+      "fonte": "dono"
+    },
+    "vao_encosta_mm": {
+      "valor": 5,
+      "fonte": "chute",
+      "nota": "abaixo disso as caixas se tocam — nada entre elas"
+    },
+    "vao_fita_mm": {
+      "valor": 90,
+      "fonte": "dono",
+      "nota": "2 passadas de 45 mm escondem o vão"
+    }
+  },
+  "fita": {
+    "_nota": "R5 (dono, 21/08): fita AMARELA de 20 mm faz curvas LEVES e traçados mais HORIZONTAIS — e também verticais leves QUANDO a chapa é LISA (sem frisos). Trecho muito vertical em chapa corrugada (a fita cruzaria os frisos), ou curva apertada, vai de fita BRANCA de 45 mm aplicada e CORTADA. Caso-régua: a onda do A&P — lisa ⇒ amarela; corrugada ⇒ branca + corte (é muito vertical).",
+    "largura_amarela_mm": {
+      "valor": 20,
+      "fonte": "dono"
+    },
+    "vertical_min_graus": {
+      "valor": 55,
+      "fonte": "chute",
+      "nota": "ângulo contra a horizontal acima do qual o trecho é vertical"
+    },
+    "curva_leve_max_graus_m": {
+      "valor": 150,
+      "fonte": "medido",
+      "nota": "taxa de giro do traçado (graus/m); calibrado na onda do A&P (corpo ≤136°/m = leve pelo dono; só as pontas afiladas passam de 200)"
+    },
+    "simplificacao_tracado_mm": {
+      "valor": 30,
+      "fonte": "chute",
+      "nota": "simplificação do contorno antes de medir ângulo e giro por aresta"
+    },
+    "dominante_frac": {
+      "valor": 0.75,
+      "fonte": "medido",
+      "nota": "fração de metros num tipo para o elemento ganhar o rótulo puro e LEVAR TODA a metragem (a equipe não troca de fita por trechos curtos); calibrado no A&P (97% amarela na lisa, 21% na corrugada)"
+    }
+  },
+  "mascara": {
+    "_nota": "R2-3 + R6 (dono, 22/08): o corpo da cobertura é SEMPRE papel — máscara/fita branca entram só como BANDA ao longo da fronteira que será CORTADA ('não será o item inteiro mascarado, não tem necessidade'). Por polilinha da fronteira: traçado quase reto (flecha ≤ fronteira_fita_flecha_max_mm, cabe na fita de 45 com folga) = FITA BRANCA aplicada e cortada; traçado que serpenteia = MÁSCARA de 60 cm (passadas múltiplas se a flecha passar de 600 mm).",
+    "largura_mm": {
+      "valor": 600,
+      "fonte": "dono"
+    },
+    "fronteira_fita_flecha_max_mm": {
+      "valor": 35,
+      "fonte": "chute",
+      "nota": "desvio máximo do traçado à corda para a fita de 45 mm segurar o corte com folga; acima disso a banda vai de máscara"
+    }
+  },
+  "folha": {
+    "_nota": "R2-7 refinada (dono, 21/08 R5): adesivo cujo conteúdo segue uma banda de altura e tem PARTES PEQUENAS saindo dela (o rabo do g) divide a FOLHA — corpo + saliência — apenas quando a economia de filme compensa. O elemento continua um só; quem divide é a folha.",
+    "saliencia_altura_min_mm": {
+      "valor": 100,
+      "fonte": "chute",
+      "nota": "a parte tem de sair da banda por pelo menos isto para valer folha própria"
+    },
+    "saliencia_largura_max_frac": {
+      "valor": 0.35,
+      "fonte": "dono",
+      "nota": "apenas partes PEQUENAS saem: soma das larguras salientes ≤ 35% da largura da folha"
+    },
+    "economia_min_m2": {
+      "valor": 0.08,
+      "fonte": "chute"
+    },
+    "economia_min_pct": {
+      "valor": 10,
+      "fonte": "chute",
+      "nota": "economia mínima de filme (%) para dividir; abaixo disso a folha vai inteira"
+    },
+    "sobreposicao_registro_mm": {
+      "valor": 20,
+      "fonte": "chute",
+      "nota": "sobra da folha saliente para registrar sobre o corpo"
+    },
+    "linha_vazia_frac": {
+      "valor": 0.18,
+      "fonte": "chute",
+      "nota": "linha com tinta abaixo desta fração do P95 das linhas é 'vazia' — candidata a saliência"
+    }
+  },
+  "substrato": {
+    "_nota": "Premissa do implemento — NÃO está na arte (pergunta §6.4). A análise sai com os DOIS cenários de fita (lisa × corrugada); o ativo é o default até o cliente responder. Editável por override premissas.substrato.",
+    "default": {
+      "valor": "lisa",
+      "fonte": "chute",
+      "nota": "lisa | corrugada"
+    }
+  },
+  "agrupamento": {
+    "vao_agrupa_max_x_altura": {
+      "valor": 0.6,
+      "fonte": "medido",
+      "nota": "A&P: 0,24× agrupa"
+    },
+    "vao_separa_min_x_altura": {
+      "valor": 2.0,
+      "fonte": "medido",
+      "nota": "A&P: 2,1× separa; entre os dois = pergunta (ACM 1,3×)"
+    },
+    "quase_alinhamento_mm": {
+      "valor": 10,
+      "fonte": "medido",
+      "nota": "2,6mm no 100F é relação travada; 61mm no 137 não é"
+    },
+    "registro_linha_vao_max_x_altura": {
+      "valor": 4.0,
+      "fonte": "dono",
+      "nota": "R6 (22/08): o registro de mesma linha vence o vão SÓ até este teto — site+instagram do 137, a ~12× a altura, são DOIS adesivos"
+    },
+    "caixa_espalhada_max_x": {
+      "valor": 1.6,
+      "fonte": "chute",
+      "nota": "descarte de região que estoura a caixa semântica"
+    },
+    "raio_uniao_elemento_mm": {
+      "valor": 25,
+      "fonte": "chute",
+      "nota": "distância de FORMA para agrupar componentes em elemento"
+    }
+  },
+  "sistema_pintura": {
+    "demaos_fundo": {
+      "valor": 2,
+      "fonte": "medido",
+      "nota": "A&P: roxo fecha em 2"
+    },
+    "demaos_cor": {
+      "valor": 2,
+      "fonte": "chute"
+    },
+    "demaos_cor_clara_sobre_escura": {
+      "valor": 3,
+      "fonte": "medido",
+      "nota": "A&P: ouro e branco sobre roxo = 3"
+    },
+    "verniz_final": {
+      "valor": true,
+      "fonte": "dono"
+    }
+  },
+  "consumo": {
+    "rendimento_tinta_m2_por_l": {
+      "valor": 8.0,
+      "fonte": "chute",
+      "nota": "mistura pronta, por demão"
+    },
+    "proporcao_mistura": {
+      "valor": {
+        "tinta": 0.6,
+        "catalisador": 0.2,
+        "diluente": 0.2
+      },
+      "fonte": "chute"
+    },
+    "rendimento_verniz_m2_por_l": {
+      "valor": 8.0,
+      "fonte": "chute"
+    },
+    "fita_folga_pct": {
+      "valor": 10,
+      "fonte": "chute"
+    },
+    "papel_sobreposicao_pct": {
+      "valor": 10,
+      "fonte": "chute"
+    }
+  },
+  "produtividade": {
+    "_nota": "TODAS as taxas são chute até calibrar com o ERP (brief §7.3). h = hora-homem.",
+    "lavagem_m2_h": {
+      "valor": 30,
+      "fonte": "chute"
+    },
+    "desengraxe_m2_h": {
+      "valor": 40,
+      "fonte": "chute"
+    },
+    "empapelamento_estrutural_m_h": {
+      "valor": 25,
+      "fonte": "chute"
+    },
+    "pintura_pistola_m2_h": {
+      "valor": 12,
+      "fonte": "chute"
+    },
+    "aplicacao_adesivo_m2_h": {
+      "valor": 6,
+      "fonte": "chute"
+    },
+    "depilacao_m2_h": {
+      "valor": 8,
+      "fonte": "chute"
+    },
+    "empapelamento_localizado_m_h": {
+      "valor": 30,
+      "fonte": "chute"
+    },
+    "corte_mao_m_h": {
+      "valor": 12,
+      "fonte": "chute",
+      "nota": "G3b: NÃO depende do contraste do par — um número só"
+    },
+    "fita_curva_m_h": {
+      "valor": 15,
+      "fonte": "chute"
+    },
+    "aerografia_m2_h": {
+      "valor": 1.5,
+      "fonte": "chute"
+    },
+    "esfumar_degrade_m_h": {
+      "valor": 6,
+      "fonte": "chute"
+    },
+    "verniz_m2_h": {
+      "valor": 15,
+      "fonte": "chute"
+    },
+    "remocao_m2_h": {
+      "valor": 20,
+      "fonte": "chute"
+    }
+  },
+  "custo": {
+    "hora_homem": {
+      "valor": null,
+      "fonte": "sem_preco",
+      "nota": "vem do ERP; sem valor a conta sai como quantidade sinalizada"
+    }
+  },
+  "cura": {
+    "fundo_dias": {
+      "valor": 1,
+      "fonte": "dono",
+      "nota": "pintura geral é o primeiro dia inteiro; adesivo só no dia seguinte"
+    },
+    "verniz_intermediario_dias": {
+      "valor": 1,
+      "fonte": "dono"
+    },
+    "entre_demaos_min": {
+      "valor": 30,
+      "fonte": "chute",
+      "nota": "minutos, mesma sessão"
+    }
+  },
+  "aerografia_cobertura": {
+    "_nota": "REGRA NOVA do dono (2026-08-21): aerografia é o primeiro trabalho de arte; coberta com fita nas bordas + papel no centro (fita em toda parte que será cortada; só máscara direto ficaria caro).",
+    "fita_bordas": {
+      "valor": true,
+      "fonte": "dono"
+    },
+    "papel_centro": {
+      "valor": true,
+      "fonte": "dono"
+    }
+  }
+}

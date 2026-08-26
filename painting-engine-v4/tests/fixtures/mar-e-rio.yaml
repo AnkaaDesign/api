@@ -1,0 +1,51 @@
+layout: MAR E RIO
+fonte: doutrina   # polvo = aerografia com adesivo só do contorno externo (dono, 2026-08-05) + análise visual 21/08
+faces:
+  lateral:
+    arquivo: "mar e rio.png"
+    campo: {classe: TINTA, hex: "#2B5D8B"}   # azul — pintura geral
+    pintura_geral: true
+    n_dias: 3   # R2-4: calendário por regra (dono, 21/08)
+    render: CONTINUO   # n98 = 40 mil (sombreado do polvo)
+    n_tintas_aprox: 5   # azul-campo, teal, branco, salmão/vermelho do polvo (aerografia), azul-marinho (lenço)
+    elementos:
+      - nome: polvo
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        pousa_sobre: CAMPO
+        notas: >
+          adesivo SÓ do contorno externo (2 657 cm de perímetro externo — somar
+          anéis internos cobrava 22% a mais). PRIMEIRO trabalho de arte (regra
+          21/08), depois coberto com fita nas bordas + papel no centro.
+      - nome: faixa-teal
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [teal]
+        toca_tinta: true
+      - nome: onda-branca-rodape
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [branco]
+        toca_tinta: true   # branco×teal e branco×azul-campo… fronteira contra o CAMPO não conta; teal×branco conta
+      - nome: logo-mar-e-rio
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco, teal]
+        pousa_sobre: CAMPO
+        toca_tinta: true   # interior teal dentro da nuvem branca ⇒ aninhado
+        notas: peixe em line-art fino dentro do logo — risco de depilação
+      - nome: textos-brancos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO   # branco É tinta (campo azul)
+    ciclos_extras:
+      - teal dentro da nuvem branca do logo (aninhado)
+    aerografias:
+      - {onde: polvo}
+    degrades: []
+    zero_tt: false
+    riscos_traco_fino:
+      - line-art do peixe dentro do logo
+      - texto PESCADOS® pequeno
+    perguntas: [substrato, cor de chegada]

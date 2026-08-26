@@ -1,0 +1,81 @@
+layout: BISMARK
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "bismark.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100, 60,6% da área
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 5    # tons-base; o layout é dominado por degradês (n98=663)
+    tintas:
+      - {nome: azul-marinho, hex: "#001530"}
+      - {nome: azul-royal, hex: "#004E87"}
+      - {nome: dourado, hex: "#C48405"}
+      - {nome: dourado-escuro, hex: "#8B6731"}
+      - {nome: creme-dourado, hex: "#FFF7C2"}
+    elementos:
+      - nome: faixa-topo
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "barra azul-marinho ao longo de TODA a borda superior; verificar no arquivo original se encosta no swoosh traseiro perto do canto direito (no preview parece haver filete branco)"
+      - nome: escudo-bismark
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [dourado, dourado-escuro, creme-dourado, azul-royal, azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "lock-up completo (UM adesivo): moldura dourada metálica em degradê + interior azul em degradê radial (centro claro, borda escura) + silhueta de boi + BISMARK em letras metálicas prata/dourado + FRIGORÍFICO em dourado degradê; moldura dourada e interior azul se tocam em todo o perímetro interno"
+      - nome: swoosh-traseiro
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [azul-marinho, azul-royal]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "onda grande preenchendo o canto inferior traseiro, degradê azul; borda inferior/externa acompanhada por faixa dourada"
+      - nome: faixa-dourada-traseira
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [dourado]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "faixa dourada acompanha a curva do swoosh por baixo; parece chapada no preview, mas pode ter leve degradê — conferir no original"
+      - nome: slogan-excelencia
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-royal]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "script 'Excelência em Carnes' em azul, sob o escudo"
+    de_graca:
+      - "silhueta do boi dentro do escudo: se for branco puro é ilha de vinil (chapa aparece); confirmar se não é creme #FFF7C2"
+    ciclos_extras:
+      - "letras BISMARK + FRIGORÍFICO sobre o fundo azul do escudo: tinta sobre tinta; se o escudo inteiro for executado como aerografia única (regra 21/08: arte primeiro), o aninhamento fica dentro do trabalho de arte — senão é ciclo novo após selar o fundo"
+    degrades:
+      - {onde: "interior do escudo", de: "azul-royal (centro)", para: "azul-marinho (bordas)", tons_sugeridos: 2}
+      - {onde: "moldura do escudo", de: "creme-dourado", para: "dourado-escuro", tons_sugeridos: 3}
+      - {onde: "letras BISMARK", de: "branco/prata", para: "cinza/dourado-escuro", tons_sugeridos: 2}
+      - {onde: "swoosh traseiro", de: "azul-marinho", para: "azul-royal", tons_sugeridos: 2}
+    aerografias:
+      - {onde: "acabamento metálico do escudo (moldura e letras)", notas: "efeito metal polido/escovado = esfumar as separações dos tons; pela regra do dono, fazer PRIMEIRO e cobrir com fita nas bordas + papel no centro antes do resto"}
+    faixas_fita:
+      - "curva do swoosh traseiro + faixa dourada: onda grande atravessando o painel — marcar a curva com fita; substrato não declarado na arte"
+    pares_tt_minimos:
+      - [dourado, azul-royal]      # moldura × interior do escudo
+      - [dourado, azul-marinho]    # faixa dourada × swoosh traseiro
+    # zero_tt removido na triagem 21/08: o motor não vê corte à mão (contatos esfumados/borda de aerografia)
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "script 'Excelência em Carnes' (hastes finas)"
+      - "pernas/chifres da silhueta do boi"
+    defeitos: []
+    perguntas:
+      - "sem medida no nome do arquivo: com altura padrão 2,45 m a largura fica ≈ 6,5 m — confirmar o painel"
+      - "substrato liso ou corrugado (decide fita amarela × branca cortada para o swoosh)"
+      - "tinta metálica de verdade (prata/ouro) ou simulação do metálico por degradê comum?"
+      - "boi do escudo: branco puro (de graça) ou creme (#FFF7C2 existe no censo)?"
+      - "a barra do topo encosta no swoosh no canto direito ou há filete de campo?"
+notas_gerais: "Face única. Censo: n98=663 (tom contínuo confirmado — layout dominado por degradês/efeito metálico). Ordem provável: aerografia do escudo e do swoosh primeiro, cobrir, depois chapadas (barra do topo, faixa dourada, slogan)."

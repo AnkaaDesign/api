@@ -1,0 +1,81 @@
+layout: AFO
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "AFO lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4
+    tintas:
+      - {nome: azul, hex: "#393D80"}
+      - {nome: cinza, hex: "#615D5C"}
+      - {nome: preto, hex: "#373535"}
+    elementos:
+      - nome: esfera-globo
+        tipo: LOGOMARCA
+        tecnica: AEROGRAFIA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Esfera azul com sombreamento radial contínuo (brilho quase branco no alto-esquerda → azul profundo nas bordas). Tom contínuo → aerografia; alternativa: degradê radial 2–3 tons esfumado (decisão do revisor/dono). Pela regra de 21/08, é o PRIMEIRO trabalho; depois cobre com fita nas bordas + papel antes do resto."
+      - nome: aneis-orbita
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [cinza-claro, cinza]
+        pousa_sobre: azul
+        toca_tinta: true
+        notas: "Dois arcos tipo órbita, acabamento prata (degradê cinza-claro→cinza-escuro), cruzam POR CIMA da esfera → tinta sobre tinta = ciclo novo depois da esfera pronta. Trechos dos arcos fora da esfera pousam no campo."
+      - nome: texto-afo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "A F O em azul com barras verticais finas separando as letras (mesmo azul). Barras ~7–13 mm de largura na escala assumida — risco de depilação, não de corte."
+      - nome: texto-transportes
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Minúsculas cinza, não encosta em nada."
+      - nome: numero-frota-718
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Canto superior esquerdo. Confirmar se é para pintar ou se é só identificação do arquivo/frota."
+      - nome: placa-pereciveis
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Quadro 'PRODUTOS PERECÍVEIS' + endereço + razão social + fone, canto inferior direito. Texto branco dentro da barra preta = de graça; micro-textos pretos = traço fino severo."
+    de_graca:
+      - "PRODUTOS PERECÍVEIS branco dentro da barra preta da placa"
+      - "brilho da esfera se resolvido como reserva de campo (depende da técnica escolhida)"
+    ciclos_extras:
+      - "anéis prata por cima da esfera azul (pinta esfera → verniz/seca → adesivo novo → anéis)"
+    degrades:
+      - {onde: aneis-orbita, de: cinza-claro, para: cinza, tons_sugeridos: 2}
+    aerografias:
+      - {onde: esfera-globo, notas: "sombreamento esférico contínuo com brilho especular; primeiro trabalho, cobrir antes do resto"}
+    faixas_fita: []
+    pares_tt_minimos:
+      - [cinza-claro, azul]
+    zero_tt: false
+    riscos_traco_fino:
+      - "barras separadoras entre A|F|O (~7–13 mm)"
+      - "micro-textos da placa de perecíveis (endereço/fone, letras de poucos mm)"
+    defeitos: []
+    perguntas:
+      - "Sem medida no nome do arquivo: assumida altura 2,45 m → largura implícita ~10,8 m. Confirmar medida real."
+      - "Esfera: aerografia livre ou degradê radial de 2–3 tons esfumado?"
+      - "O número 718 entra na pintura?"
+      - "Placa de perecíveis: pintada, plaqueta física ou adesivo à parte?"
+      - "Substrato (baú liso ou corrugado)? Não está na arte."
+notas_gerais: "Face única (só lateral). Campo CHAPA branca (76% do painel). n98=286 vem quase todo dos tons intermediários da esfera e dos anéis — coerente com 1 aerografia + 1 degradê, resto vetor chapado. Único par tinta×tinta é anel prata sobre/contra a esfera azul, que também é o único ciclo extra. 'transportes', 'A F O', 718 e placa não se encostam — pintam em sessões conforme cor."

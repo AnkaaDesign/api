@@ -1,0 +1,40 @@
+layout: A&P FOODS
+fonte: ficha
+faces:
+  lateral:
+    arquivo: "A&P FOODS lateral.png"
+    escala_mm_px: {valor: 0.7934, tol_pct: 2}
+    painel_mm: {w: 8316, h: 2450, tol_pct: 2}
+    campo: {classe: TINTA, hex: "#3C3562"}   # roxo — demão de fundo primeiro, painel inteiro
+    pintura_geral: true
+    n_dias: 2   # R2-4: calendário por regra (dono, 21/08)
+    demao_fundo_m2: {valor: 17.18, tol_pct: 8}
+    n_tintas: {valor: 3, tol: 1}   # branco, ouro, ouro-da-onda (o #F0F0F0 É o branco — antialias de letra pequena)
+    tintas:
+      - {nome: ouro-onda, hex: "#EEBA57", m2: 1.402}
+      - {nome: branco, hex: "#FDFEFE", m2: 1.017}   # 0.921 + 0.096 do falso "#F0F0F0"
+      - {nome: ouro, hex: "#F6B63D", m2: 0.775}
+    tinta_m2_total: {valor: 3.20, tol_pct: 12}
+    fronteira_tt_m: {valor: 0.35, tol_pct: 30}   # toda no "f" cruzando o "P" — NUNCA os 9,5 m da casca de antialias
+    degrades_n: 0
+    aerografias_n: 0
+    adesivos_n: {valor: 4, tol: 0}   # + a onda em FITA (não conta como adesivo)
+    faixas_fita:
+      - onda 921×2631 mm — amarela se chapa lisa, branca cortada se não (pergunta: substrato)
+    # R5 (dono, 21/08): caso-régua da fita por substrato — "na chapa lisa a
+    # faixa da esquerda seria fita amarela, são curvas leves; no frisado,
+    # fita branca + corte, já que é muito vertical"
+    fita_dominante: {lisa: FITA_AMARELA, corrugada: FITA_BRANCA_CORTADA}
+    perguntas:
+      - os dois ouros (#EEBA57 só na onda × #F6B63D no resto, ΔE 11,9, zero contato) são uma tinta ou duas?
+    notas: >
+      Branco do A&P É demão (3 demãos sobre roxo). Vão tel→site 32 mm (0,24×) agrupa;
+      site→claim 277 mm (2,2×) não agrupa. Antialias branco+roxo cai em cima do ouro:
+      partição obrigatória, senão nascem 9,5 m de fronteira falsa.
+  traseira:
+    arquivo: "A&P FOODS traseira.png"
+    campo: {classe: TINTA, hex: "#3C3562"}
+    pintura_geral: true
+    defeitos:
+      - "PRODUTROS (nas DUAS faces — CV não pega; requer revisão humana dos textos)"
+    notas: entrelaçamento do lock-up desfeito na traseira (A&P e foods lado a lado) — recomposição.

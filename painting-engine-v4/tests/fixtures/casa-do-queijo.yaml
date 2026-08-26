@@ -1,0 +1,76 @@
+layout: CASA DO QUEIJO
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CASA DO QUEIJO.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100, 64% do painel
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4    # azul, verde, e DOIS amarelos quase iguais (ver perguntas)
+    tintas:
+      - {nome: azul, hex: "#0033AB"}
+      - {nome: verde, hex: "#00824A"}
+      - {nome: amarelo, hex: "#FFF215"}
+      - {nome: amarelo-2, hex: "#F7EF34"}
+    elementos:
+      - nome: selo-pereciveis
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Retângulo arredondado de contorno azul com 'TRANSPORTE DE PRODUTOS PERECÍVEIS' azul dentro, canto superior esquerdo. Grafia CORRETA (sem o 'PRODUTROS' de casos passados)."
+      - nome: logo-casa-do-queijo
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [verde, amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Lock-up casinha + tarja: contorno verde, miolo amarelo, texto 'CASA DO QUEIJO' verde SOBRE o amarelo, queijo amarelo com furos verdes. UM adesivo, mas verde e amarelo se encostam em toda parte."
+      - nome: tagline
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'TRADIÇÃO E SABOR À SUA MESA' azul sobre chapa."
+      - nome: onda-rodape
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [azul, amarelo-2]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa azul grande de borda superior ondulada atravessando o painel + filete amarelo acompanhando a curva. À esquerda o amarelo corre com folga de campo em parte do trajeto; à direita o filete amarelo parece EMBUTIDO no azul (azul acima e abaixo)."
+      - nome: rodape-contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: []
+        pousa_sobre: azul
+        toca_tinta: false
+        notas: "'casadoqueijo.com.br' + ícones Instagram/Facebook + '@casadoqueijo.mc' BRANCOS dentro da faixa azul — cor do campo, ver de_graca."
+    de_graca:
+      - "Textos e ícones brancos do rodapé dentro da faixa azul (campo branco => ilhas de vinil que ficam e saem no fim; nada a pintar)"
+    ciclos_extras:
+      - "logo: texto verde + furos do queijo pintados SOBRE o miolo amarelo (amarelo primeiro, verniz/seca, adesivo novo, verde por cima)"
+      - "onda: filete amarelo embutido no azul no trecho direito (se confirmado aninhado, pede ciclo; se for lado a lado, vira só fronteira)"
+    degrades: []
+    aerografias: []      # n98 = 5 cores: vetor chapado
+    faixas_fita:
+      - "onda-rodape: curva longa e tranquila atravessando o painel — marcar com fita (amarela se chapa lisa; branca cortada se corrugada). Substrato não está na arte."
+    pares_tt_minimos:
+      - [verde, amarelo]     # todo o interior do logo
+      - [azul, amarelo-2]    # filete da onda contra a faixa azul (trecho direito)
+    zero_tt: false
+    riscos_traco_fino:
+      - "Contorno do selo-pereciveis (linha fina)"
+      - "Furos pequenos do queijo (ilhas minúsculas de depilação)"
+      - "Chaminé/detalhes finos da casinha"
+      - "Ícones de rede social pequenos no rodapé (depilação de ilhas brancas)"
+    defeitos: []         # face única; textos legíveis e corretos; sem marca d'água visível
+    perguntas:
+      - "Os dois amarelos (#FFF215 logo × #F7EF34 onda) são intencionais ou um só amarelo? Diferença quase imperceptível."
+      - "Substrato: baú liso ou sider corrugado? Decide a fita da onda (amarela × branca cortada)."
+      - "No trecho direito o filete amarelo está mesmo cercado de azul (aninhado) ou há filete de campo separando? Muda ciclo e metro de corte à mão."
+      - "Existe traseira deste layout? Só recebi uma face. Painel ~6,6 m estimado (sem medida no nome)."
+notas_gerais: "Vetor chapado de 4 tintas sobre chapa branca. Dois núcleos de trabalho: o logo (verde×amarelo aninhado, 1 ciclo) e a onda do rodapé (candidata a fita, com fronteira azul×amarelo). O rodapé branco sai de graça — ilhas de vinil."

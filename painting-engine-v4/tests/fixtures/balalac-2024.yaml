@@ -1,0 +1,109 @@
+layout: BALALAC 2024
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BALALAC 2024 lateral.png"
+    campo:
+      classe: CHAPA      # #E6E6E6, L* 91,3 — cinza-claro neutro, exemplo canônico de chapa da doutrina
+      hex_aprox: "#E6E6E6"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: azul-marinho, hex: "#002A5A"}
+      - {nome: vermelho, hex: "#EE3338"}
+      - {nome: cinza-medio, hex: "#696B6C"}
+    elementos:
+      - nome: elipse-orbital
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Grande elipse aberta que emoldura o nome: arco duplo (linha fina paralela) à esquerda/topo e swoosh grosso na base atravessando ~2/3 do painel; caudas afiladas."
+      - nome: texto-balalac
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Script grande 'Balaläc' com trema (2 pontos + 2 pontos). Visualmente separado da elipse por campo em toda a volta."
+      - nome: texto-descritivo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-medio]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'Distribuidora de Produtos Alimentícios' — cinza, pequeno."
+      - nome: telefone
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'(14) 3378-2124' no canto inferior esquerdo."
+      - nome: logo-trans-salto
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul-marinho, vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Lock-up da transportadora (canto sup. direito) = UM adesivo: pantera em swoosh azul, script 'Trans Salto' azul e faixa vermelha. As letras azuis cruzam a faixa vermelha SEPARADAS por halo na cor do campo — não há toque tinta-tinta."
+    de_graca:
+      - "halo cinza-claro (cor do campo) ao redor das letras 'Trans Salto' onde cruzam a faixa vermelha — ilha de vinil"
+      - "miolos das letras do script"
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita:
+      - {onde: elipse-orbital, notas: "curvas longas e tranquilas atravessando o painel — candidatas a marcação com fita; substrato não está na arte"}
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "linha fina interna do arco duplo da elipse (paralela ao arco grosso)"
+      - "caudas afiladas do swoosh da elipse"
+      - "texto-descritivo cinza pequeno (haste ~5 mm na escala estimada)"
+      - "script 'Trans Salto' na lateral é pequeno (~2 m de largura o lock-up inteiro) — hastes finas"
+      - "halo do 'Trans Salto' na lateral: filete de vinil de ~2-3 mm — risco alto de depilação"
+    defeitos: []
+    perguntas:
+      - "Substrato: chapa lisa ou corrugada? Decide fita na elipse-orbital."
+      - "Medida não declarada no nome — assumido 2,45 m de altura (≈13,7 m de comprimento)."
+      - "O halo do 'Trans Salto' é a cor do campo mesmo (fica chapa) ou um cinza próprio (#D9D8D8 aparece no censo em 0,06%)? Se for tinta própria, muda tudo no lock-up."
+  traseira:
+    arquivo: "BALALAC 2024 traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#E6E6E6"
+    pintura_geral: false
+    n_tintas_aprox: 2
+    tintas:
+      - {nome: azul-marinho, hex: "#002A5A"}
+      - {nome: vermelho, hex: "#EE3338"}
+    elementos:
+      - nome: logo-trans-salto
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul-marinho, vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Recomposição: SÓ o lock-up da transportadora, ampliado, na metade superior. Mesmo halo cor-do-campo separando letras da faixa vermelha."
+    de_graca:
+      - "halo cor-do-campo ao redor das letras 'Trans Salto' sobre a faixa vermelha"
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "halo das letras — na traseira o logo é grande, filete ~8-10 mm, risco menor que na lateral"
+    defeitos: []
+    perguntas:
+      - "A traseira NÃO leva a marca Balaläc — só a Trans Salto. Recomposição legítima (marca da transportadora) ou faltou elemento? Confirmar com o cliente."
+notas_gerais: >-
+  Render vetorial totalmente chapado (n98=2 na lateral, 3 na traseira) — zero
+  degradê, zero aerografia. Nenhuma tinta toca outra tinta em nenhuma das
+  faces: o único cruzamento visual (letras azuis sobre faixa vermelha) é
+  resolvido por halo na cor do campo. Layout barato em corte à mão; o custo
+  está na depilação dos filetes (halo e arco fino). Texto 'Trans Salto'
+  idêntico entre as faces; sem truncamento nem espelhamento.

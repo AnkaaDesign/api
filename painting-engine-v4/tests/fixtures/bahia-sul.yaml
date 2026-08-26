@@ -1,0 +1,133 @@
+layout: BAHIA SUL
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BAHIA SUL lateral.png"
+    campo:
+      classe: CHAPA      # #F2F0EA, L* 94,8 — creme neutro dentro da faixa 91-100
+      hex_aprox: "#F2F0EA"
+    pintura_geral: false
+    n_tintas_aprox: 5
+    tintas:
+      - {nome: verde-escuro, hex: "#4E7017"}
+      - {nome: laranja, hex: "#FEA300"}
+      - {nome: preto, hex: "#000000"}
+    elementos:
+      - nome: circulo-do-logo
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-oliva, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Círculo atrás da papaya; degradê de verde claro (alto) para escuro (baixo). Faz parte do lock-up com papaya+textos = UM adesivo."
+      - nome: papaya
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [amarelo-ouro, laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mamão cortado; degradê amarelo (topo) → laranja (base). SEPARADO do círculo por filete creme (cor do campo) em todo o contorno, inclusive no talo — não toca o círculo."
+      - nome: sementes
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Pontos pretos sobre o leito creme (cor do campo) dentro da papaya."
+      - nome: texto-bahiasul
+        tipo: TEXTO
+        tecnica: DEGRADE
+        cores: [verde-oliva, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Script 'BahiaSul', degradê vertical oliva→verde-escuro (mesmos 2 tons das ondas)."
+      - nome: texto-frutas
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+      - nome: onda-verde-escura
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa larga que atravessa o painel inteiro na base, sobe no lado direito."
+      - nome: onda-oliva
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [verde-oliva]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Filete fino que atravessa o painel e CRUZA POR CIMA da onda verde-escura (cruzamento em X no terço esquerdo); pontas afiladas nas duas extremidades."
+    de_graca:
+      - "filete creme entre a papaya e o círculo (contorno todo)"
+      - "leito creme das sementes dentro da papaya"
+    ciclos_extras:
+      - "onda-oliva passa por cima da onda-verde-escura no cruzamento: pintar a escura, secar/envernizar, adesivo novo para o filete oliva"
+    degrades:
+      - {onde: texto-bahiasul, de: verde-oliva, para: verde-escuro, tons_sugeridos: 2}
+      - {onde: circulo-do-logo, de: verde-oliva, para: verde-escuro, tons_sugeridos: 2}
+      - {onde: papaya, de: amarelo-ouro, para: laranja, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita:
+      - {onde: onda-verde-escura, notas: "curva tranquila atravessando o painel — fita amarela se chapa lisa; substrato não está na arte"}
+      - {onde: onda-oliva, notas: "mesma decisão; traçado fino, cruza a onda escura"}
+    # R5: a onda é curva leve e mais HORIZONTAL — amarela nos dois substratos
+    # (regra do dono: horizontal leve segue os frisos)
+    fita_dominante: {lisa: FITA_AMARELA, corrugada: FITA_AMARELA}
+    pares_tt_minimos:
+      - [verde-oliva, verde-escuro]
+    zero_tt: false
+    riscos_traco_fino:
+      - "pontas afiladas da onda-oliva (some abaixo de 10 mm nas extremidades, esq. e canto sup. dir.)"
+      - "filete creme entre papaya e círculo — ilha de vinil fina que precisa ficar na depilação"
+    defeitos: []
+    perguntas:
+      - "Substrato: chapa lisa ou corrugada? Decide fita amarela × fita branca cortada nas ondas."
+      - "Medida do painel não declarada no nome do arquivo — assumido 2,45 m de altura (≈13,6 m de comprimento)."
+      - "Pontas afiladas das ondas podem ser engrossadas/encurtadas?"
+  traseira:
+    arquivo: "BAHIA SUL traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#F2F0EA"
+    pintura_geral: false
+    n_tintas_aprox: 5
+    tintas:
+      - {nome: verde-escuro, hex: "#4E7017"}
+      - {nome: laranja, hex: "#FEA300"}
+      - {nome: preto, hex: "#000000"}
+    elementos:
+      - nome: logo-empilhado
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [verde-oliva, verde-escuro, amarelo-ouro, laranja, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Recomposição: papaya+círculo em cima, 'BahiaSul' e 'FRUTAS' embaixo, tudo no terço superior. Mesmos degradês da lateral; SEM ondas. Um lock-up = um adesivo."
+    de_graca:
+      - "filete creme entre a papaya e o círculo"
+      - "leito creme das sementes"
+    ciclos_extras: []
+    degrades:
+      - {onde: texto-bahiasul, de: verde-oliva, para: verde-escuro, tons_sugeridos: 2}
+      - {onde: circulo-do-logo, de: verde-oliva, para: verde-escuro, tons_sugeridos: 2}
+      - {onde: papaya, de: amarelo-ouro, para: laranja, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "filete creme entre papaya e círculo (maior que na lateral, risco menor)"
+    defeitos: []
+    perguntas:
+      - "Logo ocupa só o terço superior da traseira; os 2/3 inferiores ficam em chapa nua — confirmar se é intencional."
+notas_gerais: >-
+  Conteúdo idêntico entre as faces (BahiaSul FRUTAS) — sem truncamento, sem
+  espelhamento, sem marca d'água. n98=147 com muitos verdes intermediários no
+  censo = render vetorial com degradês (não é aerografia fotográfica). Os
+  degradês usam os MESMOS dois verdes das ondas — inventário de tinta enxuto
+  (5 tintas). Único toque tinta-tinta do layout é o cruzamento das duas ondas
+  na lateral.

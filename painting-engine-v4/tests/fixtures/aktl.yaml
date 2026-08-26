@@ -1,0 +1,68 @@
+layout: AKTL
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:               # face não declarada no nome do arquivo; assumida lateral
+    arquivo: "AKTL.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: azul-marinho, hex: "#383765"}
+      - {nome: amarelo, hex: "#E8C343"}
+      - {nome: cinza-escuro, hex: "#373535"}
+    elementos:
+      - nome: sigla-aktl
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul-marinho, amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >-
+          "AK" em azul-marinho e "TL" em amarelo, letras gigantes ocupando
+          ~metade do painel. K e T aparentam DIVIDIR uma aresta diagonal
+          (fronteira compartilhada azul×amarelo = corte à mão). Entre A e K há
+          uma sombra sutil mais escura (possível 2º tom de azul — ver perguntas).
+      - nome: descritivo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: '"TRANSPORTE E LOGÍSTICA" em caixa-alta espaçada, peso leve.'
+      - nome: site
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: '"WWW.AKTL.COM.BR" pequeno no canto inferior direito.'
+    de_graca: []          # os vazios internos das letras são o próprio campo
+    ciclos_extras: []     # nada aninhado em tinta
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [azul-marinho, amarelo]   # encontro K/T na diagonal
+    # o único contato azul×amarelo se dá ATRAVÉS da sombra esfumada (19 m
+    # reportados como esfumada + pergunta) — sem corte à mão direto
+    zero_tt: true
+    riscos_traco_fino:
+      - "WWW.AKTL.COM.BR: hastes estimadas em ~5-6 mm na escala padrão — no limite do risco de depilação"
+      - "descritivo em peso leve e espaçado (muitas ilhas pequenas de vinil entre letras)"
+    defeitos: []
+    perguntas:
+      - >-
+        A sombra escura entre A e K é para EXECUTAR (seria um 4º tom /
+        segundo azul, criando mais uma fronteira tinta×tinta) ou achatar no
+        azul único? Censo mostra traços de tons intermediários mínimos.
+      - "Confirmar visualmente no original se K (azul) e T (amarelo) se encostam de fato ou se há filete branco entre eles."
+      - "A moldura cinza fina em volta do painel (#B7B6B6) é só enquadramento da arte ou entra na pintura?"
+      - "Sem medida no nome do arquivo — vale a altura padrão de 2,45 m?"
+notas_gerais: >-
+  Render vetorial chapado puro (n98 = 4 cores). Layout barato: campo é chapa,
+  3 tintas, zero ciclo extra, zero degradê/aerografia; a única mão de obra de
+  corte à mão é a diagonal K/T se o contato se confirmar. Riscos concentrados
+  nos textos finos cinza.

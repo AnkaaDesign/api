@@ -1,0 +1,98 @@
+layout: argus 14,70
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "argus 14,70 lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FEFEFC"
+    pintura_geral: false
+    n_tintas_aprox: 1
+    tintas:
+      - {nome: bordo, hex: "#721B1B"}
+    elementos:
+      - nome: onda-bordo
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [bordo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Onda dupla dominando a esquerda/baixo do painel (29% da área): banda superior + massa grande inferior, separadas por swoosh branco do campo; sobe de novo no canto direito. Bordas têm sombreado suave (tons #4A1C1A-#5A1B1B e cinzas claros no branco) — ver perguntas."
+      - nome: badge-argus
+        tipo: LOGOMARCA
+        tecnica: AEROGRAFIA
+        cores: [bordo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Selo 3D glossy ~4,2 m de largura: retângulo vermelho com brilho, script Argus e carneiro em cromado com biséis, FRIGORÍFICO branco. Tom contínuo — primeiro trabalho de arte (regra 21/08), adesivo só do contorno externo, depois cobre com fita nas bordas + papel."
+      - nome: slogan-qualidade
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [bordo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Qualidade que reúne em script bordô, sob o badge, sobre o campo branco."
+    de_graca:
+      - "Swoosh branco entre as duas ondas (campo que fica)."
+    ciclos_extras: []
+    degrades: []
+    aerografias:
+      - {onde: "badge-argus inteiro (gloss + cromados + carneiro)", notas: "tom contínuo confirmado pelo censo (n98 ~3000)"}
+    faixas_fita:
+      - {onde: "onda dupla bordô atravessando o painel de 14,70 m", notas: "curva longa e tranquila; substrato não está na arte"}
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~1,1 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "Ligaduras finas do script Qualidade que reúne (conexões entre letras)."
+      - "Pontas afiladas das ondas nas extremidades."
+    defeitos: []
+    perguntas:
+      - "Sombra suave nas bordas da onda (o degradê escuro junto ao swoosh e o cinza no branco): executar em aerografia leve ou achatar em bordô chapado?"
+      - "Substrato (sider/baú liso ou corrugado) para escolher fita amarela x branca na onda?"
+      - "14,70 m de comprimento implica painel de ~2,64 m de altura — confere?"
+  traseira:
+    arquivo: "argus 14,70 traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FEFEFC"
+    pintura_geral: false
+    n_tintas_aprox: 1
+    tintas:
+      - {nome: bordo, hex: "#721B1B"}
+    elementos:
+      - nome: badge-argus
+        tipo: LOGOMARCA
+        tecnica: AEROGRAFIA
+        cores: [bordo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesmo selo glossy da lateral, recomposto no topo; conteúdo idêntico (FRIGORÍFICO Argus)."
+      - nome: slogan-qualidade
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [bordo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesmo script da lateral, sem divergência de texto."
+    de_graca: []
+    ciclos_extras: []
+    degrades: []
+    aerografias:
+      - {onde: "badge-argus", notas: "recomposição fiel do selo da lateral"}
+    faixas_fita: []
+    pares_tt_minimos: []
+    # zero_tt removido na triagem 21/08: o motor mede ~1,1 m de contato real — conferir no zoom com o dono
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "Ligaduras finas do script do slogan."
+    defeitos: []
+    perguntas:
+      - "Traseira quase toda vazia (campo 92,9%): o badge fica só no topo mesmo, sem a onda?"
+    notas: "O 14,70 do nome é da LATERAL; para a traseira vale a altura padrão 2,45 m (a escala por largura do censo não se aplica). Moldura fina escura no contorno do painel parece linha de arte/artboard, não pintura."
+notas_gerais: >
+  Campo branco = chapa nas duas faces; uma única tinta chapada (bordô) e
+  nenhum par tinta-tinta. O custo está em dois lugares: a aerografia do
+  badge (primeiro trabalho, depois coberto com fita+papel) e a onda longa
+  marcada com fita. Os muitos tons do censo são o gloss do badge e o
+  sombreado das bordas da onda, não tintas chapadas extras.

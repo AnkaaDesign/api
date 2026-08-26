@@ -1,0 +1,128 @@
+layout: 3 IRMAOS
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "3 IRMÃOS 8,40 lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4
+    tintas:
+      - {nome: vermelho, hex: "#BA2F1F"}
+      - {nome: vermelho-escuro, hex: "#87261D"}
+      - {nome: dourado, hex: "#F7DB74"}
+      - {nome: verde, hex: "#026536"}
+    elementos:
+      - nome: logo-principal
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [dourado, vermelho, vermelho-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Lock-up completo (UM adesivo): numeral 3 dourado + faixa dourada arqueada + escudo vermelho com IRMÃOS branco + FRIGORÍFICO dourado. Faixa dourada e escudo vermelho compartilham fronteira direta. O 3 é separado da faixa por filete branco (campo) — dourado do 3 NÃO encosta no dourado da faixa. Dourado e vermelho ambos com degradê 2 tons."
+      - nome: pincelada-slogan
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [vermelho, vermelho-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Pincelada vermelha com bordas rasgadas; texto 'Qualidade e Procedência no Abate de suínos.' em branco DENTRO dela = de graça. Degradê sutil (bordas mais escuras) — achatar é decisão do revisor. Elemento contido, não atravessa o painel → vinil, não fita."
+      - nome: selo-sisbi
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [verde, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Blocos verdes com letras SISBI brancas (de graça); micro-textos pretos acima/abaixo (~1,6 mm/px na lateral → letras pequenas, traço fino)."
+    de_graca:
+      - "IRMÃOS branco dentro do escudo vermelho"
+      - "miolo branco do numeral 3 e filete branco entre o 3 e a faixa dourada"
+      - "texto branco dentro da pincelada vermelha"
+      - "letras SISBI brancas dentro dos blocos verdes"
+    ciclos_extras: []
+    degrades:
+      - {onde: faixa dourada + numeral 3 + FRIGORIFICO, de: dourado-escuro, para: dourado-claro, tons_sugeridos: 2}
+      - {onde: escudo vermelho, de: vermelho-escuro, para: vermelho, tons_sugeridos: 2}
+      - {onde: pincelada do slogan, de: vermelho-escuro, para: vermelho, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [dourado, vermelho]
+    # zero_tt removido na triagem 21/08: render suave de baixa-res — contatos viram borda de aerografia/esfumado
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "micro-textos pretos do selo SISBI (altura de letra na casa de poucos mm)"
+      - "filete branco de contorno do numeral 3 (depilação fina)"
+      - "bordas rasgadas da pincelada (muitos respingos/farpas pequenas)"
+    defeitos: []
+    perguntas:
+      - "Dourado: tinta metálica única ou degradê 2 tons esfumado?"
+      - "Bordas rasgadas da pincelada: manter fidelidade do rasgado ou simplificar contorno?"
+      - "Substrato (baú liso ou corrugado)? Não está na arte."
+  traseira:
+    arquivo: "3 IRMÃOS 8,40 traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4
+    tintas:
+      - {nome: vermelho-escuro, hex: "#87261D"}
+      - {nome: dourado, hex: "#F7DB74"}
+      - {nome: verde, hex: "#026536"}
+    elementos:
+      - nome: logo-principal
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [dourado, vermelho, vermelho-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Mesmo lock-up da lateral, recomposto maior no canto superior esquerdo."
+      - nome: flamula-slogan
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [vermelho, vermelho-escuro, dourado]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Na traseira o slogan virou FLÂMULA (fita com dobras e bordas douradas), não pincelada. Texto em caixa alta branca dentro = de graça. Bordas douradas encostam no vermelho da flâmula → fronteira dourado×vermelho também aqui."
+      - nome: selo-sisbi
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [verde, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Idêntico ao da lateral; micro-textos pretos = traço fino."
+      - nome: contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Ícone Instagram + @frigorifico3irmaos + (48) 3658-2724, tudo monocromático vermelho-escuro. Miolo branco do ícone = de graça."
+    de_graca:
+      - "IRMÃOS branco e miolo do 3"
+      - "texto branco dentro da flâmula"
+      - "letras SISBI brancas"
+      - "miolo branco do ícone do Instagram"
+    ciclos_extras: []
+    degrades:
+      - {onde: faixa dourada + 3 + FRIGORIFICO, de: dourado-escuro, para: dourado-claro, tons_sugeridos: 2}
+      - {onde: escudo vermelho, de: vermelho-escuro, para: vermelho, tons_sugeridos: 2}
+      - {onde: flamula do slogan, de: vermelho-escuro, para: vermelho, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [dourado, vermelho]
+    # zero_tt removido na triagem 21/08: render suave de baixa-res — contatos viram borda de aerografia/esfumado
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "micro-textos pretos do selo SISBI"
+      - "detalhe fino das dobras da flâmula"
+    defeitos: []
+    perguntas:
+      - "Slogan em elemento diferente por face (pincelada na lateral × flâmula na traseira) — confirmar que é intencional."
+notas_gerais: "Medida declarada 8,40 m (lateral ~1,58 mm/px; traseira usar altura 2,45 m → ~1,72 mm/px). Fundo do render da lateral tem vinheta cinza-clara (L* 93–100) que é sombreado do render, NÃO pintura — campo é CHAPA branca nas duas faces. Conteúdo textual bate entre as faces (sem truncamento/espelhamento); a traseira é recomposição legítima. Nenhum aninhamento tinta-sobre-tinta → zero ciclos extras; única fronteira de corte à mão é dourado×vermelho (arco do logo e bordas da flâmula)."
+
+# [triagem 21/08] 'preto' removido das tintas: é o micro-texto do selo SISBI, abaixo do piso de semente (0,05%) — aparece como risco de traço fino, não como tinta
+# [triagem 21/08] hex do vermelho removido da TRASEIRA: cada face tem exposição própria (regra do 137) — o hex da lateral não vale na traseira (ΔE 22 medido)

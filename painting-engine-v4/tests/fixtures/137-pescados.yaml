@@ -1,0 +1,42 @@
+layout: 137 PESCADOS
+fonte: ficha
+faces:
+  lateral:
+    arquivo: "137 PESCADOS lateral.png"
+    escala_mm_px: {valor: 0.7906, tol_pct: 2}
+    painel_mm: {w: 8771, h: 2450, tol_pct: 2}
+    campo: {classe: TINTA, hex: "#AAACAE"}   # cinza L*70,3 — abaixo do vazio 70–91
+    pintura_geral: true
+    n_dias: 2   # R2-4: calendário por regra (dono, 21/08)
+    demao_fundo_m2: {valor: 17.65, tol_pct: 8}
+    n_tintas: {valor: 7, tol: 1}   # campo cinza + marinho + 5 azuis do mosaico (+ branco das estrelas)
+    tintas:
+      - {nome: marinho, hex: "#14224A", m2: 1.489}
+      - {nome: azul-1, hex: "#2C5EA3", m2: 0.679}
+      - {nome: azul-2, hex: "#235393", m2: 0.572}
+      - {nome: azul-3, hex: "#233D7A", m2: 0.518}
+      - {nome: azul-4, hex: "#2769B4", m2: 0.313}
+      - {nome: azul-5, hex: "#1D4785", m2: 0.272}
+    tinta_m2_total: {valor: 3.84, tol_pct: 12}
+    fronteira_tt_m: {valor: 38.3, tol_pct: 15}
+    mosaico: {triangulos: 122, cores: 5, faces_maior_10cm2: 116}
+    ciclos_extras:
+      - bandeira: estrelas/faixa brancas sobre azul ⇒ pintar azul → envernizar → adesivo novo → branco
+    degrades_n: 0
+    aerografias_n: 0
+    adesivos_n: {valor: 7, tol: 0}  # 2 mosaicos, "Deus seja…", "137", "PESCADOS", site, instagram — R6 (dono, 22/08): o vão enorme entre site e instagram separa; registro de mesma linha vence o vão só até ~4× a altura
+    riscos_traco_fino:
+      - script "Deus seja sempre louvado": 22,5% da forma < 5 mm (itálica de contraste alto)
+    notas: >
+      Registro entre site+Instagram vence aproveitamento de filme (vão 1 940 mm e
+      mesmo assim UMA tira 5 321×152). Adjacência do mosaico: folha única com
+      depilação progressiva, nunca folhas registradas por cor.
+  traseira:
+    arquivo: "137 PESCADOS traseira.png"
+    campo: {classe: TINTA, hex: "#7E8182"}   # exposição própria da face (mapa afim ~ rear=0.517·lat+38)
+    pintura_geral: true
+    hexes_transferiveis: false   # cores NÃO batem hex a hex entre faces
+    defeitos:
+      - script truncado — "us seja sempre louvado" (falta o "De"); comparar faces TEM de acusar
+    riscos_traco_fino:
+      - script 95,5% da forma < 5 mm (819 mm de largura)

@@ -1,0 +1,32 @@
+layout: BURES 1
+fonte: doutrina   # zero T-T medido e confirmado (CONHECIMENTO §2.1) + análise visual 21/08
+faces:
+  lateral:
+    arquivo: "BURES 1.png"
+    campo: {classe: CHAPA, hex: "#FFFFFF"}
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    zero_tt: true    # TODAS as cores separadas por filete de chapa de 1–10 cm ⇒ 1 sessão, 1 dia
+    fronteira_tt_m: {valor: 0.0, tol_abs: 0.5}
+    elementos:
+      - nome: painel-dourado-esquerdo
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        notas: rampa vertical de dourado (claro→escuro) na coluna esquerda
+      - nome: faixa-azul-curva
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        notas: S-curve vertical, separada do dourado por filete branco
+      - nome: logo-bures
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul, dourado, cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: false   # estrela dourada separada do disco azul por filete branco
+    degrades:
+      - {onde: painel dourado, de: dourado-claro, para: dourado-escuro, tons_sugeridos: 2}
+    aerografias: []
+    notas: >
+      O caso-armadilha do seeder: os "3 azuis separados" eram artefato do grid.
+      A rampa dourada NÃO pode virar N tintas chapadas — pureza modal baixa ⇒ rampa.
+      Detector de vizinhança NÃO pode dilatar por cima dos filetes (B4/B6).

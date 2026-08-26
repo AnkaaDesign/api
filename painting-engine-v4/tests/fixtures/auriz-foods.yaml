@@ -1,0 +1,168 @@
+layout: AURIZ FOODS
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "AURIZ FOODS 640 lateral.png"
+    campo:
+      classe: CHAPA      # branco 36% — dominante, mas a maior parte do painel recebe tinta
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 6    # amarelo, laranja, marrom, verde-claro, verde-escuro, cinza-escuro (foto = aerografia, fora da conta)
+    tintas:
+      - {nome: amarelo, hex: "#FBCF0C"}
+      - {nome: laranja, hex: "#FAA932"}
+      - {nome: marrom, hex: "#67462F"}
+      - {nome: verde-claro, hex: "#77C14F"}
+      - {nome: verde-escuro, hex: "#35AD54"}
+      - {nome: cinza-escuro, hex: "#383838"}
+    elementos:
+      - nome: lockup-auriz-foods
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [marrom, laranja, verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Colinas verde-claro e verde-escuro se sobrepõem e o sol laranja encosta nelas; 'auriz' marrom e 'FOODS' laranja aparentemente não encostam nas colinas (conferir folga)."
+      - nome: onda-amarela-inferior
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [amarelo, laranja]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa que ocupa toda a base do painel; clareia à esquerda e esquenta para laranja no centro-direita. Encosta no swoosh cinza-escuro."
+      - nome: swoosh-cinza-escuro
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Banda curva que corre sobre a onda amarela e sobe contornando o campo verde até o topo; largura variável (taper)."
+      - nome: campo-verde-direito
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Grande campo verde do canto direito, até as bordas do painel; recebe a foto do prato. Encosta no swoosh cinza-escuro."
+      - nome: foto-prato
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: []
+        pousa_sobre: campo-verde-direito
+        toca_tinta: true
+        notas: "Prato branco com coxas de frango assadas, batatas rústicas, pote de molho, pimentas e ervas — tom contínuo (n98 da lateral na casa das centenas de milhares). Regra 21/08: aerografia é o PRIMEIRO trabalho; depois cobrir com fita nas bordas + papel."
+      - nome: tagline-sabor
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: onda-amarela-inferior
+        toca_tinta: true
+        notas: "'Sabor de um novo dia' em cinza-escuro sobre o amarelo — aninhado em tinta."
+      - nome: instagram-handle
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Ícone + 'aurizfoods'. Aparenta pousar no branco entre o swoosh e o amarelo; se estiver sobre o amarelo vira mais um aninhamento (ver perguntas)."
+    de_graca: []
+    ciclos_extras:
+      - "tagline cinza-escuro aninhada na onda amarela (pinta amarelo -> seca/enverniza -> novo adesivo -> cinza-escuro)"
+      - "foto aerografada emoldurada pelo campo verde (aerografia primeiro, cobre, depois pinta o verde ao redor)"
+    degrades:
+      - {onde: onda-amarela-inferior, de: "amarelo #FBCF0C", para: "laranja #FAA932", tons_sugeridos: 2}
+      - {onde: campo-verde-direito, de: "verde-claro #77C14F", para: "verde-escuro #35AD54", tons_sugeridos: 2}
+    aerografias:
+      - {onde: foto-prato, notas: "foto completa (frango, batatas, molho, pimentas); adesivo só do contorno externo do conjunto"}
+    faixas_fita:
+      - "swoosh cinza-escuro (onda atravessa o painel — fita amarela se chapa lisa; branca cortada se corrugada)"
+      - "curva superior da onda amarela"
+    pares_tt_minimos:
+      - [cinza-escuro, amarelo]
+      - [cinza-escuro, verde-escuro]
+      - [verde-claro, verde-escuro]
+      - [laranja, verde-claro]
+    zero_tt: false
+    riscos_traco_fino:
+      - "contorno do ícone do Instagram (traço fino)"
+    defeitos: []
+    perguntas:
+      - "Substrato da lateral (chapa lisa ou corrugada)? Decide fita amarela vs branca cortada nas curvas."
+      - "O handle do Instagram pousa no branco ou no amarelo? (muda ciclo)"
+  traseira:
+    arquivo: "AURIZ FOODS 640 traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 6
+    tintas:
+      - {nome: amarelo, hex: "#FBCF0C"}
+      - {nome: laranja, hex: "#FAA932"}
+      - {nome: marrom, hex: "#67462F"}
+      - {nome: verde-claro, hex: "#77C14F"}
+      - {nome: verde-escuro, hex: "#35AD54"}
+      - {nome: cinza-escuro, hex: "#383838"}
+    elementos:
+      - nome: lockup-auriz-foods
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [marrom, laranja, verde-claro, verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Mesmo lock-up da lateral, grande e centralizado; colinas se sobrepõem e sol laranja encosta nelas."
+      - nome: onda-amarela-inferior
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Na traseira o amarelo é CHAPADO (n98=7, sem intermediários no censo) — diverge do degradê da lateral."
+      - nome: swoosh-cinza-escuro
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Onda que separa o branco do amarelo; encosta no amarelo."
+      - nome: qr-code
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: onda-amarela-inferior
+        toca_tinta: true
+        notas: "QR code cinza-escuro sobre o amarelo — aninhado em tinta e cheio de módulos minúsculos."
+      - nome: instagram-handle
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: onda-amarela-inferior
+        toca_tinta: true
+        notas: "Ícone + 'aurizfoods' sobre o amarelo, canto inferior direito."
+    de_graca: []
+    ciclos_extras:
+      - "QR code cinza-escuro aninhado no amarelo"
+      - "handle do Instagram cinza-escuro aninhado no amarelo (mesma rodada do QR — mesma tinta, mesma profundidade)"
+    degrades: []
+    aerografias: []
+    faixas_fita:
+      - "swoosh cinza-escuro (curva atravessa a traseira)"
+    pares_tt_minimos:
+      - [cinza-escuro, amarelo]
+      - [verde-claro, verde-escuro]
+      - [laranja, verde-claro]
+    zero_tt: false
+    riscos_traco_fino:
+      - "módulos do QR code (traço fino em série — risco alto de depilação/aplicação)"
+      - "contorno do ícone do Instagram"
+    defeitos:
+      - "Resíduo de linhas-guia CIANO nas bordas (censo: #69FFFF, #91FFFF etc., visível na borda esquerda/topo) — artefato de recomposição, não pintar."
+      - "Amarelo chapado na traseira vs degradê amarelo->laranja na lateral — divergência de arte entre faces (confirmar intenção)."
+    perguntas:
+      - "QR code em pintura: confirmar tamanho mínimo do módulo em mm e se o cliente exige QR funcional."
+      - "Foto do prato só existe na lateral — confirmar que a traseira é sem aerografia mesmo."
+notas_gerais: >-
+  Lateral declarada 6,40 m (altura implicada 2,41 m — bate com painel padrão).
+  Traseira sem medida própria: na altura padrão 2,45 m a largura implicada é ~2,68 m, plausível.
+  Textos coincidem entre as faces ('aurizfoods'); sem truncamento nem espelhamento.
+  A lateral tem n98 enorme só por causa da foto; todo o resto é vetor chapado.

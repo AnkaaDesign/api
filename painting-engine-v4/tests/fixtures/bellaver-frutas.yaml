@@ -1,0 +1,60 @@
+layout: BELLAVER FRUTAS
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "BELLAVER FRUTAS.png"
+    campo:
+      classe: CHAPA          # L* 94,3 (#EEEFEE), neutro na faixa 91-100
+      hex_aprox: "#EEEFEE"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: vermelho, hex: "#FF0000"}
+      - {nome: verde-escuro, hex: "#275731"}
+      - {nome: verde-claro, hex: "#009933"}
+    elementos:
+      - nome: simbolo-maca
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Maçã em textura 'riscada' (pinceladas vetoriais): a textura é feita por estrias brancas (cor do campo) recortadas dentro do vermelho chapado — não é aerografia (n98=4, render chapado)."
+      - nome: folha
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [verde-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Rabo da folha afina até uma ponta que converge para o contorno da maçã, mas há filete de campo visível entre os dois em todo o trajeto (verificado em recorte ampliado)."
+      - nome: texto-bellaver
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Wordmark grande; miolos das letras são campo (ficam de graça, trivial)."
+      - nome: texto-frutas-selecionadas
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Itálico, alinhado sob o fim do wordmark; altura ~100 mm na escala padrão — sem risco."
+    de_graca:
+      - "Estrias brancas da textura da maçã: exatamente a cor do campo — ilhas de vinil que ficam e saem no fim, nada a pintar."
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "Estrias da maçã: ilhas brancas de vinil muito estreitas e riscos vermelhos finos entre elas — risco alto de descolamento/depilação na textura riscada."
+      - "Ponta do rabo da folha: taper muito fino no extremo esquerdo."
+    defeitos: []
+    perguntas:
+      - "Medida não declarada no nome do arquivo — assumir altura padrão 2,45 m (proporção 9923x3144 implica ~7,7 m de comprimento)?"
+      - "Há uma moldura fina escura (~#373535) contornando o painel inteiro na arte — é só borda do arquivo ou um filete a pintar?"
+      - "Só uma face fornecida — existe traseira (recomposição) a analisar?"
+notas_gerais: "Render vetorial chapado (n98=4). Layout simples: lock-up único (maçã + folha + Bellaver + descritivo) sobre chapa branca, zero contato tinta-tinta, zero ciclo extra. Todo o custo está na depilação da textura riscada da maçã. Verde-escuro e verde-claro não se encostam entre si nem no vermelho: as três tintas podem pintar na mesma rodada."

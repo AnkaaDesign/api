@@ -1,0 +1,63 @@
+layout: BERGAMINI
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "BERGAMINI 11,50.png"
+    campo:
+      classe: CHAPA          # #FFFFFF, L* 100
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 2
+    tintas:
+      - {nome: verde-escuro, hex: "#245237"}
+      - {nome: vermelho, hex: "#EE3338"}
+    elementos:
+      - nome: faixas-verdes
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Banda de listras horizontais RETAS no topo (27% da área): listra superior e inferior de largura total + fileiras de segmentos à esquerda e à direita interrompidos pelo clareado do letreiro, inclusive segmentos curtos entre os pingos dos 'i'. Retas e compridas (até 11,5 m) — vinil normal, emenda de bobina não é problema."
+      - nome: letreiro-bergamini
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Wordmark vermelho grande dentro do clareado branco da banda; todos os segmentos verdes param antes das letras com filete branco visível (~30 mm) — verificado em recorte ampliado, inclusive nos pingos dos 'i' e no descendente do 'g'."
+      - nome: texto-razao-social
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "COMÉRCIO DE FRUTAS BERGAMINI LTDA."
+      - nome: texto-email-fone
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "BERGAMINI@BERGAMINIFRUTAS.COM / FONE: 3028-5203 / 3025-1433."
+      - nome: texto-site-endereco
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "WWW.BERGAMINIFRUTAS.COM / AV. JK 1254 - CEASA - BOX: 307/309/311/313/314 - FOZ DO IGUAÇU-PR. Linha menor do painel (~100 mm de altura), ainda confortável."
+    de_graca: []
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino: []
+    defeitos: []
+    perguntas:
+      - "Há uma moldura fina escura (~#373535) contornando o painel na arte — borda do arquivo ou filete a pintar?"
+      - "Comprimento declarado 11,50 m implica altura de painel ~2,11 m (menor que os 2,45 m padrão) — confirmar altura real do baú."
+      - "Só uma face fornecida — existe traseira (recomposição) a analisar?"
+notas_gerais: "Render vetorial chapado (n98=3). Duas tintas que nunca se tocam (filetes brancos de campo em toda vizinhança letreiro×listras) — verde e vermelho pintam na mesma rodada, zero corte à mão, zero ciclo extra. A banda de listras é o maior volume de tinta (27% da área); listras retas, não candidatas a fita orgânica."

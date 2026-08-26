@@ -1,0 +1,71 @@
+layout: BOM PEIXE
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BOM PEIXE 9,50.png"
+    campo:
+      classe: CHAPA      # #FFFFFF, L* 100, 86,2% do painel
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 2    # azul e vermelho; render vetorial chapado (n98=2)
+    tintas:
+      - {nome: azul, hex: "#204D7F"}
+      - {nome: vermelho, hex: "#CF3240"}
+    elementos:
+      - nome: peixe-lockup
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul, vermelho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: >
+          Contorno externo do peixe em azul; crescente vermelho corre por
+          DENTRO do contorno, encostado no azul na cabeça (arcos superior e
+          inferior) e na cauda (atrás do X azul). Miolo do peixe é branco
+          (campo). Letras "BOM PEIXE" azuis pousam no miolo branco, separadas
+          do vermelho por filete de campo.
+      - nome: bolhas
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "4 círculos azuis à esquerda da boca; tamanho confortável."
+      - nome: registrado
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "® azul pequeno acima da cauda (~110 mm de diâmetro)."
+      - nome: tagline
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: '"Qualidade e confiança sempre à mesa", azul, sob o logo.'
+    de_graca:
+      - "miolo branco do peixe (ilha de vinil entre o crescente vermelho e as letras; fica e sai no fim)"
+      - "filete branco entre as letras azuis e o crescente vermelho"
+    ciclos_extras: []    # nenhum aninhamento tinta-sobre-tinta
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [azul, vermelho]   # cabeça (arcos do crescente) e cauda
+    zero_tt: false
+    riscos_traco_fino:
+      - "® pequeno: anel e letra R finos, depilação delicada"
+      - "pontas afiadas do crescente vermelho na boca e na cauda (bicos longos e finos)"
+    defeitos: []
+    perguntas:
+      - "Censo acusa cinza-escuro #373535 em 0,12% (~39 mil px) que não aparece na leitura visual; pela área bate com uma BORDA/keyline fina de ~1,4 px no perímetro da arte — confirmar que não é elemento a pintar."
+      - "O ® entra na pintura ou cai (é miúdo para pistola)?"
+notas_gerais: >
+  Medida declarada no arquivo: 9,50 m; altura implicada 2,425 m (escala
+  0,855 mm/px). Layout de 2 tintas com UMA fronteira compartilhada longa
+  (azul×vermelho acompanhando todo o crescente, na cabeça e na cauda) —
+  é onde vai o corte à mão. Sem fundo, sem ciclo, sem degradê. Adesivos:
+  lock-up do peixe é UM adesivo (envelope alto, vai em bobina 120 com
+  emenda no comprimento); tagline separada (vão grande abaixo do logo).

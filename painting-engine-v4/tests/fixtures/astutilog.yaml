@@ -1,0 +1,156 @@
+layout: ASTUTILOG (sider PRETO)
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "astutilog-sider PRETO lateral.png"
+    campo:
+      classe: CHAPA          # VALIDAÇÃO MANUAL R4: "sider PRETO" no nome = LONA de fábrica;
+                             # o fundo não se pinta (override do motor + divergência material-sider)
+      hex_aprox: "#000000"
+    pintura_geral: false
+    n_tintas_aprox: 6        # preto (fundo), branco, cinza-claro, cinza-chumbo, cinza-medio (degrade), amarelo (selo SASSMAQ)
+    tintas:
+      - {nome: preto, hex: "#000000"}
+      - {nome: branco, hex: "#FFFFFF"}
+      - {nome: cinza-claro, hex: "#96989B"}
+      - {nome: cinza-medio, hex: "#858789"}
+      - {nome: cinza-chumbo, hex: "#2C2C2B"}
+    elementos:
+      - nome: simbolo-esfera
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [branco, cinza-medio, cinza-chumbo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "esfera em 4 gomos, cada gomo com gradiente branco-cinza-grafite; separacoes internas esfumadas; alternativa aerografia do simbolo inteiro"
+      - nome: wordmark-astuti
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "ASTUTI em branco, bold; kerning aparenta nao encostar no LOG"
+      - nome: wordmark-log
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: selo-desde-2003
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [cinza-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "script fina 'Desde' + moldura fina de cantos arredondados — traco fino"
+      - nome: swoosh-prata
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [branco, cinza-medio]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "linha curva prateada com degrade branco-cinza atravessando o painel inteiro; delimita a banda chumbo inferior"
+      - nome: banda-chumbo-rodape
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [cinza-chumbo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "cinza #2C2C2B sobre campo preto: contraste baixissimo — conferir se aparece de fato"
+      - nome: site
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: cinza-chumbo
+        toca_tinta: true
+        notas: "www.astutilogistica.com.br aninhado na banda chumbo"
+      - nome: selo-sassmaq
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [amarelo-selo, branco, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "selo de terceiro (SASSMAQ) minusculo no canto inferior esquerdo; texto ilegivel nesta escala"
+    de_graca: []             # campo e tinta; nada tem a cor do campo
+    ciclos_extras:
+      - "todos os elementos sobre o fundo preto (campo=tinta): adesivo novo apos secagem do fundo"
+      - "site branco aninhado na banda cinza-chumbo: segundo nivel de aninhamento, novo ciclo"
+    degrades:
+      - {onde: simbolo-esfera, de: branco, para: cinza-grafite, tons_sugeridos: 3}
+      - {onde: swoosh-prata, de: branco, para: cinza-medio, tons_sugeridos: 2}
+    aerografias: []          # nenhum tom fotografico; esfera pode virar aerografia por decisao do revisor
+    faixas_fita:
+      - "swoosh-prata: curva suave atravessando o painel — fita (amarela se chapa lisa; sider corrugado pede fita branca cortada)"
+    pares_tt_minimos:
+      - [branco, cinza-chumbo]      # swoosh prata e site contra a banda chumbo
+    zero_tt: false
+    riscos_traco_fino:
+      - "selo 'Desde 2003': script e moldura finas"
+      - "selo SASSMAQ: texto minusculo ilegivel"
+      - "linha do swoosh afina nas extremidades (<10 mm)"
+    defeitos: []
+    perguntas:
+      - "O nome do arquivo diz 'sider PRETO': a lona/sider ja e preta de fabrica? Se sim, o fundo preto sai de graca e muda todo o plano (sem demao geral)."
+      - "Substrato corrugado ou lona lisa? Decide a fita do swoosh (amarela x branca cortada)."
+      - "Manter o selo SASSMAQ pintado nesse tamanho ou omitir/ampliar?"
+      - "Banda chumbo #2C2C2B sobre preto: cliente confirma esse quase-preto ou unifica com o fundo?"
+  traseira:
+    arquivo: "astutilog-sider PRETO traseira.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#9D1B22"
+    pintura_geral: true
+    n_tintas_aprox: 5        # vermelho-escuro (fundo), branco-gelo, grafite, cinzas do degrade do simbolo
+    tintas:
+      - {nome: vermelho-escuro, hex: "#9D1B22"}
+      - {nome: branco-gelo, hex: "#E6E6E6"}
+      - {nome: grafite, hex: "#373535"}
+      - {nome: cinza-medio, hex: "#858789"}
+    elementos:
+      - nome: simbolo-esfera
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [branco-gelo, cinza-medio, grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "mesmo simbolo da lateral, gomos com gradiente"
+      - nome: wordmark-astuti
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco-gelo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: wordmark-log
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "na lateral LOG e cinza-CLARO; aqui e grafite — divergencia de identidade"
+      - nome: site
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "na lateral o site e branco sobre chumbo; aqui grafite direto no campo"
+    de_graca: []
+    ciclos_extras:
+      - "todos os elementos sobre o fundo vermelho-escuro (campo=tinta): adesivo novo apos secagem do fundo"
+    degrades:
+      - {onde: simbolo-esfera, de: branco, para: grafite, tons_sugeridos: 3}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true            # elementos so encostam no campo; separacoes internas do simbolo sao esfumadas
+    riscos_traco_fino: []
+    defeitos:
+      - "campo muda de PRETO (lateral) para VERMELHO-ESCURO (traseira) num layout chamado 'sider PRETO' — divergencia forte entre faces"
+      - "cor do 'LOG' diverge entre faces (cinza-claro na lateral, grafite na traseira); site tambem muda (branco -> grafite)"
+    perguntas:
+      - "Traseira vermelho-escura e intencional (ex.: porta/para-choque do cliente) ou erro de arte?"
+      - "Conferir orientacao do simbolo entre faces — possivel espelhamento (nao da para cravar no preview)."
+      - "Pantone do vermelho-escuro #9D1B22?"
+notas_gerais: "Sem medida declarada nos arquivos (altura padrao 2,45 m; lateral ~12,4 m pela proporcao). Se o sider for preto de fabrica, a lateral perde a demao geral e os elementos passam a ser pintados direto na lona — confirmar antes de orcar. ASTUTI branco e #FFFFFF na lateral e #E6E6E6 na traseira (provavel ruido de render, tratar como o mesmo branco)."

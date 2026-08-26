@@ -1,0 +1,59 @@
+layout: CIPRIANO
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CIPRIANO.png"
+    campo:
+      classe: TINTA      # laranja, L* 66,4 — demão de fundo no painel inteiro
+      hex_aprox: "#F48420"
+    pintura_geral: true
+    n_tintas_aprox: 3    # laranja-campo, cinza-escuro, branco (a bandeira é aerografia, não tinta chapada)
+    tintas:
+      - {nome: laranja-campo, hex: "#F48420"}
+      - {nome: cinza-escuro, hex: "#343333"}
+      - {nome: branco, hex: "#E6E6E6"}
+    elementos:
+      - nome: simbolo-estrada
+        tipo: LOGOMARCA  # quadrado arredondado: cunha branca + estrada/C em cinza-escuro
+        tecnica: CHAPADA
+        cores: [branco, cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "branco e cinza separados por filetes na cor do campo (diagonal e faixa central da estrada) — sem fronteira tinta-tinta aparente"
+      - nome: texto-cipriano
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "lock-up com o símbolo e o subtítulo = UM adesivo"
+      - nome: texto-caminhoes-transportes
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [cinza-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: mapa-brasil-bandeira
+        tipo: FOTO       # mapa do Brasil preenchido com bandeira em tecido ondulando
+        tecnica: AEROGRAFIA
+        cores: [verde, amarelo, azul, branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "tom contínuo fotográfico (dobras, sombras); sangra na borda direita e no topo do painel; adesivo só do contorno externo do mapa"
+    de_graca: []         # nada na cor do campo fora dos filetes internos do símbolo
+    ciclos_extras: []
+    degrades: []
+    aerografias:
+      - {onde: mapa-brasil-bandeira, notas: "REGRA 21/08: primeiro trabalho de arte, depois da demão geral laranja; ao terminar, cobrir com fita nas bordas + papel no centro antes do resto da logomarca. Micro-detalhes dentro da aerografia: faixa 'ORDEM E PROGRESSO' (letras ~35 mm) e estrelas brancas pequenas"}
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true        # nenhuma tinta chapada toca outra tinta chapada (filetes do campo separam tudo)
+    riscos_traco_fino:
+      - "dentro da aerografia: letras verdes 'ORDEM E PROGRESSO' (~35 mm) e estrelas brancas — trabalho fino de máscara/pincel"
+    defeitos: []
+    perguntas:
+      - "a bandeira-mapa parece asset de banco de imagem — conferir no original em alta se há marca d'água e se o cliente tem o arquivo limpo"
+      - "manter o nível de detalhe da bandeira (faixa com texto + estrelas) ou simplificar?"
+      - "sem medida declarada no nome do arquivo — assumida altura 2,45 m (largura ~13,9 m); confirmar"
+notas_gerais: "n98=21090 confirma tom contínuo (a bandeira). Fora a aerografia, o layout é simples: fundo laranja geral + lock-up cinza/branco sem nenhum toque tinta-tinta. Face única — sem traseira para comparar."

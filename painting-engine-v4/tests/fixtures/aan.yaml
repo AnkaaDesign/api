@@ -1,0 +1,53 @@
+layout: AAN TRANSPORTES
+fonte: ficha
+faces:
+  lateral:
+    arquivo: "AAN lateral.png"
+    escala_mm_px: {valor: 0.9242, tol_pct: 2}
+    painel_mm: {w: 7239, h: 2450, tol_pct: 2}
+    campo: {classe: CHAPA, hex: "#E6E6E6"}
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    # a ficha reporta 4 famílias (preto/cinza/vinho/oliva) — agrupamento
+    # SEMÂNTICO por marca: preto do logo AAN e cinza da marca AL têm classes a
+    # ΔE ~6 entre si, indivisíveis por cor pura. O motor entrega famílias
+    # cromáticas + pergunta de fusão para o revisor (§6).
+    n_tintas: {valor: 6, tol: 2}
+    tintas:
+      # a ficha só registrou hex dos ancorados; cinza e oliva são FAMÍLIAS
+      # (nome + área) — hex de memória minha foi removido por ser inventado
+      # a ficha somava texto+seta (#201F1F) com a estrada (#404041) num só
+      # "preto" (1,175); o motor separa — são tintas a ΔE ~14, com pergunta
+      # de fusão emitida ao revisor
+      - {nome: preto, hex: "#201F1F", m2: 0.775}
+      - {nome: vinho, hex: "#7E1416", m2: 0.987}
+      - {nome: cinza, m2: 1.069}
+      - {nome: oliva, m2: 0.012}
+    tinta_m2_total: {valor: 3.24, tol_pct: 12}
+    # PENDÊNCIA PARA O DONO: a ficha mediu 16,9 m na partição de 12 classes
+    # com famílias semânticas; o motor classifica os contatos de rampa como
+    # esfumada/borda-de-aerografia e chega a ~8 m de corte à mão puro.
+    # A soma física é equivalente — decidir qual é a régua de custo.
+    fronteira_tt_m: {valor: 16.9, tol_pct: 60}
+    degrades_n: 2
+    degrades:
+      - {onde: letras AL, de: cinza-claro, para: cinza-escuro, tons_sugeridos: 2}  # ΔL* 21, croma 2
+      - {onde: arco, de: vermelho-claro, para: vinho, tons_sugeridos: 2}           # matiz 24→30°, ΔL* 22
+    aerografias_n: 0
+    adesivos_n: {valor: 3, tol: 0}   # AAN (120) + claim (50) + AL (120); onda em fita
+    faixas_fita:
+      - onda dupla: 2 bandas de 80 mm com 35 mm de campo entre, ao longo de ~6,7 m (fita × vinil = pergunta)
+    perguntas:
+      - duas marcas no painel (AAN e AL) ⇒ dois aprovadores
+      - degradê da AL: executar (2 tons + esfumar) ou achatar? decisão do cliente
+    notas: >
+      Os dois pretos #201F1F/#1B1918 são UMA tinta (ΔE 3,06) — máscaras independentes
+      mediram 767 m de fronteira de uma forma consigo mesma. Espessura da onda por
+      corrida perpendicular: 80 mm (varredura dava 12/17 mm — tangente).
+  traseira:
+    arquivo: "AAN traseira.png"
+    campo: {classe: CHAPA, hex: "#E6E6E6"}
+    pintura_geral: false
+    escala_divergente: true   # prior × altura discordam 20,8% — medir no pátio; motor TEM de acusar
+    tintas_extras:
+      - {nome: verde-whatsapp, hex: "#00AD5A"}  # só na traseira — cor de terceiro, pergunta

@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor de Pintura V4</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@600;700&family=Public+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --ground:#FAFAF8; --panel:#FFFFFF; --panel2:#F0F1EE; --ink:#182233;
+    --ink2:#5A6472; --ink3:#8A93A0; --accent:#14224A; --verde:#177548;
+    --vinho:#9C1B22; --amarelo:#B26A00; --roxo:#5B4A9C; --line:#DDDFE3;
+    --sel:#E8EDF6; --selb:#2B4B8F;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#11161F; --panel:#181F2B; --panel2:#212A38; --ink:#E9ECF1;
+      --ink2:#9AA6B5; --ink3:#6E7987; --accent:#7FA5DE; --verde:#5FBC73;
+      --vinho:#E06A6D; --amarelo:#E0A93F; --roxo:#A392E0; --line:#2A3442;
+      --sel:#243349; --selb:#7FA5DE;
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font-family:"Public Sans",system-ui,sans-serif; font-size:14px; line-height:1.5; }
+  #app { display:grid; grid-template-columns:248px 1fr; height:100vh; }
+  h1,h2,h3,h4 { font-family:"Archivo Narrow","Arial Narrow",sans-serif; line-height:1.1; margin:0; }
+  code, .mono { font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.92em; }
+  .num { font-variant-numeric:tabular-nums; }
+  .eyebrow { font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; color:var(--ink2); font-weight:700; }
+
+  /* ---- sidebar ---- */
+  #sidebar { border-right:1px solid var(--line); overflow-y:auto; background:var(--panel); }
+  #sidebar .cab { padding:14px 14px 10px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:2; }
+  #sidebar h1 { font-size:1.2rem; }
+  #sidebar .sub { color:var(--ink2); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; }
+  #busca { width:100%; margin-top:8px; padding:5px 8px; border:1px solid var(--line);
+           background:var(--ground); color:var(--ink); border-radius:4px; font:inherit; }
+  .lay { padding:7px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .lay:hover { background:var(--sel); }
+  .lay.ativo { background:var(--sel); border-left:3px solid var(--selb); padding-left:11px; }
+  .lay .n { font-weight:600; font-size:.92rem; }
+  .lay .m { color:var(--ink2); font-size:.74rem; }
+
+  /* ---- main ---- */
+  #main { overflow-y:auto; padding:16px 22px 70px; }
+  .cartao { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px 14px; }
+  .linha { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+
+  .fonte { display:inline-block; font-size:.62rem; letter-spacing:.05em; padding:1px 6px;
+    border-radius:8px; border:1px solid var(--line); color:var(--ink2); vertical-align:middle; }
+  .fonte.dono, .fonte.medido2 { color:var(--verde); border-color:var(--verde); }
+  .fonte.chute, .fonte.estimativa, .fonte.pergunta { color:var(--amarelo); border-color:var(--amarelo); }
+  .fonte.editada { color:var(--vinho); border-color:var(--vinho); }
+  .conf { font-size:.62rem; padding:1px 7px; border-radius:8px; }
+  .conf.alta { background:var(--verde); color:#fff; }
+  .conf.media { background:var(--panel2); color:var(--ink2); }
+  .conf.baixa { background:var(--amarelo); color:#fff; }
+
+  /* premissas */
+  #premissas h2 { font-size:1.8rem; }
+  #premissas .itens { display:flex; flex-wrap:wrap; gap:4px 22px; margin-top:8px; align-items:center; }
+  #premissas .item b { font-weight:700; }
+  #premissas input, #premissas select { font:inherit; padding:2px 6px; border:1px solid var(--line);
+    border-radius:4px; background:var(--ground); color:var(--ink); }
+  #premissas input { width:84px; }
+  button { font:inherit; font-weight:600; padding:5px 14px; border-radius:4px; cursor:pointer;
+    border:1px solid var(--accent); background:var(--accent); color:var(--ground); }
+  button.sec { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.5; cursor:wait; }
+  #aviso { color:var(--amarelo); font-size:.8rem; margin-left:10px; }
+
+  /* KPIs */
+  #totais { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; margin:12px 0; }
+  .tot { background:var(--panel); border:1px solid var(--line); border-top:3px solid var(--accent);
+    border-radius:4px; padding:7px 10px; }
+  .tot .v { font-family:"Archivo Narrow",sans-serif; font-size:1.45rem; font-weight:700; }
+  .tot .l { font-size:.68rem; color:var(--ink2); }
+
+  /* abas */
+  .abas { display:flex; gap:2px; margin:14px 0 0; border-bottom:2px solid var(--line); flex-wrap:wrap; }
+  .aba { padding:6px 14px; cursor:pointer; border:1px solid transparent; border-bottom:none;
+    font-weight:600; color:var(--ink2); border-radius:5px 5px 0 0; }
+  .aba.ativa { background:var(--panel); border-color:var(--line); color:var(--ink);
+    border-bottom:2px solid var(--panel); margin-bottom:-2px; }
+
+  /* plano: rail + passo */
+  #plano { display:grid; grid-template-columns:minmax(290px,350px) 1fr; gap:16px; margin-top:14px; }
+  @media (max-width:1150px){ #plano { grid-template-columns:1fr; } }
+  .dia { margin-bottom:10px; }
+  .dia .cabdia { display:flex; justify-content:space-between; align-items:baseline;
+    font-family:"Archivo Narrow",sans-serif; font-weight:700; font-size:1rem;
+    padding:5px 10px; background:var(--accent); color:var(--ground); border-radius:4px; }
+  .dia .cabdia .hs { font-size:.78rem; font-weight:400; opacity:.85; }
+  .quebra { font-size:.72rem; color:var(--ink2); padding:6px 10px; border-left:3px dashed var(--amarelo);
+    margin:4px 0 4px 10px; }
+  .passo { display:flex; gap:8px; padding:6px 8px; border:1px solid var(--line); border-radius:4px;
+    margin:4px 0; cursor:pointer; background:var(--panel); align-items:center; }
+  .passo:hover { background:var(--sel); }
+  .passo.ativo { border-color:var(--selb); background:var(--sel); box-shadow:inset 3px 0 0 var(--selb); }
+  .passo .idx { color:var(--ink3); font-size:.7rem; min-width:1.9em; text-align:right; }
+  .passo .tchip { width:9px; height:22px; border-radius:3px; flex:none; }
+  .passo .t { flex:1; font-size:.86rem; line-height:1.25; }
+  .passo .h { color:var(--ink2); font-size:.72rem; white-space:nowrap; }
+
+  #passo-tela { min-width:0; }
+  .passo-cab { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .passo-cab .n { font-family:"IBM Plex Mono",monospace; font-weight:600; color:var(--ink3); }
+  .passo-cab h3 { font-size:1.35rem; }
+  .tag { display:inline-block; font-size:.64rem; font-weight:700; letter-spacing:.06em;
+    padding:2px 8px; border-radius:4px; border:1px solid; text-transform:uppercase; }
+  #quadro-wrap { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:10px; margin-top:10px; }
+  #quadro-svg { width:100%; height:auto; display:block; border-radius:3px; }
+  .estado-linha { color:var(--ink2); font-size:.82rem; margin-top:4px; }
+
+  /* legenda de materiais do passo */
+  .legmat { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; font-size:.8rem; align-items:center; }
+  .legmat .it { display:inline-flex; gap:7px; align-items:center; color:var(--ink2); }
+  .legmat b { color:var(--ink); }
+  .sw-mat { width:26px; height:14px; border-radius:2px; border:1px solid rgba(120,110,80,.55); flex:none; }
+  .sw-kraftH { background:repeating-linear-gradient(180deg,#C89B60 0 3px,#B0793B 3px 4px,#C89B60 4px 7px,#D8AE74 7px 8px); }
+  .sw-kraftV { background:repeating-linear-gradient(90deg,#C89B60 0 3px,#B0793B 3px 4px,#C89B60 4px 7px,#D8AE74 7px 8px); }
+  .sw-masc { background:#F6F2E2; }
+  .sw-fitab { background:#F4EEDC; }
+  .sw-fitaa { background:#F2C230; border-color:#C29418; }
+  .sw-vinil { background:#FEFEFE; }
+  .sw-corte { background:linear-gradient(0deg,transparent 45%,#C21F2C 45% 55%,transparent 55%); border:none; }
+  .sw-atua { background:linear-gradient(0deg,transparent 42%,#1F4E9C 42% 58%,transparent 58%); border:none; }
+
+  table { border-collapse:collapse; width:100%; font-size:.82rem; }
+  .tbl { overflow-x:auto; }
+  th { text-align:left; font-size:.62rem; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink2); border-bottom:2px solid var(--line); padding:4px 10px 4px 0; white-space:nowrap; }
+  td { border-bottom:1px solid var(--line); padding:5px 10px 5px 0; vertical-align:top; }
+  .just { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--verde);
+    border-radius:4px; padding:10px 14px; margin-top:12px; }
+  details { margin-top:6px; }
+  summary { cursor:pointer; color:var(--ink2); font-size:.8rem; }
+  .trilha { font-size:.8rem; color:var(--ink2); padding:6px 0 0; }
+
+  .perg { border-left:3px solid var(--amarelo); background:var(--panel); border:1px solid var(--line);
+    border-left-width:3px; border-left-color:var(--amarelo); border-radius:4px; padding:8px 12px; margin:6px 0; }
+  .perg .def { color:var(--ink2); font-size:.78rem; }
+  .div { border-left:3px solid var(--vinho); background:var(--panel); border:1px solid var(--line);
+    border-left-width:3px; border-left-color:var(--vinho); border-radius:4px; padding:8px 12px; margin:6px 0; }
+  .def-face { border:1px solid var(--vinho); background:var(--panel); border-radius:4px;
+    padding:8px 12px; margin:6px 0; font-weight:600; }
+  .sw { display:inline-block; width:15px; height:15px; border-radius:8px; border:1px solid var(--line);
+    vertical-align:-2px; margin-right:6px; }
+  .ref-img { max-width:420px; max-height:130px; border:1px solid var(--line); border-radius:3px; }
+  .vazio { color:var(--ink2); padding:30px; text-align:center; }
+  .badge { display:inline-block; font-size:.66rem; font-weight:700; padding:1px 7px; border-radius:8px;
+    background:var(--panel2); color:var(--ink2); }
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="sidebar">
+    <div class="cab">
+      <h1>Motor de Pintura V4</h1>
+      <div class="sub">Ankaa · análise &amp; precificação</div>
+      <input id="busca" placeholder="filtrar layouts…">
+    </div>
+    <div id="lista"></div>
+  </nav>
+  <main id="main"><div class="vazio">Escolha um layout à esquerda.</div></main>
+</div>
+<script>
+"use strict";
+const $ = (s, el=document) => el.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html!==undefined) e.innerHTML = html; return e; };
+const fmt = (v, d=2) => (v===null||v===undefined||isNaN(v)) ? "—" : Number(v).toLocaleString("pt-BR",{maximumFractionDigits:d});
+
+let LAYOUTS = [], ATUAL = null, DADOS = null, FACE = "lateral", PASSO = null, ABA = "plano";
+let SUBSTRATO = null;      // premissa ativa na tela (lisa | corrugada)
+let EDICOES = {};
+
+/* cores FÍSICAS do quadro — a peça é sempre a peça, independente do tema */
+const FIS = {
+  entorno:"#E9E7E2", chapa:"#FFFFFF", ink:"#2A2F38", corte:"#15181D",
+  vinil:"#FEFEFE", vinilBorda:"#9AA0A8", folha:"#1F7A4D",
+  masc:"#F6F2E2", mascBorda:"#D9D0B2", mascJunta:"#E7DFC5",
+  fitaB:"#F4EEDC", fitaBBorda:"#CFC5A2", fitaA:"#F2C230", fitaABorda:"#C29418",
+  kraft:"#C89B60", corteMao:"#C21F2C", alvo:"#1F4E9C",
+};
+/* tipo de atuação → grupo visual do passo */
+const TIPO_PASSO = {
+  preparo:["PREPARO","#8A6D3B"], espera:["ESPERA","#8A6D3B"],
+  papel_estrutural:["PREPARO","#8A6D3B"], limpeza_localizada:["LIMPEZA","#8A6D3B"],
+  papel:["PAPEL","#A97B3F"], bancada:["BANCADA","#4A5A78"],
+  adesivo_um:["ADESIVO","#26437A"], adesivos:["ADESIVO","#26437A"],
+  adesivo_aerografia:["ADESIVO","#26437A"], readesivo:["ADESIVO","#26437A"],
+  pintura:["PINTURA","#1F7A4D"], cobrir_cortar:["COBRIR·CORTE","#C21F2C"],
+  cobrir_papel:["COBRIR·PAPEL","#A97B3F"], cobertura_aerografia:["COBRIR","#A97B3F"],
+  remocao_coberturas:["REMOÇÃO","#8A6D3B"],
+  fita:["FITA","#C29418"], stencil:["STENCIL","#C29418"],
+  degrade:["DEGRADÊ","#5B4A9C"], sombra:["ESFUMAR","#5B4A9C"], aerografia:["AERO","#5B4A9C"],
+  verniz_intermediario:["VERNIZ","#B26A00"], verniz_final:["VERNIZ","#B26A00"],
+  remocao:["REMOÇÃO","#8A6D3B"], inspecao:["INSPEÇÃO","#8A6D3B"],
+  sem_geometria:["—","#8A93A0"],
+};
+const tipoDe = (s) => TIPO_PASSO[(s.atuacao||{}).tipo] || TIPO_PASSO.sem_geometria;
+
+async function init() {
+  LAYOUTS = await (await fetch("/api/layouts")).json();
+  desenhaLista();
+  $("#busca").addEventListener("input", desenhaLista);
+  const primeiro = LAYOUTS.find(l => l.analisado);
+  if (primeiro) abrir(primeiro.slug);
+}
+
+function desenhaLista() {
+  const f = $("#busca").value.toLowerCase();
+  const box = $("#lista"); box.innerHTML = "";
+  for (const l of LAYOUTS) {
+    if (f && !l.layout.toLowerCase().includes(f)) continue;
+    const d = el("div", "lay" + (l.slug===ATUAL ? " ativo":""));
+    const r = l.resumo;
+    d.append(el("div","n",l.layout));
+    d.append(el("div","m", r
+      ? `${r.campo==="TINTA"?"pintura geral":"chapa"} · ${r.n_tintas} tintas · ${fmt(r.fronteira_m,1)} m corte`
+      : "sem análise"));
+    d.onclick = () => abrir(l.slug);
+    box.append(d);
+  }
+}
+
+async function abrir(slug) {
+  ATUAL = slug; PASSO = null; ABA = "plano"; EDICOES = {}; SUBSTRATO = null;
+  desenhaLista();
+  $("#main").innerHTML = '<div class="vazio">carregando…</div>';
+  const r = await fetch("/api/layout/"+slug);
+  if (!r.ok) { $("#main").innerHTML = '<div class="vazio">Este layout ainda não foi analisado — rode o acervo.</div>'; return; }
+  DADOS = await r.json();
+  FACE = DADOOS_face();
+  desenha();
+}
+function DADOOS_face(){ return DADOS.faces.lateral ? "lateral" : Object.keys(DADOS.faces)[0]; }
+function analise() { return DADOS.faces[FACE].analise; }
+function plano()   { return DADOS.faces[FACE].plano; }
+function orcam()   { return DADOS.faces[FACE].orcamento; }
+function substratoAtivo() {
+  if (SUBSTRATO) return SUBSTRATO;
+  const a = analise();
+  return ((a.premissas||{}).substrato||{}).valor || "lisa";
+}
+
+/* ---------- página ---------- */
+function desenha() {
+  const a = analise(), pl = plano();
+  const m = $("#main"); m.innerHTML = "";
+
+  // premissas — sempre visíveis, com fonte, editáveis
+  const prem = el("section","cartao"); prem.id = "premissas";
+  prem.append(el("div","eyebrow","Premissas — tudo editável; a fonte de cada número ao lado"));
+  const h = el("h2","", DADOS.layout); prem.append(h);
+  const linhaP = el("div","itens");
+  const e = a.escala;
+  const fonteEsc = e.fonte.includes("declarada") && !e.fonte.includes("rejeitada") ? "dono" : "medido2";
+  linhaP.append(el("span","item",
+    `painel <b class="num">${fmt(e.painel_mm.w,0)} × ${fmt(e.painel_mm.h,0)} mm</b> <span class="fonte ${fonteEsc}">${e.fonte}</span>`));
+  linhaP.append(el("span","item",`escala <b class="num">${e.mm_px.toFixed(4)} mm/px</b>`));
+  linhaP.append(el("span","item",
+    `campo <b class="mono">${a.campo.hex}</b> → <b>${a.campo.classe}</b> <span class="fonte medido2">L* ${a.campo.L}</span>`));
+  const subsSel = el("span","item",
+    `substrato <select id="ed-substrato">
+       <option value="lisa" ${substratoAtivo()==="lisa"?"selected":""}>chapa lisa</option>
+       <option value="corrugada" ${substratoAtivo()==="corrugada"?"selected":""}>corrugada (frisada)</option>
+     </select> <span class="fonte pergunta">pergunta</span>`);
+  linhaP.append(subsSel);
+  linhaP.append(el("span","item", `render <b>${a.render}</b>`));
+  if (a.edicoes && a.edicoes.length)
+    linhaP.append(el("span","item",`<span class="fonte editada">${a.edicoes.length} edição(ões) ativa(s)</span>`));
+  prem.append(linhaP);
+
+  const ed = el("div","itens"); ed.style.marginTop = "8px";
+  ed.innerHTML = `
+    <span class="item">medida declarada (m): <input id="ed-medida" type="number" step="0.01"
+      value="${e.fonte.startsWith("declarada") ? (e.painel_mm.w/1000).toFixed(2) : ""}" placeholder="—"></span>
+    <span class="item">campo:
+      <select id="ed-campo">
+        <option value="">como o motor propôs (${a.campo.classe})</option>
+        <option value="CHAPA">CHAPA — sem demão geral</option>
+        <option value="TINTA">TINTA — demão de fundo no painel inteiro</option>
+      </select></span>
+    <button id="btn-recalc">Recalcular</button><span id="aviso"></span>`;
+  prem.append(ed);
+  m.append(prem);
+
+  // KPIs — os dois eixos do custo
+  const tot = el("div"); tot.id = "totais";
+  const T = (v,l,cor) => { const t = el("div","tot"); if (cor) t.style.borderTopColor = cor;
+    t.append(el("div","v num",v), el("div","l",l)); return t; };
+  const vinil = a.adesivos.reduce((s,x)=>s+x.vinil_m2,0);
+  const aprovs = a.adesivos.map(x=>x.aproveitamento_pct).filter(x=>x!==undefined);
+  const eco = a.adesivos.reduce((s,x)=>s+(x.economia_folha_m2||0),0);
+  tot.append(
+    T(fmt(a.tinta_m2_total)+" m²","tinta — área paga tinta"),
+    T(fmt(a.fronteira.total_tt_m,1)+" m","corte à mão — fronteira paga hora","var(--vinho)"),
+    T(fmt(a.fronteira.esfumada_m||0,1)+" m","esfumado (não corta)","var(--roxo)"),
+    T(fmt(vinil,1)+" m²","vinil" + (eco>0? ` · −${fmt(eco,1)} economizado`:""),"#4A5A78"),
+    T(String(a.paleta.n_tintas),"tintas (famílias)"),
+    T(String(pl.resumo.n_dias),"dias — por regra"),
+    T(String(a.perguntas.length),"perguntas","var(--amarelo)"),
+  );
+  m.append(tot);
+  $("#btn-recalc").onclick = () => recalcular();
+  $("#ed-substrato").onchange = (ev) => {
+    SUBSTRATO = ev.target.value;
+    EDICOES["premissas.substrato.valor"] = SUBSTRATO;
+    desenha();
+    const av = $("#aviso");
+    if (av) av.textContent = "premissa de substrato alterada na tela — as fitas já refletem; Recalcular grava no plano";
+  };
+
+  // abas
+  const abasF = el("div","abas");
+  for (const f of Object.keys(DADOS.faces)) {
+    const t = el("div","aba"+(f===FACE?" ativa":""), f);
+    t.onclick = () => { FACE = f; PASSO = null; desenha(); };
+    abasF.append(t);
+  }
+  const sep = el("div","aba"); sep.style.flex="1"; sep.style.cursor="default"; abasF.append(sep);
+  for (const [id,rot] of [["plano","Plano"],["analise","Análise"],["pend","Pendências"],["orc","Orçamento"]]) {
+    const t = el("div","aba"+(ABA===id?" ativa":""), rot);
+    t.onclick = () => { ABA = id; desenha(); };
+    abasF.append(t);
+  }
+  m.append(abasF);
+
+  if (ABA === "plano") desenhaPlano(m);
+  else if (ABA === "analise") desenhaAnalise(m);
+  else if (ABA === "pend") desenhaPend(m);
+  else desenhaOrcamento(m);
+}
+
+async function recalcular(extra) {
+  const btn = $("#btn-recalc"); if (btn) btn.disabled = true;
+  const av = $("#aviso"); if (av) av.textContent = "recalculando a análise inteira desta face — pode levar 1–2 min…";
+  const ov = Object.assign({}, EDICOES, extra || {});
+  const campoSel = $("#ed-campo");
+  if (campoSel && campoSel.value) ov["campo.classe"] = campoSel.value;
+  const medEl = $("#ed-medida");
+  const med = medEl ? parseFloat(medEl.value) : NaN;
+  try {
+    const r = await fetch("/api/recalcular", { method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ slug: ATUAL, overrides: ov,
+                             declarado_m: isNaN(med) ? null : med }) });
+    if (!r.ok) throw new Error((await r.json()).erro || r.status);
+    DADOS = await r.json(); PASSO = null; EDICOES = ov; desenha();
+  } catch (err) {
+    if (av) av.textContent = "erro: " + err.message;
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ---------- aba PLANO ---------- */
+function desenhaPlano(m) {
+  const pl = plano();
+  const grid = el("div"); grid.id = "plano";
+  const lt = el("div");
+  lt.append(el("div","eyebrow","Linha do tempo — dias e barreiras de cura"));
+  let n = 0;
+  pl.dias.forEach((dia, di) => {
+    const d = el("div","dia");
+    const hs = dia.passos.reduce((s,p2)=>s+((p2.tempo||{}).horas||0),0);
+    const cab = el("div","cabdia");
+    cab.append(el("span","",`Dia ${dia.dia}`), el("span","hs num",`${fmt(hs,1)} h estimadas`));
+    d.append(cab);
+    dia.passos.forEach((s, si) => {
+      n++;
+      const [rot,cor] = tipoDe(s);
+      const p2 = el("div","passo" + (PASSO && PASSO[0]===di && PASSO[1]===si ? " ativo":""));
+      // R6: a barrinha de um passo de PINTURA mostra a COR REAL da tinta,
+      // não a cor do grupo (verde de "PINTURA" lia-se como "pinta verde")
+      const at2 = s.atuacao||{};
+      let corCh = cor;
+      if (["pintura","aerografia","sombra"].includes(at2.tipo) && (at2.familias||[]).length) {
+        const f0 = (analise().paleta.familias||[]).find(f => f.id === at2.familias[0]);
+        if (f0 && (f0.hex||"").startsWith("#") && f0.hex.length===7) corCh = f0.hex;
+      } else if (at2.tipo === "degrade" && (at2.de_hex||"").startsWith("#")) corCh = at2.de_hex;
+      const ch = el("span","tchip"); ch.style.background = corCh; ch.title = rot;
+      p2.append(el("span","idx num", String(n).padStart(2,"0")), ch);
+      p2.append(el("span","t", s.o_que));
+      const hrs = s.tempo && s.tempo.horas ? fmt(s.tempo.horas,1)+" h" : "";
+      p2.append(el("span","h num", hrs));
+      p2.onclick = () => { PASSO = [di,si]; desenha(); };
+      d.append(p2);
+    });
+    if (dia.quebra && dia.quebra !== "fim")
+      d.append(el("div","quebra","⏸ " + dia.quebra));
+    lt.append(d);
+  });
+  grid.append(lt);
+
+  const tela = el("div"); tela.id = "passo-tela";
+  if (!PASSO) PASSO = [0,0];
+  desenhaPasso(tela);
+  grid.append(tela);
+  m.append(grid);
+}
+
+function idxGlobal() {
+  const pl = plano(); let n = 0;
+  for (let di = 0; di < pl.dias.length; di++)
+    for (let si = 0; si < pl.dias[di].passos.length; si++) {
+      n++;
+      if (di===PASSO[0] && si===PASSO[1]) return n;
+    }
+  return n;
+}
+
+function desenhaPasso(box) {
+  const pl = plano(), a = analise();
+  const s = pl.dias[PASSO[0]].passos[PASSO[1]];
+  const [rot,cor] = tipoDe(s);
+  box.innerHTML = "";
+  const cab = el("div","passo-cab");
+  cab.append(el("span","n num", String(idxGlobal()).padStart(2,"0")));
+  cab.append(el("h3","",s.o_que));
+  const tg = el("span","tag",rot); tg.style.color = cor; tg.style.borderColor = cor;
+  cab.append(tg);
+  cab.append(el("span",`conf ${s.confianca}`,`confiança ${s.confianca}`));
+  box.append(cab);
+  box.append(el("div","estado-linha",`<b>estado da peça:</b> ${s.estado_da_peca}`));
+
+  const qw = el("div"); qw.id = "quadro-wrap";
+  if (!a.quadro) {
+    qw.append(el("div","vazio","Análise sem geometria do quadro — rode o motor de novo neste layout."));
+    box.append(qw); return;
+  }
+  qw.append(desenhaQuadro(a, s));
+  qw.append(legendaPasso(a, s));
+  box.append(qw);
+
+  // contas
+  if (s.materiais.length || (s.tempo && s.tempo.horas)) {
+    const c2 = el("div","cartao"); c2.style.marginTop = "12px";
+    c2.append(el("div","eyebrow","As contas — toda linha mostra a fonte"));
+    if (s.materiais.length) {
+      const tw = el("div","tbl");
+      const t = el("table");
+      t.innerHTML = "<tr><th></th><th>item</th><th>medida-base</th><th>consumo/un</th><th>quantidade</th><th>preço un.</th><th>total</th><th>fonte</th></tr>";
+      for (const mt of s.materiais) {
+        const tr = el("tr");
+        tr.innerHTML =
+          `<td>${swatchMaterial(mt.item)}</td><td>${mt.item}</td>`+
+          `<td class="num">${fmt(mt.medida_base)} ${mt.unidade_base}</td>` +
+          `<td class="num">${fmt(mt.consumo_por_unidade,3)} ${mt.unidade_consumo}</td>` +
+          `<td class="num"><b>${fmt(mt.quantidade)} ${mt.unidade}</b></td>` +
+          `<td>${mt.preco_unitario===null?'<span class="fonte chute">SEM PREÇO</span>':fmt(mt.preco_unitario)}</td>` +
+          `<td>${mt.total===null?"—":fmt(mt.total)}</td>` +
+          `<td><span class="fonte ${mt.fonte}">${mt.fonte}</span></td>`;
+        t.append(tr);
+      }
+      tw.append(t); c2.append(tw);
+    }
+    if (s.tempo && s.tempo.horas)
+      c2.append(el("div","", `<b>tempo</b>: <span class="num">${fmt(s.tempo.medida_base)} ${s.tempo.unidade_base}</span>` +
+        ` × taxa <span class="num">${s.tempo.taxa} ${s.tempo.unidade_taxa}</span> = <b class="num">${fmt(s.tempo.horas)} h</b> ` +
+        `<span class="fonte ${s.tempo.fonte}">${s.tempo.fonte}</span>` +
+        (s.tempo.nota? ` <span class="fonte">${s.tempo.nota}</span>`:"")));
+    box.append(c2);
+  }
+
+  const j = el("div","just");
+  j.append(el("div","", s.justificativa.frase));
+  if (s.justificativa.trilha) {
+    const d = el("details");
+    d.append(el("summary","","trilha técnica — números e limiares"));
+    d.append(el("div","trilha", s.justificativa.trilha));
+    j.append(d);
+  }
+  box.append(j);
+}
+
+function swatchMaterial(nome) {
+  const n = nome.toLowerCase();
+  let cls = null;
+  if (n.includes("papel tk 100")) cls = "sw-kraftV";
+  else if (n.includes("papel tk") || n.includes("kraft")) cls = "sw-kraftH";
+  else if (n.includes("máscara")) cls = "sw-masc";
+  else if (n.includes("fita amarela")) cls = "sw-fitaa";
+  else if (n.includes("fita")) cls = "sw-fitab";
+  else if (n.includes("vinil")) cls = "sw-vinil";
+  return cls ? `<span class="sw-mat ${cls}" style="display:inline-block"></span>` : "";
+}
+
+/* legenda: [GRUPO] gesto — medida · "no quadro: o único evento visual" (spec §4) */
+function legendaPasso(a, s) {
+  const lg = el("div","legmat");
+  const at = s.atuacao||{};
+  const [rot,cor] = tipoDe(s);
+  const EVENTO = {
+    pintura: "a única cor viva é a deste passo",
+    cobrir_papel: "o remendo com textura e fita é o novo; kraft liso é antigo",
+    cobrir_cortar: "papel no corpo; banda de fita/máscara na fronteira; o corte é o vermelho grosso",
+    papel: "kraft novo com veios; as janelas ficam abertas",
+    papel_estrutural: "o trabalho é fora da face — molduras de kraft no entorno",
+    adesivo_um: "o adesivo deste passo é o da caixa vermelha",
+    readesivo: "reaplicar nas caixas vermelhas tracejadas",
+    bancada: "o arquivo de corte — fundo branco, traço preto",
+    limpeza_localizada: "o mapa: cada elemento na sua caixa vermelha",
+    espera: "quadro inalterado de propósito",
+    preparo: "chapa em preparo — a arte ainda não existe na peça",
+    sem_geometria: "chapa em preparo",
+    remocao_coberturas: "todas as cores reaparecem; o kraft da face fica",
+    verniz_final: "véu frio sobre as janelas; o papel não recebe verniz",
+    verniz_intermediario: "véu frio só na área tracejada",
+    remocao: "arte final sobre chapa limpa",
+    inspecao: "arte final sobre chapa limpa",
+    fita: "o corredor mostra a largura REAL da fita (20/45 mm)",
+    stencil: "kraft do espovo com as formas abertas",
+    degrade: "a rampa real preenche as formas; a janela é a caixa tracejada",
+    aerografia: "a zona em cor plena é o trabalho do dia",
+    adesivo_aerografia: "só o contorno externo da aerografia leva vinil",
+    cobertura_aerografia: "kraft no centro + fita branca real nas bordas",
+    sombra: "o esfumado aparece difuso, nunca cortado",
+  };
+  const m0 = (s.materiais||[])[0];
+  let medida = "";
+  if (at.metros) medida = `${fmt(at.metros,1)} m de corte à mão`;
+  else if (m0) medida = `${fmt(m0.quantidade)} ${m0.unidade} de ${m0.item.split("(")[0].trim()}`;
+  const estimado = (s.materiais||[]).some(m => m.fonte === "estimativa")
+    && ["cobrir_papel","cobrir_cortar"].includes(at.tipo);
+  // o swatch da legenda de PINTURA é a COR REAL da tinta (R6)
+  let corSw = cor;
+  if (["pintura","aerografia","sombra"].includes(at.tipo) && (at.familias||[]).length) {
+    const f0 = (a.paleta.familias||[]).find(f => f.id === at.familias[0]);
+    if (f0 && (f0.hex||"").startsWith("#") && f0.hex.length===7) corSw = f0.hex;
+  } else if (at.tipo === "degrade" && (at.de_hex||"").startsWith("#")) corSw = at.de_hex;
+  const it = el("span","it");
+  const sw = el("span","sw-mat sw-atua"); sw.style.background = corSw; it.append(sw);
+  it.append(el("span","", `<b>[${rot}]</b> ${s.o_que}` + (medida ? ` — <b class="num">${medida}</b>` : "")
+    + (EVENTO[at.tipo] ? ` · no quadro: ${EVENTO[at.tipo]}` : "")
+    + (estimado ? ` · <b>medida ESTIMADA</b> (caixa recortada — conferir na peça)` : "")));
+  lg.append(it);
+  return lg;
+}
+
+/* ---------- QUADRO em SVG ---------- */
+function pathDe(poligonos) {
+  let d = "";
+  for (const p of poligonos) d += "M" + p.pontos.map(q => q[0]+","+q[1]).join("L") + "Z";
+  return d;
+}
+function bboxDe(cg) {
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for (const p of cg.poligonos) for (const q of p.pontos) {
+    if (q[0]<x0)x0=q[0]; if (q[0]>x1)x1=q[0];
+    if (q[1]<y0)y0=q[1]; if (q[1]>y1)y1=q[1];
+  }
+  return x1>x0 ? {x:x0,y:y0,w:x1-x0,h:y1-y0} : null;
+}
+
+function desenhaQuadro(a, s) {
+  const q = a.quadro;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS,"svg");
+  svg.id = "quadro-svg";
+  svg.style.background = FIS.entorno;
+  const W = q.painel_mm.w, H = q.painel_mm.h;
+  // margem fora da chapa: maior no empapelamento do implemento, para o
+  // entorno protegido aparecer inteiro (dono, 22/08)
+  const T0 = ((s.atuacao||{}).tipo)||"sem_geometria";
+  const MX = T0 === "papel_estrutural" ? 1150 : 280;
+  const MY = T0 === "papel_estrutural" ? 650 : 280;
+  svg.setAttribute("viewBox", `${-MX} ${-MY} ${W+2*MX} ${H+2*MY}`);
+  const add = (parent, tag, attrs) => { const n = document.createElementNS(NS,tag);
+    for (const k2 in attrs) n.setAttribute(k2, attrs[k2]); parent.append(n); return n; };
+  const defs = add(svg,"defs",{});
+  /* escala tipográfica: constantes em mm·k; traços-linha em px (non-scaling) */
+  const k = Math.min(2.5, Math.max(0.35, (W+340)/16000));
+  const NS_STROKE = {"vector-effect":"non-scaling-stroke"};
+
+  const at = s.atuacao || {tipo:"sem_geometria"};
+  const T = at.tipo;
+  const pintadas = new Set(s.estado_familias || []);
+  let cobertas = new Set(s.cobertas || []);
+  const alvoFams = new Set(at.familias || []);
+  const alvoZonas = new Set(at.zonas || []);
+  const aplicadosIds = new Set(s.adesivos_aplicados || []);
+  if (T === "adesivo_um") for (const id of at.adesivos||[]) aplicadosIds.add(id);
+  const campoFam = (a.paleta.familias.find(f => f.campo)||{}).id;
+  const campoHex = a.campo.hex;
+  const naPeca = a.adesivos.filter(ad => aplicadosIds.has(ad.id));
+  const famBbox = {};
+  for (const f of a.paleta.familias) if (f.bbox_mm) famBbox[f.id] = f.bbox_mm;
+  const hexOk = (h2) => h2 && h2.startsWith("#") && h2.length === 7;
+  const corDe = (cg) => hexOk(cg.hex) ? cg.hex : "#8C949C";
+  const subs = substratoAtivo();
+
+  /* as remoções mostram o estado APÓS o passo — o reaparecimento é o evento */
+  const posRemocao = ["remocao_coberturas","remocao","inspecao","verniz_final"].includes(T);
+  if (posRemocao) cobertas = new Set();
+  const arteNua = ["remocao","inspecao"].includes(T);
+  const heroPreparo = ["preparo","espera","sem_geometria","papel_estrutural"].includes(T);
+
+  /* ---- padrões: kraft-AÇÃO (grão sutil), máscara-AÇÃO (grade 600) ---- */
+  const patKAV = add(defs,"pattern",{id:"kraftAcaoV",width:"520",height:"520",patternUnits:"userSpaceOnUse"});
+  add(patKAV,"rect",{width:"520",height:"520",fill:"#C2A16B"});
+  for (const [x0,w0,c0] of [[40,90,"#B08A4E"],[200,60,"#D8BC8A"],[352,110,"#B08A4E"],[478,36,"#D8BC8A"]])
+    add(patKAV,"rect",{x:String(x0),y:"0",width:String(w0),height:"520",fill:c0,opacity:"0.10"});
+  const patKAH = add(defs,"pattern",{id:"kraftAcaoH",width:"520",height:"520",patternUnits:"userSpaceOnUse"});
+  add(patKAH,"rect",{width:"520",height:"520",fill:"#C2A16B"});
+  for (const [y0,h0,c0] of [[40,90,"#B08A4E"],[200,60,"#D8BC8A"],[352,110,"#B08A4E"],[478,36,"#D8BC8A"]])
+    add(patKAH,"rect",{x:"0",y:String(y0),width:"520",height:String(h0),fill:c0,opacity:"0.10"});
+  const patMA = add(defs,"pattern",{id:"mascAcao",width:"600",height:"600",patternUnits:"userSpaceOnUse"});
+  add(patMA,"rect",{width:"600",height:"600",fill:"#F6F2E2"});
+  add(patMA,"rect",{x:"0",y:"592",width:"600",height:"8",fill:"#E7DFC5"});
+  add(patMA,"rect",{x:"592",y:"0",width:"8",height:"600",fill:"#E7DFC5"});
+  const KRAFT_CTX = "#D2BF97", KRAFT_CTX_BORDA = "#B9A67F";
+  const MASC_CTX = "#F3EEE0";
+  const filtro = add(defs,"filter",{id:"esfumado",x:"-30%",y:"-30%",width:"160%",height:"160%"});
+  add(filtro,"feGaussianBlur",{stdDeviation:String(40*k)});
+
+  /* ---- helpers ---- */
+  const linha1 = (x1,y1,x2,y2,cor,pxw,extra) =>
+    add(svg,"line",Object.assign({x1,y1,x2,y2,stroke:cor,["stroke-width"]:String(pxw)},NS_STROKE,extra||{}));
+  const fillCls = (cg, parent) =>
+    add(parent||svg,"path",{d:pathDe(cg.poligonos),fill:corDe(cg),["fill-rule"]:"evenodd"});
+  const fantasmaCls = (cg, parent) => {
+    add(parent||svg,"path",{d:pathDe(cg.poligonos),fill:corDe(cg),opacity:"0.14",["fill-rule"]:"evenodd"});
+    add(parent||svg,"path",Object.assign({d:pathDe(cg.poligonos),fill:"none",stroke:"#3A3F46",
+      ["stroke-width"]:"1.1",["fill-rule"]:"evenodd"},NS_STROKE));
+  };
+  const chipAnot = (x, y, rot) => {
+    const hC = 190*k, wC = 100*k + rot.length*70*k;
+    add(svg,"rect",{x, y:y-hC, width:wC, height:hC, fill:"#C8102E"});
+    const t = add(svg,"text",{x:x+50*k, y:y-hC*0.28, fill:"#FFFFFF",["font-size"]:String(120*k),
+      ["font-family"]:"Archivo Narrow, sans-serif"});
+    t.textContent = rot;
+  };
+  const caixaAnot = (bx, rot, tracejada) => {   // bx = [x,y,w,h]; folga de 80 mm embutida
+    const x = bx[0]-80, y = bx[1]-80, w2 = bx[2]+160, h2 = bx[3]+160;
+    add(svg,"rect",Object.assign({x,y,width:w2,height:h2,fill:"none",stroke:"#C8102E",
+      ["stroke-width"]:"2"},NS_STROKE, tracejada?{["stroke-dasharray"]:"10 6"}:{}));
+    if (rot) chipAnot(x, y, rot);
+  };
+  const remendoKraft = (bx, acao, pai) => {     // bx = [x,y,w,h]; folga +30 aplicada AQUI
+    const P = pai || svg;
+    const x = bx[0]-30, y = bx[1]-30, w2 = bx[2]+60, h2 = bx[3]+60;
+    add(P,"rect",{x,y,width:w2,height:h2,fill: acao ? "url(#kraftAcaoH)" : KRAFT_CTX});
+    for (let yy = y+500; yy < y+h2; yy += 500)   // emendas da bobina 500 deitada
+      add(P,"line",Object.assign({x1:x,y1:yy,x2:x+w2,y2:yy,
+        stroke: acao ? "#9C7C46" : "#C2AE84",["stroke-width"]:"1",
+        opacity: acao?"0.6":"0.5"},NS_STROKE));
+    if (acao) {                                  // fita 45 mm real prendendo a borda
+      add(P,"rect",{x,y,width:w2,height:h2,fill:"none",stroke:"#F4EEDC",["stroke-width"]:"45"});
+      add(P,"rect",Object.assign({x,y,width:w2,height:h2,fill:"none",stroke:"#CFC5A2",
+        ["stroke-width"]:"1"},NS_STROKE));
+    } else {
+      add(P,"rect",Object.assign({x,y,width:w2,height:h2,fill:"none",stroke:KRAFT_CTX_BORDA,
+        ["stroke-width"]:"1"},NS_STROKE));
+    }
+  };
+  const mascCaixa = (bx, acao, pai) => {
+    const P = pai || svg;
+    const x = bx[0]-30, y = bx[1]-30, w2 = bx[2]+60, h2 = bx[3]+60;
+    add(P,"rect",Object.assign({x,y,width:w2,height:h2,fill: acao ? "url(#mascAcao)" : MASC_CTX,
+      stroke:"#D9D0B2",["stroke-width"]:"1"},NS_STROKE));
+  };
+  const desenhaVinil = (ad, opac) => {           // janela branca com traço de emenda
+    const g = add(svg,"g", opac < 1 ? {opacity:String(opac)} : {});
+    const folhas = (ad.folhas && ad.folhas.length) ? ad.folhas :
+      [{x:ad.envelope_mm.x, y:ad.envelope_mm.y, w:ad.envelope_mm.w, h:ad.envelope_mm.h}];
+    for (const f of folhas) {
+      add(g,"rect",Object.assign({x:f.x,y:f.y,width:f.w,height:f.h,fill:"#F1F3F5",
+        stroke:"#9AA0A8",["stroke-width"]:"1"},NS_STROKE));
+      // relevo: sombra fina nas bordas inferior+direita
+      add(g,"line",Object.assign({x1:f.x,y1:f.y+f.h,x2:f.x+f.w,y2:f.y+f.h,stroke:"#C6CBD1",
+        ["stroke-width"]:"1"},NS_STROKE));
+      add(g,"line",Object.assign({x1:f.x+f.w,y1:f.y,x2:f.x+f.w,y2:f.y+f.h,stroke:"#C6CBD1",
+        ["stroke-width"]:"1"},NS_STROKE));
+    }
+    if (ad.folhas && ad.folhas.length > 1)
+      for (const f of ad.folhas)
+        add(g,"rect",Object.assign({x:f.x,y:f.y,width:f.w,height:f.h,fill:"none",
+          stroke:"#AEB4BC",["stroke-width"]:"1"},NS_STROKE));
+    const ev = ad.envelope_mm;
+    const tx = add(g,"text",{x:ev.x+40*k,y:ev.y+180*k,fill:"#9AA0A8",
+      ["font-size"]:String(170*k),["font-family"]:"Archivo Narrow, sans-serif",["font-weight"]:"700"});
+    tx.textContent = ad.id;
+    return g;
+  };
+  const cotas = () => {
+    linha1(0,-80,W,-80,FIS.ink,1.2); linha1(0,-105,0,-55,FIS.ink,1.2); linha1(W,-105,W,-55,FIS.ink,1.2);
+    const tw2 = add(svg,"text",{x:W/2,y:-112,fill:FIS.ink,["font-size"]:String(150*k),
+      ["font-family"]:"IBM Plex Mono, monospace",["text-anchor"]:"middle"});
+    tw2.textContent = fmt(W,0)+" mm";
+    linha1(-80,0,-80,H,FIS.ink,1.2); linha1(-105,0,-55,0,FIS.ink,1.2); linha1(-105,H,-55,H,FIS.ink,1.2);
+    const th2 = add(svg,"text",{x:-112,y:H/2,fill:FIS.ink,["font-size"]:String(150*k),
+      ["font-family"]:"IBM Plex Mono, monospace",["text-anchor"]:"middle",
+      transform:`rotate(-90 -112 ${H/2})`});
+    th2.textContent = fmt(H,0)+" mm";
+  };
+
+  /* coberturas na ORDEM CRONOLÓGICA dos passos (R6, dono 22/08): o papel
+     aplicado por último fica POR CIMA dos remendos anteriores. No mesmo
+     varrido, os elementos de FITA/STENCIL cujo passo ainda NÃO aconteceu —
+     a parte da cor executada por técnica só aparece pintada DEPOIS dela
+     (o amarelo da faixa do A&P aparecia pronto antes do passo FITA) */
+  const cobEventos = [];
+  const tecFuturos = new Set();
+  {
+    let depois = false;
+    for (const d2 of (plano()||{dias:[]}).dias||[])
+      for (const p2 of d2.passos||[]) {
+        if (p2 === s) depois = true;
+        const a2 = p2.atuacao||{};
+        if (a2.tipo === "cobrir_papel" || a2.tipo === "cobrir_cortar") {
+          const cxs = (a2.caixas_mm||[]).slice();
+          for (const f2 of a2.familias||[])
+            cobEventos.push({fid: f2, masc: a2.tipo === "cobrir_cortar", caixas: cxs});
+        }
+        if (depois && ["fita","stencil"].includes(a2.tipo))
+          for (const eid of a2.elementos||[]) tecFuturos.add(eid);
+      }
+  }
+  const mkTec = add(defs,"mask",{id:"clip-tec-futuro",maskUnits:"userSpaceOnUse",
+    x:-MX,y:-MY,width:W+2*MX,height:H+2*MY});
+  add(mkTec,"rect",{x:-MX,y:-MY,width:W+2*MX,height:H+2*MY,fill:"#fff"});
+  for (const eid of tecFuturos) {
+    const elm = a.elementos.find(x => x.id === eid);
+    if (elm) add(mkTec,"rect",{x:elm.dim_mm.x-30,y:elm.dim_mm.y-30,
+      width:elm.dim_mm.w+60,height:elm.dim_mm.h+60,fill:"#000"});
+  }
+  const caixasDePasso = (at.caixas_mm && at.caixas_mm.length) ? at.caixas_mm
+    : Array.from(alvoFams).map(f=>famBbox[f]).filter(Boolean).map(b=>[b[0],b[1],b[2]-b[0],b[3]-b[1]]);
+
+  const classesDoAd = (ad) => {
+    const cls = new Set();
+    for (const eid of ad.elementos) {
+      const elm = a.elementos.find(x => x.id === eid);
+      if (elm) for (const c of elm.classes) cls.add(c);
+    }
+    return cls;
+  };
+
+  /* ============ BANCADA: o arquivo de corte, fundo branco puro ============ */
+  if (T === "bancada") {
+    add(svg,"rect",{x:-MX,y:-MY,width:W+2*MX,height:H+2*MY,fill:"#FFFFFF"});
+    for (const ad of a.adesivos) {
+      const folhas = (ad.folhas && ad.folhas.length) ? ad.folhas :
+        [{x:ad.envelope_mm.x,y:ad.envelope_mm.y,w:ad.envelope_mm.w,h:ad.envelope_mm.h}];
+      for (const f of folhas)
+        add(svg,"rect",Object.assign({x:f.x,y:f.y,width:f.w,height:f.h,fill:"none",
+          stroke:"#000000",["stroke-width"]:"1"},NS_STROKE));
+      const cls = classesDoAd(ad);
+      for (const cg of q.classes) {
+        if (cg.campo || !cls.has(cg.classe)) continue;
+        add(svg,"path",Object.assign({d:pathDe(cg.poligonos),fill:"none",stroke:"#000000",
+          ["stroke-width"]:"1",["fill-rule"]:"evenodd"},NS_STROKE));
+      }
+      const ev = ad.envelope_mm;
+      const tx = add(svg,"text",{x:ev.x+40*k,y:ev.y-60*k,fill:"#2A2F38",
+        ["font-size"]:String(170*k),["font-family"]:"Archivo Narrow, sans-serif",["font-weight"]:"700"});
+      tx.textContent = `${ad.id} — ${ad.folhas&&ad.folhas.length?ad.folhas.length:1} folha(s) · ${ev.w}×${ev.h} mm`;
+    }
+    return svg;
+  }
+
+  /* ============ chão: chapa ou campo pintado ============ */
+  const fundoPintado = pintadas.has(campoFam) && !arteNua;
+  add(svg,"rect",Object.assign({x:0,y:0,width:W,height:H,
+    fill: arteNua ? "#FAFAFA" : (fundoPintado ? campoHex : "#FAFAFA"),
+    stroke:"#2A2F38",["stroke-width"]:"1.5"},NS_STROKE));
+
+  /* ============ ARTE NUA (remoção final / inspeção): o hero ============ */
+  if (arteNua) {
+    for (const cg of q.classes) { if (!cg.campo) fillCls(cg); }
+    cotas();
+    return svg;
+  }
+
+  /* ============ demão de fundo: a face num chapado só ============ */
+  if (T === "pintura" && alvoFams.has(campoFam)) {
+    add(svg,"rect",{x:0,y:0,width:W,height:H,fill:campoHex});
+    cotas();
+    return svg;
+  }
+
+  /* ============ preparo/espera/estrutural: CHAPA BRANCA, sem arte —
+     "até a pintura não se mostra cor nem logo" (dono, 22/08) ============ */
+  if (heroPreparo && !naPeca.length) {
+    if (T === "papel_estrutural") {
+      add(svg,"rect",{x:-40,y:-540,width:W+80,height:500,fill:"url(#kraftAcaoH)"});
+      add(svg,"rect",{x:-40,y:H+40,width:W+80,height:500,fill:"url(#kraftAcaoH)"});
+      // as peças VERTICAIS sobem até a altura do papel horizontal — os
+      // papéis se ENCONTRAM nas quinas externas (dono, 22/08)
+      add(svg,"rect",{x:-1040,y:-540,width:1000,height:H+1080,fill:"url(#kraftAcaoV)"});
+      add(svg,"rect",{x:W+40,y:-540,width:1000,height:H+1080,fill:"url(#kraftAcaoV)"});
+      for (const [x1,y1,x2,y2] of [[0,-22,W,-22],[0,H+22,W,H+22],[-22,0,-22,H],[W+22,0,W+22,H]])
+        add(svg,"line",{x1,y1,x2,y2,stroke:"#F4EEDC",["stroke-width"]:"45",opacity:"0.95"});
+    }
+    if (T === "espera") {
+      const t = add(svg,"text",{x:W/2,y:H/2,fill:"#2A2F38",["font-size"]:String(900*k),opacity:"0.45",
+        ["font-family"]:"Archivo Narrow, sans-serif",["text-anchor"]:"middle"});
+      t.textContent = "secando — nada é feito na peça";
+    }
+    cotas();
+    return svg;
+  }
+
+  /* ============ conferência (limpeza localizada): o mapa ============ */
+  if (T === "limpeza_localizada") {
+    for (const ad of a.adesivos)
+      caixaAnot([ad.envelope_mm.x, ad.envelope_mm.y, ad.envelope_mm.w, ad.envelope_mm.h], ad.id, false);
+    for (const eid of at.elementos||[]) {
+      const elm = a.elementos.find(x => x.id===eid);
+      if (elm) caixaAnot([elm.dim_mm.x, elm.dim_mm.y, elm.dim_mm.w, elm.dim_mm.h],
+                         (elm.tecnica||"elemento").toLowerCase(), false);
+    }
+    cotas();
+    return svg;
+  }
+
+  /* ============ cena cumulativa ============ */
+  // Nos frames de ADESIVO mostra-se SÓ o adesivo do passo (referência:
+  // "omissão é significado" — o dono: "não deveria mostrar os outros")
+  for (const ad of naPeca) {
+    if (T === "adesivo_um" && !(at.adesivos||[]).includes(ad.id)) continue;
+    desenhaVinil(ad, 1);
+  }
+  const classesVisiveis = new Set();
+  const clipJan = add(defs,"clipPath",{id:"clip-janelas"});
+  for (const ad of naPeca) {
+    if (T === "adesivo_um" && !(at.adesivos||[]).includes(ad.id)) continue;
+    for (const c of classesDoAd(ad)) classesVisiveis.add(c);
+    add(clipJan,"rect",{x:ad.envelope_mm.x,y:ad.envelope_mm.y,
+      width:ad.envelope_mm.w,height:ad.envelope_mm.h});
+  }
+  // 4/5. dentro das janelas: por-fazer em fantasma RECORTADO às janelas dos
+  // adesivos visíveis (uma classe de cor é COMPARTILHADA entre elementos —
+  // sem o clip, o navy do 137 desenhava PESCADOS/site no passo do A1);
+  // pintado-e-descoberto em cor plena. Classes-irmãs da FAMÍLIA DO CAMPO
+  // nunca se redesenham — a "pintura" delas É o fundo.
+  const gFant = add(svg,"g",{["clip-path"]:"url(#clip-janelas)"});
+  const gPint = add(svg,"g",{mask:"url(#clip-tec-futuro)"});
+  for (const cg of q.classes) {
+    if (cg.campo || cg.familia === campoFam) continue;
+    if (pintadas.has(cg.familia)) { fillCls(cg, gPint); continue; }
+    if (classesVisiveis.has(cg.classe)) fantasmaCls(cg, gFant);
+  }
+  // R6: papel e máscara são RECORTADOS rente nas formas ainda por pintar —
+  // um remendo quadrado nunca soterra arte pendente ("o empapelamento deve
+  // ser perfeito quando em contato com outra cor; isolado pode ser quadrado")
+  const mkPend = add(defs,"mask",{id:"recorte-pendentes",maskUnits:"userSpaceOnUse",
+    x:-MX,y:-MY,width:W+2*MX,height:H+2*MY});
+  add(mkPend,"rect",{x:-MX,y:-MY,width:W+2*MX,height:H+2*MY,fill:"#fff"});
+  for (const cg of q.classes) {
+    if (cg.campo || pintadas.has(cg.familia)) continue;
+    add(mkPend,"path",{d:pathDe(cg.poligonos),fill:"#000",["fill-rule"]:"evenodd"});
+  }
+  // 6. coberturas de CONTEXTO por parte, na ordem em que entraram na peça —
+  // o remendo mais novo cobre os anteriores; nunca sobre o alvo do passo
+  const gCobCtx = add(svg,"g",{mask:"url(#recorte-pendentes)"});
+  const cobDesenhadas = new Set();
+  for (const ev2 of cobEventos) {
+    if (!cobertas.has(ev2.fid) || ev2.fid === campoFam || alvoFams.has(ev2.fid)) continue;
+    cobDesenhadas.add(ev2.fid);
+    const cxs = ev2.caixas.length ? ev2.caixas
+      : (famBbox[ev2.fid] ? [[famBbox[ev2.fid][0],famBbox[ev2.fid][1],
+                              famBbox[ev2.fid][2]-famBbox[ev2.fid][0],famBbox[ev2.fid][3]-famBbox[ev2.fid][1]]] : []);
+    for (const bx of cxs) remendoKraft(bx,false,gCobCtx);   // corpo é papel sempre (R6)
+  }
+  for (const fid of cobertas) {   // cobertas fora dos passos de cobrir (aerografia)
+    if (fid === campoFam || alvoFams.has(fid) || cobDesenhadas.has(fid)) continue;
+    const bb = famBbox[fid];
+    if (bb) remendoKraft([bb[0],bb[1],bb[2]-bb[0],bb[3]-bb[1]], false, gCobCtx);
+  }
+  // 6b. empapelamento da face: AÇÃO no passo "papel", contexto liso depois
+  if (s.papel_aplicado || T === "papel") {
+    const mk = add(defs,"mask",{id:"mascara-papel",maskUnits:"userSpaceOnUse",
+      x:-MX,y:-MY,width:W+2*MX,height:H+2*MY});
+    add(mk,"rect",{x:-MX,y:-MY,width:W+2*MX,height:H+2*MY,fill:"#fff"});
+    for (const ad of naPeca)
+      add(mk,"rect",{x:ad.envelope_mm.x,y:ad.envelope_mm.y,
+        width:ad.envelope_mm.w,height:ad.envelope_mm.h,fill:"#000"});
+    for (const e2 of a.elementos) {
+      if (!["FITA","STENCIL_FITA","STENCIL_CORTE","AEROGRAFIA"].includes(e2.tecnica||"")) continue;
+      add(mk,"rect",{x:e2.dim_mm.x-60,y:e2.dim_mm.y-60,
+        width:e2.dim_mm.w+120,height:e2.dim_mm.h+120,fill:"#000"});
+    }
+    const gp = add(svg,"g",{mask:"url(#mascara-papel)"});
+    const V = 1000, Hh = 500, EPS = 40;
+    // o desenho do papel da face NÃO rebaixa nos passos seguintes (dono,
+    // 22/08: "deveria manter o desenho dos papéis, fita etc"); veios na
+    // direção da BOBINA: peça de pé = 100 (V), deitada = 50 (H)
+    const kfillV = "url(#kraftAcaoV)", kfillH = "url(#kraftAcaoH)";
+    const trechosDo = (info, de, ate) => (info && info.trechos && info.trechos.length)
+      ? info.trechos
+      : (info && info.tipo ? [{tipo:info.tipo, de_mm:de, ate_mm:ate, vao_mm:info.vao_mm}] : []);
+    for (const ad of naPeca) {
+      const ev = ad.envelope_mm, L = ad.lados || {};
+      for (const [lado, x0] of [["esq", ev.x - V], ["dir", ev.x + ev.w]]) {
+        for (const t of trechosDo(L[lado], ev.y, ev.y + ev.h)) {
+          if (t.tipo !== "papel") continue;
+          const y0 = t.de_mm - (Math.abs(t.de_mm - ev.y) < EPS ? Hh : 0);
+          const y1 = t.ate_mm + (Math.abs(t.ate_mm - (ev.y+ev.h)) < EPS ? Hh : 0);
+          add(gp,"rect",{x:x0,y:y0,width:V,height:y1-y0,fill:kfillV});
+        }
+      }
+      for (const [lado, yr] of [["topo", ev.y - Hh], ["base", ev.y + ev.h]]) {
+        for (const t of trechosDo(L[lado], ev.x, ev.x + ev.w)) {
+          if (t.tipo !== "papel") continue;
+          add(gp,"rect",{x:t.de_mm,y:yr,width:t.ate_mm-t.de_mm,height:Hh,fill:kfillH});
+        }
+      }
+    }
+    {                          // fita branca real de 45 mm nas juntas — sempre
+      const FL = 45;
+      const fitaRect = (x,y,w2,h2) => add(svg,"rect",Object.assign({x,y,width:w2,height:h2,
+        fill:"#F4EEDC",stroke:"#CFC5A2",["stroke-width"]:"1"},NS_STROKE));
+      for (const ad of naPeca) {
+        const ev = ad.envelope_mm, L = ad.lados || {};
+        for (const [lado, xf] of [["esq", ev.x - FL/2], ["dir", ev.x + ev.w - FL/2]]) {
+          for (const t of trechosDo(L[lado], ev.y, ev.y + ev.h)) {
+            if (t.tipo === "papel") fitaRect(xf, t.de_mm, FL, t.ate_mm - t.de_mm);
+            else if (t.tipo === "fita") {
+              const vao = t.vao_mm || FL;
+              const xb = lado === "esq" ? ev.x - vao : ev.x + ev.w;
+              fitaRect(xb, t.de_mm, Math.min(FL,vao), t.ate_mm - t.de_mm);
+              fitaRect(xb + Math.max(0,vao-FL), t.de_mm, Math.min(FL,vao), t.ate_mm - t.de_mm);
+            }
+          }
+        }
+        for (const [lado, yf] of [["topo", ev.y - FL/2], ["base", ev.y + ev.h - FL/2]]) {
+          for (const t of trechosDo(L[lado], ev.x, ev.x + ev.w)) {
+            if (t.tipo === "papel") fitaRect(t.de_mm, yf, t.ate_mm - t.de_mm, FL);
+            else if (t.tipo === "fita") {
+              const vao = t.vao_mm || FL;
+              const yb = lado === "topo" ? ev.y - vao : ev.y + ev.h;
+              fitaRect(t.de_mm, yb, t.ate_mm - t.de_mm, Math.min(FL,vao));
+              fitaRect(t.de_mm, yb + Math.max(0,vao-FL), t.ate_mm - t.de_mm, Math.min(FL,vao));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* ============ 7. AÇÃO DO PASSO — sempre por cima ============ */
+  if (T === "pintura") {
+    const gAcao = add(svg,"g",{mask:"url(#clip-tec-futuro)"});
+    for (const cg of q.classes) {
+      if (cg.campo || !alvoFams.has(cg.familia)) continue;
+      fillCls(cg, gAcao);    // a única cor viva do quadro — sem contorno
+    }
+  }
+  if (T === "cobrir_papel") {
+    const gAc = add(svg,"g",{mask:"url(#recorte-pendentes)"});
+    for (const bx of caixasDePasso) remendoKraft(bx, true, gAc);
+  }
+  if (T === "cobrir_cortar") {
+    // R6: corpo em PAPEL; máscara/fita SÓ como banda na fronteira cortada
+    const gAc = add(svg,"g",{mask:"url(#recorte-pendentes)"});
+    for (const bx of caixasDePasso) remendoKraft(bx, true, gAc);
+    const tecDe = {};
+    for (const bc of at.bandas_corte||[])
+      tecDe[bc.par.slice().sort((x,y)=>x-y).join("-")] = bc.tecnicas||[];
+    for (const fr of q.fronteiras) {
+      const key = (fr.familias||[]).slice().sort((x,y)=>x-y).join("-");
+      const tecs = tecDe[key];
+      if (!tecs) continue;
+      fr.polilinhas.forEach((pl2, i) => {
+        const pts = pl2.map(q2=>q2.join(",")).join(" ");
+        const masc = tecs[i] === "mascara";
+        add(svg,"polyline",{points:pts,fill:"none",
+          stroke: masc ? "#F6F2E2" : "#F4EEDC",
+          ["stroke-width"]: masc ? "600" : "45",
+          ["stroke-linecap"]:"round",["stroke-linejoin"]:"round",opacity:"0.97"});
+        add(svg,"polyline",Object.assign({points:pts,fill:"none",
+          stroke:"#CFC5A2",["stroke-width"]:"1",opacity:"0.7"},NS_STROKE));
+      });
+    }
+    for (const fr of q.fronteiras)
+      for (const pl2 of fr.polilinhas)
+        add(svg,"polyline",Object.assign({points:pl2.map(q2=>q2.join(",")).join(" "),fill:"none",
+          stroke:"#C8102E",["stroke-width"]:"1.5",opacity:"0.8"},NS_STROKE));
+    if ((at.pares_familias||[]).length) {
+      const pares = new Set(at.pares_familias.map(p2 => p2.slice().sort((x,y)=>x-y).join("-")));
+      for (const fr of q.fronteiras) {
+        const fams = (fr.familias||[]).slice().sort((x,y)=>x-y).join("-");
+        if (!pares.has(fams)) continue;
+        for (const pl2 of fr.polilinhas)
+          add(svg,"polyline",Object.assign({points:pl2.map(q2=>q2.join(",")).join(" "),fill:"none",
+            stroke:"#C8102E",["stroke-width"]:"4",["stroke-linecap"]:"round"},NS_STROKE));
+      }
+    }
+  }
+  if (T === "adesivo_um") {
+    for (const id of at.adesivos||[]) {
+      const ad = a.adesivos.find(x => x.id === id);
+      if (ad) caixaAnot([ad.envelope_mm.x, ad.envelope_mm.y, ad.envelope_mm.w, ad.envelope_mm.h], ad.id, false);
+    }
+  }
+  if (T === "readesivo") {
+    const esc = a.escala.mm_px;
+    for (const bb of at.elementos_bbox || [])
+      caixaAnot([bb[0]*esc, bb[1]*esc, bb[2]*esc, bb[3]*esc], "reaplicar", true);
+  }
+  if (T === "verniz_intermediario") {
+    const esc = a.escala.mm_px;
+    for (const bb of at.elementos_bbox || []) {
+      add(svg,"rect",{x:bb[0]*esc,y:bb[1]*esc,width:bb[2]*esc,height:bb[3]*esc,
+        fill:"#A9C6DE",opacity:"0.32"});
+      caixaAnot([bb[0]*esc, bb[1]*esc, bb[2]*esc, bb[3]*esc], "verniz", true);
+    }
+    for (const zid of at.zonas || []) {
+      const cg = q.classes.find(c => c.classe === zid);
+      if (!cg) continue;
+      const bb = bboxDe(cg);
+      if (!bb) continue;
+      add(svg,"rect",{x:bb.x,y:bb.y,width:bb.w,height:bb.h,fill:"#A9C6DE",opacity:"0.32"});
+      caixaAnot([bb.x, bb.y, bb.w, bb.h], "verniz", true);
+    }
+  }
+  if (T === "verniz_final") {
+    const bandas = naPeca.map(ad => ad.envelope_mm);
+    for (const e2 of a.elementos)
+      if (["FITA","STENCIL_FITA","STENCIL_CORTE","AEROGRAFIA"].includes(e2.tecnica||""))
+        bandas.push(e2.dim_mm);
+    for (const ev of bandas) {
+      add(svg,"rect",{x:ev.x,y:ev.y,width:ev.w,height:ev.h,fill:"#A9C6DE",opacity:"0.32"});
+      add(svg,"rect",Object.assign({x:ev.x,y:ev.y,width:ev.w,height:ev.h,fill:"none",
+        stroke:"#6E93B0",["stroke-width"]:"1",["stroke-dasharray"]:"8 5"},NS_STROKE));
+    }
+  }
+  if (["aerografia","adesivo_aerografia","sombra"].includes(T)) {
+    for (const zid of alvoZonas) {
+      const cg = q.classes.find(c => c.classe === zid);
+      if (!cg) continue;
+      add(svg,"path",Object.assign({d:pathDe(cg.poligonos),fill:corDe(cg),
+        ["fill-rule"]:"evenodd"}, T==="sombra" ? {filter:"url(#esfumado)"} : {}));
+      if (T === "adesivo_aerografia")
+        add(svg,"path",Object.assign({d:pathDe(cg.poligonos),fill:"none",stroke:"#3A3F46",
+          ["stroke-width"]:"1.1",["fill-rule"]:"evenodd"},NS_STROKE));
+    }
+  }
+  if (T === "cobertura_aerografia") {
+    for (const zid of alvoZonas) {
+      const cg = q.classes.find(c => c.classe === zid);
+      if (!cg) continue;
+      const bb = bboxDe(cg);
+      if (bb) {
+        add(svg,"rect",{x:bb.x,y:bb.y,width:bb.w,height:bb.h,fill:"url(#kraftAcaoH)"});
+        add(svg,"rect",{x:bb.x,y:bb.y,width:bb.w,height:bb.h,fill:"none",
+          stroke:"#F4EEDC",["stroke-width"]:"45"});
+        add(svg,"rect",Object.assign({x:bb.x,y:bb.y,width:bb.w,height:bb.h,fill:"none",
+          stroke:"#CFC5A2",["stroke-width"]:"1"},NS_STROKE));
+      }
+    }
+  }
+  if (T === "degrade") {
+    let grad = null;
+    if (at.janela_mm && hexOk(at.de_hex) && hexOk(at.para_hex)) {
+      const [jx,jy,jw,jh] = at.janela_mm;
+      const ang = (at.direcao_graus||0) * Math.PI/180;
+      const cx = jx+jw/2, cy = jy+jh/2;
+      const L2 = (Math.abs(jw*Math.cos(ang)) + Math.abs(jh*Math.sin(ang)))/2 || jw/2;
+      const g2 = add(defs,"linearGradient",{id:"gdeg",gradientUnits:"userSpaceOnUse",
+        x1:cx-Math.cos(ang)*L2, y1:cy-Math.sin(ang)*L2,
+        x2:cx+Math.cos(ang)*L2, y2:cy+Math.sin(ang)*L2});
+      add(g2,"stop",{offset:"0%",["stop-color"]:at.de_hex});
+      add(g2,"stop",{offset:"100%",["stop-color"]:at.para_hex});
+      grad = "url(#gdeg)";
+      caixaAnot([jx, jy, jw, jh], "janela do degradê", true);
+    }
+    for (const zid of alvoZonas) {
+      const cg = q.classes.find(c => c.classe === zid);
+      if (!cg) continue;
+      add(svg,"path",{d:pathDe(cg.poligonos),fill:grad||corDe(cg),["fill-rule"]:"evenodd"});
+    }
+  }
+  const desenhaTracadoFita = (elm) => {
+    const info = elm.fita;
+    if (!info || !info.tracado) return false;
+    const cen = (info.por_substrato||{})[subs] || {};
+    const largTrecho = (cl) => {
+      if (cen.tecnica === "FITA_AMARELA") return 20;
+      if (cen.tecnica === "FITA_BRANCA_CORTADA") return 45;
+      if (cl === "curva") return 45;
+      if (cl === "V_leve") return subs === "lisa" ? 20 : 45;
+      return 20;
+    };
+    for (const pol of info.tracado) {
+      const pts = pol.pontos;
+      for (let i = 0; i < pts.length; i++) {
+        const p1 = pts[i], p2 = pts[(i+1)%pts.length];
+        const lw = largTrecho((pol.classes||[])[i] || "H_leve");
+        // corredor na LARGURA REAL da fita, cor neutra — a distinção é a largura
+        add(svg,"line",{x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],
+          stroke:"#CFC5A2",["stroke-width"]:String(lw+4),["stroke-linecap"]:"round"});
+        add(svg,"line",{x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],
+          stroke:"#EDE7D6",["stroke-width"]:String(lw),["stroke-linecap"]:"round"});
+        add(svg,"line",Object.assign({x1:p1[0],y1:p1[1],x2:p2[0],y2:p2[1],
+          stroke:"#15181D",["stroke-width"]:"1.25",["stroke-linecap"]:"round"},NS_STROKE));
+      }
+    }
+    return true;
+  };
+  if (T === "fita") {
+    for (const eid of at.elementos || []) {
+      const elm = a.elementos.find(x => x.id===eid);
+      if (!elm) continue;
+      for (const cg of q.classes) {
+        if (cg.campo || !elm.classes.includes(cg.classe)) continue;
+        fantasmaCls(cg);
+      }
+      if (!desenhaTracadoFita(elm))
+        caixaAnot([elm.dim_mm.x, elm.dim_mm.y, elm.dim_mm.w, elm.dim_mm.h], "fita", true);
+    }
+  }
+  if (T === "stencil") {
+    for (const eid of at.elementos || []) {
+      const elm = a.elementos.find(x => x.id===eid);
+      if (!elm) continue;
+      add(svg,"rect",{x:elm.dim_mm.x,y:elm.dim_mm.y,width:elm.dim_mm.w,height:elm.dim_mm.h,
+        fill:"url(#kraftAcaoH)"});
+      for (const cg of q.classes) {
+        if (cg.campo || !elm.classes.includes(cg.classe)) continue;
+        add(svg,"path",{d:pathDe(cg.poligonos),fill:"#FAFAFA",["fill-rule"]:"evenodd"});
+        add(svg,"path",Object.assign({d:pathDe(cg.poligonos),fill:"none",stroke:"#3A3F46",
+          ["stroke-width"]:"1.1",["fill-rule"]:"evenodd"},NS_STROKE));
+      }
+      if (elm.fita) desenhaTracadoFita(elm);
+    }
+  }
+
+  cotas();
+  return svg;
+}
+
+/* ---------- aba ANÁLISE ---------- */
+function trataFronteira(a) {
+  // linhas agregadas de "cores que se tocam" com o TRATAMENTO de cada uma
+  const cls = {};
+  for (const c of a.paleta.classes) cls[c.id] = c.hex_ancora;
+  const fam = {};
+  for (const f of a.paleta.familias) fam[f.id] = f.hex;
+  const linhas = [];
+  for (const pr of a.fronteira.pares) {
+    const [x,y] = pr.par;
+    linhas.push({a:cls[x]||"?", b:cls[y]||"?", m:pr.m,
+      trat:"corte à mão", cor:"var(--vinho)"});
+  }
+  const extras = [
+    [a.fronteira.esfumada_m, "esfumado na aerografia — não corta", "var(--roxo)"],
+    [a.fronteira.borda_aerografia_m, "borda de aerografia — fita na cobertura", "var(--roxo)"],
+    [a.fronteira.aninhada_m, "aninhada — o plotter corta (rota R2/máscara)", "var(--ink2)"],
+    [a.fronteira.intra_familia_m, "mesma tinta (fatias de rampa)", "var(--ink2)"],
+    [a.fronteira.total_contra_campo_m, "contra o campo — a aresta do vinil é a máscara", "var(--ink2)"],
+  ];
+  return {linhas, extras};
+}
+
+function desenhaAnalise(m) {
+  const a = analise();
+  const subs = substratoAtivo();
+  const grid = el("div","linha"); grid.style.marginTop = "14px";
+
+  // tintas
+  const c1 = el("div","cartao"); c1.style.flex = "1 1 400px";
+  c1.append(el("div","eyebrow",`Tintas — ${a.paleta.n_tintas} famílias · preço editável (recalcula)`));
+  for (const f of a.paleta.familias) {
+    if (f.m2 < 0.01 && !f.campo) continue;
+    const linhaF = el("div","");
+    linhaF.style.cssText = "display:flex;align-items:center;gap:8px;margin:4px 0;";
+    const sw = el("span","sw");
+    sw.style.background = (f.hex.startsWith("#")&&f.hex.length===7) ? f.hex : "linear-gradient(90deg,#888,#ddd)";
+    linhaF.append(sw);
+    const ed = (a.edicao_tintas||{})[f.id] || (a.edicao_tintas||{})[String(f.id)] || {};
+    linhaF.append(el("span","", `<span class="mono">${ed.hex||f.hex}</span>` +
+      (ed.nome? ` <b>${ed.nome}</b> <span class="fonte editada">editada</span>` : "") +
+      ` · <span class="num">${fmt(f.m2)} m²</span>` +
+      (f.campo ? ' · <span class="badge">campo</span>' : "") +
+      (f.rampa ? ' · <span class="badge">rampa</span>' : "")));
+    const inp = el("input");
+    inp.type = "number"; inp.step = "0.01"; inp.placeholder = "R$/L";
+    inp.value = ed.preco_litro ?? "";
+    inp.style.cssText = "width:74px;font:inherit;padding:1px 5px;border:1px solid var(--line);border-radius:3px;background:var(--ground);color:var(--ink);margin-left:auto;";
+    inp.dataset.fid = f.id; inp.className = "ed-preco";
+    linhaF.append(inp, el("span","fonte","preço/L"));
+    c1.append(linhaF);
+  }
+  const btnT = el("button","sec","Aplicar edições e recalcular");
+  btnT.style.marginTop = "8px";
+  btnT.onclick = () => {
+    const ov = {};
+    for (const inp of document.querySelectorAll(".ed-preco")) {
+      const v = parseFloat(inp.value);
+      if (!isNaN(v)) ov[`edicao_tintas.${inp.dataset.fid}.preco_litro`] = v;
+    }
+    for (const sel of document.querySelectorAll(".ed-tec"))
+      if (sel.value) ov[`edicao_tecnicas.${sel.dataset.eid}`] = sel.value;
+    recalcular(ov);
+  };
+  c1.append(el("div",""), btnT);
+  grid.append(c1);
+
+  // cores que se tocam
+  const c15 = el("div","cartao"); c15.style.flex = "1 1 380px";
+  c15.append(el("div","eyebrow","Cores que se tocam — o que cada metro de contato PAGA"));
+  const {linhas, extras} = trataFronteira(a);
+  const t15w = el("div","tbl"); const t15 = el("table");
+  t15.innerHTML = "<tr><th>par</th><th>metros</th><th>tratamento</th></tr>";
+  for (const l of linhas) {
+    const tr = el("tr");
+    tr.innerHTML = `<td><span class="sw" style="background:${l.a}"></span><span class="sw" style="background:${l.b}"></span>` +
+      `<span class="mono">${l.a} × ${l.b}</span></td>` +
+      `<td class="num"><b>${fmt(l.m,1)} m</b></td>` +
+      `<td style="color:${l.cor}">${l.trat}</td>`;
+    t15.append(tr);
+  }
+  for (const [v,rot,cor] of extras) {
+    if (!v || v < 0.05) continue;
+    const tr = el("tr");
+    tr.innerHTML = `<td class="mono" style="color:var(--ink2)">agregado</td>` +
+      `<td class="num">${fmt(v,1)} m</td><td style="color:${cor}">${rot}</td>`;
+    t15.append(tr);
+  }
+  t15w.append(t15); c15.append(t15w);
+  grid.append(c15);
+
+  // adesivos + folhas
+  const c2 = el("div","cartao"); c2.style.flex = "1 1 440px";
+  c2.append(el("div","eyebrow","Adesivos — mandam as bobinas (120/50) · folha divide quando economiza (R2-7)"));
+  const t2w = el("div","tbl"); const t2 = el("table");
+  t2.innerHTML = "<tr><th>id</th><th>envelope (mm)</th><th>bobina</th><th>folhas</th><th>vinil</th><th>aproveit.</th></tr>";
+  for (const ad of a.adesivos) {
+    const tr = el("tr");
+    const folhas = (ad.folhas||[]).length
+      ? `${ad.folhas.length} <span class="badge">−${fmt(ad.economia_folha_m2,2)} m²</span>`
+      : (ad.pecas_emenda>1 ? `${ad.pecas_emenda} (emenda)` : "1");
+    tr.innerHTML = `<td><b>${ad.id}</b></td><td class="num">${fmt(ad.envelope_mm.w,0)} × ${fmt(ad.envelope_mm.h,0)}</td>` +
+      `<td class="num">${ad.bobina_mm} mm</td><td class="num">${folhas}</td>` +
+      `<td class="num">${fmt(ad.vinil_m2)} m²</td><td class="num">${fmt(ad.aproveitamento_pct,0)}%</td>`;
+    t2.append(tr);
+  }
+  t2w.append(t2); c2.append(t2w);
+  grid.append(c2);
+
+  // elementos + técnica + fita por substrato
+  const c3 = el("div","cartao"); c3.style.flex = "1 1 100%";
+  c3.append(el("div","eyebrow",
+    `Elementos — técnica editável · fita decidida por trecho e por substrato (ativo: chapa ${subs})`));
+  const t3w = el("div","tbl"); const t3 = el("table");
+  t3.innerHTML = "<tr><th>tipo</th><th>dimensões</th><th>área</th><th>técnica</th><th>fita (chapa lisa)</th><th>fita (corrugada)</th><th>confiança</th></tr>";
+  const TECNICAS = ["ADESIVO","FITA","STENCIL_FITA","STENCIL_CORTE","AEROGRAFIA"];
+  for (const e2 of a.elementos.slice(0,16)) {
+    const tr = el("tr");
+    const opts = TECNICAS.map(t =>
+      `<option value="${t}" ${t===(e2.tecnica||"ADESIVO")?"selected":""}>${t.toLowerCase().replace("_"," ")}</option>`).join("");
+    const fitaCol = (sc) => {
+      if (!e2.fita) return "—";
+      const c = e2.fita.por_substrato[sc];
+      const chip = c.tecnica==="FITA_AMARELA" ? '<span class="sw-mat sw-fitaa" style="display:inline-block"></span>'
+        : c.tecnica==="FITA_BRANCA_CORTADA" ? '<span class="sw-mat sw-fitab" style="display:inline-block"></span>' : "";
+      const ativo = sc===subs ? " style='font-weight:700'" : " style='opacity:.65'";
+      return `<span${ativo}>${chip} ${c.tecnica.replace("FITA_","").replace("_"," ").toLowerCase()}` +
+        ` <span class="num">(${fmt(c.amarela_m,1)}m am / ${fmt(c.branca_m,1)}m br)</span></span>`;
+    };
+    tr.innerHTML = `<td>${e2.tipo}</td><td class="num">${fmt(e2.dim_mm.w,0)} × ${fmt(e2.dim_mm.h,0)} mm</td>` +
+      `<td class="num">${fmt(e2.area_m2)} m²</td>` +
+      `<td><select class="ed-tec" data-eid="${e2.id}" style="font:inherit;background:var(--ground);color:var(--ink);border:1px solid var(--line);border-radius:3px;">${opts}</select>` +
+      (e2.tecnica_fonte==="editada" ? ' <span class="fonte editada">editada</span>' : "") + `</td>` +
+      `<td>${fitaCol("lisa")}</td><td>${fitaCol("corrugada")}</td>` +
+      `<td><span class="conf ${e2.confianca}">${e2.confianca}</span></td>`;
+    t3.append(tr);
+  }
+  for (const z of a.zonas_continuas) {
+    if (z.area_m2 < 0.02) continue;
+    const tr = el("tr");
+    tr.innerHTML = `<td><b>${z.tipo}</b></td><td>${z.de_hex? `<span class="mono">${z.de_hex} → ${z.para_hex}</span>` : (z.hex_medio||"—")}</td>` +
+      `<td class="num">${fmt(z.area_m2)} m²</td>` +
+      `<td>${z.tons_sugeridos? z.tons_sugeridos+" tons" : ""}${z.direcao_graus!==undefined&&z.direcao_graus!==null? ` · rampa a ${fmt(z.direcao_graus,0)}°`:""}</td>` +
+      `<td colspan="3"></td>`;
+    t3.append(tr);
+  }
+  t3w.append(t3); c3.append(t3w);
+  grid.append(c3);
+
+  const c4 = el("div","cartao"); c4.style.flex = "1 1 100%";
+  c4.append(el("div","eyebrow","Arte original — só referência; o quadro é sempre vetorial"));
+  const img = el("img","ref-img"); img.src = "/api/imagem/" + encodeURIComponent(a.arquivo);
+  img.alt = a.arquivo; c4.append(img);
+  grid.append(c4);
+  m.append(grid);
+}
+
+/* ---------- aba PENDÊNCIAS ---------- */
+function desenhaPend(m) {
+  const a = analise();
+  const box = el("div"); box.style.marginTop = "14px";
+  box.append(el("div","eyebrow",`Perguntas — o motor não decide sozinho (${a.perguntas.length})`));
+  for (const p of a.perguntas) {
+    const d = el("div","perg");
+    d.append(el("div","",p.pergunta));
+    d.append(el("div","def","default até ser respondida: <b>"+p.default+"</b>"));
+    box.append(d);
+  }
+  if (a.divergencias.length) {
+    box.append(el("div","eyebrow","Divergências — duas leituras discordaram (§8.3)"));
+    for (const d2 of a.divergencias)
+      box.append(el("div","div",`<b>${d2.tipo}</b>: ${d2.detalhe}`));
+  }
+  const comp = DADOS.comparacao;
+  if (comp) {
+    box.append(el("div","eyebrow","Lateral × traseira"));
+    box.append(el("div","", `hexes transferíveis entre faces: <b>${comp.hexes_transferiveis}</b>`));
+    for (const d2 of comp.defeitos||[])
+      box.append(el("div","def-face",`DEFEITO — ${d2.detalhe}`));
+    for (const d2 of comp.divergencias||[])
+      box.append(el("div","div",`${d2.tipo}: ${d2.detalhe}`));
+    if ((comp.conferencia_textos||[]).length)
+      box.append(conferenciaTextos(comp.conferencia_textos));
+  }
+  m.append(box);
+}
+
+function conferenciaTextos(pares) {
+  const cx = el("div","cartao"); cx.style.marginTop = "10px";
+  cx.append(el("div","eyebrow","Conferência de textos entre faces — o motor casa, o olho lê"));
+  const imgs = {};
+  for (const f of ["lateral","traseira"]) {
+    if (!DADOS.faces[f]) continue;
+    const a = DADOS.faces[f].analise;
+    const im = new Image();
+    im.src = "/api/imagem/" + encodeURIComponent(a.arquivo);
+    imgs[f] = { im, a };
+  }
+  const desenhaCrop = (canvas, face, dim) => {
+    const { im, a } = imgs[face];
+    const esc = 1 / a.escala.mm_px;
+    const off = a.moldura_px || {};
+    const sx = dim.x*esc + (off.esq||0), sy = dim.y*esc + (off.topo||0);
+    const sw = Math.max(2, dim.w*esc), sh = Math.max(2, dim.h*esc);
+    const H = 46, W = Math.min(620, Math.round(sw/sh*H));
+    canvas.width = W; canvas.height = H;
+    const pinta = () => canvas.getContext("2d").drawImage(im, sx, sy, sw, sh, 0, 0, W, H);
+    if (im.complete) pinta(); else im.addEventListener("load", pinta);
+  };
+  for (const p of pares) {
+    const linha = el("div","");
+    linha.style.cssText = "display:flex;gap:14px;align-items:center;margin:8px 0;flex-wrap:wrap;";
+    const c1 = document.createElement("canvas");
+    c1.style.cssText = "border:1px solid var(--line);border-radius:2px;background:#fff";
+    desenhaCrop(c1, "lateral", p.lateral.dim_mm);
+    linha.append(el("span","eyebrow","lateral"), c1);
+    if (p.traseira) {
+      const c2 = document.createElement("canvas");
+      c2.style.cssText = "border:1px solid var(--line);border-radius:2px;background:#fff";
+      desenhaCrop(c2, "traseira", p.traseira.dim_mm);
+      linha.append(el("span","eyebrow","traseira"), c2);
+    } else {
+      linha.append(el("span","fonte chute","sem contraparte"));
+    }
+    cx.append(linha);
+  }
+  return cx;
+}
+
+/* ---------- aba ORÇAMENTO ---------- */
+function desenhaOrcamento(m) {
+  const o = orcam();
+  const box = el("div","cartao"); box.style.marginTop = "14px";
+  box.append(el("div","eyebrow","Os dois eixos (§7.1): material escala com ÁREA, mão de obra com COMPRIMENTO e ciclos"));
+  const tw = el("div","tbl"); const t = el("table");
+  t.innerHTML = "<tr><th></th><th>item</th><th>quantidade</th><th>preço un.</th><th>total</th><th>status</th><th>fontes</th></tr>";
+  for (const mt of o.materiais) {
+    const tr = el("tr");
+    tr.innerHTML = `<td>${swatchMaterial(mt.item)}</td><td>${mt.item}</td>` +
+      `<td class="num"><b>${fmt(mt.quantidade)} ${mt.unidade}</b></td>` +
+      `<td>${mt.preco_unitario? fmt(mt.preco_unitario):"—"}</td><td>${mt.total? fmt(mt.total):"—"}</td>` +
+      `<td>${mt.status? `<span class="fonte chute">${mt.status}</span>`:""}</td>` +
+      `<td>${(mt.fontes||[]).map(f=>`<span class="fonte ${f}">${f}</span>`).join(" ")}</td>`;
+    t.append(tr);
+  }
+  tw.append(t); box.append(tw);
+  const mo = o.mao_de_obra;
+  box.append(el("div","",`<br><b>mão de obra</b>: <span class="num">${fmt(mo.horas,1)} h</span> ` +
+    (mo.total ? `× custo-hora = ${fmt(mo.total)}` : `<span class="fonte chute">${mo.status||""}</span>`) +
+    ` — <span class="fonte chute">${mo.fonte_taxas}</span>`));
+  m.append(box);
+}
+
+init();
+</script>
+</body>
+</html>

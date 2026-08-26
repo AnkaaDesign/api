@@ -1,0 +1,98 @@
+layout: BANANA OURO VERDE
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BANANA OURO VERDE.png"
+    campo:
+      classe: TINTA      # verde #009C1B, L* 55,9 — demão de fundo no painel inteiro
+      hex_aprox: "#009C1B"
+    pintura_geral: true
+    n_tintas_aprox: 8
+    tintas:
+      - {nome: verde-campo, hex: "#009C1B"}
+      - {nome: branco, hex: "#FFFFFF"}
+      - {nome: dourado, hex: "#FFCC57"}
+      - {nome: verde-escuro, hex: "#2B3617"}
+      - {nome: verde-mape, hex: "#315D3A"}
+      - {nome: verde-colina-claro, hex: "#9CD092"}
+      - {nome: verde-colina-medio, hex: "#90C747"}
+      - {nome: verde-colina-forte, hex: "#7AAC4D"}
+    elementos:
+      - nome: regiao-branca-direita
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Grande região branca (~1/5 do painel, à direita) com fronteira curva; abriga a aerografia e o texto. Branco ≠ campo do desenho ⇒ pela doutrina é tinta — mas é candidata a ser MASCARADA antes do fundo verde (a chapa já é branca); decisão do dono, ver perguntas."
+      - nome: borda-verde-escura
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Faixa que acompanha a fronteira curva entre o campo verde e a região branca (e a base da região). Toca o verde-campo de um lado e o branco do outro."
+      - nome: aerografia-bananas
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: [amarelo, verde, marrom]
+        pousa_sobre: branco
+        toca_tinta: true
+        notas: "Penca de bananas realista + folhas de bananeira, tom contínuo fotográfico (n98=7346 confirma). PRIMEIRO trabalho de arte (regra 21/08); depois cobrir com fita nas bordas + papel. Adesivo só do contorno externo."
+      - nome: anel-do-emblema
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: branco
+        toca_tinta: true
+        notas: "Arco circular chapado atrás da penca; a penca sobrepõe o anel — corte contra a borda coberta da aerografia."
+      - nome: texto-banana-ouro-verde
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [verde-escuro]
+        pousa_sobre: branco
+        toca_tinta: false
+        notas: "Serifado 'BANANA / OURO VERDE' com filete interno claro (estilo gravado/bisel). Sugerir chapar o bisel; ver perguntas."
+      - nome: logo-mape
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco, dourado, verde-mape, verde-colina-claro, verde-colina-medio, verde-colina-forte]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Lock-up = UM adesivo: anel branco, círculo dourado, texto 'Mape' verde, colinas em 3 verdes intercaladas com listras brancas saindo do círculo (cauda branca invade o campo verde). Todos os toques internos são tinta-tinta."
+    de_graca: []
+    ciclos_extras:
+      - "texto 'Mape' (verde) sobre o círculo dourado — dourado pintado antes, adesivo novo por cima"
+      - "colinas (3 verdes + listras brancas) sobre a base do círculo dourado — mesmo ciclo novo do texto, se agrupado"
+    degrades: []
+    aerografias:
+      - {onde: aerografia-bananas, notas: "penca + folhas; especular/pintas/nervuras resolvem-se na pistola, não no vinil"}
+    faixas_fita:
+      - {onde: borda-verde-escura, notas: "curva longa e suave atravessando a altura do painel — candidata a marcação com fita; substrato não está na arte"}
+    pares_tt_minimos:
+      - [branco, verde-campo]
+      - [verde-escuro, verde-campo]
+      - [branco, dourado]
+      - [verde-mape, dourado]
+      - [verde-colina-forte, dourado]
+    zero_tt: false
+    riscos_traco_fino:
+      - "filete interno claro das letras 'BANANA OURO VERDE' (poucos mm)"
+      - "listras brancas finas entre as colinas do logo Mape"
+      - "pintas/detalhes das bananas — sem risco (é aerografia, não vinil)"
+    defeitos:
+      - "arte da penca tem aparência de imagem de banco/IA (tom fotográfico genérico); sem marca d'água visível no preview, conferir no original em alta"
+    perguntas:
+      - "A região branca da direita é MASCARADA antes do fundo verde (fica chapa) ou recebe demão branca por cima do fundo? Muda demãos e a ordem com a aerografia."
+      - "Ordem fundo × aerografia: a aerografia pousa na região branca — presume-se região protegida e aerografia primeiro; confirmar sequência com o dono."
+      - "Os dois verdes-escuros (#2B3617 da borda/texto e #315D3A do 'Mape') são a MESMA tinta ou tintas distintas?"
+      - "Substrato liso ou corrugado? Decide fita na borda curva."
+      - "Só existe esta face no material — há traseira?"
+      - "Medida não declarada — assumido 2,45 m de altura (≈14,6 m de comprimento)."
+      - "O bisel/filete claro das letras pode ser achatado para chapado puro?"
+notas_gerais: >-
+  Único dos três layouts com campo TINTA (verde #009C1B) e com AEROGRAFIA de
+  verdade (n98=7346, tom contínuo). Arquitetura de custo: demão de fundo verde
+  no painel inteiro + aerografia como primeiro trabalho de arte + lock-up Mape
+  cheio de tinta-sobre-tinta (círculo dourado com texto e colinas aninhados =
+  ciclos extras). Arquivo único — sem comparação entre faces possível.

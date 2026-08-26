@@ -1,0 +1,115 @@
+layout: CLEBIN
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "CLEBIN lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: grafite, hex: "#373535"}
+      - {nome: vinho, hex: "#8C3032"}
+      - {nome: amarelo, hex: "#FFF215"}
+    elementos:
+      - nome: barra-topo-site
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Barra vinho no canto superior esquerdo com recorte diagonal; texto 'clebin.com.br' branco dentro dela sai de graça."
+      - nome: logo-clebin
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [grafite, vinho, amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Lock-up: letras CLEBIN + 'Distribuidora de Frios' + arco circular grafite, swoosh vinho, gomo amarelo e quadradinho vinho no topo. UM adesivo. Contato amarelo–vinho no topo do símbolo."
+      - nome: slogan-entrega
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [grafite]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'Entrega ágil e rápida!' em grafite sobre campo."
+      - nome: selos-categorias
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "6 quadrados arredondados vinho (aves, suínos, bovinos, pescados, industrializados, laticínios); ícones brancos internos são ilhas de vinil (de graça). Legendas grafite pequenas embaixo. Comprimento parecido e vão pequeno: candidatos a agrupar em um adesivo."
+      - nome: rodape
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Barra vinho full-width na base; 'Umuarama - Pr' e '(44) 3622-3000' brancos saem de graça."
+    de_graca:
+      - "texto 'clebin.com.br' (branco dentro da barra vinho do topo)"
+      - "ícones brancos dentro dos 6 selos vinho"
+      - "'Umuarama - Pr' e '(44) 3622-3000' (brancos dentro da barra do rodapé)"
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [amarelo, vinho]
+    # zero_tt removido na triagem 21/08: o motor não vê corte à mão (contatos esfumados/borda de aerografia)
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "legendas dos selos (AVES, SUÍNOS…) muito pequenas em grafite"
+      - "símbolo ® ao lado do logo"
+      - "detalhes internos brancos dos ícones dos selos (filetes de vinil que ficam)"
+    defeitos: []
+    perguntas:
+      - "O censo mostra dois vinhos muito próximos (#8C3032 nas barras, #822F30 no swoosh/selos) — é a mesma tinta ou são dois tons intencionais?"
+      - "O arco grafite e o swoosh vinho do símbolo se encostam ou há filete branco entre eles?"
+  traseira:
+    arquivo: "CLEBIN traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: grafite, hex: "#373535"}
+      - {nome: vinho, hex: "#822F30"}
+      - {nome: amarelo, hex: "#FFF215"}
+    elementos:
+      - nome: logo-clebin
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [grafite, vinho, amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Mesmo lock-up da lateral, ampliado e centralizado. Recomposição correta (não é a lateral em escala)."
+      - nome: telefone
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'(44) 3622-3000' em vinho sobre campo (na lateral o mesmo telefone é branco dentro da barra)."
+    de_graca: []
+    ciclos_extras: []
+    degrades: []
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [amarelo, vinho]
+    # zero_tt removido na triagem 21/08: o motor não vê corte à mão (contatos esfumados/borda de aerografia)
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "símbolo ® pequeno no topo do logo"
+    defeitos: []
+    perguntas: []
+notas_gerais: >-
+  Sem medida declarada nos arquivos: altura padrão 2,45 m ⇒ lateral ~6,9 m de
+  comprimento, traseira ~2,6 m de largura. Campo branco = chapa nas duas faces;
+  nenhum ciclo tinta-sobre-tinta. Conteúdo textual consistente entre as faces
+  (telefone idêntico); nenhuma divergência encontrada. Único par tinta-tinta com
+  confiança visual é amarelo–vinho no miolo do símbolo.

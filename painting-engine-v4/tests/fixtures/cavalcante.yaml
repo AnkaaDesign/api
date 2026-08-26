@@ -1,0 +1,66 @@
+layout: CAVALCANTE
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "CAVALCANTE (jamaica).png"
+    campo:
+      classe: TINTA      # azul, L* 34,8 — demão de fundo no painel inteiro
+      hex_aprox: "#044BB5"
+    pintura_geral: true
+    n_tintas_aprox: 5    # azul-campo, preto, verde, branco, azul-marinho (padrão)
+    tintas:
+      - {nome: azul-campo, hex: "#044BB5"}
+      - {nome: preto, hex: "#000000"}
+      - {nome: verde, hex: "#009740"}
+      - {nome: branco, hex: "#E6E6E6"}
+    elementos:
+      - nome: lockup-cavalcante
+        tipo: LOGOMARCA  # "Transportadora" + "Cavalcante" + faixa preta + swoosh verde + "Cruzeiro Do Oeste-Pr" + ®
+        tecnica: CHAPADA
+        cores: [preto, verde, branco]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "UM lock-up = UM adesivo; letras pretas separadas da faixa preta por filetes na cor do campo (vinil que fica)"
+      - nome: texto-cruzeiro-do-oeste
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: preto
+        toca_tinta: true
+        notas: "texto branco DENTRO da faixa preta; campo é azul, logo o branco é tinta (não sai de graça); idem o símbolo ®"
+      - nome: swoosh-verde
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [verde]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "corre colado sob a faixa preta ao longo de todo o lock-up (~4 m); borda superior é fronteira preto/verde"
+      - nome: padrao-cubos
+        tipo: MOSAICO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "padrão isométrico de cubos/losangos na metade direita do painel; no render os cubos esmaecem (fade) na borda esquerda do padrão e há sombreamento sutil nas faces; contato com o lock-up não confirmado"
+    de_graca:
+      - "filetes azuis (cor do campo) entre as letras de 'Cavalcante' e a faixa preta — ilhas de vinil que ficam"
+    ciclos_extras:
+      - "branco sobre preto: 'Cruzeiro Do Oeste-Pr' + ® dentro da faixa preta (pinta preto, sela/seca, adesivo novo, pinta branco)"
+    degrades:
+      - {onde: padrao-cubos (entrada do padrão, lado esquerdo), de: azul-marinho, para: azul-campo, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita:
+      - {onde: swoosh-verde sob o lock-up, notas: "curva orgânica longa (~4 m) candidata a fita na borda inferior; a borda superior encosta no preto (corte à mão); substrato não está na arte"}
+    pares_tt_minimos:
+      - [preto, verde]
+      - [branco, preto]
+    zero_tt: false
+    riscos_traco_fino:
+      - "filetes azuis do lock-up (~9–18 mm) entre letras e faixa preta"
+      - "padrao-cubos: dezenas de losangos e filetes pequenos, alguns esmaecidos — depilação extensa e propensa a erro"
+    defeitos: []
+    perguntas:
+      - "o padrão de cubos vai mesmo para a pintura ou é só fundo decorativo do render? Se vai, o fade vira um tom só chapado ou esfumado (aerografia)?"
+      - "substrato (chapa lisa ou corrugada?) — decide fita amarela × branca cortada no swoosh"
+      - "sem medida declarada no nome do arquivo — assumida altura 2,45 m (largura ~14,5 m); confirmar"
+notas_gerais: "Render vetorial chapado (n98=46). Campo azul = pintura geral primeiro. Trabalho concentrado no lock-up central; padrão de cubos é o maior volume de depilação. Face única — sem traseira para comparar."

@@ -1,0 +1,39 @@
+layout: BURES 2
+fonte: doutrina   # referência de rampa contínua (CONHECIMENTO §3.2/§11.2) + análise visual 21/08
+faces:
+  lateral:
+    arquivo: "BURES 2 8.40.png"
+    escala_mm_px: {valor: 0.8464, tol_pct: 3}   # 8,40 m / 9924 px
+    campo: {classe: CHAPA, hex: "#FFFFFF"}
+    pintura_geral: false
+    n_dias: 1   # R2-4: calendário por regra (dono, 21/08)
+    n_tintas_aprox: 4   # azul, laranja/dourado, cinza + rampa do azul (tons de degradê marcados, não fundidos)
+    elementos:
+      - nome: logo-bures
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [azul, dourado, cinza]
+        pousa_sobre: CAMPO
+        toca_tinta: true   # aqui a estrela/disco se tocam (diferente do BURES 1) — conferir no pixel
+      - nome: ondas-rodape
+        tipo: FAIXA_ORGANICA
+        tecnica: FITA_CANDIDATA
+        cores: [laranja, azul, marinho]
+        toca_tinta: true   # laranja cruza o azul no canto direito
+        notas: chapa lisa + curva tranquila ⇒ fita AMARELA (caso citado pelo dono na correção 2.5)
+      - nome: telefone
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul]
+        pousa_sobre: CAMPO
+    degrades:
+      - {onde: onda azul direita, de: azul, para: marinho, tons_sugeridos: 2}
+    aerografias: []
+    # o cruzamento laranja×rampa-azul vira BORDA DE AEROGRAFIA (fita na
+    # cobertura da rampa, regra 21/08) — não corte de mascaramento; o legado
+    # media "2 T-T" sem essa distinção
+    zero_tt: true
+    notas: >
+      Paleta correta ≈ 4 cores chapadas + rampa (patch 11.2-b mediu "4 cores, 2 T-T").
+      A rampa tem de sair MARCADA (gradient: true), jamais N azuis chapados
+      (artefato do grid) e jamais fundida com o azul base (apagaria demãos).

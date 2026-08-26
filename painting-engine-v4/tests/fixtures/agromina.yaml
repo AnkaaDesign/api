@@ -1,0 +1,178 @@
+layout: AGROMINA
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "AGROMINA lateral.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#37343D"   # ameixa/chumbo escuro, L* ~22
+    pintura_geral: true
+    n_tintas_aprox: 4
+    tintas:
+      - {nome: fundo-escuro, hex: "#37343D"}
+      - {nome: dourado-escuro, hex: "#C2953A"}
+      - {nome: branco, hex: "#FFFFFF"}
+    elementos:
+      - nome: foto-costela
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: [multiplas-fotograficas]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: >-
+          Costela suína sobre tábua de madeira, ocupa ~45% da esquerda,
+          sangrando nas bordas; a fronteira direita é um ARCO grande e suave
+          contra o fundo escuro. Tom contínuo pesado (n98 ~362 mil).
+      - nome: fagulhas-brasas
+        tipo: ORNAMENTO
+        tecnica: AEROGRAFIA
+        cores: [laranja, vermelho]
+        pousa_sobre: fundo-escuro
+        toca_tinta: true
+        notas: >-
+          Pontos e riscos de brasa incandescente espalhados pelo painel
+          INTEIRO, inclusive na metade direita, passando perto/possivelmente
+          por cima do swoosh dourado do logo.
+      - nome: logo-agromina
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [dourado-escuro, dourado-claro, branco]
+        pousa_sobre: fundo-escuro
+        toca_tinta: false
+        notas: >-
+          Lock-up: script "Agromina" dourado metálico + swoosh de sublinhado +
+          folhas douradas + "EST. 1973" em branco com filetes. Dourado com
+          varredura metálica clara no meio.
+      - nome: tagline
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: fundo-escuro
+        toca_tinta: false
+        notas: '"TRADIÇÃO EM CARNE SUÍNA" — "CARNE SUÍNA" em bold, sem ponto final nesta face.'
+    de_graca: []           # campo é tinta; nada tem a cor da chapa preservada
+    ciclos_extras:
+      - "dourados do logo sobre o fundo escuro envernizado (adesivo novo após a demão geral)"
+      - "brancos (EST. 1973 + tagline) sobre o fundo escuro (podem dividir a rodada com o dourado — não se tocam)"
+    degrades:
+      - {onde: logo-agromina (script + swoosh), de: dourado-escuro, para: dourado-claro, tons_sugeridos: 3}
+    aerografias:
+      - onde: foto-costela
+        notas: "Primeiro trabalho (regra 21/08); depois cobrir com fita nas bordas + papel."
+      - onde: fagulhas-brasas
+        notas: "Brilhos/glow só saem de aerografia; ordem vs. demão de fundo vira pergunta."
+      - onde: vinheta-do-fundo
+        notas: >-
+          O fundo NÃO é uniforme: arcos escuros sutis tom-sobre-tom
+          (#2C2930/#252026 vs #37343D) — provável esfumado leve por cima da
+          demão geral. Registrado como possibilidade, não como certeza.
+    faixas_fita:
+      - onde: fronteira em arco entre a foto e o fundo escuro
+        notas: "Curva grande e suave, atravessa o painel na vertical; substrato não declarado na arte."
+    pares_tt_minimos: []   # nenhum par de tintas CHAPADAS com contato certo
+    # zero_tt removido: contatos desta arte contínua viram BORDA DE AEROGRAFIA (fita), não corte
+    zero_tt_removido: true         # fagulhas aerografadas muito provavelmente cruzam o dourado do swoosh
+    riscos_traco_fino:
+      - "filetes brancos ao lado de 'EST. 1973'"
+      - "terminações finas do script Agromina e talos das folhas"
+    defeitos:
+      - >-
+        Divergência menor entre faces: tagline SEM ponto final na lateral e
+        COM ponto final na traseira ("CARNE SUÍNA" vs "CARNE SUÍNA.").
+      - >-
+        Fundo de tom diferente entre faces: lateral #37343D com vinheta,
+        traseira #241F25 quase preto — se for a mesma tinta, uma das faces
+        está fora.
+    perguntas:
+      - "Fundo das duas faces é a MESMA tinta? Qual das duas referências vale?"
+      - "Ordem de execução: a regra 21/08 põe a aerografia primeiro — antes ou depois da demão geral do fundo escuro?"
+      - "As fagulhas sobre a área do logo ficam (aerografia por cima do dourado) ou saem?"
+      - "Substrato da lateral é liso ou corrugado (define fita amarela × branca no arco da foto)?"
+      - "Dourado metálico: 3 tons atendem ou o cliente espera efeito mais 'metal'?"
+  traseira:
+    arquivo: "AGROMINA traseira.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#241F25"   # quase preto, L* ~12
+    pintura_geral: true
+    n_tintas_aprox: 3      # fundo-escuro, dourado-escuro, dourado-claro; o escuro dos elementos = mesma tinta do fundo em 2ª demão
+    tintas:
+      - {nome: fundo-escuro, hex: "#241F25"}
+      - {nome: dourado-escuro, hex: "#C2953A"}
+    elementos:
+      - nome: porco-cortes
+        tipo: ORNAMENTO
+        tecnica: DEGRADE
+        cores: [dourado-escuro, dourado-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: >-
+          Porco em silhueta dourada com diagrama de cortes açougueiros; as
+          LINHAS internas de divisão são filetes na cor do fundo (vinil que
+          fica no adesivo do porco, mostrando o fundo).
+      - nome: faixa-dourada-inferior
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [dourado-escuro, dourado-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Banda dourada do terço inferior, borda superior em onda suave; sangra na base e nas laterais."
+      - nome: logo-agromina-escuro
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [fundo-escuro]
+        pousa_sobre: faixa-dourada-inferior
+        toca_tinta: true
+        notas: >-
+          Mesmo lock-up da lateral (script + EST. 1973 + folhas + swoosh +
+          tagline), mas monocromático ESCURO sobre o dourado — mesma tinta do
+          fundo em profundidade de aninhamento diferente = demão separada
+          (regra 10).
+      - nome: qr-code
+        tipo: MOSAICO
+        tecnica: CHAPADA
+        cores: [fundo-escuro]
+        pousa_sobre: faixa-dourada-inferior
+        toca_tinta: true
+        notas: "Módulos estimados em ~6-8 mm na escala do painel — mosaico denso."
+      - nome: contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [fundo-escuro]
+        pousa_sobre: faixa-dourada-inferior
+        toca_tinta: true
+        notas: "Ícones WhatsApp/Instagram/globo + '98 9 3012 7810' + '@grupoagromina' + 'agromina.com.br'."
+    de_graca: []
+    ciclos_extras:
+      - "porco dourado sobre o fundo envernizado (adesivo novo após demão geral)"
+      - "faixa dourada sobre o fundo (pode dividir rodada com o porco — não se tocam)"
+      - "elementos escuros (logo + QR + contatos) sobre a faixa dourada envernizada — 3º nível de aninhamento"
+    degrades:
+      - {onde: porco-cortes, de: dourado-escuro, para: dourado-claro, tons_sugeridos: 3}
+      - {onde: faixa-dourada-inferior, de: dourado-escuro, para: dourado-claro, tons_sugeridos: 3}
+    aerografias: []        # face vetorial (n98 = 883); degradês executam-se por esfumado, já contados acima
+    faixas_fita:
+      - onde: borda superior ondulada da faixa dourada
+        notas: "Onda grande atravessando o painel — marcar com fita; substrato não declarado."
+    pares_tt_minimos:
+      - [fundo-escuro, dourado-claro]   # logo/QR/contatos escuros pousam com certeza sobre a faixa dourada
+    # zero_tt removido: contatos desta arte contínua viram BORDA DE AEROGRAFIA (fita), não corte
+    zero_tt_removido: true
+    riscos_traco_fino:
+      - "filetes internos do diagrama de cortes do porco (vinil fino que precisa ficar colado na depilação)"
+      - "módulos do QR code (~6-8 mm)"
+      - "ícones e textos de contato pequenos sobre a faixa"
+      - "rabo em espiral do porco (traço fino fechado)"
+    defeitos:
+      - "Ver defeitos cruzados registrados na lateral (ponto final da tagline; tom do fundo divergente entre faces)."
+    perguntas:
+      - "O QR code precisa LER de verdade? Módulos de ~6-8 mm pintados são risco — validar tamanho mínimo com o dono."
+      - "As linhas internas do porco podem afinar/engrossar para segurar a depilação?"
+      - "Dourado da traseira deve casar exatamente com o da lateral (mesmos 3 tons)?"
+notas_gerais: >-
+  Traseira é RECOMPOSIÇÃO correta (porco de cortes + faixa + contatos), não a
+  lateral em escala — sem truncamento nem espelhamento detectado; as duas
+  divergências reais são o ponto final da tagline e o tom do fundo. Nenhuma
+  medida declarada nos nomes → altura padrão 2,45 m. Layout caro: campo é
+  tinta nas duas faces, dourado metálico em degradê nas duas, e a traseira
+  tem aninhamento de 3 níveis (fundo → faixa → elementos escuros).

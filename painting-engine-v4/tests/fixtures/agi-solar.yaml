@@ -1,0 +1,127 @@
+layout: AGI SOLAR
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "AGI SOLAR lateral.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 5
+    tintas:
+      - {nome: teal, hex: "#028389"}
+      - {nome: laranja, hex: "#EF8839"}
+      - {nome: azul-claro, hex: "#00AFF0"}
+      - {nome: preto, hex: "#373535"}
+    elementos:
+      - nome: simbolo-painel-solar
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [teal, laranja, azul-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Grade curva de painel solar em 3 colunas (teal, laranja, azul-claro), cada célula com brilho degradê cor→quase branco. As células e colunas aparentam estar separadas por filetes brancos do campo (não conta t-t) — CONFIRMAR os filetes na resolução cheia antes de fechar zero_tt."
+      - nome: texto-agi-solar-brasil
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [laranja, teal]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'AGI' laranja + 'SOLAR BRASIL' teal + 'Energia Solar' laranja. Chapados, sem contato entre cores."
+      - nome: qr-code
+        tipo: MOSAICO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "QR pequeno na lateral (~40 cm; módulos ~1 cm) — mosaico de micro-ilhas, risco alto de depilação. Perguntar se vira adesivo recortado aplicado no fim ou se pinta."
+      - nome: contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto, verde-whatsapp]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Ícone WhatsApp verde (miolo branco = de graça) + (65) 9 8415-8514 + ícone Instagram COLORIDO EM DEGRADÊ (rosa/laranja/roxo, minúsculo) + @agisolar. O ícone IG degradê em tamanho pequeno é impraticável fiel — sugerir 1 cor (pergunta)."
+      - nome: selo-nexen
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'Integrador autorizado: nexen distribuidora' — marca de terceiro, texto pequeno (~3 cm)."
+    de_graca:
+      - "filetes/vãos brancos da grade do símbolo"
+      - "miolo branco do ícone WhatsApp"
+      - "vãos brancos do QR"
+    ciclos_extras: []
+    degrades:
+      - {onde: coluna teal do simbolo, de: teal, para: quase-branco, tons_sugeridos: 2}
+      - {onde: coluna laranja do simbolo, de: laranja, para: quase-branco, tons_sugeridos: 2}
+      - {onde: coluna azul do simbolo, de: azul-claro, para: quase-branco, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "módulos do QR pequeno (~1 cm) — muitas micro-ilhas"
+      - "ícones de contato minúsculos (WhatsApp/Instagram)"
+      - "texto 'Integrador autorizado' pequeno"
+    defeitos: []
+    perguntas:
+      - "Sem medida no nome do arquivo: assumida altura 2,45 m → largura implícita ~14,8 m. Confirmar medida real."
+      - "QR code: pintar (viável só se módulo ≥ ~1 cm) ou aplicar como adesivo final funcional?"
+      - "Ícone do Instagram em degradê colorido: simplificar para 1 cor (como fazem outros layouts)?"
+      - "Manter a marca de terceiro nexen?"
+      - "Brilho das células do símbolo: degradê esfumado ou achatar para chapado?"
+  traseira:
+    arquivo: "AGI SOLAR traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 4
+    tintas:
+      - {nome: teal, hex: "#028389"}
+      - {nome: laranja, hex: "#EF8839"}
+      - {nome: azul-claro, hex: "#00AFF0"}
+      - {nome: preto, hex: "#373535"}
+    elementos:
+      - nome: simbolo-painel-solar
+        tipo: LOGOMARCA
+        tecnica: DEGRADE
+        cores: [teal, laranja, azul-claro]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesmo símbolo, recomposto grande. Mesma ressalva: colunas aparentam separadas por filetes brancos — confirmar na resolução cheia."
+      - nome: texto-empilhado
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [laranja, teal]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "AGI (laranja) / SOLAR / BRASIL (teal) / Energia Solar (laranja) empilhados — recomposição, conteúdo bate com a lateral."
+      - nome: qr-code
+        tipo: MOSAICO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "QR grande (~65 cm; módulos ~2 cm) — mais viável que o da lateral, ainda assim muitas ilhas."
+    de_graca:
+      - "filetes/vãos brancos da grade do símbolo"
+      - "vãos brancos do QR"
+    ciclos_extras: []
+    degrades:
+      - {onde: coluna teal do simbolo, de: teal, para: quase-branco, tons_sugeridos: 2}
+      - {onde: coluna laranja do simbolo, de: laranja, para: quase-branco, tons_sugeridos: 2}
+      - {onde: coluna azul do simbolo, de: azul-claro, para: quase-branco, tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "módulos do QR (menos crítico que na lateral)"
+    defeitos: []
+    perguntas:
+      - "Traseira não tem fone/@/nexen, só QR — confirmar que é intencional."
+notas_gerais: "Campo CHAPA branca nas duas faces (87–89%). n98=96 na lateral = render vetorial chapado; os degradês são só o brilho das células do símbolo (2 tons por cor). Nenhuma fronteira tinta×tinta confirmada e nenhum ciclo extra → layout barato em mão de obra; o custo real está nas micro-ilhas (QR, ícones). Conteúdo textual coerente entre faces, sem truncamento/espelhamento/marca d'água."

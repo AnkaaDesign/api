@@ -1,0 +1,108 @@
+layout: Atacado Frios
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "Atacado Frios lateral.png"
+    campo:
+      classe: CHAPA          # #E6E7E8, L* 91,6 — neutro claro = chapa branca
+      hex_aprox: "#E6E7E8"
+    pintura_geral: false
+    n_tintas_aprox: 8        # 2 tintas dominam (azul-marinho, vermelho); as outras ~6 existem so nos selos minusculos de terceiros
+    tintas:
+      - {nome: azul-marinho, hex: "#2D3047"}
+      - {nome: vermelho, hex: "#EE3638"}
+      - {nome: vermelho-selo, hex: "#ED1C24"}
+      - {nome: preto, hex: "#373535"}
+    elementos:
+      - nome: logo-principal
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho, azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "lock-up: seta vermelha circular envolvendo 'ATACADO FRIOS' azul-marinho + barras diagonais azul-marinho; vao do campo aparente entre seta e letras (conferir o 'S' de FRIOS contra a descida da seta)"
+      - nome: texto-grupo-jorge-batista
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: texto-distribuidor-brf
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'DISTRIBUIDOR EXCLUSIVO BRF REGIAO SUL PIAUI'"
+      - nome: texto-entrega-rapida
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: ""
+      - nome: selo-brf
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [laranja, amarelo, roxo, azul-royal, vermelho-selo, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "globo facetado multicolorido (MOSAICO em miniatura, ~25 cm) + 'brf' preto; facetas chapadas coladas umas nas outras — muitos cortes a mao em area minuscula"
+      - nome: selo-sadia
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "wordmark + emblema 'S' vermelhos; detalhes internos brancos = chapa"
+      - nome: selo-perdigao
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "selo circular vermelho; miolo e texto 'PERDIGAO' brancos = ilhas de mascara (traco finissimo)"
+      - nome: selo-kidelli
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [vermelho-selo, amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "losango vermelho com contorno amarelo encostado (fronteira compartilhada real) + script branco = chapa"
+      - nome: barras-diagonais-canto
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "motivo das barras do logo ampliado no canto inferior direito, cortado pela borda do painel"
+      - nome: texto-televendas-site
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [azul-marinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'TELEVENDAS: 0800 280 1600 | www.vendasjb.com' + rotulos pequenos"
+    de_graca:
+      - "miolos e textos brancos dos selos Sadia/Perdigao/Kidelli (branco = chapa)"
+    ciclos_extras: []        # tudo pousa na chapa; brancos internos sao ilhas de mascara, nao aninhamento de tinta
+    degrades: []             # n98=5, arte chapada
+    aerografias: []
+    faixas_fita: []          # a seta e fechada/logomarca, corte de maquina, nao faixa de fita
+    pares_tt_minimos:
+      - [amarelo, vermelho-selo]        # contorno do Kidelli
+      - [laranja, roxo]                 # facetas adjacentes do globo brf (par certo; ha outros pares no globo)
+    zero_tt: false
+    riscos_traco_fino:
+      - "texto 'PERDIGAO' branco no selo: letras < 10 mm"
+      - "facetas do globo brf: pecas minusculas multicoloridas"
+      - "contorno amarelo fino do Kidelli"
+      - "rotulos 'TELEVENDAS:' / 'E-COMMERCE:' pequenos"
+    defeitos: []
+    perguntas:
+      - "Os 4 selos de terceiros (brf, Sadia, Perdigao, Kidelli) serao pintados nesse tamanho? Sao o driver de custo do layout (multicolor + traco fino em ~25 cm). Ampliar, simplificar ou omitir?"
+      - "Dois vermelhos muito proximos (seta #EE3638 x selos #ED1C24): unificar numa tinta so?"
+      - "Ha traseira para este layout? So recebi a lateral."
+      - "O 'S' de FRIOS encosta na seta vermelha ou ha filete de campo? Decide se existe corte a mao no logo principal."
+notas_gerais: "Sem medida declarada (altura padrao 2,45 m; lateral ~6,3 m pela proporcao — possivel truck/bau curto). Corpo do layout e barato: 2 tintas (azul-marinho e vermelho) sem se tocarem, tudo sobre chapa. Toda a complexidade esta concentrada nos selos de terceiros."

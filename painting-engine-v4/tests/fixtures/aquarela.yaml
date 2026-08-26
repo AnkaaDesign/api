@@ -1,0 +1,113 @@
+layout: Aquarela
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "Aquarela lateral.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#11295F"
+    pintura_geral: true
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: azul-marinho, hex: "#11295F"}
+      - {nome: azul-medio, hex: "#24427F"}
+      - {nome: branco, hex: "#FFFFFF"}
+    elementos:
+      - nome: texto-gelo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "GELO em caixa alta espacejada, branco sobre o fundo azul pintado — branco aqui é tinta (3 demãos sobre azul escuro)."
+      - nome: lockup-aquarela
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Moldura retangular de filete branco + AQUARELA em serifada + símbolo (R) — lock-up, UM adesivo."
+      - nome: bloco-contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Ícones WhatsApp/telefone/Instagram + dois números + GELOAQUARELA, tudo branco (verificado no pixel: ícones são o mesmo branco)."
+    de_graca: []
+    ciclos_extras: []
+    degrades:
+      - {onde: "campo inteiro (vinheta: cantos escuros, centro mais claro)", de: "azul-marinho #11295F", para: "azul-medio ~#24427F", tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "Símbolo (R) pequeno ao lado de AQUARELA."
+      - "Filete da moldura retangular: comprido e relativamente fino, risco de aplicação/depilação em linha reta longa."
+    defeitos: []
+    perguntas:
+      - "O degradê do campo (vinheta azul) é para executar (2 tons esfumados) ou achatar num azul só? (achatar é decisão do revisor)"
+      - "Tom exato do azul (Pantone/código) — o render tem dezenas de azuis por causa do degradê."
+      - "Sem medida no nome do arquivo — vale a altura padrão 2,45 m?"
+  traseira:
+    arquivo: "Aquarela traseira.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#11295F"
+    pintura_geral: true
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: azul-marinho, hex: "#11295F"}
+      - {nome: azul-medio, hex: "#24427F"}
+      - {nome: branco, hex: "#FFFFFF"}
+    elementos:
+      - nome: texto-gelo
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesmo GELO da lateral, recomposto."
+      - nome: lockup-aquarela
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Mesma moldura + AQUARELA + (R) da lateral."
+      - nome: qr-code
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "QR code branco no canto inferior esquerdo, ~40 cm de lado; módulos na casa de 12-14 mm."
+      - nome: monograma-a
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "A serifado grande, branco, canto inferior direito."
+    de_graca: []
+    ciclos_extras: []
+    degrades:
+      - {onde: "campo inteiro (mesma vinheta da lateral)", de: "azul-marinho #11295F", para: "azul-medio ~#24427F", tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos: []
+    zero_tt: true
+    riscos_traco_fino:
+      - "QR code: centenas de ilhas minúsculas de vinil (~12-14 mm) — o maior risco de depilação do layout."
+      - "Símbolo (R) pequeno."
+    defeitos: []
+    perguntas:
+      - "QR code pintado precisa LER de verdade? Módulos desse tamanho toleram o traço da pistola? Confirmar com o cliente se mantém, amplia ou remove."
+    notas: "Traseira é recomposição correta: mesmo conteúdo GELO AQUARELA (R); acrescenta QR e monograma A. Nenhum truncamento ou divergência de texto entre as faces."
+notas_gerais: >
+  Campo azul-marinho = TINTA: demão de fundo no painel inteiro antes de tudo,
+  nas duas faces — e o fundo é um degradê (vinheta), o driver de custo aqui.
+  Só uma cor de elemento (branco) e nada aninhado: zero fronteira tinta-tinta,
+  zero ciclo extra. n98 ~80 nas duas faces vem do degradê do fundo, não de
+  aerografia de arte.

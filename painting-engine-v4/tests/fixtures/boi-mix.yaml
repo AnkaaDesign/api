@@ -1,0 +1,127 @@
+layout: BOI MIX
+fonte: assistente        # análise visual, não verificada pelo dono
+faces:
+  lateral:
+    arquivo: "BOI MIX-1470 lateral.png"
+    campo:
+      classe: CHAPA      # branco puro, L* 100, 66,2% da área
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 2
+    tintas:
+      - {nome: vinho, hex: "#7A1211"}
+      - {nome: vermelho-vivo, hex: "#D02337"}
+    elementos:
+      - nome: texto-frigorifico
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho-vivo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'FRIGORÍFICO' espaçado, acima do logotipo"
+      - nome: logotipo-boimix
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "'BOI' serifado fino + 'MIX' serifado bold, tudo vinho; o swoosh cruza as letras de MIX"
+      - nome: swoosh-do-logo
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [vermelho-vivo, vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "fita/onda que passa sob BOIMIX e atravessa o X de MIX; degradê de vermelho-vivo a vinho"
+      - nome: slogan-escolha
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho-vivo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "script 'É a sua escolha'"
+      - nome: bloco-traseiro
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "bloco vinho de altura inteira fechando o canto traseiro (~28% da área do painel)"
+      - nome: ribbon-traseiro
+        tipo: FAIXA_ORGANICA
+        tecnica: DEGRADE
+        cores: [vermelho-vivo, vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "fita em S com degradê acompanhando a borda dianteira do bloco vinho (efeito de dobra 3D)"
+    de_graca: []
+    ciclos_extras:
+      - "swoosh cruza as letras MIX: onde o degradê pousa sobre o vinho é ciclo novo (vinho selado antes do degradê)"
+    degrades:
+      - {onde: "swoosh do logo", de: "vermelho-vivo", para: "vinho", tons_sugeridos: 2}
+      - {onde: "ribbon do canto traseiro", de: "vermelho-vivo", para: "vinho", tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [vinho, vermelho-vivo]   # swoosh × letras MIX e ribbon × bloco traseiro
+    zero_tt: false
+    riscos_traco_fino:
+      - "script 'É a sua escolha' (hastes finas)"
+      - "serifas/hastes finas de 'BOI'"
+    defeitos: []
+    perguntas:
+      - "censo acusa cinzas ínfimos (#D7D7D7/#8A8989, 0,05%): parece sombra sutil na arte — reproduzir ou ignorar?"
+      - "substrato do bloco traseiro (borda curva do ribbon em chapa corrugada?)"
+    notas: "medida declarada 14,70 m; altura implicada 2,458 m — escala fecha"
+  traseira:
+    arquivo: "BOI MIX-1470 traseira.png"
+    campo:
+      classe: CHAPA
+      hex_aprox: "#FFFFFF"
+    pintura_geral: false
+    n_tintas_aprox: 3
+    tintas:
+      - {nome: vinho, hex: "#7A1211"}
+      - {nome: vermelho-vivo, hex: "#D02337"}
+      - {nome: preto, hex: "#000000"}
+    elementos:
+      - nome: lockup-boimix
+        tipo: LOGOMARCA
+        tecnica: CHAPADA
+        cores: [vermelho-vivo, vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "recomposição: FRIGORÍFICO + BOIMIX + swoosh (degradê) + 'É a sua escolha', mesmo conteúdo da lateral; sem o bloco/ribbon traseiro"
+      - nome: instagram-handle
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vinho]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "ícone do Instagram + '@frigoboimix' em vinho"
+      - nome: selo-sif
+        tipo: SELO
+        tecnica: CHAPADA
+        cores: [preto]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "selo MINISTÉRIO DA AGRICULTURA / BRASIL / INSPECIONADO / 3386 / S.I.F. em preto"
+    de_graca: []
+    ciclos_extras:
+      - "swoosh cruza as letras MIX (igual à lateral): ciclo novo onde pousa sobre o vinho"
+    degrades:
+      - {onde: "swoosh do logo", de: "vermelho-vivo", para: "vinho", tons_sugeridos: 2}
+    aerografias: []
+    faixas_fita: []
+    pares_tt_minimos:
+      - [vinho, vermelho-vivo]
+    zero_tt: false
+    riscos_traco_fino:
+      - "texto circular do selo SIF (letras pequenas e finas em círculo)"
+      - "script 'É a sua escolha'"
+    defeitos: []
+    perguntas:
+      - "confirmar nº do SIF (3386) com o cliente antes de cortar"
+      - "tamanho mínimo do selo SIF para o texto circular sair na depilação sem quebrar?"
+    notas: "comparação entre faces: textos idênticos (FRIGORÍFICO / BOIMIX / É a sua escolha), sem truncamento, sem espelhamento, sem marca d'água; traseira acrescenta handle e selo SIF — recomposição normal"
+notas_gerais: "Censo: lateral n98=42 (vetor chapado + rampas dos dois degradês), traseira n98=3. Sessões: vinho e vermelho-vivo se tocam (swoosh/ribbon) — não pintam na mesma rodada nas zonas de contato."

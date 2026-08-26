@@ -1,0 +1,96 @@
+layout: COMFRO
+fonte: assistente
+faces:
+  lateral:
+    arquivo: "COMFRO 11,50.png"
+    campo:
+      classe: TINTA
+      hex_aprox: "#EE3B40"
+    pintura_geral: true
+    n_tintas_aprox: 5
+    tintas:
+      - {nome: vermelho-campo, hex: "#EE3B40"}
+      - {nome: branco, hex: "#FFFFFF"}
+      - {nome: amarelo, hex: "#FED13B"}
+      - {nome: laranja, hex: "#EBAE42"}
+      - {nome: preto, hex: "#222224"}
+    elementos:
+      - nome: area-branca-esquerda
+        tipo: FAIXA_ORGANICA
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Grande mancha branca orgânica ocupando o terço esquerdo, com borda curva varrida contra o vermelho. Serve de fundo para o arco COMFRO e as embalagens."
+      - nome: arco-comfro
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [vermelho-campo, laranja, amarelo]
+        pousa_sobre: branco
+        toca_tinta: true
+        notas: "'COMFRO | COMFRO | …' repetido em arco sobre a área branca, letras alternando vermelho e laranja/amarelo com barras separadoras."
+      - nome: embalagens-produtos
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: [vermelho-campo, branco, preto, laranja]
+        pousa_sobre: branco
+        toca_tinta: true
+        notas: "3–4 packshots fotográficos de embalagens (Pão Francês, Pão de Queijo, Pão Mandi + um pack azul ao fundo) com produto visível, sombras e texto legal minúsculo. Tom contínuo: só contorno externo leva adesivo."
+      - nome: slogan-central
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "'A indústria de pães congelados que fortalece o seu negócio!' branco sobre o campo vermelho = tinta branca, 3 demãos (campo não é branco)."
+      - nome: ornamentos-amarelos
+        tipo: ORNAMENTO
+        tecnica: CHAPADA
+        cores: [amarelo]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Sublinhado/pincelada amarela sob 'o seu negócio!' e tracinhos de destaque ao lado de 'pães congelados'."
+      - nome: contatos
+        tipo: TEXTO
+        tecnica: CHAPADA
+        cores: [branco]
+        pousa_sobre: CAMPO
+        toca_tinta: false
+        notas: "Ícone Instagram + '@comfro_' e globo + 'www.comfro.com.br' brancos sobre o campo."
+      - nome: foto-direita
+        tipo: FOTO
+        tecnica: AEROGRAFIA
+        cores: [branco, laranja, preto]
+        pousa_sobre: CAMPO
+        toca_tinta: true
+        notas: "Composição fotográfica grande (pães, pão de queijo, queijo, cesta, molho) ocupando a ponta direita, esfumando para o vermelho do campo na borda esquerda/inferior."
+    de_graca: []
+    ciclos_extras:
+      - "arco-comfro sobre a área branca (pinta branco → seca/verniz → adesivo novo → arco)"
+    degrades: []
+    aerografias:
+      - {onde: foto-direita, notas: "Primeiro trabalho de arte (regra 21/08); blend esfumado da foto para o vermelho do campo; cobrir com fita nas bordas + papel antes do resto."}
+      - {onde: embalagens-produtos, notas: "Packshots realistas com texto fino; avaliar simplificação com o cliente."}
+    faixas_fita:
+      - "borda curva entre a área branca esquerda e o campo vermelho (curva orgânica grande atravessando o painel)"
+    pares_tt_minimos:
+      - [branco, vermelho-campo]
+      - [branco, laranja]
+    zero_tt: false
+    riscos_traco_fino:
+      - "letras pequenas do arco COMFRO e barras separadoras"
+      - "texto legal minúsculo das embalagens (Peso Líquido 1kg / 400g etc.) — impraticável chapado"
+      - "'@comfro_' e 'www.comfro.com.br' relativamente pequenos"
+    defeitos:
+      - "'89' vertical cinza e pequenos tracinhos soltos perto do topo central — provável resto de produção da arte (cota/numeração), confirmar antes de executar"
+    perguntas:
+      - "A área branca esquerda pode ser mascarada ANTES da demão vermelha para preservar a chapa branca (economia), ou pinta-se branco por cima?"
+      - "Embalagens: reproduzir fielmente por aerografia ou o cliente aceita simplificar (remover texto legal fino)?"
+      - "Substrato liso ou corrugado? Define fita amarela × fita branca cortada na curva branco/vermelho."
+      - "As fotos são material do cliente ou banco de imagem (licença)?"
+notas_gerais: >-
+  Medida declarada no nome: 11,50 m (altura implicada ~2,46 m). Campo vermelho
+  ⇒ demão de fundo no painel inteiro primeiro. Censo com 354k cores em 98% =
+  fortíssimo tom contínuo: as duas zonas fotográficas dominam o trabalho e são
+  o primeiro passo (aerografia antes de tudo, depois cobertas). Preto só aparece
+  dentro das fotos/embalagens — não deve virar tinta chapada isolada.
