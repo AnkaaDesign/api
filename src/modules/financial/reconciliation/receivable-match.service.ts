@@ -789,6 +789,9 @@ export class ReceivableMatchService {
           // `includePaidLink` above is here: this number is only honest if it is
           // computed over the pool the detail page will actually render.
           identityCustomerId: (await this.resolveCustomerForScore(tx)) ?? undefined,
+          // Mesmo pool da página de detalhe, senão o chip do Extrato anuncia um
+          // encaixe que a tela não oferece mais.
+          excludeOverdue: true,
         }),
         this.findBoletoCandidates(tx),
       ]);
@@ -1552,6 +1555,8 @@ export class ReceivableMatchService {
       /** When the payer resolves to a customer, that customer's whole matchable
        *  balance joins the pool regardless of the date window. */
       identityCustomerId?: string;
+      /** Drop OVERDUE parcelas from the open lane — see `getReceivableCandidates`. */
+      excludeOverdue?: boolean;
     },
   ): Promise<ScoredCandidate[]> {
     const abs = Math.abs(Number(tx.amount));
@@ -1573,8 +1578,11 @@ export class ReceivableMatchService {
     };
 
     // Lane 1 — still open: the classic candidate.
+    const openStatuses = opts.excludeOverdue
+      ? OPEN_INSTALLMENT_STATUSES.filter(st => st !== 'OVERDUE')
+      : OPEN_INSTALLMENT_STATUSES;
     const openLane: Prisma.InstallmentWhereInput = {
-      status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] },
+      status: { in: openStatuses as unknown as Prisma.EnumInstallmentStatusFilter['in'] },
       dueDate: { gte: lower, lte: upper },
     };
 
@@ -1617,7 +1625,7 @@ export class ReceivableMatchService {
           AND: [
             {
               OR: [
-                { status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
+                { status: { in: openStatuses as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
                 ...(this.linkPaidEnabled
                   ? [
                       {
@@ -1822,6 +1830,14 @@ export class ReceivableMatchService {
       // already stamped PAID but never conciliated, as link-only.
       includePaidLink: true,
       identityCustomerId: payer?.customerId,
+      // Parcela vencida fica de fora da lista do operador. Uma parcela que segue
+      // em aberto e passou do vencimento não foi paga — se este crédito a tivesse
+      // quitado, ela teria sido baixada em vez de vencer. Oferecê-la é convidar um
+      // casamento falso, e num cliente com dezenas de parcelas parecidas é
+      // exatamente o que enche a lista de candidatos que só somam certo por
+      // aritmética. Sobram as em aberto ainda a vencer e as já baixadas
+      // (link-only), que são as duas coisas que um crédito realmente explica.
+      excludeOverdue: true,
     });
     // See the note on `collection` above: a lote contributes only link-only hits.
     const candidates = collection ? scored.filter(c => c.linkOnly) : scored;
