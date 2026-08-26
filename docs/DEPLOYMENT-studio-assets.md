@@ -261,11 +261,32 @@ em 2026-08-26:
 |---|---|---|---|
 | `renders.json` | 719 imagens | **780** | as 46 `_neutral.webp` (o nome antigo do render sem tinta, hoje `neutro.webp`) e 12 cores de `volvo-fh16-2009/2012` e `volvo-fh-2021/2024` |
 
-Publicar a versão do repositório **apagaria essas 74 do catálogo** e deixaria
-CINCO combinações sem cartão nenhum — `daf-xf-euro6/6x4`, `iveco-hi-way/6x4`,
-`iveco-stralis/6x4a`, `mb-actros-mp3/6x4a` e `scania-streamline/6x4-4`, em que
-só existe o `_neutral`. Publique a **UNIÃO** (a do servidor mais as entradas
-novas), e confira que cada entrada resolve num arquivo que existe lá.
+> ### ✅ RESOLVIDO no mesmo dia, e a metade cautelosa desta seção estava errada
+>
+> Medidas as 74 uma a uma, elas são **duas coisas diferentes**:
+>
+> - **24 são cartões VIVOS** — as cores `0a7f4d4e`, `2eb99944` e `e45baebc` em
+>   `volvo-fh16-2009/2012` e `volvo-fh-2021/2024`. As três estão na paleta ATUAL
+>   de `GET /studio/colors`, ou seja o seletor as oferece. **Foram trazidas para
+>   `web/public/renders/`** e agora são versionadas.
+> - **46 são `_neutral.webp`** — o nome ANTIGO de `neutro.webp` —, e as cinco
+>   combinações em que só elas existem (`daf-xf-euro6/6x4`, `iveco-hi-way/6x4`,
+>   `iveco-stralis/6x4a`, `mb-actros-mp3/6x4a`, `scania-streamline/6x4-4`)
+>   **não estão em `brands.json`**: nenhum chassi as declara, então o app nunca
+>   as pede. Deixar de anunciá-las não tira cartão de ninguém.
+>
+> **`renders.json` voltou a sair DIRETO do repositório.** Os 46 arquivos órfãos
+> continuam no disco do servidor, mudos, porque `--delete` é proibido aqui.
+>
+> ⚠️ **A LIÇÃO QUE FICA não é "publique direto":** é que "o servidor tem mais que
+> nós" pode significar duas coisas opostas — *cartão vivo que falta no repo* ou
+> *lixo que o catálogo nem cita* —, e a única forma de saber é **cruzar cada
+> entrada com `brands.json` e com a paleta da API**. Publicar a união sem cruzar
+> é seguro e deixa a divergência crescer; publicar direto sem cruzar apaga
+> cartão vivo. Cruze.
+
+Antes disso, o caminho seguro é publicar a **UNIÃO** (a do servidor mais as
+entradas novas), conferindo que cada entrada resolve num arquivo que existe lá.
 
 `plates.json` é o caso oposto e é BENIGNO: o do repositório tem 6 sítios A MENOS
 (`daf_xf_105_6x4`, `man_tgx_6x4`, `mercedes_actros2014_6x4`,
@@ -274,9 +295,27 @@ novas), e confira que cada entrada resolve num arquivo que existe lá.
 GLB é declarado por chassi nenhum. São entradas para arquivos que o app não tem
 como pedir. Publicar poda; não perde nada.
 
-**A dívida continua aberta:** o certo é trazer as 74 imagens para
-`web/public/renders/` e regerar o manifesto de lá. Enquanto isso não for feito,
-`renders.json` é o único dos cinco que exige fusão à mão.
+**A dívida foi paga em 2026-08-26** (ver o bloco acima). Ficou uma parenta dela,
+e vale o mesmo cuidado: **o manifesto pode estar atrasado em relação à PRÓPRIA
+árvore do repositório.** Medido no mesmo dia — `renders.json` anunciava 719
+imagens com 841 versionadas em `public/renders/`: 122 cartões que o app não tinha
+como pedir, porque `engine/catalog/renders.ts` consulta o manifesto ANTES de
+montar a URL. Não há aviso nenhum para isso; o que conserta é rodar
+`tools/studio-render/shoot.mjs`, que reescreve o manifesto varrendo o DISCO.
+Confira sempre a bijeção antes de publicar:
+
+```bash
+python3 - <<'EOF'
+import json, os
+d = json.load(open('public/renders/renders.json'))
+falta = [f"{k}/{c}" for k, v in d['have'].items() for c in v
+         if not os.path.exists(f"public/renders/trucks/{k}/{c}.webp")]
+disco = sum(1 for _, _, fs in os.walk('public/renders/trucks')
+            for f in fs if f.endswith('.webp'))
+print('anunciados', d['counts']['imagens'], '· no disco', disco,
+      '· sem arquivo', len(falta))
+EOF
+```
 
 ---
 
