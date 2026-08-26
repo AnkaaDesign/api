@@ -84,9 +84,24 @@ cd web
 npx vitest run tools/verify-manifests/catalog-resolves.test.ts
 ```
 
-Tem de dar **4 passed** e imprimir `7 marcas · 24 modelos · 60 chassis · 53
-arquivos distintos`. Se não der, **pare**: o que está em `public/` não está
-íntegro e publicar espalharia o problema.
+Tem de dar **5 passed** e imprimir `7 marcas · 22 modelos · 52 chassis · 52
+arquivos distintos` *(números de 2026-08-26; a versão anterior deste passo dizia
+`4 passed · 24 modelos · 60 chassis · 53 arquivos`, que nunca correspondeu à
+árvore)*. Se não der, **pare**: o que está em `public/` não está íntegro e
+publicar espalharia o problema.
+
+> **2026-08-26 — ele PEGOU um defeito de verdade, e é o que este passo existe
+> para fazer.** Reprovou em `chassi sem render neutro` com quatro nomes:
+> `volvo-vm-2015/{8x2r,4x2r}` e `vw-constellation/{8x2-tl,4x2-tl}`. Os quatro
+> chassis rígidos estavam em `brands.json` sem cartão nenhum — publicar teria
+> posto quatro silhuetas de placeholder no seletor. Resolvido gerando os que
+> faltavam:
+>
+> ```bash
+> # o gerador quer uma raiz que CONTENHA v1/; em dev, um symlink resolve
+> mkdir -p /tmp/ar && ln -sfn "$PWD/../web/public" /tmp/ar/v1
+> STUDIO_ASSETS_ROOT=/tmp/ar node tools/studio-render/shoot.mjs --neutral
+> ```
 
 > **Em 2026-08-10 ele NÃO passa**, e a diferença não é pequena: sai
 > `7 marcas · 20 modelos · 49 chassis · 49 arquivos` e um teste vermelho —
@@ -203,6 +218,65 @@ morreram junto com a árvore, na virada.
 >
 > Confira com `find v1 ! -group ankaa | wc -l` e
 > `find v1 -type d ! -perm -g+s | wc -l` — os dois têm de dar **0**.
+
+---
+
+## 2-B. ⚠️ A ORDEM IMPORTA: `brands.json` DEPOIS do bundle do web
+
+Os cinco manifestos (`brands.json`, `renders.json`, `plates.json`,
+`hitch.json`, `environments.json`) não são bytes inertes como um `.glb`: eles
+são o CATÁLOGO, e quem os lê é o bundle que estiver no ar. Um chassi novo em
+`brands.json` aparece no seletor **imediatamente** — inclusive para um bundle
+que não tem o motor capaz de montá-lo.
+
+Foi o caso de 2026-08-26: os dez rígidos (Scania P, VM, VW) precisam de
+`vehicle/implements.ts`, `chassis-parts.ts`, `rear-bogie.ts` e companhia, e o
+`dist/` em produção era de um commit anterior a todos eles. Publicar só a árvore
+teria posto dez caminhões no seletor que o app não sabia montar.
+
+**A ordem segura é:**
+
+1. os ARQUIVOS (`.glb`, `.hdr`, `.webp`) — inertes, ninguém os pede sem
+   manifesto;
+2. `git pull && npm run build` em `~/repositories/web` no servidor;
+3. os MANIFESTOS.
+
+Entre 1 e 3 nada muda para quem está no ar. Se você inverter 2 e 3, a janela de
+quebra é o tempo do build.
+
+> Se só os arquivos puderem subir (o web ainda não está pronto), **segure os
+> manifestos** e publique-os junto com o próximo build. É seguro: os arquivos
+> ficam no disco sem ninguém pedir, que é o mesmo estado dos `.ktx2` entre
+> 14/08 e 24/08.
+
+---
+
+## 2-C. ⚠️ `renders.json` E `plates.json` NÃO SAEM DIRETO DO REPOSITÓRIO
+
+A árvore servida tem coisas que `web/public/` nunca teve, e a diferença é
+ANTIGA — o §0 já avisa que a nossa árvore pode ter MENOS que o servidor. Medido
+em 2026-08-26:
+
+| | repositório | servidor | o que o servidor tem a mais |
+|---|---|---|---|
+| `renders.json` | 719 imagens | **780** | as 46 `_neutral.webp` (o nome antigo do render sem tinta, hoje `neutro.webp`) e 12 cores de `volvo-fh16-2009/2012` e `volvo-fh-2021/2024` |
+
+Publicar a versão do repositório **apagaria essas 74 do catálogo** e deixaria
+CINCO combinações sem cartão nenhum — `daf-xf-euro6/6x4`, `iveco-hi-way/6x4`,
+`iveco-stralis/6x4a`, `mb-actros-mp3/6x4a` e `scania-streamline/6x4-4`, em que
+só existe o `_neutral`. Publique a **UNIÃO** (a do servidor mais as entradas
+novas), e confira que cada entrada resolve num arquivo que existe lá.
+
+`plates.json` é o caso oposto e é BENIGNO: o do repositório tem 6 sítios A MENOS
+(`daf_xf_105_6x4`, `man_tgx_6x4`, `mercedes_actros2014_6x4`,
+`volvo_fh16_2012_6x4a`, `volvo_fh_2021_6x4`, `volvo_fh_2024_6x4`), porque
+`tools/placa/probe.mjs` enumera o que `brands.json` declara e nenhum desses seis
+GLB é declarado por chassi nenhum. São entradas para arquivos que o app não tem
+como pedir. Publicar poda; não perde nada.
+
+**A dívida continua aberta:** o certo é trazer as 74 imagens para
+`web/public/renders/` e regerar o manifesto de lá. Enquanto isso não for feito,
+`renders.json` é o único dos cinco que exige fusão à mão.
 
 ---
 
