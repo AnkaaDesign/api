@@ -153,6 +153,46 @@ export const canViewMonetaryValues = (
   return MONEY_PRIVILEGES.includes(userPrivilege);
 };
 
+/**
+ * The sectors served by the `/personal/my-*` self-service endpoints.
+ *
+ * These back the whole "o que é meu" block: meu ponto (espelho, batidas,
+ * inclusão, justificativas, assinaturas), meus EPIs, meus empréstimos, minhas
+ * advertências, minhas movimentações and meus feriados. Every handler on
+ * `PersonalController` derives its `@Roles` from this list — do not restate it
+ * inline. The list used to be copy-pasted onto all 23 handlers, which is exactly
+ * how a sector ends up granted on some endpoints and denied on others.
+ *
+ * The exclusions are deliberate and each has its own reason:
+ *  - AIRBRUSHING: the aerografistas are PJ (terceirizados). There is no ponto,
+ *    no EPI and no advertência to serve them because there is no employment
+ *    relationship to record. The mobile drawer gives them no "Pessoal" block for
+ *    the same reason.
+ *  - BASIC: a placeholder privilege, not a working sector.
+ *  - COMMERCIAL: not requested.
+ *
+ * A sector outside this list does not degrade gracefully on the client — the
+ * guard throws 403 and the mobile app surfaces it as a toast over whatever
+ * screen the user is on. So this list is mirrored client-side as
+ * `Privileges.personalSelfService` in the Flutter app
+ * (`lib/features/navigation/sector_privileges.dart`), which gates the UI that
+ * would make the call. Keep the two in sync.
+ */
+export const PERSONAL_SELF_SERVICE_PRIVILEGES: SECTOR_PRIVILEGES[] = [
+  SECTOR_PRIVILEGES.PRODUCTION,
+  SECTOR_PRIVILEGES.WAREHOUSE,
+  SECTOR_PRIVILEGES.MAINTENANCE,
+  SECTOR_PRIVILEGES.DESIGNER,
+  SECTOR_PRIVILEGES.LOGISTIC,
+  SECTOR_PRIVILEGES.PLOTTING,
+  SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  SECTOR_PRIVILEGES.FINANCIAL,
+  SECTOR_PRIVILEGES.ADMIN,
+  SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+  SECTOR_PRIVILEGES.EXTERNAL,
+  SECTOR_PRIVILEGES.ACCOUNTING,
+];
+
 // =====================
 // Team Management Privilege Utilities
 // =====================

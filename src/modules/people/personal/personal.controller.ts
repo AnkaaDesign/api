@@ -19,7 +19,7 @@ import { PersonalService } from './personal.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { SECTOR_PRIVILEGES } from '../../../constants/enums';
+import { PERSONAL_SELF_SERVICE_PRIVILEGES } from '../../../utils/privilege';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -78,20 +78,7 @@ export class PersonalController {
    */
   @Get('my-loans')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyLoans(
     @Query(new ZodQueryValidationPipe(borrowGetManySchema)) query: BorrowGetManyFormData,
     @UserId() userId: string,
@@ -109,20 +96,7 @@ export class PersonalController {
    */
   @Get('my-epis')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyEpis(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
     @UserId() userId: string,
@@ -137,20 +111,7 @@ export class PersonalController {
   @Post('my-epis/request')
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async requestEpi(
     @Body(new ZodValidationPipe(ppeDeliveryPersonalRequestSchema))
     data: Omit<PpeDeliveryCreateFormData, 'userId' | 'status' | 'statusOrder'>,
@@ -181,20 +142,7 @@ export class PersonalController {
    */
   @Get('my-activities')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyActivities(
     @Query(new ZodQueryValidationPipe(activityGetManySchema)) query: ActivityGetManyFormData,
     @UserId() userId: string,
@@ -212,20 +160,7 @@ export class PersonalController {
    */
   @Get('my-warnings')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
     @UserId() userId: string,
@@ -244,20 +179,7 @@ export class PersonalController {
    */
   @Get('my-holidays')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyHolidays(
     @Query('year') year?: string,
     @UserId() userId?: string,
@@ -280,20 +202,7 @@ export class PersonalController {
    */
   @Get('my-secullum-calculations')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMySecullumCalculations(
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
@@ -325,19 +234,7 @@ export class PersonalController {
    */
   @Get('my-missing-days')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyMissingDays(
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
@@ -352,19 +249,7 @@ export class PersonalController {
    */
   @Get('my-secullum-justificativas')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyJustificativas(@UserId() userId: string) {
     return this.personalService.getMyJustificativas(userId);
   }
@@ -375,19 +260,7 @@ export class PersonalController {
    */
   @Get('my-secullum-solicitacoes/:date')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMySolicitacaoByDate(
     @Param('date') date: string,
     @UserId() userId: string,
@@ -402,19 +275,7 @@ export class PersonalController {
   @Post('my-secullum-solicitacoes/ausencia')
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async createMyJustifyAbsence(
     @Body()
     body: {
@@ -441,19 +302,7 @@ export class PersonalController {
    */
   @Get('my-batidas/:date')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyBatidasForDate(
     @Param('date') date: string,
     @UserId() userId: string,
@@ -468,19 +317,7 @@ export class PersonalController {
   @Post('my-secullum-solicitacoes/ajuste-ponto')
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async createMyAjustePonto(
     @Body()
     body: {
@@ -516,19 +353,7 @@ export class PersonalController {
    */
   @Get('my-inclusao-ponto/config')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyInclusaoPontoConfig(@UserId() userId: string) {
     return this.personalService.getMyInclusaoPontoConfig(userId);
   }
@@ -541,19 +366,7 @@ export class PersonalController {
    */
   @Get('my-inclusao-ponto/pendencias')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyInclusaoPontoPendencias(@UserId() userId: string) {
     return this.personalService.getMyInclusaoPontoPendencias(userId);
   }
@@ -567,19 +380,7 @@ export class PersonalController {
   @Post('my-inclusao-ponto')
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async createMyInclusaoPonto(
     @Body()
     body: {
@@ -607,19 +408,7 @@ export class PersonalController {
    */
   @Get('my-inclusao-ponto/reverse-geocode')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async reverseGeocode(
     @Query('latitude') latitude: string,
     @Query('longitude') longitude: string,
@@ -635,19 +424,7 @@ export class PersonalController {
    */
   @Get('my-inclusao-ponto/comprovante/:registroPendenciaId')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyInclusaoPontoComprovante(
     @Param('registroPendenciaId') registroPendenciaId: string,
     @UserId() userId: string,
@@ -675,19 +452,7 @@ export class PersonalController {
    */
   @Get('my-inclusao-ponto/comprovante-url/:registroPendenciaId')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyInclusaoPontoComprovanteUrl(
     @Param('registroPendenciaId') registroPendenciaId: string,
     @UserId() userId: string,
@@ -708,19 +473,7 @@ export class PersonalController {
   /** GET /personal/my-assinaturas — apurações the employee was asked to sign. */
   @Get('my-assinaturas')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyAssinaturas(@UserId() userId: string) {
     return this.personalService.getMyApuracoes(userId);
   }
@@ -728,19 +481,7 @@ export class PersonalController {
   /** GET /personal/my-assinaturas/:id — full apuração detail + cartão-ponto PDF URL. */
   @Get('my-assinaturas/:id')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async getMyAssinaturaDetail(
     @Param('id') id: string,
     @UserId() userId: string,
@@ -751,19 +492,7 @@ export class PersonalController {
   /** POST /personal/my-assinaturas/:id/aprovar — employee signs the cartão-ponto. */
   @Post('my-assinaturas/:id/aprovar')
   @WriteRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async approveMyAssinatura(
     @Param('id') id: string,
     @UserId() userId: string,
@@ -774,19 +503,7 @@ export class PersonalController {
   /** POST /personal/my-assinaturas/:id/reprovar — employee rejects with a motivo. */
   @Post('my-assinaturas/:id/reprovar')
   @WriteRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.EXTERNAL,
-    SECTOR_PRIVILEGES.ACCOUNTING,
-  )
+  @Roles(...PERSONAL_SELF_SERVICE_PRIVILEGES)
   async rejectMyAssinatura(
     @Param('id') id: string,
     @Body() body: { motivo?: string },
