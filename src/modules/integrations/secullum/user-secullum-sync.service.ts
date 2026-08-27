@@ -238,9 +238,13 @@ export class UserSecullumSyncService implements OnModuleInit {
       };
 
       try {
-        const created = (await this.cadastros.createFuncionario(
-          payloadFunc,
-        )) as { funcionarioId: number } | { Id: number };
+        // Provision the app-access password in the same POST. A funcionário
+        // created without one cannot be driven through pontowebapp, which is
+        // where every self-service feature of our own app lives (incluir ponto,
+        // justificativas, assinatura do cartão-ponto).
+        const created = (await this.cadastros.createFuncionario(payloadFunc, {
+          appPassword: this.secullum.funcionarioAppPassword,
+        })) as { funcionarioId: number } | { Id: number };
         const funcionarioId =
           (created as { funcionarioId: number }).funcionarioId ??
           (created as { Id: number }).Id;

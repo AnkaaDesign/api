@@ -36,8 +36,6 @@ import { DIAGNOSTIC_FACE_JPEG_B64 } from './smoke-test.assets';
 export class SecullumSmokeTestService {
   private readonly logger = new Logger(SecullumSmokeTestService.name);
 
-  // Tenant-wide funcionário password (every funcionário shares "123" by convention).
-  private readonly FUNC_SENHA = '123';
   // The Secullum admin account password — required in the ExcluirFuncionarios body.
   private readonly adminSenha = process.env.SECULLUM_PASSWORD || '';
   private readonly pontowebappBaseUrl =
@@ -82,7 +80,9 @@ export class SecullumSmokeTestService {
 
     const ctx: SmokeRunContext = {
       kennedy: null,
-      senha: this.FUNC_SENHA,
+      // Tenant-wide funcionário app password — the same value the cadastros
+      // service writes into Funcionario.SenhaApp at provisioning time.
+      senha: this.secullum.funcionarioAppPassword,
       testFuncId: null,
       kennedyRestored: false,
       empresaId: 1,
@@ -297,14 +297,18 @@ export class SecullumSmokeTestService {
         Nome: this.TEST_NOME,
         Cpf: this.TEST_CPF,
         NumeroFolha: this.TEST_FOLHA,
+        NumeroIdentificador: this.TEST_FOLHA,
         EmpresaId: ctx.empresaId,
         HorarioId: ctx.horarioId,
         FuncaoId: ctx.funcaoId,
         DepartamentoId: ctx.departamentoId,
         Admissao: this.today(),
         Foto: null,
+        SenhaApp: ctx.senha,
       };
-      const r = await api.post('/Funcionarios?alterouSenhaApp=false', body);
+      // alterouSenhaApp=true is what makes Secullum actually store SenhaApp —
+      // without it the employee is created with no usable app credential.
+      const r = await api.post('/Funcionarios?alterouSenhaApp=true', body);
       const id = r.data?.funcionarioId ?? r.data?.Id;
       if (!id) throw new Error(`Resposta sem funcionarioId: ${JSON.stringify(r.data)}`);
       return Number(id);
@@ -312,6 +316,7 @@ export class SecullumSmokeTestService {
     if (!created.ok || !created.value) {
       // Without an id we cannot do the rest of the lifecycle.
       this.skip(checks, 'funcionario.read', 'Reler funcionário', 'funcionario-crud', 'Criação falhou');
+      this.skip(checks, 'funcionario.app-password', 'Senha do app provisionada na criação', 'funcionario-crud', 'Criação falhou');
       this.skip(checks, 'funcionario.update', 'Atualizar funcionário', 'funcionario-crud', 'Criação falhou');
       this.skip(checks, 'funcionario.dismiss', 'Demitir (visibilidade)', 'funcionario-crud', 'Criação falhou');
       this.skip(checks, 'funcionario.restore', 'Readmitir (visibilidade)', 'funcionario-crud', 'Criação falhou');
@@ -326,6 +331,15 @@ export class SecullumSmokeTestService {
       const r = await api.get(`/Funcionarios/${id}`);
       if (!r.data || (r.data.Id ?? r.data.id) !== id) throw new Error('Funcionário não encontrado após criar');
       return r.data;
+    });
+
+    // 2c-bis. The app password provisioned at create must actually authenticate.
+    // This is the credential every self-service feature of our own app replays
+    // on the employee's behalf, so a silent regression here (Secullum ignoring
+    // SenhaApp, or the flag changing meaning) would strand every new hire.
+    await this.check(checks, 'funcionario.app-password', 'Senha do app provisionada na criação', 'funcionario-crud', async () => {
+      const r = await this.secullum.getJustificativasAsFuncionario({ usuario: this.TEST_FOLHA, senha: ctx.senha });
+      if (!r.success) throw new Error(r.message);
     });
 
     // 2d. Update (rename via full-record upsert).

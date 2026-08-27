@@ -91,6 +91,11 @@ export class SecullumService {
   // `secullumbancoselecionado` header.
   private readonly pontowebappBaseUrl: string;
   private readonly customerId: string;
+  // Tenant convention: every funcionário shares ONE app-access password, which
+  // is also what pontowebapp Basic auth replays on their behalf. Overridable via
+  // SECULLUM_FUNCIONARIO_PASSWORD; "123" is what this tenant has always used
+  // (confirmed in the 2026-05-16 mobile-app capture).
+  private readonly funcionarioPassword: string;
   // pontowebrelatorios.secullum.com.br is Secullum's report-generation service,
   // driven over a WebSocket (custom hub protocol). The electronic-signature
   // apuração is created here via the RelatorioCartaoPonto.Gerar hub call when a
@@ -133,6 +138,7 @@ export class SecullumService {
     this.pontowebappBaseUrl =
       process.env.SECULLUM_PONTOWEBAPP_URL || 'https://pontowebapp.secullum.com.br';
     this.customerId = process.env.SECULLUM_CUSTOMER_ID || '118769';
+    this.funcionarioPassword = process.env.SECULLUM_FUNCIONARIO_PASSWORD?.trim() || '123';
     this.clientId = process.env.SECULLUM_CLIENT_ID || '3';
     this.clientSecret = process.env.SECULLUM_CLIENT_SECRET || '';
     this.reportWsUrl =
@@ -222,6 +228,18 @@ export class SecullumService {
    */
   getApiClient(): AxiosInstance {
     return this.apiClient;
+  }
+
+  /**
+   * The tenant-wide funcionário app password — the single source of truth for
+   * BOTH sides of the credential:
+   *   - what we write into Funcionario.SenhaApp when provisioning (cadastros),
+   *   - what we replay as pontowebapp Basic auth on the employee's behalf
+   *     (personal self-service, smoke test).
+   * They must never drift apart, which is why neither side hardcodes it.
+   */
+  get funcionarioAppPassword(): string {
+    return this.funcionarioPassword;
   }
 
   private async getValidToken(): Promise<string | null> {
@@ -5049,8 +5067,10 @@ export class SecullumService {
   // - {numeroIdentificador} is the funcionário's login name (= User.payrollNumber
   //   under the existing user-secullum-sync mapping; the capture's user "150"
   //   was payrollNumber=150).
-  // - {senha} is the funcionário's Secullum password — hardcoded to "123" for
-  //   this tenant (every funcionário uses the same password by convention).
+  // - {senha} is the funcionário's Secullum app password (Funcionario.SenhaApp).
+  //   Every funcionário in this tenant shares one, exposed as
+  //   `funcionarioAppPassword` and written at provisioning time by the cadastros
+  //   service — callers must take it from there, never inline it.
   // - The trailing ":0" is `UsuarioAutenticacao` type. Always 0 for funcionários.
   //
   // The mobile app POSTs /Login first to bootstrap client-side user state, but
@@ -5661,7 +5681,8 @@ export class SecullumService {
   /**
    * POST /AssinaturaDigitalCartaoPonto/Aprovar — the employee signs (approves)
    * their cartão-ponto. We re-load the object, set the tenant-wide password
-   * ("123" via auth.senha), and echo it back. Secullum returns estado=1; HR is
+   * (the funcionário app password via auth.senha), and echo it back. Secullum
+   * returns estado=1; HR is
    * notified via secullum.signature.signed.
    */
   async approveApuracaoAsFuncionario(

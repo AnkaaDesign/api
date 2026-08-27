@@ -269,6 +269,25 @@ export class SecullumCadastrosController {
     );
   }
 
+  /**
+   * (Re)define the funcionário's app-access password. Body may carry an explicit
+   * `password`; omitting it restores the tenant-wide default — which is the
+   * repair path for anyone provisioned before creates started sending SenhaApp.
+   */
+  @Post('funcionarios/:id/app-password')
+  @WriteRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  setFuncionarioAppPassword(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { password?: string },
+    @UserId() userId: string,
+  ): Promise<SecullumFuncionarioFull> {
+    this.logger.log(
+      `User ${userId} setting Secullum app password for funcionario ${id}`,
+    );
+    return this.cadastros.setFuncionarioAppPassword(id, body?.password);
+  }
+
   @Delete('funcionarios/:id')
   @WriteRateLimit()
   @Roles(SECTOR_PRIVILEGES.ADMIN)

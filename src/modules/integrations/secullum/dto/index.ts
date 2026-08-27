@@ -92,6 +92,22 @@ export interface SecullumFuncionarioFull extends SecullumFuncionarioListItem {
   FuncaoDescricao?: string;
   MotivoDemissaoId?: number | null;
   Foto?: string; // base64 data URL
+  /**
+   * App-access password (Secullum's "Senha do aplicativo"). Distinct from
+   * `SenhaEquipamento`, which is the REP/relógio password.
+   *
+   * This is the credential the funcionário types into the Secullum mobile app,
+   * and the one our own app replays as HTTP Basic auth against pontowebapp —
+   * see `SecullumService.funcionarioAppPassword`.
+   *
+   * Write-only in practice (verified live 2026-08-27): a GET always returns
+   * `null`, never the stored value. Secullum only (re)writes it when the POST
+   * carries `?alterouSenhaApp=true` — which is precisely why an ordinary update
+   * must keep that flag false: it spreads the record it just read, `SenhaApp:
+   * null` included, and the flag is all that stops that null from wiping the
+   * employee's password.
+   */
+  SenhaApp?: string | null;
 }
 
 // Payload for POST /Funcionarios when creating a new record. Mirrors the full

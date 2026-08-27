@@ -587,10 +587,10 @@ export class PersonalService {
   // pontowebapp.secullum.com.br only accepts HTTP Basic auth with the
   // funcionário's own credentials: base64("{numeroIdentificador}:{senha}:0").
   //   - numeroIdentificador = User.payrollNumber (already in DB via existing sync)
-  //   - senha               = env SECULLUM_FUNCIONARIO_PASSWORD (tenant-wide
-  //                           default; most Secullum tenants set the same default
-  //                           password for all funcionários — "123" in our test
-  //                           tenant per the capture)
+  //   - senha               = the tenant-wide funcionário app password, owned by
+  //                           SecullumService.funcionarioAppPassword. The SAME
+  //                           value is written into Funcionario.SenhaApp when the
+  //                           employee is provisioned, so the two can never drift.
 
   private async resolveMyFuncionarioCredentials(
     userId: string,
@@ -623,11 +623,9 @@ export class PersonalService {
       );
     }
 
-    // Tenant convention: every funcionário's Secullum password is the literal
-    // "123". Confirmed by the captured Login flow on 2026-05-16.
     return {
       usuario: String(user.payrollNumber),
-      senha: '123',
+      senha: this.secullumService.funcionarioAppPassword,
       funcionarioId: user.secullumEmployeeId,
     };
   }
@@ -1008,7 +1006,7 @@ export class PersonalService {
   // =====================
   // Employee self-service: the colaborador reviews their own monthly cartão-ponto
   // and approves (signs) or rejects it. Discovery is Secullum's Notificacoes feed
-  // (tipo=3). pontowebapp + Basic auth (senha "123"). See
+  // (tipo=3). pontowebapp + Basic auth (funcionário app password). See
   // docs/secullum-integration/11_assinatura_aprovar_descartar_live.md.
 
   /**

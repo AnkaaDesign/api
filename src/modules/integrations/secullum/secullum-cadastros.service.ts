@@ -347,32 +347,76 @@ export class SecullumCadastrosService {
   }
 
   /**
+   * Endpoint for both create and update of a Funcionario.
+   *
+   * `alterouSenhaApp` is the flag Secullum's own web UI sends on every save: it
+   * tells the server whether the `SenhaApp` in the body is a NEW plaintext
+   * password to store (true) or a value to ignore (false). Sending `SenhaApp`
+   * without the flag is a silent no-op, which is why the flag is derived from
+   * the payload here instead of being hardcoded.
+   */
+  private funcionariosEndpoint(changingAppPassword: boolean): string {
+    return `/Funcionarios?alterouSenhaApp=${changingAppPassword}`;
+  }
+
+  /**
    * Create a Funcionario. Secullum requires at minimum:
    *   Nome, Cpf, NumeroFolha, EmpresaId, HorarioId, FuncaoId, DepartamentoId, Admissao
+   *
+   * Pass `appPassword` to provision the employee's app-access password in the
+   * same round trip — without it the record is created with no usable password
+   * and every pontowebapp call we make on their behalf (ponto, justificativas,
+   * assinatura) is rejected until someone sets one by hand in Secullum.
    */
   async createFuncionario(
     payload: SecullumFuncionarioCreate,
+    options?: { appPassword?: string },
   ): Promise<SecullumFuncionarioFull> {
-    const body = { ...payload };
+    const appPassword = options?.appPassword;
+    const body = { ...payload, ...(appPassword ? { SenhaApp: appPassword } : {}) };
     delete (body as any).Id; // ensure server treats as create
-    const r = await this.http.post<SecullumFuncionarioFull>('/Funcionarios', body);
-    return r.data;
-  }
-
-  async updateFuncionario(
-    id: number,
-    payload: SecullumFuncionarioUpsert,
-  ): Promise<SecullumFuncionarioFull> {
-    const body = { ...payload, Id: id };
-    // Match the query parameter used by Secullum's own web UI (captured
-    // via HAR). Without it the POST still returns 200 in our manual
-    // tests, but defensively keeping the parity in case Secullum routes
-    // differ on certain field changes.
     const r = await this.http.post<SecullumFuncionarioFull>(
-      '/Funcionarios?alterouSenhaApp=false',
+      this.funcionariosEndpoint(Boolean(appPassword)),
       body,
     );
     return r.data;
+  }
+
+  /**
+   * Upsert an existing Funcionario. The caller is expected to spread a freshly
+   * read full record so the ~76 keys Secullum echoes back survive untouched —
+   * `SenhaApp` included, which is why the flag defaults to false here.
+   */
+  async updateFuncionario(
+    id: number,
+    payload: SecullumFuncionarioUpsert,
+    options?: { appPassword?: string },
+  ): Promise<SecullumFuncionarioFull> {
+    const appPassword = options?.appPassword;
+    const body = { ...payload, Id: id, ...(appPassword ? { SenhaApp: appPassword } : {}) };
+    const r = await this.http.post<SecullumFuncionarioFull>(
+      this.funcionariosEndpoint(Boolean(appPassword)),
+      body,
+    );
+    return r.data;
+  }
+
+  /**
+   * (Re)define a funcionário's app-access password. Read-modify-write on the
+   * full record, since Secullum's save always expects the whole thing.
+   *
+   * Defaults to the tenant-wide password, so this doubles as the repair path
+   * for employees provisioned before we started sending `SenhaApp` on create.
+   */
+  async setFuncionarioAppPassword(
+    id: number,
+    appPassword?: string,
+  ): Promise<SecullumFuncionarioFull> {
+    const password = appPassword?.trim() || this.secullum.funcionarioAppPassword;
+    const current = await this.getFuncionarioFull(id);
+    const updated = await this.updateFuncionario(id, current, { appPassword: password });
+    this.logger.log(`[secullum] app password set for funcionário ${id}`);
+    return updated;
   }
 
   async deleteFuncionario(id: number): Promise<void> {
