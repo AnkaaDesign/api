@@ -76,9 +76,25 @@ export class NotificationPrismaRepository
       channel: databaseEntity.channel as NOTIFICATION_CHANNEL[],
       importance: databaseEntity.importance as NOTIFICATION_IMPORTANCE,
       actionType: databaseEntity.actionType,
-      actionUrl: databaseEntity.actionUrl,
+      // NAVIGATION. `actionUrl` is EMPTY on every configuration-dispatched
+      // notification — the deep link lives in `metadata.webUrl`/`mobileUrl`
+      // (see notification-queue.processor, which builds the FCM data payload
+      // from metadata, not from this column). Synthesise the canonical
+      // `{web,mobile,universalLink}` blob both notification centers already
+      // know how to parse, so a client that only reads `actionUrl` still lands
+      // somewhere real.
+      actionUrl: databaseEntity.actionUrl || this.actionUrlFromMetadata(databaseEntity.metadata),
       scheduledAt: databaseEntity.scheduledAt,
       sentAt: databaseEntity.sentAt,
+      // `metadata` + the entity pair are the ONLY things that say WHERE a
+      // notification points. Dropping them here left both notification centers
+      // (web `handleNotificationClick`, Flutter `routeForNotificationData`)
+      // with nothing to resolve, so a tap silently went nowhere — the app
+      // cannot tell "this notification has no target" from "the target was
+      // withheld by the serializer".
+      metadata: databaseEntity.metadata,
+      relatedEntityType: databaseEntity.relatedEntityType,
+      relatedEntityId: databaseEntity.relatedEntityId,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
     };
@@ -96,6 +112,32 @@ export class NotificationPrismaRepository
     }
 
     return notification;
+  }
+
+  /**
+   * Build the `{web, mobile, universalLink}` action-URL blob from a
+   * notification's metadata, or null when it carries no link at all.
+   *
+   * Both clients parse this shape already (web `parseActionUrl`, Flutter
+   * `_tryJsonMap`), and it is the shape `DeepLinkService` documents, so it is
+   * the safest way to expose a link that only ever got stored in metadata.
+   */
+  private actionUrlFromMetadata(metadata: unknown): string | null {
+    if (!metadata || typeof metadata !== 'object') return null;
+    const m = metadata as Record<string, unknown>;
+    const pick = (key: string): string | undefined =>
+      typeof m[key] === 'string' && (m[key] as string).trim() !== ''
+        ? (m[key] as string)
+        : undefined;
+    const web = pick('webUrl');
+    const mobile = pick('mobileUrl');
+    const universalLink = pick('universalLink');
+    if (!web && !mobile && !universalLink) return null;
+    return JSON.stringify({
+      ...(web ? { web } : {}),
+      ...(mobile ? { mobile } : {}),
+      ...(universalLink ? { universalLink } : {}),
+    });
   }
 
   private getTypeOrder(type: NOTIFICATION_TYPE): number {

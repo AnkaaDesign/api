@@ -57,6 +57,11 @@ export class MessageListener {
           title,
           body,
           webUrl: '/pessoal/mensagens',
+          // The app's screen is `/pessoal/minhas-mensagens` (it kept the RN
+          // name); `/pessoal/mensagens` is web-only and resolves to the app's
+          // "not ported yet" placeholder. mobileUrl wins over webUrl in the
+          // notification router, so name the real route explicitly.
+          mobileUrl: '/pessoal/minhas-mensagens',
           relatedEntityType: 'MESSAGE',
         },
       };
