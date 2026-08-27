@@ -116,16 +116,39 @@ export function isBrazilianBusinessDay(date: Date): boolean {
  * of available working days in a period (varies month to month).
  */
 export function countBrazilianBusinessDaysInRange(start: Date, end: Date): number {
-  if (end < start) return 0;
+  return listBrazilianBusinessDaysInRange(start, end).length;
+}
+
+/**
+ * Enumerate the Brazilian business days inside [start, end], inclusive, as
+ * midnight-local dates in ascending order.
+ *
+ * `countBrazilianBusinessDaysInRange` delegates to this function so the count
+ * and the enumeration can never disagree — the per-person task credit divides
+ * by the count of people present on each of THESE days, and a one-day drift
+ * between "how many business days the period has" and "which days they are"
+ * would silently break the conservation identity (Σ credit = Σ tasks).
+ */
+export function listBrazilianBusinessDaysInRange(start: Date, end: Date): Date[] {
+  if (end < start) return [];
   const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   const stop = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  let count = 0;
+  const days: Date[] = [];
   // 90 iterations covers ~3 months of business-period inputs; cap at 400 for safety.
   for (let i = 0; i < 400 && cursor <= stop; i++) {
-    if (isBrazilianBusinessDayLocal(cursor)) count++;
+    if (isBrazilianBusinessDayLocal(cursor)) days.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
-  return count;
+  return days;
+}
+
+/**
+ * Stable key for "which calendar day is this", in the SAME local-time frame
+ * that `listBrazilianBusinessDaysInRange` and `businessPeriodStart`/`End` use.
+ * Task timestamps are mapped to business days through this key.
+ */
+export function localDayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
 /**

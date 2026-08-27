@@ -148,7 +148,38 @@ model Bonus {
   baseBonus          Decimal         @default(0) @db.Decimal(10, 2)
   netBonus           Decimal         @default(0) @db.Decimal(10, 2)
   weightedTasks      Decimal         @default(0) @db.Decimal(10, 2)
+  /// B1 DESTA PESSOA: `windowWeightedTasks ÷ windowDivisor`. É o número que
+  /// alimentou a curva e produziu `baseBonus`.
+  ///
+  /// Até a v3 esta coluna guardava o agregado do período e era igual em todas as
+  /// linhas do mês. NÃO volte a lê-la como "o número da equipe": para isso existe
+  /// `periodAverageTasks` ao lado. Ver `BonusWindowStatsService`.
   averageTaskPerUser Decimal         @default(0) @db.Decimal(10, 2)
+  /// B1 agregado do PERÍODO (`weightedTasks / periodDivisor`) — igual em todas
+  /// as linhas do mês. É o número da EQUIPE, para exibição. Desde a v5 ele não
+  /// alimenta o cálculo de ninguém.
+  periodAverageTasks Decimal?        @db.Decimal(10, 2)
+  /// OS TRÊS NÚMEROS DESTA PESSOA, medidos na janela dela:
+  ///
+  ///     windowWeightedTasks ÷ windowDivisor == averageTaskPerUser
+  ///
+  /// exato, em qualquer linha — é isso que deixa o RH refazer a conta na mão.
+  ///
+  /// windowTaskCount     = tarefas do período concluídas dentro da janela
+  ///                       (todas as bonificações). A relação `tasks` segue este
+  ///                       número.
+  /// windowWeightedTasks = as mesmas, ponderadas (cheia 1,0 · parcial 0,5 ·
+  ///                       suspensa 0,0).
+  /// windowDivisor       = colaboradores da janela: Σ headcount do dia ÷ dias da
+  ///                       janela. Varia muito por grupo — quem pegou só o
+  ///                       começo do período conviveu com o quadro CHEIO, quem
+  ///                       pegou só o fim com o REDUZIDO.
+  ///
+  /// NUNCA exiba um destes ao lado de `weightedTasks` (que é do PERÍODO): uma
+  /// ponderada de 49,0 ao lado de um total de 33 é impossível por construção.
+  windowTaskCount    Int?
+  windowWeightedTasks Decimal?       @db.Decimal(10, 2)
+  windowDivisor      Decimal?        @db.Decimal(8, 4)
   year               Int
   month              Int
   performanceLevel   Int
@@ -164,8 +195,12 @@ model Bonus {
   /// `count(elegíveis AGORA)` e não sobrevivia a uma demissão: quem saía no meio
   /// do período sumia do denominador retroativamente, inflando o bônus de todos.
   ///
-  /// eligibilityWeight  = eligibleDays / periodBusinessDays, em [0, 1]. Multiplica
-  ///                      o bônus individual E é a parcela desta pessoa no divisor.
+  /// eligibilityWeight  = temporalWeight × absenceFactor, em [0, 1]. É a parcela
+  ///                      desta pessoa no divisor do PERÍODO e o que a UI mostra
+  ///                      como proporção. Desde a v5 NÃO multiplica mais o valor:
+  ///                      o eixo temporal já está no numerador de
+  ///                      `windowWeightedTasks`, e multiplicar de novo aplicaria
+  ///                      o tempo duas vezes. Quem multiplica é `absenceFactor`.
   /// eligibleDays       = dias úteis em que esteve elegível dentro do período.
   /// periodBusinessDays = dias úteis do período (Mon–Fri menos feriados nacionais).
   /// periodDivisor      = Σ dos pesos de quem tem performanceLevel > 0 — o
@@ -192,6 +227,13 @@ model Bonus {
   /// Data de desligamento quando o vínculo encerrou DENTRO do período — deixa a
   /// UI mostrar "Desligado em DD/MM" sem reconsultar o contrato.
   terminatedAt       DateTime?
+  /// Espelho de `terminatedAt` do outro lado: data em que a elegibilidade
+  /// COMEÇOU dentro do período (efetivação / fim da experiência). Null quando a
+  /// pessoa já era elegível no dia 26.
+  ///
+  /// Sem esta coluna a tela mostrava peso parcial para quem entrou no meio sem
+  /// nenhuma explicação — só o desligamento tinha data.
+  effectedAt         DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   payrollId          String?         @unique
