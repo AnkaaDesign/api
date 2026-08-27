@@ -31,6 +31,10 @@ import {
   CUT_STATUS_LABELS,
   SECTOR_PRIVILEGES_LABELS,
   NOTIFICATION_PRIORITY_LABELS,
+  TRUCK_SPOT_LABELS,
+  TRUCK_CATEGORY_LABELS,
+  IMPLEMENT_TYPE_LABELS,
+  BONIFICATION_STATUS_LABELS,
 } from '../../../constants';
 import { EMPLOYED_USER_WHERE, isUserEmployed } from '../../../utils/contract';
 import { Prisma, NotificationActionType } from '@prisma/client';
@@ -2382,6 +2386,21 @@ export class NotificationDispatchService {
   }
 
   /**
+   * Enum label map per CHANGED FIELD, for `task.field.*` events.
+   *
+   * The dispatcher receives `oldValue`/`newValue` as bare strings with no type
+   * information attached — `fieldName` is the ONLY thing that says which enum
+   * they belong to. Without this table a spot change renders as
+   * "de \"B1_F3_V1\" para \"YARD_EXIT\"" in every channel.
+   */
+  private static readonly FIELD_VALUE_LABEL_MAPS: Record<string, Record<string, string>> = {
+    'truck.spot': TRUCK_SPOT_LABELS as Record<string, string>,
+    'truck.category': TRUCK_CATEGORY_LABELS as Record<string, string>,
+    'truck.implementType': IMPLEMENT_TYPE_LABELS as Record<string, string>,
+    bonification: BONIFICATION_STATUS_LABELS as Record<string, string>,
+  };
+
+  /**
    * Normalize known enum-bearing fields in the notification data into their
    * pt-BR labels BEFORE they reach templateVars and persisted metadata.
    *
@@ -2434,11 +2453,23 @@ export class NotificationDispatchService {
       }
     }
 
-    // oldValue/newValue may carry a status enum when the changed field is the
-    // status itself; normalize against the status map (pass-through otherwise).
+    // oldValue/newValue carry a bare enum string. Prefer the map keyed by the
+    // changed field (truck spot/category/implement type, bonification); fall
+    // back to the status map, which covers the status field itself. Values
+    // absent from both pass through unchanged so free-form text is never lost.
+    const fieldValueMap =
+      typeof normalized.fieldName === 'string'
+        ? NotificationDispatchService.FIELD_VALUE_LABEL_MAPS[normalized.fieldName]
+        : undefined;
+
     for (const key of ['oldValue', 'newValue']) {
-      if (typeof normalized[key] === 'string' && statusMap[normalized[key]] !== undefined) {
-        normalized[key] = statusMap[normalized[key]];
+      const raw = normalized[key];
+      if (typeof raw !== 'string') continue;
+
+      if (fieldValueMap?.[raw] !== undefined) {
+        normalized[key] = fieldValueMap[raw];
+      } else if (statusMap[raw] !== undefined) {
+        normalized[key] = statusMap[raw];
       }
     }
 
