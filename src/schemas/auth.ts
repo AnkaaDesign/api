@@ -117,6 +117,43 @@ export const passwordResetSchema = z
 export type PasswordResetFormData = z.infer<typeof passwordResetSchema>;
 
 // =====================
+// First Access Schemas (activation of an HR-created account)
+// =====================
+//
+// The account exists with password NULL and verified false. The employee proves
+// they own the contact with a 6-digit code, and only then chooses a password.
+// Split in three steps so the UI can reject a wrong code immediately instead of
+// after the user has already picked a password.
+
+export const firstAccessRequestSchema = z.object({
+  contact: contactMethodSchema,
+});
+
+export type FirstAccessRequestFormData = z.infer<typeof firstAccessRequestSchema>;
+
+export const firstAccessVerifySchema = z.object({
+  contact: contactMethodSchema,
+  code: smsCodeSchema,
+});
+
+export type FirstAccessVerifyFormData = z.infer<typeof firstAccessVerifySchema>;
+
+// `setupToken` is what the verify step hands back: it carries the "this contact
+// was proven" fact, so the password step never has to resend the code.
+export const firstAccessCompleteSchema = z
+  .object({
+    setupToken: z.string().min(1, 'Sessão de primeiro acesso inválida'),
+    password: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine(data => data.password === data.confirmPassword, {
+    message: 'As senhas não coincidem',
+    path: ['confirmPassword'],
+  });
+
+export type FirstAccessCompleteFormData = z.infer<typeof firstAccessCompleteSchema>;
+
+// =====================
 // Admin Operations Schemas
 // =====================
 

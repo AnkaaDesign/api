@@ -3668,6 +3668,7 @@ enum VerificationType {
   EMAIL
   PHONE
   PASSWORD_RESET
+  FIRST_ACCESS
 }
 
 enum MeasureUnit {

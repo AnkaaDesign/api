@@ -45,6 +45,9 @@ import type {
   AdminLogoutUserFormData,
   RefreshTokenFormData,
   LogoutFormData,
+  FirstAccessRequestFormData,
+  FirstAccessVerifyFormData,
+  FirstAccessCompleteFormData,
 } from '../../../schemas';
 import {
   signInSchema,
@@ -59,6 +62,9 @@ import {
   adminLogoutUserSchema,
   refreshTokenSchema,
   logoutSchema,
+  firstAccessRequestSchema,
+  firstAccessVerifySchema,
+  firstAccessCompleteSchema,
 } from '../../../schemas';
 
 @Controller('auth')
@@ -225,6 +231,48 @@ export class AuthController {
   async resetPassword(@Body() data: PasswordResetFormData) {
     this.assertPasswordRecoveryEnabled();
     return this.authService.resetPasswordWithCode(data.contact, data.code, data.password);
+  }
+
+  // =====================
+  // First Access (activation of an HR-created account)
+  // =====================
+  //
+  // Public by necessity — the whole point is that the person cannot log in yet.
+  // Brute force is bounded by the per-IP verification limit (3/min in prod)
+  // against a 6-digit code that dies in 10 minutes.
+
+  @Public()
+  @VerificationSendRateLimit()
+  @Post('first-access/request')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(firstAccessRequestSchema))
+  async requestFirstAccess(@Body() data: FirstAccessRequestFormData) {
+    return this.authService.requestFirstAccess(data.contact);
+  }
+
+  @Public()
+  @VerificationRateLimit()
+  @Post('first-access/verify')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(firstAccessVerifySchema))
+  async verifyFirstAccess(@Body() data: FirstAccessVerifyFormData) {
+    return this.authService.verifyFirstAccessCode(data.contact, data.code);
+  }
+
+  @Public()
+  @AuthRateLimit()
+  @Post('first-access/complete')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(firstAccessCompleteSchema))
+  async completeFirstAccess(
+    @Body() data: FirstAccessCompleteFormData,
+    @Request() req: ExpressRequest,
+  ) {
+    return this.authService.completeFirstAccess(
+      data.setupToken,
+      data.password,
+      req.headers['user-agent'],
+    );
   }
 
   // =====================

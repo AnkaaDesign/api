@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
   ForbiddenException,
   Logger,
@@ -193,6 +194,25 @@ export class AuthService {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
+    return this.establishSession(user, userAgent, {
+      message: 'Login realizado com sucesso',
+      reason: 'Login do usuário',
+    });
+  }
+
+  /**
+   * Mint a session for a user who has just proven who they are, and return the
+   * payload every client expects from a login.
+   *
+   * Shared by /auth/login and by first access — the latter must end with the
+   * employee already inside the app, and a second silent login round-trip would
+   * only add a way for the activation to half-succeed.
+   */
+  private async establishSession(
+    user: any,
+    userAgent: string | undefined,
+    copy: { message: string; reason: string },
+  ): Promise<any> {
     const accessToken = await this.signAccessToken(user);
     const refreshToken = await this.issueRefreshToken(user.id, userAgent);
 
@@ -214,7 +234,7 @@ export class AuthService {
       field: 'lastLoginAt',
       oldValue: oldLastLoginAt,
       newValue: newLastLoginAt,
-      reason: 'Login do usuário',
+      reason: copy.reason,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: user.id,
       userId: user.id,
@@ -236,7 +256,7 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'Login realizado com sucesso',
+      message: copy.message,
       data: {
         token: accessToken,
         refreshToken,
@@ -526,79 +546,11 @@ export class AuthService {
       });
     }
 
-    // Determine what type of contact the user INPUT (not what's in the user record)
-    const inputContactType = detectContactMethod(contact);
-    this.logger.log(`Password reset requested via ${inputContactType} for contact: ${contact}`);
-
-    let emailSent = false;
-    let smsSent = false;
-
-    // Prioritize the method based on what the user INPUT
-    if (inputContactType === 'phone') {
-      // User input a phone number - prioritize SMS
-      // First, normalize the phone to find the best match
-      const normalizedInputPhone = normalizeBrazilianPhone(contact);
-      const phoneToUse = normalizedInputPhone || user.phone;
-
-      if (phoneToUse && isValidPhone(phoneToUse)) {
-        try {
-          this.logger.log(`Sending password reset SMS to normalized phone: ${phoneToUse}`);
-          await this.sendPasswordResetSms(phoneToUse, user.name, resetCode);
-          smsSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset SMS: ${error.message}`);
-        }
-      }
-
-      // Fallback to email if SMS fails and email is available
-      if (!smsSent && user.email && isValidEmail(user.email)) {
-        try {
-          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
-          emailSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset email (fallback): ${error.message}`);
-        }
-      }
-    } else if (inputContactType === 'email') {
-      // User input an email - prioritize email
-      if (user.email && isValidEmail(user.email)) {
-        try {
-          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
-          emailSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset email: ${error.message}`);
-        }
-      }
-
-      // Fallback to SMS if email fails and phone is available
-      if (!emailSent && user.phone && isValidPhone(user.phone)) {
-        try {
-          await this.sendPasswordResetSms(user.phone, user.name, resetCode);
-          smsSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset SMS (fallback): ${error.message}`);
-        }
-      }
-    } else {
-      // Unknown input type - try both (email first, then SMS)
-      if (user.email && isValidEmail(user.email)) {
-        try {
-          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
-          emailSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset email: ${error.message}`);
-        }
-      }
-
-      if (user.phone && isValidPhone(user.phone)) {
-        try {
-          await this.sendPasswordResetSms(user.phone, user.name, resetCode);
-          smsSent = true;
-        } catch (error) {
-          this.logger.error(`Failed to send password reset SMS: ${error.message}`);
-        }
-      }
-    }
+    const { emailSent, smsSent } = await this.dispatchCode(user, contact, resetCode, {
+      purpose: 'password reset',
+      sendEmail: (email, userName, code) => this.sendPasswordResetEmail(email, userName, code),
+      sendSms: (phone, userName, code) => this.sendPasswordResetSms(phone, userName, code),
+    });
 
     // Return appropriate message based on what was sent
     if (emailSent && smsSent) {
@@ -749,6 +701,349 @@ export class AuthService {
       success: true,
       message: 'Senha redefinida com sucesso!',
     };
+  }
+
+  // =====================
+  // First Access (activation of an HR-created account)
+  // =====================
+  //
+  // HR registers the employee with no Ankaa password and verified=false — the
+  // Secullum side is already provisioned at that moment, but the person still
+  // has no way in. First access is that way in, and it is deliberately NOT the
+  // password-reset flow: only this one may flip `verified`, and it must refuse
+  // an account that already has a password (that one belongs to "esqueci minha
+  // senha", where knowing the e-mail is not enough to take over a live account).
+  //
+  // Three steps, each its own endpoint:
+  //   1. request  — issue the code
+  //   2. verify   — spend the code, hand back a short-lived setup token
+  //   3. complete — set the password against that token, verify, and log in
+  //
+  // Splitting 2 and 3 is what lets the UI reject a wrong code immediately
+  // instead of after the person has already chosen a password.
+
+  private readonly FIRST_ACCESS_CODE_TTL_MINUTES = 10;
+  private readonly FIRST_ACCESS_SETUP_TOKEN_TTL = '15m';
+
+  /**
+   * The setup token is signed with a DIFFERENT secret from access tokens on
+   * purpose. AuthGuard verifies any JWT minted with JWT_SECRET and trusts its
+   * `sub`, so a setup token signed with that secret would double as a bearer
+   * token for every endpoint without an explicit @Roles. Deriving a separate
+   * secret makes it fail verification there, which is exactly what we want: it
+   * is good for one thing only.
+   */
+  private get firstAccessSetupSecret(): string {
+    return process.env.JWT_FIRST_ACCESS_SECRET || `${process.env.JWT_SECRET}::first-access`;
+  }
+
+  /**
+   * Resolves a contact to a user row that actually carries `password`.
+   *
+   * The Prisma client omits credential fields globally, so the by-contact
+   * lookup comes back with `password: undefined` — which silently reads as
+   * "never set one" and would let a fully active account run the activation
+   * again. Every first-access check therefore goes through here, exactly like
+   * signIn does.
+   */
+  private async findUserWithCredentialsByContact(contact: string): Promise<any | null> {
+    const found = await this.findUserBycontact(contact);
+    if (!found) return null;
+    return this.usersRepository.findByIdWithCredentials(found.id);
+  }
+
+  /**
+   * Who may activate an account: someone who never finished doing so.
+   *
+   * `password === null` is the durable signal (an abandoned ceremony leaves the
+   * account exactly as it was). `!verified` also qualifies, so an account
+   * created with a password but never confirmed can still be claimed by whoever
+   * holds the contact — which is the same proof a reset would demand anyway.
+   */
+  private assertEligibleForFirstAccess(user: {
+    password?: string | null;
+    verified?: boolean;
+    currentContractStatus?: any;
+  }): void {
+    if (!isUserEmployed(user)) {
+      throw new ForbiddenException(
+        'Sua conta está inativa. Entre em contato com o administrador.',
+      );
+    }
+    if (user.password && user.verified) {
+      // Deliberately explicit instead of a vague "we sent something": this
+      // account is already usable, and telling the person so is what stops the
+      // support call. /auth/login already reveals whether a contact exists, so
+      // this leaks nothing new.
+      throw new BadRequestException(
+        'Esta conta já está ativa. Use "Esqueceu sua senha?" para redefinir sua senha.',
+      );
+    }
+  }
+
+  /**
+   * Step 1 — send the activation code.
+   *
+   * Answers the same way whether or not the contact exists, so this endpoint
+   * cannot be used to harvest who works here. The one thing it does say out
+   * loud is "this account is already active" (see assertEligibleForFirstAccess).
+   */
+  async requestFirstAccess(contact: string): Promise<any> {
+    if (!contact) {
+      throw new BadRequestException('Email ou telefone é obrigatório.');
+    }
+
+    const user = await this.findUserWithCredentialsByContact(contact);
+    if (!user) {
+      return {
+        success: true,
+        message:
+          'Se o email ou telefone estiver cadastrado, você receberá um código de primeiro acesso.',
+      };
+    }
+
+    this.assertEligibleForFirstAccess(user);
+
+    const accessCode = this.generateSixDigitCode();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + this.FIRST_ACCESS_CODE_TTL_MINUTES);
+
+    const oldVerificationCode = user.verificationCode;
+    const oldVerificationType = user.verificationType;
+
+    await this.usersRepository.update(user.id, {
+      verificationCode: accessCode,
+      verificationExpiresAt: expiresAt,
+      verificationType: VERIFICATION_TYPE.FIRST_ACCESS,
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: user.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'verificationCode',
+      oldValue: oldVerificationCode ? '[REDACTED]' : null,
+      newValue: '[REDACTED]',
+      reason: 'Código de primeiro acesso gerado',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: user.id,
+      userId: user.id,
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: user.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'verificationType',
+      oldValue: oldVerificationType,
+      newValue: VERIFICATION_TYPE.FIRST_ACCESS,
+      reason: 'Tipo de verificação definido para primeiro acesso',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: user.id,
+      userId: user.id,
+    });
+
+    const { emailSent, smsSent } = await this.dispatchCode(user, contact, accessCode, {
+      purpose: 'first access',
+      sendEmail: (email, userName, code) => this.sendFirstAccessEmail(email, userName, code),
+      sendSms: (phone, userName, code) => this.sendFirstAccessSms(phone, userName, code),
+    });
+
+    if (emailSent && smsSent) {
+      return { success: true, message: 'Código de primeiro acesso enviado por email e SMS.' };
+    }
+    if (smsSent) {
+      return { success: true, message: 'Código de primeiro acesso enviado por SMS.' };
+    }
+    if (emailSent) {
+      return { success: true, message: 'Código de primeiro acesso enviado por email.' };
+    }
+    // Falha de entrega é erro de verdade, não um 200 com aviso: quem pediu o
+    // código ficaria parado na tela seguinte esperando um e-mail que não vem.
+    throw new ServiceUnavailableException(
+      'Não foi possível enviar o código. Verifique seus dados de contato com o administrador.',
+    );
+  }
+
+  /**
+   * Step 2 — spend the code, hand back the setup token.
+   *
+   * The code is cleared here, but nothing else about the account changes yet:
+   * an abandoned ceremony leaves the person exactly as they were, free to start
+   * over. Password and `verified` only move in step 3, together.
+   */
+  async verifyFirstAccessCode(contact: string, code: string): Promise<any> {
+    if (!contact || !code) {
+      throw new BadRequestException('Email/telefone e código são obrigatórios.');
+    }
+
+    const user = await this.findUserWithCredentialsByContact(contact);
+    if (!user) {
+      throw new BadRequestException('Código de verificação inválido.');
+    }
+
+    this.assertEligibleForFirstAccess(user);
+
+    if (!user.verificationCode || user.verificationType !== VERIFICATION_TYPE.FIRST_ACCESS) {
+      throw new BadRequestException(
+        'Nenhum código de primeiro acesso foi enviado. Solicite um novo código.',
+      );
+    }
+
+    if (user.verificationExpiresAt && new Date() > user.verificationExpiresAt) {
+      throw new BadRequestException('Código expirado. Solicite um novo código.');
+    }
+
+    if (code !== user.verificationCode) {
+      throw new BadRequestException('Código de verificação inválido.');
+    }
+
+    await this.usersRepository.update(user.id, {
+      verificationCode: null,
+      verificationExpiresAt: null,
+      verificationType: undefined,
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: user.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'verificationCode',
+      oldValue: '[REDACTED]',
+      newValue: null,
+      reason: 'Código de primeiro acesso validado',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: user.id,
+      userId: user.id,
+    });
+
+    const setupToken = await this.jwtService.signAsync(
+      { sub: user.id, purpose: 'FIRST_ACCESS' },
+      { secret: this.firstAccessSetupSecret, expiresIn: this.FIRST_ACCESS_SETUP_TOKEN_TTL },
+    );
+
+    return {
+      success: true,
+      message: 'Código verificado. Defina sua senha para ativar a conta.',
+      data: { setupToken, name: user.name },
+    };
+  }
+
+  /**
+   * Step 3 — set the password, activate, and log in.
+   *
+   * Single-use without any extra bookkeeping: once the password exists the
+   * eligibility check rejects the same token, so a replay within the token's
+   * 15 minutes cannot overwrite the password the employee just chose.
+   */
+  async completeFirstAccess(
+    setupToken: string,
+    password: string,
+    userAgent?: string,
+  ): Promise<any> {
+    if (!setupToken || !password) {
+      throw new BadRequestException('Sessão de primeiro acesso e senha são obrigatórias.');
+    }
+
+    let payload: { sub?: string; purpose?: string };
+    try {
+      payload = await this.jwtService.verifyAsync(setupToken, {
+        secret: this.firstAccessSetupSecret,
+      });
+    } catch {
+      throw new UnauthorizedException(
+        'Sessão de primeiro acesso expirada. Solicite um novo código.',
+      );
+    }
+
+    if (payload?.purpose !== 'FIRST_ACCESS' || !payload.sub) {
+      throw new UnauthorizedException('Sessão de primeiro acesso inválida.');
+    }
+
+    const user = await this.usersRepository.findByIdWithCredentials(payload.sub, {
+      sector: true,
+      ledSector: true,
+    });
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    this.assertEligibleForFirstAccess(user);
+
+    const hashedPassword = await this.hashService.hash(password);
+    const wasVerified = user.verified;
+
+    await this.usersRepository.update(user.id, {
+      password: hashedPassword,
+      verified: true,
+      requirePasswordChange: false,
+      verificationCode: null,
+      verificationExpiresAt: null,
+      verificationType: undefined,
+    });
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.USER,
+      entityId: user.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'password',
+      oldValue: '[REDACTED]',
+      newValue: '[REDACTED]',
+      reason: 'Senha definida no primeiro acesso',
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: user.id,
+      userId: user.id,
+    });
+
+    if (!wasVerified) {
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.USER,
+        entityId: user.id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'verified',
+        oldValue: false,
+        newValue: true,
+        reason: 'Conta ativada no primeiro acesso',
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: user.id,
+        userId: user.id,
+      });
+    }
+
+    this.logger.log(`First access completed for user ${user.id}`);
+
+    // The session payload must describe the account as it is NOW, not as it was
+    // read: the client stores this user object and would otherwise cache an
+    // unverified, must-change-password copy of someone who is neither.
+    return this.establishSession(
+      { ...user, verified: true, requirePasswordChange: false },
+      userAgent,
+      { message: 'Conta ativada com sucesso!', reason: 'Primeiro acesso concluído' },
+    );
+  }
+
+  async sendFirstAccessSms(phone: string, userName: string, code: string): Promise<void> {
+    const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
+    const message = `Olá ${userName}! Seu código de primeiro acesso no Ankaa é: ${code}`;
+    await this.smsService.sendSms(normalizedPhone, message);
+  }
+
+  async sendFirstAccessEmail(email: string, userName: string, code: string): Promise<void> {
+    const baseData = this.emailService.createBaseEmailData(userName);
+    const result = await this.emailService.sendFirstAccessCode(email, {
+      ...baseData,
+      accessCode: code,
+      expiryMinutes: this.FIRST_ACCESS_CODE_TTL_MINUTES,
+    });
+
+    if (!result.success) {
+      this.logger.error(`Failed to send first access email to ${email}: ${result.error}`);
+      throw new Error(`Email delivery failed: ${result.error}`);
+    }
+
+    this.logger.log(
+      `First access email sent successfully to ${email} (MessageId: ${result.messageId})`,
+    );
   }
 
   async changePassword(userId: string, dto: ChangePasswordFormData): Promise<{ message: string }> {
@@ -1019,6 +1314,66 @@ export class AuthService {
     this.logger.log(
       `Password reset email sent successfully to ${email} (MessageId: ${result.messageId})`,
     );
+  }
+
+  /**
+   * Delivers a 6-digit code over whichever channel the user actually typed,
+   * falling back to the other one. Sending is best-effort by design: a dead SMS
+   * gateway must not abort a ceremony the e-mail can still complete.
+   */
+  private async dispatchCode(
+    user: { name: string; email: string | null; phone: string | null },
+    contact: string,
+    code: string,
+    senders: {
+      purpose: string;
+      sendEmail: (email: string, userName: string, code: string) => Promise<void>;
+      sendSms: (phone: string, userName: string, code: string) => Promise<void>;
+    },
+  ): Promise<{ emailSent: boolean; smsSent: boolean }> {
+    // What the user INPUT decides the priority — not what the record happens to
+    // have. Someone who typed their phone expects the code on that phone.
+    const inputContactType = detectContactMethod(contact);
+    this.logger.log(`${senders.purpose} requested via ${inputContactType} for contact: ${contact}`);
+
+    let emailSent = false;
+    let smsSent = false;
+
+    const trySms = async (phone: string | null, label: string) => {
+      if (smsSent || !phone || !isValidPhone(phone)) return;
+      try {
+        await senders.sendSms(phone, user.name, code);
+        smsSent = true;
+      } catch (error) {
+        this.logger.error(`Failed to send ${senders.purpose} SMS${label}: ${error.message}`);
+      }
+    };
+
+    const tryEmail = async (email: string | null, label: string) => {
+      if (emailSent || !email || !isValidEmail(email)) return;
+      try {
+        await senders.sendEmail(email, user.name, code);
+        emailSent = true;
+      } catch (error) {
+        this.logger.error(`Failed to send ${senders.purpose} email${label}: ${error.message}`);
+      }
+    };
+
+    if (inputContactType === 'phone') {
+      // Normalize what was typed so the code goes to the number the user knows,
+      // even when the record stores it in another format.
+      await trySms(normalizeBrazilianPhone(contact) || user.phone, '');
+      await tryEmail(user.email, ' (fallback)');
+    } else if (inputContactType === 'email') {
+      await tryEmail(user.email, '');
+      await trySms(user.phone, ' (fallback)');
+    } else {
+      // Unrecognizable input: try both, e-mail first.
+      await tryEmail(user.email, '');
+      await trySms(user.phone, '');
+    }
+
+    return { emailSent, smsSent };
   }
 
   private generateSixDigitCode(): string {

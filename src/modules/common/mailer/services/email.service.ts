@@ -3,6 +3,7 @@ import { MailerRepository } from '../repositories/mailer.repository';
 import {
   generateEmailVerificationCodeTemplate,
   generatePasswordResetCodeTemplate,
+  generateFirstAccessCodeTemplate,
   generatePasswordChangedNotificationTemplate,
   generateAccountStatusChangeTemplate,
   generateWelcomeEmailTemplate,
@@ -30,6 +31,11 @@ export interface EmailVerificationData extends BaseEmailData {
 
 export interface PasswordResetData extends BaseEmailData {
   resetCode: string;
+  expiryMinutes: number;
+}
+
+export interface FirstAccessData extends BaseEmailData {
+  accessCode: string;
   expiryMinutes: number;
 }
 
@@ -81,6 +87,23 @@ export class EmailService {
     const html = generatePasswordResetCodeTemplate(data);
 
     return this.sendEmailWithRetry(email, subject, html, 'PASSWORD_RESET');
+  }
+
+  /**
+   * Send the first-access (account activation) code.
+   *
+   * Deliberately its own template rather than the password-reset one: the
+   * recipient has never used the system, so the mail has to read as a welcome
+   * with instructions, not as "someone asked to reset your password".
+   */
+  async sendFirstAccessCode(
+    email: string,
+    data: FirstAccessData,
+  ): Promise<EmailDeliveryResult> {
+    const subject = `Primeiro acesso - ${data.companyName}`;
+    const html = generateFirstAccessCodeTemplate(data);
+
+    return this.sendEmailWithRetry(email, subject, html, 'FIRST_ACCESS');
   }
 
   /**

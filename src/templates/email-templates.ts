@@ -34,6 +34,11 @@ interface PasswordResetCodeTemplateData extends BaseTemplateData {
   expiryMinutes: number;
 }
 
+interface FirstAccessCodeTemplateData extends BaseTemplateData {
+  accessCode: string;
+  expiryMinutes: number;
+}
+
 interface PasswordChangedTemplateData extends BaseTemplateData {
   loginUrl: string;
   changeTime: string;
@@ -573,6 +578,55 @@ export function generatePasswordResetCodeTemplate(data: PasswordResetCodeTemplat
       ${emailFooter(
         data,
         'Se você não solicitou esta redefinição, pode ignorar este e-mail com segurança.',
+      )}
+    </body>
+    </html>
+  `;
+}
+
+export function generateFirstAccessCodeTemplate(data: FirstAccessCodeTemplateData): string {
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Primeiro acesso - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      ${emailHeader('Primeiro acesso', 'Código para ativar sua conta')}
+
+      <div class="content">
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <p>
+          Sua conta na ${data.companyName} já foi criada e está esperando por
+          você. Use o código abaixo para confirmar que este contato é seu e
+          escolher a sua senha:
+        </p>
+
+        <div class="code">${data.accessCode}</div>
+
+        <p style="text-align:center;color:#5f6b60;font-size:14px;margin-top:-10px;">
+          Válido por <strong>${data.expiryMinutes} minutos</strong>.
+        </p>
+
+        <div class="alert">
+          <strong>Nunca compartilhe este código.</strong>
+          A ${data.companyName} não solicita este código por telefone, WhatsApp ou e-mail.
+          Se alguém pedir, é golpe.
+        </div>
+
+        <p style="color:#5f6b60;font-size:14px;">
+          Se você não tentou acessar o sistema, ignore esta mensagem — o código
+          perde a validade sozinho e sua conta continua inativa.
+        </p>
+      </div>
+
+      ${emailFooter(
+        data,
+        'Se você não tentou fazer o primeiro acesso, pode ignorar este e-mail com segurança.',
       )}
     </body>
     </html>
