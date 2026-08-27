@@ -140,10 +140,19 @@ export class TaskQuoteService {
 
   /**
    * Find unique quote by ID
+   *
+   * ⚠️ The repository takes `{ include }` — an OPTIONS object — not the include
+   * itself. Passing the raw include here made `options?.include` undefined, so
+   * every GET /task-quotes/:id silently fell back to the repository's default
+   * include: no `task` and, critically, no `layoutFiles`. That is why the mobile
+   * quote detail saw an empty `layoutFiles` on a quote that HAS an approved
+   * layout selected and refused to approve the budget ("Selecione um layout
+   * aprovado antes de aprovar o orçamento") — the client mirror of the server
+   * guard fired on a payload the server never sent. Keep the wrapper.
    */
   async findUnique(id: string, include?: any): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const quote = await this.taskQuoteRepository.findById(id, include);
+      const quote = await this.taskQuoteRepository.findById(id, include ? { include } : undefined);
 
       if (!quote) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
