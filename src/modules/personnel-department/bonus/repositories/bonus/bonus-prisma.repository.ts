@@ -85,6 +85,18 @@ export class BonusPrismaRepository
       netBonus: Number(databaseEntity.netBonus),
       weightedTasks: Number(databaseEntity.weightedTasks),
       averageTaskPerUser: Number(databaseEntity.averageTaskPerUser),
+      // `!= null`, nunca truthiness — 0 é valor legítimo em todos estes campos
+      // (quem esteve só em dias sem tarefa concluída tem média e ponderadas 0).
+      periodAverageTasks:
+        databaseEntity.periodAverageTasks != null
+          ? Number(databaseEntity.periodAverageTasks)
+          : null,
+      windowWeightedTasks:
+        databaseEntity.windowWeightedTasks != null
+          ? Number(databaseEntity.windowWeightedTasks)
+          : null,
+      windowDivisor:
+        databaseEntity.windowDivisor != null ? Number(databaseEntity.windowDivisor) : null,
     } as Bonus;
   }
 
@@ -426,39 +438,36 @@ export class BonusPrismaRepository
         );
       }
 
-      // ALWAYS capture audit-trail snapshot — even when caller pre-provides
-      // baseBonus. Without this, manual creates with a precomputed amount
-      // would lose the salary/config context, breaking reproducibility.
-      const { averageTasksPerUser } = await this.calculatePeriodMetrics(
-        data.year,
-        data.month,
-        transaction,
-      );
+      // ESTE CAMINHO NÃO CALCULA BÔNUS — e não pode voltar a calcular.
+      //
+      // Ele calculava, com uma fórmula própria (`calculatePeriodMetrics`,
+      // removida): divisor = contagem de bonificáveis HOJE, sem eixo temporal,
+      // e numerador só com FULL+PARTIAL, ignorando SUSPENDED. Era uma quinta
+      // apuração de B1 no sistema, e gravava `baseBonus` e `calculationParams`
+      // com um número que nenhum outro caminho reproduzia.
+      //
+      // Desde a v5 o B1 é da JANELA de cada pessoa e depende dos contratos e da
+      // produção diária do período — não dá para derivá-lo aqui sem refazer o
+      // trabalho de `BonusService`. Criação manual passa a exigir o valor do
+      // chamador; sem valor, a linha nasce zerada e visível, em vez de nascer
+      // com um número inventado que ninguém consegue explicar.
       const calcContext =
         options?.precomputedContext ?? (await this.bonusCalculationContextService.load());
       const userSalary = this.bonusCalculationContextService.resolveSalary(
         calcContext,
         user as { position: { id: string } | null },
       );
-      const snapshot = this.bonusCalculationService.buildParamsSnapshot({
-        salary: userSalary,
-        salaryRange: calcContext.salaryRange,
-        averageTasksPerUser,
-      });
-
-      let calculatedData = { ...data };
-      if (!data.baseBonus || data.baseBonus === 0) {
-        const breakdown = this.bonusCalculationService.calculate({
+      const providedB1 = Number((data as { averageTaskPerUser?: number }).averageTaskPerUser ?? 0) || 0;
+      const snapshot = {
+        ...this.bonusCalculationService.buildParamsSnapshot({
           salary: userSalary,
-          performanceLevel: user.performanceLevel,
-          averageTasksPerUser,
           salaryRange: calcContext.salaryRange,
-        });
-        calculatedData = {
-          ...data,
-          baseBonus: breakdown.bonus,
-        };
-      }
+          averageTasksPerUser: providedB1,
+        }),
+        manualCreate: true as const,
+      };
+
+      const calculatedData = { ...data, baseBonus: data.baseBonus ?? 0 };
 
       const auditFields = {
         salaryUsed: userSalary,
@@ -633,51 +642,7 @@ export class BonusPrismaRepository
     }
   }
 
-  /**
-   * Returns existing bonus or generates live calculation
-   */
-  async findOrGenerateLive(
-    userId: string,
-    year: number,
-    month: number,
-    include?: BonusInclude,
-    tx?: PrismaTransaction,
-  ): Promise<Bonus> {
-    try {
-      // First, try to find existing bonus
-      const existingBonus = await this.findByUserAndPeriod(
-        userId,
-        year.toString(),
-        month.toString(),
-        include,
-        tx,
-      );
-      if (existingBonus) {
-        return existingBonus;
-      }
 
-      // Generate live calculation
-      const liveData = await this.generateLiveBonusData(userId, year, month, tx);
-
-      // Return a live bonus object (not saved to database)
-      // Period dates and task counts are computed from year/month and tasks relation
-      return {
-        id: `live-${userId}-${year}-${month}`,
-        userId: liveData.userId,
-        baseBonus: liveData.baseBonus,
-        year: liveData.year,
-        month: liveData.month,
-        performanceLevel: liveData.performanceLevel,
-        payrollId: liveData.payrollId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        tasks: liveData.tasks,
-      } as Bonus;
-    } catch (error) {
-      this.logger.error('Error in findOrGenerateLive:', error);
-      throw new BadRequestException('Erro ao buscar ou gerar bônus.');
-    }
-  }
 
   /**
    * Create multiple bonuses in transaction
@@ -731,185 +696,8 @@ export class BonusPrismaRepository
     }
   }
 
-  /**
-   * Calculate period metrics for bonus calculation
-   */
-  private async calculatePeriodMetrics(
-    year: number,
-    month: number,
-    tx?: PrismaTransaction,
-  ): Promise<{ ponderedTaskCount: number; averageTasksPerUser: number }> {
-    const startDate = this.getPeriodStartDate(year, month);
-    const endDate = this.getPeriodEndDate(year, month);
 
-    const model = tx ? tx : this.prisma;
 
-    // Get all eligible tasks in the period
-    const tasks = await model.task.findMany({
-      where: {
-        bonification: {
-          in: [BONIFICATION_STATUS.FULL_BONIFICATION, BONIFICATION_STATUS.PARTIAL_BONIFICATION],
-        },
-        finishedAt: {
-          gte: startDate,
-          lte: endDate,
-        },
-        status: TASK_STATUS.COMPLETED,
-      },
-      select: {
-        id: true,
-        bonification: true,
-        createdById: true,
-        sectorId: true,
-        customerId: true,
-        sector: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        customer: {
-          select: {
-            id: true,
-            fantasyName: true,
-          },
-        },
-      },
-    });
-
-    // Calculate weighted task count
-    let ponderedTaskCount = 0;
-    for (const task of tasks) {
-      if (task.bonification === BONIFICATION_STATUS.FULL_BONIFICATION) {
-        ponderedTaskCount += 1.0;
-      } else if (task.bonification === BONIFICATION_STATUS.PARTIAL_BONIFICATION) {
-        ponderedTaskCount += 0.5;
-      }
-    }
-
-    // ⚠️ CAMINHO DE CÁLCULO OBSOLETO — NÃO USE.
-    //
-    // Não é só o divisor. Este arquivo é uma SEGUNDA implementação do bônus e
-    // diverge da folha em cinco pontos, todos silenciosos:
-    //   • não injeta o reajuste do período (`config.adjustment`) — o bônus sai
-    //     sem os +30% que o DP aplicou;
-    //   • não prorrateia por `eligibilityWeight` — paga período inteiro a quem
-    //     entrou ou saiu no meio;
-    //   • conta tarefas só FULL/PARTIAL, sem SUSPENDED/NO_BONIFICATION, logo
-    //     não tem o par bruto/líquido;
-    //   • não arredonda B1 antes do polinômio (o anchor é de grau 5: a
-    //     diferença vira reais);
-    //   • lê `user.performanceLevel` de HOJE, não o do período.
-    //
-    // O divisor abaixo é o pior dos cinco:
-    //
-    // Esta contagem é uma foto do "quem é elegível AGORA" e diverge do divisor
-    // canônico em quatro eixos: não tem eixo temporal (uma demissão apaga a
-    // pessoa retroativamente), não filtra `position.bonifiable`, não filtra
-    // `secullumEmployeeId` e não arredonda a média. O divisor correto é o
-    // headcount médio do período, em `BonusEligibilityService`.
-    //
-    // O método inteiro é código morto: `BonusRepository` é injetado em
-    // `BonusService` e nunca invocado. Mantido apenas para não quebrar a
-    // interface do repositório. Se algum dia voltar a ser chamado, troque por
-    // `bonusEligibilityService.resolvePeriodEligibility(year, month).divisor`.
-    const eligibleUsersCount = await model.user.count({
-      where: {
-        performanceLevel: { gt: 0 },
-        ...BONIFIABLE_USER_WHERE,
-      },
-    });
-
-    const averageTasksPerUser = eligibleUsersCount > 0 ? ponderedTaskCount / eligibleUsersCount : 0;
-
-    return {
-      ponderedTaskCount,
-      averageTasksPerUser,
-    };
-  }
-
-  /**
-   * Generate live bonus data for a specific user and period
-   */
-  private async generateLiveBonusData(
-    userId: string,
-    year: number,
-    month: number,
-    tx?: PrismaTransaction,
-  ): Promise<LiveBonusData> {
-    const model = tx ? tx : this.prisma;
-
-    // Get user with performance level
-    const user = await model.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        performanceLevel: true,
-        position: { select: { id: true, name: true } },
-      },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`Usuário ${userId} não encontrado.`);
-    }
-
-    if (user.performanceLevel <= 0) {
-      throw new BadRequestException(`Usuário ${user.name} não tem nível de performance válido.`);
-    }
-
-    // Calculate metrics for the period
-    const { averageTasksPerUser } = await this.calculatePeriodMetrics(year, month, tx);
-
-    // Calculate bonus via salary-based logistic algorithm
-    const calcContext = await this.bonusCalculationContextService.load();
-    const userSalary = this.bonusCalculationContextService.resolveSalary(
-      calcContext,
-      user as { position: { id: string } | null },
-    );
-    const bonusValue = this.bonusCalculationService.calculateBonus({
-      salary: userSalary,
-      performanceLevel: user.performanceLevel,
-      averageTasksPerUser,
-      salaryRange: calcContext.salaryRange,
-    });
-
-    // Get payroll if exists
-    const payroll = await model.payroll.findFirst({
-      where: { year, month },
-      select: { id: true },
-    });
-
-    // Get user's tasks for this period
-    const startDate = this.getPeriodStartDate(year, month);
-    const endDate = this.getPeriodEndDate(year, month);
-    const userTasks = await model.task.findMany({
-      where: {
-        createdById: userId,
-        bonification: {
-          in: ['FULL_BONIFICATION', 'PARTIAL_BONIFICATION', 'SUSPENDED_BONIFICATION', 'NO_BONIFICATION'],
-        },
-        status: 'COMPLETED',
-        finishedAt: { gte: startDate, lte: endDate },
-      },
-      select: {
-        id: true,
-        name: true,
-        bonification: true,
-        finishedAt: true,
-      },
-    });
-
-    return {
-      userId,
-      year,
-      month,
-      performanceLevel: user.performanceLevel,
-      baseBonus: bonusValue,
-      tasks: userTasks,
-      payrollId: payroll?.id,
-    };
-  }
 
   /**
    * Get start date for bonus calculation period (26th of previous month).

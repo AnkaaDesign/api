@@ -36,8 +36,21 @@ import { roundCurrency } from '../../../utils/currency-precision.util';
  * período (Σ dias_úteis_elegíveis / dias_úteis_do_período), e o mesmo peso
  * prorrateia o valor individual. Linhas gravadas antes desta versão têm
  * `eligibilityWeight = 1` por default e um divisor inteiro.
+ *
+ * v5-window-monotonic-2026-08: duas mudanças.
+ *
+ * 1. B1 passa a ser o AGREGADO DA JANELA de cada pessoa — `tarefas ponderadas
+ *    concluídas enquanto ela esteve ÷ colaboradores ativos naquela janela` —
+ *    tomado CRU, sem normalizar para um mês cheio. Por consequência o
+ *    prorrateio temporal sai do valor: o tempo já está dentro do numerador
+ *    (uma janela curta viu menos tarefas), e multiplicar de novo pelos dias o
+ *    aplicaria duas vezes. `absenceFactor` continua multiplicando — é outro
+ *    eixo (afastamento médico) e não pode sumir junto. Ver `BonusWindowStatsService`.
+ *
+ * 2. A quíntica ganhou ENVELOPE MONOTÔNICO — ela virava para baixo em dois
+ *    trechos de [0, 6] e ali produzir mais pagava menos. Ver `polyMonotone`.
  */
-export const BONUS_CALCULATION_VERSION = 'v3-proportional-2026-08';
+export const BONUS_CALCULATION_VERSION = 'v5-window-monotonic-2026-08';
 
 /**
  * Default parameters — match bonus-simulator.html page 1 defaults.
@@ -145,9 +158,64 @@ function poly(b1: number): number {
   );
 }
 
+/**
+ * Prefixo de máximos da quíntica sobre [0, ceil], em passo fino.
+ *
+ * Construído uma vez no carregamento a partir dos PRÓPRIOS coeficientes — não é
+ * uma constante mágica. Se o polinômio for reajustado um dia, o envelope
+ * acompanha sozinho.
+ */
+const MONOTONE_STEP = 0.001;
+const MONOTONE_MAX_B1 = 6; // = DEFAULT_BONUS_CONFIG.ceil; B1 é clampado antes
+const MONOTONE_PREFIX: number[] = (() => {
+  const n = Math.round(MONOTONE_MAX_B1 / MONOTONE_STEP) + 1;
+  const prefix = new Array<number>(n);
+  let running = -Infinity;
+  for (let i = 0; i < n; i++) {
+    running = Math.max(running, poly(i * MONOTONE_STEP));
+    prefix[i] = running;
+  }
+  return prefix;
+})();
+
+/**
+ * A quíntica com ENVELOPE MONOTÔNICO: nunca desce.
+ *
+ * POR QUE EXISTE
+ * --------------
+ * O polinômio ajustado vira para baixo em DOIS trechos de [0, 6], e nos dois
+ * PRODUZIR MAIS PAGA MENOS:
+ *
+ *   • vale profundo entre B1 ≈ 0,48 e ≈ 1,96 — `poly(0,48) = 91,4` contra
+ *     `poly(1,43) = 21,8`, uma queda de 76%;
+ *   • ombro raso a partir de B1 ≈ 5,81 até o teto 6,0.
+ *
+ * Isso ficou inofensivo enquanto B1 era um número único do período (2,1 a 3,9,
+ * sempre no ramo crescente). Com o B1 da v5 medido na JANELA de cada pessoa,
+ * quem trabalhou parte do mês cai dentro do vale, e o resultado era visível e
+ * indefensável: alguém com 13 dias e 23,5 tarefas ponderadas na janela recebia
+ * R$ 0,87 a MAIS que alguém com 3 dias e 1,0 ponderada.
+ *
+ * O envelope é o máximo corrente da própria curva: onde ela desceria, o valor
+ * fica travado no último pico até ela voltar a subir acima dele. Efeito
+ * colateral aceito: platôs nos dois trechos — abaixo de um certo patamar o
+ * bônus deixa de diferenciar, o que é muito melhor que diferenciar ao
+ * contrário.
+ *
+ * NÃO TOCA NENHUM PERÍODO JÁ PAGO: 06/2026 fechou com B1 2,25 e 07/2026 com
+ * 2,69, os dois no ramo crescente, onde envelope e curva original coincidem.
+ */
+function polyMonotone(b1: number): number {
+  const clamped = Math.min(Math.max(0, b1), MONOTONE_MAX_B1);
+  const i = Math.floor(clamped / MONOTONE_STEP);
+  // `poly(clamped)` entra no máximo para que o valor EXATO no ponto pedido
+  // nunca fique abaixo do que a curva original entrega ali.
+  return Math.max(poly(clamped), MONOTONE_PREFIX[Math.min(i, MONOTONE_PREFIX.length - 1)]);
+}
+
 function polyBase(b1: number, pscale: number, ceil: number): number {
   const clamped = Math.min(Math.max(0, b1), ceil);
-  return poly(clamped) * pscale;
+  return polyMonotone(clamped) * pscale;
 }
 
 function logistic(v: number, k: number, x0: number): number {

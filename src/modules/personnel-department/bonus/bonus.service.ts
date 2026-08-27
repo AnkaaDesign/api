@@ -20,6 +20,7 @@ import { BonusCalculationService } from './bonus-calculation.service';
 import { BonusCalculationContextService } from './bonus-calculation-context.service';
 import type { BonusCalculationContext } from './bonus-calculation-context.service';
 import { BonusEligibilityService } from './bonus-eligibility.service';
+import type { PeriodEligibility } from './bonus-eligibility.service';
 import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import type { SecullumBonusAnalysis } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
@@ -34,6 +35,11 @@ import {
 import { BONIFIABLE_USER_WHERE } from '../../../utils/contract';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import { roundAverage, roundCurrency } from '../../../utils/currency-precision.util';
+import { listBrazilianBusinessDaysInRange } from '../../../utils/brazilian-holidays.util';
+import {
+  BonusWindowStatsService,
+  type WindowStatsResult,
+} from './bonus-window-stats.service';
 import {
   businessPeriodStart as canonicalBusinessPeriodStart,
   businessPeriodEnd as canonicalBusinessPeriodEnd,
@@ -69,8 +75,33 @@ interface LiveBonusData {
   suspendedTasksCount: number;
   suspendedTasksDiscount: number; // Discount from suspended tasks (baseBonus - netBonus)
   tasks: any[];
+  /**
+   * B1 DESTA PESSOA: `windowWeightedTasks ÷ windowDivisor`. É o número que
+   * alimentou a curva e produziu `baseBonus`. Ver `BonusWindowStatsService`.
+   */
   averageTasksPerEmployee: number;
-  rawAverageTasksPerEmployee: number; // Average with suspended as 1.0
+  rawAverageTasksPerEmployee: number; // idem, com suspensa valendo 1.0
+  /** B1 agregado do PERÍODO — igual para todo mundo, é o número da EQUIPE. */
+  periodAverageTasksPerEmployee: number;
+  periodRawAverageTasksPerEmployee: number;
+  /**
+   * OS TRÊS NÚMEROS DESTA PESSOA, medidos na janela dela:
+   *   `windowWeightedTasks ÷ windowDivisor == averageTasksPerEmployee`, exato.
+   *
+   * `tasks` acompanha `windowTaskCount`. `weightedTasks` continua sendo o total
+   * do PERÍODO — nunca exiba um da janela ao lado de outro do período: um
+   * "Total de Tarefas" de 33 ao lado de "Ponderadas 49,00" é uma ponderada
+   * maior que o total, impossível por construção.
+   */
+  windowWeightedTasks: number;
+  windowRawTasks: number;
+  windowDivisor: number;
+  windowTaskCount: number;
+  windowBusinessDays: number;
+  /** ids das tarefas da janela — recorta a relação `_BonusTasks` desta linha. */
+  windowTaskIds: string[];
+  /** Início da elegibilidade dentro do período (efetivação). Espelha `terminatedAt`. */
+  effectedAt?: Date | null;
   isLive: true;
   // Secullum bonus integration fields
   bonusExtraPercentage?: number;
@@ -457,6 +488,7 @@ export class BonusService {
     private readonly bonusRepository: BonusRepository,
     private readonly secullumBonusIntegrationService: SecullumBonusIntegrationService,
     private readonly cacheService: CacheService,
+    private readonly bonusWindowStatsService: BonusWindowStatsService,
   ) {}
 
   // =====================
@@ -466,6 +498,52 @@ export class BonusService {
   /**
    * Find bonus by ID - standard entity retrieval
    */
+  /**
+   * Funil único dos três números por pessoa (tarefas · colaboradores · média).
+   *
+   * Os DOIS caminhos que calculam bonificação chamam este método —
+   * `computeLiveBonusesForPeriod` (período inteiro: lista, folha, cron) e
+   * `calculateLiveBonusData` (um usuário só: tela de detalhe, app). Eles eram
+   * cálculos duplicados que já divergiram no passado; com o B1 deixando de ser
+   * um número único do período, duplicar de novo garantiria divergência entre a
+   * lista e o detalhe da MESMA pessoa. Se precisar mudar a regra, mude aqui.
+   */
+  private buildWindowStats(
+    eligibility: PeriodEligibility,
+    allTasks: Array<{ id?: string; finishedAt: Date | null; bonification: any }>,
+  ): WindowStatsResult {
+    const businessDays = listBrazilianBusinessDaysInRange(
+      eligibility.periodStart,
+      eligibility.periodEnd,
+    );
+
+    // Numerador e denominador têm que medir o MESMO período. Se estes dois
+    // discordarem, o headcount diário é de um calendário e o peso de cada
+    // pessoa é de outro — e a conservação quebra sem nenhum sintoma visível.
+    if (businessDays.length !== eligibility.periodBusinessDays) {
+      this.logger.error(
+        `[crédito] dias úteis divergentes para ${eligibility.month}/${eligibility.year}: ` +
+          `a enumeração deu ${businessDays.length} e a elegibilidade diz ` +
+          `${eligibility.periodBusinessDays}.`,
+      );
+    }
+
+    return this.bonusWindowStatsService.compute({
+      businessDays,
+      tasks: allTasks,
+      // MESMO conjunto que forma o divisor do período (`performanceLevel > 0`).
+      // Incluir aqui quem o divisor exclui inflaria o headcount diário e
+      // encolheria a média de todo mundo.
+      people: eligibility.entries
+        .filter(e => e.performanceLevel > 0)
+        .map(e => ({
+          userId: e.userId,
+          intervals: e.eligibleIntervals,
+          eligibleDays: e.eligibleDays,
+        })),
+    });
+  }
+
   async findById(id: string, include?: any, userId?: string): Promise<any> {
     try {
       const defaultInclude = include || {
@@ -710,8 +788,24 @@ export class BonusService {
       ...(Array.isArray(savedBonus.bonusExtras) ? { bonusExtras: extras } : {}),
       ...(Array.isArray(savedBonus.bonusDiscounts) ? { bonusDiscounts: discounts } : {}),
       weightedTasks: live.weightedTasks,
+      // `live.averageTasksPerEmployee` já é o B1 DESTA pessoa (por construção,
+      // vem de `buildTaskCredit`). O agregado do período vai ao lado, porque a
+      // lista precisa dele para o cabeçalho e não pode mais deduzi-lo de uma
+      // linha qualquer.
       averageTaskPerUser: live.averageTasksPerEmployee,
+      // A PROJEÇÃO CANÔNICA dos números por pessoa. Os quatro pontos que
+      // montam payload de bônus (overlay, lista com linha salva, lista sem
+      // linha salva, detalhe) emitem EXATAMENTE este conjunto — quando eles
+      // divergiam, a mesma página devolvia duas formas de linha e a UI enchia
+      // os buracos com o número do período.
+      windowWeightedTasks: live.windowWeightedTasks,
+      windowRawTasks: live.windowRawTasks,
+      windowDivisor: live.windowDivisor,
+      windowTaskCount: live.windowTaskCount,
+      windowBusinessDays: live.windowBusinessDays,
+      periodAverageTasks: live.periodAverageTasksPerEmployee,
       periodDivisor: live.periodDivisor,
+      effectedAt: live.effectedAt ?? null,
       // A LISTA de tarefas acompanha a contagem ponderada — senão a tela de
       // detalhe mostra "Total de Tarefas 40" (a relação M2M congelada no último
       // save) ao lado de "Tarefas Ponderadas 43,00" (o número vivo), uma
@@ -1046,11 +1140,22 @@ export class BonusService {
       const periodAdjustment = await this.loadPeriodAdjustmentFraction(year, month);
       const calcConfig = { adjustment: periodAdjustment };
 
+      // B1 DESTA PESSOA — mesmo funil da lista e da folha (`buildTaskCredit`),
+      // para que o detalhe não possa mostrar um número que a lista não mostra.
+      const detailStats = this.buildWindowStats(detailEligibility, allTasks);
+      const dst = detailStats.byUserId.get(userId);
+      const detailB1Raw = dst?.b1Raw ?? 0;
+      const detailB1Weighted = dst?.b1Weighted ?? 0;
+      const detailWindowTaskIds = new Set(dst?.windowTaskIds ?? []);
+      const detailWindowTasks = dst
+        ? allTasks.filter((t: any) => detailWindowTaskIds.has(t.id))
+        : [];
+
       // BASE bonus (suspended = 1.0)
       const baseBonusValue = this.bonusCalculationService.calculateBonus({
         salary: userSalary,
         performanceLevel: periodPerformanceLevel,
-        averageTasksPerUser: rawAverageTasksPerUser,
+        averageTasksPerUser: detailB1Raw,
         salaryRange: calcContext.salaryRange,
         config: calcConfig,
       });
@@ -1059,7 +1164,7 @@ export class BonusService {
       const calculatedNetBonus = this.bonusCalculationService.calculateBonus({
         salary: userSalary,
         performanceLevel: periodPerformanceLevel,
-        averageTasksPerUser,
+        averageTasksPerUser: detailB1Weighted,
         salaryRange: calcContext.salaryRange,
         config: calcConfig,
       });
@@ -1271,7 +1376,16 @@ export class BonusService {
         baseBonus: baseBonusProrated,
         netBonus: finalNetBonus,
         weightedTasks: totalWeightedTasks,
-        averageTaskPerUser: averageTasksPerUser,
+        // B1 DESTA pessoa (não o do período) — é o que produziu o valor acima.
+        averageTaskPerUser: detailB1Weighted,
+        windowWeightedTasks: dst?.windowWeightedTasks ?? 0,
+        windowRawTasks: dst?.windowRawTasks ?? 0,
+        windowDivisor: dst?.windowDivisor ?? 0,
+        windowTaskCount: dst?.windowTaskCount ?? 0,
+        windowBusinessDays: dst?.windowBusinessDays ?? 0,
+        periodAverageTasks: averageTasksPerUser,
+        periodRawAverageTasks: rawAverageTasksPerUser,
+        effectedAt: userEligibility.effectedInPeriod ? userEligibility.eligibleFrom : null,
         eligibilityWeight: detailWeight,
         temporalWeight: userEligibility.temporalWeight,
         absenceFactor: userEligibility.absenceFactor,
@@ -1297,7 +1411,8 @@ export class BonusService {
           sector: user.sector,
         },
         position: user.position,
-        tasks: allTasks.map((task: any) => ({
+        // Só as tarefas da janela desta pessoa — ver `windowTaskCount`.
+        tasks: detailWindowTasks.map((task: any) => ({
           id: task.id,
           name: task.name,
           serialNumber: task.serialNumber ?? null,
@@ -2819,6 +2934,12 @@ export class BonusService {
       const averageTasksPerUser =
         totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
 
+      // OS TRÊS NÚMEROS DE CADA PESSOA, medidos na janela dela.
+      // O agregado do período (`averageTasksPerUser`) continua existindo, mas
+      // só como número da EQUIPE para exibição — ele não alimenta a curva de
+      // ninguém desde a v5.
+      const windowStats = this.buildWindowStats(eligibility, allTasks);
+
       const partialCount = eligibility.entries.filter(e => e.weight < 1).length;
       this.logger.log(
         `Period ${month}/${year}: RAW ${totalRawTaskCount} tasks (raw avg: ${rawAverageTasksPerUser.toFixed(2)}) | WEIGHTED ${totalWeightedTasks} tasks (weighted avg: ${averageTasksPerUser.toFixed(2)}) | ${totalSuspendedTasks} suspended tasks | divisor ${totalEligibleUsers.toFixed(4)} (${eligibility.entries.length} pessoas, ${partialCount} parciais, ${eligibility.periodBusinessDays} dias úteis)`,
@@ -2840,11 +2961,19 @@ export class BonusService {
         const positionName = user.position?.name || 'DEFAULT';
         const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, user);
 
+        // Quem tem performanceLevel 0 fica fora do divisor e da janela. NÃO
+        // recebe o número do período como consolo: mostrar "0 tarefas, média
+        // 3,92" é a incoerência que a v5 existe para eliminar. Zero em tudo.
+        const st = windowStats.byUserId.get(user.id);
+        const userB1Raw = st?.b1Raw ?? 0;
+        const userB1Weighted = st?.b1Weighted ?? 0;
+        const userWindowTaskIds = new Set(st?.windowTaskIds ?? []);
+
         // Calculate BASE bonus using RAW average (suspended = 1.0)
         const baseBonusValue = this.bonusCalculationService.calculateBonus({
           salary: userSalary,
           performanceLevel: user.performanceLevel,
-          averageTasksPerUser: rawAverageTasksPerUser,
+          averageTasksPerUser: userB1Raw,
           salaryRange: calcContext.salaryRange,
           config: calcConfig,
         });
@@ -2853,7 +2982,7 @@ export class BonusService {
         const calculatedNetBonus = this.bonusCalculationService.calculateBonus({
           salary: userSalary,
           performanceLevel: user.performanceLevel,
-          averageTasksPerUser,
+          averageTasksPerUser: userB1Weighted,
           salaryRange: calcContext.salaryRange,
           config: calcConfig,
         });
@@ -2865,12 +2994,20 @@ export class BonusService {
         // produce a discount of one or two cents.
         const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
 
-        // PRORRATEIO: quem foi elegível parte do período conta essa mesma fração
-        // no divisor e recebe essa mesma fração do valor. Contar 0,93 no
-        // denominador e pagar 1,0 desequilibraria o custo do programa.
-        const w = user.eligibility.weight;
-        const proratedBase = roundCurrency(baseBonusValue * w);
-        const proratedNet = roundCurrency(netBonusValue * w);
+        // O TEMPO NÃO É PRORRATEADO AQUI — ele já está dentro do numerador.
+        //
+        // Até a v4 o valor era `curva(B1 do período) × diasTrabalhados/diasÚteis`.
+        // Na v5 o B1 já é medido só nas tarefas da janela da pessoa: quem
+        // trabalhou 16 dos 22 dias viu menos tarefas serem concluídas, e essa
+        // redução está no numerador. Multiplicar de novo pelos dias aplicaria o
+        // tempo DUAS vezes — e a curva é convexa, então o erro seria brutal, não
+        // proporcional.
+        //
+        // `absenceFactor` continua: afastamento médico é o OUTRO eixo do peso e
+        // não pode sumir junto com o temporal.
+        const availability = user.eligibility.absenceFactor;
+        const proratedBase = roundCurrency(baseBonusValue * availability);
+        const proratedNet = roundCurrency(netBonusValue * availability);
 
         // Calculate discount from suspended tasks (always >= 0)
         const suspendedTasksDiscount = roundCurrency(Math.max(0, proratedBase - proratedNet));
@@ -2889,11 +3026,30 @@ export class BonusService {
           rawTaskCount: totalRawTaskCount,
           suspendedTasksCount: totalSuspendedTasks,
           suspendedTasksDiscount,
-          tasks: allTasks,
-          averageTasksPerEmployee: averageTasksPerUser,
-          rawAverageTasksPerEmployee: rawAverageTasksPerUser,
+          // A LISTA acompanha a janela desta pessoa. Quem saiu no dia 17 não
+          // pode ter, na própria linha, uma tarefa fechada no dia 24.
+          tasks: st ? allTasks.filter(t => userWindowTaskIds.has(t.id)) : [],
+          // OS TRÊS NÚMEROS. `windowWeightedTasks ÷ windowDivisor = averageTasksPerEmployee`,
+          // exato, em qualquer linha. Nenhum deles cai para o número do período
+          // quando falta: ausente é 0, senão a mesma célula exibiria ora janela
+          // ora período sem marcação nenhuma.
+          averageTasksPerEmployee: userB1Weighted,
+          rawAverageTasksPerEmployee: userB1Raw,
+          windowWeightedTasks: st?.windowWeightedTasks ?? 0,
+          windowRawTasks: st?.windowRawTasks ?? 0,
+          windowDivisor: st?.windowDivisor ?? 0,
+          windowTaskCount: st?.windowTaskCount ?? 0,
+          windowBusinessDays: st?.windowBusinessDays ?? 0,
+          windowTaskIds: st?.windowTaskIds ?? [],
+          // Números da EQUIPE, sempre rotulados como tal na UI.
+          periodAverageTasksPerEmployee: averageTasksPerUser,
+          periodRawAverageTasksPerEmployee: rawAverageTasksPerUser,
           isLive: true as const,
-          eligibilityWeight: w,
+          // Continua exposto para a UI mostrar "16 de 22 dias úteis" e para a
+          // auditoria, mas desde a v5 NÃO multiplica mais o valor — o eixo
+          // temporal mora no numerador de `windowWeightedTasks`. O que
+          // multiplica é `absenceFactor`, isolado.
+          eligibilityWeight: user.eligibility.weight,
           temporalWeight: user.eligibility.temporalWeight,
           absenceFactor: user.eligibility.absenceFactor,
           absentDays: user.eligibility.absentDays,
@@ -2904,6 +3060,12 @@ export class BonusService {
           periodDivisor: eligibility.divisor,
           terminatedAt: user.eligibility.terminatedInPeriod
             ? user.eligibility.terminationDate
+            : null,
+          // Data em que a elegibilidade COMEÇOU dentro do período (efetivação).
+          // Espelha `terminatedAt`: sem ela a tela mostrava peso 0,77 para o
+          // José e 0,32 para o Paulo Henrique sem dizer por quê.
+          effectedAt: user.eligibility.effectedInPeriod
+            ? user.eligibility.eligibleFrom
             : null,
           currentlyEmployed: user.eligibility.currentlyEmployed,
           hasSecullumId: user.eligibility.hasSecullumId,
@@ -3377,7 +3539,14 @@ export class BonusService {
               ? {
                   weightedTasks: liveBonus.weightedTasks,
                   averageTaskPerUser: liveBonus.averageTasksPerEmployee,
+                  windowWeightedTasks: liveBonus.windowWeightedTasks,
+                  windowRawTasks: liveBonus.windowRawTasks,
+                  windowDivisor: liveBonus.windowDivisor,
+                  windowTaskCount: liveBonus.windowTaskCount,
+                  windowBusinessDays: liveBonus.windowBusinessDays,
+                  periodAverageTasks: liveBonus.periodAverageTasksPerEmployee,
                   periodDivisor: liveBonus.periodDivisor,
+                  effectedAt: liveBonus.effectedAt ?? null,
                   // A LISTA de tarefas vem junto com a contagem ponderada, pelo
                   // mesmo motivo que o divisor vem junto com o valor.
                   //
@@ -3504,7 +3673,16 @@ export class BonusService {
             baseBonus: liveBonus.baseBonus,
             netBonus: liveBonus.netBonus ?? 0,
             weightedTasks: liveData.totalWeightedTasks,
-            averageTaskPerUser: liveData.averageTasksPerEmployee,
+            // `liveBonus` é a LINHA DESTA PESSOA — o B1 dela. O agregado do
+            // período vai ao lado para o cabeçalho da lista.
+            averageTaskPerUser: liveBonus.averageTasksPerEmployee,
+            windowWeightedTasks: liveBonus.windowWeightedTasks,
+            windowRawTasks: liveBonus.windowRawTasks,
+            windowDivisor: liveBonus.windowDivisor,
+            windowTaskCount: liveBonus.windowTaskCount,
+            windowBusinessDays: liveBonus.windowBusinessDays,
+            periodAverageTasks: liveBonus.periodAverageTasksPerEmployee,
+            effectedAt: liveBonus.effectedAt ?? null,
             payrollId: null,
 
             // Proporcionalidade temporal — a UI usa para o "%" e o badge
@@ -3557,7 +3735,20 @@ export class BonusService {
             baseBonus: 0,
             netBonus: 0,
             weightedTasks: liveData.totalWeightedTasks,
-            averageTaskPerUser: liveData.averageTasksPerEmployee,
+            // performanceLevel 0: fora do divisor e da janela. ZERO em tudo que
+            // é dela — mostrar "0 tarefas, média 3,92" numa linha de R$ 0,00 é
+            // exatamente a incoerência que a v5 elimina. E a linha emite os
+            // MESMOS campos das outras: quando ela omitia os `window*`, a UI
+            // recebia `undefined` só para essas pessoas e caía em todos os
+            // fallbacks que este trabalho acabou de remover.
+            averageTaskPerUser: 0,
+            windowWeightedTasks: 0,
+            windowRawTasks: 0,
+            windowDivisor: 0,
+            windowTaskCount: 0,
+            windowBusinessDays: 0,
+            effectedAt: null,
+            periodAverageTasks: liveData.averageTasksPerEmployee,
             payrollId: null,
 
             // Mesmos campos de proporcionalidade, para a UI não precisar tratar
@@ -3908,9 +4099,11 @@ export class BonusService {
         .filter(b => b.performanceLevel > 0)
         .map(b => b.userId);
 
-      // Period-level values (same for all users)
+      // Valores do PERÍODO (iguais para todo mundo). O B1 não está mais aqui:
+      // ele é por pessoa e sai de `eligibleBonus`, abaixo.
       const totalWeightedTasks = liveData.totalWeightedTasks;
-      const averageTasksPerUser = liveData.averageTasksPerEmployee;
+      const periodAverageTasksPerUser = liveData.averageTasksPerEmployee;
+      const periodRawAverageTasksPerUser = liveData.rawAverageTasksPerEmployee;
 
       // Load salary context once for the whole period — used to snapshot
       // the per-user salary + algorithm params on each saved Bonus row.
@@ -3964,15 +4157,51 @@ export class BonusService {
             // sempre que houvesse tarefa suspensa — exatamente o que o snapshot
             // existe para permitir. A ponderada vai junto, porque é ela que
             // explica o `netBonus`.
+            // O B1 do snapshot é o DESTA PESSOA — medido na janela dela. Guardar
+            // aqui o número do período faria `calculationParams` deixar de
+            // reproduzir o `baseBonus` gravado ao lado para todo mundo que
+            // entrou ou saiu no meio do período, que é justamente quem mais
+            // precisa de auditoria (rescisão é paga em dias).
+            // Sem fallback para o período: quem está fora do rateio grava 0.
+            // Gravar 3,92 numa linha de 0 tarefas e R$ 0,00 é a incoerência que
+            // a v5 existe para eliminar, e ela chegava à tela por aqui.
+            const rowRawB1 = isEligible ? eligibleBonus.rawAverageTasksPerEmployee : 0;
+            const rowWeightedB1 = isEligible ? eligibleBonus.averageTasksPerEmployee : 0;
+
+            // A relação `_BonusTasks` desta linha é a JANELA desta pessoa, não o
+            // período. Ligar as 52 do ciclo na linha de quem trabalhou 16 dos 22
+            // dias faz a tela de detalhe listar tarefa fechada depois de ela
+            // sair — e a contagem exibida (`tasks.length`) deixa de casar com a
+            // ponderada que a acompanha. `allTaskIds` continua sendo o universo
+            // validado do período; aqui só recortamos.
+            const windowIdSet = isEligible ? new Set(eligibleBonus.windowTaskIds) : null;
+            const rowTaskIds = windowIdSet
+              ? allTaskIds.filter(tid => windowIdSet.has(tid))
+              : allTaskIds;
+
             const paramsSnapshot = {
               ...this.bonusCalculationService.buildParamsSnapshot({
                 salary: userSalary,
                 salaryRange: calcContext.salaryRange,
-                averageTasksPerUser: liveData.rawAverageTasksPerEmployee,
+                averageTasksPerUser: rowRawB1,
                 config: { adjustment: periodAdjustment },
               }),
               /** B1 ponderado (suspensa = 0,0) — o que gera o líquido. */
-              weightedAverageTasksPerUser: averageTasksPerUser,
+              weightedAverageTasksPerUser: rowWeightedB1,
+              /** O agregado do período, para conferir a distância desta pessoa. */
+              periodAverageTasksPerUser,
+              periodRawAverageTasksPerUser,
+              /**
+               * Os três números que produziram o valor ao lado, para que a linha
+               * seja reproduzível sem reconsultar tarefa nem contrato:
+               *   windowWeightedTasks ÷ windowDivisor == weightedAverageTasksPerUser
+               */
+              windowWeightedTasks: isEligible ? eligibleBonus.windowWeightedTasks : 0,
+              windowRawTasks: isEligible ? eligibleBonus.windowRawTasks : 0,
+              windowDivisor: isEligible ? eligibleBonus.windowDivisor : 0,
+              windowBusinessDays: isEligible ? eligibleBonus.windowBusinessDays : 0,
+              /** Multiplicador aplicado à curva — SÓ afastamento desde a v5. */
+              availabilityFactor: isEligible ? eligibleBonus.absenceFactor : 1,
             };
 
             // All users share the same period-level data
@@ -3983,8 +4212,18 @@ export class BonusService {
               performanceLevel: isEligible ? eligibleBonus.performanceLevel : 0,
               baseBonus,
               netBonus, // Net bonus after suspended tasks discount
+              // TOTAL DO PERÍODO — mantido como sempre foi. Os números DESTA
+              // pessoa são os `window*` abaixo, e a relação `tasks` segue a
+              // janela dela.
               weightedTasks: totalWeightedTasks,
-              averageTaskPerUser: averageTasksPerUser,
+              periodAverageTasks: periodAverageTasksPerUser,
+              // OS TRÊS NÚMEROS. Sem fallback para o período: quem está fora do
+              // rateio grava 0, não o número da equipe.
+              windowWeightedTasks: isEligible ? eligibleBonus.windowWeightedTasks : 0,
+              windowDivisor: isEligible ? eligibleBonus.windowDivisor : 0,
+              windowTaskCount: isEligible ? eligibleBonus.windowTaskCount : 0,
+              averageTaskPerUser: rowWeightedB1,
+              effectedAt: isEligible ? (eligibleBonus.effectedAt ?? null) : null,
               salaryUsed: userSalary,
               calculationVersion: paramsSnapshot.version,
               // Plain JSON-serializable snapshot; cast for Prisma's InputJsonValue.
@@ -4015,7 +4254,7 @@ export class BonusService {
                 data: {
                   ...bonusPayload,
                   // Connect ALL period tasks and ALL eligible users (same for all bonuses)
-                  tasks: { set: allTaskIds.map(tid => ({ id: tid })) },
+                  tasks: { set: rowTaskIds.map(tid => ({ id: tid })) },
                   users: { set: allBonusUserIds.map(uid => ({ id: uid })) },
                 },
               });
@@ -4043,7 +4282,7 @@ export class BonusService {
                 data: {
                   ...bonusPayload,
                   // Connect ALL period tasks and ALL eligible users (same for all bonuses)
-                  tasks: { connect: allTaskIds.map(tid => ({ id: tid })) },
+                  tasks: { connect: rowTaskIds.map(tid => ({ id: tid })) },
                   users: { connect: allBonusUserIds.map(uid => ({ id: uid })) },
                 },
               });

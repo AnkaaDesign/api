@@ -46,7 +46,9 @@ export interface Notification extends BaseEntity {
   actionUrl: string | null;
   scheduledAt: Date | null;
   sentAt: Date | null;
-  metadata?: any; // JSON metadata for additional notification data
+  metadata?: any; // JSON metadata for additional notification data (carries webUrl/mobileUrl)
+  relatedEntityType?: string | null;
+  relatedEntityId?: string | null;
 
   // Relations
   user?: User;

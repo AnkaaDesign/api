@@ -114,14 +114,6 @@ export abstract class BonusRepository extends BaseStringRepository<
     tx?: PrismaTransaction,
   ): Promise<Bonus | null>;
 
-  abstract findOrGenerateLive(
-    userId: string,
-    year: number,
-    month: number,
-    include?: BonusInclude,
-    tx?: PrismaTransaction,
-  ): Promise<Bonus>;
-
   abstract findByPeriod(
     year: string,
     month: string,

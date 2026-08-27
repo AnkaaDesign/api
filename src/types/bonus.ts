@@ -31,7 +31,21 @@ export interface Bonus extends BaseEntity {
   baseBonus: number | { toNumber: () => number }; // Decimal from Prisma - Gross bonus before discounts
   netBonus: number | { toNumber: () => number }; // Decimal from Prisma - Net bonus after discounts
   weightedTasks: number | { toNumber: () => number }; // Decimal from Prisma - Total weighted tasks in period
-  averageTaskPerUser: number | { toNumber: () => number }; // Decimal from Prisma - Average tasks per eligible user
+  /**
+   * B1 DESTA pessoa — média de tarefas por pessoa medida nos dias em que ELA
+   * esteve. A partir da v4 NÃO é mais igual em todas as linhas do mês; para o
+   * número da equipe use `periodAverageTasks`.
+   */
+  averageTaskPerUser: number | { toNumber: () => number };
+  /** B1 agregado do período — igual em todas as linhas do mês. É o da EQUIPE. */
+  periodAverageTasks?: number | { toNumber: () => number } | null;
+  /**
+   * Os dois números que produzem `averageTaskPerUser`:
+   *   `windowWeightedTasks ÷ windowDivisor == averageTaskPerUser`, exato.
+   */
+  windowWeightedTasks?: number | { toNumber: () => number } | null;
+  windowDivisor?: number | { toNumber: () => number } | null;
+  windowTaskCount?: number | null;
 
   // Audit-trail fields for the salary-based logistic algorithm.
   // Populated when the bonus is saved; null on legacy rows from before the rewrite.

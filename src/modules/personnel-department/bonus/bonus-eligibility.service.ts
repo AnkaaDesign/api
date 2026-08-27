@@ -97,9 +97,27 @@ export interface EligibilityEntry {
   /** Primeiro e último dia elegível dentro do período (null quando weight = 0). */
   eligibleFrom: Date | null;
   eligibleUntil: Date | null;
+  /**
+   * Os intervalos elegíveis JÁ recortados ao período, na ordem.
+   *
+   * `eligibleFrom`/`eligibleUntil` são só os extremos e não bastam para o
+   * rateio pessoa-dia: uma pessoa com dois vínculos no mesmo período (saiu e
+   * voltou) tem um buraco no meio que os extremos escondem, e contá-la como
+   * presente no buraco inflaria o headcount daqueles dias — tirando crédito de
+   * quem realmente estava lá. Ver `BonusTaskCreditService`.
+   */
+  eligibleIntervals: Array<{ start: Date; end: Date }>;
   reason: EligibilityReason;
   /** `true` se o vínculo foi encerrado dentro do período. */
   terminatedInPeriod: boolean;
+  /**
+   * `true` se a elegibilidade COMEÇOU dentro do período — efetivação (fim do
+   * período de experiência) ou admissão já efetivada depois do dia 26.
+   *
+   * Espelha `terminatedInPeriod`. A UI mostrava só o desligamento, então quem
+   * entrou no meio aparecia com peso parcial e nenhuma explicação na tela.
+   */
+  effectedInPeriod: boolean;
   /** Data de desligamento, quando houver — para exibição na UI. */
   terminationDate: Date | null;
   /** `true` se a pessoa NÃO está mais ativa hoje (badge "Desligado" na UI). */
@@ -327,6 +345,7 @@ export class BonusEligibilityService {
       let eligibleDays = 0;
       let eligibleFrom: Date | null = null;
       let eligibleUntil: Date | null = null;
+      const eligibleIntervals: Array<{ start: Date; end: Date }> = [];
       let terminatedInPeriod = false;
       let effectedInPeriod = false;
       let terminationDate: Date | null = null;
@@ -341,6 +360,7 @@ export class BonusEligibilityService {
         if (days <= 0) continue;
 
         eligibleDays += days;
+        eligibleIntervals.push({ start: from, end: until });
         if (!eligibleFrom || from < eligibleFrom) eligibleFrom = from;
         if (!eligibleUntil || until > eligibleUntil) eligibleUntil = until;
 
@@ -382,8 +402,10 @@ export class BonusEligibilityService {
         absenceRanges: [],
         eligibleFrom,
         eligibleUntil,
+        eligibleIntervals,
         reason,
         terminatedInPeriod,
+        effectedInPeriod,
         terminationDate,
         currentlyEmployed: user.currentContractStatus === CONTRACT_STATUS.ACTIVE,
         hasSecullumId: user.secullumEmployeeId != null,
