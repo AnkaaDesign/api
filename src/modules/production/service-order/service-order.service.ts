@@ -52,7 +52,10 @@ import {
   areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
-import { TASK_QUOTE_STATUS_ORDER } from '../../../constants/sortOrders';
+import {
+  SERVICE_ORDER_STATUS_ORDER,
+  TASK_QUOTE_STATUS_ORDER,
+} from '../../../constants/sortOrders';
 import {
   getServiceOrderToQuoteSync,
   makeDescObsKey,
@@ -82,6 +85,135 @@ export class ServiceOrderService {
     // Let the Em Negociação sync util (plain function, no DI) emit
     // service_order.status.changed for its automatic transitions.
     registerEmNegociacaoEventEmitter(this.eventEmitter);
+  }
+
+  /**
+   * Desfaz a cascata disparada pelo cancelamento da ÚLTIMA ordem de serviço
+   * COMMERCIAL de uma tarefa.
+   *
+   * O cancelamento em cascata derruba, além da tarefa, o orçamento e TODAS as
+   * demais ordens de serviço. O caminho de volta ("Restaurar" a OS comercial)
+   * só devolvia o status da TAREFA — orçamento e OSs continuavam CANCELLED, e
+   * não havia botão capaz de trazê-los de volta. Um clique errado num combobox
+   * sem confirmação virava, na prática, uma tarefa destruída (caso Fricarne,
+   * 28/08/2026).
+   *
+   * A cascata não é gravada em lote em lugar nenhum, mas cada linha dela vai ao
+   * ChangeLog com `triggeredById` = id da OS comercial e `triggeredBy` =
+   * SYSTEM_GENERATED, tudo dentro da mesma transação. É esse par, recortado pela
+   * janela de tempo da entrada da TAREFA, que identifica o lote — e funciona
+   * também para cascatas antigas, anteriores a este código.
+   */
+  private async restoreCascadeFromCommercialCancel(
+    tx: PrismaTransaction,
+    taskId: string,
+    commercialServiceOrderId: string,
+    userId: string | null,
+  ): Promise<void> {
+    // Entrada da TAREFA gerada pela cascata: âncora temporal do lote.
+    const taskCascadeEntry = await tx.changeLog.findFirst({
+      where: {
+        entityType: ENTITY_TYPE.TASK,
+        entityId: taskId,
+        field: 'status',
+        triggeredById: commercialServiceOrderId,
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
+    if (!taskCascadeEntry) return;
+
+    // A cascata inteira roda numa transação; segundos de folga cobrem o relógio.
+    const from = new Date(taskCascadeEntry.createdAt.getTime() - 5000);
+    const to = new Date(taskCascadeEntry.createdAt.getTime() + 5000);
+
+    const cascadeEntries = await tx.changeLog.findMany({
+      where: {
+        entityType: { in: [ENTITY_TYPE.SERVICE_ORDER, ENTITY_TYPE.TASK_QUOTE] },
+        field: 'status',
+        triggeredById: commercialServiceOrderId,
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+        createdAt: { gte: from, lte: to },
+        // A própria OS comercial é reativada pelo update do usuário.
+        NOT: { entityId: commercialServiceOrderId },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { entityType: true, entityId: true, oldValue: true },
+    });
+
+    for (const entry of cascadeEntries) {
+      const previousStatus =
+        typeof entry.oldValue === 'string' ? entry.oldValue : String(entry.oldValue ?? '');
+      if (!previousStatus) continue;
+
+      if (entry.entityType === ENTITY_TYPE.SERVICE_ORDER) {
+        const statusOrder = SERVICE_ORDER_STATUS_ORDER[previousStatus];
+        if (statusOrder === undefined) continue;
+
+        // Só volta o que a cascata derrubou: quem já foi mexido depois, fica.
+        const current = await tx.serviceOrder.findUnique({
+          where: { id: entry.entityId },
+          select: { id: true, status: true, type: true },
+        });
+        if (!current || current.status !== SERVICE_ORDER_STATUS.CANCELLED) continue;
+
+        await tx.serviceOrder.update({
+          where: { id: current.id },
+          data: { status: previousStatus as SERVICE_ORDER_STATUS, statusOrder },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.SERVICE_ORDER,
+          entityId: current.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: SERVICE_ORDER_STATUS.CANCELLED,
+          newValue: previousStatus,
+          reason: `Ordem de serviço ${current.type} restaurada automaticamente pois a ordem de serviço comercial foi reativada`,
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: commercialServiceOrderId,
+          userId: userId || '',
+          transaction: tx,
+        });
+      } else {
+        const statusOrder = TASK_QUOTE_STATUS_ORDER[previousStatus as TASK_QUOTE_STATUS];
+        if (statusOrder === undefined) continue;
+
+        const current = await tx.taskQuote.findUnique({
+          where: { id: entry.entityId },
+          select: { id: true, status: true },
+        });
+        if (!current || current.status !== TASK_QUOTE_STATUS.CANCELLED) continue;
+
+        await tx.taskQuote.update({
+          where: { id: current.id },
+          data: { status: previousStatus as TASK_QUOTE_STATUS, statusOrder },
+        });
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_QUOTE,
+          entityId: current.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: TASK_QUOTE_STATUS.CANCELLED,
+          newValue: previousStatus,
+          reason:
+            'Orçamento restaurado automaticamente pois a ordem de serviço comercial foi reativada',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: commercialServiceOrderId,
+          userId: userId || '',
+          transaction: tx,
+        });
+      }
+    }
+
+    if (cascadeEntries.length > 0) {
+      this.logger.log(
+        `[COMMERCIAL ROLLBACK] Restored ${cascadeEntries.length} cascade-cancelled records for task ${taskId}`,
+      );
+    }
   }
 
   /**
@@ -1018,6 +1150,10 @@ export class ServiceOrderService {
 
           // Only rollback if task is currently CANCELLED
           if (task && task.status === TASK_STATUS.CANCELLED) {
+            // Desfaz o RESTO da cascata (orçamento + demais OSs) antes de
+            // recalcular: o status correto da tarefa depende das OSs restauradas.
+            await this.restoreCascadeFromCommercialCancel(tx, task.id, id, userId || null);
+
             // Get all service orders for this task to calculate correct status
             const allServiceOrders = await tx.serviceOrder.findMany({
               where: { taskId: updated.taskId },
@@ -1543,7 +1679,7 @@ export class ServiceOrderService {
           });
 
           this.logger.log(
-            `[AUTO-COMPLETE TASK] Emitted task.status.changed event for task ${taskAutoCompleted.taskId} (${taskAutoCompleted.oldStatus} → COMPLETED)`,
+            `[AUTO-COMPLETE TASK] Emitted task.status.changed event for task ${taskAutoCompleted.taskId} (${taskAutoCompleted.oldStatus} → ${taskAutoCompleted.newStatus})`,
           );
         }
       }
