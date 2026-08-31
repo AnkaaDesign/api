@@ -32,9 +32,16 @@
  *    partir do selo: o `original.pdf` congelado nunca a teve. O manifesto é
  *    calculado e volta na resposta HTTP, mas não vira página.
  *
- * 5. **Ordem: orçamento, dossiê fotográfico, notas, boletos.** É a ordem da
- *    conversa com o cliente — o que foi combinado, o que foi feito, o que se
- *    cobra e como pagar.
+ * 5. **Ordem: orçamento, dossiê fotográfico, boletos, notas.** É a ordem da
+ *    conversa com o cliente — o que foi combinado, o que foi feito, como pagar e,
+ *    por último, o documento fiscal que fica para a contabilidade dele.
+ *
+ *    O boleto vem ANTES da nota porque é a única página do dossiê sobre a qual o
+ *    cliente precisa AGIR, e num PDF longo o que se procura primeiro tem de estar
+ *    mais perto do começo. A nota é comprovação, não instrução. É também a ordem
+ *    que a página pública do dossiê (`/cliente/dossie/:id`) sempre teve — o PDF é
+ *    que divergia dela, e o cliente que lia a página e depois baixava o PDF
+ *    encontrava outra sequência.
  *
  * 6. **Sem envelope concluído, o dossiê existe assim mesmo.** O orçamento é
  *    renderizado sob demanda, com as linhas de assinatura em branco, e o
@@ -251,30 +258,7 @@ export class DossierAssemblerService {
       bodies.push({ bytes: fotos, component });
     }
 
-    // ---- 3. Notas fiscais ----
-    for (const nfse of await this.listNfse(quote.task?.id, customerId)) {
-      const component: DossierComponent = {
-        kind: 'NFSE',
-        label: `NFS-e nº ${nfse.nfseNumber ?? nfse.elotechNfseId}`,
-        sha256: null,
-        pages: 0,
-        included: false,
-      };
-      components.push(component);
-      try {
-        const bytes = await this.elotech.getNfsePdf(nfse.elotechNfseId!);
-        component.sha256 = sha256(bytes);
-        component.included = true;
-        bodies.push({ bytes, component });
-      } catch (error) {
-        // A NFS-e vive na Elotech, não em disco: uma indisponibilidade do
-        // provedor não pode impedir o envio do dossiê, mas tem de aparecer.
-        component.note = `não foi possível obter o PDF junto à prefeitura (${msg(error)})`;
-        this.logger.warn(`NFS-e ${nfse.elotechNfseId} fora do dossiê: ${msg(error)}`);
-      }
-    }
-
-    // ---- 4. Boletos ----
+    // ---- 3. Boletos ----
     for (const slip of await this.listBankSlips(quote.task?.id, customerId)) {
       const n = slip.installment?.number;
       const component: DossierComponent = {
@@ -299,6 +283,29 @@ export class DossierAssemblerService {
       } catch (error) {
         component.note = `PDF indisponível (${msg(error)})`;
         this.logger.warn(`Boleto ${slip.id} fora do dossiê: ${msg(error)}`);
+      }
+    }
+
+    // ---- 4. Notas fiscais ----
+    for (const nfse of await this.listNfse(quote.task?.id, customerId)) {
+      const component: DossierComponent = {
+        kind: 'NFSE',
+        label: `NFS-e nº ${nfse.nfseNumber ?? nfse.elotechNfseId}`,
+        sha256: null,
+        pages: 0,
+        included: false,
+      };
+      components.push(component);
+      try {
+        const bytes = await this.elotech.getNfsePdf(nfse.elotechNfseId!);
+        component.sha256 = sha256(bytes);
+        component.included = true;
+        bodies.push({ bytes, component });
+      } catch (error) {
+        // A NFS-e vive na Elotech, não em disco: uma indisponibilidade do
+        // provedor não pode impedir o envio do dossiê, mas tem de aparecer.
+        component.note = `não foi possível obter o PDF junto à prefeitura (${msg(error)})`;
+        this.logger.warn(`NFS-e ${nfse.elotechNfseId} fora do dossiê: ${msg(error)}`);
       }
     }
 

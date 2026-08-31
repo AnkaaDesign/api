@@ -76,7 +76,13 @@ const JS_SIGNATURES_OVERFLOW = `(() => {
   return el ? el.scrollHeight > el.clientHeight + 1 : false;
 })()`;
 
-/** Reduz o que é sacrificável na página de assinaturas: imagem do layout e altura do selo. */
+/**
+ * Reduz o que é sacrificável: altura da imagem de layout e do selo. Serve às DUAS
+ * folhas — a de assinaturas (onde transbordar clipa um signatário) e a fundida
+ * (onde é o que decide se as assinaturas ficam na primeira página).
+ *
+ * Devolve `false` quando as duas já estão no piso, para o chamador parar de girar.
+ */
 const JS_SHRINK_SIGNATURES = `(() => {
   const root = document.documentElement;
   const read = (name, fallback) => {
@@ -84,8 +90,13 @@ const JS_SHRINK_SIGNATURES = `(() => {
     const n = parseFloat(raw);
     return isFinite(n) ? n : fallback;
   };
-  root.style.setProperty('--layout-max-h', Math.max(read('--layout-max-h', 105) - 10, 30) + 'mm');
-  root.style.setProperty('--seal-height', Math.max(read('--seal-height', 26) - 1.5, 17) + 'mm');
+  const layout = read('--layout-max-h', 105);
+  const seal = read('--seal-height', 26);
+  const nextLayout = Math.max(layout - 10, 30);
+  const nextSeal = Math.max(seal - 1.5, 17);
+  root.style.setProperty('--layout-max-h', nextLayout + 'mm');
+  root.style.setProperty('--seal-height', nextSeal + 'mm');
+  return Math.abs(nextLayout - layout) > 1e-6 || Math.abs(nextSeal - seal) > 1e-6;
 })()`;
 
 /** Altura do conteúdo do orçamento vs. uma folha útil (270mm), em px. */
@@ -177,6 +188,7 @@ export class QuoteRendererService {
       content: buildQuoteHtml(htmlInput, 'content'),
       signatures: buildQuoteHtml(htmlInput, 'signatures'),
     };
+    const hasLayout = htmlInput.layoutImages.length > 0;
 
     // Lançamento por render. Renders são raros (um por envelope + um por
     // montagem final) e uma instância de longa duração acumula estado e morre em
@@ -192,9 +204,23 @@ export class QuoteRendererService {
       // folha, contínuo ≡ paginado, então `anchor.y` é exato e `page = 0`.
       // A asserção de `getPageCount() === 1` transforma essa premissa em fato
       // verificado — se falhar, cai no caminho de duas partes, que é sempre correto.
-      const fusedAttempt = await this.tryFusedRender(browser, html.fused);
-      if (fusedAttempt) {
-        return fusedAttempt;
+      // ---- Tentativa FUNDIDA: assinaturas na mesma folha do orçamento ----
+      //
+      // Só quando NÃO há imagem de layout. Com layout, a arte e as assinaturas
+      // dividem a última folha — que é o arranjo desejado: a arte é o que o
+      // cliente está aprovando e fica à vista de quem assina, no tamanho em que
+      // dá para conferi-la. Espremê-la para caber junto do contrato (o piso é
+      // 30mm, tamanho de selo postal) trocaria a folha a mais por uma miniatura.
+      //
+      // Sem layout não existe esse dilema: cabendo, tudo vai para uma folha só, e
+      // é o que o `compactContent(page, true)` de `tryFusedRender` persegue —
+      // antes ele mirava o número de folhas da altura NATURAL e chegava a CRESCER
+      // a tipografia para preencher duas.
+      if (!hasLayout) {
+        const fusedAttempt = await this.tryFusedRender(browser, html.fused);
+        if (fusedAttempt) {
+          return fusedAttempt;
+        }
       }
 
       // ---- Parte 1: conteúdo do orçamento (1..N folhas) ----
@@ -260,7 +286,28 @@ export class QuoteRendererService {
       await page.setContent(fusedHtml, { waitUntil: 'load' });
       await page.emulateMedia({ media: 'print' });
       await page.evaluate(JS_FONTS_READY);
-      await this.compactContent(page);
+
+      // INSISTIR ANTES DE DESISTIR.
+      //
+      // A compactação sozinha não bastava, e por um motivo que só apareceu quando
+      // foi medido: ela decidia o alvo pelo número de folhas da altura NATURAL e,
+      // mirando duas, CRESCIA a tipografia para preencher as duas (medido:
+      // `--service-size` no teto de 11,5pt num documento que se queria em uma
+      // folha). `compactContent(page, true)` mira uma folha; e o que sobra de
+      // sacrificável — a altura do selo — cede pelos mesmos passos e pisos da
+      // folha de assinaturas do caminho de 2 partes.
+      //
+      // O teste de caber É o portão, não uma regra sobre quantidade de
+      // signatários: com 2 (1 Ankaa + 1 cliente, o caso normal) o bloco é uma
+      // linha só e fecha até com 10 serviços; com mais gente ou orçamento longo
+      // não fecha e o documento pagina, que é o comportamento correto.
+      let fuseIterations = 0;
+      for (let i = 0; i < MAX_FIT_ITERATIONS; i++) {
+        await this.compactContent(page, true);
+        if ((await this.sheetsUsed(page)) <= 1) break;
+        if (!(await page.evaluate(JS_SHRINK_SIGNATURES))) break;
+        fuseIterations = i + 1;
+      }
 
       const anchors = (await page.evaluate(JS_MEASURE_ANCHORS)) as SignatureAnchorMap;
       const pdf = Buffer.from(await page.pdf({ printBackground: true, preferCSSPageSize: true }));
@@ -273,8 +320,10 @@ export class QuoteRendererService {
       const resolved: SignatureAnchorMap = {};
       for (const [id, a] of Object.entries(anchors)) resolved[id] = { ...a, page: 0 };
 
-      this.logger.log('Orçamento e assinaturas couberam em uma folha (layout fundido).');
-      return { pdf, anchors: resolved, fitIterations: 0, overflowed: false, contentPages: 1 };
+      this.logger.log(
+        `Orçamento e assinaturas couberam em uma folha (layout fundido, ${fuseIterations} passo(s) de sacrifício).`,
+      );
+      return { pdf, anchors: resolved, fitIterations: fuseIterations, overflowed: false, contentPages: 1 };
     } catch (error) {
       this.logger.warn(
         `Layout fundido falhou, usando o de duas partes: ${
@@ -285,6 +334,22 @@ export class QuoteRendererService {
     } finally {
       await page.close().catch(() => undefined);
     }
+  }
+
+  /**
+   * Quantas folhas o documento ocupa AGORA, pela mesma conta de `compactContent`.
+   *
+   * Medir em vez de gerar o PDF a cada passo: `page.pdf()` é a operação cara do
+   * ciclo, e a altura do `#page-1` já responde a pergunta. A geração continua
+   * acontecendo uma única vez, e a asserção de `getPageCount() === 1` continua
+   * sendo a palavra final — a medição só decide se vale a pena tentar de novo.
+   */
+  private async sheetsUsed(page: import('playwright').Page): Promise<number> {
+    const { height, sheet } = (await page.evaluate(JS_CONTENT_PAGES)) as {
+      height: number;
+      sheet: number;
+    };
+    return Math.max(Math.ceil((height - 0.5) / sheet), 1);
   }
 
   private async launchBrowser(): Promise<Browser> {
@@ -320,7 +385,20 @@ export class QuoteRendererService {
    * mais curto e é *correto*, em vez de aproximado. E, ao contrário do original,
    * não caber deixou de ser catastrófico: o documento pagina.
    */
-  private async compactContent(page: import('playwright').Page): Promise<void> {
+  private async compactContent(
+    page: import('playwright').Page,
+    /**
+     * Mira UMA folha, custe o que custar em tipografia e vãos.
+     *
+     * Sem isto a compactação trabalha CONTRA a fusão: ela decide o alvo pelo
+     * número de folhas da altura natural e, mirando 2, **cresce** a tipografia
+     * para preencher as duas (medido: `--service-size` no teto de 11,5pt num
+     * documento que se queria em 1 folha). O chamador fundido é o único que sabe
+     * que 1 folha é o objetivo — o caminho de 2 partes continua livre para
+     * paginar, que é o comportamento certo lá.
+     */
+    forceSingleSheet = false,
+  ): Promise<void> {
     const measure = async () =>
       (await page.evaluate(JS_CONTENT_PAGES)) as { height: number; sheet: number };
 
@@ -332,8 +410,8 @@ export class QuoteRendererService {
     // mesmo cabendo em 1 depois de comprimir. Comprime até o piso, mede, e só
     // então decide o alvo — restaurando o estado padrão em seguida.
     const naturalSheets = sheetsFor(height);
-    let targetSheets = naturalSheets;
-    if (naturalSheets > 1) {
+    let targetSheets = forceSingleSheet ? 1 : naturalSheets;
+    if (!forceSingleSheet && naturalSheets > 1) {
       for (let i = 0; i < MAX_FIT_ITERATIONS * 3; i++) {
         if (!(await page.evaluate(JS_STEP_CONTENT(-1)))) break;
       }

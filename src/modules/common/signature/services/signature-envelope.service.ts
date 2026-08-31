@@ -3250,10 +3250,27 @@ export class SignatureEnvelopeService {
 
     const changes = (await this.changesSinceFrozen(quoteId, [env])).get(env.id) ?? [];
 
+    // Em que FOLHA do documento congelado está o bloco de assinaturas (0-based).
+    //
+    // A página pública precisa disto para se paginar como o PDF: quando o
+    // orçamento inteiro cabe numa folha, as assinaturas ficam na PRIMEIRA
+    // (`tryFusedRender`), e quando não cabe elas ganham folha própria. Sem o
+    // campo, a tela tinha de escolher um dos dois e errava no outro — e nenhuma
+    // regra local acerta, porque a paginação de um envelope já congelado é um
+    // FATO gravado nas âncoras, não algo que se recalcule a partir do orçamento
+    // de hoje (que pode ter mudado desde então).
+    const anchorPages = Object.values(
+      (env.anchors as Record<string, { page?: number }> | null) ?? {},
+    )
+      .map(a => (typeof a?.page === 'number' ? a.page : null))
+      .filter((p): p is number => p !== null);
+    const signaturesPage = anchorPages.length ? Math.min(...anchorPages) : null;
+
     return {
       hasEnvelope: true as const,
       status: env.status,
       version: env.version,
+      signaturesPage,
       verificationCode: env.verificationCode,
       deadlineAt: env.deadlineAt,
       completedAt: env.completedAt,
