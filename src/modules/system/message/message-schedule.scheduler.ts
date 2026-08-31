@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Cron, Timeout } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { MessageScheduleService } from './message-schedule.service';
@@ -50,6 +50,57 @@ export class MessageScheduleScheduler {
       return;
     }
     await this.runDueSchedules();
+  }
+
+  /**
+   * Uma vez por boot: reencaixa o `nextRun` que ficou gravado no dia errado.
+   *
+   * Enquanto `computeNextRun` reinterpretava em São Paulo um dia produzido no
+   * relógio do processo, cada agendamento gravou uma data um dia ANTES da regra
+   * — "toda segunda" com `nextRun` num domingo. A correção do cálculo sozinha
+   * não desfaz o que já está na coluna: o cron dispararia mais uma vez no dia
+   * errado e só então se acertaria, publicando duas vezes na mesma semana.
+   *
+   * Só mexe em agendamento ATIVO cuja data ainda está no FUTURO — reescrever uma
+   * data já vencida seria pular a ocorrência que o cron ainda deve publicar.
+   */
+  @Timeout(30_000)
+  async reconcileStoredNextRuns(): Promise<{ fixed: number }> {
+    if (process.env.NODE_ENV !== 'production' && process.env.MESSAGE_SCHEDULE_CRON_DEV !== '1') {
+      return { fixed: 0 };
+    }
+    if (process.env.MESSAGE_SCHEDULE_CRON_ENABLED === '0') {
+      return { fixed: 0 };
+    }
+
+    const now = new Date();
+    let fixed = 0;
+
+    try {
+      const schedules = await this.prisma.messageSchedule.findMany({
+        where: { isActive: true, finishedAt: null, nextRun: { gt: now } },
+        include: { weeklyConfig: true, monthlyConfig: true, yearlyConfig: true },
+      });
+
+      for (const schedule of schedules) {
+        const recomputed = this.service.computeNextRun(schedule as any, null, now);
+        if (!recomputed || recomputed.getTime() === schedule.nextRun?.getTime()) continue;
+
+        await this.prisma.messageSchedule.update({
+          where: { id: schedule.id },
+          data: { nextRun: recomputed },
+        });
+        fixed++;
+        this.logger.log(
+          `Agendamento "${schedule.name}" (${schedule.id}): próxima publicação corrigida ` +
+            `de ${schedule.nextRun?.toISOString()} para ${recomputed.toISOString()}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Falha ao reconciliar as próximas publicações: ${err}`);
+    }
+
+    return { fixed };
   }
 
   /** Exposto para o disparo manual do controller e para teste. */

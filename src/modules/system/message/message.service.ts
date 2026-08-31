@@ -522,6 +522,13 @@ export class MessageService {
               name: true,
             },
           },
+          // A regra que gerou esta mensagem, quando ela é ocorrência de um
+          // comunicado recorrente. É o que permite a tela de edição avisar que
+          // mexer aqui altera SÓ esta publicação — sem isso, alguém que estica a
+          // janela de exibição de uma ocorrência acredita ter mudado o
+          // agendamento, e semanas depois estranha que ele publica com a duração
+          // de antes.
+          schedule: { select: { id: true, name: true, displayDurationDays: true } },
         },
       });
 

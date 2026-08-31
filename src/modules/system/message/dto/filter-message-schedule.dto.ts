@@ -4,6 +4,13 @@ import { Type, Transform } from 'class-transformer';
 import { SCHEDULE_FREQUENCY } from '../../../../constants/enums';
 import { MESSAGE_TARGET_TYPE } from './create-message-schedule.dto';
 
+/** As três situações de um agendamento, como a interface as apresenta. */
+export enum MESSAGE_SCHEDULE_STATUS {
+  ACTIVE = 'active',
+  PAUSED = 'paused',
+  FINISHED = 'finished',
+}
+
 /** Filtros da listagem de agendamentos de mensagem. */
 export class FilterMessageScheduleDto {
   @ApiPropertyOptional({ description: 'Busca por nome ou título' })
@@ -18,6 +25,18 @@ export class FilterMessageScheduleDto {
   @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
   @IsBoolean()
   isActive?: boolean;
+
+  /**
+   * A situação como a interface a mostra, que NÃO é o `isActive` cru: um
+   * agendamento encerrado (fim da vigência, limite de publicações) também tem
+   * `isActive = false`, e amontoá-lo com os pausados esconde a diferença que
+   * importa — pausado volta com um clique, encerrado precisa da regra editada.
+   */
+  @ApiPropertyOptional({ enum: MESSAGE_SCHEDULE_STATUS, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(MESSAGE_SCHEDULE_STATUS, { each: true })
+  status?: MESSAGE_SCHEDULE_STATUS[];
 
   @ApiPropertyOptional({ enum: SCHEDULE_FREQUENCY, isArray: true })
   @IsOptional()

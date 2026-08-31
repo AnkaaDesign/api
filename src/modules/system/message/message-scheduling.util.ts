@@ -80,6 +80,75 @@ export function endOfDisplayDay(value: Date | string): Date {
   return saoPauloWallClock(saoPauloYMD(instant), 23, 59, 59, 999, instant);
 }
 
+// =====================================================================
+// Dia-calendário como VALOR, para atravessar o motor de recorrência
+// =====================================================================
+
+/**
+ * Um dia do calendário, sem fuso: `[ano, mês 1-12, dia]`.
+ *
+ * Existe porque o motor `@utils/schedule-recurrence` faz a matemática de datas
+ * no relógio DO PROCESSO (`date-fns` `startOfDay`/`getDay`) — o cabeçalho dele
+ * avisa que só produz a data certa com `TZ=America/Sao_Paulo`. A API de produção
+ * roda em UTC, e a conta então passava por São Paulo duas vezes com sinais
+ * diferentes: o motor devolvia meia-noite UTC de "segunda 07/09" e
+ * `startOfDisplayDay` relia aquele instante em São Paulo, onde ele é 21h de
+ * DOMINGO 06/09. Toda ocorrência saía um dia antes do dia configurado.
+ *
+ * A correção não é depender do fuso do processo: é nunca deixar um dia-calendário
+ * viajar como instante. Converte-se explicitamente na entrada e na saída do
+ * motor, e o resultado é o mesmo com TZ=UTC, SP ou qualquer outro.
+ */
+export type CalendarDay = [year: number, month: number, day: number];
+
+/** O dia-calendário a que o instante pertence, lido em São Paulo. */
+export function saoPauloCalendarDay(value: Date | string): CalendarDay {
+  return saoPauloYMD(new Date(value));
+}
+
+/**
+ * O dia-calendário como meia-noite no relógio DO PROCESSO — a única forma que o
+ * motor de recorrência entende, porque é assim que ele constrói e lê datas.
+ */
+export function toProcessLocalDay([year, month, day]: CalendarDay): Date {
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+/** O caminho de volta: o dia-calendário que uma data do motor representa. */
+export function fromProcessLocalDay(date: Date): CalendarDay {
+  return [date.getFullYear(), date.getMonth() + 1, date.getDate()];
+}
+
+/** Soma dias-calendário. A conta é em UTC de propósito: lá o dia tem 24h sempre. */
+export function addCalendarDays([year, month, day]: CalendarDay, days: number): CalendarDay {
+  const shifted = new Date(Date.UTC(year, month - 1, day) + days * 24 * 60 * 60 * 1000);
+  return [shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate()];
+}
+
+/** Ordem cronológica entre dois dias-calendário (`<0`, `0`, `>0`). */
+export function compareCalendarDays(a: CalendarDay, b: CalendarDay): number {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/** O instante em que `hour:00` de São Paulo acontece neste dia-calendário. */
+export function atSaoPauloHour(day: CalendarDay, hour: number): Date {
+  return saoPauloWallClock(day, hour, 0, 0, 0, midday(day));
+}
+
+/** Último instante (23:59:59.999 SP) deste dia-calendário. */
+export function endOfSaoPauloDay(day: CalendarDay): Date {
+  return saoPauloWallClock(day, 23, 59, 59, 999, midday(day));
+}
+
+/**
+ * Instante de referência para medir o deslocamento do fuso: meio-dia UTC do dia
+ * pedido. Longe das duas viradas, então cai no dia certo em São Paulo qualquer
+ * que seja o deslocamento — inclusive se o horário de verão voltar.
+ */
+function midday([year, month, day]: CalendarDay): Date {
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+}
+
 /** Normaliza a janela recebida do cliente; `null`/`undefined` passam intactos. */
 export function normalizeDisplayWindow(startsAt?: unknown, endsAt?: unknown) {
   return {

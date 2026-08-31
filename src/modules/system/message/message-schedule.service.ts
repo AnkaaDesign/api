@@ -14,11 +14,22 @@ import { calculateNextRunDate } from '@utils/schedule-recurrence';
 import type { RecurringSchedule } from '@utils/schedule-recurrence';
 import { SCHEDULE_FREQUENCY, SCHEDULE_RUN_STATUS } from '../../../constants/enums';
 import { MessagePublishedEvent } from './message.events';
-import { endOfDisplayDay, startOfDisplayDay } from './message-scheduling.util';
+import {
+  addCalendarDays,
+  atSaoPauloHour,
+  compareCalendarDays,
+  endOfDisplayDay,
+  endOfSaoPauloDay,
+  fromProcessLocalDay,
+  saoPauloCalendarDay,
+  startOfDisplayDay,
+  toProcessLocalDay,
+} from './message-scheduling.util';
 import {
   CreateMessageScheduleDto,
   UpdateMessageScheduleDto,
   FilterMessageScheduleDto,
+  MESSAGE_SCHEDULE_STATUS,
   MESSAGE_TARGET_TYPE,
 } from './dto';
 import type { Message, MessageSchedule, Prisma } from '@prisma/client';
@@ -205,15 +216,20 @@ export class MessageScheduleService {
   // =====================================================================
 
   /**
-   * Materializa a data-calendário como o instante em que a ocorrência entra no
-   * ar: `publishHour` no relógio de São Paulo.
+   * Materializa a data devolvida pelo motor como o instante em que a ocorrência
+   * entra no ar: `publishHour` no relógio de São Paulo.
    *
    * Sem isto, a ocorrência de segunda entraria no ar no primeiro tick depois da
    * meia-noite e o push chegaria às 00h10.
+   *
+   * ⚠️ `day` vem do motor de recorrência, que trabalha no relógio DO PROCESSO —
+   * é meia-noite LOCAL, não um instante com significado próprio. Ler seus campos
+   * de calendário (`fromProcessLocalDay`) é o certo; reinterpretar o INSTANTE em
+   * São Paulo era o defeito que fazia todo comunicado sair um dia antes num
+   * processo em UTC, que é como a API roda em produção.
    */
   private atPublishHour(day: Date, publishHour: number): Date {
-    const start = startOfDisplayDay(day);
-    return new Date(start.getTime() + publishHour * 60 * 60 * 1000);
+    return atSaoPauloHour(fromProcessLocalDay(day), publishHour);
   }
 
   /**
@@ -231,15 +247,23 @@ export class MessageScheduleService {
   ): Date | null {
     const publishHour = schedule.publishHour ?? 8;
 
-    // O motor raciocina em dia-calendário; a hora entra depois.
-    let base = fromDate ?? now;
-    if (schedule.startsOn && schedule.startsOn.getTime() > base.getTime()) {
-      // Um agendamento com início marcado para o futuro não pode disparar antes.
-      // Recuar um dia faz o motor considerar o próprio `startsOn` como candidato.
-      base = new Date(schedule.startsOn.getTime() - 24 * 60 * 60 * 1000);
+    // O motor raciocina em dia-calendário no relógio DO PROCESSO; converta o
+    // instante para o dia de SÃO PAULO e entregue esse dia, não o instante —
+    // senão, com a API em UTC, "segunda" vira o domingo anterior.
+    let baseDay = saoPauloCalendarDay(fromDate ?? now);
+    if (schedule.startsOn) {
+      const startDay = saoPauloCalendarDay(schedule.startsOn);
+      if (compareCalendarDays(startDay, baseDay) > 0) {
+        // Um agendamento com início marcado para o futuro não pode disparar antes.
+        // Recuar um dia faz o motor considerar o próprio `startsOn` como candidato.
+        baseDay = addCalendarDays(startDay, -1);
+      }
     }
 
-    let day = calculateNextRunDate({ ...schedule, clampDayOfMonth: true }, base);
+    let day = calculateNextRunDate(
+      { ...schedule, clampDayOfMonth: true },
+      toProcessLocalDay(baseDay),
+    );
     let guard = 0;
     while (day && this.atPublishHour(day, publishHour).getTime() <= now.getTime() && guard < 200) {
       day = calculateNextRunDate({ ...schedule, clampDayOfMonth: true }, day);
@@ -445,15 +469,41 @@ export class MessageScheduleService {
 
     const where: Prisma.MessageScheduleWhereInput = {};
     if (typeof filters.isActive === 'boolean') where.isActive = filters.isActive;
+
+    // As três situações da interface. ENCERRADO não é um valor gravado: é
+    // `finishedAt` preenchido — e sem separá-lo de PAUSADO os dois cairiam no
+    // mesmo balde de `isActive = false`.
+    //
+    // ⚠️ Vai em `AND`, e não em `where.OR`: a busca por texto logo abaixo também
+    // é um OR, e o segundo a escrever apagaria o primeiro — filtrar "pausado" e
+    // digitar no campo de busca devolveria os pausados MAIS todo mundo cujo
+    // título casasse, em vez da interseção.
+    const and: Prisma.MessageScheduleWhereInput[] = [];
+
+    if (filters.status?.length) {
+      const clauses: Prisma.MessageScheduleWhereInput[] = [];
+      if (filters.status.includes(MESSAGE_SCHEDULE_STATUS.ACTIVE)) {
+        clauses.push({ isActive: true, finishedAt: null });
+      }
+      if (filters.status.includes(MESSAGE_SCHEDULE_STATUS.PAUSED)) {
+        clauses.push({ isActive: false, finishedAt: null });
+      }
+      if (filters.status.includes(MESSAGE_SCHEDULE_STATUS.FINISHED)) {
+        clauses.push({ finishedAt: { not: null } });
+      }
+      if (clauses.length) and.push({ OR: clauses });
+    }
+
     if (filters.frequency?.length) where.frequency = { in: filters.frequency as any };
     if (filters.targetType?.length) where.targetType = { in: filters.targetType as any };
     if (filters.searchingFor?.trim()) {
       const term = normalizeSearchTerm(filters.searchingFor.trim());
-      where.OR = [
-        { nameNormalized: { contains: term } },
-        { titleNormalized: { contains: term } },
-      ];
+      and.push({
+        OR: [{ nameNormalized: { contains: term } }, { titleNormalized: { contains: term } }],
+      });
     }
+
+    if (and.length) where.AND = and;
 
     // Lista branca: `sortBy` chega da querystring e um campo inexistente
     // derrubaria a listagem inteira com 500 (mesma armadilha já corrigida em
@@ -599,27 +649,62 @@ export class MessageScheduleService {
         : { create: payload };
     }
 
-    const updated = await this.prisma.messageSchedule.update({
-      where: { id },
-      data,
-      include: SCHEDULE_INCLUDE,
-    });
-
-    // Mexer na regra sem recalcular `nextRun` deixaria o agendamento mirando a
-    // data da regra ANTIGA — o sintoma clássico de "mudei para segunda e ele
-    // continuou disparando na quinta".
-    const recomputed = updated.isActive
-      ? this.computeNextRun(updated as unknown as RecurringSchedule & { publishHour: number })
-      : null;
-
-    if (recomputed?.getTime() !== updated.nextRun?.getTime()) {
-      return await this.prisma.messageSchedule.update({
+    // Escrita e recálculo na MESMA transação.
+    //
+    // O `nextRun` só pode ser calculado depois de gravar, porque ele depende dos
+    // três configs 1:1 e da vigência já resolvidos — e é justamente aí que as
+    // recusas abaixo aparecem. Fora de uma transação, um `throw` devolveria 400
+    // ao usuário com a nova regra JÁ gravada: o formulário diria que nada mudou
+    // e o banco discordaria.
+    return await this.prisma.$transaction(async tx => {
+      const updated = await tx.messageSchedule.update({
         where: { id },
-        data: { nextRun: recomputed },
+        data,
         include: SCHEDULE_INCLUDE,
       });
-    }
-    return updated;
+
+      // Mexer na regra sem recalcular `nextRun` deixaria o agendamento mirando a
+      // data da regra ANTIGA — o sintoma clássico de "mudei para segunda e ele
+      // continuou disparando na quinta".
+      const recomputed = updated.isActive
+        ? this.computeNextRun(updated as unknown as RecurringSchedule & { publishHour: number })
+        : null;
+
+      // As mesmas duas recusas do `create`, agora que a regra também pode ser
+      // EDITADA. Sem elas o formulário aceitaria em silêncio uma configuração
+      // que nunca publica — e o agendamento ficaria ativo, mudo, com a coluna
+      // "Próxima" em branco, esperando por uma data que não existe.
+      if (updated.isActive && !recomputed) {
+        throw new BadRequestException(
+          'A recorrência informada não produz nenhuma data futura; revise a configuração',
+        );
+      }
+      if (updated.isActive && updated.endsOn && recomputed && recomputed > updated.endsOn) {
+        throw new BadRequestException(
+          'A vigência termina antes da próxima publicação; ajuste as datas ou a recorrência',
+        );
+      }
+
+      // Editar é o único jeito de RESSUSCITAR um agendamento encerrado: quem
+      // chegou ao fim da vigência (ou ao limite de publicações) só volta a
+      // existir esticando a data ou o limite. Sem limpar `finishedAt` aqui, a
+      // nova regra ficaria gravada e o cron continuaria pulando a linha para
+      // sempre — o `where: { finishedAt: null }` dele não perdoa —, e a lista
+      // mostraria "Encerrado" ao lado de uma próxima publicação que nunca chega.
+      const revived = updated.isActive && !!recomputed && !!updated.finishedAt;
+
+      if (revived || recomputed?.getTime() !== updated.nextRun?.getTime()) {
+        return await tx.messageSchedule.update({
+          where: { id },
+          data: {
+            nextRun: recomputed,
+            ...(revived ? { finishedAt: null, lastRunError: null } : {}),
+          },
+          include: SCHEDULE_INCLUDE,
+        });
+      }
+      return updated;
+    });
   }
 
   /** Junta a linha atual com o patch, para validar o estado RESULTANTE. */
@@ -778,11 +863,15 @@ export class MessageScheduleService {
 
     // A janela de exibição cobre `displayDurationDays` dias-calendário CONTADOS
     // A PARTIR do dia da ocorrência — daí o −1: duração 1 significa "só hoje".
-    const lastDay = new Date(occurrenceDate);
-    lastDay.setDate(lastDay.getDate() + Math.max(1, schedule.displayDurationDays) - 1);
+    // A soma é feita sobre o DIA de São Paulo, não sobre os campos locais do
+    // instante, para que a janela não escorregue num processo fora do fuso.
+    const lastDay = addCalendarDays(
+      saoPauloCalendarDay(occurrenceDate),
+      Math.max(1, schedule.displayDurationDays) - 1,
+    );
 
     const startDate = occurrenceDate;
-    const endDate = endOfDisplayDay(lastDay);
+    const endDate = endOfSaoPauloDay(lastDay);
 
     try {
       const message = await this.prisma.$transaction(async tx => {
