@@ -1259,7 +1259,13 @@ export class InvoiceController {
     });
 
     if (!bankSlip) {
-      throw new NotFoundException(`Boleto não encontrado para a parcela ${installmentId}.`);
+      // Config com generateBankSlip=false (ex.: acerto entre empresas fora do boleto/NFS-e)
+      // nunca cria BankSlip, mas a parcela é um recebível real e precisa poder ser reagendada.
+      return this.changeInstallmentDueDateWithoutBoleto(
+        installmentId,
+        newDate,
+        formatDueDateYMD(newDate),
+      );
     }
 
     if (
@@ -1425,6 +1431,50 @@ export class InvoiceController {
         `Falha ao alterar data de vencimento no Sicredi. O boleto pode estar em um estado que não permite alteração (já baixado ou liquidado). Detalhes: ${errMsg}`,
       );
     }
+  }
+
+  /**
+   * Altera o vencimento de uma parcela que nunca teve BankSlip (config com
+   * generateBankSlip=false — acerto entre empresas fora do boleto/NFS-e). Sem Sicredi
+   * envolvido: só move a data e deixa a cascata de status recalcular a partir dela.
+   */
+  private async changeInstallmentDueDateWithoutBoleto(
+    installmentId: string,
+    newDate: Date,
+    formattedDate: string,
+  ): Promise<{ message: string; newDueDate: string }> {
+    const installment = await this.prisma.installment.findUnique({
+      where: { id: installmentId },
+    });
+    if (!installment) {
+      throw new NotFoundException(`Parcela ${installmentId} não encontrada.`);
+    }
+    if (
+      installment.status === INSTALLMENT_STATUS.PAID ||
+      installment.status === INSTALLMENT_STATUS.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Não é possível alterar o vencimento de uma parcela paga ou cancelada.',
+      );
+    }
+
+    await this.prisma.installment.update({
+      where: { id: installmentId },
+      data: { dueDate: newDate, status: INSTALLMENT_STATUS.PENDING },
+    });
+
+    // Mesma cascata que o caminho com boleto usa — recalcula o status do orçamento
+    // a partir da nova data, tirando-o de "Vencido" quando ela está no futuro.
+    await this.cascadeService.cascadeFromInstallment(installmentId);
+
+    this.logger.log(
+      `[INSTALLMENT] Due date changed (sem boleto) for installment ${installmentId}: newDate=${formattedDate}`,
+    );
+
+    return {
+      message: 'Data de vencimento alterada com sucesso.',
+      newDueDate: formattedDate,
+    };
   }
 
   /**
