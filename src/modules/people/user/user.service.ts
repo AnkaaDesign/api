@@ -1741,14 +1741,19 @@ export class UserService {
           emitEligibilityChange('POSITION_CHANGED');
         }
 
-        // 4) Nível de desempenho: o divisor só soma quem tem nível > 0, então
-        //    sair de 0 (ou voltar para 0) muda o denominador de todo mundo.
+        // 4) Nível de desempenho: QUALQUER mudança, não só a que cruza o zero.
+        //    A guarda antiga (`um dos lados === 0`) raciocinava só sobre o
+        //    DIVISOR — nele de fato só entra quem tem nível > 0, e 1 → 3 não
+        //    mexe no denominador. Mas o nível é também multiplicador direto do
+        //    bônus da própria pessoa (`PERFORMANCE_MULTIPLIERS`: 1 → 1,0;
+        //    3 → 3,0), então 1 → 3 TRIPLICA o valor dela e o cache SWR do
+        //    período continuava servindo o número velho por até 30 min
+        //    afirmando estar fresco — TTL duro de 2 h (caso Paulo Henrique,
+        //    folha 66, 31/08/2026). Emitir a mais aqui custa uma revalidação;
+        //    emitir a menos custa um valor errado na tela do RH.
         const performanceLevelAfter =
           (updatedUser as { performanceLevel?: number | null })?.performanceLevel ?? null;
-        if (
-          performanceLevelBeforeUpdate !== performanceLevelAfter &&
-          ((performanceLevelBeforeUpdate ?? 0) === 0 || (performanceLevelAfter ?? 0) === 0)
-        ) {
+        if (performanceLevelBeforeUpdate !== performanceLevelAfter) {
           emitEligibilityChange('PERFORMANCE_LEVEL_CHANGED');
         }
       }

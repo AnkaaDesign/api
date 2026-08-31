@@ -51,6 +51,7 @@ import {
   businessPeriodStart,
   businessPeriodEnd,
 } from '../../../utils/business-period';
+import { isCurrentPeriod } from '../../../utils/bonus';
 
 // ============================================================
 // Tipos
@@ -287,10 +288,28 @@ export class BonusEligibilityService {
 
     const entries: EligibilityEntry[] = [];
 
+    // FECHADO pela regra do dia 5, não pelo fim do ciclo (dia 25). Eram duas
+    // definições de "fechado" no mesmo código, e a daqui era a errada. O ciclo
+    // termina no dia 25, mas quem grava as linhas é o cron do DIA 5
+    // (`BonusCronService`, tentativas do 5 ao 10): entre o 26 e o 5 o RH ainda
+    // está apurando, e é justamente quando os níveis de desempenho são
+    // ajustados. `isCurrentPeriod` é a mesma regra do dia 5 que
+    // `getCurrentPeriod` já usa no resto do módulo — a elegibilidade não
+    // diverge mais dela.
+    const periodIsClosed = periodEnd < new Date() && !isCurrentPeriod(year, month);
+
     // Cargo, performance e bonificabilidade valem como estavam no FECHAMENTO do
     // período — não como estão hoje. Sem isto, uma promoção posterior mudaria
     // retroativamente o divisor de meses já pagos.
-    const historical = await this.buildHistoricalState(periodEnd);
+    //
+    // O CORTE segue o mesmo dia 5. Rebobinar até o dia 25 num período ainda em
+    // apuração desfazia a própria apuração: todo `ChangeLog` com
+    // `createdAt > 25` era revertido ao `oldValue`, então um nível editado no
+    // dia 31 voltava sozinho para o valor antigo e só aparecia no mês seguinte
+    // (caso Paulo Henrique, folha 66: 1 → 3 em 31/08 não entrava em 08/2026).
+    // Enquanto o período é o corrente o corte é AGORA — que é o que já
+    // acontecia de fato no meio do ciclo, quando `periodEnd` ainda era futuro.
+    const historical = await this.buildHistoricalState(periodIsClosed ? periodEnd : new Date());
     const positionNameById = new Map(
       (await this.prisma.position.findMany({ select: { id: true, name: true } })).map(p => [
         p.id,
@@ -310,17 +329,21 @@ export class BonusEligibilityService {
     // gravada com nível 0 se auto-perpetuaria, mantendo a pessoa fora do divisor
     // e com bônus zero para sempre, sem nada capaz de quebrar o ciclo além de
     // uma escrita manual no banco.
-    const periodIsClosed = periodEnd < new Date();
-    const savedPerformance = periodIsClosed
-      ? new Map(
-          (
-            await this.prisma.bonus.findMany({
-              where: { year, month },
-              select: { userId: true, performanceLevel: true },
-            })
-          ).map(b => [b.userId, b.performanceLevel]),
-        )
-      : new Map<string, number>();
+    //
+    // EXCEÇÃO ao dia 5, a única: quem foi DEMITIDO dentro do período. A rescisão
+    // fecha a bonificação no ato (`BonusTerminationListener`), muito antes do
+    // dia 5, porque o valor é pago junto com o acerto. Essas linhas nascem com
+    // `terminatedAt` preenchido, e para elas o snapshot vence desde já — senão
+    // uma edição de cadastro depois do acerto reescreveria um valor já quitado.
+    const savedPerformance = new Map(
+      (
+        await this.prisma.bonus.findMany({
+          // Período aberto: só as linhas já liquidadas pela demissão.
+          where: periodIsClosed ? { year, month } : { year, month, terminatedAt: { not: null } },
+          select: { userId: true, performanceLevel: true },
+        })
+      ).map(b => [b.userId, b.performanceLevel]),
+    );
 
     for (const user of users) {
       // Conta que não representa colaborador real fica FORA do divisor, não só
