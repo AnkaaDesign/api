@@ -24,7 +24,7 @@ import { PDFDocument, StandardFonts, rgb, degrees, PDFFont, PDFPage } from 'pdf-
 // Alias obrigatorio: pdf-lib tambem exporta `PDFDocument`.
 import PDFKitDocument from 'pdfkit';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
-import { SignatureAnchorMap } from './quote-renderer.service';
+import { LateSlotAnchor, LateSlotAnchorMap, SignatureAnchorMap } from './quote-renderer.service';
 import { PAGE_MARGINS_MM, PX_TO_PT, mmToPt } from './quote-html.builder';
 import { formatDateTimeBR } from './quote-text';
 import { maskCpf, maskPhone, formatCpf } from '../utils/identity';
@@ -217,6 +217,17 @@ export class QuoteAssemblerService {
      * artefato, e não só na tela que o listou.
      */
     voidedLabel?: string | null;
+    /**
+     * Lacunas medidas na emissão (série, placa, chassi) e os valores que o
+     * cadastro já tem AGORA. O que chegou depois do congelamento é carimbado no
+     * lugar reservado para ele; o que ainda não chegou mantém "a registrar".
+     *
+     * Só preenche lacuna VAZIA. Carimbar por cima de um valor impresso taparia
+     * o que o signatário leu, e isso não é acréscimo — é reescrita, e continua
+     * exigindo ressalva datada na trilha.
+     */
+    lateSlots?: LateSlotAnchorMap | null;
+    lateValues?: Record<string, string | null | undefined> | null;
   }): Promise<Buffer> {
     const doc = await PDFDocument.load(input.originalPdf, { updateMetadata: false });
     const helv = await doc.embedFont(StandardFonts.Helvetica);
@@ -266,6 +277,8 @@ export class QuoteAssemblerService {
         );
       }
     }
+
+    this.stampLateValues(pages, input.lateSlots, input.lateValues, helvBold);
 
     // Rodapé de verificação em TODAS as páginas — o padrão que Clicksign e
     // ZapSign adotam, e evidência barata e de alto sinal.
@@ -329,6 +342,104 @@ export class QuoteAssemblerService {
     });
 
     return Buffer.from(await doc.save({ useObjectStreams: false }));
+  }
+
+  /**
+   * Carimba, na frase do veículo, a identidade que chegou DEPOIS do
+   * congelamento — série, placa, chassi.
+   *
+   * O documento não é re-renderizado: os bytes originais continuam sendo os que
+   * foram assinados, e é sobre eles que o valor é desenhado, no retângulo que o
+   * navegador mediu na emissão. É a mesma mecânica do selo de assinatura, e pela
+   * mesma razão: reescrever a frase reflui o parágrafo, desloca as âncoras dos
+   * selos e muda o hash que amarra a trilha ao documento.
+   *
+   * Só preenche o que estava em branco. Preencher lacuna anunciada é acréscimo —
+   * quem assinou viu que faltava aquele dado, como vê uma linha de assinatura
+   * ainda vazia. Trocar um valor já impresso é outra coisa, e não passa por aqui.
+   */
+  private stampLateValues(
+    pages: PDFPage[],
+    slots: LateSlotAnchorMap | null | undefined,
+    values: Record<string, string | null | undefined> | null | undefined,
+    fontBold: PDFFont,
+  ): void {
+    if (!slots || !values) return;
+    for (const [key, slot] of Object.entries(slots)) {
+      const value = (values[key] ?? '').trim();
+      if (!value) continue;
+      const page = pages[slot.page];
+      if (!page) {
+        this.logger.warn(`Lacuna "${key}" aponta para página inexistente — não carimbada.`);
+        continue;
+      }
+      try {
+        this.drawLateValue(page, slot, value, fontBold);
+      } catch (error) {
+        // Mesma regra do selo: um carimbo não inviabiliza o documento inteiro.
+        this.logger.error(
+          `Falha ao carimbar "${key}": ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+  }
+
+  private drawLateValue(
+    page: PDFPage,
+    slot: LateSlotAnchor,
+    value: string,
+    fontBold: PDFFont,
+  ): void {
+    const { height: pageHeightPt } = page.getSize();
+    // Mesma conversão do selo: as medidas são relativas à caixa de conteúdo, e
+    // as margens da @page entram como deslocamento.
+    const scale = PX_TO_PT;
+    const offsetX = mmToPt(PAGE_MARGINS_MM.left);
+    const offsetY = mmToPt(PAGE_MARGINS_MM.top);
+
+    const x = offsetX + slot.x * scale;
+    const w = slot.width * scale;
+    const h = slot.height * scale;
+    const top = pageHeightPt - offsetY - slot.y * scale;
+    const bottom = top - h;
+
+    // 1. Apaga o "a registrar" com papel branco. A caixa é exatamente a do
+    //    marcador, então nada em volta é tocado.
+    page.drawRectangle({ x, y: bottom, width: w, height: h, color: rgb(1, 1, 1) });
+
+    // 2. O valor, no corpo e na linha de base do texto ao redor — a largura já
+    //    foi reservada para ele, então `fitToWidth` só age no caso extremo de um
+    //    número de série maior que o previsto.
+    const size = slot.fontSizeCss * scale;
+    const stampText = winAnsi(value);
+    const fitted = fitToWidth(fontBold, stampText, size, w);
+    if (fitted.text !== stampText) {
+      // Só acontece com um valor maior que o previsto para o campo (ver
+      // LATE_SLOT_WIDTH_CH). O documento não mente — a trilha guarda o valor
+      // inteiro —, mas a lacuna precisa crescer.
+      this.logger.warn(
+        `Valor tardio não coube na lacuna e foi ajustado: "${value}" -> "${fitted.text}".`,
+      );
+    }
+    const textWidth = fontBold.widthOfTextAtSize(fitted.text, fitted.size);
+    const baseline = pageHeightPt - offsetY - (slot.y + slot.baselineCss) * scale;
+    page.drawText(fitted.text, {
+      x: x + Math.max((w - textWidth) / 2, 0),
+      y: baseline,
+      size: fitted.size,
+      font: fontBold,
+      color: DARK,
+    });
+
+    // 3. O filete de volta, com a mesma espessura e cor do que o navegador
+    //    desenhou nos campos já preenchidos (`border-bottom: 1px` = 0,75pt), de
+    //    modo que a linha carimbada e a impressa sejam a MESMA linha.
+    page.drawLine({
+      start: { x, y: bottom + 0.375 },
+      end: { x: x + w, y: bottom + 0.375 },
+      thickness: 0.75,
+      color: GRAY,
+    });
   }
 
   private drawSeal(

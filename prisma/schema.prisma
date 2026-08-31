@@ -7673,6 +7673,20 @@ model SignatureEnvelope {
   /// render: { [signerId]: { page, x, y, width, height } } em pontos PDF.
   anchors Json
 
+  /// Lacunas de CADASTRO TARDIO reservadas na frase do veículo — série, placa e
+  /// chassi —, medidas no mesmo render que as âncoras:
+  /// { [campo]: { page, x, y, width, height, fontSizeCss, baselineCss } }.
+  ///
+  /// Implemento 0 km é assinado antes de existir placa e chassi (o chassi chega
+  /// 23 dias depois, em média). O documento é congelado no envio e não pode ser
+  /// re-renderizado — o hash dos bytes é o que liga a trilha de OTP a ELE —,
+  /// então o espaço é reservado na emissão e o dado é carimbado nele quando
+  /// chega, exatamente como o selo de assinatura.
+  ///
+  /// Nulo nos envelopes anteriores ao recurso: sem retângulo não há carimbo, e o
+  /// dado tardio continua indo só para a trilha, como ia antes.
+  lateSlots Json?
+
   /// Recorte canônico (RFC 8785) de tudo que o documento exibe, congelado no
   /// envio. É a PROVA do que o signatário viu — nunca é reescrito.
   quoteSnapshot       Json

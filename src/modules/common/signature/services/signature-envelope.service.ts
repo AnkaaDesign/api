@@ -690,6 +690,9 @@ export class SignatureEnvelopeService {
           originalFileId: fileId,
           originalSha256,
           anchors: rendered.anchors as unknown as Prisma.InputJsonValue,
+          // Onde carimbar a identidade que ainda não existe. Vazio quando o
+          // cadastro já estava completo — aí não há lacuna no documento.
+          lateSlots: rendered.lateSlots as unknown as Prisma.InputJsonValue,
           quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           quoteSnapshotSha256: hash,
           quoteTermsSha256: materialHash,
@@ -2350,7 +2353,9 @@ export class SignatureEnvelopeService {
       where: { id: envelopeId },
       include: {
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
-        quote: { include: { task: { include: { customer: true } } } },
+        // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
+        // que se pergunta ao cadastro o que já chegou desde a emissão.
+        quote: { include: { task: { include: { customer: true, truck: true } } } },
         originalFile: true,
       },
     });
@@ -2452,6 +2457,15 @@ export class SignatureEnvelopeService {
       verificationCode: env.verificationCode,
       verificationUrl,
       originalSha256: env.originalSha256,
+      // O que o cadastro tem AGORA, contra o espaço reservado na emissão. O
+      // montador só preenche lacuna vazia, então um valor que já estava impresso
+      // no documento congelado não é tocado.
+      lateSlots: (env.lateSlots as any) ?? null,
+      lateValues: {
+        serialNumber: env.quote.task?.serialNumber ?? null,
+        plate: env.quote.task?.truck?.plate ?? null,
+        chassis: env.quote.task?.truck?.chassisNumber ?? null,
+      },
     });
 
     const events = await this.audit.getTrail(envelopeId);
@@ -3057,7 +3071,10 @@ export class SignatureEnvelopeService {
       where: { id: envelopeId },
       include: {
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
-        quote: { include: { task: { include: { customer: true } } } },
+        // `truck`: a remontagem ao vivo também carimba a identidade que chegou
+        // depois — o cliente que abre o link durante a coleta vê o cadastro de
+        // hoje, não o de quando o documento foi congelado.
+        quote: { include: { task: { include: { customer: true, truck: true } } } },
         originalFile: true,
         finalFile: true,
       },
@@ -3085,6 +3102,12 @@ export class SignatureEnvelopeService {
     const customer = env.quote.task?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
 
+    const lateValues: Record<string, string | null> = {
+      serialNumber: env.quote.task?.serialNumber ?? null,
+      plate: env.quote.task?.truck?.plate ?? null,
+      chassis: env.quote.task?.truck?.chassisNumber ?? null,
+    };
+
     const pdf = await this.assembler.stampSeals({
       originalPdf,
       anchors: env.anchors as any,
@@ -3106,6 +3129,8 @@ export class SignatureEnvelopeService {
       verificationUrl: this.verificationUrl(env.verificationCode),
       originalSha256: env.originalSha256,
       voidedLabel: VOID_WATERMARK_LABELS[env.status] ?? null,
+      lateSlots: (env.lateSlots as any) ?? null,
+      lateValues: lateValues,
     });
 
     // ETag deriva do original + do estado de assinatura E DO STATUS do envelope.
@@ -3114,12 +3139,19 @@ export class SignatureEnvelopeService {
     // histórico) e só muda o status, então a chave anterior não se movia e o
     // cliente seguia recebendo do cache a versão SEM marca d'água — exatamente
     // o PDF que a marca existe para não deixar circular.
+    //
+    // E dos VALORES TARDIOS: registrar o chassi muda o documento servido (ele é
+    // carimbado na lacuna), e sem isto o cliente continuaria recebendo do cache
+    // a versão com "a registrar" depois de o dado existir.
     const stateKey = env.signers
       .map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}:${s.status}`)
       .join('|');
+    const lateKey = Object.entries(lateValues)
+      .map(([k, v]) => `${k}:${v ?? ''}`)
+      .join('|');
     return {
       pdf,
-      etag: `"${sha256Hex(env.originalSha256 + env.status + stateKey).slice(0, 32)}"`,
+      etag: `"${sha256Hex(env.originalSha256 + env.status + stateKey + lateKey).slice(0, 32)}"`,
       filename,
     };
   }

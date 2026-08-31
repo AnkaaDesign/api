@@ -50,6 +50,63 @@ export function mmToPt(mm: number): number {
   return (mm / 25.4) * 72;
 }
 
+/**
+ * Os campos de identidade do veículo que podem chegar DEPOIS da assinatura.
+ *
+ * Implemento 0 km é orçado enquanto ainda está em fabricação: a placa chega em
+ * média 3,5 dias depois do cadastro do veículo e o chassi 23 (medido no
+ * histórico de alterações — 243 dos 250 toques no chassi são preenchimento de
+ * campo vazio, não troca de valor). O documento, porém, é congelado no envio
+ * para assinatura e não pode ser re-renderizado: o hash dos bytes é o que liga
+ * a trilha de OTP a um documento, e reescrever a frase ainda reflui o parágrafo
+ * e desloca as âncoras dos selos, que são coordenadas absolutas.
+ *
+ * Então o espaço é RESERVADO na emissão, com a largura do maior valor possível,
+ * e o dado é carimbado nele quando chega — a mesma mecânica do selo de
+ * assinatura, que também é medido aqui e desenhado depois.
+ */
+export type LateSlotKey = 'serialNumber' | 'plate' | 'chassis';
+
+/**
+ * Largura reservada, em `ch`, por campo.
+ *
+ * É o número de caracteres do MAIOR valor possível, não o do texto do
+ * marcador: se a caixa coubesse apenas "a registrar", um chassi de 17 dígitos
+ * teria de ser espremido a 60% do corpo do texto para caber depois. Chassi tem
+ * 17 caracteres por norma; placa tem 7 (Mercosul) ou 8 (padrão antigo com
+ * hífen); o maior número de série em uso tem 5 dígitos, e 8 dá folga.
+ */
+const LATE_SLOT_WIDTH_CH: Record<LateSlotKey, number> = {
+  serialNumber: 8,
+  plate: 8,
+  chassis: 17,
+};
+
+/**
+ * O marcador é VISÍVEL de propósito.
+ *
+ * "a registrar" é o que torna o preenchimento posterior honesto: quem assina vê
+ * que ali falta um dado, do mesmo modo que vê uma linha de assinatura ainda em
+ * branco e não estranha que apareça uma assinatura nela depois. Um espaço mudo
+ * que um dia ganhasse conteúdo faria o documento afirmar algo que ninguém leu.
+ */
+function lateSlotHtml(key: LateSlotKey): string {
+  return `<span class="late-slot" data-late-slot="${key}" style="min-width:${LATE_SLOT_WIDTH_CH[key]}ch">a registrar</span>`;
+}
+
+/**
+ * Um dado do veículo já cadastrado — mesmo traço da lacuna, mas preenchido.
+ *
+ * O tracejado vale para TODOS os campos do veículo, e não só para os que ainda
+ * estão vazios: a frase passa a ser um formulário de identificação com campos
+ * de mesma natureza, uns preenchidos e outros não. Sem isso, o dado carimbado
+ * depois seria o único sublinhado da frase — o remendo se anunciaria pela
+ * formatação, em vez de pela trilha, que é onde a informação de fato mora.
+ */
+function vehicleValueHtml(value: string): string {
+  return `<span class="vehicle-value">${escapeHtml(value)}</span>`;
+}
+
 export interface QuoteHtmlSignerSlot {
   /** EnvelopeSigner.id — vira o valor de data-signature-slot. */
   id: string;
@@ -173,19 +230,41 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
       </div>
     </div>`;
 
-  const vehicleParts: string[] = [];
-  if (data.serialNumber)
-    vehicleParts.push(` nº série: <strong>${escapeHtml(data.serialNumber)}</strong>`);
-  if (data.plate) vehicleParts.push(` placa: <strong>${escapeHtml(data.plate)}</strong>`);
-  if (data.chassisNumber)
-    vehicleParts.push(` chassi: <strong>${escapeHtml(data.chassisNumber)}</strong>`);
   // Rótulo humano, não o enum cru. Ver `truckCategoryLabel()` em quote-text.ts.
   const categoryLabel = truckCategoryLabel(data.truckCategoryLabel);
   const implementLabel = implementTypeLabel(data.truckImplementLabel);
-  if (categoryLabel)
-    vehicleParts.push(` categoria: <strong>${escapeHtml(categoryLabel)}</strong>`);
-  if (implementLabel)
-    vehicleParts.push(` implemento: <strong>${escapeHtml(implementLabel)}</strong>`);
+
+  const identity: Array<{ key: LateSlotKey; label: string; value: string | null }> = [
+    { key: 'serialNumber', label: 'nº série', value: data.serialNumber },
+    { key: 'plate', label: 'placa', value: data.plate },
+    { key: 'chassis', label: 'chassi', value: data.chassisNumber },
+  ];
+
+  // Só se fala do veículo quando existe veículo. Sem isto, um orçamento sem
+  // caminhão nenhum ganharia três lacunas a preencher e uma frase sobre um
+  // objeto que não existe.
+  const hasVehicle =
+    identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel;
+
+  const vehicleParts: string[] = [];
+  if (hasVehicle) {
+    // Série, placa e chassi saem SEMPRE — com valor, ou com o espaço reservado
+    // para ele. Ver `.late-slot` no CSS: é o que permite carimbar o dado que
+    // chega semanas depois sem re-renderizar o documento congelado.
+    for (const field of identity) {
+      vehicleParts.push(
+        field.value
+          ? ` ${field.label}: ${vehicleValueHtml(field.value)}`
+          : ` ${field.label}: ${lateSlotHtml(field.key)}`,
+      );
+    }
+    // Categoria e implemento não ganham lacuna: são classificação, não
+    // identidade, e já estão preenchidos na emissão. Ausentes, simplesmente não
+    // aparecem, como antes. Levam o mesmo traço dos demais só para a frase ler
+    // como um bloco só.
+    if (categoryLabel) vehicleParts.push(` categoria: ${vehicleValueHtml(categoryLabel)}`);
+    if (implementLabel) vehicleParts.push(` implemento: ${vehicleValueHtml(implementLabel)}`);
+  }
   const vehicleText = vehicleParts.length ? ` no veículo${vehicleParts.join(',')}` : '';
 
   const companyIntro =
@@ -410,6 +489,43 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
 
   .customer-name { font-size: 10.5pt; font-weight: 600; margin-bottom: 2mm; }
   .intro-text { font-size: 9.5pt; line-height: 1.55; text-align: justify; }
+
+  /* Campos do veículo — ver LateSlotKey e JS_MEASURE_LATE_SLOTS.
+     TODOS levam o mesmo filete, preenchidos ou não: a frase lê como uma linha
+     de formulário, e o dado carimbado depois não se denuncia pela formatação.
+     Filete CONTÍNUO, não pontilhado: no corpo de 9,5pt o tracejado sai com
+     ponto de menos de meio ponto e o rasterizador o entrega ondulado, com os
+     pontos caindo em pixels diferentes ao longo da linha.
+     O inline-block é o que garante um retângulo medível e uma largura própria:
+     um span normal em texto justificado pode ser partido em duas linhas pelo
+     Chromium, e aí não existe UM retângulo onde carimbar. A largura da lacuna
+     vem do style inline (o maior valor possível daquele campo), então o carimbo
+     cabe sem espremer e sem empurrar o texto seguinte. */
+  .vehicle-value,
+  .late-slot {
+    display: inline-block;
+    /* Mais apertado que a entrelinha do parágrafo (1,55) para o filete ficar
+       logo abaixo do texto, e não boiando no vão da linha. Continua maior que a
+       caixa de conteúdo da fonte (~1,2em), então o retângulo medido cobre o
+       marcador inteiro — é ele que o carimbo apaga. */
+    line-height: 1.3;
+    border-bottom: 1px solid var(--gray);
+  }
+
+  .vehicle-value { font-weight: 700; }
+
+  .late-slot {
+    text-align: center;
+    font-style: italic;
+    font-weight: 400;
+    color: var(--gray);
+    /* Corpo IGUAL ao do texto ao redor, de propósito: a unidade ch é relativa à
+       fonte do próprio elemento, então encolher o marcador encolheria na mesma
+       proporção o espaço reservado — e o carimbo, que sai no corpo do texto, não
+       caberia mais. O que distingue a lacuna do dado é o itálico cinza, não o
+       tamanho. */
+    font-size: 1em;
+  }
 
   /* Sem regua sob o titulo: a unica divisoria horizontal do documento e a do
      cabecalho (e a do rodape, que a espelha). Titulos de secao se distinguem

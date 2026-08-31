@@ -41,9 +41,35 @@ export interface SignatureAnchor {
 
 export type SignatureAnchorMap = Record<string, SignatureAnchor>;
 
+/**
+ * Retângulo de uma lacuna de cadastro tardio (série, placa, chassi), medido no
+ * navegador junto com o resto do documento. Ver `LateSlotKey` no builder.
+ */
+export interface LateSlotAnchor extends SignatureAnchor {
+  /** Corpo do texto do documento, em px CSS — o carimbo sai no mesmo tamanho. */
+  fontSizeCss: number;
+  /**
+   * Distância do topo do retângulo até a LINHA DE BASE do texto, em px CSS.
+   *
+   * Medida, não derivada. Calcular a baseline a partir da altura da caixa exige
+   * supor as métricas da fonte (ascendente, descendente, meio-vão da
+   * entrelinha); com a Inter variável embutida, o erro dessa suposição ficou em
+   * ~1,3pt — o suficiente para o dado carimbado flutuar visivelmente acima do
+   * texto vizinho, que é justamente o que denunciaria o carimbo como remendo.
+   */
+  baselineCss: number;
+}
+
+export type LateSlotAnchorMap = Record<string, LateSlotAnchor>;
+
 export interface RenderedQuoteDocument {
   pdf: Buffer;
   anchors: SignatureAnchorMap;
+  /**
+   * Lacunas reservadas na frase do veículo, por campo. Vazio quando o cadastro
+   * já estava completo na emissão — que é o caso em que não há nada a carimbar.
+   */
+  lateSlots: LateSlotAnchorMap;
   /** Quantas iterações de ajuste foram necessárias (0 = coube de primeira). */
   fitIterations: number;
   /** True quando o conteúdo ainda excedia a página após o último ajuste. */
@@ -168,6 +194,51 @@ const JS_MEASURE_ANCHORS = `(() => {
   return out;
 })()`;
 
+/**
+ * Mede as lacunas de cadastro tardio (`[data-late-slot]`) na frase do veículo.
+ *
+ * Mesma geometria das âncoras de assinatura — offsets relativos à `.page`, que é
+ * a caixa de conteúdo — para que o montador use a MESMA conversão px→pt e o
+ * mesmo deslocamento de margem. O que muda é o corpo do texto, que viaja junto:
+ * o ajustador de tipografia altera `--service-size` e o corpo do parágrafo com
+ * ele, então o carimbo só sai no tamanho certo se o tamanho for medido, e não
+ * suposto.
+ */
+const JS_MEASURE_LATE_SLOTS = `(() => {
+  const out = {};
+  document.querySelectorAll('[data-late-slot]').forEach(el => {
+    const key = el.getAttribute('data-late-slot');
+    if (!key) return;
+    const pageEl = el.closest('.page') || el.closest('.page-signatures');
+    if (!pageEl) return;
+    const r = el.getBoundingClientRect();
+    const pr = pageEl.getBoundingClientRect();
+    // Uma lacuna partida em duas linhas nao tem UM retangulo onde carimbar. O
+    // inline-block impede isso, e a verificacao transforma a premissa em fato:
+    // getClientRects() traz um retangulo por linha ocupada.
+    if (el.getClientRects().length !== 1) return;
+    // Sonda de linha de base: um inline-block de altura zero alinhado pela
+    // baseline tem topo e base EM CIMA dela. E sai do DOM antes do pdf().
+    const probe = document.createElement('span');
+    probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+    el.appendChild(probe);
+    const baselineCss = probe.getBoundingClientRect().top - r.top;
+    probe.remove();
+    out[key] = {
+      page: -1,
+      x: r.left - pr.left,
+      y: r.top - pr.top,
+      width: r.width,
+      height: r.height,
+      pageWidthCss: pr.width,
+      pageHeightCss: pr.height,
+      fontSizeCss: parseFloat(getComputedStyle(el).fontSize) || 0,
+      baselineCss: baselineCss,
+    };
+  });
+  return out;
+})()`;
+
 const JS_FONTS_READY = `(() => (document.fonts ? document.fonts.ready.then(() => true) : true))()`;
 
 @Injectable()
@@ -234,6 +305,11 @@ export class QuoteRendererService {
       // com fonte fallback produziria âncoras erradas.
       await contentPage.evaluate(JS_FONTS_READY);
       await this.compactContent(contentPage);
+      // Medido DEPOIS da compactação e ANTES do pdf(): o ajustador mexe no corpo
+      // do texto, e medir antes dele daria um retângulo que não é o impresso.
+      const lateSlotsRaw = (await contentPage.evaluate(
+        JS_MEASURE_LATE_SLOTS,
+      )) as LateSlotAnchorMap;
       const contentPdf = Buffer.from(
         await contentPage.pdf({ printBackground: true, preferCSSPageSize: true }),
       );
@@ -267,7 +343,14 @@ export class QuoteRendererService {
         resolved[id] = { ...a, page: contentPages };
       }
 
-      return { pdf, anchors: resolved, fitIterations: iterations, overflowed, contentPages };
+      return {
+        pdf,
+        anchors: resolved,
+        lateSlots: this.resolveLateSlots(lateSlotsRaw),
+        fitIterations: iterations,
+        overflowed,
+        contentPages,
+      };
     } finally {
       await browser.close().catch(() => undefined);
     }
@@ -310,6 +393,7 @@ export class QuoteRendererService {
       }
 
       const anchors = (await page.evaluate(JS_MEASURE_ANCHORS)) as SignatureAnchorMap;
+      const lateSlotsRaw = (await page.evaluate(JS_MEASURE_LATE_SLOTS)) as LateSlotAnchorMap;
       const pdf = Buffer.from(await page.pdf({ printBackground: true, preferCSSPageSize: true }));
 
       const { PDFDocument } = await import('pdf-lib');
@@ -323,7 +407,14 @@ export class QuoteRendererService {
       this.logger.log(
         `Orçamento e assinaturas couberam em uma folha (layout fundido, ${fuseIterations} passo(s) de sacrifício).`,
       );
-      return { pdf, anchors: resolved, fitIterations: fuseIterations, overflowed: false, contentPages: 1 };
+      return {
+        pdf,
+        anchors: resolved,
+        lateSlots: this.resolveLateSlots(lateSlotsRaw),
+        fitIterations: fuseIterations,
+        overflowed: false,
+        contentPages: 1,
+      };
     } catch (error) {
       this.logger.warn(
         `Layout fundido falhou, usando o de duas partes: ${
@@ -516,6 +607,37 @@ export class QuoteRendererService {
    */
   private async measureAnchors(page: import('playwright').Page): Promise<SignatureAnchorMap> {
     return (await page.evaluate(JS_MEASURE_ANCHORS)) as SignatureAnchorMap;
+  }
+
+  /**
+   * Fixa as lacunas na PRIMEIRA folha, e descarta a que não couber nela.
+   *
+   * A frase do veículo abre o documento, então na prática toda lacuna está na
+   * folha 1. Mas as medidas saem do layout CONTÍNUO do DOM e só coincidem com o
+   * layout PAGINADO enquanto não houver quebra — a mesma premissa que o caminho
+   * fundido verifica com `getPageCount() === 1`. Aqui a verificação é a altura:
+   * passando da primeira folha útil, o retângulo medido não é o impresso, e
+   * carimbar por ele acertaria o lugar errado da página errada.
+   *
+   * Descartar é seguro: sem lacuna registrada, o dado que chegar depois continua
+   * indo para a trilha, como já vai hoje.
+   */
+  private resolveLateSlots(raw: LateSlotAnchorMap): LateSlotAnchorMap {
+    // 275mm em px CSS — a mesma folha útil de `JS_CONTENT_PAGES`.
+    const sheetHeightCss = 275 * (96 / 25.4);
+    const out: LateSlotAnchorMap = {};
+    for (const [key, slot] of Object.entries(raw)) {
+      if (slot.y + slot.height > sheetHeightCss) {
+        this.logger.warn(
+          `Lacuna de cadastro tardio "${key}" caiu fora da primeira folha (y=${slot.y.toFixed(
+            1,
+          )}px) — não será carimbável.`,
+        );
+        continue;
+      }
+      out[key] = { ...slot, page: 0 };
+    }
+    return out;
   }
 
   private getFontDataUri(): string | null {
