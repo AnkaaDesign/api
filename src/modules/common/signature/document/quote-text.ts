@@ -179,11 +179,20 @@ export function generatePaymentText(args: {
    */
   firstDueDate?: Date | null;
 }): string {
-  if (args.customPaymentText) return args.customPaymentText;
+  // Precedência: o texto livre é a cláusula APENAS quando é ele que foi escolhido —
+  // `paymentCondition === 'CUSTOM'` (a validação do faturamento exige o texto nesse caso) ou
+  // quando não há config estruturado nenhum. Havendo `paymentConfig.type`, ele é a fonte que a
+  // tela edita, e o texto livre é resíduo de orçamento CLONADO: nenhuma tela de hoje escreve ou
+  // apaga `customPaymentText`, então ele viajava junto na cópia e sequestrava a cláusula.
+  // Caso Confiança/JAD Zogheib (orçamento 952): a tela mostrava "À Vista - Boleto, 10/09/2026" e
+  // o PDF saía "À COMBINAR". Em produção são 11 configs nessa situação — todas com
+  // `paymentCondition` vazio; nenhuma linha CUSTOM tem config, então o texto delas continua valendo.
+  const structured = args.paymentConfig?.type ? args.paymentConfig : null;
+  if (args.customPaymentText && (!structured || args.paymentCondition === 'CUSTOM')) {
+    return args.customPaymentText;
+  }
 
-  const config = args.paymentConfig?.type
-    ? args.paymentConfig
-    : conditionToConfig(args.paymentCondition);
+  const config = structured ?? conditionToConfig(args.paymentCondition);
   if (!config) return '';
 
   const method = args.paymentMethod || args.paymentConfig?.method || 'BANK_SLIP';
