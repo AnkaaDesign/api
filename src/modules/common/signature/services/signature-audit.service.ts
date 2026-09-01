@@ -20,7 +20,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, SignatureEventType } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { CHAIN_GENESIS_HASH, chainHash, canonicalize } from '../utils/canonical';
+import { CHAIN_GENESIS_HASH, chainHash, canonicalize, type CanonicalValue } from '../utils/canonical';
 
 export type SignatureActorType = 'SIGNER' | 'OPERATOR' | 'SYSTEM';
 
@@ -33,11 +33,18 @@ export interface AuditEventInput {
   userAgent?: string | null;
   documentHash?: string | null;
   /**
-   * Metadados livres. Use APENAS string / boolean / inteiro: o JSONB do Postgres
-   * renormaliza números decimais na ida e volta, o que faria o hash divergir sem
-   * que nada tivesse sido adulterado. Dinheiro vai como string de 2 casas.
+   * Metadados livres, em JSON canonizável (`CanonicalValue`): escalares, listas
+   * e objetos aninhados. A lista de recortes congelados numa emissão é uma lista
+   * de objetos, e achatá-la numa string a tornaria ilegível justamente onde ela
+   * precisa ser lida — na trilha que descreve quem recebeu o quê.
+   *
+   * NADA DE DECIMAL, e a razão não mudou: o JSONB do Postgres renormaliza
+   * números decimais na ida e volta, o que faria o hash divergir sem que nada
+   * tivesse sido adulterado. Dinheiro vai como string de 2 casas, e
+   * `canonicalize` LANÇA em `Prisma.Decimal`, `BigInt` e instâncias de classe —
+   * a barreira é de runtime, não de tipo.
    */
-  payload?: Record<string, string | number | boolean | null> | null;
+  payload?: Record<string, CanonicalValue> | null;
 }
 
 export interface ChainVerificationResult {

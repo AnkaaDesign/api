@@ -188,13 +188,29 @@ sozinho e nenhuma assinatura será registrada.</p>`,
 }
 
 export interface AnkaaNoticeEmailData extends SignatureEmailBase {
-  signingUrl: string;
+  /**
+   * A tela INTERNA do orçamento, atrás do login — não um link de assinatura.
+   *
+   * A contra-assinatura da Ankaa passou a acontecer em sessão autenticada, e o
+   * link deste aviso mudou junto por uma razão de segurança, não de navegação:
+   * um link que ASSINE sem código é uma capability de obrigar a empresa viajando
+   * por e-mail. Quem recebesse a mensagem encaminhada, ou tivesse acesso à caixa,
+   * fecharia o negócio. Este endereço não assina nada por si — ele leva a uma
+   * página que exige credencial.
+   */
+  quoteUrl: string;
+  /** Quantos responsáveis do cliente assinaram. Vai no corpo, para dar o porquê. */
+  signedCount?: number;
 }
 
 export function generateAnkaaCountersignEmail(data: AnkaaNoticeEmailData): {
   subject: string;
   html: string;
 } {
+  const quantos =
+    data.signedCount && data.signedCount > 0
+      ? `${data.signedCount} ${data.signedCount === 1 ? 'responsável' : 'responsáveis'} do cliente`
+      : 'Todos os responsáveis do cliente';
   return {
     subject: `Orçamento nº ${data.budgetNumber} — pronto para sua assinatura`,
     html: shell({
@@ -204,11 +220,12 @@ export function generateAnkaaCountersignEmail(data: AnkaaNoticeEmailData): {
       footerNote: 'E-mail automático da cerimônia de assinatura.',
       body: `
 <p>Olá, ${esc(data.signerName)}.</p>
-<p>Todos os responsáveis do cliente já assinaram o orçamento nº <strong>${esc(data.budgetNumber)}</strong>.</p>
+<p>${esc(quantos)} já ${data.signedCount === 1 ? 'assinou' : 'assinaram'} o orçamento nº <strong>${esc(data.budgetNumber)}</strong>. Falta apenas a sua contra-assinatura para concluir.</p>
+<p>Ela é feita <strong>dentro do sistema</strong>, na tela do orçamento: um botão, sem código de verificação.</p>
 <p style="text-align:center;margin:26px 0;">
-  <a href="${data.signingUrl}" class="button">Revisar os signatários e assinar</a>
+  <a href="${data.quoteUrl}" class="button">Abrir o orçamento e contra-assinar</a>
 </p>
-<p class="linkbox">${esc(data.signingUrl)}</p>`,
+<p class="linkbox">${esc(data.quoteUrl)}</p>`,
     }),
   };
 }

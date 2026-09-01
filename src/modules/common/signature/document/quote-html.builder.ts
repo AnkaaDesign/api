@@ -25,6 +25,7 @@
  */
 
 import { COMPANY, BRAND_COLORS } from '@/config/company';
+import { FULL_SECTIONS, hasSection, type QuoteSection } from '../quote-sections';
 import {
   composeDiscountLabel,
   escapeHtml,
@@ -165,6 +166,19 @@ export interface QuoteHtmlInput {
 
   signers: QuoteHtmlSignerSlot[];
 
+  /**
+   * O RECORTE deste documento: as seções que ele exibe.
+   *
+   * Omitido significa o documento inteiro — é o que mantém funcionando todo
+   * chamador anterior a este recurso (a prévia do orçamento não assinado, o
+   * corpo legível do dossiê) sem que nenhum deles precise saber que recortes
+   * existem.
+   *
+   * O que NÃO é recortável não está aqui: cabeçalho, destinatário, cláusula de
+   * aceitação, bloco de assinaturas e rodapé saem sempre. Ver `quote-sections.ts`.
+   */
+  sections?: readonly QuoteSection[];
+
   /** Cláusula de aceitação do meio eletrônico impressa no corpo do documento. */
   acceptanceClause: string;
   verificationCode: string;
@@ -187,19 +201,36 @@ export interface QuoteHtmlInput {
 export type QuoteHtmlPart = 'content' | 'signatures' | 'fused';
 
 export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'content'): string {
+  // Sem recorte declarado, o documento é o inteiro. Ver `QuoteHtmlInput.sections`.
+  const sections = data.sections ?? FULL_SECTIONS;
+  const showVehicle = hasSection(sections, 'VEHICLE');
+  const showServices = hasSection(sections, 'SERVICES');
+  const showPricing = hasSection(sections, 'PRICING');
+  const showDelivery = hasSection(sections, 'DELIVERY');
+  const showPayment = hasSection(sections, 'PAYMENT');
+  const showGuarantee = hasSection(sections, 'GUARANTEE');
+  const showLayout = hasSection(sections, 'LAYOUT');
+
   // Numeração 1., 2., 3.… e descrição em Title Case com a observação na mesma
   // linha — as três coisas do gerador de referência
   // (`web/src/utils/budget-pdf-generator.ts:530-551`) que faltavam aqui. Sem o
   // número, o cliente não tem como apontar "o item 4" ao contestar; e a
   // observação numa sub-linha cinza fazia o mesmo serviço parecer dois.
+  //
+  // A COLUNA DE VALOR SEGUE `PRICING`, e não `SERVICES`. Os dois são recortes
+  // independentes de propósito: o gestor de frota precisa saber o que será feito
+  // no implemento sem que o preço da obra saia do círculo que precisa dele, e
+  // esse é exatamente o par que um documento único não conseguia entregar. Sem
+  // valor a linha ocupa a largura toda — deixar a coluna vazia desenharia um
+  // campo em branco, que se lê como preço a combinar.
   const servicesHtml = data.services
     .map(
       (s, index) => `
       <div class="service-row">
-        <div class="service-desc"><span class="service-index">${index + 1}</span> - ${escapeHtml(
+        <div class="service-desc${showPricing ? '' : ' service-desc-full'}"><span class="service-index">${index + 1}</span> - ${escapeHtml(
           serviceLineText(s),
         )}</div>
-        <div class="service-amount">${formatCurrencyBRL(s.amount)}</div>
+        ${showPricing ? `<div class="service-amount">${formatCurrencyBRL(s.amount)}</div>` : ''}
       </div>`,
     )
     .join('');
@@ -210,7 +241,9 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     legacy: data.discountLabel,
   });
 
-  const totalsHtml = `
+  const totalsHtml = !showPricing
+    ? ''
+    : `
     <div class="totals">
       ${
         data.discountAmount > 0
@@ -243,8 +276,15 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // Só se fala do veículo quando existe veículo. Sem isto, um orçamento sem
   // caminhão nenhum ganharia três lacunas a preencher e uma frase sobre um
   // objeto que não existe.
+  //
+  // O recorte VEHICLE desliga a frase inteira. Isso também apaga as LACUNAS de
+  // cadastro tardio deste PDF, e é o comportamento certo: sem retângulo medido
+  // não há onde carimbar a placa que chega depois, e carimbar num documento que
+  // nunca falou do veículo inventaria uma frase que ninguém leu. O dado tardio
+  // continua indo para a trilha de auditoria, como ia antes das lacunas
+  // existirem.
   const hasVehicle =
-    identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel;
+    showVehicle && (identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel);
 
   const vehicleParts: string[] = [];
   if (hasVehicle) {
@@ -307,7 +347,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // O layout ia SO para a folha de assinaturas. Quando o orcamento cabe em uma
   // folha o render usa o caminho fundido, que nao tem essa folha — e o layout
   // sumia do documento assinado em silencio, embora a pagina publica o exibisse.
-  const layoutHtml = data.layoutImages.length
+  const layoutHtml = showLayout && data.layoutImages.length
     ? `<section class="layout-section">
          <h2 class="section-title-green">Layout</h2>
          <div class="layout-grid">
@@ -569,6 +609,9 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     font-size: 11.5pt; font-weight: 700; color: var(--green);
   }
 
+  /* Sem coluna de valor, a descricao ocupa a largura toda. Ver servicesHtml. */
+  .service-desc-full { flex: 1 1 100%; padding-right: 0; }
+
   /* Titulo e corpo do bloco andam juntos: "Condicoes de pagamento" orfao no pe
      de uma folha, com o texto na seguinte, e um defeito de leitura num
      documento contratual. */
@@ -672,14 +715,27 @@ ${part === 'content' || part === 'fused' ? `
 
     <div class="page-content-gap"></div>
 
-    <section class="services-section">
+    ${
+      showServices
+        ? `<section class="services-section">
       <h2 class="section-title-green">Serviços</h2>
       <div class="services-list">${servicesHtml}</div>
       ${totalsHtml}
-    </section>
+    </section>`
+        : // PREÇO SEM LISTA DE SERVIÇOS é combinação legítima e tem de sair como
+          // bloco próprio: um recorte que mostra o total sem detalhar os itens é
+          // o que se manda a quem aprova a despesa e não decide o escopo. Sem
+          // este ramo o total desapareceria junto com a lista.
+          showPricing
+          ? `<section class="services-section">
+      <h2 class="section-title-green">Valores</h2>
+      ${totalsHtml}
+    </section>`
+          : ''
+    }
 
     ${
-      data.deliveryDays
+      showDelivery && data.deliveryDays
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
              <h2 class="terms-title">Prazo de entrega</h2>
@@ -693,7 +749,7 @@ ${part === 'content' || part === 'fused' ? `
     }
 
     ${
-      data.paymentText
+      showPayment && data.paymentText
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
              <h2 class="terms-title">Condições de pagamento</h2>
@@ -703,7 +759,7 @@ ${part === 'content' || part === 'fused' ? `
     }
 
     ${
-      data.guaranteeText
+      showGuarantee && data.guaranteeText
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
              <h2 class="terms-title">Garantias</h2>

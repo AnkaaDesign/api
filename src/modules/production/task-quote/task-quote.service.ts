@@ -53,6 +53,7 @@ import {
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
+import { pickPrimaryResponsible } from '@constants/enums';
 import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
@@ -213,10 +214,13 @@ export class TaskQuoteService {
       }
 
       // Default each customerConfig's responsibleId to the best task responsible if missing.
-      // Priority: OWNER > first by createdAt (matches the public budget page display logic).
+      // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt. The old
+      // criterion was `roles.includes('OWNER')`, and that role no longer exists —
+      // the successor rule lives in one place and is shared with task.service and
+      // with the public budget page.
       const taskResponsibles = (task as any).responsibles ?? [];
-      const ownerResp = taskResponsibles.find((r: any) => r.roles?.includes('OWNER'));
-      const defaultResponsibleId = (ownerResp ?? taskResponsibles[0])?.id || null;
+      const defaultResponsibleId =
+        pickPrimaryResponsible<{ id: string; roles?: string[] }>(taskResponsibles)?.id || null;
       if (defaultResponsibleId) {
         for (const config of data.customerConfigs) {
           if (!config.responsibleId) {
@@ -801,15 +805,16 @@ export class TaskQuoteService {
         }
 
         // Default each customerConfig's responsibleId to the best task responsible if missing.
-        // Priority: OWNER > first by createdAt (mirrors create() and the public budget page).
+        // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt (mirrors
+        // create() and the public budget page).
         // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
         const taskWithResp = await this.prisma.task.findFirst({
           where: { quoteId: id },
           include: { responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } } },
         });
         const taskWithRespList = (taskWithResp as any)?.responsibles ?? [];
-        const ownerRespForUpdate = taskWithRespList.find((r: any) => r.roles?.includes('OWNER'));
-        const defaultResponsibleId = (ownerRespForUpdate ?? taskWithRespList[0])?.id || null;
+        const defaultResponsibleId =
+          pickPrimaryResponsible<{ id: string; roles?: string[] }>(taskWithRespList)?.id || null;
         if (defaultResponsibleId) {
           for (const config of data.customerConfigs) {
             if (!config.responsibleId) {

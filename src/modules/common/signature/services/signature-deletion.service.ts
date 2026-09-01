@@ -192,6 +192,19 @@ export class SignatureDeletionService {
         finalFileId: true,
         originalFile: { select: { id: true, path: true } },
         finalFile: { select: { id: true, path: true } },
+        // Os RECORTES congelados. Cada um tem `File` próprio, com a mesma FK
+        // RESTRICT do envelope — sem apagá-los aqui, a purga de uma coleta
+        // diversificada quebraria no `file.deleteMany` com violação de chave
+        // estrangeira, e o orçamento voltaria a ser inapagável.
+        documents: {
+          select: {
+            id: true,
+            originalFileId: true,
+            finalFileId: true,
+            originalFile: { select: { id: true, path: true } },
+            finalFile: { select: { id: true, path: true } },
+          },
+        },
       },
     });
     if (!envelopes.length) return EMPTY_PURGE;
@@ -213,6 +226,8 @@ export class SignatureDeletionService {
       where: { signer: { envelopeId: { in: envelopeIds } } },
     });
     await tx.envelopeSigner.deleteMany({ where: { envelopeId: { in: envelopeIds } } });
+    // Depois dos signatários (que apontam para o documento) e antes do envelope.
+    await tx.envelopeDocument.deleteMany({ where: { envelopeId: { in: envelopeIds } } });
     // `previousEnvelopeId` é auto-referência com onDelete: SetNull, então apagar
     // v1 e v2 no mesmo deleteMany é seguro em qualquer ordem.
     await tx.signatureEnvelope.deleteMany({ where: { id: { in: envelopeIds } } });
@@ -220,19 +235,36 @@ export class SignatureDeletionService {
     // Linhas `File` do PDF congelado: só podem sair DEPOIS do envelope, porque a
     // FK `originalFileId` é RESTRICT (é o que impede perder os bytes de um
     // envelope vivo).
+    // `Set`: o recorte completo compartilha o `File` com as colunas espelhadas do
+    // envelope, então o mesmo id aparece duas vezes. `deleteMany` não se importa,
+    // mas a contagem e o log ficariam mentindo.
     const fileIds = [
-      ...envelopes.map(e => e.originalFileId),
-      ...envelopes.map(e => e.finalFileId),
-    ].filter((id): id is string => Boolean(id));
+      ...new Set(
+        [
+          ...envelopes.map(e => e.originalFileId),
+          ...envelopes.map(e => e.finalFileId),
+          ...envelopes.flatMap(e => e.documents.map(d => d.originalFileId)),
+          ...envelopes.flatMap(e => e.documents.map(d => d.finalFileId)),
+        ].filter((id): id is string => Boolean(id)),
+      ),
+    ];
     if (fileIds.length) {
       await tx.file.deleteMany({ where: { id: { in: fileIds } } });
     }
 
     await tx.$executeRawUnsafe(FLAG_OFF);
 
-    const frozenDocumentPaths = envelopes
-      .flatMap(e => [e.originalFile?.path, e.finalFile?.path])
-      .filter((p): p is string => Boolean(p));
+    const frozenDocumentPaths = [
+      ...new Set(
+        envelopes
+          .flatMap(e => [
+            e.originalFile?.path,
+            e.finalFile?.path,
+            ...e.documents.flatMap(d => [d.originalFile?.path, d.finalFile?.path]),
+          ])
+          .filter((p): p is string => Boolean(p)),
+      ),
+    ];
 
     this.logger.log(
       `Purgados ${envelopes.length} envelope(s) [${envelopes

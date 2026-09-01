@@ -355,6 +355,26 @@ export class FileOrganizationSchedulerService {
         return envelope.quote.task.customer.fantasyName;
       }
 
+      // RECORTE do orçamento assinado. A coleta congela um PDF por conjunto de
+      // campos, e só o completo aparece nas colunas do envelope acima — sem esta
+      // consulta os arquivos dos demais recortes ficariam órfãos de cliente e
+      // seriam arquivados na pasta errada.
+      const envelopeDocument = await this.prisma.envelopeDocument.findFirst({
+        where: { OR: [{ originalFileId: fileId }, { finalFileId: fileId }] },
+        select: {
+          envelope: {
+            select: {
+              quote: {
+                select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+              },
+            },
+          },
+        },
+      });
+      if (envelopeDocument?.envelope?.quote?.task?.customer?.fantasyName) {
+        return envelopeDocument.envelope.quote.task.customer.fantasyName;
+      }
+
       // Comprovante de parcela (Installment.receiptFiles -> customerConfig -> customer).
       const installment = await this.prisma.installment.findFirst({
         where: { receiptFiles: { some: { id: fileId } } },

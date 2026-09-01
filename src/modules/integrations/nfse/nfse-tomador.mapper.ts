@@ -38,7 +38,7 @@ export const NFSE_CUSTOMER_SELECT = {
  * Whose contact represents the company on a fiscal document, best first. A responsável
  * carrying none of these roles still counts — it just sorts last.
  */
-const CONTACT_ROLE_PRIORITY = ['FINANCIAL', 'OWNER', 'COMMERCIAL', 'REPRESENTATIVE'];
+const CONTACT_ROLE_PRIORITY = ['FINANCIAL', 'COMMERCIAL', 'REPRESENTATIVE', 'PURCHASING'];
 
 interface ResponsibleContact {
   email: string | null;

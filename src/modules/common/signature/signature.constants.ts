@@ -26,14 +26,40 @@
  *   AQUELE método, e um documento que descreve errado o método que usou entrega
  *   ao adversário a primeira linha de defesa de graça.
  *
+ * v4 (2026-09-01): duas mudanças, pela mesma causa — a coleta deixou de ser um
+ * documento só para todo mundo.
+ *
+ *   1. **O texto segue o RECORTE.** A declaração `reviewed` afirmava o valor
+ *      total do orçamento. Num recorte que não exibe preço — o do marketing, que
+ *      recebe texto básico e layout — isso faria a pessoa declarar concordar com
+ *      um número que o documento à frente dela não mostra, e ainda vazaria esse
+ *      número na própria declaração, contra a decisão de não mandá-lo. Agora há
+ *      uma redação sem valor para quem não recebeu a seção de preço.
+ *
+ *   2. **A Ankaa assina em sessão autenticada, não por código.** As quatro
+ *      declarações falam de posse de canal e de poderes de representação, que são
+ *      afirmações sobre o CLIENTE. Impô-las a quem já está autenticado na
+ *      plataforma da própria contratada era cerimônia sem função probatória: a
+ *      identidade vem da sessão e os poderes, do vínculo empregatício. Ver
+ *      `declarationsFor({ kind: 'INTERNAL' })`.
+ *
  * Envelopes já assinados não são afetados: `EnvelopeSigner.declarations` guarda
  * o texto exato que aquela pessoa leu, e `SignatureEnvelope.acceptanceClause` é
  * persistida por envelope. Nenhum dos dois é retroalimentado.
  */
-export const DECLARATIONS_VERSION = 3;
+export const DECLARATIONS_VERSION = 4;
 
 /** O canal de uma coleta, no vocabulário de `signature-delivery.ts`. */
 type ClauseChannel = 'WHATSAPP' | 'EMAIL';
+
+/**
+ * Como a cerimônia autentica aquele signatário.
+ *
+ * `OTP` é o contato do cliente, que prova posse do canal com um código de uso
+ * único. `INTERNAL` é o signatário da Ankaa, autenticado pela sessão da própria
+ * plataforma — ver `SignatureAuthMethod.INTERNAL_SESSION`.
+ */
+export type CeremonyKind = 'OTP' | 'INTERNAL';
 
 /**
  * Cláusula impressa no corpo do orçamento.
@@ -57,11 +83,15 @@ export function acceptanceClauseFor(channel: ClauseChannel): string {
   return (
     'ACEITAÇÃO DO MEIO ELETRÔNICO. As partes reconhecem e aceitam, para todos os fins do ' +
     'art. 10, § 2º, da Medida Provisória nº 2.200-2/2001, a assinatura eletrônica deste ' +
-    'orçamento por meio da plataforma da CONTRATADA, mediante autenticação por código de uso ' +
-    `único ${delivery} e registro de trilha de auditoria, ` +
+    'orçamento por meio da plataforma da CONTRATADA, mediante autenticação do CONTRATANTE por ' +
+    `código de uso único ${delivery}, autenticação da CONTRATADA em sessão identificada de sua ` +
+    'própria plataforma, e registro de trilha de auditoria, ' +
     'admitindo tal método como meio válido de comprovação de autoria e integridade, com os ' +
     'mesmos efeitos da assinatura manuscrita, e renunciando a impugná-lo exclusivamente em ' +
-    'razão de sua forma eletrônica ou da ausência de certificação ICP-Brasil.'
+    'razão de sua forma eletrônica ou da ausência de certificação ICP-Brasil. ' +
+    'Quando o CONTRATANTE indicar mais de um signatário, cada um recebe e assina o recorte ' +
+    'deste orçamento correspondente à sua função, e todos os recortes são partes do mesmo ' +
+    'instrumento, integralmente assinado pela CONTRATADA.'
   );
 }
 
@@ -71,8 +101,26 @@ export interface DeclarationDef {
   template: string;
 }
 
+/** O que decide QUAIS declarações e com qual redação. */
+export interface DeclarationContext {
+  /** Canal da coleta. Governa a redação de `identity`. Irrelevante em `INTERNAL`. */
+  channel: ClauseChannel;
+  /** Padrão `OTP` — o contato do cliente. */
+  kind?: CeremonyKind;
+  /**
+   * O recorte deste signatário exibe os VALORES?
+   *
+   * Padrão `true`. Quando falso, `reviewed` perde a menção ao total: o
+   * documento à frente daquela pessoa não traz o número, e fazê-la declarar
+   * concordância com um valor que ela não viu é pior do que inútil — é a
+   * afirmação que o adversário lê primeiro. E imprimir o total na declaração
+   * derrubaria, sozinho, a decisão de não mandá-lo àquele signatário.
+   */
+  showsTotal?: boolean;
+}
+
 /**
- * Quatro declarações SEPARADAS, nunca uma só.
+ * Quatro declarações SEPARADAS, nunca uma só — no caminho do cliente.
  *
  * A terceira — poderes de representação — é a que será efetivamente necessária em
  * juízo: a disputa provável em B2B não é "um impostor assinou", é "o gestor de
@@ -80,15 +128,49 @@ export interface DeclarationDef {
  * próprio, com timestamp e IP próprios. O CC art. 118 já põe sobre o
  * representante o ônus de provar sua qualidade e a extensão de seus poderes, sob
  * pena de responder pessoalmente pelo excesso.
+ *
+ * NO CAMINHO INTERNO SÃO DUAS, e a redução não é conveniência de tela. As duas
+ * que saem — posse do canal e poderes de representação — são afirmações que a
+ * cerimônia precisa arrancar de quem ela NÃO conhece. Do lado da Ankaa, a
+ * identidade vem da sessão autenticada (que o servidor emitiu, e não o
+ * signatário) e os poderes vêm do vínculo empregatício registrado no próprio
+ * sistema. Pedi-las de novo não acrescenta prova; só transforma em ritual o que
+ * o adversário jamais contestará, e é do lado do CLIENTE que a contestação mora.
  */
-export function declarationsFor(channel: ClauseChannel): DeclarationDef[] {
+export function declarationsFor(context: DeclarationContext): DeclarationDef[] {
+  const { channel, kind = 'OTP', showsTotal = true } = context;
+
+  const reviewed: DeclarationDef = {
+    key: 'reviewed',
+    template: showsTotal
+      ? 'Declaro que li e revisei integralmente este orçamento nº {budgetNumber}, no valor ' +
+        'total de {total}, e que concordo com seu conteúdo.'
+      : // Sem o valor, e dizendo que o documento é um RECORTE. A alternativa —
+        // calar sobre isso — faria a pessoa declarar ter revisado "integralmente
+        // o orçamento" tendo lido uma parte dele, que é uma declaração falsa
+        // colhida pela própria plataforma.
+        'Declaro que li e revisei integralmente este documento, que reproduz as seções do ' +
+        'orçamento nº {budgetNumber} pertinentes à minha função ({sections}), e que concordo ' +
+        'com seu conteúdo.',
+  };
+
+  if (kind === 'INTERNAL') {
+    return [
+      reviewed,
+      {
+        key: 'method',
+        template:
+          'Assino este orçamento em nome da {ankaaCompany}, na qualidade de {cargo}, em sessão ' +
+          'autenticada da plataforma da própria empresa. Reconheço que esta assinatura ' +
+          'eletrônica produz os mesmos efeitos da assinatura manuscrita, nos termos do art. 10, ' +
+          '§ 2º, da MP nº 2.200-2/2001, e autorizo o registro de meu nome, CPF, endereço IP, ' +
+          'data e hora na trilha de auditoria deste documento e de cada recorte dele.',
+      },
+    ];
+  }
+
   return [
-    {
-      key: 'reviewed',
-      template:
-        'Declaro que li e revisei integralmente este orçamento nº {budgetNumber}, no valor ' +
-        'total de {total}, e que concordo com seu conteúdo.',
-    },
+    reviewed,
     {
       key: 'identity',
       // O contato declarado é o do CANAL da coleta — é ele que recebeu o código
@@ -121,12 +203,16 @@ export function declarationsFor(channel: ClauseChannel): DeclarationDef[] {
 }
 
 /**
- * As CHAVES não dependem do canal — só os textos dependem.
+ * As CHAVES não dependem do canal nem do recorte — só os textos dependem.
  *
  * Separá-las importa: a validação do POST de assinatura confere se o signatário
  * aceitou todas as declarações, e derivar essa lista de um canal exigiria
  * resolver o canal para responder "faltou alguma?". Uma divergência ali
  * recusaria assinaturas legítimas.
+ *
+ * Dependem, sim, da CERIMÔNIA: o caminho interno tem duas. Por isso a lista
+ * plana continua sendo a do cliente (é ela que o POST público valida) e o
+ * caminho interno pede a sua por `declarationKeysFor`.
  */
 export const DECLARATION_KEYS: readonly string[] = [
   'reviewed',
@@ -134,6 +220,12 @@ export const DECLARATION_KEYS: readonly string[] = [
   'authority',
   'method',
 ];
+
+export const INTERNAL_DECLARATION_KEYS: readonly string[] = ['reviewed', 'method'];
+
+export function declarationKeysFor(kind: CeremonyKind): readonly string[] {
+  return kind === 'INTERNAL' ? INTERNAL_DECLARATION_KEYS : DECLARATION_KEYS;
+}
 
 export function renderDeclaration(
   template: string,

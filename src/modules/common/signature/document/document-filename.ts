@@ -34,12 +34,21 @@ export function padBudgetNumber(budgetNumber: number | null | undefined): string
   return budgetNumber == null ? '0000' : String(budgetNumber).padStart(4, '0');
 }
 
-/** `MADEIREIRA X LTDA - Orçamento 0417.pdf` */
+/**
+ * `MADEIREIRA X LTDA - Orçamento 0417.pdf`
+ *
+ * @param variantSuffix  Sufixo do RECORTE, quando a coleta congelou mais de um
+ *   (`-layout`, `-sem-layout`). Vazio no caso comum — e vazio TAMBÉM quando há
+ *   um recorte só, porque baixar o documento de sempre não pode passar a gravar
+ *   um arquivo com nome novo por causa de um recurso que aquela coleta não usa.
+ *   Ver `variantFilenameSuffix` em `quote-sections.ts`.
+ */
 export function budgetPdfFilename(
   customer: { corporateName?: string | null; fantasyName?: string | null } | null | undefined,
   budgetNumber: number | null | undefined,
+  variantSuffix = '',
 ): string {
-  return `${sanitizeFilename(customerLabel(customer))} - Orçamento ${padBudgetNumber(budgetNumber)}.pdf`;
+  return `${sanitizeFilename(customerLabel(customer))} - Orçamento ${padBudgetNumber(budgetNumber)}${sanitizeFilename(variantSuffix)}.pdf`;
 }
 
 /** `MADEIREIRA X LTDA - Dossiê 0417.pdf` — mesmo número, outro documento. */

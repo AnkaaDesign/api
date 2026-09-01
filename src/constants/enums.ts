@@ -2691,12 +2691,27 @@ export enum BONIFICATION_STATUS {
   SUSPENDED_BONIFICATION = 'SUSPENDED_BONIFICATION',
 }
 
+/**
+ * Funções que um contato do cliente exerce.
+ *
+ * A ORDEM É A DO ENUM DO BANCO e é significativa duas vezes: `responsibleRolesSchema`
+ * ordena por ela para manter estável o diff do changelog, e ela agrupa as funções
+ * pela FATIA do orçamento que cada uma recebe na assinatura eletrônica — primeiro
+ * as que recebem tudo, depois as que recebem um recorte, por último as que por
+ * padrão não assinam. Ver `signature/quote-sections.ts`.
+ *
+ * `OWNER` foi removida em 2026-09-01: ela nomeava uma pessoa, não uma área de
+ * interesse, e por isso não respondia à única pergunta que a função passou a ter
+ * de responder — que parte do documento aquele contato deve ver. Os contatos que
+ * a tinham receberam COMMERCIAL + MARKETING + FINANCIAL + FLEET_MANAGER, cuja
+ * união é o documento inteiro.
+ */
 export enum RESPONSIBLE_ROLE {
   COMMERCIAL = 'COMMERCIAL',
-  OWNER = 'OWNER',
   SELLER = 'SELLER',
   REPRESENTATIVE = 'REPRESENTATIVE',
   COORDINATOR = 'COORDINATOR',
+  PURCHASING = 'PURCHASING',
   MARKETING = 'MARKETING',
   FINANCIAL = 'FINANCIAL',
   FLEET_MANAGER = 'FLEET_MANAGER',
@@ -2705,15 +2720,59 @@ export enum RESPONSIBLE_ROLE {
 
 export const RESPONSIBLE_ROLE_LABELS = {
   [RESPONSIBLE_ROLE.COMMERCIAL]: 'Comercial',
-  [RESPONSIBLE_ROLE.OWNER]: 'Proprietário',
   [RESPONSIBLE_ROLE.SELLER]: 'Vendedor',
   [RESPONSIBLE_ROLE.REPRESENTATIVE]: 'Representante',
   [RESPONSIBLE_ROLE.COORDINATOR]: 'Coordenador',
+  [RESPONSIBLE_ROLE.PURCHASING]: 'Compras',
   [RESPONSIBLE_ROLE.MARKETING]: 'Marketing',
   [RESPONSIBLE_ROLE.FINANCIAL]: 'Financeiro',
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: 'Gestor de Frota',
   [RESPONSIBLE_ROLE.DRIVER]: 'Motorista',
 };
+
+/**
+ * Ordem de preferência para eleger o responsável PRINCIPAL de uma tarefa — o
+ * contato a quem o orçamento é endereçado e que os `TaskQuoteCustomerConfig`
+ * herdam quando ninguém escolheu um.
+ *
+ * Existe porque o critério era `roles.includes('OWNER')`, escrito à mão em quatro
+ * lugares, e a função sumiu. Sucessor natural é COMMERCIAL: é a função de quem
+ * conduz a negociação, e é uma das quatro que os ex-proprietários receberam na
+ * migração — então o contato que era principal continua sendo.
+ *
+ * FLEET_MANAGER e DRIVER ficam por último de propósito: são as funções que, por
+ * padrão, sequer assinam.
+ */
+export const RESPONSIBLE_ROLE_PRIMARY_PRIORITY: readonly RESPONSIBLE_ROLE[] = [
+  RESPONSIBLE_ROLE.COMMERCIAL,
+  RESPONSIBLE_ROLE.REPRESENTATIVE,
+  RESPONSIBLE_ROLE.COORDINATOR,
+  RESPONSIBLE_ROLE.PURCHASING,
+  RESPONSIBLE_ROLE.SELLER,
+  RESPONSIBLE_ROLE.FINANCIAL,
+  RESPONSIBLE_ROLE.MARKETING,
+  RESPONSIBLE_ROLE.FLEET_MANAGER,
+  RESPONSIBLE_ROLE.DRIVER,
+];
+
+/**
+ * O responsável principal de uma lista já ordenada por `createdAt`.
+ *
+ * Devolve o primeiro contato da função mais alta de `RESPONSIBLE_ROLE_PRIMARY_PRIORITY`
+ * e, não havendo nenhum com função conhecida, o primeiro da lista — que é o
+ * recuo que o critério antigo (`OWNER ?? [0]`) já tinha.
+ */
+export function pickPrimaryResponsible<T extends { roles?: readonly string[] | null }>(
+  responsibles: readonly T[] | null | undefined,
+): T | null {
+  const list = responsibles ?? [];
+  if (list.length === 0) return null;
+  for (const role of RESPONSIBLE_ROLE_PRIMARY_PRIORITY) {
+    const match = list.find(r => (r.roles ?? []).includes(role));
+    if (match) return match;
+  }
+  return list[0] ?? null;
+}
 
 /**
  * Human-readable label for a contact's set of roles, e.g. "Comercial, Financeiro".

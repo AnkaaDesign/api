@@ -7,8 +7,8 @@ export const responsibleRoleSchema = z.nativeEnum(ResponsibleRole);
 /**
  * Canonical order for a responsible's roles: the enum declaration order.
  *
- * Postgres preserves insertion order in an enum array, so ['OWNER','DRIVER']
- * and ['DRIVER','OWNER'] are distinct values that mean the same thing. Without
+ * Postgres preserves insertion order in an enum array, so ['DRIVER','COMMERCIAL']
+ * and ['COMMERCIAL','DRIVER'] are distinct values that mean the same thing. Without
  * canonicalisation every re-order would be recorded as a real change by the
  * changelog differ (which compares serialized values), producing phantom
  * history entries.
@@ -203,13 +203,23 @@ export const responsibleGetManyObjectSchema = z.object({
   include: responsibleIncludeSchema.optional(),
   // Direct filters (commonly used by frontend). `roles` is any-of (hasSome):
   // pick FINANCIAL + FLEET_MANAGER to list every contact holding either.
-  // A bare scalar is coerced so `?roles=OWNER` and legacy `?role=OWNER` work.
+  // A bare scalar is coerced so `?roles=DRIVER` and legacy `?role=DRIVER` work.
+  //
+  // UNKNOWN VALUES ARE DROPPED, not rejected. `OWNER` was removed from the enum
+  // on 2026-09-01, and saved table filters live in the browser's localStorage:
+  // a bookmark or a persisted layout still carrying it would take a 400 on every
+  // page load, with nothing on screen explaining why. Same self-healing rule the
+  // legacy-`role` fold below already applies to a stale `orderBy`.
   companyId: z.string().uuid().optional(),
   roles: z
-    .preprocess(
-      value => (typeof value === 'string' ? [value] : value),
-      z.array(responsibleRoleSchema).optional(),
-    )
+    .preprocess(value => {
+      const list = typeof value === 'string' ? [value] : value;
+      if (!Array.isArray(list)) return list;
+      const known = list.filter(v => Object.values(ResponsibleRole).includes(v as ResponsibleRole));
+      // Toda a lista era desconhecida: some com o filtro em vez de devolver `[]`,
+      // que o Prisma leria como "hasSome de nada" e zeraria a listagem.
+      return known.length ? known : undefined;
+    }, z.array(responsibleRoleSchema).optional())
     .optional(),
   isActive: z.preprocess(val => {
     if (val === 'true') return true;
@@ -219,8 +229,8 @@ export const responsibleGetManyObjectSchema = z.object({
 });
 
 /**
- * Accepts the pre-array query contract for one release: a legacy `?role=OWNER`
- * (or `where[role]=OWNER`) is folded into `roles` / `where.roles.has` instead
+ * Accepts the pre-array query contract for one release: a legacy `?role=DRIVER`
+ * (or `where[role]=DRIVER`) is folded into `roles` / `where.roles.has` instead
  * of reaching Prisma as an invalid scalar-list filter. Anything left over is
  * dropped, so a stale `orderBy[role]` from a bookmark or a persisted table
  * layout self-heals rather than 500-ing.

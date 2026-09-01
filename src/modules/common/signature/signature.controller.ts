@@ -111,14 +111,55 @@ export class SignatureController {
       actorUserId: userId,
       ctx: ctxOf(req),
       channel: body?.channel ?? null,
+      signers: body?.signers ?? null,
+    });
+    const via =
+      result.channel === 'WHATSAPP'
+        ? 'Orçamento enviado para assinatura por WhatsApp.'
+        : 'Orçamento enviado para assinatura por e-mail.';
+    return {
+      success: true,
+      // Quantos PDFs foram congelados só é dito quando é mais de um: na coleta
+      // comum a frase "1 documento" descreveria como novidade o que sempre foi.
+      message:
+        result.documents.length > 1
+          ? `${via} ${result.documents.length} documentos foram gerados, um por conjunto de campos.`
+          : via,
+      data: result,
+    };
+  }
+
+  /**
+   * Contra-assinatura da Ankaa — um botão, sem código.
+   *
+   * Rota INTERNA de propósito, e é aí que está a segurança: a autenticação é a
+   * sessão do próprio sistema, não um token que viaja por e-mail. Ver
+   * `SignatureEnvelopeService.countersign`.
+   *
+   * `@Roles` não basta sozinho e não pretende bastar: o serviço confere que quem
+   * está chamando é O signatário designado do envelope. Um COMMERCIAL qualquer
+   * não contra-assina o orçamento de outro.
+   */
+  @Post(':id/contra-assinar')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async countersign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @Req() req: Request,
+  ) {
+    const data = await this.envelopes.countersign({
+      envelopeId: id,
+      actorUserId: userId,
+      ctx: ctxOf(req),
     });
     return {
       success: true,
       message:
-        result.channel === 'WHATSAPP'
-          ? 'Orçamento enviado para assinatura por WhatsApp.'
-          : 'Orçamento enviado para assinatura por e-mail.',
-      data: result,
+        data.envelopeStatus === 'COMPLETED'
+          ? 'Orçamento contra-assinado e documento final emitido.'
+          : 'Orçamento contra-assinado.',
+      data,
     };
   }
 
@@ -207,8 +248,19 @@ export class SignatureController {
    */
   @Get(':id/document.pdf')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
-  async document(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
-    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(id);
+  async document(
+    @Param('id', ParseUUIDPipe) id: string,
+    // `?recorte=<uuid>` serve UM dos recortes congelados. Sem ele vem o documento
+    // completo, que é o instrumento — e é o que o operador quer ver por padrão.
+    // SEM `ParseUUIDPipe`: uma query vazia (`?recorte=`) significa "o completo",
+    // e o pipe a transformaria em 400.
+    @Query('recorte') recorte: string | undefined,
+    @Res() res: Response,
+  ) {
+    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(
+      id,
+      recorte?.trim() || null,
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
     res.setHeader('Content-Disposition', contentDisposition('inline', filename));
@@ -317,7 +369,13 @@ export class PublicSignatureController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async document(@Param('token') token: string, @Req() req: Request, @Res() res: Response) {
     const signer = await this.envelopes.getByToken(token);
-    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(signer.envelopeId);
+    // O RECORTE DELE, nunca o do envelope. É esta linha que faz o link do
+    // marketing servir o pdf sem preço — o token é a capability de UM documento,
+    // e não da coleta inteira.
+    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(
+      signer.envelopeId,
+      signer.documentId,
+    );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
     res.setHeader('Content-Disposition', contentDisposition('inline', filename));

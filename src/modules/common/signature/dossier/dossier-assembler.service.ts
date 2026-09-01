@@ -9,6 +9,12 @@
  *    cuidado, é garantido. Por isso os bytes assinados entram aqui como ANEXO
  *    (`/EmbeddedFiles`), idênticos ao original, e continuam validando sozinhos.
  *
+ *    Com a assinatura diversificada são VÁRIOS anexos: a coleta congela um PDF
+ *    por recorte, cada um com o seu selo, e todos eles são o instrumento. Anexar
+ *    só o completo esconderia justamente a prova de que o financeiro assinou —
+ *    porque o que ele assinou foi o PDF sem o layout, e é esse que carrega o
+ *    selo dele.
+ *
  * 2. **Boleto e NFS-e NÃO recebem o selo da Ankaa.** Selar documento de terceiro
  *    com o nosso certificado afirmaria algo que não é verdade: o A1 atesta que a
  *    Ankaa emitiu aquele documento. Boleto se valida pelo código de barras e
@@ -16,13 +22,26 @@
  *    Logo o dossiê inteiro NÃO é selado: ele é um invólucro de transmissão, e o
  *    instrumento jurídico é o anexo do item 1.
  *
- * 3. **As páginas do orçamento aparecem como cópia legível.** Um anexo não é
- *    exibido ao abrir o PDF na maioria dos visualizadores — menos ainda no
- *    celular, que é onde o cliente abre o que chega por WhatsApp. Um dossiê em
- *    que o orçamento só existe como anexo seria, na prática, um dossiê sem
- *    orçamento. As páginas copiadas são idênticas às assinadas (mesmos selos
- *    visuais, mesmo rodapé com hash e código de verificação), e a capa diz, sem
- *    rodeios, que a cópia não carrega a assinatura digital e onde ela está.
+ * 3. **O corpo legível é uma RENDERIZAÇÃO PRÓPRIA do orçamento, não o PDF
+ *    congelado.** Um anexo não é exibido ao abrir o PDF na maioria dos
+ *    visualizadores — menos ainda no celular, que é onde o cliente abre o que
+ *    chega por WhatsApp. Um dossiê em que o orçamento só existe como anexo
+ *    seria, na prática, um dossiê sem orçamento.
+ *
+ *    Copiar as páginas do documento assinado resolvia isso, mas parou de
+ *    resolver quando a coleta passou a congelar VÁRIOS recortes: não existe mais
+ *    "as páginas do documento assinado" no singular, e escolher um dos recortes
+ *    para ser a cópia legível faria o dossiê exibir o que aquele signatário viu
+ *    em vez do orçamento. Além disso a cópia arrastava junto os selos e a trilha
+ *    de auditoria, que são peça de disputa e não de comunicação comercial.
+ *
+ *    Então o corpo volta a ser uma página NÃO RELACIONADA à cerimônia: o
+ *    orçamento renderizado agora, com as linhas de assinatura em branco e sem
+ *    selo nenhum. Ele não pode divergir do que foi assinado porque qualquer
+ *    alteração material do orçamento INVALIDA a coleta e obriga a recolher as
+ *    assinaturas — o que sobra são correções cosméticas, que o dossiê passa a
+ *    refletir, e é o que se quer. A prova continua inteira, byte a byte, nos
+ *    anexos.
  *
  * 4. **Sem capa e sem trilha de auditoria.** O que o cliente recebe é orçamento,
  *    fotos, nota e boleto. A trilha é instrumento de disputa judicial, não de
@@ -57,13 +76,10 @@
  *    total e condição de pagamento daquela configuração), porém SOMENTE no
  *    caminho não assinado, onde o documento é montado agora a partir dos dados.
  *
- *    Onde existe artefato assinado o orçamento sai inteiro, e isso não é
- *    inconsistência: um PDF assinado não se recorta — remover uma página quebra
- *    o A1 —, e re-renderizá-lo recortado seria entregar uma reconstrução no
- *    lugar do documento que o cliente assinou, exatamente o que a decisão 1
- *    proíbe. O que foi assinado é um contrato só, com o escopo inteiro e uma
- *    linha de assinatura por cliente. A fatia de cada um continua visível na
- *    tela do dossiê, que filtra por configuração.
+ *    O corpo legível agora é sempre renderizado, então o recorte por cliente
+ *    vale para ele em qualquer caso. Os ANEXOS continuam saindo inteiros: um PDF
+ *    assinado não se recorta — remover uma página quebra o A1 —, e o que foi
+ *    assinado é o instrumento com o escopo inteiro.
  */
 
 import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
@@ -76,6 +92,11 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
+import {
+  canonicalSections,
+  describeSections,
+  variantFilenameSuffix,
+} from '../quote-sections';
 import { dossierPdfFilename } from '../document/document-filename';
 import { formatDateBR } from '../document/quote-text';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
@@ -99,8 +120,13 @@ export interface DossierResult {
   pdf: Buffer;
   filename: string;
   components: DossierComponent[];
-  /** Nome do anexo que carrega o orçamento assinado; null quando omitido. */
+  /**
+   * O primeiro anexo (o recorte completo), para quem só sabe lidar com um.
+   * @deprecated Use `attachmentNames` — a coleta pode ter congelado vários.
+   */
   attachmentName: string | null;
+  /** Nome de cada artefato assinado anexado. Vazio quando nenhum foi. */
+  attachmentNames: string[];
   /** Null quando o orçamento ainda não foi assinado. */
   verificationCode: string | null;
   budgetNumber: number;
@@ -123,7 +149,7 @@ export class DossierAssemblerService {
   ) {}
 
   /**
-   * @param options.attachSigned  Anexar o PDF assinado (padrão: sim).
+   * @param options.attachSigned  Anexar os PDFs assinados (padrão: sim).
    *
    *   ESCOLHA EXCLUSIVA, sem meio-termo possível: a trilha de auditoria foi
    *   selada JUNTO do orçamento, então o anexo que preserva o A1 carrega a
@@ -132,9 +158,15 @@ export class DossierAssemblerService {
    *   anexo, o dossiê vira um pacote apenas legível, sem nenhuma assinatura
    *   digital, e a prova fica só no servidor.
    *
-   * @param options.customerId  Segmenta nota e boleto por cliente do faturamento
-   *   (ver decisão 7). Omitido = dossiê completo, que é o que o congelamento no
-   *   selo e a tela da tarefa pedem.
+   * @param options.customerId  Segmenta o orçamento, a nota e o boleto por cliente
+   *   do faturamento (ver decisão 7). Omitido = dossiê completo, que é o que o
+   *   congelamento no selo e a tela da tarefa pedem.
+   *
+   * @param options.dropAuditTrail  @deprecated Sem efeito desde que o corpo
+   *   legível deixou de copiar as páginas do documento assinado (decisão 3): a
+   *   renderização própria nunca teve trilha para cortar. Mantido na assinatura
+   *   para que a rota `?trilha=0`, que existe em links salvos e no app instalado,
+   *   não passe a devolver 400.
    */
   async build(
     quoteId: string,
@@ -145,10 +177,6 @@ export class DossierAssemblerService {
     // tratá-lo como id faria a validação abaixo recusar um pedido que é, na
     // verdade, "dossiê completo".
     const customerId = options.customerId?.trim() || null;
-    // Padrão: SEM trilha. O que o cliente recebe é orçamento, fotos, nota e
-    // boleto; a trilha é instrumento de disputa e vive no artefato assinado que
-    // fica no servidor (e no anexo, que a carrega por construção).
-    const dropAuditTrail = options.dropAuditTrail !== false;
     const quote = await this.prisma.taskQuote.findUnique({
       where: { id: quoteId },
       select: {
@@ -204,6 +232,18 @@ export class DossierAssemblerService {
         padesLevel: true,
         finalFile: { select: { path: true, filename: true } },
         originalFile: { select: { path: true } },
+        // Os RECORTES selados — um anexo cada. Ver a decisão 1 no cabeçalho.
+        documents: {
+          where: { finalFileId: { not: null } },
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          select: {
+            isFull: true,
+            sections: true,
+            finalSha256: true,
+            sealedAt: true,
+            finalFile: { select: { path: true } },
+          },
+        },
       },
     });
     // SEM envelope concluído o dossiê continua existindo, com o orçamento
@@ -212,36 +252,48 @@ export class DossierAssemblerService {
     // pela assinatura eletrônica — e são a maioria. O rótulo do componente diz
     // que não está assinado, e não há anexo a preservar.
     const assinado = Boolean(envelope?.finalFile);
-    // O recorte por cliente alcança o ORÇAMENTO só quando ele é renderizado sob
-    // demanda. Havendo artefato assinado, o que entra são os bytes selados,
-    // inteiros: não há como recortar um PDF assinado, e re-renderizá-lo
-    // recortado entregaria uma reconstrução no lugar do documento que o cliente
-    // assinou (decisão 1 no cabeçalho). Ver a decisão 7.
-    const signedPdf = assinado
-      ? this.readSignedDocument(envelope!.finalFile!.path, envelope!.finalSha256)
-      : await this.envelopes.renderUnsignedQuoteDocument(quoteId, customerId);
 
-    // Régua para cortar a trilha, quando pedido: o montador acrescenta as páginas
-    // de trilha ao fim do original, então `original.pdf` marca onde o orçamento
-    // termina. Sem a régua (arquivo sumiu do disco), copiam-se todas — melhor um
-    // dossiê com trilha do que um truncado no lugar errado.
-    const contentPageCount =
-      assinado && dropAuditTrail ? await this.countPages(envelope!.originalFile?.path) : undefined;
+    // O CORPO LEGÍVEL é sempre renderizado agora — ver a decisão 3. Os bytes
+    // assinados nunca viram página: eles vão como anexo, intactos, e é isso que
+    // preserva o selo A1 e a trilha que ele cobre.
+    //
+    // O recorte por cliente passa a valer também no caminho assinado, porque não
+    // há mais um PDF congelado sendo copiado: o orçamento é montado agora, a
+    // partir dos dados, com as condições daquela configuração.
+    const readablePdf = await this.envelopes.renderUnsignedQuoteDocument(quoteId, customerId);
+
+    // Os artefatos selados a anexar. Um por recorte; o completo primeiro.
+    // Recuo para envelopes anteriores ao recurso, que não têm linha em
+    // `EnvelopeDocument`: ali o próprio envelope é o recorte completo.
+    const signedArtifacts = assinado
+      ? (envelope!.documents.length
+          ? envelope!.documents
+          : [
+              {
+                isFull: true,
+                sections: [] as string[],
+                finalSha256: envelope!.finalSha256,
+                sealedAt: envelope!.sealedAt,
+                finalFile: envelope!.finalFile!,
+              },
+            ]
+        ).filter(d => !!d.finalFile?.path)
+      : [];
 
     const components: DossierComponent[] = [];
-    const bodies: Array<{ bytes: Buffer; component: DossierComponent; maxPages?: number }> = [];
+    const bodies: Array<{ bytes: Buffer; component: DossierComponent }> = [];
 
-    // ---- 1. Orçamento assinado (cópia legível) ----
+    // ---- 1. Orçamento (cópia legível, sem selos) ----
     const budgetComponent: DossierComponent = {
       kind: 'ORCAMENTO',
       label: assinado
-        ? `Orçamento nº ${quote.budgetNumber} — assinado eletronicamente`
+        ? `Orçamento nº ${quote.budgetNumber} — cópia legível; o documento assinado vai anexado`
         : `Orçamento nº ${quote.budgetNumber} — SEM assinatura eletrônica`,
-      sha256: assinado ? envelope!.finalSha256 : sha256(signedPdf),
+      sha256: sha256(readablePdf),
       pages: 0,
       included: true,
     };
-    bodies.push({ bytes: signedPdf, component: budgetComponent, maxPages: contentPageCount });
+    bodies.push({ bytes: readablePdf, component: budgetComponent });
     components.push(budgetComponent);
 
     // ---- 2. Dossiê fotográfico ----
@@ -310,7 +362,6 @@ export class DossierAssemblerService {
     }
 
     // ---- 5. Montagem ----
-    const attachmentName = `orcamento-${quote.budgetNumber}-assinado.pdf`;
     const container = await PDFDocument.create();
     container.setTitle(`Dossiê do Orçamento nº ${quote.budgetNumber}`);
     container.setProducer(COMPANY.name);
@@ -320,25 +371,53 @@ export class DossierAssemblerService {
     // componente, então os corpos entram primeiro numa lista e a capa é
     // prependida ao final.
     for (const body of bodies) {
-      const pageCount = await this.appendPdf(container, body.bytes, body.component, body.maxPages);
+      const pageCount = await this.appendPdf(container, body.bytes, body.component);
       body.component.pages = pageCount;
     }
 
     // Sem capa: ver a decisão 4 no cabeçalho deste arquivo.
 
-    // ---- 6. O documento assinado, byte a byte ----
+    // ---- 6. Os documentos assinados, byte a byte ----
     // DEPOIS das páginas e ANTES do save: o anexo é um objeto do documento, e é
     // ele que preserva a assinatura A1 e a cadeia de auditoria intactas.
+    //
+    // UM ANEXO POR RECORTE. Cada um tem selo próprio e prova a assinatura das
+    // pessoas que o receberam — anexar só o completo deixaria de fora exatamente
+    // a prova de quem assinou um recorte.
+    const attachedNames: string[] = [];
     if (attachSigned && assinado) {
-      await container.attach(new Uint8Array(signedPdf), attachmentName, {
-        mimeType: 'application/pdf',
-        description:
-          `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ` +
-          `envelope ${envelope!.verificationCode}. Este é o documento com validade ` +
-          `jurídica: extraia-o para validar a assinatura ICP-Brasil.`,
-        creationDate: envelope!.sealedAt ?? undefined,
-        modificationDate: envelope!.sealedAt ?? undefined,
-      });
+      for (const artifact of signedArtifacts) {
+        let bytes: Buffer;
+        try {
+          bytes = this.readSignedDocument(artifact.finalFile.path, artifact.finalSha256);
+        } catch (error) {
+          // Um anexo que falta não pode derrubar o dossiê inteiro: as páginas
+          // legíveis, a nota e o boleto continuam valendo. Fica no log e o nome
+          // não entra em `attachmentNames`, que é o que a resposta HTTP anuncia.
+          this.logger.error(
+            `Artefato assinado fora do dossiê do orçamento ${quote.budgetNumber}: ${msg(error)}`,
+          );
+          continue;
+        }
+        const label = artifact.isFull
+          ? ''
+          : variantFilenameSuffix(canonicalSections(artifact.sections));
+        const name = `orcamento-${quote.budgetNumber}-assinado${label}.pdf`;
+        await container.attach(new Uint8Array(bytes), name, {
+          mimeType: 'application/pdf',
+          description:
+            `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ` +
+            `envelope ${envelope!.verificationCode}` +
+            (artifact.isFull
+              ? ''
+              : ` (${describeSections(canonicalSections(artifact.sections))})`) +
+            '. Este é o documento com validade jurídica: extraia-o para validar a ' +
+            'assinatura ICP-Brasil.',
+          creationDate: artifact.sealedAt ?? undefined,
+          modificationDate: artifact.sealedAt ?? undefined,
+        });
+        attachedNames.push(name);
+      }
     }
 
     const pdf = Buffer.from(await container.save({ useObjectStreams: false }));
@@ -355,7 +434,8 @@ export class DossierAssemblerService {
         quote.budgetNumber,
       ),
       components,
-      attachmentName: attachSigned && assinado ? attachmentName : null,
+      attachmentName: attachedNames[0] ?? null,
+      attachmentNames: attachedNames,
       verificationCode: envelope?.verificationCode ?? null,
       budgetNumber: quote.budgetNumber,
     };
@@ -616,28 +696,6 @@ export class DossierAssemblerService {
   }
 
   /**
-   * Páginas de um PDF em disco, ou null quando ele não existe.
-   *
-   * Serve de régua para cortar a trilha de auditoria do artefato assinado: o
-   * montador acrescenta as páginas de trilha DEPOIS das do original, então
-   * `original.pdf` diz exatamente onde o orçamento termina.
-   */
-  private async countPages(path: string | undefined): Promise<number | undefined> {
-    if (!path || !existsSync(path)) return undefined;
-    try {
-      const doc = await PDFDocument.load(readFileSync(path), {
-        updateMetadata: false,
-        ignoreEncryption: true,
-      });
-      return doc.getPageCount() || undefined;
-    } catch {
-      // Sem a régua, copiam-se todas as páginas: melhor um dossiê com trilha do
-      // que um dossiê truncado no lugar errado.
-      return undefined;
-    }
-  }
-
-  /**
    * Notas AUTORIZADAS da tarefa — e só as do cliente pedido, quando há um.
    *
    * No modo segmentado a nota SEM fatura sai fora, mesmo estando ligada à
@@ -718,7 +776,6 @@ export class DossierAssemblerService {
     container: PDFDocument,
     bytes: Buffer,
     component: DossierComponent,
-    maxPages?: number,
   ): Promise<number> {
     try {
       const src = await PDFDocument.load(bytes, {
@@ -727,9 +784,7 @@ export class DossierAssemblerService {
         // (sem senha de abertura). Sem isto o pdf-lib recusa o arquivo inteiro.
         ignoreEncryption: true,
       });
-      const indices = src.getPageIndices();
-      const wanted = maxPages && maxPages > 0 ? indices.slice(0, maxPages) : indices;
-      const pages = await container.copyPages(src, wanted);
+      const pages = await container.copyPages(src, src.getPageIndices());
       for (const page of pages) {
         stripSignatureWidgets(page.node);
         container.addPage(page);

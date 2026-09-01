@@ -172,6 +172,33 @@ export const signatureCreateEnvelopeSchema = z
         errorMap: () => ({ message: 'Canal de envio inválido.' }),
       })
       .nullish(),
+    /**
+     * Sobrescrita do RECORTE, contato a contato — o que cada responsável recebe
+     * para assinar.
+     *
+     * MAPA DE EXCEÇÕES, não roster: quem não vem aqui cai no padrão das funções
+     * que tem no cadastro. Fosse o roster completo, uma tela aberta antes de
+     * alguém acrescentar um responsável à tarefa emitiria a coleta sem ele, em
+     * silêncio — e o operador só descobriria pela ausência de uma assinatura.
+     *
+     * `sections: []` é decisão explícita: "este contato não assina esta coleta".
+     *
+     * As chaves NÃO são validadas contra a lista de seções aqui. É de propósito:
+     * a lista é domínio (`quote-sections.ts`), o serviço já descarta o que não
+     * conhece, e uma seção retirada do documento no futuro faria este schema
+     * recusar um corpo que o servidor sabe tratar. O que se limita aqui é forma e
+     * cardinalidade, para que a lista não vire vetor de payload gigante — a mesma
+     * divisão de trabalho do resto deste arquivo.
+     */
+    signers: z
+      .array(
+        z.object({
+          responsibleId: z.string().uuid('Responsável inválido.'),
+          sections: z.array(z.string().min(1).max(64)).max(50, 'Lista de seções inválida.'),
+        }),
+      )
+      .max(50, 'Lista de signatários inválida.')
+      .nullish(),
   })
   // Corpo ausente é o caso NORMAL (modo fixo), não um erro: sem isto um POST
   // sem body cairia em "Expected object, received undefined".

@@ -159,15 +159,27 @@ export function generateEnvelopeVoidedWhatsApp(data: WhatsAppVoidedData): string
 }
 
 export interface WhatsAppAnkaaNoticeData extends SignatureWhatsAppBase {
-  signingUrl: string;
+  /**
+   * A tela INTERNA do orçamento, atrás do login. Ver a nota gêmea em
+   * `AnkaaNoticeEmailData.quoteUrl`: um link que assinasse sem código seria uma
+   * capability de obrigar a empresa circulando num aplicativo de mensagens.
+   */
+  quoteUrl: string;
+  signedCount?: number;
 }
 
 export function generateAnkaaCountersignWhatsApp(data: WhatsAppAnkaaNoticeData): string {
+  const quantos =
+    data.signedCount && data.signedCount > 0
+      ? `${data.signedCount} ${data.signedCount === 1 ? 'responsável do cliente já assinou' : 'responsáveis do cliente já assinaram'}`
+      : 'Todos os responsáveis do cliente já assinaram';
   return [
     `Olá, ${firstName(data.signerName)}.`,
     '',
-    `Todos os responsáveis do cliente já assinaram o orçamento nº *${data.budgetNumber}*. Falta a contra-assinatura da ${COMPANY.name}.`,
+    `${quantos} o orçamento nº *${data.budgetNumber}*. Falta a contra-assinatura da ${COMPANY.name}.`,
     '',
-    data.signingUrl,
+    'Ela é feita dentro do sistema, na tela do orçamento — um botão, sem código.',
+    '',
+    data.quoteUrl,
   ].join('\n');
 }

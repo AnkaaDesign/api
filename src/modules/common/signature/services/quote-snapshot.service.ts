@@ -49,6 +49,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { sha256Hex } from '../utils/canonical';
 import { onlyDigits } from '../utils/identity';
+import { sectionsForRoles } from '../quote-sections';
 // `normText` mora em `quote-diff` para que aquele módulo não precise importar
 // nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
 // mantém o ciclo entre os dois arquivos inofensivo.
@@ -445,15 +446,94 @@ export class QuoteSnapshotService {
     snapshot: QuoteSnapshot,
     frozenHash: string,
     frozen?: QuoteSnapshot | null,
+    /**
+     * Os `Responsible.id` que de fato assinam ESTE envelope.
+     *
+     * Sem eles, a tolerância de não-signatários não roda e o comportamento é o
+     * estrito de sempre — que é o certo para quem não tem o envelope em mãos.
+     */
+    signingResponsibleIds?: readonly string[] | null,
   ): number | null {
-    const reconciled = frozen ? this.tolerateLateRegistration(snapshot, frozen) : null;
+    const reconciled: QuoteSnapshot[] = [];
+    if (frozen) {
+      const late = this.tolerateLateRegistration(snapshot, frozen);
+      reconciled.push(late);
+      if (signingResponsibleIds) {
+        // As duas tolerâncias são independentes e podem incidir juntas (um
+        // implemento 0 km cujo motorista foi trocado na mesma semana), então a
+        // combinada entra na lista além de cada uma sozinha.
+        reconciled.push(this.tolerateNonSigners(snapshot, frozen, signingResponsibleIds));
+        reconciled.push(this.tolerateNonSigners(late, frozen, signingResponsibleIds));
+      }
+    }
     for (const version of SUPPORTED_MATERIAL_VERSIONS) {
       if (this.materialHash(snapshot, version) === frozenHash) return version;
-      // A tolerância é o ÚNICO desvio: qualquer outra diferença no recorte
-      // continua derrubando, porque o resto da projeção segue intacto.
-      if (reconciled && this.materialHash(reconciled, version) === frozenHash) return version;
+      // As tolerâncias são os ÚNICOS desvios: qualquer outra diferença no
+      // recorte continua derrubando, porque o resto da projeção segue intacto.
+      for (const candidate of reconciled) {
+        if (this.materialHash(candidate, version) === frozenHash) return version;
+      }
     }
     return null;
+  }
+
+  /**
+   * O snapshot atual com os contatos que NÃO ASSINAM esta coleta devolvidos ao
+   * estado congelado.
+   *
+   * POR QUE PASSOU A SER NECESSÁRIO
+   *   Até a assinatura diversificada, todo responsável da tarefa virava
+   *   signatário e ganhava uma linha no documento — então mexer no elenco mudava
+   *   o documento, e invalidar era exatamente certo. Agora o gestor de frota e o
+   *   motorista, por padrão, não assinam: eles não têm linha no documento
+   *   congelado, e o documento não muda uma vírgula quando um deles entra, sai ou
+   *   corrige o próprio telefone. Manter a regra antiga faria uma coleta viva
+   *   morrer — com as assinaturas já colhidas anuladas e um e-mail de "o
+   *   orçamento foi alterado" para o cliente — porque a logística cadastrou o
+   *   motorista da entrega.
+   *
+   * O QUE CONTINUA DERRUBANDO
+   *   Quem assina. Trocar o telefone ou o e-mail de um signatário muda o destino
+   *   do código de uso único, e é material. Tirar um signatário apaga uma linha
+   *   de assinatura do documento, e é material.
+   *
+   *   E o contato NOVO que assinaria por padrão também derruba: acrescentar um
+   *   comercial à tarefa no meio da coleta é justamente o caso em que se quer
+   *   reemitir, para que ele assine. Só é tolerado quem não assina por padrão E
+   *   não foi incluído à mão nesta coleta — os dois juntos, porque a inclusão à
+   *   mão é uma decisão do operador que o cadastro sozinho não revela.
+   */
+  private tolerateNonSigners(
+    current: QuoteSnapshot,
+    frozen: QuoteSnapshot,
+    signingResponsibleIds: readonly string[],
+  ): QuoteSnapshot {
+    const signing = new Set(signingResponsibleIds);
+    const frozenById = new Map(frozen.signers.map(s => [s.responsibleId, s]));
+    const currentById = new Map(current.signers.map(s => [s.responsibleId, s]));
+
+    // Quem NÃO assina por padrão, pelas funções que o snapshot registra.
+    // Lê-se do snapshot (e não do banco) de propósito: é o que torna o cálculo
+    // reproduzível a partir do JSONB congelado, anos depois.
+    const signsByDefault = (id: string): boolean => {
+      const entry = currentById.get(id) ?? frozenById.get(id);
+      return sectionsForRoles(entry?.roles ?? []).length > 0;
+    };
+
+    const ids = new Set([...frozenById.keys(), ...currentById.keys()]);
+    const signers: QuoteSnapshotSigner[] = [];
+    for (const id of ids) {
+      const tolerated = !signing.has(id) && !signsByDefault(id);
+      const chosen = tolerated ? frozenById.get(id) : currentById.get(id);
+      if (chosen) signers.push(chosen);
+    }
+
+    return {
+      ...current,
+      // Mesma ordenação de `build`: a projeção reordena, mas o snapshot é
+      // hasheado inteiro em outros caminhos e não pode depender da ordem do Set.
+      signers: signers.sort((a, b) => a.responsibleId.localeCompare(b.responsibleId)),
+    };
   }
 
   /**

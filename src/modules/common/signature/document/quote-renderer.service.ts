@@ -24,6 +24,10 @@ import { chromium, Browser } from 'playwright';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { buildQuoteHtml, QuoteHtmlInput } from './quote-html.builder';
+import { FULL_SECTIONS } from '../quote-sections';
+
+/** O que o chamador fornece; fonte e logo são resolvidas aqui dentro. */
+export type RenderInput = Omit<QuoteHtmlInput, 'fontDataUri' | 'logoDataUri'>;
 
 /** Retângulo de um slot de assinatura, medido no navegador. */
 export interface SignatureAnchor {
@@ -248,7 +252,53 @@ export class QuoteRendererService {
   private fontDataUri: string | null | undefined;
   private logoDataUri: string | null | undefined;
 
-  async render(input: Omit<QuoteHtmlInput, 'fontDataUri' | 'logoDataUri'>): Promise<RenderedQuoteDocument> {
+  async render(input: RenderInput): Promise<RenderedQuoteDocument> {
+    // Lançamento por render. Renders são raros e uma instância de longa duração
+    // acumula estado e morre em silêncio; ~500ms de startup é um preço barato
+    // por previsibilidade.
+    const browser = await this.launchBrowser();
+    try {
+      return await this.renderOn(browser, input);
+    } finally {
+      await browser.close().catch(() => undefined);
+    }
+  }
+
+  /**
+   * Vários recortes do MESMO orçamento, num navegador só.
+   *
+   * A assinatura diversificada congela um PDF por recorte, e o custo de lançar
+   * o Chromium (~500ms) é o item caro do ciclo — pagá-lo N vezes dentro de um
+   * POST que já espera por N renders era transformar um recurso em timeout do
+   * nginx. O estado que se temia acumular numa instância de longa duração não
+   * chega a existir aqui: o navegador nasce e morre dentro desta chamada, e cada
+   * recorte usa páginas próprias.
+   *
+   * A ordem da saída é a da entrada.
+   */
+  async renderAll(inputs: readonly RenderInput[]): Promise<RenderedQuoteDocument[]> {
+    if (inputs.length === 0) return [];
+    if (inputs.length === 1) return [await this.render(inputs[0])];
+
+    const browser = await this.launchBrowser();
+    try {
+      const out: RenderedQuoteDocument[] = [];
+      // Em série, não em paralelo: o ajuste de tipografia (`compactContent`) é
+      // um laço de medição sobre o layout, e N páginas medindo ao mesmo tempo no
+      // mesmo Chromium disputam a mesma thread de layout — o ganho de paralelizar
+      // é nulo e a variância do resultado deixa de ser nula, num documento que
+      // será hasheado e assinado.
+      for (const input of inputs) out.push(await this.renderOn(browser, input));
+      return out;
+    } finally {
+      await browser.close().catch(() => undefined);
+    }
+  }
+
+  private async renderOn(
+    browser: Browser,
+    input: RenderInput,
+  ): Promise<RenderedQuoteDocument> {
     const htmlInput: QuoteHtmlInput = {
       ...input,
       fontDataUri: this.getFontDataUri(),
@@ -259,14 +309,14 @@ export class QuoteRendererService {
       content: buildQuoteHtml(htmlInput, 'content'),
       signatures: buildQuoteHtml(htmlInput, 'signatures'),
     };
-    const hasLayout = htmlInput.layoutImages.length > 0;
+    // O recorte pode não trazer o layout — e aí o caminho fundido volta a valer,
+    // exatamente como num orçamento sem arte nenhuma. `layoutImages` sozinho não
+    // responde mais a pergunta: o builder é quem decide se a arte sai impressa.
+    const hasLayout =
+      htmlInput.layoutImages.length > 0 &&
+      (htmlInput.sections ?? FULL_SECTIONS).includes('LAYOUT');
 
-    // Lançamento por render. Renders são raros (um por envelope + um por
-    // montagem final) e uma instância de longa duração acumula estado e morre em
-    // silêncio; ~500ms de startup é um preço barato por previsibilidade.
-    const browser = await this.launchBrowser();
-
-    try {
+    {
       // ---- Tentativa FUNDIDA: assinaturas na mesma folha do orçamento ----
       //
       // Só é aceita se o resultado couber em UMA folha. Essa condição não é
@@ -351,8 +401,6 @@ export class QuoteRendererService {
         overflowed,
         contentPages,
       };
-    } finally {
-      await browser.close().catch(() => undefined);
     }
   }
 

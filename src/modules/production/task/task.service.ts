@@ -51,6 +51,7 @@ import {
   AIRBRUSHING_DUE_DATE_RULE,
   TASK_QUOTE_STATUS,
   INVOICE_STATUS,
+  pickPrimaryResponsible,
 } from '../../../constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
@@ -3343,8 +3344,11 @@ export class TaskService {
             select: { id: true, roles: true },
             orderBy: { createdAt: 'asc' },
           });
-          const oldOwner = oldResps.find((r) => r.roles.includes('OWNER'));
-          oldBestResponsibleId = oldOwner?.id ?? oldResps[0]?.id ?? null;
+          // `pickPrimaryResponsible` substitui o antigo `roles.includes('OWNER')`:
+          // a função PROPRIETÁRIO deixou de existir e a eleição do principal
+          // passou a seguir uma ordem de preferência única, compartilhada com
+          // task-quote.service e com a página pública do orçamento.
+          oldBestResponsibleId = pickPrimaryResponsible(oldResps)?.id ?? null;
         }
 
         // Update the task - always include customer for file organization
@@ -3397,8 +3401,7 @@ export class TaskService {
                   orderBy: { createdAt: 'asc' },
                 })
               : [];
-          const newOwner = newResps.find((r) => r.roles.includes('OWNER'));
-          const newBestId = newOwner?.id ?? newResps[0]?.id ?? null;
+          const newBestId = pickPrimaryResponsible(newResps)?.id ?? null;
 
           if (oldBestResponsibleId !== newBestId) {
             await tx.taskQuoteCustomerConfig.updateMany({

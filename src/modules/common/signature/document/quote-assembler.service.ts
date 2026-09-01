@@ -80,6 +80,17 @@ export interface AssembleInput {
   chainTip: string;
   /** Cláusula de aceitação do meio eletrônico, registrada na trilha. */
   acceptanceClause?: string;
+  /**
+   * O RECORTE que este artefato reproduz ("Documento completo", "Layout", …).
+   *
+   * Só vem preenchido quando a coleta congelou mais de um recorte, e é impresso
+   * na trilha porque sem ele o artefato mente por omissão: um PDF que traz só a
+   * arte, com selo PAdES e trilha completa, se apresenta como "o orçamento
+   * assinado" para quem o abrir fora de contexto. Dizer qual pedaço ele é — no
+   * lugar do documento onde a integridade é atestada — é o que impede que a
+   * ausência de uma cláusula seja lida como inexistência dela.
+   */
+  variantLabel?: string | null;
 }
 
 const GREEN = rgb(0.039, 0.361, 0.118); // #0a5c1e
@@ -595,6 +606,19 @@ export class QuoteAssemblerService {
     doc.text(winAnsi(`Orcamento no ${input.budgetNumber}`));
     doc.text(winAnsi(`Documento numero ${input.envelopeId}`));
     doc.text(winAnsi(`Codigo de verificacao: ${input.verificationCode}`));
+    if (input.variantLabel) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#1a1a1a');
+      doc.text(winAnsi(`Recorte deste documento: ${input.variantLabel}`));
+      doc.font('Helvetica').fontSize(8).fillColor(gray);
+      doc.text(
+        winAnsi(
+          'Este arquivo reproduz as secoes do orcamento pertinentes a funcao dos signatarios ' +
+            'listados abaixo. O orcamento completo foi assinado integralmente pela contratada e ' +
+            'pode ser conferido no codigo de verificacao acima.',
+        ),
+      );
+      doc.moveDown(0.4);
+    }
     doc.font('Helvetica').fontSize(7.5).fillColor(gray);
     doc.text(winAnsi(`Hash SHA-256 do documento original: ${input.originalSha256}`));
     doc.text(winAnsi(`Hash final da cadeia de auditoria: ${input.chainTip}`));

@@ -44,8 +44,22 @@ import {
   QuoteWithSnapshotGraph,
 } from './quote-snapshot.service';
 import { describeQuoteChange, type QuoteChange } from './quote-diff';
-import { QuoteRendererService } from '../document/quote-renderer.service';
+import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
+import {
+  canonicalSections,
+  describeSections,
+  FULL_SECTIONS,
+  hasSection,
+  isFullSections,
+  QUOTE_SECTIONS,
+  QUOTE_SECTION_DESCRIPTIONS,
+  QUOTE_SECTION_LABELS,
+  sectionsForRoles,
+  variantFilenameSuffix,
+  variantKeyOf,
+  type QuoteSection,
+} from '../quote-sections';
 import { budgetPdfFilename } from '../document/document-filename';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
@@ -53,11 +67,12 @@ import {
   AUTH_METHOD_LABELS,
   VOID_WATERMARK_LABELS,
   declarationsFor,
-  DECLARATION_KEYS,
+  declarationKeysFor,
   DECLARATIONS_VERSION,
   EVENT_DESCRIPTIONS,
   LEGAL_BASIS,
   renderDeclaration,
+  type CeremonyKind,
 } from '../signature.constants';
 import {
   formatCnpj,
@@ -323,8 +338,30 @@ export class SignatureEnvelopeService {
       emailMasked: string;
       hasPhone: boolean;
       hasEmail: boolean;
+      /** Funções do cadastro — é delas que sai o recorte padrão. */
+      roles: string[];
+      rolesLabel: string;
+      /**
+       * O que este contato recebe se o operador não mexer em nada. Vazio
+       * significa que ele NÃO entra na coleta — o padrão do gestor de frota e do
+       * motorista.
+       */
+      sections: QuoteSection[];
+      sectionsLabel: string;
     }>;
-    ankaa: { name: string; hasPhone: boolean; hasEmail: boolean } | null;
+    /** Todas as seções recortáveis, com rótulo — a tela desenha as caixas daqui. */
+    sectionCatalog: Array<{ key: QuoteSection; label: string; description: string }>;
+    ankaa: {
+      name: string;
+      hasPhone: boolean;
+      hasEmail: boolean;
+      /**
+       * A Ankaa contra-assina no sistema, em sessão autenticada. O contato serve
+       * só para o AVISO de que o cliente terminou, e por isso a falta dele deixou
+       * de impedir a emissão — vira este aviso na tela.
+       */
+      reachable: boolean;
+    } | null;
     channelStatus: Record<
       SignatureDeliveryChannel,
       { ready: boolean; missing: string[]; ankaaMissing: string | null }
@@ -354,7 +391,11 @@ export class SignatureEnvelopeService {
         task: {
           select: {
             responsibles: {
-              select: { id: true, name: true, phone: true, email: true },
+              // `roles` entra porque é delas que sai o recorte padrão de cada
+              // contato — o preflight existe justamente para mostrar isso ANTES
+              // de o operador confirmar.
+              select: { id: true, name: true, phone: true, email: true, roles: true },
+              orderBy: { createdAt: 'asc' },
             },
             truck: { select: { plate: true, chassisNumber: true } },
           },
@@ -395,14 +436,17 @@ export class SignatureEnvelopeService {
     // cadastrado é um problema real, mas ele já vira 400 no POST com a mensagem
     // certa. Aqui a ausência vira `ankaa: null`, e a tela não afirma nada sobre
     // um signatário que não conseguiu resolver.
-    let ankaa: { name: string; hasPhone: boolean; hasEmail: boolean } | null = null;
+    let ankaa: {
+      name: string;
+      hasPhone: boolean;
+      hasEmail: boolean;
+      reachable: boolean;
+    } | null = null;
     try {
       const user = await this.resolveAnkaaSigner(quote as never);
-      ankaa = {
-        name: user.name,
-        hasPhone: onlyDigits(user.phone).length >= 10,
-        hasEmail: !!user.email?.includes('@'),
-      };
+      const hasPhone = onlyDigits(user.phone).length >= 10;
+      const hasEmail = !!user.email?.includes('@');
+      ankaa = { name: user.name, hasPhone, hasEmail, reachable: hasPhone || hasEmail };
     } catch {
       blockers.push(
         'Nenhum representante da Ankaa pôde ser resolvido para este orçamento. ' +
@@ -410,25 +454,51 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const recipients = responsibles.map(r => ({
-      id: r.id,
-      name: r.name,
-      phoneMasked: maskPhone(r.phone),
-      emailMasked: maskEmail(r.email),
-      hasPhone: onlyDigits(r.phone).length >= 10,
-      hasEmail: !!r.email?.includes('@'),
-    }));
+    const recipients = responsibles.map(r => {
+      const sections = sectionsForRoles(r.roles);
+      return {
+        id: r.id,
+        name: r.name,
+        phoneMasked: maskPhone(r.phone),
+        emailMasked: maskEmail(r.email),
+        hasPhone: onlyDigits(r.phone).length >= 10,
+        hasEmail: !!r.email?.includes('@'),
+        roles: (r.roles ?? []) as string[],
+        rolesLabel: formatResponsibleRoles(r.roles),
+        sections,
+        sectionsLabel: sections.length ? describeSections(sections) : 'Não assina',
+      };
+    });
+
+    // Ninguém com campo de interesse = ninguém a quem enviar. É bloqueio, e não
+    // aviso, porque a emissão recusaria de qualquer forma — e descobrir isso
+    // depois de confirmar é o defeito que este preflight inteiro existe para
+    // corrigir. O operador ainda pode desfazer marcando seções à mão, e a
+    // mensagem diz isso.
+    if (responsibles.length > 0 && recipients.every(r => r.sections.length === 0)) {
+      blockers.push(
+        'Nenhum responsável desta tarefa assina por padrão (gestor de frota e motorista não ' +
+          'assinam). Marque as seções que cada um deve receber, ou acrescente um responsável ' +
+          'comercial à tarefa.',
+      );
+    }
 
     const statusFor = (channel: SignatureDeliveryChannel) => {
-      const missing = recipients
+      // Só quem VAI assinar entra na conta: um motorista sem e-mail cadastrado
+      // não pode mais reprovar o canal, porque ele nem recebe convite.
+      const signing = recipients.filter(r => r.sections.length > 0);
+      const missing = signing
         .filter(r => (channel === 'WHATSAPP' ? !r.hasPhone : !r.hasEmail))
         .map(r => r.name);
+      // A Ankaa não entra mais em `ready`: ela contra-assina no sistema, e o
+      // contato dela serve só para o aviso. Continua REPORTADO — a tela avisa que
+      // o representante não será notificado —, mas não desabilita mais o canal.
       const ankaaMissing =
         ankaa && (channel === 'WHATSAPP' ? !ankaa.hasPhone : !ankaa.hasEmail)
           ? ankaa.name
           : null;
       return {
-        ready: recipients.length > 0 && missing.length === 0 && !ankaaMissing,
+        ready: signing.length > 0 && missing.length === 0,
         missing,
         ankaaMissing,
       };
@@ -443,6 +513,11 @@ export class SignatureEnvelopeService {
       ...settings,
       blockers,
       recipients,
+      sectionCatalog: QUOTE_SECTIONS.map(key => ({
+        key,
+        label: QUOTE_SECTION_LABELS[key],
+        description: QUOTE_SECTION_DESCRIPTIONS[key],
+      })),
       ankaa,
       channelStatus: {
         WHATSAPP: statusFor('WHATSAPP'),
@@ -495,10 +570,33 @@ export class SignatureEnvelopeService {
      * normal e cai no canal configurado.
      */
     channel?: string | null;
+    /**
+     * Sobrescrita do RECORTE, contato a contato. Ausente = todo mundo recebe o
+     * padrão das funções que tem no cadastro.
+     *
+     * É um MAPA DE EXCEÇÕES, não o roster completo, e a diferença importa: se
+     * fosse o roster, uma tela aberta antes de alguém acrescentar um responsável
+     * à tarefa emitiria a coleta sem ele — em silêncio, porque a lista teria
+     * chegado "completa". Como exceção, quem não vem na lista cai no padrão, e
+     * acrescentar responsável nunca some.
+     *
+     * `sections: []` é uma decisão, não uma omissão: significa "este contato não
+     * assina esta coleta". É assim que o gestor de frota que assinaria por padrão
+     * é tirado, e é o mesmo estado em que ele já nasce quando ninguém mexe.
+     */
+    /**
+     * Tipo frouxo de propósito, como o `geo` de `signWithOtp`: `strictNullChecks`
+     * está desligado no projeto, o que faz `z.infer` marcar TODA chave como
+     * opcional. A forma real é imposta aqui dentro, onde há contexto para a
+     * mensagem certa.
+     */
+    signers?: Array<{ responsibleId?: string; sections?: string[] }> | null;
   }): Promise<{
     envelopeId: string;
     verificationCode: string;
     channel: SignatureDeliveryChannel;
+    /** Um por recorte congelado. Na coleta comum é um só. */
+    documents: Array<{ id: string; sections: QuoteSection[]; signers: number }>;
   }> {
     this.assertCeremonyConfigured();
 
@@ -544,6 +642,49 @@ export class SignatureEnvelopeService {
       );
     }
 
+    // ---- Quem assina, e o que cada um recebe ---------------------------------
+    //
+    // O recorte sai das funções do contato e o operador sobrescreve na emissão.
+    // Recorte vazio significa não assinar — é o estado padrão do gestor de frota
+    // e do motorista, e é também o que o operador escolhe para tirar alguém da
+    // coleta sem mexer no cadastro da tarefa.
+    const overrides = new Map<string, QuoteSection[]>();
+    for (const entry of args.signers ?? []) {
+      if (entry?.responsibleId) {
+        overrides.set(entry.responsibleId, canonicalSections(entry.sections ?? []));
+      }
+    }
+    // Sobrescrita para um contato que não está na tarefa é RECUSADA, não
+    // ignorada: significa que a tela e a tarefa discordam sobre quem participa, e
+    // seguir em silêncio emitiria uma coleta diferente da que o operador viu.
+    const unknownOverride = [...overrides.keys()].filter(
+      id => !responsibles.some(r => r.id === id),
+    );
+    if (unknownOverride.length) {
+      throw new BadRequestException(
+        'A tela está desatualizada: um ou mais responsáveis selecionados não fazem mais parte ' +
+          'desta tarefa. Recarregue a página e envie novamente.',
+      );
+    }
+
+    const roster = responsibles.map(r => ({
+      responsible: r,
+      sections: overrides.has(r.id) ? overrides.get(r.id)! : sectionsForRoles(r.roles),
+    }));
+    const signing = roster.filter(entry => entry.sections.length > 0);
+
+    if (signing.length === 0) {
+      const semInteresse = roster
+        .map(e => `${e.responsible.name} (${formatResponsibleRoles(e.responsible.roles) || 'sem função'})`)
+        .join(', ');
+      throw new BadRequestException(
+        'Nenhum responsável desta tarefa tem campos de interesse definidos, então não há a ' +
+          `quem enviar o orçamento para assinatura: ${semInteresse}. ` +
+          'Gestor de frota e motorista não assinam por padrão — marque as seções que cada um ' +
+          'deve receber na tela de envio, ou acrescente um responsável comercial à tarefa.',
+      );
+    }
+
     // O contato do canal escolhido é o endereço do convite E do código. Sem ele
     // o responsável entra numa coleta que nunca vai conseguir concluir, e a
     // falha só apareceria lá na frente como INVITATION_FAILED. Barrar aqui é o
@@ -553,9 +694,12 @@ export class SignatureEnvelopeService {
     // opcional (e `@unique`, por isso "" vira null) enquanto `Responsible.phone`
     // é NOT NULL, então exigir e-mail numa coleta por WhatsApp barraria
     // responsável perfeitamente alcançável.
-    const missingContact = responsibles.filter(r =>
-      channel === 'WHATSAPP' ? onlyDigits(r.phone).length < 10 : !r.email?.includes('@'),
-    );
+    //
+    // E só de QUEM VAI ASSINAR: um motorista sem e-mail cadastrado não pode mais
+    // barrar a coleta inteira, porque ele nem recebe convite.
+    const missingContact = signing
+      .map(e => e.responsible)
+      .filter(r => (channel === 'WHATSAPP' ? onlyDigits(r.phone).length < 10 : !r.email?.includes('@')));
     if (missingContact.length) {
       throw new BadRequestException(
         channel === 'WHATSAPP'
@@ -571,23 +715,20 @@ export class SignatureEnvelopeService {
 
     const ankaaUser = await this.resolveAnkaaSigner(quote);
 
-    // O signatário da Ankaa cai no mesmo critério. Não existe fallback para um
-    // contato institucional aqui de propósito: uma caixa (ou um número) partilhada
-    // enfraquece o argumento de posse do canal que sustenta o valor probatório do
-    // código. Vale especialmente para o WhatsApp: `COMPANY.phoneClean` é o número
-    // da empresa e é para onde o seed do signatário cai quando o `User.phone` é
-    // nulo — assinar com o telefone do balcão não prova nada sobre o diretor.
-    if (channel === 'WHATSAPP') {
-      if (onlyDigits(ankaaUser.phone).length < 10) {
-        throw new BadRequestException(
-          `O representante da Ankaa (${ankaaUser.name}) está sem telefone no cadastro. ` +
-            'Cadastre o telefone com DDD antes de enviar o orçamento para assinatura por WhatsApp.',
-        );
-      }
-    } else if (!ankaaUser.email?.includes('@')) {
-      throw new BadRequestException(
-        `O representante da Ankaa (${ankaaUser.name}) está sem e-mail no cadastro. ` +
-          'Cadastre o e-mail antes de enviar o orçamento para assinatura.',
+    // O signatário da Ankaa NÃO é mais barrado por falta de contato.
+    //
+    // Ele deixou de assinar por link com código e passou a contra-assinar dentro
+    // do sistema, em sessão autenticada (`SignatureAuthMethod.INTERNAL_SESSION`).
+    // O e-mail/WhatsApp que ele recebe quando o cliente termina virou AVISO — a
+    // ação está no painel do orçamento, atrás do login, e existe com ou sem
+    // aviso. Continuar exigindo o cadastro dele impediria uma coleta inteira por
+    // causa de um canal que a cerimônia não usa mais para autenticar ninguém.
+    // A ausência aparece no preflight, para o operador saber que o aviso não sai.
+    if (!ankaaUser.email?.includes('@') && onlyDigits(ankaaUser.phone).length < 10) {
+      this.logger.warn(
+        `O representante da Ankaa (${ankaaUser.name}) não tem e-mail nem telefone no cadastro: ` +
+          'ele não será avisado quando o cliente terminar de assinar. A contra-assinatura ' +
+          'continua disponível no painel do orçamento.',
       );
     }
 
@@ -599,62 +740,153 @@ export class SignatureEnvelopeService {
 
     const verificationCode = formatVerificationCode(randomBytes(24));
 
-    // Ids dos signatários são necessários ANTES do render (viram os
-    // `data-signature-slot`), então são gerados aqui e reusados na persistência.
-    const signerSeeds = [
-      ...responsibles.map(r => ({
+    // ---- Os RECORTES -------------------------------------------------------
+    //
+    // Contatos com o mesmo recorte compartilham o mesmo PDF. É essa deduplicação
+    // que faz a coleta comum — todo mundo COMERCIAL, todo mundo recebendo tudo —
+    // continuar congelando UM arquivo, exatamente como antes deste recurso.
+    const ankaaSignerId = randomUUID();
+    const ankaaSeed = {
+      id: ankaaSignerId,
+      responsibleId: null as string | null,
+      // O signatário da Ankaa é um User, que tem CPF próprio. Não há write-back
+      // aqui: o CPF do colaborador é gerido no DP, não numa cerimônia de
+      // assinatura.
+      cpf: ankaaUser.cpf ?? null,
+      userId: ankaaUser.id,
+      name: ankaaUser.name,
+      phone: onlyDigits(ankaaUser.phone ?? COMPANY.phoneClean),
+      email: ankaaUser.email,
+      orderGroup: 1,
+      side: 'ANKAA' as const,
+      subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
+    };
+
+    const customerCompany =
+      quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '';
+
+    interface VariantPlan {
+      sections: QuoteSection[];
+      variantKey: string;
+      isFull: boolean;
+      seeds: Array<{
+        id: string;
+        responsibleId: string | null;
+        cpf: string | null;
+        userId: string | null;
+        name: string;
+        phone: string;
+        email: string | null;
+        orderGroup: number;
+        side: 'ANKAA' | 'CUSTOMER';
+        subtitle: string;
+      }>;
+    }
+
+    const variants = new Map<string, VariantPlan>();
+    for (const entry of signing) {
+      const key = variantKeyOf(entry.sections);
+      let plan = variants.get(key);
+      if (!plan) {
+        plan = {
+          sections: entry.sections,
+          variantKey: key,
+          isFull: isFullSections(entry.sections),
+          seeds: [],
+        };
+        variants.set(key, plan);
+      }
+      plan.seeds.push({
         id: randomUUID(),
-        responsibleId: r.id,
+        responsibleId: entry.responsible.id,
         // Âncora de identidade: quando o contato já tem CPF no cadastro, o
         // signatário completa só os dígitos ocultos, e completar certo é o que
         // vale como conferência. Sem CPF cadastrado ele digita o número inteiro
         // — e a primeira assinatura o grava (ver `persistCpfToResponsible`).
-        cpf: r.cpf ?? null,
-        userId: null as string | null,
-        name: r.name,
-        phone: onlyDigits(r.phone),
-        email: r.email,
+        cpf: entry.responsible.cpf ?? null,
+        userId: null,
+        name: entry.responsible.name,
+        phone: onlyDigits(entry.responsible.phone),
+        email: entry.responsible.email,
         orderGroup: 0,
-        side: 'CUSTOMER' as const,
-        subtitle: quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '',
-      })),
-      {
-        id: randomUUID(),
-        responsibleId: null as string | null,
-        // O signatário da Ankaa é um User, que tem CPF próprio — mesma âncora.
-        // Não há write-back aqui: o CPF do colaborador é gerido no DP, não numa
-        // cerimônia de assinatura.
-        cpf: ankaaUser.cpf ?? null,
-        userId: ankaaUser.id,
-        name: ankaaUser.name,
-        phone: onlyDigits(ankaaUser.phone ?? COMPANY.phoneClean),
-        email: ankaaUser.email,
-        orderGroup: 1,
-        side: 'ANKAA' as const,
-        subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
-      },
-    ];
+        side: 'CUSTOMER',
+        subtitle: customerCompany,
+      });
+    }
 
-    const rendered = await this.renderQuoteDocument(
-      quote,
-      signerSeeds,
-      verificationCode,
-      null,
-      channel,
+    // O recorte COMPLETO existe SEMPRE, mesmo que nenhum contato do cliente o
+    // receba. É ele que a Ankaa assina, e é ele o instrumento: sem ele, uma
+    // coleta em que só o marketing e o financeiro assinam produziria dois
+    // pedaços do contrato e nenhum contrato. Também é ele que o dossiê copia, que
+    // o portal de verificação descreve e que as colunas do próprio envelope
+    // espelham.
+    const fullKey = variantKeyOf([...FULL_SECTIONS]);
+    if (!variants.has(fullKey)) {
+      variants.set(fullKey, {
+        sections: [...FULL_SECTIONS],
+        variantKey: fullKey,
+        isFull: true,
+        seeds: [],
+      });
+    }
+
+    // Ordem determinística: o completo primeiro, depois os recortes por chave.
+    // Sem ela a ordem viria do `Map`, que segue a ordem de inserção do roster —
+    // e o mesmo orçamento emitido duas vezes produziria arquivos com sufixos
+    // trocados, o que só apareceria como confusão no painel.
+    const plans = [...variants.values()].sort((a, b) =>
+      a.isFull === b.isFull ? a.variantKey.localeCompare(b.variantKey) : a.isFull ? -1 : 1,
     );
 
-    if (rendered.overflowed) {
+    // A Ankaa aparece — e assina — em TODOS os recortes. Cada recorte é um
+    // documento bilateral: sem a linha dela, o financeiro assinaria sozinho um
+    // papel que ninguém contra-assinou. O ato é UM só (ver `countersign`), e é
+    // legítimo que valha para todos porque cada recorte é um subconjunto estrito
+    // do documento completo que ela leu — assinar o todo é, a fortiori, assinar
+    // cada parte.
+    const rendered = await this.renderer.renderAll(
+      plans.map(plan =>
+        this.buildRenderInput(
+          quote,
+          [...plan.seeds, ankaaSeed],
+          verificationCode,
+          null,
+          channel,
+          plan.sections,
+        ),
+      ),
+    );
+
+    const overflowedPlan = plans.find((_, i) => rendered[i].overflowed);
+    if (overflowedPlan) {
       throw new BadRequestException(
-        'A página de assinaturas não comporta todos os signatários selecionados. ' +
+        'A página de assinaturas não comporta todos os signatários selecionados ' +
+          `(recorte "${describeSections(overflowedPlan.sections)}"). ` +
           'Reduza o número de responsáveis ou fale com o suporte.',
       );
     }
 
-    const supersededIds: Array<{ id: string; version: number }> = [];
-    const originalSha256 = sha256Hex(rendered.pdf);
-    const fileId = await this.persistPdf(quote, rendered.pdf, 'original', verificationCode);
+    // Persistir os PDFs antes da transação: gravar arquivo em disco não é
+    // transacional, e segurar uma transação aberta durante N escritas de ~700KB
+    // é o tipo de coisa que estoura o pool sob concorrência.
+    const persisted = await Promise.all(
+      plans.map(async (plan, i) => ({
+        plan,
+        render: rendered[i],
+        sha256: sha256Hex(rendered[i].pdf),
+        fileId: await this.persistPdf(
+          quote,
+          rendered[i].pdf,
+          `original${variantFilenameSuffix(plan.sections)}`,
+          verificationCode,
+        ),
+      })),
+    );
 
+    const full = persisted.find(p => p.plan.isFull)!;
+    const originalSha256 = full.sha256;
     const deadlineAt = quote.expiresAt;
+    const supersededIds: Array<{ id: string; version: number }> = [];
 
     const envelope = await this.prisma.$transaction(async tx => {
       // Reemissão sobre um orçamento JÁ ASSINADO: o anterior passa a
@@ -687,12 +919,14 @@ export class SignatureEnvelopeService {
           previousEnvelopeId: previous?.id ?? null,
           sequential: true,
           deadlineAt,
-          originalFileId: fileId,
+          // ESPELHO do recorte completo — ver a nota no schema. Escrito aqui e no
+          // `finalize`, sempre a partir de `full`, nunca de forma independente.
+          originalFileId: full.fileId,
           originalSha256,
-          anchors: rendered.anchors as unknown as Prisma.InputJsonValue,
+          anchors: full.render.anchors as unknown as Prisma.InputJsonValue,
           // Onde carimbar a identidade que ainda não existe. Vazio quando o
           // cadastro já estava completo — aí não há lacuna no documento.
-          lateSlots: rendered.lateSlots as unknown as Prisma.InputJsonValue,
+          lateSlots: full.render.lateSlots as unknown as Prisma.InputJsonValue,
           quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           quoteSnapshotSha256: hash,
           quoteTermsSha256: materialHash,
@@ -704,33 +938,58 @@ export class SignatureEnvelopeService {
         },
       });
 
-      for (const seed of signerSeeds) {
-        await tx.envelopeSigner.create({
+      for (const { plan, render, sha256, fileId } of persisted) {
+        const document = await tx.envelopeDocument.create({
           data: {
-            id: seed.id,
             envelopeId: created.id,
-            responsibleId: seed.responsibleId,
-            declaredCpf: seed.cpf ?? null,
-            userId: seed.userId,
-            orderGroup: seed.orderGroup,
-            declaredName: seed.name,
-            declaredPhone: seed.phone || null,
-            declaredEmail: seed.email ?? null,
-            contactSource: 'customer_registry',
-            // Também o signatário Ankaa assina pelo link com código no contato
-            // dele. Um OTP na caixa (ou no celular) do diretor é evidência melhor
-            // do que "estava logado no sistema", e mantém uma única cerimônia
-            // para todos.
-            //
-            // O canal fica GRAVADO no signatário, não lido da configuração na
-            // hora de usar: um envelope emitido sob `whatsapp` continua sendo um
-            // envelope de WhatsApp depois que a variável mudar. Reenvio e
-            // reemissão de OTP leem daqui — ver `channelForAuthMethod`.
-            authMethod: authMethodForChannel(channel),
-            accessToken: randomBytes(32).toString('base64url'),
-            tokenExpiresAt: deadlineAt,
+            sections: plan.sections,
+            variantKey: plan.variantKey,
+            isFull: plan.isFull,
+            originalFileId: fileId,
+            originalSha256: sha256,
+            anchors: render.anchors as unknown as Prisma.InputJsonValue,
+            lateSlots: render.lateSlots as unknown as Prisma.InputJsonValue,
+            contentPages: render.contentPages,
           },
         });
+
+        // O signatário da Ankaa entra UMA vez, no recorte completo — ele tem
+        // âncora em todos, mas um registro só, porque o ato é um só.
+        const seeds = plan.isFull ? [...plan.seeds, ankaaSeed] : plan.seeds;
+        for (const seed of seeds) {
+          await tx.envelopeSigner.create({
+            data: {
+              id: seed.id,
+              envelopeId: created.id,
+              documentId: document.id,
+              responsibleId: seed.responsibleId,
+              declaredCpf: seed.cpf ?? null,
+              userId: seed.userId,
+              orderGroup: seed.orderGroup,
+              declaredName: seed.name,
+              declaredPhone: seed.phone || null,
+              declaredEmail: seed.email ?? null,
+              contactSource: 'customer_registry',
+              // O CLIENTE assina por código no contato dele: um OTP na caixa (ou
+              // no celular) do signatário é a prova de posse do canal que sustenta
+              // a autoria. O canal fica GRAVADO no signatário, não lido da
+              // configuração na hora de usar — um envelope emitido sob `whatsapp`
+              // continua sendo um envelope de WhatsApp depois que a variável mudar.
+              //
+              // A ANKAA assina em sessão autenticada. Mandar um código para o
+              // próprio diretor provaria que ele tem acesso à caixa dele, o que
+              // ninguém contesta; o que dá segurança do nosso lado é a sessão, que
+              // o servidor emitiu. E um link público sem código seria pior que
+              // inútil: quem recebesse a mensagem encaminhada obrigaria a empresa.
+              authMethod:
+                seed.side === 'ANKAA'
+                  ? SignatureAuthMethod.INTERNAL_SESSION
+                  : authMethodForChannel(channel),
+              accessToken: randomBytes(32).toString('base64url'),
+              tokenExpiresAt: deadlineAt,
+            },
+          });
+        }
       }
 
       return created;
@@ -770,14 +1029,32 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
       payload: {
         version: envelope.version,
-        signers: signerSeeds.length,
-        contentPages: rendered.contentPages,
+        signers: signing.length + 1,
+        contentPages: full.render.contentPages,
         snapshotHash: hash,
         // O canal entra na trilha na CRIAÇÃO, não só nos eventos de envio: é o
         // que permite responder "por onde esta coleta foi conduzida" sem
         // depender de os eventos de entrega terem sido gravados.
         channel: auditChannelOf(channel),
         deliveryMode: mode,
+        // QUEM recebeu O QUÊ. É a única prova de que a Ankaa não escolheu o
+        // recorte depois do fato: a trilha é append-only e encadeada, e esta
+        // linha é gravada no mesmo instante em que os bytes são congelados.
+        documents: persisted.map(p => ({
+          variant: p.plan.variantKey,
+          sections: p.plan.sections,
+          sha256: p.sha256,
+          signers: p.plan.seeds.map(s => s.name),
+        })),
+        // Quem ficou de fora e por quê — o registro do que o operador decidiu
+        // NÃO enviar, que é tão auditável quanto o que ele enviou.
+        excluded: roster
+          .filter(e => e.sections.length === 0)
+          .map(e => ({
+            name: e.responsible.name,
+            roles: e.responsible.roles,
+            overridden: overrides.has(e.responsible.id),
+          })),
       },
     });
     await this.audit.record(envelope.id, {
@@ -807,7 +1084,92 @@ export class SignatureEnvelopeService {
       ),
     );
 
-    return { envelopeId: envelope.id, verificationCode, channel };
+    return {
+      envelopeId: envelope.id,
+      verificationCode,
+      channel,
+      documents: persisted.map(p => ({
+        id: p.fileId,
+        sections: p.plan.sections,
+        signers: p.plan.seeds.length,
+      })),
+    };
+  }
+
+  // ===========================================================================
+  // RECORTES — resolução comum a todos os caminhos da cerimônia
+  // ===========================================================================
+
+  /**
+   * Como aquele signatário é autenticado.
+   *
+   * `INTERNAL_SESSION` é o lado da Ankaa, que contra-assina dentro do sistema.
+   * Todo o resto é OTP, inclusive os métodos legados (`SMS_OTP`) que continuam no
+   * enum porque envelopes já selados os carregam na evidência.
+   */
+  private ceremonyKindOf(authMethod: SignatureAuthMethod | string): CeremonyKind {
+    return authMethod === SignatureAuthMethod.INTERNAL_SESSION ? 'INTERNAL' : 'OTP';
+  }
+
+  /**
+   * O canal em que ESTA coleta fala com as pessoas.
+   *
+   * Lido dos signatários do CLIENTE, e não da configuração de agora nem do
+   * signatário da Ankaa: o lado do cliente é quem carrega o canal no `authMethod`
+   * (é lá que ele é a própria autenticação), enquanto o lado da Ankaa passou a
+   * gravar `INTERNAL_SESSION`, que não é canal nenhum. Sem isto o aviso de
+   * contra-assinatura de uma coleta de WhatsApp sairia por e-mail — e a trilha
+   * registraria "email" numa cerimônia conduzida por WhatsApp.
+   */
+  private noticeChannelOf(
+    signers: ReadonlyArray<{ orderGroup: number; authMethod: SignatureAuthMethod }>,
+  ): SignatureDeliveryChannel {
+    const customer = signers.find(
+      s => s.orderGroup === 0 && s.authMethod !== SignatureAuthMethod.INTERNAL_SESSION,
+    );
+    return channelForAuthMethod(customer?.authMethod);
+  }
+
+  /**
+   * As seções do recorte de um signatário, em ordem canônica.
+   *
+   * Envelope anterior a este recurso não tem recorte gravado; ali a resposta é o
+   * documento inteiro, que é exatamente o que aquelas coletas de fato entregaram.
+   */
+  private sectionsOf(document: { sections?: string[] | null } | null | undefined): QuoteSection[] {
+    const stored = canonicalSections(document?.sections ?? null);
+    return stored.length ? stored : [...FULL_SECTIONS];
+  }
+
+  /**
+   * As declarações que ESTE signatário lê, já renderizadas.
+   *
+   * Um só lugar para as três chamadas (tela pública, ato de assinar, ato de
+   * contra-assinar): o texto persistido em `EnvelopeSigner.declarations` tem de
+   * ser byte a byte o que foi exibido, e montá-lo em três pontos era garantia de
+   * que um deles envelheceria.
+   */
+  private renderDeclarationsFor(args: {
+    kind: CeremonyKind;
+    channel: SignatureDeliveryChannel;
+    sections: QuoteSection[];
+    budgetNumber: number;
+    total: number;
+    cargo: string | null;
+    company: string;
+  }): Array<{ key: string; text: string }> {
+    const showsTotal = hasSection(args.sections, 'PRICING');
+    return declarationsFor({ channel: args.channel, kind: args.kind, showsTotal }).map(d => ({
+      key: d.key,
+      text: renderDeclaration(d.template, {
+        budgetNumber: args.budgetNumber,
+        total: formatCurrencyBRL(args.total),
+        cargo: args.cargo ?? '{cargo}',
+        company: args.company,
+        ankaaCompany: COMPANY.corporateName,
+        sections: args.sections.map(x => QUOTE_SECTION_LABELS[x]).join(', ') || 'texto básico',
+      }),
+    }));
   }
 
   private async resolveAnkaaSigner(quote: QuoteWithSnapshotGraph) {
@@ -848,13 +1210,38 @@ export class SignatureEnvelopeService {
     signers: Array<{ id: string; name: string; subtitle: string; side: 'ANKAA' | 'CUSTOMER' }>,
     verificationCode: string,
     customerId?: string | null,
+    channel?: SignatureDeliveryChannel,
+    sections?: readonly QuoteSection[],
+  ) {
+    return this.renderer.render(
+      this.buildRenderInput(quote, signers, verificationCode, customerId, channel, sections),
+    );
+  }
+
+  /**
+   * Os dados do documento, prontos para o renderizador — SEM renderizar.
+   *
+   * Separado de `renderQuoteDocument` porque a emissão congela vários recortes de
+   * uma vez e precisa entregá-los todos ao mesmo navegador (`renderer.renderAll`):
+   * lançar um Chromium por recorte dentro do POST de emissão era o caminho certo
+   * para o timeout do nginx.
+   *
+   * @param sections  O recorte. Omitido = documento inteiro, que é o que os
+   *   caminhos avulsos (prévia não assinada, corpo legível do dossiê) querem.
+   */
+  private buildRenderInput(
+    quote: QuoteWithSnapshotGraph,
+    signers: Array<{ id: string; name: string; subtitle: string; side: 'ANKAA' | 'CUSTOMER' }>,
+    verificationCode: string,
+    customerId?: string | null,
     // O canal só governa o texto da cláusula de aceitação impressa no corpo. O
     // padrão é o canal preferencial do modo configurado, que é o que o
     // documento AVULSO (sem envelope) vai de fato usar se virar uma coleta.
     channel: SignatureDeliveryChannel = defaultChannelForMode(
       parseSignatureDeliveryMode(process.env.SIGNATURE_DELIVERY_CHANNEL).mode,
     ),
-  ) {
+    sections: readonly QuoteSection[] = FULL_SECTIONS,
+  ): RenderInput {
     const segment = customerId
       ? (quote.customerConfigs.find(c => c.customerId === customerId) ?? null)
       : null;
@@ -906,7 +1293,8 @@ export class SignatureEnvelopeService {
     // dividido, que é o único caso em que isto roda.
     const customer = segment?.customer ?? quote.task?.customer ?? null;
 
-    return this.renderer.render({
+    return {
+      sections,
       budgetNumber: quote.budgetNumber,
       issuedAt: quote.createdAt,
       expiresAt: quote.expiresAt,
@@ -966,7 +1354,7 @@ export class SignatureEnvelopeService {
       acceptanceClause: acceptanceClauseFor(channel),
       verificationCode,
       verificationUrl: this.verificationUrl(verificationCode),
-    });
+    };
   }
 
   // ===========================================================================
@@ -1129,9 +1517,16 @@ export class SignatureEnvelopeService {
         kind === 'countersign'
           ? `Orçamento nº ${budgetNumber} · Contra-assinatura`
           : `Orçamento nº ${budgetNumber} · Assinatura eletrônica`,
+      // O texto do cartão segue o que o link DE FATO é. No convite ele é a
+      // capability pessoal do signatário; no aviso de contra-assinatura ele é a
+      // tela interna, que não assina nada sozinha e exige login — dizer
+      // "intransferível" ali sugeriria justamente o que a mudança de fluxo
+      // eliminou, que era um link capaz de obrigar a empresa.
       description:
-        `${COMPANY.name} — revise o documento e assine pelo celular. ` +
-        'Link pessoal e intransferível.',
+        kind === 'countersign'
+          ? `${COMPANY.name} — abra o orçamento no sistema para contra-assinar. Exige login.`
+          : `${COMPANY.name} — revise o documento e assine pelo celular. ` +
+            'Link pessoal e intransferível.',
     };
   }
 
@@ -1215,6 +1610,10 @@ export class SignatureEnvelopeService {
     const signer = await this.prisma.envelopeSigner.findUnique({
       where: { accessToken: token },
       include: {
+        // O RECORTE deste signatário. É o hash DELE que vincula o código de uso
+        // único e é ele que o link serve — não o do envelope, que é sempre o
+        // documento completo e pode conter seções que esta pessoa não recebeu.
+        document: true,
         responsible: { select: { roles: true } },
         // O signatário da Ankaa é um User, não um Responsible: sem isto ele não
         // tem cargo de cadastro nenhum e a cerimônia obriga o diretor a digitar
@@ -1285,6 +1684,9 @@ export class SignatureEnvelopeService {
     });
 
     const customer = env.quote.task?.customer ?? null;
+    const sections = this.sectionsOf(signer.document);
+    const kind = this.ceremonyKindOf(signer.authMethod);
+    const showsTotal = hasSection(sections, 'PRICING');
 
     // O signatário que abre um link morto precisa saber POR QUE ele morreu. Sem
     // isto a página dizia apenas "esta coleta não está mais ativa", e quem tinha
@@ -1306,16 +1708,41 @@ export class SignatureEnvelopeService {
         id: env.id,
         status: env.status,
         budgetNumber: env.quote.budgetNumber,
-        total: formatCurrencyBRL(Number(env.quote.total)),
+        // O TOTAL SEGUE O RECORTE. A página imprime este valor no cabeçalho, e
+        // mandá-lo a quem recebeu um documento sem a seção de preços desfaria,
+        // numa linha de HTML, a decisão inteira de não lhe mostrar o valor — o
+        // PDF viria sem preço e a tela em volta dele o anunciaria.
+        total: showsTotal ? formatCurrencyBRL(Number(env.quote.total)) : null,
         deadlineAt: env.deadlineAt,
         verificationCode: env.verificationCode,
         acceptanceClause: env.acceptanceClause,
         invalidatedReason: env.invalidatedReason,
         changes,
       },
+      /**
+       * O que ESTE documento traz — a tela usa para explicar ao signatário que
+       * ele recebeu um recorte, e qual.
+       *
+       * Dizer isso em voz alta é parte do desenho, não enfeite: a declaração que
+       * ele aceita afirma ter revisado "as seções pertinentes à minha função", e
+       * uma pessoa não pode declarar isso sobre um documento que a plataforma
+       * apresentou como se fosse o orçamento inteiro.
+       */
+      document: {
+        sections,
+        label: describeSections(sections),
+        isFull: isFullSections(sections),
+        sha256: signer.document?.originalSha256 ?? env.originalSha256,
+      },
       signer: {
         id: signer.id,
         name: signer.declaredName,
+        /**
+         * Como esta pessoa é autenticada. `INTERNAL` é o lado da Ankaa, que
+         * contra-assina no sistema — a página pública dele não pede CPF, cargo
+         * nem código, e o botão de assinar mora no painel do orçamento.
+         */
+        ceremony: kind,
         emailMasked: maskEmail(signer.declaredEmail),
         emailParts: emailMaskParts(signer.declaredEmail),
         // Canal desta coleta + a máscara do contato correspondente. A tela monta
@@ -1366,16 +1793,30 @@ export class SignatureEnvelopeService {
         name: customer?.corporateName ?? customer?.fantasyName ?? '',
         cnpj: customer?.cnpj ? formatCnpj(customer.cnpj) : null,
       },
-      declarations: declarationsFor(channelForAuthMethod(signer.authMethod)).map(d => ({
-        key: d.key,
-        text: renderDeclaration(d.template, {
-          budgetNumber: env.quote.budgetNumber,
-          total: formatCurrencyBRL(Number(env.quote.total)),
-          cargo: signer.informedCargo ?? '{cargo}',
-          company: customer?.corporateName ?? customer?.fantasyName ?? '',
-        }),
-      })),
-      canSign: this.canSignNow(env.status, signer.status, env.deadlineAt),
+      declarations: this.renderDeclarationsFor({
+        kind,
+        channel: channelForAuthMethod(signer.authMethod),
+        sections,
+        budgetNumber: env.quote.budgetNumber,
+        total: Number(env.quote.total),
+        cargo: signer.informedCargo,
+        company: customer?.corporateName ?? customer?.fantasyName ?? '',
+      }),
+      // O lado da Ankaa NUNCA assina por esta página. `canSign: false` aqui não
+      // é uma restrição a mais — é a verdade sobre onde o ato acontece, e sem
+      // ela a página desenharia o formulário de CPF e código para alguém que o
+      // servidor recusaria em seguida, sem dizer por quê.
+      canSign:
+        kind === 'INTERNAL'
+          ? false
+          : this.canSignNow(env.status, signer.status, env.deadlineAt),
+      ...(kind === 'INTERNAL'
+        ? {
+            internalNotice:
+              'A contra-assinatura da Ankaa é feita dentro do sistema, na tela do orçamento. ' +
+              'Entre com sua conta e conclua por lá.',
+          }
+        : {}),
     };
   }
 
@@ -1420,6 +1861,7 @@ export class SignatureEnvelopeService {
     const signer = await this.getByToken(args.token);
     const env = signer.envelope;
 
+    this.assertOtpCeremony(signer);
     await this.assertSignable(env, signer);
 
     const cpfDigits = onlyDigits(args.cpf);
@@ -1516,7 +1958,10 @@ export class SignatureEnvelopeService {
       signerId: signer.id,
       channel: auditChannelOf(otpChannel),
       destinationMask: this.maskContactFor(signer, otpChannel),
-      documentSha256: env.originalSha256,
+      // O hash do RECORTE deste signatário, não o do envelope. É este documento
+      // que ele está lendo, e é a ele que o código tem de estar preso: se o
+      // recorte for invalidado, o hash muda e o desafio morre junto (ASVS 6.6.2).
+      documentSha256: signer.document?.originalSha256 ?? env.originalSha256,
       identity: cpfDigits,
     });
 
@@ -1683,9 +2128,10 @@ export class SignatureEnvelopeService {
     const signer = await this.getByToken(args.token);
     const env = signer.envelope;
 
+    this.assertOtpCeremony(signer);
     await this.assertSignable(env, signer);
 
-    const required = [...DECLARATION_KEYS];
+    const required = [...declarationKeysFor('OTP')];
     const missing = required.filter(k => !args.acceptedDeclarationKeys.includes(k));
     if (missing.length) {
       throw new BadRequestException('É necessário aceitar todas as declarações para assinar.');
@@ -1725,7 +2171,8 @@ export class SignatureEnvelopeService {
       signerId: signer.id,
       challengeId: args.challengeId,
       code: args.code,
-      expectedDocumentSha256: env.originalSha256,
+      // O mesmo hash que `requestOtp` prendeu ao desafio: o do RECORTE dele.
+      expectedDocumentSha256: signer.document?.originalSha256 ?? env.originalSha256,
       // O código só vale para a identidade que o pediu (ver `codeHashFor`).
       identity: signer.informedCpf,
     });
@@ -1773,16 +2220,20 @@ export class SignatureEnvelopeService {
     });
 
     const customer = env.quote.task?.customer ?? null;
-    const declarations = declarationsFor(channelForAuthMethod(signer.authMethod)).map(d => ({
-      key: d.key,
-      // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
-      // aquela pessoa leu, e o template pode mudar entre versões.
-      text: renderDeclaration(d.template, {
-        budgetNumber: env.quote.budgetNumber,
-        total: formatCurrencyBRL(Number(env.quote.total)),
-        cargo: signer.informedCargo,
-        company: customer?.corporateName ?? customer?.fantasyName ?? '',
-      }),
+    const signerSections = this.sectionsOf(signer.document);
+    // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
+    // aquela pessoa leu, e o template pode mudar entre versões — e agora também
+    // muda com o RECORTE, porque quem não recebeu preço não declara valor.
+    const declarations = this.renderDeclarationsFor({
+      kind: 'OTP',
+      channel: channelForAuthMethod(signer.authMethod),
+      sections: signerSections,
+      budgetNumber: env.quote.budgetNumber,
+      total: Number(env.quote.total),
+      cargo: signer.informedCargo,
+      company: customer?.corporateName ?? customer?.fantasyName ?? '',
+    }).map(d => ({
+      ...d,
       acceptedAt: new Date().toISOString(),
       version: DECLARATIONS_VERSION,
     }));
@@ -1807,7 +2258,12 @@ export class SignatureEnvelopeService {
     const evidence = {
       envelopeId: env.id,
       signerId: signer.id,
-      documentSha256: env.originalSha256,
+      // O documento que ELE assinou. Gravar aqui o hash do envelope — que é o do
+      // recorte completo — faria a evidência apontar para bytes que esta pessoa
+      // nunca viu, e é exatamente essa amarração que sustenta a autoria.
+      documentId: signer.documentId,
+      documentSections: signerSections,
+      documentSha256: signer.document?.originalSha256 ?? env.originalSha256,
       declaredName: signer.declaredName,
       declaredPhone: signer.declaredPhone,
       informedCpf: signer.informedCpf,
@@ -1864,8 +2320,13 @@ export class SignatureEnvelopeService {
       actorLabel: signer.declaredName,
       ipAddress: args.ctx.ipAddress,
       userAgent: args.ctx.userAgent,
-      documentHash: env.originalSha256,
-      payload: { evidenceHash, cargo: signer.informedCargo },
+      documentHash: signer.document?.originalSha256 ?? env.originalSha256,
+      payload: {
+        evidenceHash,
+        cargo: signer.informedCargo,
+        variant: signer.document?.variantKey ?? null,
+        sections: signerSections,
+      },
     });
 
     const envelopeStatus = await this.advanceEnvelope(env.id);
@@ -1904,6 +2365,7 @@ export class SignatureEnvelopeService {
 
     const signer = await this.getByToken(args.token);
     const env = signer.envelope;
+    this.assertOtpCeremony(signer);
     await this.assertSignable(env, signer);
 
     const reason = (args.reason ?? '').trim();
@@ -1918,7 +2380,7 @@ export class SignatureEnvelopeService {
       signerId: signer.id,
       challengeId: args.challengeId,
       code: args.code,
-      expectedDocumentSha256: env.originalSha256,
+      expectedDocumentSha256: signer.document?.originalSha256 ?? env.originalSha256,
       identity: signer.informedCpf,
     });
 
@@ -2010,6 +2472,249 @@ export class SignatureEnvelopeService {
    * dois números são finitos e estão na faixa, ou o ato é registrado como
    * `denied`, que é o que de fato aconteceu.
    */
+  // ===========================================================================
+  // CONTRA-ASSINATURA DA ANKAA (sessão autenticada, um único ato)
+  // ===========================================================================
+
+  /**
+   * O lado da Ankaa fecha a coleta — UM botão, sem código.
+   *
+   * POR QUE ESTE CAMINHO NÃO TEM OTP
+   *   O código de uso único existe para provar POSSE DE UM CANAL por alguém que
+   *   a plataforma não conhece. Do lado da Ankaa não há essa lacuna: quem aperta
+   *   o botão chegou aqui por uma sessão que o próprio servidor emitiu, contra
+   *   uma senha que o próprio servidor guarda, e o `userId` do signatário foi
+   *   fixado no congelamento do documento. Mandar um código para a caixa do
+   *   diretor provaria que ele tem acesso à caixa dele — coisa que ninguém
+   *   contesta, e que é precisamente o elo mais fraco desta ponta.
+   *
+   *   O risco que a cerimônia elaborada endereça é o do OUTRO lado: é o cliente
+   *   que pode alegar que não foi ele, e é contra ele que a prova precisa se
+   *   sustentar. Contra nós mesmos não há o que provar — a Ankaa não vai alegar
+   *   que não quis assinar o próprio orçamento.
+   *
+   * UM ATO, N RECORTES
+   *   O signatário da Ankaa tem âncora em TODOS os recortes e um único registro.
+   *   Este ato aplica o selo dele em todos, e isso é legítimo porque cada recorte
+   *   é subconjunto estrito do documento completo — que é o que ele leu e o que a
+   *   declaração dele nomeia. Assinar o todo é, a fortiori, assinar cada parte.
+   *   A evidência lista, um a um, os hashes que o ato contra-assina.
+   */
+  async countersign(args: {
+    envelopeId: string;
+    actorUserId: string;
+    ctx: RequestContext;
+  }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
+    this.assertCeremonyConfigured();
+
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: args.envelopeId },
+      include: {
+        signers: { include: { document: true } },
+        documents: { select: { id: true, variantKey: true, sections: true, originalSha256: true } },
+        quote: { include: { task: { include: { customer: true } } } },
+      },
+    });
+    if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
+
+    const ankaa = env.signers.find(
+      s => s.authMethod === SignatureAuthMethod.INTERNAL_SESSION || s.orderGroup === 1,
+    );
+    if (!ankaa) {
+      throw new BadRequestException(
+        'Esta coleta não tem signatário da Ankaa. Emita uma nova coleta para o orçamento.',
+      );
+    }
+
+    // COLETAS ANTIGAS ficam de fora, e não é rigor: nelas o signatário da Ankaa
+    // foi congelado com `EMAIL_OTP`/`WHATSAPP_OTP`, o documento imprime uma
+    // cláusula de aceitação que descreve autenticação por código, e a declaração
+    // que ele leu afirma posse do canal. Fechar por sessão um documento que diz
+    // outra coisa criaria justamente a contradição interna que a v3 destas
+    // constantes existiu para consertar. O link com código daquelas coletas
+    // continua valendo.
+    if (ankaa.authMethod !== SignatureAuthMethod.INTERNAL_SESSION) {
+      throw new BadRequestException(
+        'Esta coleta foi emitida antes da contra-assinatura pelo sistema. Conclua pelo link ' +
+          'de assinatura enviado, ou cancele e emita uma nova coleta.',
+      );
+    }
+
+    // SÓ A PESSOA DESIGNADA. Um administrador contra-assinando no lugar dela
+    // gravaria o nome dela num ato que ela não praticou — que é falsidade, não
+    // conveniência. Trocar quem assina exige reemitir a coleta com outro
+    // responsável comercial no orçamento.
+    if (!ankaa.userId || ankaa.userId !== args.actorUserId) {
+      throw new ForbiddenException(
+        `A contra-assinatura deste orçamento cabe a ${ankaa.declaredName}. ` +
+          'Para que outra pessoa assine, altere o responsável comercial do orçamento e emita ' +
+          'uma nova coleta.',
+      );
+    }
+
+    // Mesma porta de todos os atos: status, prazo, já-assinou, e a ordem —
+    // o grupo 1 só libera quando todo o grupo 0 assinou. É ela que dá sentido ao
+    // aviso "todos já assinaram e aguardam você".
+    await this.assertSignable(env, ankaa);
+
+    // GARANTIA DE FRESCOR, idêntica à do caminho do cliente e pelo mesmo motivo:
+    // a pergunta é feita no único instante em que a resposta é juridicamente
+    // decisiva. Selar por cima de condições que mudaram seria afirmar, com o
+    // certificado da empresa, algo que deixou de ser verdade.
+    const fresh = await this.snapshots.buildForQuote(env.quoteId);
+    if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
+      const invalidated = await this.onQuoteContentChanged(env.quoteId, args.actorUserId);
+      if (invalidated) {
+        throw new BadRequestException(
+          'O orçamento foi alterado desde o envio e a coleta foi invalidada. ' +
+            'Reemita a coleta para o cliente.',
+        );
+      }
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: args.actorUserId },
+      select: {
+        id: true,
+        name: true,
+        cpf: true,
+        position: { select: { name: true } },
+        sector: { select: { name: true } },
+      },
+    });
+
+    // O cargo vem do CADASTRO, nunca digitado. É o mesmo princípio do lado do
+    // cliente — o que a Ankaa afirma fica ao lado do que o signatário aceita —,
+    // e aqui a Ankaa afirma sobre o próprio colaborador, com o registro do DP
+    // atrás. `COMPANY.directorTitle` é o recuo para quem não tem posição nem
+    // setor preenchidos: é o cargo impresso na linha de assinatura do documento
+    // congelado, então o selo não passa a dizer outra coisa.
+    const cargo =
+      fitCargo(user?.position?.name ?? '') ||
+      fitCargo(user?.sector?.name ?? '') ||
+      COMPANY.directorTitle;
+
+    // CPF ausente não barra. Ele reforça a evidência e sai no selo, mas a
+    // identidade deste ato vem da sessão e do `userId` congelado no documento —
+    // travar o fechamento de um negócio por um campo vazio no cadastro do DP
+    // seria cobrar do cliente um problema que é nosso. Fica registrado que
+    // faltou, que é o que permite corrigir.
+    const cpf = onlyDigits(user?.cpf ?? '') || null;
+    if (!cpf) {
+      this.logger.warn(
+        `Contra-assinatura do envelope ${env.id} sem CPF: o usuário ${args.actorUserId} não tem ` +
+          'CPF no cadastro. O selo sai sem o documento do signatário.',
+      );
+    }
+
+    const customer = env.quote.task?.customer ?? null;
+    const sections = this.sectionsOf(ankaa.document);
+    const declarations = this.renderDeclarationsFor({
+      kind: 'INTERNAL',
+      channel: this.noticeChannelOf(env.signers),
+      sections,
+      budgetNumber: env.quote.budgetNumber,
+      total: Number(env.quote.total),
+      cargo,
+      company: customer?.corporateName ?? customer?.fantasyName ?? '',
+    }).map(d => ({
+      ...d,
+      acceptedAt: new Date().toISOString(),
+      version: DECLARATIONS_VERSION,
+    }));
+
+    await this.audit.record(env.id, {
+      eventType: 'DECLARATIONS_ACCEPTED',
+      actorType: 'SIGNER',
+      actorId: ankaa.id,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: {
+        version: DECLARATIONS_VERSION,
+        count: declarations.length,
+        ceremony: 'internal_session',
+      },
+    });
+
+    const serverTimestamp = new Date();
+    const evidence = {
+      envelopeId: env.id,
+      signerId: ankaa.id,
+      documentId: ankaa.documentId,
+      documentSections: sections,
+      documentSha256: ankaa.document?.originalSha256 ?? env.originalSha256,
+      // O que ESTE ato contra-assina. Cada recorte é um subconjunto do documento
+      // acima; listar os hashes é o que permite, anos depois, apontar qual PDF
+      // recebeu este selo sem depender de reconstruir o raciocínio.
+      countersignedDocuments: env.documents.map(d => ({
+        variantKey: d.variantKey,
+        sections: d.sections,
+        sha256: d.originalSha256,
+      })),
+      declaredName: ankaa.declaredName,
+      informedCpf: cpf,
+      informedCargo: cargo,
+      authMethod: SignatureAuthMethod.INTERNAL_SESSION,
+      // A prova de identidade DESTE ato: a sessão autenticada, e não um código.
+      sessionUserId: args.actorUserId,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      serverTimestamp: serverTimestamp.toISOString(),
+      declarations,
+    };
+
+    const evidenceHash = sha256Hex(evidence);
+    const pepper = this.config.get<string>('SIGNATURE_HMAC_SECRET');
+    if (!pepper) {
+      throw new ServiceUnavailableException(
+        'Assinatura eletrônica temporariamente indisponível (configuração do servidor).',
+      );
+    }
+    const hmacSignature = createHmac('sha256', pepper).update(evidenceHash).digest('hex');
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: ankaa.id },
+      data: {
+        status: EnvelopeSignerStatus.SIGNED,
+        signedAt: serverTimestamp,
+        informedCpf: cpf,
+        informedCargo: cargo,
+        // `cpfMatch` compara o informado com o declarado. Aqui os dois saem da
+        // MESMA linha do banco, então a comparação não prova nada e afirmar
+        // `true` seria fabricar uma conferência que não houve.
+        cpfMatch: null,
+        ipAddress: args.ctx.ipAddress,
+        userAgent: args.ctx.userAgent,
+        // Sem geolocalização: o navegador do escritório não é pedido a informá-la
+        // e `geoSource: 'denied'` descreveria uma recusa que ninguém fez.
+        geoSource: 'internal_session',
+        declarations: declarations as unknown as Prisma.InputJsonValue,
+        evidenceJson: evidence as unknown as Prisma.InputJsonValue,
+        evidenceHash,
+        hmacSignature,
+      },
+    });
+
+    await this.audit.record(env.id, {
+      eventType: 'SIGNATURE_APPLIED',
+      actorType: 'SIGNER',
+      actorId: ankaa.id,
+      actorLabel: ankaa.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      documentHash: ankaa.document?.originalSha256 ?? env.originalSha256,
+      payload: {
+        evidenceHash,
+        cargo,
+        ceremony: 'internal_session',
+        countersigned: env.documents.map(d => d.variantKey),
+      },
+    });
+
+    const envelopeStatus = await this.advanceEnvelope(env.id);
+    return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
+  }
+
   private normalizeGeo(
     geo: { lat?: number; lon?: number; accuracy?: number | null } | null | undefined,
   ): { lat: number; lon: number; accuracy: number | null } | null {
@@ -2037,6 +2742,27 @@ export class SignatureEnvelopeService {
       return null;
     }
     return parsed;
+  }
+
+  /**
+   * Recusa o caminho público a quem assina por SESSÃO.
+   *
+   * O signatário da Ankaa tem token e página como qualquer outro — é assim que
+   * ele confere o documento —, mas o ATO dele não pode acontecer ali. Um link
+   * pessoal que assinasse sem código seria uma capability de obrigar a empresa
+   * viajando por e-mail e por WhatsApp: quem recebesse a mensagem encaminhada, ou
+   * qualquer um com acesso à caixa, fecharia o negócio. A segurança do nosso lado
+   * é a sessão autenticada — que o servidor emitiu, e que não se encaminha.
+   *
+   * A mensagem diz ONDE assinar. Um 403 mudo mandaria o diretor abrir um chamado
+   * para descobrir que o botão estava na tela ao lado.
+   */
+  private assertOtpCeremony(signer: { authMethod: SignatureAuthMethod }): void {
+    if (this.ceremonyKindOf(signer.authMethod) !== 'INTERNAL') return;
+    throw new ForbiddenException(
+      'A contra-assinatura da Ankaa é feita dentro do sistema, na tela do orçamento, ' +
+        'com a sua conta. Este link serve apenas para conferir o documento.',
+    );
   }
 
   private async assertSignable(
@@ -2298,31 +3024,53 @@ export class SignatureEnvelopeService {
     return { status: after?.status ?? outcome.status, padesLevel: after?.padesLevel ?? null };
   }
 
+  /**
+   * Avisa o lado da Ankaa de que o cliente terminou.
+   *
+   * É AVISO, e não convite: a ação vive no painel do orçamento, atrás do login, e
+   * acontece com ou sem esta mensagem. Por isso o link aponta para a tela interna
+   * e não para o token do signatário — ver `AnkaaNoticeEmailData.quoteUrl`.
+   *
+   * Best-effort de ponta a ponta: um representante sem e-mail nem telefone no
+   * cadastro não impede mais nada, porque não há nada que dependa da mensagem
+   * chegar. A trilha registra que não saiu, que é o que permite corrigir.
+   */
   private async notifyAnkaaSigner(envelopeId: string, signerId: string): Promise<void> {
     const signer = await this.prisma.envelopeSigner.findUnique({
       where: { id: signerId },
-      include: { envelope: { include: { quote: true } } },
+      include: {
+        envelope: {
+          include: {
+            quote: { include: { task: { select: { id: true } } } },
+            signers: { select: { orderGroup: true, authMethod: true, status: true } },
+          },
+        },
+      },
     });
     if (!signer) return;
-    const channel = channelForAuthMethod(signer.authMethod);
-    const signingUrl = this.signingUrl(signer.accessToken);
+    // O canal da COLETA, lido do lado do cliente: o `authMethod` da Ankaa virou
+    // `INTERNAL_SESSION` e não descreve canal nenhum. Ver `noticeChannelOf`.
+    const channel = this.noticeChannelOf(signer.envelope.signers);
+    const quoteUrl = this.internalQuoteUrl(signer.envelope.quote.task?.id ?? null);
+    const signedCount = signer.envelope.signers.filter(
+      s => s.orderGroup === 0 && s.status === EnvelopeSignerStatus.SIGNED,
+    ).length;
+
+    const payload = {
+      signerName: signer.declaredName,
+      budgetNumber: signer.envelope.quote.budgetNumber,
+      quoteUrl,
+      signedCount,
+    };
 
     const delivery = await this.deliverToSigner({
       signer,
       channel,
-      email: generateAnkaaCountersignEmail({
-        signerName: signer.declaredName,
-        budgetNumber: signer.envelope.quote.budgetNumber,
-        signingUrl,
-      }),
-      whatsapp: generateAnkaaCountersignWhatsApp({
-        signerName: signer.declaredName,
-        budgetNumber: signer.envelope.quote.budgetNumber,
-        signingUrl,
-      }),
+      email: generateAnkaaCountersignEmail(payload),
+      whatsapp: generateAnkaaCountersignWhatsApp(payload),
       whatsappPreview: this.signingLinkPreview(
         signer.envelope.quote.budgetNumber,
-        signingUrl,
+        quoteUrl,
         'countersign',
       ),
       kind: 'SIGNATURE_ANKAA_NOTICE',
@@ -2335,6 +3083,10 @@ export class SignatureEnvelopeService {
       actorLabel: signer.declaredName,
       payload: {
         stage: 'ankaa',
+        // O aviso não autentica ninguém — quem autentica é a sessão. A trilha
+        // diz isso explicitamente para que ninguém leia este INVITATION_SENT
+        // como "foi enviado um convite de assinatura".
+        kind: 'countersign_notice',
         channel: auditChannelOf(channel),
         destination: this.maskContactFor(signer, channel),
         ...(delivery.reason ? { failureReason: delivery.reason } : {}),
@@ -2353,6 +3105,15 @@ export class SignatureEnvelopeService {
       where: { id: envelopeId },
       include: {
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        // Um artefato por RECORTE. `originalFile` de cada um é o que foi
+        // assinado por quem está amarrado a ele — nunca o do envelope, que é
+        // sempre o documento completo.
+        documents: {
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          include: { originalFile: true },
+        },
+        // (documents já traz finalFileId/finalSha256/padesLevel por ser include
+        // de modelo inteiro — é o que a guarda de reentrância abaixo lê.)
         // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
         // que se pergunta ao cadastro o que já chegou desde a emissão.
         quote: { include: { task: { include: { customer: true, truck: true } } } },
@@ -2362,19 +3123,57 @@ export class SignatureEnvelopeService {
     if (!env) throw new NotFoundException('Envelope não encontrado.');
 
     const { readFileSync } = await import('fs');
-    const originalPdf = readFileSync(env.originalFile.path);
 
-    // Confere que os bytes em disco continuam sendo os que foram assinados.
-    const onDiskHash = sha256Hex(originalPdf);
-    if (onDiskHash !== env.originalSha256) {
-      await this.audit.record(envelopeId, {
-        eventType: 'PADES_FAILED',
-        actorType: 'SYSTEM',
-        payload: { reason: 'original_hash_mismatch', onDisk: onDiskHash },
-      });
-      throw new BadRequestException(
-        'O documento original em disco não confere com o hash registrado. Selagem abortada.',
-      );
+    // Envelope anterior a este recurso não tem `documents`. Trata-se o próprio
+    // envelope como o recorte completo: são exatamente os bytes que aquelas
+    // coletas congelaram, e a migração já criou a linha — este recuo existe para
+    // o caso de um envelope escapar dela (restauração parcial de backup,
+    // ambiente de teste), e não para operação normal.
+    const documents = env.documents.length
+      ? env.documents
+      : [
+          {
+            id: null as string | null,
+            isFull: true,
+            variantKey: variantKeyOf([...FULL_SECTIONS]),
+            sections: [...FULL_SECTIONS] as string[],
+            originalFileId: env.originalFileId,
+            originalSha256: env.originalSha256,
+            anchors: env.anchors,
+            lateSlots: env.lateSlots,
+            originalFile: env.originalFile,
+            // Sempre nulo aqui: este ramo só existe quando NÃO há linha em
+            // `EnvelopeDocument`, e a guarda de reentrância abaixo tem de ler
+            // "ainda não selado" para que a selagem aconteça.
+            finalFileId: null as string | null,
+            finalSha256: null as string | null,
+            padesLevel: null as string | null,
+          },
+        ];
+
+    // ---- Guardas que valem para a SELAGEM INTEIRA, antes de tocar em bytes ---
+    //
+    // Elas decidem se este envelope pode virar artefato. Rodá-las por recorte
+    // seria pior de duas formas: repetiria a leitura do grafo do orçamento N
+    // vezes, e — pior — permitiria selar três recortes e abortar no quarto,
+    // deixando um envelope metade selado que nenhum estado do sistema descreve.
+    for (const doc of documents) {
+      const onDiskHash = sha256Hex(readFileSync(doc.originalFile.path));
+      if (onDiskHash !== doc.originalSha256) {
+        await this.audit.record(envelopeId, {
+          eventType: 'PADES_FAILED',
+          actorType: 'SYSTEM',
+          payload: {
+            reason: 'original_hash_mismatch',
+            variant: doc.variantKey,
+            onDisk: onDiskHash,
+          },
+        });
+        throw new BadRequestException(
+          'O documento original em disco não confere com o hash registrado ' +
+            `(recorte "${describeSections(this.sectionsOf(doc))}"). Selagem abortada.`,
+        );
+      }
     }
 
     // Mesma guarda antes de SELAR: um selo PAdES sobre condições obsoletas seria
@@ -2391,12 +3190,17 @@ export class SignatureEnvelopeService {
     // Mesma razão do `checkAndInvalidate`: aceitar qualquer versão conhecida,
     // senão um envelope pré-v2 se recusaria a selar com TODAS as assinaturas já
     // colhidas — o pior desfecho possível deste fluxo.
+    const signingResponsibleIds = env.signers
+      .map(s => s.responsibleId)
+      .filter((id): id is string => !!id);
+
     const sealTermsUnchanged =
       !!freshAtSeal &&
       this.snapshots.matchesFrozenTerms(
         freshAtSeal.snapshot,
         frozenTermsAtSeal,
         env.quoteSnapshot as unknown as QuoteSnapshot,
+        signingResponsibleIds,
       ) !== null;
 
     if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256 && sealTermsUnchanged) {
@@ -2431,159 +3235,285 @@ export class SignatureEnvelopeService {
 
     const customer = env.quote.task?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
-
-    const assemblerSigners: AssemblerSigner[] = env.signers.map(s => ({
-      id: s.id,
-      name: s.declaredName,
-      cargo: s.informedCargo,
-      companyLabel: s.orderGroup === 1 ? COMPANY.name : companyLabel,
-      cpf: s.informedCpf,
-      phone: s.declaredPhone,
-      signedAt: s.signedAt,
-      status: s.status,
-      authMethodLabel: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
-      ipAddress: s.ipAddress,
-      side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
-    }));
-
-    const anchors = env.anchors as any;
     const verificationUrl = this.verificationUrl(env.verificationCode);
 
-    const stamped = await this.assembler.stampSeals({
-      originalPdf,
-      anchors,
-      signers: assemblerSigners,
-      budgetNumber: env.quote.budgetNumber,
-      verificationCode: env.verificationCode,
-      verificationUrl,
-      originalSha256: env.originalSha256,
-      // O que o cadastro tem AGORA, contra o espaço reservado na emissão. O
-      // montador só preenche lacuna vazia, então um valor que já estava impresso
-      // no documento congelado não é tocado.
-      lateSlots: (env.lateSlots as any) ?? null,
-      lateValues: {
-        serialNumber: env.quote.task?.serialNumber ?? null,
-        plate: env.quote.task?.truck?.plate ?? null,
-        chassis: env.quote.task?.truck?.chassisNumber ?? null,
-      },
-    });
-
+    // A trilha é do ENVELOPE, não do recorte: ela narra a cerimônia inteira, e
+    // recortá-la por documento produziria artefatos que contam meia história e
+    // cuja cadeia de hash pareceria ter buracos. O que É por recorte é o ROSTER
+    // impresso: cada artefato lista as partes DAQUELE documento, porque afirmar
+    // que alguém assinou um papel que ele nunca viu é o único erro que este
+    // recurso poderia introduzir na peça probatória.
     const events = await this.audit.getTrail(envelopeId);
     const chainTip = await this.audit.getChainTip(envelopeId);
 
-    const auditPages = await this.assembler.buildAuditPages({
-      originalPdf,
-      anchors,
-      signers: assemblerSigners,
-      events: events.map(e => ({
-        sequence: e.sequence,
-        occurredAt: e.occurredAt,
-        description: EVENT_DESCRIPTIONS[e.eventType] ?? e.eventType,
-        ipAddress: e.ipAddress,
-        hash: e.hash,
-        // O QUE mudou, e não só que mudou. Ver `AssemblerAuditEvent.detail`:
-        // é aqui que "Placa do veículo: — → ABB8468" entra no artefato, já que
-        // o corpo do documento está congelado desde antes de a placa existir.
-        detail: driftDetailOf(e.eventType, e.payload),
-      })),
-      budgetNumber: env.quote.budgetNumber,
-      envelopeId: env.id,
-      verificationCode: env.verificationCode,
-      verificationUrl,
-      originalSha256: env.originalSha256,
-      chainTip,
-      acceptanceClause: env.acceptanceClause,
-    });
+    const lateValues = {
+      serialNumber: env.quote.task?.serialNumber ?? null,
+      plate: env.quote.task?.truck?.plate ?? null,
+      chassis: env.quote.task?.truck?.chassisNumber ?? null,
+    };
 
-    let finalPdf = await this.assembler.mergeWithAudit(stamped, auditPages);
+    const sealed: Array<{
+      documentId: string | null;
+      isFull: boolean;
+      variantKey: string;
+      sections: QuoteSection[];
+      finalFileId: string;
+      finalSha256: string;
+      padesLevel: string | null;
+      certMeta: Record<string, unknown>;
+    }> = [];
 
-    await this.audit.record(envelopeId, {
-      eventType: 'DOCUMENT_ASSEMBLED',
-      actorType: 'SYSTEM',
-      payload: { bytes: finalPdf.length },
-    });
+    for (const doc of documents) {
+      const docSections = this.sectionsOf(doc);
 
-    // ---- Selo PAdES (último passo) ----
-    let padesLevel: string | null = null;
-    let certMeta: Record<string, unknown> = {};
-    if (this.pades.isEnabled()) {
-      try {
-        const sealed = await this.pades.sealPdf(finalPdf, {
-          reason: `Orçamento nº ${env.quote.budgetNumber} — envelope ${env.verificationCode}`,
-          location: COMPANY.signatureLocation,
-          signerName: this.pades.getCertMetadata()?.subjectCommonName ?? COMPANY.corporateName,
-          contactInfo: COMPANY.email,
-        });
-        finalPdf = sealed.signedPdf;
-        padesLevel = sealed.level;
-        certMeta = {
-          certSubject: sealed.cert.subject,
-          certIssuer: sealed.cert.issuer,
-          certSerialNumber: sealed.cert.serialNumber,
-          certCnpj: sealed.cert.cnpj,
-          certNotAfter: sealed.cert.notAfter,
-          tsaUrl: sealed.tsaUrl,
-          tsaGenTime: sealed.tsaGenTime,
+      // RECORTE JÁ SELADO fica como está. Uma falha no meio do laço (rede da TSA
+      // no terceiro recorte, disco cheio) deixa os anteriores prontos, e o
+      // `retryFinalize` reentra aqui: re-selar produziria um SEGUNDO artefato,
+      // com hash diferente, para um documento que já tem o seu — e a evidência
+      // passaria a ter duas respostas para "qual PDF o financeiro assinou".
+      if (doc.id && (doc as { finalFileId?: string | null }).finalFileId) {
+        const already = doc as {
+          finalFileId: string;
+          finalSha256: string | null;
+          padesLevel: string | null;
         };
-        await this.audit.record(envelopeId, {
-          eventType: 'PADES_SEALED',
-          actorType: 'SYSTEM',
-          payload: { level: sealed.level, serial: sealed.cert.serialNumber },
+        this.logger.log(
+          `Recorte ${doc.variantKey} do envelope ${envelopeId} já estava selado; preservado.`,
+        );
+        sealed.push({
+          documentId: doc.id,
+          isFull: doc.isFull,
+          variantKey: doc.variantKey,
+          sections: docSections,
+          finalFileId: already.finalFileId,
+          finalSha256: already.finalSha256 ?? '',
+          padesLevel: already.padesLevel,
+          certMeta: {},
         });
-        if (sealed.level === 'B-T') {
-          await this.audit.record(envelopeId, {
-            eventType: 'TSA_STAMPED',
-            actorType: 'SYSTEM',
-            payload: { tsa: sealed.tsaUrl ?? '', genTime: sealed.tsaGenTime?.toISOString() ?? '' },
+        continue;
+      }
+
+      const originalPdf = readFileSync(doc.originalFile.path);
+      const anchors = (doc.anchors ?? {}) as Record<string, unknown>;
+
+      // QUEM tem selo NESTE pdf: quem tem âncora nele. A âncora é o retângulo
+      // medido no render, então esta é a definição operacional exata de "esta
+      // pessoa tem uma linha de assinatura nesta folha" — e é o que faz o
+      // signatário da Ankaa, que tem um registro só e âncora em todos os
+      // recortes, receber o selo em cada um deles a partir de um único ato.
+      const docSigners = env.signers.filter(s => Object.prototype.hasOwnProperty.call(anchors, s.id));
+
+      const assemblerSigners: AssemblerSigner[] = docSigners.map(s => ({
+        id: s.id,
+        name: s.declaredName,
+        cargo: s.informedCargo,
+        companyLabel: s.orderGroup === 1 ? COMPANY.name : companyLabel,
+        cpf: s.informedCpf,
+        phone: s.declaredPhone,
+        signedAt: s.signedAt,
+        status: s.status,
+        authMethodLabel: AUTH_METHOD_LABELS[s.authMethod] ?? s.authMethod,
+        ipAddress: s.ipAddress,
+        side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+      }));
+
+      const stamped = await this.assembler.stampSeals({
+        originalPdf,
+        anchors: anchors as any,
+        signers: assemblerSigners,
+        budgetNumber: env.quote.budgetNumber,
+        verificationCode: env.verificationCode,
+        verificationUrl,
+        originalSha256: doc.originalSha256,
+        // O que o cadastro tem AGORA, contra o espaço reservado na emissão. O
+        // montador só preenche lacuna vazia, então um valor que já estava impresso
+        // no documento congelado não é tocado. Recorte sem a seção do veículo não
+        // tem lacuna nenhuma medida, e aí não há o que carimbar.
+        lateSlots: (doc.lateSlots as any) ?? null,
+        lateValues,
+      });
+
+      const auditPages = await this.assembler.buildAuditPages({
+        originalPdf,
+        anchors: anchors as any,
+        signers: assemblerSigners,
+        events: events.map(e => ({
+          sequence: e.sequence,
+          occurredAt: e.occurredAt,
+          description: EVENT_DESCRIPTIONS[e.eventType] ?? e.eventType,
+          ipAddress: e.ipAddress,
+          hash: e.hash,
+          // O QUE mudou, e não só que mudou. Ver `AssemblerAuditEvent.detail`:
+          // é aqui que "Placa do veículo: — → ABB8468" entra no artefato, já que
+          // o corpo do documento está congelado desde antes de a placa existir.
+          //
+          // SÓ NOS RECORTES QUE FALAM DO VEÍCULO. Num documento que nunca
+          // mencionou placa nem chassi, a linha entregaria pela trilha o dado que
+          // o recorte decidiu não entregar pelo corpo — e o leitor não teria a
+          // que relacioná-la.
+          detail: hasSection(docSections, 'VEHICLE')
+            ? driftDetailOf(e.eventType, e.payload)
+            : null,
+        })),
+        budgetNumber: env.quote.budgetNumber,
+        envelopeId: env.id,
+        verificationCode: env.verificationCode,
+        verificationUrl,
+        originalSha256: doc.originalSha256,
+        chainTip,
+        acceptanceClause: env.acceptanceClause,
+        // O que ESTE artefato reproduz. Num envelope de recorte único isto some
+        // da página — não há recorte a explicar, e anunciá-lo faria o documento
+        // de sempre parecer parcial.
+        variantLabel: documents.length > 1 ? describeSections(docSections) : null,
+      });
+
+      let finalPdf = await this.assembler.mergeWithAudit(stamped, auditPages);
+
+      await this.audit.record(envelopeId, {
+        eventType: 'DOCUMENT_ASSEMBLED',
+        actorType: 'SYSTEM',
+        payload: { bytes: finalPdf.length, variant: doc.variantKey },
+      });
+
+      // ---- Selo PAdES (último passo de cada recorte) ----
+      //
+      // Um selo por artefato, e não um para todos: a assinatura PAdES cobre os
+      // bytes de UM arquivo. Cada recorte é um arquivo diferente, então cada um
+      // precisa do seu — é o mesmo motivo pelo qual o dossiê anexa o assinado em
+      // vez de remontá-lo.
+      let padesLevel: string | null = null;
+      let certMeta: Record<string, unknown> = {};
+      if (this.pades.isEnabled()) {
+        try {
+          const sealedPdf = await this.pades.sealPdf(finalPdf, {
+            reason:
+              `Orçamento nº ${env.quote.budgetNumber} — envelope ${env.verificationCode}` +
+              (documents.length > 1 ? ` — ${describeSections(docSections)}` : ''),
+            location: COMPANY.signatureLocation,
+            signerName: this.pades.getCertMetadata()?.subjectCommonName ?? COMPANY.corporateName,
+            contactInfo: COMPANY.email,
           });
-        } else if (sealed.tsaError) {
+          finalPdf = sealedPdf.signedPdf;
+          padesLevel = sealedPdf.level;
+          certMeta = {
+            certSubject: sealedPdf.cert.subject,
+            certIssuer: sealedPdf.cert.issuer,
+            certSerialNumber: sealedPdf.cert.serialNumber,
+            certCnpj: sealedPdf.cert.cnpj,
+            certNotAfter: sealedPdf.cert.notAfter,
+            tsaUrl: sealedPdf.tsaUrl,
+            tsaGenTime: sealedPdf.tsaGenTime,
+          };
           await this.audit.record(envelopeId, {
-            eventType: 'TSA_FAILED',
+            eventType: 'PADES_SEALED',
             actorType: 'SYSTEM',
-            payload: { error: sealed.tsaError },
+            payload: {
+              level: sealedPdf.level,
+              serial: sealedPdf.cert.serialNumber,
+              variant: doc.variantKey,
+            },
+          });
+          if (sealedPdf.level === 'B-T') {
+            await this.audit.record(envelopeId, {
+              eventType: 'TSA_STAMPED',
+              actorType: 'SYSTEM',
+              payload: {
+                tsa: sealedPdf.tsaUrl ?? '',
+                genTime: sealedPdf.tsaGenTime?.toISOString() ?? '',
+                variant: doc.variantKey,
+              },
+            });
+          } else if (sealedPdf.tsaError) {
+            await this.audit.record(envelopeId, {
+              eventType: 'TSA_FAILED',
+              actorType: 'SYSTEM',
+              payload: { error: sealedPdf.tsaError, variant: doc.variantKey },
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `Falha ao selar o recorte ${doc.variantKey} do envelope ${envelopeId}: ${
+              error instanceof Error ? error.message : error
+            }`,
+          );
+          await this.audit.record(envelopeId, {
+            eventType: 'PADES_FAILED',
+            actorType: 'SYSTEM',
+            payload: {
+              error: error instanceof Error ? error.message : String(error),
+              variant: doc.variantKey,
+            },
           });
         }
-      } catch (error) {
-        this.logger.error(
-          `Falha ao selar o envelope ${envelopeId}: ${error instanceof Error ? error.message : error}`,
-        );
-        await this.audit.record(envelopeId, {
-          eventType: 'PADES_FAILED',
-          actorType: 'SYSTEM',
-          payload: { error: error instanceof Error ? error.message : String(error) },
+      }
+
+      const finalSha256 = sha256Hex(finalPdf);
+      const finalFileId = await this.persistPdf(
+        env.quote as any,
+        finalPdf,
+        `assinado${variantFilenameSuffix(docSections)}`,
+        env.verificationCode,
+      );
+
+      if (doc.id) {
+        await this.prisma.envelopeDocument.update({
+          where: { id: doc.id },
+          data: {
+            finalFileId,
+            finalSha256,
+            sealedAt: padesLevel ? new Date() : null,
+            padesLevel,
+            ...certMeta,
+          },
         });
       }
+
+      sealed.push({
+        documentId: doc.id,
+        isFull: doc.isFull,
+        variantKey: doc.variantKey,
+        sections: docSections,
+        finalFileId,
+        finalSha256,
+        padesLevel,
+        certMeta,
+      });
     }
 
-    const finalSha256 = sha256Hex(finalPdf);
-    const finalFileId = await this.persistPdf(
-      env.quote as any,
-      finalPdf,
-      'assinado',
-      env.verificationCode,
-    );
-
+    // As colunas do envelope ESPELHAM o recorte completo. Ver a nota no schema:
+    // "o documento do envelope" tem uma resposta certa para todo leitor de fora
+    // da cerimônia, e é o instrumento inteiro.
+    const fullSealed = sealed.find(x => x.isFull) ?? sealed[0];
     await this.prisma.signatureEnvelope.update({
       where: { id: envelopeId },
       data: {
         status: EnvelopeStatus.COMPLETED,
         completedAt: new Date(),
-        finalFileId,
-        finalSha256,
-        sealedAt: padesLevel ? new Date() : null,
-        padesLevel,
-        ...certMeta,
+        finalFileId: fullSealed.finalFileId,
+        finalSha256: fullSealed.finalSha256,
+        sealedAt: fullSealed.padesLevel ? new Date() : null,
+        padesLevel: fullSealed.padesLevel,
+        ...fullSealed.certMeta,
       },
     });
 
     await this.audit.record(envelopeId, {
       eventType: 'DOCUMENT_FINALIZED',
       actorType: 'SYSTEM',
-      documentHash: finalSha256,
-      payload: { padesLevel: padesLevel ?? 'none' },
+      documentHash: fullSealed.finalSha256,
+      payload: {
+        padesLevel: fullSealed.padesLevel ?? 'none',
+        documents: sealed.map(x => ({
+          variant: x.variantKey,
+          sections: x.sections,
+          sha256: x.finalSha256,
+          padesLevel: x.padesLevel ?? 'none',
+        })),
+      },
     });
 
-    // Congela o dossiê AGORA, ao lado do PDF selado.
+    // Congela o dossiê AGORA, ao lado dos PDFs selados.
     //
     // Enquanto o envelope está aberto o dossiê é montado sob demanda, e tem de continuar
     // sendo: ele muda a cada assinatura coletada, e um arquivo salvo no meio do caminho
@@ -2801,6 +3731,10 @@ export class SignatureEnvelopeService {
       // placa preenchidos DEPOIS da emissão não podem derrubar a coleta. Ver
       // `tolerateLateRegistration`.
       before as QuoteSnapshot,
+      // E o elenco que de fato assina, por causa de quem NÃO assina: cadastrar o
+      // motorista da entrega no meio da coleta não pode anular a assinatura que
+      // o comercial do cliente já deu. Ver `tolerateNonSigners`.
+      running.signers.map(s => s.responsibleId).filter((id): id is string => !!id),
     );
 
     if (matchedVersion !== null) {
@@ -2912,6 +3846,7 @@ export class SignatureEnvelopeService {
         declaredEmail: string | null;
         declaredPhone: string | null;
         authMethod: SignatureAuthMethod;
+        orderGroup: number;
         signedAt: Date | null;
       }>;
       quote?: { budgetNumber: number } | null;
@@ -2944,7 +3879,14 @@ export class SignatureEnvelopeService {
         })),
       };
       const voidedLines = materialEntries.map(describeQuoteChange);
-      const channel = channelForAuthMethod(s.authMethod);
+      // O lado da Ankaa não tem canal no `authMethod` (é `INTERNAL_SESSION`), e
+      // `channelForAuthMethod` devolveria e-mail para ele numa coleta de
+      // WhatsApp — mandando o aviso por um canal que a cerimônia não usou e
+      // gravando "email" na trilha append-only de um envelope de WhatsApp.
+      const channel =
+        this.ceremonyKindOf(s.authMethod) === 'INTERNAL'
+          ? this.noticeChannelOf(running.signers)
+          : channelForAuthMethod(s.authMethod);
       const voidNotice = await this.deliverToSigner({
         signer: s,
         channel,
@@ -3066,11 +4008,21 @@ export class SignatureEnvelopeService {
    */
   async renderServedDocument(
     envelopeId: string,
+    /**
+     * O RECORTE a servir. Omitido = o documento completo, que é o que a rota
+     * interna e a página pública do orçamento querem: o instrumento, não a fatia
+     * de um signatário.
+     */
+    documentId?: string | null,
   ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
     const env = await this.prisma.signatureEnvelope.findUnique({
       where: { id: envelopeId },
       include: {
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        documents: {
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          include: { originalFile: true, finalFile: true },
+        },
         // `truck`: a remontagem ao vivo também carimba a identidade que chegou
         // depois — o cliente que abre o link durante a coleta vê o cadastro de
         // hoje, não o de quando o documento foi congelado.
@@ -3081,26 +4033,60 @@ export class SignatureEnvelopeService {
     });
     if (!env) throw new NotFoundException('Envelope não encontrado.');
 
+    // Qual recorte servir. Um `documentId` que não pertence a este envelope é
+    // RECUSADO, não ignorado: cair no completo em silêncio entregaria a quem
+    // pediu a fatia do marketing um documento com preço, que é exatamente o que
+    // o recurso existe para impedir.
+    const requested = documentId
+      ? (env.documents.find(d => d.id === documentId) ?? null)
+      : (env.documents.find(d => d.isFull) ?? env.documents[0] ?? null);
+    if (documentId && !requested) {
+      throw new NotFoundException('Este recorte não pertence a esta coleta de assinaturas.');
+    }
+
+    // Envelope anterior a este recurso: as colunas do próprio envelope são o
+    // documento. Ver a mesma nota em `finalize`.
+    const doc = requested ?? {
+      id: null as string | null,
+      isFull: true,
+      variantKey: variantKeyOf([...FULL_SECTIONS]),
+      sections: [...FULL_SECTIONS] as string[],
+      originalSha256: env.originalSha256,
+      anchors: env.anchors,
+      lateSlots: env.lateSlots,
+      originalFile: env.originalFile,
+      finalFile: env.finalFile,
+      finalSha256: env.finalSha256,
+    };
+
     const { readFileSync, existsSync } = await import('fs');
 
-    if (!existsSync(env.originalFile.path)) {
+    if (!existsSync(doc.originalFile.path)) {
       throw new NotFoundException(
         'O documento congelado deste envelope não está mais disponível em disco. ' +
           'Reemita a coleta de assinaturas.',
       );
     }
 
-    const filename = budgetPdfFilename(env.quote.task?.customer, env.quote.budgetNumber);
+    const docSections = this.sectionsOf(doc);
+    const filename = budgetPdfFilename(
+      env.quote.task?.customer,
+      env.quote.budgetNumber,
+      // Sufixo só quando há mais de um recorte: o documento único da coleta comum
+      // continua chegando com o nome que sempre teve.
+      env.documents.length > 1 ? variantFilenameSuffix(docSections) : '',
+    );
 
     // Concluído: serve o artefato selado, nunca uma remontagem.
-    if (env.status === EnvelopeStatus.COMPLETED && env.finalFile) {
-      const pdf = readFileSync(env.finalFile.path);
-      return { pdf, etag: `"${env.finalSha256}"`, filename };
+    if (env.status === EnvelopeStatus.COMPLETED && doc.finalFile) {
+      const pdf = readFileSync(doc.finalFile.path);
+      return { pdf, etag: `"${doc.finalSha256}"`, filename };
     }
 
-    const originalPdf = readFileSync(env.originalFile.path);
+    const originalPdf = readFileSync(doc.originalFile.path);
     const customer = env.quote.task?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
+    const anchors = (doc.anchors ?? {}) as Record<string, unknown>;
 
     const lateValues: Record<string, string | null> = {
       serialNumber: env.quote.task?.serialNumber ?? null,
@@ -3108,10 +4094,17 @@ export class SignatureEnvelopeService {
       chassis: env.quote.task?.truck?.chassisNumber ?? null,
     };
 
+    // Só quem tem âncora NESTE pdf — a mesma regra do `finalize`, pelo mesmo
+    // motivo: carimbar o selo de alguém numa folha em que ele não tem linha de
+    // assinatura afirmaria que ele assinou um documento que nunca viu.
+    const docSigners = env.signers.filter(s =>
+      Object.prototype.hasOwnProperty.call(anchors, s.id),
+    );
+
     const pdf = await this.assembler.stampSeals({
       originalPdf,
-      anchors: env.anchors as any,
-      signers: env.signers.map(s => ({
+      anchors: anchors as any,
+      signers: docSigners.map(s => ({
         id: s.id,
         name: s.declaredName,
         cargo: s.informedCargo,
@@ -3127,9 +4120,9 @@ export class SignatureEnvelopeService {
       budgetNumber: env.quote.budgetNumber,
       verificationCode: env.verificationCode,
       verificationUrl: this.verificationUrl(env.verificationCode),
-      originalSha256: env.originalSha256,
+      originalSha256: doc.originalSha256,
       voidedLabel: VOID_WATERMARK_LABELS[env.status] ?? null,
-      lateSlots: (env.lateSlots as any) ?? null,
+      lateSlots: (doc.lateSlots as any) ?? null,
       lateValues: lateValues,
     });
 
@@ -3143,7 +4136,7 @@ export class SignatureEnvelopeService {
     // E dos VALORES TARDIOS: registrar o chassi muda o documento servido (ele é
     // carimbado na lacuna), e sem isto o cliente continuaria recebendo do cache
     // a versão com "a registrar" depois de o dado existir.
-    const stateKey = env.signers
+    const stateKey = docSigners
       .map(s => `${s.id}:${s.signedAt?.toISOString() ?? ''}:${s.status}`)
       .join('|');
     const lateKey = Object.entries(lateValues)
@@ -3151,7 +4144,10 @@ export class SignatureEnvelopeService {
       .join('|');
     return {
       pdf,
-      etag: `"${sha256Hex(env.originalSha256 + env.status + stateKey + lateKey).slice(0, 32)}"`,
+      // O hash do RECORTE entra na chave: dois recortes do mesmo envelope têm o
+      // mesmo status e o mesmo conjunto de valores tardios, e uma ETag comum
+      // faria o navegador servir o documento de um signatário para outro.
+      etag: `"${sha256Hex(doc.originalSha256 + env.status + stateKey + lateKey).slice(0, 32)}"`,
       filename,
     };
   }
@@ -3176,6 +4172,17 @@ export class SignatureEnvelopeService {
             },
           },
         },
+        documents: {
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          select: {
+            isFull: true,
+            sections: true,
+            originalSha256: true,
+            finalSha256: true,
+            padesLevel: true,
+            sealedAt: true,
+          },
+        },
         quote: { include: { task: { include: { customer: true } } } },
       },
     });
@@ -3194,6 +4201,27 @@ export class SignatureEnvelopeService {
     return {
       verificationCode: env.verificationCode,
       status: env.status,
+      /**
+       * Os recortes desta coleta, com os hashes de cada um.
+       *
+       * É o que permite a quem tem UM dos PDFs em mãos conferir que aquele
+       * arquivo pertence a esta cerimônia: sem a lista, o portal só conheceria o
+       * hash do documento completo e diria "não confere" para o artefato
+       * legítimo de um signatário — o pior resultado possível numa página cuja
+       * única função é dizer se um documento é verdadeiro.
+       *
+       * NÃO sai o conteúdo, nem que seções cada um tem em detalhe além do
+       * rótulo: a página é pública e o código dela é impresso em todas as folhas
+       * do PDF, que circula por e-mail.
+       */
+      documents: env.documents.map(d => ({
+        label: describeSections(this.sectionsOf(d)),
+        isFull: d.isFull,
+        originalSha256: d.originalSha256,
+        finalSha256: d.finalSha256,
+        padesLevel: d.padesLevel,
+        sealedAt: d.sealedAt,
+      })),
       budgetNumber: env.quote.budgetNumber,
       issuer: { name: COMPANY.corporateName, cnpj: COMPANY.cnpjFormatted },
       customer: {
@@ -3528,6 +4556,20 @@ export class SignatureEnvelopeService {
       where: { quoteId },
       orderBy: { version: 'desc' },
       include: {
+        documents: {
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          select: {
+            id: true,
+            variantKey: true,
+            sections: true,
+            isFull: true,
+            originalSha256: true,
+            finalSha256: true,
+            padesLevel: true,
+            sealedAt: true,
+            contentPages: true,
+          },
+        },
         signers: {
           orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
           // O cargo de CADASTRO. `informedCargo` só existe depois que a pessoa
@@ -3584,6 +4626,25 @@ export class SignatureEnvelopeService {
       finalSha256: env.finalSha256,
       padesLevel: env.padesLevel,
       sealedAt: env.sealedAt,
+      /**
+       * Os RECORTES congelados nesta coleta — um PDF cada.
+       *
+       * Vem sempre, mesmo quando é um só: a tela decide sozinha se vale desenhar
+       * a lista, e devolver o campo só às vezes obrigaria o cliente a distinguir
+       * "coleta antiga" de "coleta de um recorte", que são a mesma coisa aqui.
+       */
+      documents: env.documents.map(d => ({
+        id: d.id,
+        variantKey: d.variantKey,
+        sections: this.sectionsOf(d),
+        label: describeSections(this.sectionsOf(d)),
+        isFull: d.isFull,
+        originalSha256: d.originalSha256,
+        finalSha256: d.finalSha256,
+        padesLevel: d.padesLevel,
+        sealedAt: d.sealedAt,
+        signers: env.signers.filter(s => s.documentId === d.id).map(s => s.declaredName),
+      })),
       signers: env.signers.map(s => ({
         id: s.id,
         name: s.declaredName,
@@ -3628,6 +4689,17 @@ export class SignatureEnvelopeService {
               ),
         cpfMatch: s.cpfMatch,
         side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+        /**
+         * Como esta pessoa assina. `INTERNAL` é o lado da Ankaa, que
+         * contra-assina no painel — a tela usa para desenhar o botão em vez do
+         * "reenviar convite", que ali não faz sentido nenhum.
+         */
+        ceremony: this.ceremonyKindOf(s.authMethod),
+        /** O recorte que ela recebeu, para o painel dizer quem viu o quê. */
+        documentId: s.documentId,
+        sections: this.sectionsOf(
+          env.documents.find(d => d.id === s.documentId) ?? null,
+        ),
         status: s.status,
         signedAt: s.signedAt,
         refusedAt: s.refusedAt,
@@ -3654,11 +4726,37 @@ export class SignatureEnvelopeService {
   ): Promise<SignatureDeliveryResult> {
     const signer = await this.prisma.envelopeSigner.findUnique({
       where: { id: signerId },
-      include: { envelope: { include: { quote: true } } },
+      include: {
+        envelope: {
+          include: {
+            quote: { include: { task: { select: { id: true } } } },
+            signers: { select: { orderGroup: true, authMethod: true, status: true } },
+          },
+        },
+      },
     });
     if (!signer) throw new NotFoundException('Signatário não encontrado.');
     if (signer.envelope.status !== EnvelopeStatus.RUNNING) {
       throw new BadRequestException('Esta coleta não está mais ativa.');
+    }
+
+    // O lado da Ankaa não tem convite a reenviar: ele não assina por link. O que
+    // existe para ele é o AVISO de que o cliente terminou, e reenviá-lo antes
+    // disso diria uma inverdade. Depois disso, `notifyAnkaaSigner` é o caminho —
+    // e é ele que este ramo usa, para que a mensagem e a trilha continuem
+    // saindo de um lugar só.
+    if (this.ceremonyKindOf(signer.authMethod) === 'INTERNAL') {
+      const pendingCustomer = signer.envelope.signers.filter(
+        s => s.orderGroup === 0 && s.status !== EnvelopeSignerStatus.SIGNED,
+      ).length;
+      if (pendingCustomer > 0) {
+        throw new BadRequestException(
+          `Ainda há ${pendingCustomer} responsável(is) do cliente sem assinar. O aviso de ` +
+            'contra-assinatura só é enviado quando todos concluírem.',
+        );
+      }
+      await this.notifyAnkaaSigner(signer.envelopeId, signer.id);
+      return { ok: true, reason: null };
     }
 
     // Canal do signatário, gravado na emissão. O reenvio NÃO relê
@@ -3738,6 +4836,20 @@ export class SignatureEnvelopeService {
     return `${this.webBase()}/v/${code}`;
   }
 
+  /**
+   * A tela interna do orçamento. É por ela que a Ankaa contra-assina.
+   *
+   * Chaveada pelo id da TAREFA, que é como a rota do web é definida
+   * (`/financeiro/orcamento/detalhes/:taskId`). Sem tarefa — orçamento órfão,
+   * que existe no histórico — devolve a raiz do módulo, que ao menos põe a
+   * pessoa no lugar certo para procurar.
+   */
+  private internalQuoteUrl(taskId: string | null): string {
+    return taskId
+      ? `${this.webBase()}/financeiro/orcamento/detalhes/${taskId}`
+      : `${this.webBase()}/financeiro/orcamento`;
+  }
+
   private signingUrl(token: string): string {
     // Namespace /cliente é obrigatório: o MobileUsageGuard do web redireciona
     // qualquer outra rota para /install em dispositivos móveis — que é justamente
@@ -3755,7 +4867,12 @@ export class SignatureEnvelopeService {
   private async persistPdf(
     quote: { budgetNumber: number; task?: { customer?: { fantasyName?: string } | null } | null },
     pdf: Buffer,
-    kind: 'original' | 'assinado' | 'dossie',
+    /**
+     * Rótulo do arquivo no disco. Aceita sufixo de RECORTE
+     * (`original-sem-layout`, `assinado-layout`): a coleta congela um PDF por
+     * recorte, e nomes iguais os fariam disputar o mesmo caminho.
+     */
+    kind: `original${string}` | `assinado${string}` | 'dossie',
     verificationCode: string,
   ): Promise<string> {
     // O caminho vem do FilesStorageService, não de um sanitizador local.

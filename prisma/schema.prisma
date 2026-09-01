@@ -143,22 +143,22 @@ model ChangeLog {
 }
 
 model Bonus {
-  id                 String          @id @default(uuid())
-  userId             String
-  baseBonus          Decimal         @default(0) @db.Decimal(10, 2)
-  netBonus           Decimal         @default(0) @db.Decimal(10, 2)
-  weightedTasks      Decimal         @default(0) @db.Decimal(10, 2)
+  id                  String          @id @default(uuid())
+  userId              String
+  baseBonus           Decimal         @default(0) @db.Decimal(10, 2)
+  netBonus            Decimal         @default(0) @db.Decimal(10, 2)
+  weightedTasks       Decimal         @default(0) @db.Decimal(10, 2)
   /// B1 DESTA PESSOA: `windowWeightedTasks ÷ windowDivisor`. É o número que
   /// alimentou a curva e produziu `baseBonus`.
   ///
   /// Até a v3 esta coluna guardava o agregado do período e era igual em todas as
   /// linhas do mês. NÃO volte a lê-la como "o número da equipe": para isso existe
   /// `periodAverageTasks` ao lado. Ver `BonusWindowStatsService`.
-  averageTaskPerUser Decimal         @default(0) @db.Decimal(10, 2)
+  averageTaskPerUser  Decimal         @default(0) @db.Decimal(10, 2)
   /// B1 agregado do PERÍODO (`weightedTasks / periodDivisor`) — igual em todas
   /// as linhas do mês. É o número da EQUIPE, para exibição. Desde a v5 ele não
   /// alimenta o cálculo de ninguém.
-  periodAverageTasks Decimal?        @db.Decimal(10, 2)
+  periodAverageTasks  Decimal?        @db.Decimal(10, 2)
   /// OS TRÊS NÚMEROS DESTA PESSOA, medidos na janela dela:
   ///
   ///     windowWeightedTasks ÷ windowDivisor == averageTaskPerUser
@@ -177,20 +177,20 @@ model Bonus {
   ///
   /// NUNCA exiba um destes ao lado de `weightedTasks` (que é do PERÍODO): uma
   /// ponderada de 49,0 ao lado de um total de 33 é impossível por construção.
-  windowTaskCount    Int?
-  windowWeightedTasks Decimal?       @db.Decimal(10, 2)
-  windowDivisor      Decimal?        @db.Decimal(8, 4)
-  year               Int
-  month              Int
-  performanceLevel   Int
+  windowTaskCount     Int?
+  windowWeightedTasks Decimal?        @db.Decimal(10, 2)
+  windowDivisor       Decimal?        @db.Decimal(8, 4)
+  year                Int
+  month               Int
+  performanceLevel    Int
   // Audit trail for the salary-based logistic algorithm.
   // salaryUsed: the salary value fed into the calculation.
   // calculationVersion: BONUS_CALCULATION_VERSION at the time of save.
   // calculationParams: full JSON snapshot {salary, salaryRange, b1, config}
   // — lets historical bonuses be reproduced even if the formula evolves.
-  salaryUsed         Decimal?        @db.Decimal(10, 2)
-  calculationVersion String?
-  calculationParams  Json?
+  salaryUsed          Decimal?        @db.Decimal(10, 2)
+  calculationVersion  String?
+  calculationParams   Json?
   /// Proporcionalidade temporal (26→25). Antes destes campos o divisor B1 era
   /// `count(elegíveis AGORA)` e não sobrevivia a uma demissão: quem saía no meio
   /// do período sumia do denominador retroativamente, inflando o bônus de todos.
@@ -205,10 +205,10 @@ model Bonus {
   /// periodBusinessDays = dias úteis do período (Mon–Fri menos feriados nacionais).
   /// periodDivisor      = Σ dos pesos de quem tem performanceLevel > 0 — o
   ///                      denominador de B1. Fracionário por construção.
-  eligibilityWeight  Decimal         @default(1) @db.Decimal(6, 4)
-  eligibleDays       Int?
-  periodBusinessDays Int?
-  periodDivisor      Decimal?        @db.Decimal(8, 4)
+  eligibilityWeight   Decimal         @default(1) @db.Decimal(6, 4)
+  eligibleDays        Int?
+  periodBusinessDays  Int?
+  periodDivisor       Decimal?        @db.Decimal(8, 4)
   /// Segundo eixo do peso: DISPONIBILIDADE (afastamento médico no Secullum).
   ///
   /// `eligibilityWeight` acima já é o peso FINAL — o produto do eixo temporal
@@ -222,27 +222,27 @@ model Bonus {
   ///                 Fator 0 (afastado integral) nem chega a gerar linha.
   /// absentDays    = dias-equivalentes de afastamento médico na janela elegível
   ///                 (0,5 = meio dia). Férias, folga e compensação NÃO entram.
-  absenceFactor      Decimal         @default(1) @db.Decimal(6, 4)
-  absentDays         Decimal?        @db.Decimal(6, 2)
+  absenceFactor       Decimal         @default(1) @db.Decimal(6, 4)
+  absentDays          Decimal?        @db.Decimal(6, 2)
   /// Data de desligamento quando o vínculo encerrou DENTRO do período — deixa a
   /// UI mostrar "Desligado em DD/MM" sem reconsultar o contrato.
-  terminatedAt       DateTime?
+  terminatedAt        DateTime?
   /// Espelho de `terminatedAt` do outro lado: data em que a elegibilidade
   /// COMEÇOU dentro do período (efetivação / fim da experiência). Null quando a
   /// pessoa já era elegível no dia 26.
   ///
   /// Sem esta coluna a tela mostrava peso parcial para quem entrou no meio sem
   /// nenhuma explicação — só o desligamento tinha data.
-  effectedAt         DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  payrollId          String?         @unique
-  payroll            Payroll?        @relation(fields: [payrollId], references: [id])
-  user               User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
-  bonusDiscounts     BonusDiscount[]
-  bonusExtras        BonusExtra[]
-  users              User[]          @relation("BonusPeriodUsers")
-  tasks              Task[]          @relation("BonusTasks")
+  effectedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  payrollId           String?         @unique
+  payroll             Payroll?        @relation(fields: [payrollId], references: [id])
+  user                User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
+  bonusDiscounts      BonusDiscount[]
+  bonusExtras         BonusExtra[]
+  users               User[]          @relation("BonusPeriodUsers")
+  tasks               Task[]          @relation("BonusTasks")
 
   @@unique([userId, year, month])
   @@index([userId])
@@ -816,6 +816,8 @@ model File {
   signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
   signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
   signatureEnvelopeDossiers              SignatureEnvelope[]       @relation("ENVELOPE_DOSSIER_FILE")
+  envelopeDocumentOriginals              EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
+  envelopeDocumentFinals                 EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -3273,12 +3275,23 @@ model Responsible {
   @@map("Representative")
 }
 
+/// A ordem de declaracao E significativa: `responsibleRolesSchema` ordena por
+/// ela para que o diff do changelog fique estavel, e ela agrupa as funcoes por
+/// FATIA DO DOCUMENTO que cada uma recebe na assinatura eletronica
+/// (ver `signature/quote-sections.ts`): primeiro as que recebem tudo, depois as
+/// que recebem um recorte, por ultimo as que por padrao nao assinam.
+///
+/// OWNER foi REMOVIDA. Ela nomeava uma pessoa, nao uma area de interesse, e por
+/// isso nao dizia nada sobre qual recorte do orcamento aquele contato deve ver —
+/// que passou a ser exatamente o que a funcao decide. Os contatos que a tinham
+/// receberam COMMERCIAL + MARKETING + FINANCIAL + FLEET_MANAGER na migracao, cuja
+/// uniao devolve o documento inteiro.
 enum ResponsibleRole {
   COMMERCIAL
-  OWNER
   SELLER
   REPRESENTATIVE
   COORDINATOR
+  PURCHASING
   MARKETING
   FINANCIAL
   FLEET_MANAGER
@@ -7665,7 +7678,17 @@ model SignatureEnvelope {
   sequential Boolean  @default(true)
   deadlineAt DateTime
 
-  /// Bytes CONGELADOS no envio. É o que é assinado e hasheado.
+  /// Bytes CONGELADOS no envio do RECORTE COMPLETO. É o que é assinado e hasheado.
+  ///
+  /// ESPELHO DENORMALIZADO de `EnvelopeDocument` onde `isFull = true`, e a razão
+  /// de ele existir é que "o documento do envelope" tem UMA resposta certa para
+  /// todo leitor de fora da cerimônia (dossiê, portal de verificação, política de
+  /// exclusão, agendador de expiração): o instrumento inteiro, aquele que a
+  /// Ankaa contra-assina e que contém todas as cláusulas. Os recortes existem
+  /// para PROTEGER quem assina, nunca para substituir o instrumento.
+  ///
+  /// Escrito em exatamente dois pontos — `createEnvelope` e `finalize` —, sempre
+  /// a partir do documento completo, nunca de forma independente.
   originalFileId String
   originalSha256 String
 
@@ -7740,6 +7763,7 @@ model SignatureEnvelope {
   previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
   nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
   signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")
+  documents        EnvelopeDocument[]    @relation("ENVELOPE_DOCUMENTS")
   events           SignatureAuditEvent[] @relation("ENVELOPE_AUDIT_EVENTS")
 
   @@index([quoteId])
@@ -7747,9 +7771,104 @@ model SignatureEnvelope {
   @@index([deadlineAt])
 }
 
+/// UM RECORTE do orçamento, congelado — o PDF que um grupo de signatários recebe.
+///
+/// POR QUE UM ENVELOPE PASSOU A TER VÁRIOS DOCUMENTOS
+///   Nem todo contato do cliente tem interesse — nem deve ter acesso — a tudo o
+///   que o orçamento diz. O financeiro precisa de preço, prazo e condição de
+///   pagamento e não precisa ver a arte; o marketing precisa da arte e não do
+///   preço; o gestor de frota e o motorista, por padrão, não assinam nada. Um
+///   documento único obrigava a escolher entre mandar tudo a todos ou não mandar.
+///
+///   Então o envelope congela N recortes. Cada um é um PDF próprio, com hash
+///   próprio, âncoras próprias e selo PAdES próprio, e cada signatário fica
+///   amarrado a exatamente um deles: é o hash DELE que vincula o código de uso
+///   único (`SigningChallenge.documentSha256`), é nele que o selo do signatário é
+///   carimbado, e é ele que o link pessoal serve.
+///
+/// INVARIANTES
+///  · Existe SEMPRE exatamente um `isFull = true` por envelope, e é ele que o
+///    signatário da Ankaa assina. Sem ele o envelope não teria instrumento
+///    completo nenhum — cada parte teria assinado um pedaço e ninguém o todo.
+///  · `sections` é canônico: ordenado pela ordem de `QUOTE_SECTIONS` e sem
+///    repetição. `variantKey` é a mesma lista unida por "+", e é a chave de
+///    deduplicação: dois contatos com o mesmo recorte compartilham o PDF.
+///  · Os bytes são imutáveis depois de gravados. Nunca re-renderize um recorte.
+model EnvelopeDocument {
+  id         String @id @default(uuid())
+  envelopeId String
+
+  /// Seções que ESTE pdf exibe, em ordem canônica. Vazio é possível e significa
+  /// "só o texto básico": cabeçalho, destinatário, cláusula de aceitação e
+  /// assinaturas — o que todo recorte carrega por construção.
+  sections   String[] @default([])
+  /// `sections.join("+")`, ou "BASE" quando vazio. Chave de deduplicação.
+  variantKey String
+  /// O recorte COMPLETO — o instrumento. Exatamente um por envelope.
+  isFull     Boolean  @default(false)
+
+  /// Bytes congelados deste recorte, e o hash que os signatários dele assinam.
+  originalFileId String
+  originalSha256 String
+
+  /// Retângulos dos slots de assinatura DESTE pdf, em pontos PDF:
+  /// `{ [signerId]: { page, x, y, width, height } }`. Contém os signatários
+  /// amarrados a ele MAIS o signatário da Ankaa, que aparece em todos.
+  anchors Json
+
+  /// Lacunas de cadastro tardio (série, placa, chassi) medidas neste render.
+  /// Nulo/vazio nos recortes que não exibem a seção VEHICLE — sem a frase do
+  /// veículo não há lacuna a carimbar.
+  lateSlots Json?
+
+  /// Quantas folhas o corpo consumiu (a de assinaturas é a seguinte).
+  contentPages Int?
+
+  /// Artefato final DESTE recorte: original + selos + trilha + PAdES.
+  finalFileId String?
+  finalSha256 String?
+  sealedAt    DateTime?
+
+  padesLevel       String?
+  certSubject      String?
+  certIssuer       String?
+  certSerialNumber String?
+  certCnpj         String?
+  certNotAfter     DateTime?
+  tsaUrl           String?
+  tsaGenTime       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  envelope     SignatureEnvelope @relation("ENVELOPE_DOCUMENTS", fields: [envelopeId], references: [id], onDelete: Cascade)
+  originalFile File              @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE", fields: [originalFileId], references: [id])
+  finalFile    File?             @relation("ENVELOPE_DOCUMENT_FINAL_FILE", fields: [finalFileId], references: [id])
+  signers      EnvelopeSigner[]  @relation("ENVELOPE_DOCUMENT_SIGNERS")
+
+  @@unique([envelopeId, variantKey])
+  @@index([envelopeId])
+  @@index([finalFileId])
+}
+
 model EnvelopeSigner {
   id         String @id @default(uuid())
   envelopeId String
+
+  /// O PDF que ESTE signatário recebe, vê e assina.
+  ///
+  /// Cada função do contato (`Responsible.roles`) responde por uma fatia do
+  /// orçamento; a união das fatias das funções dele é o recorte que ele recebe.
+  /// Contatos com o MESMO recorte compartilham o mesmo `EnvelopeDocument` — é por
+  /// isso que a coleta comum, em que todo mundo recebe tudo, continua produzindo
+  /// UM único PDF, exatamente como antes deste recurso.
+  ///
+  /// O signatário da Ankaa aponta sempre para o recorte COMPLETO: ele é a
+  /// contraparte de todos os recortes, e assinar o superset é, a fortiori,
+  /// assinar cada subconjunto dele. Por isso o selo dele é carimbado em TODOS os
+  /// recortes (a âncora dele está no `anchors` de cada um) a partir de um único
+  /// ato.
+  documentId String
 
   /// Exatamente um dos dois é preenchido: contato do cliente OU usuário Ankaa.
   responsibleId String?
@@ -7812,6 +7931,7 @@ model EnvelopeSigner {
   updatedAt DateTime @updatedAt
 
   envelope    SignatureEnvelope  @relation("ENVELOPE_SIGNERS", fields: [envelopeId], references: [id], onDelete: Cascade)
+  document    EnvelopeDocument   @relation("ENVELOPE_DOCUMENT_SIGNERS", fields: [documentId], references: [id], onDelete: Cascade)
   responsible Responsible?       @relation("ENVELOPE_SIGNER_RESPONSIBLE", fields: [responsibleId], references: [id], onDelete: SetNull)
   user        User?              @relation("ENVELOPE_SIGNER_USER", fields: [userId], references: [id], onDelete: SetNull)
   challenges  SigningChallenge[] @relation("SIGNER_CHALLENGES")
@@ -7819,6 +7939,7 @@ model EnvelopeSigner {
   @@unique([envelopeId, responsibleId])
   @@unique([envelopeId, userId])
   @@index([envelopeId])
+  @@index([documentId])
   @@index([accessToken])
   @@index([status])
 }

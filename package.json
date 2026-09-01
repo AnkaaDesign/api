@@ -46,6 +46,7 @@
     "reconcile:cnpj": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/cnpj-reconciliation.ts",
     "seed:notifications": "tsx prisma/scripts/seed-notification-configs.ts",
     "test:bonus": "tsx scripts/verify-bonus-calculation.ts && tsx scripts/verify-bonus-proportional.ts",
+    "test:signature": "tsx scripts/verify-signature-sections.ts",
     "test:airbrushing-due-date": "tsx tests/airbrushing-due-date.test.ts",
     "test:painter-nfse": "tsx tests/painter-nfse.test.ts",
     "test:first-access": "tsx tests/first-access.test.ts",
