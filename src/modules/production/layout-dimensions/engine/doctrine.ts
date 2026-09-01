@@ -32,6 +32,7 @@ import type {
   BorderCrossing,
   Dimension,
   Panel,
+  PanelSide,
   Rect,
   Sticker,
 } from "./types";
@@ -98,7 +99,21 @@ export const DEFAULT_DOCTRINE: DoctrineParams = {
   bottomAnchorMaxHeightCm: 30,
   lateralMidFrac: 0.5,
   minValueCm: 3,
-  relativeDims: true,
+  /**
+   * A cota do vão INTERNO do conjunto — desligada.
+   *
+   * Ela nasceu para o conjunto que o aplicador monta peça por peça: o "36"
+   * entre o logotipo GRESPAN e a assinatura "Pães congelados", que são dois
+   * vinis e precisam de um espaço entre eles. Mas o motor não sabe distinguir
+   * isso de duas linhas do MESMO vinil — é a mesma pergunta do agrupamento, e
+   * ela não está resolvida —, então na prática ela aparecia onde não serve: o
+   * "7" entre "FRUTAMINA" e "é Vitamina Pura", que saem juntos no mesmo
+   * recorte e cujo vão ninguém vai medir para colar.
+   *
+   * Verificado com o dono em 01/09: atrapalha mais do que ajuda. A horizontal
+   * já nascia desligada pela mesma razão.
+   */
+  relativeDims: false,
   relativeHorizontalDims: false,
   // na tela a cota aparece por item, então o teto pode ser generoso; quem
   // imprime tudo de uma vez é que precisa apertar
@@ -213,6 +228,9 @@ function dim(
   };
   return {
     dimension,
+    // Quem recebeu lado do ITEM tem o lado TRAVADO: é a cota de posição, e as
+    // duas de um adesivo têm de se encontrar na mesma quina. Ver `sideLocked`.
+    sideLocked: preferSide !== undefined,
     tieLo: perp.lo,
     tieHi: perp.hi,
     boxLo: perp.boxLo,
@@ -271,15 +289,36 @@ function stickerDims(
   p: DoctrineParams,
   label: string,
   index: number,
+  side: PanelSide,
 ): Routed[] {
   const b = s.boxCm;
   const out: Routed[] = [];
+  /**
+   * NA TRASEIRA A ALTURA SAI SEMPRE DO TETO.
+   *
+   * A traseira é uma porta, e o piso dela não é referência de nada: embaixo
+   * ficam o para-choque, a faixa refletiva e a soleira, que variam de
+   * implemento para implemento e não estão no desenho. O que não varia é o
+   * topo do quadro — é dele que o aplicador puxa a trena, e é dele que o
+   * projetista cota (os "203" e "135" do RIOMAR saem os dois do teto).
+   *
+   * Vale SÓ para a traseira: nas laterais o piso é uma referência tão boa
+   * quanto o teto, e a doutrina §1 (centro no último 1/4 → cota pela base)
+   * segue mandando lá — medida em 219 casos, zero contra-exemplo.
+   *
+   * A regra dos 30 cm continua de pé e é outra coisa: ela decide a que lado da
+   * PEÇA a cota chega, não de que borda da FACE ela parte. Peça de 30 cm ou
+   * mais é posicionada pelo topo dela; peça mais baixa é posicionada pela linha
+   * em que assenta, então a cota desce até a base dela — vinda do teto do mesmo
+   * jeito.
+   */
+  const rearFromTop = side === "TRASEIRA";
   // Doutrina §1: centro dentro dos 3/4 de cima cota-se pelo TOPO (186 casos,
   // zero no último quarto); centro no último 1/4 cota-se pela BASE (33 casos,
   // zero no primeiro quarto). O tamanho da peça não entra na conta — o que
   // decide é ONDE ela está na face.
   // De qual borda da FACE a cota parte (§1: 186 × 0 fora do último quarto).
-  const inTopBand = centerY(b) <= p.bottomBandFrac * heightCm;
+  const inTopBand = rearFromTop || centerY(b) <= p.bottomBandFrac * heightCm;
   // A que lado da PEÇA ela chega. Peça baixa é posicionada pela linha em que
   // assenta, então a cota vai até a base dela mesmo vindo do teto.
   const shortPiece = b.y1 - b.y0 < p.bottomAnchorMaxHeightCm;
@@ -332,7 +371,13 @@ function stickerDims(
       : { use: prefer, pick: first };
   };
 
-  const vChoice = settle(inTopBand, vFrom);
+  // Na traseira não há a que recorrer: a borda de baixo está fora, mesmo
+  // quando a de cima devolve pouco. Uma peça colada no teto sai com "2 do
+  // teto", que é verdade, em vez de "245 do piso", que é uma referência que
+  // ninguém consegue medir na porta.
+  const vChoice = rearFromTop
+    ? { use: true, pick: vFrom(true) }
+    : settle(inTopBand, vFrom);
   const hChoice = settle(onLeft, hFrom);
   const useTop = vChoice.use;
   const useLeft = hChoice.use;
@@ -688,7 +733,7 @@ export function planDimensions(
   const extra: Routed[] = [];
   main.forEach((item, i) => {
     const label = nameOf(i);
-    essential.push(...stickerDims(item, widthCm, heightCm, params, label, i));
+    essential.push(...stickerDims(item, widthCm, heightCm, params, label, i, panel.side));
     if (params.relativeDims && !item.bleeds) {
       extra.push(...relativeDims(item, params, label, i));
     }

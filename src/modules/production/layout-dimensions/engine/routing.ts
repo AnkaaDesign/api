@@ -131,6 +131,19 @@ export interface RoutingParams {
    * deve subir isto para 1 e roteirizar tudo junto.
    */
   crossItemFactor: number;
+  /**
+   * Preço de as duas cotas do MESMO adesivo pousarem em faixas diferentes.
+   *
+   * Elas falam do mesmo canto: a altura sai do teto e a distância sai da
+   * lateral, e as duas se encontram na quina. Em faixas diferentes o encontro
+   * some — uma fica a 10 cm da borda e a outra a 45, e o par deixa de parecer
+   * um par. Foi a queixa do RIOMAR: "o 20 de baixo está mais afastado que o 20
+   * da altura, não deveria ser um padrão?".
+   *
+   * É preço, não trava, porque a faixa rente pode estar genuinamente ocupada
+   * por arte. Mas é caro o bastante para que só a arte a compre.
+   */
+  laneMismatchCost: number;
   /** quantas passagens de melhoria depois da primeira escolha */
   passes: number;
 }
@@ -162,6 +175,7 @@ export const DEFAULT_ROUTING: RoutingParams = {
   standoffCost: 18,
   laneCost: 10,
   crossItemFactor: 0,
+  laneMismatchCost: 90,
   passes: 3,
 };
 
@@ -198,6 +212,20 @@ export interface RoutableDimension {
   span: number;
   /** o lado que a doutrina mediu para esta cota */
   preferredSide: "min" | "max";
+  /**
+   * O lado é TRAVA, não preferência.
+   *
+   * As duas cotas de um adesivo falam do mesmo canto — se a horizontal mede
+   * "30 da esquerda", a vertical pertence ao lado esquerdo e as duas se
+   * encontram lá. Enquanto isso era só um preço (`sideCost`), o roteador
+   * pagava sem pestanejar para fugir de um pedaço de arte: no Frut Frios a
+   * altura "64" foi parar na direita enquanto a distância "30" ficava na
+   * esquerda, e achar o par virou caça ao tesouro na largura de 6,4 m de baú.
+   *
+   * Vale só para a cota de POSIÇÃO, que é a que o aplicador usa. Acessório
+   * (travessia) segue livre para escolher o lado.
+   */
+  sideLocked?: boolean;
   /** a doutrina manda esta cota para fora da face? */
   preferOutside: boolean;
 }
@@ -207,6 +235,16 @@ interface Candidate {
   side: DimensionSide;
   /** custo que não depende das outras cotas */
   baseCost: number;
+  /**
+   * A que faixa de afastamento esta posição pertence.
+   *
+   * `rente:0` é a linha na aresta do item; `fora:0` é a primeira faixa do
+   * quadro, `fora:1` a seguinte, e assim por diante. O tipo entra na chave
+   * porque "faixa 0" de dentro e "faixa 0" de fora não são o mesmo lugar — e
+   * o par do mesmo adesivo só parece um par quando os dois estão no MESMO
+   * lugar, não no mesmo número.
+   */
+  lane: string;
 }
 
 const EXTENSION_OVERSHOOT_CM = 2.5;
@@ -248,11 +286,19 @@ function shapeOf(item: RoutableDimension, offsetCm: number, p: RoutingParams): S
       { x0: tie, y0: d.aCm, x1: end, y1: d.aCm },
       { x0: tie, y0: d.bCm, x1: end, y1: d.bCm },
     ],
+    // O RÓTULO NÃO DEITA MAIS, e o roteador precisava saber.
+    //
+    // Ele modelava o número da cota vertical girado — estreito em X, alto em Y
+    // —, que era verdade enquanto o texto saía a 90°. Agora ele sai em pé nas
+    // duas orientações, então a caixa é a MESMA dos dois lados: comprida no
+    // eixo da leitura, baixa no outro. Com o modelo velho o roteador via
+    // espaço onde não há, e dois números do mesmo item podiam ser postos um
+    // sobre o outro sem que nada no custo acusasse.
     label: {
-      x0: offsetCm - p.labelHalfHeightCm,
-      x1: offsetCm + p.labelHalfHeightCm,
-      y0: mid - p.labelHalfLengthCm,
-      y1: mid + p.labelHalfLengthCm,
+      x0: offsetCm - p.labelHalfLengthCm,
+      x1: offsetCm + p.labelHalfLengthCm,
+      y0: mid - p.labelHalfHeightCm,
+      y1: mid + p.labelHalfHeightCm,
     },
   };
 }
@@ -326,7 +372,7 @@ function candidatesFor(item: RoutableDimension, p: RoutingParams): Candidate[] {
     offsetCm: number,
     side: "min" | "max",
     kind: "flush" | "inside" | "outside",
-    lane: number,
+    laneIndex: number,
   ) => {
     // a linha nunca nasce em cima do trecho que mede — rente é a aresta, e a
     // aresta não está "em cima"
@@ -338,8 +384,10 @@ function candidatesFor(item: RoutableDimension, p: RoutingParams): Candidate[] {
         : p.standoffCost + ((kind === "outside") === item.preferOutside ? 0 : p.placementCost);
     out.push({
       offsetCm,
+      lane: `${kind}:${laneIndex}`,
       side,
-      baseCost: (side === item.preferredSide ? 0 : p.sideCost) + placement + lane * p.laneCost,
+      baseCost:
+        (side === item.preferredSide ? 0 : p.sideCost) + placement + laneIndex * p.laneCost,
     });
   };
 
@@ -348,7 +396,10 @@ function candidatesFor(item: RoutableDimension, p: RoutingParams): Candidate[] {
   // seria desenhada por cima do contorno do implemento e some nele.
   const flush = item.preferredSide === "min" ? item.boxLo : item.boxHi;
   if (flush > 3 && flush < item.span - 3) push(flush, item.preferredSide, "flush", 0);
-  for (const side of [item.preferredSide, item.preferredSide === "min" ? "max" : "min"] as const) {
+  const sides = item.sideLocked
+    ? ([item.preferredSide] as const)
+    : ([item.preferredSide, item.preferredSide === "min" ? "max" : "min"] as const);
+  for (const side of sides) {
     for (let lane = 0; lane < p.maxOutsideLanes; lane += 1) {
       const step = lane * p.laneStepCm;
       push(
@@ -418,6 +469,8 @@ export function routeDimensions(
   const artFloor = artOf.map((list) => (list.length ? Math.min(...list) : 0));
 
   const chosen = movable.map(() => 0);
+  /** a faixa em que cada cota pousou, para o par do mesmo item se alinhar */
+  const laneOf = movable.map(() => "");
   const shapes: Shape[] = movable.map((i) => shapeOf(i, options[0][0]?.offsetCm ?? 0, params));
   const placed: boolean[] = movable.map(() => false);
 
@@ -434,7 +487,18 @@ export function routeDimensions(
       if (j === i || (!ignoreSelf && !placed[j])) continue;
       if (ignoreSelf && j === i) continue;
       if (!ignoreSelf && !placed[j]) continue;
-      cost += pairCost(shape, shapes[j], params, movable[j].dimension.targetIndex === movable[i].dimension.targetIndex);
+      const sameItem = movable[j].dimension.targetIndex === movable[i].dimension.targetIndex;
+      cost += pairCost(shape, shapes[j], params, sameItem);
+      // O par do mesmo adesivo pousa na MESMA faixa — ver `laneMismatchCost`.
+      // Só entre cotas de POSIÇÃO: o acessório não faz par com ninguém.
+      if (
+        sameItem &&
+        movable[i].sideLocked === true &&
+        movable[j].sideLocked === true &&
+        laneOf[j] !== cand.lane
+      ) {
+        cost += params.laneMismatchCost;
+      }
     }
     return cost;
   };
@@ -461,6 +525,7 @@ export function routeDimensions(
       }
     }
     chosen[i] = bestIndex;
+    laneOf[i] = options[i][bestIndex].lane;
     shapes[i] = shapeOf(movable[i], options[i][bestIndex].offsetCm, params);
     placed[i] = true;
   }
@@ -479,6 +544,7 @@ export function routeDimensions(
       }
       if (bestIndex !== chosen[i]) {
         chosen[i] = bestIndex;
+        laneOf[i] = options[i][bestIndex].lane;
         shapes[i] = shapeOf(movable[i], options[i][bestIndex].offsetCm, params);
         improved = true;
       }
