@@ -80,9 +80,53 @@ export interface RenderedQuoteDocument {
   overflowed: boolean;
   /** Quantas folhas o corpo do orçamento consumiu (a de assinaturas é a seguinte). */
   contentPages: number;
+  /**
+   * Altura reservada à ARTE no render aceito, em mm. `null` sem arte.
+   *
+   * Existe para que a decisão "cabeu numa folha" seja auditável: a folha única
+   * só vale enquanto a arte continua conferível, e sem este número a única
+   * forma de saber a que preço ela coubera era abrir o PDF e medir com régua.
+   */
+  layoutMm: number | null;
 }
 
 const MAX_FIT_ITERATIONS = 12;
+
+/**
+ * Quanto de ARTE a folha fundida precisa preservar, em mm.
+ *
+ * O layout e as assinaturas na mesma folha só valem a pena enquanto a arte
+ * continua CONFERÍVEL — é ela que o cliente está aprovando. O laço de sacrifício
+ * desce `--layout-max-h` até 30mm (tamanho de selo postal); aceitar uma folha só
+ * a esse preço entregaria um contrato com uma miniatura no lugar do objeto dele.
+ *
+ * O ORÇAMENTO É TOTAL, não por imagem, e a diferença foi medida. `--layout-max-h`
+ * é um teto POR IMAGEM: com duas artes, um piso de 90mm por imagem exigiria
+ * 180mm de altura só de arte, e nenhuma folha fecha assim — o recorte do
+ * marketing com duas artes voltaria a paginar. Olhando o total, duas artes a
+ * 45mm ocupam os mesmos 90mm que uma a 90mm, e as duas folhas são igualmente
+ * legíveis.
+ *
+ * 90mm sai da FORMA da arte, não de um palpite: um lettering de baú é largo e
+ * baixo (a proporção medida fica perto de 1600×600) e a caixa de conteúdo tem
+ * 180mm, então a altura NATURAL de uma arte é ~67mm. Um teto de 90mm não a
+ * constrange — ela sai do mesmo tamanho que sairia na folha própria do caminho
+ * de duas partes. É essa paridade que faz o documento inteiro continuar
+ * paginando como sempre paginou, em vez de espremer a arte para economizar uma
+ * folha.
+ *
+ * O piso POR IMAGEM existe além do total para o caso de muitas artes: seis a
+ * 15mm somam 90mm e nenhuma é conferível.
+ */
+const FUSED_MIN_LAYOUT_TOTAL_MM = 90;
+const FUSED_MIN_LAYOUT_EACH_MM = 40;
+
+/** Lê a altura corrente reservada à arte, em mm. */
+const JS_LAYOUT_HEIGHT = `(() => {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--layout-max-h').trim();
+  const n = parseFloat(raw);
+  return isFinite(n) ? n : 105;
+})()`;
 
 /**
  * Os callbacks de browser são passados como STRING, não como função.
@@ -309,9 +353,8 @@ export class QuoteRendererService {
       content: buildQuoteHtml(htmlInput, 'content'),
       signatures: buildQuoteHtml(htmlInput, 'signatures'),
     };
-    // O recorte pode não trazer o layout — e aí o caminho fundido volta a valer,
-    // exatamente como num orçamento sem arte nenhuma. `layoutImages` sozinho não
-    // responde mais a pergunta: o builder é quem decide se a arte sai impressa.
+    // O recorte pode não trazer o layout — `layoutImages` sozinho não responde
+    // mais a pergunta, porque é o builder que decide se a arte sai impressa.
     const hasLayout =
       htmlInput.layoutImages.length > 0 &&
       (htmlInput.sections ?? FULL_SECTIONS).includes('LAYOUT');
@@ -327,21 +370,27 @@ export class QuoteRendererService {
       // verificado — se falhar, cai no caminho de duas partes, que é sempre correto.
       // ---- Tentativa FUNDIDA: assinaturas na mesma folha do orçamento ----
       //
-      // Só quando NÃO há imagem de layout. Com layout, a arte e as assinaturas
-      // dividem a última folha — que é o arranjo desejado: a arte é o que o
-      // cliente está aprovando e fica à vista de quem assina, no tamanho em que
-      // dá para conferi-la. Espremê-la para caber junto do contrato (o piso é
-      // 30mm, tamanho de selo postal) trocaria a folha a mais por uma miniatura.
+      // TENTADO SEMPRE, inclusive com arte — e essa condição mudou por causa dos
+      // recortes.
       //
-      // Sem layout não existe esse dilema: cabendo, tudo vai para uma folha só, e
-      // é o que o `compactContent(page, true)` de `tryFusedRender` persegue —
-      // antes ele mirava o número de folhas da altura NATURAL e chegava a CRESCER
-      // a tipografia para preencher duas.
-      if (!hasLayout) {
-        const fusedAttempt = await this.tryFusedRender(browser, html.fused);
-        if (fusedAttempt) {
-          return fusedAttempt;
-        }
+      // Antes o caminho fundido era pulado quando havia layout, para que a arte e
+      // as assinaturas dividissem a última folha em vez de a arte ser espremida.
+      // A regra estava certa para o documento inteiro, e virou defeito no
+      // recorte: o do marketing é texto básico + arte + assinaturas, cabe
+      // folgadamente em uma folha, e saía em DUAS — a primeira quase vazia.
+      //
+      // O que decide agora é a MEDIDA, não a presença: `tryFusedRender` só aceita
+      // uma folha se a arte ainda couber acima de `FUSED_MIN_LAYOUT_MM` depois do
+      // sacrifício. Com pouco conteúdo ela cabe grande e o documento fecha em
+      // uma folha; com o orçamento inteiro ela não cabe, e cai no caminho de duas
+      // — o mesmo arranjo de sempre.
+      const fusedAttempt = await this.tryFusedRender(
+        browser,
+        html.fused,
+        hasLayout ? htmlInput.layoutImages.length : 0,
+      );
+      if (fusedAttempt) {
+        return fusedAttempt;
       }
 
       // ---- Parte 1: conteúdo do orçamento (1..N folhas) ----
@@ -371,6 +420,7 @@ export class QuoteRendererService {
       await sigPage.emulateMedia({ media: 'print' });
       await sigPage.evaluate(JS_FONTS_READY);
       const { iterations, overflowed } = await this.fitSignaturePage(sigPage);
+      const sigLayoutMm = hasLayout ? ((await sigPage.evaluate(JS_LAYOUT_HEIGHT)) as number) : null;
       const anchors = await this.measureAnchors(sigPage);
       const sigPdf = Buffer.from(
         await sigPage.pdf({ printBackground: true, preferCSSPageSize: true }),
@@ -400,6 +450,7 @@ export class QuoteRendererService {
         fitIterations: iterations,
         overflowed,
         contentPages,
+        layoutMm: sigLayoutMm,
       };
     }
   }
@@ -411,6 +462,8 @@ export class QuoteRendererService {
   private async tryFusedRender(
     browser: Browser,
     fusedHtml: string,
+    /** Quantas artes o recorte imprime. 0 = não há arte a preservar. */
+    layoutCount: number,
   ): Promise<RenderedQuoteDocument | null> {
     const page = await browser.newPage();
     try {
@@ -449,11 +502,29 @@ export class QuoteRendererService {
 
       if (pageCount !== 1 || Object.keys(anchors).length === 0) return null;
 
+      // A folha única não vale a qualquer preço. Se a arte só coube porque foi
+      // reduzida a uma miniatura, o documento perde a coisa que quem assina
+      // precisa conferir — e duas folhas legíveis são melhores que uma ilegível.
+      const layoutMm = layoutCount > 0 ? ((await page.evaluate(JS_LAYOUT_HEIGHT)) as number) : null;
+      if (
+        layoutMm !== null &&
+        (layoutMm * layoutCount < FUSED_MIN_LAYOUT_TOTAL_MM ||
+          layoutMm < FUSED_MIN_LAYOUT_EACH_MM)
+      ) {
+        this.logger.log(
+          `Layout fundido recusado: ${layoutCount} arte(s) a ${layoutMm.toFixed(0)}mm ` +
+            `(total ${(layoutMm * layoutCount).toFixed(0)}mm, mínimo ${FUSED_MIN_LAYOUT_TOTAL_MM}mm). ` +
+            'Usando o caminho de duas folhas.',
+        );
+        return null;
+      }
+
       const resolved: SignatureAnchorMap = {};
       for (const [id, a] of Object.entries(anchors)) resolved[id] = { ...a, page: 0 };
 
       this.logger.log(
-        `Orçamento e assinaturas couberam em uma folha (layout fundido, ${fuseIterations} passo(s) de sacrifício).`,
+        `Orçamento e assinaturas couberam em uma folha (layout fundido, ${fuseIterations} passo(s) ` +
+          `de sacrifício${layoutMm !== null ? `, arte a ${layoutMm.toFixed(0)}mm` : ''}).`,
       );
       return {
         pdf,
@@ -462,6 +533,7 @@ export class QuoteRendererService {
         fitIterations: fuseIterations,
         overflowed: false,
         contentPages: 1,
+        layoutMm,
       };
     } catch (error) {
       this.logger.warn(

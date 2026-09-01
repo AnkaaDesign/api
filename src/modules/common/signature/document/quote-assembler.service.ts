@@ -20,7 +20,17 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import { PDFDocument, StandardFonts, rgb, degrees, PDFFont, PDFPage } from 'pdf-lib';
+import {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  degrees,
+  PDFFont,
+  PDFPage,
+  PDFDict,
+  PDFName,
+  PDFArray,
+} from 'pdf-lib';
 // Alias obrigatorio: pdf-lib tambem exporta `PDFDocument`.
 import PDFKitDocument from 'pdfkit';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
@@ -718,6 +728,57 @@ export class QuoteAssemblerService {
   }
 
   /** Une o documento carimbado com as páginas de auditoria. */
+  /**
+   * Junta os RECORTES de uma coleta num arquivo só, para leitura interna.
+   *
+   * É uma VISUALIZAÇÃO, e o comentário precisa dizer isso porque a distinção é a
+   * única coisa que impede este método de destruir prova: o `save()` do pdf-lib
+   * reescreve o arquivo inteiro, então qualquer merge apaga a assinatura PAdES
+   * das partes — é garantido, não é questão de cuidado. Por isso:
+   *
+   *  · os artefatos selados continuam intocados no disco e no `finalFileId` de
+   *    cada `EnvelopeDocument`, que seguem sendo O instrumento;
+   *  · cada um entra AQUI TAMBÉM como anexo (`/EmbeddedFiles`), byte a byte, de
+   *    modo que quem receber o arquivo junto tenha como validar cada recorte;
+   *  · os widgets de assinatura são removidos das páginas copiadas — sem isso o
+   *    visualizador anunciaria uma assinatura digital que este arquivo não tem,
+   *    que é exatamente a confusão que a decisão acima existe para evitar.
+   *
+   * @param parts   Os PDFs a copiar, na ordem de leitura (completo primeiro).
+   * @param attachments  Os bytes SELADOS a anexar, com nome e descrição.
+   */
+  async mergeDocuments(
+    parts: readonly Buffer[],
+    attachments: ReadonlyArray<{ name: string; bytes: Buffer; description: string }> = [],
+    title?: string,
+  ): Promise<Buffer> {
+    const out = await PDFDocument.create();
+    if (title) out.setTitle(title);
+    out.setProducer(COMPANY.name);
+    out.setCreator(COMPANY.name);
+
+    for (const part of parts) {
+      const src = await PDFDocument.load(part, {
+        updateMetadata: false,
+        ignoreEncryption: true,
+      });
+      const pages = await out.copyPages(src, src.getPageIndices());
+      for (const page of pages) {
+        stripSignatureWidgets(page.node);
+        out.addPage(page);
+      }
+    }
+
+    for (const attachment of attachments) {
+      await out.attach(new Uint8Array(attachment.bytes), attachment.name, {
+        mimeType: 'application/pdf',
+        description: attachment.description,
+      });
+    }
+
+    return Buffer.from(await out.save({ useObjectStreams: false }));
+  }
+
   async mergeWithAudit(stamped: Buffer, auditPages: Buffer): Promise<Buffer> {
     const out = await PDFDocument.load(stamped, { updateMetadata: false });
     const audit = await PDFDocument.load(auditPages, { updateMetadata: false });
@@ -725,5 +786,30 @@ export class QuoteAssemblerService {
     copied.forEach(p => out.addPage(p));
     const bytes = await out.save({ useObjectStreams: false });
     return Buffer.from(bytes);
+  }
+}
+
+/**
+ * Tira das páginas copiadas o campo /Sig que o `copyPages` arrasta junto.
+ *
+ * Um widget de assinatura órfão faz o visualizador anunciar uma assinatura que
+ * o arquivo não carrega. Gêmeo do helper do dossiê, pelo mesmo motivo.
+ */
+function stripSignatureWidgets(pageNode: PDFDict): void {
+  try {
+    const annots = pageNode.lookup(PDFName.of('Annots'));
+    if (!(annots instanceof PDFArray)) return;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const annot = pageNode.context.lookupMaybe(annots.get(i), PDFDict);
+      if (!annot) continue;
+      const ft = annot.lookup(PDFName.of('FT'));
+      const subtype = annot.lookup(PDFName.of('Subtype'));
+      const isSigWidget =
+        ft === PDFName.of('Sig') ||
+        (subtype === PDFName.of('Widget') && String(ft) === '/Sig');
+      if (isSigWidget) annots.remove(i);
+    }
+  } catch {
+    // Uma anotação exótica não pode derrubar a visualização inteira.
   }
 }

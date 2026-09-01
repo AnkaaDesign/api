@@ -203,7 +203,6 @@ export type QuoteHtmlPart = 'content' | 'signatures' | 'fused';
 export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'content'): string {
   // Sem recorte declarado, o documento é o inteiro. Ver `QuoteHtmlInput.sections`.
   const sections = data.sections ?? FULL_SECTIONS;
-  const showVehicle = hasSection(sections, 'VEHICLE');
   const showServices = hasSection(sections, 'SERVICES');
   const showPricing = hasSection(sections, 'PRICING');
   const showDelivery = hasSection(sections, 'DELIVERY');
@@ -277,14 +276,13 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // caminhão nenhum ganharia três lacunas a preencher e uma frase sobre um
   // objeto que não existe.
   //
-  // O recorte VEHICLE desliga a frase inteira. Isso também apaga as LACUNAS de
-  // cadastro tardio deste PDF, e é o comportamento certo: sem retângulo medido
-  // não há onde carimbar a placa que chega depois, e carimbar num documento que
-  // nunca falou do veículo inventaria uma frase que ninguém leu. O dado tardio
-  // continua indo para a trilha de auditoria, como ia antes das lacunas
-  // existirem.
-  const hasVehicle =
-    showVehicle && (identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel);
+  // A frase do veículo NÃO é recortável: ela é o endereço do serviço, e um
+  // documento que não diz de que trabalho fala não significa nada para quem o
+  // recebe — foi o que aconteceu com o primeiro recorte de marketing, que chegou
+  // com a arte e sem a série. Por isso ela sai sempre que existe veículo, em
+  // qualquer recorte, e por isso as LACUNAS de cadastro tardio são medidas em
+  // todos: a placa que chega depois pode ser carimbada em qualquer um deles.
+  const hasVehicle = identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel;
 
   const vehicleParts: string[] = [];
   if (hasVehicle) {

@@ -414,23 +414,41 @@ function signerMap(signers: QuoteSnapshotSigner[]) {
   return new Map(signers.map(s => [s.responsibleId, s]));
 }
 
-function diffSigners(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[] {
+function diffSigners(
+  before: QuoteSnapshot,
+  after: QuoteSnapshot,
+  options: QuoteDiffOptions = {},
+): QuoteChange[] {
   const out: QuoteChange[] = [];
   const b = signerMap(before.signers);
   const a = signerMap(after.signers);
 
+  /**
+   * Uma mudança neste contato pode estragar uma assinatura AINDA NÃO COLHIDA?
+   *
+   * Sem a lista (chamador sem envelope em mãos) responde `true` para todo mundo,
+   * que é o comportamento estrito de antes.
+   */
+  const pending = options.pendingSignerIds;
+  const canStrand = (id: string): boolean => !pending || pending.includes(id);
+
   for (const [id, prev] of b) {
     const next = a.get(id);
     if (!next) {
+      // Quem AINDA NÃO assinou deixa uma linha em branco que a coleta nunca vai
+      // conseguir preencher: o envelope fica preso para sempre, e é por isso que
+      // esse caso derruba. Quem já assinou não deixa buraco nenhum — o ato está
+      // colhido e o documento é imutável.
+      const strands = canStrand(id);
       out.push({
         key: `signer:removed:${id}`,
-        severity: 'MATERIAL',
+        severity: strands ? 'MATERIAL' : 'COSMETIC',
         kind: 'REMOVED',
         group: 'SIGNERS',
         label: 'Responsável removido',
         subject: normText(prev.name),
-        before: 'Assinava o documento',
-        after: null,
+        before: strands ? 'Assinava o documento' : 'Já havia assinado',
+        after: strands ? null : 'Saiu da tarefa; a assinatura dele continua valendo',
       });
       continue;
     }
@@ -451,7 +469,10 @@ function diffSigners(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[]
     if (bothHaveEmailField && prevEmail !== nextEmail) {
       out.push({
         key: `signer:email:${id}`,
-        severity: 'MATERIAL',
+        // Só enquanto a assinatura DELE está pendente. Depois de colhida, o
+        // contato do ato ficou congelado na evidência do signatário e corrigir o
+        // cadastro não alcança mais nada.
+        severity: canStrand(id) ? 'MATERIAL' : 'COSMETIC',
         kind: 'CHANGED',
         group: 'SIGNERS',
         label: 'E-mail do responsável',
@@ -504,15 +525,28 @@ function diffSigners(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[]
 
   for (const [id, next] of a) {
     if (b.has(id)) continue;
+    // NUNCA MATERIAL, e "Passa a assinar o documento" era falso das duas formas.
+    //
+    // O documento foi congelado sem este contato: ele não tem linha de
+    // assinatura nele, e nenhuma alteração de cadastro pode lhe dar uma. Em
+    // coleta concluída então é ainda mais claro — o PDF está selado. Enquanto
+    // isso, tratar a inclusão como material anulava as assinaturas JÁ COLHIDAS
+    // de todo mundo por causa de um contato acrescentado à tarefa, que é o
+    // oposto do que a inclusão significa.
+    //
+    // Quem precisa que ele assine reemite a coleta; o texto abaixo diz isso.
+    const closed = !!options.pendingSignerIds && options.pendingSignerIds.length === 0;
     out.push({
       key: `signer:added:${id}`,
-      severity: 'MATERIAL',
+      severity: 'COSMETIC',
       kind: 'ADDED',
       group: 'SIGNERS',
       label: 'Responsável incluído',
       subject: normText(next.name),
       before: null,
-      after: 'Passa a assinar o documento',
+      after: closed
+        ? 'Entrou depois da coleta concluída; não assinou este documento'
+        : 'Entrou depois da emissão; não assina esta coleta',
     });
   }
 
@@ -573,9 +607,31 @@ function scalar(
  * ordem das chaves alterada, e uma comparação sensível à ordem apontaria
  * "cliente, veículo, responsáveis" como alterados quando só o preço mudou.
  */
+export interface QuoteDiffOptions {
+  /**
+   * `Responsible.id` dos signatários deste envelope que AINDA NÃO ASSINARAM.
+   *
+   * É a lista que decide a gravidade das mudanças de elenco, e ela responde à
+   * única pergunta que importa: esta alteração pode estragar uma assinatura que
+   * ainda não foi colhida? Só nesse caso ela é MATERIAL.
+   *
+   *  · tirar da tarefa alguém que ainda tem uma linha em branco no documento
+   *    deixa a coleta sem como concluir — isso é material;
+   *  · tirar alguém que JÁ assinou não muda nada: a assinatura está colhida e o
+   *    documento é imutável;
+   *  · acrescentar um responsável nunca é material — ele não está no documento
+   *    congelado e não assina esta coleta, aconteça o que acontecer.
+   *
+   * Omitida, o comportamento é o estrito de antes (inclusão e remoção materiais)
+   * — que é o certo para quem não tem o envelope em mãos e não pode saber.
+   */
+  pendingSignerIds?: readonly string[] | null;
+}
+
 export function diffQuoteSnapshots(
   beforeRaw: QuoteSnapshot,
   afterRaw: QuoteSnapshot,
+  options: QuoteDiffOptions = {},
 ): QuoteChange[] {
   // Snapshots congelados por versões anteriores do formato podem não ter todos
   // os campos (`schemaVersion` existe exatamente porque o recorte cresce). Um
@@ -586,6 +642,7 @@ export function diffQuoteSnapshots(
   const out: QuoteChange[] = [];
 
   out.push(...diffServices(before, after));
+
 
   // ---- Valores ------------------------------------------------------------
   scalar(out, {
@@ -780,7 +837,7 @@ export function diffQuoteSnapshots(
   });
 
   // ---- Responsáveis -------------------------------------------------------
-  out.push(...diffSigners(before, after));
+  out.push(...diffSigners(before, after, options));
 
   // ---- Documento (cosmético) ----------------------------------------------
   scalar(out, {

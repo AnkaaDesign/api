@@ -33,6 +33,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@/config/company';
 import {
   formatResponsibleRoles,
+  pickPrimaryResponsible,
   RESPONSIBLE_ROLE_LABELS,
   RESPONSIBLE_ROLE,
 } from '@constants/enums';
@@ -52,10 +53,11 @@ import {
   FULL_SECTIONS,
   hasSection,
   isFullSections,
-  QUOTE_SECTIONS,
   QUOTE_SECTION_DESCRIPTIONS,
   QUOTE_SECTION_LABELS,
   sectionsForRoles,
+  TOGGLEABLE_SECTIONS,
+  withAlwaysSections,
   variantFilenameSuffix,
   variantKeyOf,
   type QuoteSection,
@@ -181,6 +183,23 @@ interface WhatsAppSender {
  * um parágrafo no meio dela. O que não couber continua inteiro no payload do
  * evento, que é o que a rota de trilha serve.
  */
+/**
+ * "Ana", "Ana e Beatriz", "Ana, Beatriz e mais 2" — o vocativo do documento.
+ *
+ * Corta em três nomes porque isto abre um parágrafo: um recorte com oito
+ * contatos comerciais (existem) viraria três linhas de nomes antes da primeira
+ * palavra da proposta. Devolve `null` na lista vazia para que o `??` do chamador
+ * possa cair no degrau seguinte — string vazia passaria como valor.
+ */
+function formatContactList(names: readonly string[]): string | null {
+  const clean = names.map(n => n?.trim()).filter((n): n is string => !!n);
+  if (clean.length === 0) return null;
+  if (clean.length === 1) return clean[0];
+  if (clean.length === 2) return `${clean[0]} e ${clean[1]}`;
+  if (clean.length === 3) return `${clean[0]}, ${clean[1]} e ${clean[2]}`;
+  return `${clean.slice(0, 2).join(', ')} e mais ${clean.length - 2}`;
+}
+
 function driftDetailOf(eventType: string, payload: unknown): string | null {
   if (eventType !== 'SNAPSHOT_DRIFTED') return null;
   if (!payload || typeof payload !== 'object') return null;
@@ -513,7 +532,10 @@ export class SignatureEnvelopeService {
       ...settings,
       blockers,
       recipients,
-      sectionCatalog: QUOTE_SECTIONS.map(key => ({
+      // Só as RECORTÁVEIS. A identificação do veículo sai em todo recorte e não
+      // é uma escolha — oferecer a caixa convidaria a desmarcá-la, e o servidor
+      // a reporia em silêncio, que é a pior combinação possível numa tela.
+      sectionCatalog: TOGGLEABLE_SECTIONS.map(key => ({
         key,
         label: QUOTE_SECTION_LABELS[key],
         description: QUOTE_SECTION_DESCRIPTIONS[key],
@@ -651,7 +673,11 @@ export class SignatureEnvelopeService {
     const overrides = new Map<string, QuoteSection[]>();
     for (const entry of args.signers ?? []) {
       if (entry?.responsibleId) {
-        overrides.set(entry.responsibleId, canonicalSections(entry.sections ?? []));
+        // `withAlwaysSections`, não `canonicalSections`: a identificação do
+        // veículo entra em todo recorte que assina, marcada ou não. A tela nem
+        // oferece a caixa; forçar aqui é o que garante a regra mesmo para um
+        // corpo montado à mão ou por um app antigo.
+        overrides.set(entry.responsibleId, withAlwaysSections(entry.sections ?? []));
       }
     }
     // Sobrescrita para um contato que não está na tarefa é RECUSADA, não
@@ -1302,10 +1328,24 @@ export class SignatureEnvelopeService {
       customerDocumentFormatted: customer?.cnpj
         ? formatCnpj(customer.cnpj)
         : (customer?.cpf ?? null),
-      // No recorte, o "À <fulano>" é o contato DAQUELA configuração. Só cai no
-      // responsável da tarefa quando a configuração não tem um — e é justamente
-      // esse recuo que endereçava o orçamento da Ibiporã ao contato da RKO.
-      contactName: segment?.responsible?.name ?? quote.task?.responsibles?.[0]?.name ?? null,
+      // A QUEM ESTE DOCUMENTO É ENDEREÇADO.
+      //
+      // Ordem: o contato da configuração (faturamento dividido) > os
+      // SIGNATÁRIOS DESTE RECORTE > o responsável principal da tarefa.
+      //
+      // O segundo degrau é o conserto de um defeito medido: cada recorte é um
+      // documento diferente, com signatários diferentes, e o "À <fulano>" saía de
+      // `responsibles[0]` em todos eles. No orçamento nº 956 o PDF do Kennedy
+      // abria com "À Beatriz" — o documento cumprimentava outra pessoa que não
+      // quem ia assiná-lo. Endereçar a quem tem a caneta na mão é o mínimo.
+      //
+      // O terceiro degrau cobre o recorte completo que existe só para a
+      // contra-assinatura da Ankaa, sem nenhum contato do cliente nele.
+      contactName:
+        segment?.responsible?.name ??
+        formatContactList(signers.filter(x => x.side === 'CUSTOMER').map(x => x.name)) ??
+        pickPrimaryResponsible(quote.task?.responsibles ?? [])?.name ??
+        null,
       serialNumber: quote.task?.serialNumber ?? null,
       plate: quote.task?.truck?.plate ?? null,
       chassisNumber: quote.task?.truck?.chassisNumber ?? null,
@@ -3190,8 +3230,13 @@ export class SignatureEnvelopeService {
     // Mesma razão do `checkAndInvalidate`: aceitar qualquer versão conhecida,
     // senão um envelope pré-v2 se recusaria a selar com TODAS as assinaturas já
     // colhidas — o pior desfecho possível deste fluxo.
-    const signingResponsibleIds = env.signers
-      .map(s => s.responsibleId)
+    // Na selagem, por construção, todo mundo já assinou — a lista sai vazia e
+    // qualquer mexida no elenco é tolerada. É o resultado certo: o documento
+    // está prestes a ser selado com as assinaturas que tem, e nenhuma alteração
+    // de cadastro pode acrescentar ou tirar uma linha dele.
+    const pendingSignerIds = env.signers
+      .filter(sig => !sig.signedAt)
+      .map(sig => sig.responsibleId)
       .filter((id): id is string => !!id);
 
     const sealTermsUnchanged =
@@ -3200,7 +3245,7 @@ export class SignatureEnvelopeService {
         freshAtSeal.snapshot,
         frozenTermsAtSeal,
         env.quoteSnapshot as unknown as QuoteSnapshot,
-        signingResponsibleIds,
+        pendingSignerIds,
       ) !== null;
 
     if (freshAtSeal && freshAtSeal.hash !== env.quoteSnapshotSha256 && sealTermsUnchanged) {
@@ -3211,6 +3256,7 @@ export class SignatureEnvelopeService {
       const cosmetic = this.snapshots.classify(
         env.quoteSnapshot as unknown as QuoteSnapshot,
         freshAtSeal.snapshot,
+        { pendingSignerIds },
       ).cosmetic;
       await this.recordDriftOnce(envelopeId, freshAtSeal.hash, cosmetic, null);
     } else if (freshAtSeal && !sealTermsUnchanged) {
@@ -3347,13 +3393,7 @@ export class SignatureEnvelopeService {
           // é aqui que "Placa do veículo: — → ABB8468" entra no artefato, já que
           // o corpo do documento está congelado desde antes de a placa existir.
           //
-          // SÓ NOS RECORTES QUE FALAM DO VEÍCULO. Num documento que nunca
-          // mencionou placa nem chassi, a linha entregaria pela trilha o dado que
-          // o recorte decidiu não entregar pelo corpo — e o leitor não teria a
-          // que relacioná-la.
-          detail: hasSection(docSections, 'VEHICLE')
-            ? driftDetailOf(e.eventType, e.payload)
-            : null,
+          detail: driftDetailOf(e.eventType, e.payload),
         })),
         budgetNumber: env.quote.budgetNumber,
         envelopeId: env.id,
@@ -3642,6 +3682,36 @@ export class SignatureEnvelopeService {
     }
     if (!fresh) return out;
 
+    // Quem, em cada envelope, ainda não assinou. É esta lista que decide a
+    // GRAVIDADE das mudanças de elenco (ver `QuoteDiffOptions.pendingSignerIds`),
+    // e sem ela a tela mostraria "responsável incluído" como alteração material
+    // — alarme de invalidação sobre algo que não invalida nada.
+    //
+    // Uma consulta só para todos os envelopes: esta função roda no caminho de
+    // leitura do painel, que já paga uma releitura do grafo do orçamento.
+    const pendingByEnvelope = new Map<string, string[]>();
+    try {
+      const pendingRows = await this.prisma.envelopeSigner.findMany({
+        where: {
+          envelopeId: { in: envelopes.map(e => e.id) },
+          signedAt: null,
+          responsibleId: { not: null },
+        },
+        select: { envelopeId: true, responsibleId: true },
+      });
+      for (const row of pendingRows) {
+        const list = pendingByEnvelope.get(row.envelopeId) ?? [];
+        list.push(row.responsibleId!);
+        pendingByEnvelope.set(row.envelopeId, list);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível ler os signatários pendentes: ${
+          error instanceof Error ? error.message : error
+        }. O diff sai com a gravidade estrita.`,
+      );
+    }
+
     for (const env of envelopes) {
       // Atalho: hash igual ⇒ nada no documento mudou, nem cosmético.
       if (env.quoteSnapshotSha256 === fresh.hash) {
@@ -3652,6 +3722,11 @@ export class SignatureEnvelopeService {
         const changes = this.snapshots.changes(
           env.quoteSnapshot as QuoteSnapshot,
           fresh.snapshot,
+          // `?? []` e não `undefined`: um envelope sem NENHUM signatário
+          // pendente é o caso concluído, e ali a resposta certa é "nada no
+          // elenco pode mais estragar coisa alguma". `undefined` significaria
+          // "não sei", que cairia na gravidade estrita e voltaria a alarmar.
+          { pendingSignerIds: pendingByEnvelope.get(env.id) ?? [] },
         );
         out.set(env.id, changes);
 
@@ -3709,7 +3784,14 @@ export class SignatureEnvelopeService {
     if (loaded.hash === running.quoteSnapshotSha256) return false;
 
     const before = running.quoteSnapshot as any;
-    const changes = this.snapshots.classify(before, loaded.snapshot);
+    // Quem AINDA NÃO assinou. É esta lista que decide o que derruba a coleta:
+    // só uma mexida em quem tem assinatura pendente pode estragar um ato que
+    // ainda não foi colhido. Ver `tolerateSettledRoster`.
+    const pendingSignerIds = running.signers
+      .filter(sig => !sig.signedAt)
+      .map(sig => sig.responsibleId)
+      .filter((id): id is string => !!id);
+    const changes = this.snapshots.classify(before, loaded.snapshot, { pendingSignerIds });
 
     // O baseline material dos envelopes criados antes desta coluna existir é
     // derivado do snapshot congelado — o mesmo cálculo que a migração faz. Sem
@@ -3731,10 +3813,10 @@ export class SignatureEnvelopeService {
       // placa preenchidos DEPOIS da emissão não podem derrubar a coleta. Ver
       // `tolerateLateRegistration`.
       before as QuoteSnapshot,
-      // E o elenco que de fato assina, por causa de quem NÃO assina: cadastrar o
-      // motorista da entrega no meio da coleta não pode anular a assinatura que
-      // o comercial do cliente já deu. Ver `tolerateNonSigners`.
-      running.signers.map(s => s.responsibleId).filter((id): id is string => !!id),
+      // E o elenco PENDENTE, por causa de quem já resolveu: acrescentar um
+      // responsável à tarefa não pode anular a assinatura que o comercial do
+      // cliente já deu. Ver `tolerateSettledRoster`.
+      pendingSignerIds,
     );
 
     if (matchedVersion !== null) {
@@ -4152,6 +4234,95 @@ export class SignatureEnvelopeService {
     };
   }
 
+  /**
+   * TODOS os recortes num arquivo só — a visão do operador.
+   *
+   * O botão "PDF" do painel abria o recorte completo, e num orçamento com três
+   * recortes isso mostra as assinaturas de um subconjunto das pessoas. Quem
+   * conduz a coleta precisa da resposta oposta: "está tudo assinado?" — e essa
+   * resposta está espalhada por N arquivos.
+   *
+   * NENHUM RECORTE PERDE VALIDADE POR CAUSA DISTO, e a garantia tem três partes:
+   *
+   *  · este arquivo é montado sob demanda e NUNCA é gravado como `finalFileId`
+   *    de coisa nenhuma — os artefatos selados continuam intocados no disco;
+   *  · as páginas copiadas entram sem o widget de assinatura (ver
+   *    `mergeDocuments`), então o visualizador não anuncia uma assinatura
+   *    digital que este arquivo não tem;
+   *  · cada recorte selado viaja ANEXO, byte a byte, de modo que a prova
+   *    completa acompanha a visualização.
+   *
+   * Enquanto a coleta corre não há selo nenhum: aí ele junta as remontagens ao
+   * vivo, que é exatamente o que o operador quer ver — quem já assinou e quem
+   * não.
+   */
+  async renderCombinedDocument(
+    envelopeId: string,
+  ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: {
+        documents: {
+          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+          include: { finalFile: true },
+        },
+        quote: { include: { task: { include: { customer: true } } } },
+      },
+    });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+
+    // Um recorte só: não há o que juntar, e montar um invólucro em volta de um
+    // arquivo único só tiraria dele a assinatura PAdES que ele tem.
+    if (env.documents.length <= 1) {
+      return this.renderServedDocument(envelopeId, env.documents[0]?.id ?? null);
+    }
+
+    const { readFileSync, existsSync } = await import('fs');
+    const parts: Buffer[] = [];
+    const attachments: Array<{ name: string; bytes: Buffer; description: string }> = [];
+    const etagParts: string[] = [];
+
+    for (const doc of env.documents) {
+      const served = await this.renderServedDocument(envelopeId, doc.id);
+      parts.push(served.pdf);
+      etagParts.push(served.etag);
+
+      // O anexo é o SELADO, não o que acabou de ser remontado: é ele que carrega
+      // a assinatura ICP-Brasil. Sem selo (coleta em andamento) não há o que
+      // anexar, e a visualização vale por si.
+      if (doc.finalFile?.path && existsSync(doc.finalFile.path)) {
+        attachments.push({
+          name: `orcamento-${env.quote.budgetNumber}-assinado${variantFilenameSuffix(
+            this.sectionsOf(doc),
+          )}.pdf`,
+          bytes: readFileSync(doc.finalFile.path),
+          description:
+            `Orçamento nº ${env.quote.budgetNumber} — ${describeSections(this.sectionsOf(doc))} ` +
+            `— envelope ${env.verificationCode}. Este é o documento com validade ` +
+            'jurídica deste recorte: extraia-o para validar a assinatura ICP-Brasil.',
+        });
+      }
+    }
+
+    const pdf = await this.assembler.mergeDocuments(
+      parts,
+      attachments,
+      `Orçamento nº ${env.quote.budgetNumber} — todos os recortes`,
+    );
+
+    return {
+      pdf,
+      // Deriva das ETags das partes: qualquer assinatura nova em qualquer
+      // recorte muda a chave, e o navegador não serve a versão de antes.
+      etag: `"${sha256Hex(etagParts.join('|')).slice(0, 32)}"`,
+      filename: budgetPdfFilename(
+        env.quote.task?.customer,
+        env.quote.budgetNumber,
+        '-todos-os-recortes',
+      ),
+    };
+  }
+
   // ===========================================================================
   // VERIFICAÇÃO PÚBLICA
   // ===========================================================================
@@ -4397,7 +4568,7 @@ export class SignatureEnvelopeService {
       orderBy: { version: 'desc' },
       select: { id: true },
     });
-    if (completed) return this.renderServedDocument(completed.id);
+    if (completed) return this.renderServedDocument(completed.id, null);
 
     // Sem filtro de estado aqui. A página que consome isto já exibe o estado da
     // coleta (aguardando / invalidada / expirada), e recusar o documento só

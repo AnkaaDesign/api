@@ -250,17 +250,26 @@ export class SignatureController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async document(
     @Param('id', ParseUUIDPipe) id: string,
-    // `?recorte=<uuid>` serve UM dos recortes congelados. Sem ele vem o documento
-    // completo, que é o instrumento — e é o que o operador quer ver por padrão.
-    // SEM `ParseUUIDPipe`: uma query vazia (`?recorte=`) significa "o completo",
-    // e o pipe a transformaria em 400.
+    /**
+     * `?recorte=<uuid>` serve UM dos recortes congelados; `?recorte=completo`
+     * serve só o instrumento.
+     *
+     * SEM nada, vem a visualização com TODOS os recortes juntos — porque a
+     * pergunta que o operador faz ao apertar "PDF" é "está tudo assinado?", e
+     * servir o recorte completo respondia sobre um subconjunto das pessoas. Com
+     * um recorte só, os dois caminhos coincidem e nada muda.
+     *
+     * SEM `ParseUUIDPipe`: a query vazia (`?recorte=`) e a palavra `completo`
+     * são valores legítimos, e o pipe transformaria os dois em 400.
+     */
     @Query('recorte') recorte: string | undefined,
     @Res() res: Response,
   ) {
-    const { pdf, etag, filename } = await this.envelopes.renderServedDocument(
-      id,
-      recorte?.trim() || null,
-    );
+    const wanted = recorte?.trim() || null;
+    const { pdf, etag, filename } =
+      wanted === null
+        ? await this.envelopes.renderCombinedDocument(id)
+        : await this.envelopes.renderServedDocument(id, wanted === 'completo' ? null : wanted);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('ETag', etag);
     res.setHeader('Content-Disposition', contentDisposition('inline', filename));

@@ -18,10 +18,16 @@
  *
  * O QUE NUNCA É RECORTADO
  *   Cabeçalho, número do orçamento, datas de emissão e validade, destinatário,
- *   cláusula de aceitação do meio eletrônico, bloco de assinaturas e rodapé com
- *   o código de verificação. É o "texto básico": sem ele o arquivo não é um
- *   documento assinável, é um anexo solto. Por isso não há chave para ele — não
- *   se pode desligar o que sustenta o ato.
+ *   a IDENTIFICAÇÃO DO VEÍCULO, cláusula de aceitação do meio eletrônico, bloco
+ *   de assinaturas e rodapé com o código de verificação. É o "texto básico": sem
+ *   ele o arquivo não é um documento assinável, é um anexo solto.
+ *
+ *   O veículo entrou nessa lista depois de sair: ele começou recortável e a
+ *   primeira coleta real mostrou por que não podia ser. O recorte do marketing
+ *   chegou sem série e sem placa, e o contato ficou com um documento que não diz
+ *   DE QUE TRABALHO ele fala — a arte estava lá, e o objeto dela não. Série,
+ *   placa e chassi não são conteúdo comercial que se protege; são o endereço do
+ *   serviço, e todo recorte precisa dele para significar alguma coisa.
  */
 
 import { RESPONSIBLE_ROLE } from '@constants/enums';
@@ -47,6 +53,22 @@ export const QUOTE_SECTIONS = [
 ] as const;
 
 export type QuoteSection = (typeof QUOTE_SECTIONS)[number];
+
+/**
+ * Seções que TODO recorte carrega, marcadas ou não.
+ *
+ * `VEHICLE` continua NA LISTA de `QUOTE_SECTIONS` — e não foi removida — porque
+ * a chave do recorte é derivada dela e já está gravada em `EnvelopeDocument` e
+ * nas migrações. Tirá-la do enum renomearia a chave de toda coleta existente. O
+ * que mudou é que ela deixou de ser uma ESCOLHA: o servidor a injeta em todo
+ * recorte que assina, e a tela não oferece a caixa.
+ */
+export const ALWAYS_SECTIONS: readonly QuoteSection[] = ['VEHICLE'];
+
+/** As que o operador de fato marca e desmarca na emissão. */
+export const TOGGLEABLE_SECTIONS: readonly QuoteSection[] = QUOTE_SECTIONS.filter(
+  s => !ALWAYS_SECTIONS.includes(s),
+);
 
 export const QUOTE_SECTION_LABELS: Record<QuoteSection, string> = {
   VEHICLE: 'Identificação do veículo',
@@ -109,7 +131,10 @@ export const ROLE_DEFAULT_SECTIONS: Record<RESPONSIBLE_ROLE, readonly QuoteSecti
   [RESPONSIBLE_ROLE.REPRESENTATIVE]: FULL_SECTIONS,
   [RESPONSIBLE_ROLE.COORDINATOR]: FULL_SECTIONS,
   [RESPONSIBLE_ROLE.PURCHASING]: FULL_SECTIONS,
-  [RESPONSIBLE_ROLE.FINANCIAL]: ['VEHICLE', 'SERVICES', 'PRICING', 'DELIVERY', 'PAYMENT', 'GUARANTEE'],
+  // Sem `VEHICLE` nas declarações abaixo de propósito: quem a acrescenta é
+  // `withAlwaysSections`, num lugar só. Declará-la aqui criaria uma segunda
+  // fonte de verdade sobre o que é obrigatório, e as duas divergiriam.
+  [RESPONSIBLE_ROLE.FINANCIAL]: ['SERVICES', 'PRICING', 'DELIVERY', 'PAYMENT', 'GUARANTEE'],
   [RESPONSIBLE_ROLE.MARKETING]: ['LAYOUT'],
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [],
   [RESPONSIBLE_ROLE.DRIVER]: [],
@@ -138,6 +163,27 @@ export function variantKeyOf(sections: readonly QuoteSection[]): string {
   return sections.length ? sections.join('+') : 'BASE';
 }
 
+/**
+ * Acrescenta as seções obrigatórias a um recorte QUE ASSINA.
+ *
+ * O conjunto VAZIO é preservado vazio, e essa é a distinção que sustenta o
+ * recurso: vazio significa "este contato não assina esta coleta" — o padrão do
+ * gestor de frota e do motorista. Injetar `VEHICLE` neles os faria assinar todo
+ * orçamento, que é exatamente o contrário do que o padrão diz.
+ */
+export function withAlwaysSections(sections: readonly string[]): QuoteSection[] {
+  const chosen = canonicalSections(sections);
+  // Quem decide se o contato assina são as seções RECORTÁVEIS, não as
+  // obrigatórias. Sem esta linha, um recorte que chegasse com apenas `VEHICLE`
+  // — o que acontece quando o operador desmarca tudo numa tela que já recebeu a
+  // obrigatória de volta — seria lido como "assina", e a pessoa receberia um
+  // documento com o cabeçalho, o veículo e uma linha de assinatura. A tela diz
+  // "sem nenhuma seção marcada, este contato não recebe o orçamento"; aqui é
+  // onde essa frase vira verdade.
+  const distinctive = chosen.filter(s => !ALWAYS_SECTIONS.includes(s));
+  return distinctive.length ? canonicalSections([...ALWAYS_SECTIONS, ...distinctive]) : [];
+}
+
 /** União dos recortes padrão das funções do contato, em ordem canônica. */
 export function sectionsForRoles(roles: readonly string[] | null | undefined): QuoteSection[] {
   const union = new Set<string>();
@@ -146,7 +192,7 @@ export function sectionsForRoles(roles: readonly string[] | null | undefined): Q
       union.add(section);
     }
   }
-  return canonicalSections([...union]);
+  return withAlwaysSections([...union]);
 }
 
 export function isFullSections(sections: readonly QuoteSection[]): boolean {
@@ -169,7 +215,12 @@ export function hasSection(
 export function describeSections(sections: readonly QuoteSection[]): string {
   if (isFullSections(sections)) return 'Documento completo';
   if (sections.length === 0) return 'Somente texto básico';
-  return sections.map(s => QUOTE_SECTION_LABELS[s]).join(', ');
+  // As obrigatórias saem do rótulo: elas estão em TODO recorte, então nomeá-las
+  // não distingue nada — só faria o recorte do marketing se chamar
+  // "Identificação do veículo, Layout" quando o que ele é, é "Layout".
+  const distinctive = sections.filter(s => !ALWAYS_SECTIONS.includes(s));
+  if (distinctive.length === 0) return 'Somente texto básico';
+  return distinctive.map(s => QUOTE_SECTION_LABELS[s]).join(', ');
 }
 
 /**
@@ -179,11 +230,15 @@ export function describeSections(sections: readonly QuoteSection[]): string {
 export function variantFilenameSuffix(sections: readonly QuoteSection[]): string {
   if (isFullSections(sections)) return '';
   if (sections.length === 0) return '-basico';
-  if (sections.length === 1) return `-${sections[0].toLowerCase()}`;
+  // Mesmo critério do rótulo: as obrigatórias não distinguem nada e só
+  // alongariam o nome.
+  const distinctive = sections.filter(s => !ALWAYS_SECTIONS.includes(s));
+  if (distinctive.length === 0) return '-basico';
+  if (distinctive.length === 1) return `-${distinctive[0].toLowerCase()}`;
   // Um recorte de quatro ou cinco seções produziria um nome ilegível. O que
   // identifica de fato é a AUSÊNCIA: "sem layout" diz mais do que a lista das
-  // seis que ficaram.
-  const missing = QUOTE_SECTIONS.filter(s => !sections.includes(s));
+  // cinco que ficaram.
+  const missing = TOGGLEABLE_SECTIONS.filter(s => !sections.includes(s));
   if (missing.length <= 2) return `-sem-${missing.map(s => s.toLowerCase()).join('-')}`;
-  return `-${sections.map(s => s.toLowerCase()).join('-')}`;
+  return `-${distinctive.map(s => s.toLowerCase()).join('-')}`;
 }

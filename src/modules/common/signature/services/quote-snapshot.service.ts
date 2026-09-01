@@ -49,7 +49,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { sha256Hex } from '../utils/canonical';
 import { onlyDigits } from '../utils/identity';
-import { sectionsForRoles } from '../quote-sections';
 // `normText` mora em `quote-diff` para que aquele módulo não precise importar
 // nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
 // mantém o ciclo entre os dois arquivos inofensivo.
@@ -59,6 +58,7 @@ import {
   diffQuoteSnapshots,
   normText,
   type QuoteChange,
+  type QuoteDiffOptions,
 } from './quote-diff';
 
 /** Dinheiro sempre como string de 2 casas — nunca float. */
@@ -447,23 +447,24 @@ export class QuoteSnapshotService {
     frozenHash: string,
     frozen?: QuoteSnapshot | null,
     /**
-     * Os `Responsible.id` que de fato assinam ESTE envelope.
+     * Os `Responsible.id` dos signatários deste envelope que AINDA NÃO
+     * ASSINARAM.
      *
-     * Sem eles, a tolerância de não-signatários não roda e o comportamento é o
-     * estrito de sempre — que é o certo para quem não tem o envelope em mãos.
+     * Sem eles a tolerância de elenco não roda e o comportamento é o estrito de
+     * sempre — que é o certo para quem não tem o envelope em mãos.
      */
-    signingResponsibleIds?: readonly string[] | null,
+    pendingSignerIds?: readonly string[] | null,
   ): number | null {
     const reconciled: QuoteSnapshot[] = [];
     if (frozen) {
       const late = this.tolerateLateRegistration(snapshot, frozen);
       reconciled.push(late);
-      if (signingResponsibleIds) {
+      if (pendingSignerIds) {
         // As duas tolerâncias são independentes e podem incidir juntas (um
         // implemento 0 km cujo motorista foi trocado na mesma semana), então a
         // combinada entra na lista além de cada uma sozinha.
-        reconciled.push(this.tolerateNonSigners(snapshot, frozen, signingResponsibleIds));
-        reconciled.push(this.tolerateNonSigners(late, frozen, signingResponsibleIds));
+        reconciled.push(this.tolerateSettledRoster(snapshot, frozen, pendingSignerIds));
+        reconciled.push(this.tolerateSettledRoster(late, frozen, pendingSignerIds));
       }
     }
     for (const version of SUPPORTED_MATERIAL_VERSIONS) {
@@ -478,53 +479,43 @@ export class QuoteSnapshotService {
   }
 
   /**
-   * O snapshot atual com os contatos que NÃO ASSINAM esta coleta devolvidos ao
-   * estado congelado.
+   * O snapshot atual com todo o elenco JÁ RESOLVIDO devolvido ao estado
+   * congelado — sobra apenas quem tem assinatura pendente.
    *
-   * POR QUE PASSOU A SER NECESSÁRIO
+   * A PERGUNTA QUE ESTA FUNÇÃO RESPONDE
+   *   "Esta mexida no elenco pode estragar uma assinatura que ainda não foi
+   *   colhida?" Só o que responde SIM derruba a coleta. Tudo o mais é registro.
+   *
+   *   · tirar da tarefa quem ainda tem linha em branco deixa o envelope sem como
+   *     concluir — derruba;
+   *   · trocar o e-mail de quem ainda vai assinar mexe no canal do ato — derruba;
+   *   · tirar quem JÁ assinou não deixa buraco nenhum: o ato está colhido e o
+   *     documento é imutável — não derruba;
+   *   · ACRESCENTAR alguém nunca derruba. O documento foi congelado sem esse
+   *     contato, ele não tem linha de assinatura nele, e nenhuma alteração de
+   *     cadastro pode lhe dar uma. Quem precisa que ele assine reemite a coleta.
+   *
+   * O QUE ISTO CONSERTOU
    *   Até a assinatura diversificada, todo responsável da tarefa virava
-   *   signatário e ganhava uma linha no documento — então mexer no elenco mudava
-   *   o documento, e invalidar era exatamente certo. Agora o gestor de frota e o
-   *   motorista, por padrão, não assinam: eles não têm linha no documento
-   *   congelado, e o documento não muda uma vírgula quando um deles entra, sai ou
-   *   corrige o próprio telefone. Manter a regra antiga faria uma coleta viva
-   *   morrer — com as assinaturas já colhidas anuladas e um e-mail de "o
-   *   orçamento foi alterado" para o cliente — porque a logística cadastrou o
-   *   motorista da entrega.
-   *
-   * O QUE CONTINUA DERRUBANDO
-   *   Quem assina. Trocar o telefone ou o e-mail de um signatário muda o destino
-   *   do código de uso único, e é material. Tirar um signatário apaga uma linha
-   *   de assinatura do documento, e é material.
-   *
-   *   E o contato NOVO que assinaria por padrão também derruba: acrescentar um
-   *   comercial à tarefa no meio da coleta é justamente o caso em que se quer
-   *   reemitir, para que ele assine. Só é tolerado quem não assina por padrão E
-   *   não foi incluído à mão nesta coleta — os dois juntos, porque a inclusão à
-   *   mão é uma decisão do operador que o cadastro sozinho não revela.
+   *   signatário, então mexer no elenco de fato mudava o documento. Com o
+   *   recorte isso deixou de ser verdade, e a regra antiga anulava as
+   *   assinaturas JÁ COLHIDAS de todo mundo porque alguém acrescentou um contato
+   *   à tarefa — inclusive num envelope já selado, onde não havia sequer o que
+   *   anular, e a tela apenas alarmava.
    */
-  private tolerateNonSigners(
+  private tolerateSettledRoster(
     current: QuoteSnapshot,
     frozen: QuoteSnapshot,
-    signingResponsibleIds: readonly string[],
+    pendingSignerIds: readonly string[],
   ): QuoteSnapshot {
-    const signing = new Set(signingResponsibleIds);
+    const pending = new Set(pendingSignerIds);
     const frozenById = new Map(frozen.signers.map(s => [s.responsibleId, s]));
     const currentById = new Map(current.signers.map(s => [s.responsibleId, s]));
-
-    // Quem NÃO assina por padrão, pelas funções que o snapshot registra.
-    // Lê-se do snapshot (e não do banco) de propósito: é o que torna o cálculo
-    // reproduzível a partir do JSONB congelado, anos depois.
-    const signsByDefault = (id: string): boolean => {
-      const entry = currentById.get(id) ?? frozenById.get(id);
-      return sectionsForRoles(entry?.roles ?? []).length > 0;
-    };
 
     const ids = new Set([...frozenById.keys(), ...currentById.keys()]);
     const signers: QuoteSnapshotSigner[] = [];
     for (const id of ids) {
-      const tolerated = !signing.has(id) && !signsByDefault(id);
-      const chosen = tolerated ? frozenById.get(id) : currentById.get(id);
+      const chosen = pending.has(id) ? currentById.get(id) : frozenById.get(id);
       if (chosen) signers.push(chosen);
     }
 
@@ -602,8 +593,12 @@ export class QuoteSnapshotService {
    * traz cada diferença separada, com assunto e antes/depois formatados, e é o
    * que as telas e a página pública renderizam.
    */
-  classify(before: QuoteSnapshot, after: QuoteSnapshot): SnapshotChanges {
-    const entries = diffQuoteSnapshots(before, after);
+  classify(
+    before: QuoteSnapshot,
+    after: QuoteSnapshot,
+    options: QuoteDiffOptions = {},
+  ): SnapshotChanges {
+    const entries = diffQuoteSnapshots(before, after, options);
     return {
       entries,
       material: entries.filter(c => c.severity === 'MATERIAL').map(describeQuoteChange),
@@ -612,8 +607,12 @@ export class QuoteSnapshotService {
   }
 
   /** Só as diferenças estruturadas — o caminho que as interfaces consomem. */
-  changes(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[] {
-    return diffQuoteSnapshots(before, after);
+  changes(
+    before: QuoteSnapshot,
+    after: QuoteSnapshot,
+    options: QuoteDiffOptions = {},
+  ): QuoteChange[] {
+    return diffQuoteSnapshots(before, after, options);
   }
 
   /** O motivo em uma frase, a partir das diferenças materiais. */
