@@ -16,6 +16,7 @@ import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { TaskQuotePrismaRepository } from './repositories/task-quote-prisma.repository';
 import { TaskQuotePaymentScheduler } from './task-quote-payment.scheduler';
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
+import { TaskQuoteReceiptService } from './task-quote-receipt.service';
 
 /**
  * TaskQuote Module
@@ -53,6 +54,7 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
     TaskQuoteService,
     TaskQuotePaymentScheduler,
     TaskQuoteStatusCascadeService,
+    TaskQuoteReceiptService,
     {
       provide: TaskQuoteRepository,
       useClass: TaskQuotePrismaRepository,

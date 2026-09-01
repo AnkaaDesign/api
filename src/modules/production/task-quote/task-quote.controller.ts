@@ -18,11 +18,13 @@ import {
   BadRequestException,
   Header,
   Req,
+  Res,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TaskQuoteService } from './task-quote.service';
+import { TaskQuoteReceiptService } from './task-quote-receipt.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
@@ -57,6 +59,7 @@ import type {
 export class TaskQuoteController {
   constructor(
     private readonly taskQuoteService: TaskQuoteService,
+    private readonly taskQuoteReceiptService: TaskQuoteReceiptService,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -248,6 +251,28 @@ export class TaskQuoteController {
   @HttpCode(HttpStatus.OK)
   async syncEmNegociacao(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskQuoteService.syncEmNegociacao(id, userId);
+  }
+
+  /**
+   * GET /task-quotes/:id/receipt
+   * Recibo de quitação (PDF) — só existe depois que o orçamento chega a SETTLED.
+   * Pensado para o último passo do wizard de faturamento (Resumo/Revisão final).
+   *
+   * Access: FINANCIAL, COMMERCIAL, ADMIN
+   */
+  @Get(':id/receipt')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async downloadReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.taskQuoteReceiptService.generate(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length.toString(),
+    });
+    res.end(buffer);
   }
 
   /**
