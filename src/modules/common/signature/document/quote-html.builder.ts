@@ -627,6 +627,31 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   .footer-spacer { flex: 1 1 auto; min-height: 4mm; }
 
   .layout-section { margin-bottom: 6mm; }
+
+  /* ATENCAO: este bloco de estilo mora DENTRO de um template literal. Crase aqui
+     encerra a string e quebra o arquivo com um erro de sintaxe a dezenas de
+     linhas de distancia. Sem crase em comentario de CSS. (Ja mordeu duas vezes.)
+
+     Folha FUNDIDA com arte: a sobra vertical vai para a IMAGEM, nao para os vaos.
+     E a mesma regra que a folha de assinaturas ja aplicava, e faltava aqui. Sem
+     ela um recorte curto (texto basico + arte + assinaturas) saia com tres
+     buracos verticais: os .page-content-gap crescem ate 2,2x o --block-gap e
+     ficavam com a sobra toda, enquanto a arte — que e o que o cliente esta
+     aprovando — permanecia presa no teto de --layout-max-h.
+     flex-grow alto: a arte compete com os vaos pela sobra e leva a maior parte. */
+  .page-content.has-layout .layout-section {
+    flex: 8 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+  }
+  .page-content.has-layout .layout-grid { flex: 1 1 auto; min-height: 0; }
+  /* O TETO POR IMAGEM (--layout-max-h) NAO e removido aqui, e a diferenca foi
+     medida: sem ele, DUAS artes crescem cada uma ate a altura do bloco e a folha
+     estoura — o recorte do marketing com 2 artes voltava a paginar, que e
+     exatamente o caso que o caminho fundido existe para resolver. A secao cresce
+     para recolher a sobra; a imagem, nao. */
   .layout-grid { display: flex; flex-direction: column; gap: 4mm; align-items: center; }
   .layout-image { max-width: 100%; max-height: var(--layout-max-h); object-fit: contain; }
 
@@ -703,7 +728,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
 ${part === 'content' || part === 'fused' ? `
 <div class="page" id="page-1">
   ${headerBlock}
-  <div class="page-content" id="page-1-content">
+  <div class="page-content${layoutInContent ? ' has-layout' : ''}" id="page-1-content">
     <h1 class="document-title">ORÇAMENTO</h1>
 
     <div class="customer-section">

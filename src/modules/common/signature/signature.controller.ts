@@ -163,6 +163,43 @@ export class SignatureController {
     };
   }
 
+  /**
+   * Emite o aditivo de identificação do veículo AGORA, sem esperar a varredura.
+   *
+   * O caminho normal é automático, na finalização do serviço
+   * (`SignatureAddendumScheduler`). Esta rota existe para quem precisa da folha
+   * na mão no momento — tipicamente ao montar o dossiê de entrega — e é
+   * idempotente: chamar de novo não emite um segundo aditivo.
+   */
+  @Post('quote/:quoteId/aditivo')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async issueAddendum(
+    @Param('quoteId', ParseUUIDPipe) quoteId: string,
+    @UserId() userId: string,
+  ) {
+    const data = await this.envelopes.issueVehicleAddendum(quoteId, userId);
+    return {
+      success: true,
+      message: data
+        ? `Aditivo de identificação emitido${data.padesLevel ? ` (selo ${data.padesLevel})` : ''}.`
+        : 'Não há aditivo a emitir: ou o orçamento não tem coleta assinada, ou o documento já ' +
+          'saiu com a identificação do veículo, ou ela ainda não foi cadastrada, ou o aditivo já existe.',
+      data,
+    };
+  }
+
+  /** O aditivo selado. Rota interna: o artefato reúne dados do cliente. */
+  @Get(':id/aditivo.pdf')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async addendum(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
+    const { pdf, filename } = await this.envelopes.readAddendum(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', contentDisposition('inline', filename));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(pdf);
+  }
+
   @Get('quote/:quoteId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async listForQuote(@Param('quoteId', ParseUUIDPipe) quoteId: string) {

@@ -103,7 +103,7 @@ import { SignatureEnvelopeService } from '../services/signature-envelope.service
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 
-export type DossierComponentKind = 'ORCAMENTO' | 'FOTOS' | 'NFSE' | 'BOLETO';
+export type DossierComponentKind = 'ORCAMENTO' | 'ADITIVO' | 'FOTOS' | 'NFSE' | 'BOLETO';
 
 export interface DossierComponent {
   kind: DossierComponentKind;
@@ -232,6 +232,10 @@ export class DossierAssemblerService {
         padesLevel: true,
         finalFile: { select: { path: true, filename: true } },
         originalFile: { select: { path: true } },
+        // O ADITIVO de identificação do veículo, quando já emitido.
+        addendumSha256: true,
+        addendumSealedAt: true,
+        addendumFile: { select: { path: true } },
         // Os RECORTES selados — um anexo cada. Ver a decisão 1 no cabeçalho.
         documents: {
           where: { finalFileId: { not: null } },
@@ -361,6 +365,32 @@ export class DossierAssemblerService {
       }
     }
 
+    // ---- 4b. Aditivo de identificação do veículo ----
+    //
+    // Entra como PÁGINA, não como anexo, e a diferença importa: o orçamento
+    // assinado de um implemento 0 km diz "a registrar" onde deveria estar o
+    // chassi, e quem abrir o dossiê precisa encontrar a resposta LENDO, não
+    // extraindo um anexo. Ele também vai anexo, logo abaixo, porque é o anexo que
+    // carrega o selo — a cópia legível aqui perde o A1 como qualquer outra.
+    if (envelope?.addendumFile?.path) {
+      const component: DossierComponent = {
+        kind: 'ADITIVO',
+        label: `Aditivo de identificação do veículo — orçamento nº ${quote.budgetNumber}`,
+        sha256: envelope.addendumSha256,
+        pages: 0,
+        included: false,
+      };
+      components.push(component);
+      try {
+        const bytes = this.readSignedDocument(envelope.addendumFile.path, envelope.addendumSha256);
+        component.included = true;
+        bodies.push({ bytes, component });
+      } catch (error) {
+        component.note = `PDF indisponível (${msg(error)})`;
+        this.logger.warn(`Aditivo do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`);
+      }
+    }
+
     // ---- 5. Montagem ----
     const container = await PDFDocument.create();
     container.setTitle(`Dossiê do Orçamento nº ${quote.budgetNumber}`);
@@ -386,6 +416,32 @@ export class DossierAssemblerService {
     // a prova de quem assinou um recorte.
     const attachedNames: string[] = [];
     if (attachSigned && assinado) {
+      // O aditivo primeiro: ele é o menor e o mais recente, e quem procura o
+      // chassi numa lista de anexos o encontra antes de abrir o contrato inteiro.
+      if (envelope?.addendumFile?.path) {
+        try {
+          const bytes = this.readSignedDocument(
+            envelope.addendumFile.path,
+            envelope.addendumSha256,
+          );
+          const name = `orcamento-${quote.budgetNumber}-aditivo-identificacao.pdf`;
+          await container.attach(new Uint8Array(bytes), name, {
+            mimeType: 'application/pdf',
+            description:
+              `Aditivo de identificação do veículo do orçamento nº ${quote.budgetNumber} — ` +
+              `envelope ${envelope.verificationCode}. Declara a placa e o chassi que só ` +
+              'existiram depois da assinatura; selado com o mesmo certificado ICP-Brasil.',
+            creationDate: envelope.addendumSealedAt ?? undefined,
+            modificationDate: envelope.addendumSealedAt ?? undefined,
+          });
+          attachedNames.push(name);
+        } catch (error) {
+          this.logger.error(
+            `Aditivo fora dos anexos do dossiê do orçamento ${quote.budgetNumber}: ${msg(error)}`,
+          );
+        }
+      }
+
       for (const artifact of signedArtifacts) {
         let bytes: Buffer;
         try {

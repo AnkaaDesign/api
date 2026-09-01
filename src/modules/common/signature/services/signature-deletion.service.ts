@@ -190,8 +190,17 @@ export class SignatureDeletionService {
         verificationCode: true,
         originalFileId: true,
         finalFileId: true,
+        // O DOSSIÊ e o ADITIVO também são arquivos deste envelope. Ficavam de
+        // fora: a linha `File` sobrevivia ao envelope apagado (as duas FKs são
+        // SET NULL, então nem barram o delete) e o PDF ficava no disco sem dono,
+        // sem nada que o alcançasse depois. O dossiê já vazava antes do aditivo
+        // existir — é a mesma omissão, encontrada ao acrescentar o segundo.
+        dossierFileId: true,
+        addendumFileId: true,
         originalFile: { select: { id: true, path: true } },
         finalFile: { select: { id: true, path: true } },
+        dossierFile: { select: { id: true, path: true } },
+        addendumFile: { select: { id: true, path: true } },
         // Os RECORTES congelados. Cada um tem `File` próprio, com a mesma FK
         // RESTRICT do envelope — sem apagá-los aqui, a purga de uma coleta
         // diversificada quebraria no `file.deleteMany` com violação de chave
@@ -243,6 +252,8 @@ export class SignatureDeletionService {
         [
           ...envelopes.map(e => e.originalFileId),
           ...envelopes.map(e => e.finalFileId),
+          ...envelopes.map(e => e.dossierFileId),
+          ...envelopes.map(e => e.addendumFileId),
           ...envelopes.flatMap(e => e.documents.map(d => d.originalFileId)),
           ...envelopes.flatMap(e => e.documents.map(d => d.finalFileId)),
         ].filter((id): id is string => Boolean(id)),
@@ -260,6 +271,8 @@ export class SignatureDeletionService {
           .flatMap(e => [
             e.originalFile?.path,
             e.finalFile?.path,
+            e.dossierFile?.path,
+            e.addendumFile?.path,
             ...e.documents.flatMap(d => [d.originalFile?.path, d.finalFile?.path]),
           ])
           .filter((p): p is string => Boolean(p)),

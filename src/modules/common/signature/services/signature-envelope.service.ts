@@ -208,6 +208,13 @@ function driftDetailOf(eventType: string, payload: unknown): string | null {
   return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
 }
 
+/** Como cada lacuna de cadastro tardio é chamada para o operador. */
+const LATE_SLOT_LABELS: Record<string, string> = {
+  serialNumber: 'número de série',
+  plate: 'placa',
+  chassis: 'chassi',
+};
+
 /** Resultado de um envio da cerimônia, com o motivo quando não saiu. */
 export interface SignatureDeliveryResult {
   ok: boolean;
@@ -1154,6 +1161,48 @@ export class SignatureEnvelopeService {
       s => s.orderGroup === 0 && s.authMethod !== SignatureAuthMethod.INTERNAL_SESSION,
     );
     return channelForAuthMethod(customer?.authMethod);
+  }
+
+  /**
+   * As lacunas de cadastro tardio que AINDA estão vazias.
+   *
+   * POR QUE ISTO EXISTE
+   *   O selo PAdES é disparado pela contra-assinatura da Ankaa, no mesmo
+   *   segundo. A partir dali os bytes são imutáveis: uma lacuna que ainda diga
+   *   "a registrar" vai dizer isso para sempre, e o dado que chegar depois
+   *   existirá só na trilha. Medido no orçamento nº 81ZR-79SY-6EN5: o chassi foi
+   *   cadastrado 14 MINUTOS depois do selo, pela mesma pessoa, na mesma sessão —
+   *   e ficou fora do documento assinado por catorze minutos.
+   *
+   *   O sistema sabia disso no instante do clique e não dizia nada. Esta função
+   *   é o que permite dizer.
+   *
+   * Lê as lacunas dos RECORTES (todos têm as mesmas desde que a identificação do
+   * veículo virou obrigatória) e as confronta com o cadastro de agora.
+   */
+  private pendingLateSlots(env: {
+    lateSlots?: unknown;
+    documents?: Array<{ lateSlots?: unknown }>;
+    quote: { task?: { serialNumber?: string | null; truck?: { plate?: string | null; chassisNumber?: string | null } | null } | null };
+  }): Array<{ key: string; label: string }> {
+    const reserved = new Set<string>();
+    const collect = (raw: unknown) => {
+      if (raw && typeof raw === 'object') for (const key of Object.keys(raw)) reserved.add(key);
+    };
+    collect(env.lateSlots);
+    for (const doc of env.documents ?? []) collect(doc.lateSlots);
+
+    const registry: Record<string, string | null | undefined> = {
+      serialNumber: env.quote.task?.serialNumber,
+      plate: env.quote.task?.truck?.plate,
+      chassis: env.quote.task?.truck?.chassisNumber,
+    };
+
+    return [...reserved]
+      .filter(key => !(registry[key] ?? '').trim())
+      .map(key => ({ key, label: LATE_SLOT_LABELS[key] ?? key }))
+      // Ordem estável para a mensagem e para a tela.
+      .sort((a, b) => a.key.localeCompare(b.key));
   }
 
   /**
@@ -2551,8 +2600,16 @@ export class SignatureEnvelopeService {
       where: { id: args.envelopeId },
       include: {
         signers: { include: { document: true } },
-        documents: { select: { id: true, variantKey: true, sections: true, originalSha256: true } },
-        quote: { include: { task: { include: { customer: true } } } },
+        documents: {
+          select: {
+            id: true,
+            variantKey: true,
+            sections: true,
+            originalSha256: true,
+            lateSlots: true,
+          },
+        },
+        quote: { include: { task: { include: { customer: true, truck: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
@@ -2596,6 +2653,22 @@ export class SignatureEnvelopeService {
     // o grupo 1 só libera quando todo o grupo 0 assinou. É ela que dá sentido ao
     // aviso "todos já assinaram e aguardam você".
     await this.assertSignable(env, ankaa);
+
+    // O QUE FICA DE FORA DO SELO — registrado, NUNCA bloqueado.
+    //
+    // Houve uma versão disto que recusava a contra-assinatura enquanto o chassi
+    // estivesse vazio, na ideia de que este clique é a última janela antes do
+    // selo. A ideia estava certa sobre a mecânica e errada sobre a OFICINA: a
+    // assinatura do orçamento É a aprovação, o caminhão só vem para a empresa
+    // depois de aprovado, e o chassi só se lê com o caminhão no pátio. Pedir o
+    // chassi antes de assinar é pedir um dado que ainda não pode existir — o
+    // aviso apareceria em toda coleta de implemento 0 km e seria clicado sempre,
+    // que é como se ensina um operador a ignorar avisos.
+    //
+    // Então a lacuna vazia é o estado NORMAL, e o que se faz com ela é registrar:
+    // a trilha guarda quais campos o selo congelou em branco, e é dela que sai
+    // a prova de que a ausência é da natureza do negócio, não de um descuido.
+    const pending = this.pendingLateSlots(env);
 
     // GARANTIA DE FRESCOR, idêntica à do caminho do cliente e pelo mesmo motivo:
     // a pergunta é feita no único instante em que a resposta é juridicamente
@@ -2748,6 +2821,11 @@ export class SignatureEnvelopeService {
         cargo,
         ceremony: 'internal_session',
         countersigned: env.documents.map(d => d.variantKey),
+        // O QUE O SELO CONGELOU EM BRANCO. Um documento que diz "a registrar"
+        // para sempre precisa carregar, na própria trilha, quais campos eram
+        // esses e desde quando — é o que liga o documento assinado ao dado que
+        // chega depois, quando o caminhão entra no pátio.
+        ...(pending.length ? { lateSlotsPending: pending.map(p => p.key) } : {}),
       },
     });
 
@@ -4324,6 +4402,244 @@ export class SignatureEnvelopeService {
   }
 
   // ===========================================================================
+  // ADITIVO DE IDENTIFICAÇÃO DO VEÍCULO
+  // ===========================================================================
+
+  /**
+   * Emite e sela o aditivo de identificação do veículo de um orçamento.
+   *
+   * QUANDO: na FINALIZAÇÃO DO SERVIÇO. Não quando o chassi é cadastrado —
+   * naquele momento a placa pode ainda não ter chegado, e sairiam dois aditivos
+   * contando metade da história cada. Na entrega tudo o que ia chegar já chegou,
+   * e o cliente recebe a folha junto com o resto.
+   *
+   * IDEMPOTENTE: um aditivo por envelope. Reexecutar não emite outro — o
+   * artefato é selado e reemiti-lo criaria dois documentos com o mesmo assunto e
+   * hashes diferentes, que é o problema que o aditivo existe para não criar.
+   *
+   * Devolve `null` (sem erro) quando não há o que aditar. Os quatro casos:
+   * orçamento sem coleta selada, coleta sem lacuna reservada (o documento já
+   * nasceu com a identificação impressa), nenhuma lacuna preenchida até agora, e
+   * aditivo já emitido. Nenhum deles é falha — são a maioria dos orçamentos.
+   */
+  async issueVehicleAddendum(
+    quoteId: string,
+    actorUserId: string | null = null,
+  ): Promise<{ envelopeId: string; fileId: string; padesLevel: string | null } | null> {
+    const envelope = await this.prisma.signatureEnvelope.findFirst({
+      // A chave é `finalFileId`, não o status: é o artefato SELADO que o aditivo
+      // referencia, e ele sobrevive ao envelope virar SUPERSEDED numa reemissão.
+      where: { quoteId, finalFileId: { not: null } },
+      orderBy: { version: 'desc' },
+      include: {
+        documents: { select: { lateSlots: true } },
+        signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
+        quote: { include: { task: { include: { customer: true, truck: true } } } },
+      },
+    });
+    if (!envelope) return null;
+    if (envelope.addendumFileId) return null;
+
+    const reserved = new Set<string>();
+    const collect = (raw: unknown) => {
+      if (raw && typeof raw === 'object') for (const key of Object.keys(raw)) reserved.add(key);
+    };
+    collect(envelope.lateSlots);
+    for (const doc of envelope.documents) collect(doc.lateSlots);
+    if (reserved.size === 0) return null;
+
+    const registry: Record<string, string | null | undefined> = {
+      serialNumber: envelope.quote.task?.serialNumber,
+      plate: envelope.quote.task?.truck?.plate,
+      chassis: envelope.quote.task?.truck?.chassisNumber,
+    };
+
+    // Só vale a pena aditar o que de fato chegou. Uma folha selada dizendo
+    // "chassi: não registrado" não acrescenta nada a um documento que já diz
+    // "a registrar" — seria cerimônia sobre uma ausência.
+    const filled = [...reserved].filter(key => (registry[key] ?? '').trim());
+    if (filled.length === 0) return null;
+
+    const registeredAt = await this.lateSlotRegistrationDates(
+      envelope.quote.task?.id ?? null,
+      envelope.quote.task?.truck?.id ?? null,
+    );
+
+    const customer = envelope.quote.task?.customer ?? null;
+    const addendumPdf = await this.assembler.buildVehicleAddendum({
+      budgetNumber: envelope.quote.budgetNumber,
+      verificationCode: envelope.verificationCode,
+      verificationUrl: this.verificationUrl(envelope.verificationCode),
+      signedSha256: envelope.finalSha256,
+      sealedAt: envelope.sealedAt,
+      customerLabel: customer?.corporateName ?? customer?.fantasyName ?? null,
+      signers: envelope.signers
+        .filter(sig => sig.signedAt)
+        .map(sig => ({
+          name: sig.declaredName,
+          cargo: sig.informedCargo,
+          signedAt: sig.signedAt,
+        })),
+      fields: [...reserved]
+        .sort()
+        .map(key => ({
+          label: LATE_SLOT_LABELS[key] ?? key,
+          value: (registry[key] ?? '').trim() || null,
+          registeredAt: registeredAt[key] ?? null,
+        })),
+    });
+
+    // ---- Selo PAdES ----
+    //
+    // É ele que faz do aditivo um documento, e não uma folha impressa. Falha na
+    // selagem NÃO grava nada: sem selo o aditivo não atesta coisa alguma, e um
+    // arquivo persistido sem selo bloquearia a reemissão pelo guard de
+    // idempotência acima. Melhor não existir e ser tentado de novo.
+    let sealed = addendumPdf;
+    let padesLevel: string | null = null;
+    if (this.pades.isEnabled()) {
+      try {
+        const result = await this.pades.sealPdf(addendumPdf, {
+          reason:
+            `Aditivo de identificação do veículo — orçamento nº ${envelope.quote.budgetNumber} ` +
+            `— envelope ${envelope.verificationCode}`,
+          location: COMPANY.signatureLocation,
+          signerName: this.pades.getCertMetadata()?.subjectCommonName ?? COMPANY.corporateName,
+          contactInfo: COMPANY.email,
+        });
+        sealed = result.signedPdf;
+        padesLevel = result.level;
+      } catch (error) {
+        this.logger.error(
+          `Falha ao selar o aditivo do envelope ${envelope.id}: ${
+            error instanceof Error ? error.message : error
+          }. Nada foi gravado; será tentado de novo.`,
+        );
+        return null;
+      }
+    }
+
+    const sha256 = sha256Hex(sealed);
+    const fileId = await this.persistPdf(
+      envelope.quote as never,
+      sealed,
+      'aditivo',
+      envelope.verificationCode,
+    );
+
+    await this.prisma.signatureEnvelope.update({
+      where: { id: envelope.id },
+      data: {
+        addendumFileId: fileId,
+        addendumSha256: sha256,
+        addendumSealedAt: padesLevel ? new Date() : null,
+        addendumPadesLevel: padesLevel,
+      },
+    });
+
+    await this.audit.recordBestEffort(envelope.id, {
+      eventType: 'ADDENDUM_ISSUED',
+      actorType: actorUserId ? 'OPERATOR' : 'SYSTEM',
+      actorId: actorUserId,
+      documentHash: sha256,
+      payload: {
+        padesLevel: padesLevel ?? 'none',
+        fields: filled,
+        signedSha256: envelope.finalSha256 ?? '',
+      },
+    });
+
+    this.logger.log(
+      `Aditivo de identificação emitido para o orçamento nº ${envelope.quote.budgetNumber} ` +
+        `(${filled.join(', ')})${padesLevel ? ` — selo ${padesLevel}` : ' — SEM selo'}.`,
+    );
+
+    return { envelopeId: envelope.id, fileId, padesLevel };
+  }
+
+  /** Os bytes selados do aditivo. */
+  async readAddendum(envelopeId: string): Promise<{ pdf: Buffer; filename: string }> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: {
+        addendumFile: { select: { path: true } },
+        quote: {
+          select: {
+            budgetNumber: true,
+            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+          },
+        },
+      },
+    });
+    if (!env?.addendumFile) {
+      throw new NotFoundException('Este orçamento ainda não tem aditivo de identificação.');
+    }
+    const { readFileSync, existsSync } = await import('fs');
+    if (!existsSync(env.addendumFile.path)) {
+      throw new NotFoundException('O aditivo não está mais disponível em disco.');
+    }
+    return {
+      pdf: readFileSync(env.addendumFile.path),
+      filename: budgetPdfFilename(
+        env.quote.task?.customer,
+        env.quote.budgetNumber,
+        '-aditivo',
+      ),
+    };
+  }
+
+  /**
+   * Quando cada campo de identificação foi de fato registrado.
+   *
+   * Sai do CHANGELOG, e não do `updatedAt` do veículo: `updatedAt` se move a cada
+   * toque na linha (uma troca de vaga no pátio, uma medida de implemento) e
+   * dataria o chassi pelo último desses toques. O aditivo declara uma data ao
+   * lado de um valor — ela precisa ser a data daquele valor.
+   *
+   * Best-effort: sem a linha do changelog o aditivo sai sem a data, o que é
+   * menos do que se quer e continua sendo verdade.
+   */
+  private async lateSlotRegistrationDates(
+    taskId: string | null,
+    truckId: string | null,
+  ): Promise<Record<string, Date | null>> {
+    const out: Record<string, Date | null> = {};
+    const fieldOf: Record<string, string> = {
+      plate: 'plate',
+      chassis: 'chassisNumber',
+      serialNumber: 'serialNumber',
+    };
+    try {
+      const rows = await this.prisma.changeLog.findMany({
+        where: {
+          OR: [
+            ...(truckId ? [{ entityId: truckId, field: { in: ['plate', 'chassisNumber'] } }] : []),
+            ...(taskId ? [{ entityId: taskId, field: 'serialNumber' }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { field: true, createdAt: true, newValue: true },
+      });
+      for (const [key, field] of Object.entries(fieldOf)) {
+        // A ÚLTIMA escrita com valor não-vazio: um campo corrigido depois de
+        // preenchido tem a data da correção, que é a data do valor que o aditivo
+        // declara.
+        const row = rows.find(
+          r => r.field === field && !!String(r.newValue ?? '').replace(/["\s]/g, ''),
+        );
+        out[key] = row?.createdAt ?? null;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível datar o cadastro tardio: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+    return out;
+  }
+
+  // ===========================================================================
   // VERIFICAÇÃO PÚBLICA
   // ===========================================================================
 
@@ -4404,6 +4720,21 @@ export class SignatureEnvelopeService {
       sealedAt: env.sealedAt,
       padesLevel: env.padesLevel,
       certSerialNumber: env.certSerialNumber,
+      /**
+       * O aditivo de identificação, quando existe.
+       *
+       * Entra no portal porque ele É parte do instrumento: quem confere o
+       * orçamento assinado de um implemento 0 km encontra "a registrar" no lugar
+       * do chassi, e precisa saber que existe uma folha selada declarando qual é
+       * — com hash próprio, conferível aqui.
+       */
+      addendum: env.addendumFileId
+        ? {
+            sha256: env.addendumSha256,
+            sealedAt: env.addendumSealedAt,
+            padesLevel: env.addendumPadesLevel,
+          }
+        : null,
       auditChain: { valid: chain.valid, events: chain.eventCount, reason: chain.reason },
       // CPF sempre MASCARADO aqui: esta página é pública e o orçamento contém preço.
       signers: env.signers.map(s => ({
@@ -4723,6 +5054,20 @@ export class SignatureEnvelopeService {
 
   /** Envelopes de um orçamento, do mais recente para o mais antigo. */
   async listForQuote(quoteId: string) {
+    // O cadastro do veículo AGORA — é contra ele que as lacunas reservadas são
+    // conferidas, para o painel poder avisar antes da contra-assinatura.
+    const vehicle = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: {
+        task: {
+          select: {
+            serialNumber: true,
+            truck: { select: { plate: true, chassisNumber: true } },
+          },
+        },
+      },
+    });
+
     const envelopes = await this.prisma.signatureEnvelope.findMany({
       where: { quoteId },
       orderBy: { version: 'desc' },
@@ -4739,6 +5084,9 @@ export class SignatureEnvelopeService {
             padesLevel: true,
             sealedAt: true,
             contentPages: true,
+            // Para o painel avisar, ANTES do clique, que a contra-assinatura vai
+            // congelar uma lacuna vazia. Ver `pendingLateSlots`.
+            lateSlots: true,
           },
         },
         signers: {
@@ -4797,6 +5145,43 @@ export class SignatureEnvelopeService {
       finalSha256: env.finalSha256,
       padesLevel: env.padesLevel,
       sealedAt: env.sealedAt,
+      /**
+       * O ADITIVO de identificação do veículo, quando já emitido.
+       *
+       * Documento à parte, selado com o mesmo certificado, que declara o chassi e
+       * a placa que só existiram depois da assinatura. Ver `issueVehicleAddendum`.
+       */
+      addendum: env.addendumFileId
+        ? {
+            sha256: env.addendumSha256,
+            sealedAt: env.addendumSealedAt,
+            padesLevel: env.addendumPadesLevel,
+          }
+        : null,
+      /**
+       * Lacunas de cadastro tardio ainda VAZIAS.
+       *
+       * Sai em DOIS estados, e a tela diz coisas diferentes em cada um:
+       *
+       *  · RUNNING — a contra-assinatura dispara o selo no mesmo segundo, e o
+       *    que estiver vazio vai dizer "a registrar" no documento para sempre;
+       *  · COMPLETED — a janela fechou, e o que falta sairá no ADITIVO quando o
+       *    serviço for finalizado. Sem isto o painel ficava mudo entre o selo e
+       *    a entrega, e o operador não tinha como saber que o sistema ainda ia
+       *    resolver aquilo sozinho.
+       *
+       * Nos demais estados (cancelada, invalidada, substituída) não há artefato
+       * a completar e a lista não significa nada.
+       */
+      pendingLateSlots:
+        // `vehicle` só é nulo se o orçamento sumiu entre as duas consultas — o
+        // que não deveria acontecer e, se acontecer, não pode derrubar a
+        // listagem do painel com um TypeError. Sem cadastro para conferir, não
+        // há pendência a afirmar.
+        vehicle &&
+        (env.status === EnvelopeStatus.RUNNING || env.status === EnvelopeStatus.COMPLETED)
+          ? this.pendingLateSlots({ ...env, quote: vehicle as never })
+          : [],
       /**
        * Os RECORTES congelados nesta coleta — um PDF cada.
        *
@@ -5043,7 +5428,7 @@ export class SignatureEnvelopeService {
      * (`original-sem-layout`, `assinado-layout`): a coleta congela um PDF por
      * recorte, e nomes iguais os fariam disputar o mesmo caminho.
      */
-    kind: `original${string}` | `assinado${string}` | 'dossie',
+    kind: `original${string}` | `assinado${string}` | 'dossie' | 'aditivo',
     verificationCode: string,
   ): Promise<string> {
     // O caminho vem do FilesStorageService, não de um sanitizador local.
@@ -5064,7 +5449,9 @@ export class SignatureEnvelopeService {
     const baseName =
       kind === 'dossie'
         ? `dossie_${quote.budgetNumber}_${verificationCode}.pdf`
-        : `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
+        : kind === 'aditivo'
+          ? `aditivo_${quote.budgetNumber}_${verificationCode}.pdf`
+          : `orcamento_${quote.budgetNumber}_${verificationCode}_${kind}.pdf`;
 
     const path = this.filesStorage.generateFilePath(
       baseName,
@@ -5085,7 +5472,9 @@ export class SignatureEnvelopeService {
         originalName:
           kind === 'dossie'
             ? `Dossiê ${quote.budgetNumber}.pdf`
-            : `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
+            : kind === 'aditivo'
+              ? `Aditivo ${quote.budgetNumber}.pdf`
+              : `Orçamento ${quote.budgetNumber} — ${kind}.pdf`,
         mimetype: 'application/pdf',
         path,
         size: pdf.length,

@@ -33,6 +33,8 @@ import {
 } from 'pdf-lib';
 // Alias obrigatorio: pdf-lib tambem exporta `PDFDocument`.
 import PDFKitDocument from 'pdfkit';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { LateSlotAnchor, LateSlotAnchorMap, SignatureAnchorMap } from './quote-renderer.service';
 import { PAGE_MARGINS_MM, PX_TO_PT, mmToPt } from './quote-html.builder';
@@ -777,6 +779,192 @@ export class QuoteAssemblerService {
     }
 
     return Buffer.from(await out.save({ useObjectStreams: false }));
+  }
+
+  /**
+   * ADITIVO DE IDENTIFICAÇÃO DO VEÍCULO — uma folha, selada à parte.
+   *
+   * POR QUE ELE EXISTE, E POR QUE NÃO É UM REMENDO NO DOCUMENTO ASSINADO
+   *   O orçamento de um implemento 0 km é assinado — e selado — semanas antes de
+   *   o veículo existir. A ordem é do negócio, não do software: a assinatura É a
+   *   aprovação, o caminhão só vem para a empresa depois de aprovado, e o chassi
+   *   só se lê com ele no pátio. O documento reserva o espaço com "a registrar" e
+   *   o selo PAdES congela os bytes ali.
+   *
+   *   Consertar por dentro é impossível: um byte alterado quebra o A1. Então o
+   *   aditivo resolve por ACRÉSCIMO — cita o hash do documento assinado, nomeia
+   *   quem o assinou e quando, e declara o que faltava com a data em que chegou.
+   *   O assinado continua intocado; passa a viajar acompanhado.
+   *
+   * SEM SELO VISUAL DE ASSINATURA e sem trilha: isto não é assinado por ninguém.
+   * É uma declaração da CONTRATADA, e o que a atesta é o selo PAdES aplicado
+   * depois, pelo mesmo certificado do documento a que ela se refere.
+   */
+  async buildVehicleAddendum(input: {
+    budgetNumber: number;
+    verificationCode: string;
+    verificationUrl: string;
+    /** SHA-256 do artefato SELADO a que este aditivo se refere. */
+    signedSha256: string | null;
+    sealedAt: Date | null;
+    customerLabel: string | null;
+    /** Quem assinou o orçamento, para o aditivo nomear as partes. */
+    signers: Array<{ name: string; cargo: string | null; signedAt: Date | null }>;
+    /** Os campos que estavam reservados, com o valor de hoje e quando chegou. */
+    fields: Array<{ label: string; value: string | null; registeredAt: Date | null }>;
+  }): Promise<Buffer> {
+    const doc = new PDFKitDocument({
+      size: 'A4',
+      margins: { top: 40, bottom: 40, left: 50, right: 50 },
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const done = new Promise<Buffer>(resolve =>
+      doc.on('end', () => resolve(Buffer.concat(chunks))),
+    );
+
+    const green = BRAND_COLORS.primaryGreen;
+    const gray = BRAND_COLORS.textGray;
+    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+    // ---- Cabeçalho da empresa ----
+    //
+    // O aditivo VIAJA SOZINHO: ele é anexado ao dossiê com nome próprio e o
+    // cliente pode abri-lo sem o orçamento ao lado. As páginas de trilha podem
+    // ser sóbrias porque estão encadernadas DENTRO do documento assinado, que já
+    // tem cabeçalho; esta folha não tem essa moldura, e sem logo nem rodapé
+    // chegaria ao cliente parecendo um rascunho.
+    const logoPath = resolve(process.cwd(), 'assets', 'logo.png');
+    const headerTop = doc.y;
+    if (existsSync(logoPath)) {
+      try {
+        doc.image(logoPath, doc.page.margins.left, headerTop, { fit: [110, 34] });
+      } catch {
+        // Logo ilegível não pode derrubar a emissão do aditivo.
+      }
+    }
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(green);
+    doc.text(winAnsi(COMPANY.name), doc.page.margins.left, headerTop + 6, {
+      width,
+      align: 'right',
+    });
+    doc.y = headerTop + 40;
+    doc
+      .moveTo(doc.page.margins.left, doc.y)
+      .lineTo(doc.page.width - doc.page.margins.right, doc.y)
+      .lineWidth(2)
+      .strokeColor(green)
+      .stroke();
+    doc.y += 14;
+
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(green);
+    doc.text(winAnsi('Aditivo de Identificação do Veículo'), doc.page.margins.left, doc.y, {
+      width,
+    });
+    doc.moveDown(0.2);
+    doc.font('Helvetica').fontSize(8).fillColor(gray);
+    doc.text(winAnsi('Datas e horários em GMT-03:00 (Brasília).'));
+    doc.moveDown(0.9);
+
+    // ---- A que documento isto se refere ----
+    doc.font('Helvetica').fontSize(9.5).fillColor('#1a1a1a');
+    doc.text(
+      winAnsi(
+        `Este aditivo integra o orçamento nº ${input.budgetNumber}` +
+          `${input.customerLabel ? `, emitido para ${input.customerLabel}` : ''}, assinado ` +
+          `eletronicamente${input.sealedAt ? ` e selado em ${formatDateTimeBR(input.sealedAt)}` : ''}.`,
+      ),
+      { align: 'justify' },
+    );
+    doc.moveDown(0.5);
+    doc.font('Helvetica').fontSize(8).fillColor(gray);
+    doc.text(winAnsi(`Código de verificação: ${input.verificationCode}`));
+    if (input.signedSha256) {
+      doc.text(winAnsi(`Hash SHA-256 do documento assinado: ${input.signedSha256}`));
+    }
+    doc.moveDown(1);
+
+    // ---- Quem assinou ----
+    if (input.signers.length) {
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(green).text(winAnsi('Signatários do orçamento'));
+      doc.moveDown(0.35);
+      for (const s of input.signers) {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#1a1a1a');
+        doc.text(winAnsi(s.name));
+        const meta: string[] = [];
+        if (s.cargo) meta.push(s.cargo);
+        if (s.signedAt) meta.push(`assinou em ${formatDateTimeBR(s.signedAt)}`);
+        if (meta.length) {
+          doc.font('Helvetica').fontSize(8).fillColor(gray);
+          doc.text(winAnsi(meta.join('  |  ')), { indent: 10 });
+        }
+      }
+      doc.moveDown(1);
+    }
+
+    // ---- O que faltava, e o que chegou ----
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(green).text(winAnsi('Identificação registrada'));
+    doc.moveDown(0.2);
+    doc.font('Helvetica').fontSize(8.5).fillColor(gray);
+    doc.text(
+      winAnsi(
+        'No momento da assinatura os campos abaixo ainda não existiam, e o documento ' +
+          'reservou o espaço deles com a marcação "a registrar". Eles foram registrados nas ' +
+          'datas indicadas e ficam declarados aqui.',
+      ),
+      { align: 'justify' },
+    );
+    doc.moveDown(0.6);
+
+    for (const field of input.fields) {
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#1a1a1a');
+      doc.text(winAnsi(`${field.label}: ${field.value ?? 'não registrado'}`));
+      doc.font('Helvetica').fontSize(8).fillColor(gray);
+      doc.text(
+        winAnsi(
+          field.registeredAt
+            ? `registrado em ${formatDateTimeBR(field.registeredAt)}`
+            : 'ainda não registrado no cadastro',
+        ),
+        { indent: 10 },
+      );
+      doc.moveDown(0.35);
+    }
+
+    doc.moveDown(0.8);
+    doc.font('Helvetica').fontSize(8).fillColor(gray);
+    doc.text(
+      winAnsi(
+        'Este aditivo NÃO altera o orçamento assinado, que permanece íntegro e verificável ' +
+          'pelo código acima. Ele acrescenta a identificação do veículo a que aquele documento ' +
+          'se refere, obtida após a assinatura por ser esse o momento em que o veículo passou a ' +
+          'existir. A autenticidade desta folha é atestada pelo selo ICP-Brasil aplicado a ela.',
+      ),
+      { align: 'justify' },
+    );
+    doc.moveDown(0.6);
+    doc.fontSize(7.5).text(winAnsi(input.verificationUrl));
+
+    // ---- Rodapé ----
+    // Espelha o do orçamento (régua verde + razão social + contato), para que as
+    // duas folhas se leiam como o mesmo documento. Ancorado ao PÉ da página, não
+    // ao fluxo: o aditivo é curto e o rodapé flutuaria no meio da folha.
+    const footerY = doc.page.height - doc.page.margins.bottom - 34;
+    doc
+      .moveTo(doc.page.margins.left, footerY)
+      .lineTo(doc.page.width - doc.page.margins.right, footerY)
+      .lineWidth(2)
+      .strokeColor(green)
+      .stroke();
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(green);
+    doc.text(winAnsi(COMPANY.name), doc.page.margins.left, footerY + 6, { width });
+    doc.font('Helvetica').fontSize(7.5).fillColor(gray);
+    doc.text(winAnsi(`${COMPANY.address} · ${COMPANY.phone} · ${COMPANY.websiteUrl}`), {
+      width,
+    });
+
+    doc.end();
+    return done;
   }
 
   async mergeWithAudit(stamped: Buffer, auditPages: Buffer): Promise<Buffer> {

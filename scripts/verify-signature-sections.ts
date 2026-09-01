@@ -602,7 +602,239 @@ async function verifySalutation(): Promise<void> {
 }
 
 // ===========================================================================
-// 6. Junção dos recortes num arquivo só (a visão do operador)
+// 6. A última janela do cadastro do veículo
+// ===========================================================================
+//
+// A contra-assinatura da Ankaa dispara o selo PAdES no MESMO SEGUNDO, e a partir
+// dali os bytes são imutáveis: uma lacuna que ainda diga "a registrar" vai dizer
+// isso enquanto o documento existir. Medido no orçamento 81ZR-79SY-6EN5: o
+// chassi foi cadastrado 14 minutos depois do selo, pela mesma pessoa, na mesma
+// sessão — e ficou fora do documento assinado por catorze minutos.
+//
+// Como a Ankaa é SEMPRE o último a assinar, este é o único instante em que ainda
+// dá para consertar, e é o instante em que quem pode consertar está com o dedo
+// no botão. O que se verifica aqui é que o servidor recusa nesse estado, e que a
+// recusa é contornável — implemento 0 km é assinado antes de existir chassi, e
+// esse caso tem de continuar possível.
+
+async function verifyLateSlotGuard(): Promise<void> {
+  const { SignatureEnvelopeService } = await import(
+    '../src/modules/common/signature/services/signature-envelope.service'
+  );
+  const service: any = new (SignatureEnvelopeService as any)(
+    null,
+    { get: (k: string) => `stub-${k}-${'x'.repeat(40)}` },
+    null, null, null, { resolveLayoutImageDataUri: () => null }, null, null, null, null,
+  );
+
+  /** O envelope como o banco o entrega, com a lacuna medida no render. */
+  const envWith = (
+    reserved: string[],
+    registry: { serialNumber?: string | null; plate?: string | null; chassis?: string | null },
+  ) => ({
+    lateSlots: Object.fromEntries(reserved.map(k => [k, { page: 0, x: 1, y: 2 }])),
+    documents: [{ lateSlots: Object.fromEntries(reserved.map(k => [k, { page: 0 }])) }],
+    quote: {
+      task: {
+        serialNumber: registry.serialNumber ?? null,
+        truck: { plate: registry.plate ?? null, chassisNumber: registry.chassis ?? null },
+      },
+    },
+  });
+
+  const pending = (e: unknown) => service.pendingLateSlots(e).map((p: any) => p.key);
+
+  // O caso real: só o chassi virou lacuna (a placa já existia na emissão) e
+  // continuava vazio na hora do selo.
+  equal(
+    'o chassi vazio é apontado como pendente',
+    pending(envWith(['chassis'], { plate: 'UAS9D99' })),
+    ['chassis'],
+  );
+  // O mesmo envelope 14 minutos depois: o dado chegou, não há mais o que avisar.
+  equal(
+    'com o chassi cadastrado não sobra pendência',
+    pending(envWith(['chassis'], { plate: 'UAS9D99', chassis: '9A9FR3393VCDB5301' })),
+    [],
+  );
+  equal(
+    'duas lacunas vazias saem as duas, em ordem estável',
+    pending(envWith(['plate', 'chassis'], {})),
+    ['chassis', 'plate'],
+  );
+  equal(
+    'a lacuna já preenchida some e a outra fica',
+    pending(envWith(['plate', 'chassis'], { plate: 'ABC1D23' })),
+    ['chassis'],
+  );
+  // Sem lacuna reservada não há aviso NENHUM: o documento congelado já trazia o
+  // dado impresso, e não existe retângulo onde carimbar coisa alguma.
+  equal(
+    'sem lacuna reservada não há pendência, mesmo com o cadastro vazio',
+    pending(envWith([], {})),
+    [],
+  );
+  // Espaço em branco no cadastro é ausência, não valor.
+  equal(
+    'espaço em branco não conta como cadastrado',
+    pending(envWith(['chassis'], { chassis: '   ' })),
+    ['chassis'],
+  );
+  equal(
+    'a lacuna do número de série é reconhecida',
+    pending(envWith(['serialNumber'], {})),
+    ['serialNumber'],
+  );
+  // O rótulo é o que aparece na frase do operador.
+  equal(
+    'as lacunas têm rótulo em português',
+    service.pendingLateSlots(envWith(['plate', 'chassis'], {})).map((p: any) => p.label),
+    ['chassi', 'placa'],
+  );
+}
+
+// ===========================================================================
+// 7. Aditivo de identificação do veículo
+// ===========================================================================
+//
+// A identidade do veículo NUNCA cabe no orçamento assinado de um implemento
+// 0 km, e isso é da ordem do negócio: a assinatura É a aprovação, o caminhão só
+// vem para a empresa depois de aprovado, e o chassi só se lê com ele no pátio.
+// O aditivo é a resposta por ACRÉSCIMO — e o que se verifica aqui é que ele
+// carrega tudo que liga uma folha avulsa ao contrato: o hash do assinado, o
+// código de verificação, quem assinou, e o valor com a data em que chegou.
+
+async function verifyAddendum(): Promise<void> {
+  const { PDFDocument } = await import('pdf-lib');
+  const { QuoteAssemblerService } = await import(
+    '../src/modules/common/signature/document/quote-assembler.service'
+  );
+
+  const pdf = await new QuoteAssemblerService().buildVehicleAddendum({
+    budgetNumber: 956,
+    verificationCode: '81ZR-79SY-6EN5',
+    verificationUrl: 'https://ankaa/v/81ZR-79SY-6EN5',
+    signedSha256: '5ff86a0e854f0f8969fc9a38f111551dc16d5ea46b398e571ea7a68ac0e51861',
+    sealedAt: new Date('2026-09-01T17:55:45Z'),
+    customerLabel: 'TRANSPORTES SANTA HELENA LTDA',
+    signers: [
+      {
+        name: 'Grasiele Vicente Pereira',
+        cargo: 'Comercial, Compras',
+        signedAt: new Date('2026-09-01T17:55:18Z'),
+      },
+      { name: 'Sergio Rodrigues', cargo: 'Comercial', signedAt: new Date('2026-09-01T17:55:44Z') },
+    ],
+    fields: [
+      {
+        label: 'chassi',
+        value: '9A9FR3393VCDB5301',
+        registeredAt: new Date('2026-09-24T13:00:00Z'),
+      },
+      { label: 'placa', value: 'UAS9D99', registeredAt: new Date('2026-09-24T13:00:00Z') },
+    ],
+  });
+
+  const doc = await PDFDocument.load(pdf, { updateMetadata: false });
+  equal('o aditivo é uma folha só', doc.getPageCount(), 1);
+  check('o aditivo tem bytes de verdade', pdf.length > 1500);
+
+  // O conteúdo precisa AMARRAR a folha ao contrato. Um aditivo que não cita o
+  // hash e o código do documento assinado é um papel solto que qualquer um
+  // poderia ter escrito sobre qualquer orçamento.
+  const text = await pdfText(pdf);
+  /**
+   * Compara IGNORANDO espaço e acento.
+   *
+   *  · espaço, porque num parágrafo justificado o pdfkit emite cada palavra como
+   *    um token próprio e POSICIONA o espaço em vez de escrevê-lo — "NÃO altera"
+   *    volta da extração como "NÃOaltera";
+   *  · acento, porque a acentuação é conferida à parte (logo abaixo) e não pode
+   *    ser o que quebra a busca por um chassi ou por um hash.
+   */
+  const fold = (v: string) =>
+    v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s/g, '');
+  const flat = fold(text);
+  const contem = (needle: string) => flat.includes(fold(needle));
+
+  // O aditivo VAI AO CLIENTE como anexo do dossiê, ao lado de um orçamento
+  // acentuado. Ele saía sem acento nenhum — herança das páginas de trilha, que
+  // são anexo interno. `winAnsi` preserva Latin-1, então não havia razão técnica.
+  check(
+    'o aditivo sai acentuado, como o orçamento ao lado dele',
+    /[ãáâéêíóôõúç]/i.test(text),
+  );
+  check('cita o número do orçamento', contem('0956') || contem('956'));
+  check('cita o código de verificação', contem('81ZR-79SY-6EN5'));
+  check('cita o hash do documento assinado', contem('5ff86a0e854f0f8969fc9a38f11155'));
+  check('nomeia quem assinou', contem('Grasiele') && contem('Sergio'));
+  check('declara o chassi que chegou depois', contem('9A9FR3393VCDB5301'));
+  check('declara a placa que chegou depois', contem('UAS9D99'));
+  check('data o registro do dado tardio', contem('24/09/2026'));
+  // E precisa dizer, no próprio corpo, que NÃO altera o que foi assinado — é a
+  // frase que impede que a folha seja lida como uma emenda ao contrato.
+  check('declara que não altera o documento assinado', contem('NÃO altera'));
+
+  // Um campo que nunca chegou sai como ausência declarada, não como espaço vazio.
+  const parcial = await new QuoteAssemblerService().buildVehicleAddendum({
+    budgetNumber: 956,
+    verificationCode: 'X',
+    verificationUrl: 'https://ankaa/v/X',
+    signedSha256: null,
+    sealedAt: null,
+    customerLabel: null,
+    signers: [],
+    fields: [{ label: 'chassi', value: null, registeredAt: null }],
+  });
+  check(
+    'um campo que nunca chegou é declarado como não registrado',
+    fold(await pdfText(parcial)).includes(fold('não registrado')),
+  );
+}
+
+/**
+ * O texto de um PDF, para conferir CONTEÚDO e não só tamanho de arquivo.
+ *
+ * Duas camadas atrapalham quem procura a frase nos bytes crus, e cada uma sozinha
+ * já faz um teste passar a afirmar o contrário do que verifica:
+ *
+ *  1. o pdfkit COMPRIME o stream de conteúdo (flate) — nos bytes do arquivo não
+ *     existe texto nenhum;
+ *  2. dentro do stream o texto sai em tokens HEX separados por ajustes de kerning
+ *     (`[<416469746976> 30 <6f2064...>] TJ`), então mesmo depois de inflar uma
+ *     palavra pode estar partida em três pedaços com números no meio.
+ *
+ * Aqui os streams são inflados, e só os TOKENS DE TEXTO (hex e literais) são
+ * concatenados — os kernings caem fora e a palavra volta a ser contígua.
+ */
+async function pdfText(pdf: Buffer): Promise<string> {
+  const { PDFDocument, PDFRawStream } = await import('pdf-lib');
+  const zlib = await import('zlib');
+  const doc = await PDFDocument.load(pdf, { updateMetadata: false });
+  const out: string[] = [];
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream)) continue;
+    let inflated: string;
+    try {
+      inflated = zlib.inflateSync(Buffer.from(obj.contents)).toString('latin1');
+    } catch {
+      continue; // stream que não é flate (imagem, fonte): não é texto
+    }
+    const token = /<([0-9A-Fa-f\s]+)>|\(((?:\\.|[^\\)])*)\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = token.exec(inflated)) !== null) {
+      out.push(
+        m[1] !== undefined
+          ? Buffer.from(m[1].replace(/\s/g, ''), 'hex').toString('latin1')
+          : m[2].replace(/\\([()\\])/g, '$1'),
+      );
+    }
+  }
+  return out.join('');
+}
+
+// ===========================================================================
+// 8. Junção dos recortes num arquivo só (a visão do operador)
 // ===========================================================================
 //
 // O que se verifica aqui é o que pode DESTRUIR PROVA em silêncio: o `save()` do
@@ -688,6 +920,14 @@ async function verifyMerge(): Promise<void> {
 void verifySalutation()
   .catch(e => {
     failures.push(`vocativo do recorte lançou: ${e instanceof Error ? e.message : String(e)}`);
+  })
+  .then(verifyLateSlotGuard)
+  .catch(e => {
+    failures.push(`guarda de cadastro tardio lançou: ${e instanceof Error ? e.message : String(e)}`);
+  })
+  .then(verifyAddendum)
+  .catch(e => {
+    failures.push(`aditivo lançou: ${e instanceof Error ? e.message : String(e)}`);
   })
   .then(verifyMerge)
   .catch(e => {

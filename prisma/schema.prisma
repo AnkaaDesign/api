@@ -816,6 +816,7 @@ model File {
   signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
   signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
   signatureEnvelopeDossiers              SignatureEnvelope[]       @relation("ENVELOPE_DOSSIER_FILE")
+  signatureEnvelopeAddenda               SignatureEnvelope[]       @relation("ENVELOPE_ADDENDUM_FILE")
   envelopeDocumentOriginals              EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
   envelopeDocumentFinals                 EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
 
@@ -7725,6 +7726,25 @@ model SignatureEnvelope {
   /// Ver `QuoteSnapshotService.materialProjection`.
   quoteTermsSha256 String?
 
+  /// ADITIVO DE IDENTIFICAÇÃO DO VEÍCULO, selado à parte na finalização do serviço.
+  ///
+  /// Existe porque a identidade do veículo NUNCA cabe no orçamento assinado de um
+  /// implemento 0 km, e isso é estrutural, não um descuido: a assinatura do
+  /// orçamento É a aprovação, o caminhão só vem para a empresa depois de
+  /// aprovado, e o chassi só se lê com ele no pátio. O documento reserva o espaço
+  /// ("a registrar") e o selo PAdES congela os bytes na aprovação — semanas antes
+  /// de o dado existir.
+  ///
+  /// O aditivo resolve por ACRÉSCIMO, nunca por alteração: uma folha própria,
+  /// selada com o mesmo A1, que cita o SHA-256 do documento assinado, quem o
+  /// assinou e quando, e declara os campos que estavam reservados com o valor e a
+  /// data em que foram registrados. O assinado não é tocado — não pode ser — e
+  /// passa a viajar acompanhado.
+  addendumFileId     String?
+  addendumSha256     String?
+  addendumSealedAt   DateTime?
+  addendumPadesLevel String?
+
   /// Artefato final: original + selos visuais + trilha de auditoria + PAdES.
   finalFileId   String?
   /// Dossiê congelado no momento do selamento. O documento só é FINAL quando o
@@ -7760,6 +7780,7 @@ model SignatureEnvelope {
   originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
   finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
   dossierFile      File?                 @relation("ENVELOPE_DOSSIER_FILE", fields: [dossierFileId], references: [id])
+  addendumFile     File?                 @relation("ENVELOPE_ADDENDUM_FILE", fields: [addendumFileId], references: [id])
   previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
   nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
   signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")
@@ -8081,6 +8102,10 @@ enum SignatureEventType {
   DOCUMENT_FINALIZED
   DOCUMENT_DOWNLOADED
   VERIFICATION_VIEWED
+
+  /// Aditivo de identificação do veículo emitido e selado. Ver
+  /// `SignatureEnvelope.addendumFileId`.
+  ADDENDUM_ISSUED
 }
 
 // ============================================================================

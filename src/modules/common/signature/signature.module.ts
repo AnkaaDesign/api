@@ -26,6 +26,7 @@ import { QuoteSnapshotService } from './services/quote-snapshot.service';
 import { SignatureEnvelopeService } from './services/signature-envelope.service';
 import { SignatureDeletionService } from './services/signature-deletion.service';
 import { SignatureExpiryScheduler } from './services/signature-expiry.scheduler';
+import { SignatureAddendumScheduler } from './services/signature-addendum.scheduler';
 import { QuoteRendererService } from './document/quote-renderer.service';
 import { QuoteAssemblerService } from './document/quote-assembler.service';
 import { DossierAssemblerService } from './dossier/dossier-assembler.service';
@@ -63,6 +64,7 @@ import { SignatureController, PublicSignatureController } from './signature.cont
     SignatureEnvelopeService,
     SignatureDeletionService,
     SignatureExpiryScheduler,
+    SignatureAddendumScheduler,
   ],
   exports: [
     SignatureEnvelopeService,

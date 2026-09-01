@@ -284,6 +284,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   DOCUMENT_FINALIZED: 'Documento finalizado',
   DOCUMENT_DOWNLOADED: 'Documento baixado',
   VERIFICATION_VIEWED: 'Consulta pública de verificação',
+  ADDENDUM_ISSUED: 'Aditivo de identificação do veículo emitido e selado',
 };
 
 /**
