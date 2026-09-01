@@ -267,9 +267,16 @@ export class TaskQuoteController {
     @Res() res: Response,
   ): Promise<void> {
     const { buffer, filename } = await this.taskQuoteReceiptService.generate(id);
+    // Nome tem razão social do cliente — pode ter acento. filename= puro (sem
+    // RFC 5987) quebra em runtimes que validam o header como Latin-1/ASCII.
+    const asciiFallback =
+      filename
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7E]/g, '_') || 'recibo.pdf';
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
       'Content-Length': buffer.length.toString(),
     });
     res.end(buffer);

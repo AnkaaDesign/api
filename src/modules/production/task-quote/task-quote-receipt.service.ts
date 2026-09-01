@@ -13,7 +13,6 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@config/company';
-import { TRUCK_CATEGORY_LABELS } from '@constants/enum-labels';
 import { TASK_QUOTE_STATUS } from '@constants';
 import {
   buildTaskQuoteReceiptHtml,
@@ -24,6 +23,11 @@ import {
 export interface TaskQuoteReceiptResult {
   buffer: Buffer;
   filename: string;
+}
+
+/** Remove só o que quebra Content-Disposition/nome de arquivo; mantém espaços e acentos. */
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/["/\\\r\n\t]/g, '').trim();
 }
 
 const MM_PER_PX = 25.4 / 96;
@@ -67,13 +71,17 @@ export class TaskQuoteReceiptService {
       null;
     const nfseNoticeEnabled = primaryConfig ? primaryConfig.generateInvoice !== false : true;
 
+    // Identidade do veículo é SEMPRE nº de série (Task.serialNumber) e/ou placa
+    // (Truck.plate) — nunca o nome da tarefa, que é texto livre e não identifica
+    // o veículo. Pelo menos um dos dois está disponível quando o orçamento chega
+    // a SETTLED; mostra os dois quando ambos existirem.
     const truck = quote.task?.truck ?? null;
-    const categoryLabel = truck?.category
-      ? (TRUCK_CATEGORY_LABELS as Record<string, string>)[truck.category]
-      : null;
-    const vehicleParts = [quote.task?.name ?? categoryLabel, truck?.plate ?? null].filter(
-      (part): part is string => Boolean(part),
-    );
+    const serialNumber = quote.task?.serialNumber ?? null;
+    const plate = truck?.plate ?? null;
+    const vehicleParts = [
+      serialNumber ? `Série ${serialNumber}` : null,
+      plate ? `Placa ${plate}` : null,
+    ].filter((part): part is string => Boolean(part));
     const vehicleLabel = vehicleParts.length ? vehicleParts.join(' · ') : null;
 
     const paidDates = quote.customerConfigs
@@ -117,7 +125,11 @@ export class TaskQuoteReceiptService {
     );
 
     const buffer = await this.renderPdf(html);
-    return { buffer, filename: `recibo-orcamento-${quote.budgetNumber}.pdf` };
+    const corporateNameForFile = customer?.corporateName ?? customer?.fantasyName ?? 'Cliente';
+    const serialOrPlate = serialNumber ?? plate ?? '';
+    const filenameParts = ['Recibo', sanitizeFilenamePart(corporateNameForFile)];
+    if (serialOrPlate) filenameParts.push(sanitizeFilenamePart(serialOrPlate));
+    return { buffer, filename: `${filenameParts.join(' - ')}.pdf` };
   }
 
   private async renderPdf(html: string): Promise<Buffer> {
