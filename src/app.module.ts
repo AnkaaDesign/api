@@ -51,6 +51,7 @@ import { TaskModule } from './modules/production/task/task.module';
 import { TaskQuoteModule } from './modules/production/task-quote/task-quote.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
 import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
+import { LayoutDimensionsModule } from './modules/production/layout-dimensions/layout-dimensions.module';
 import { TruckModule } from './modules/production/truck/truck.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
@@ -145,6 +146,7 @@ import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painti
     TaskModule,
     TaskQuoteModule,
     ImplementMeasureModule,
+    LayoutDimensionsModule,
     TruckModule,
     UserModule,
     ProfileModule,
