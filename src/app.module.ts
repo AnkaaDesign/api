@@ -86,6 +86,7 @@ import { SkillModule } from './modules/skill/skill.module';
 import { QuestionnaireModule } from './modules/questionnaire/questionnaire.module';
 import { WasteCertificateModule } from './modules/waste-certificate/waste-certificate.module';
 import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painting-analysis.module';
+import { PrinterLogModule } from './modules/printer-log/printer-log.module';
 
 @Module({
   imports: [
@@ -181,6 +182,7 @@ import { PaintingAnalysisModule } from './modules/paint/painting-analysis/painti
     QuestionnaireModule,
     WasteCertificateModule,
     PaintingAnalysisModule,
+    PrinterLogModule,
   ],
   controllers: [AppController],
   providers: [
