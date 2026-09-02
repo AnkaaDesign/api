@@ -101,6 +101,16 @@ superior ela começa**. É a cota 142 do GRESPAN 840, a 252 do Ki 1538 e a 160
 do Norte Minas 1442. São raras: 28 de 2.202 âncoras. O motor emite no máximo 2
 por face, preferindo a aresta de cima (13 × 5).
 
+Com uma ressalva que só aparece quando a faixa entra pela quina: a travessia e
+a distância de bloco podem medir **o mesmo ponto**. A faixa do DiCasa 839 sobe
+da esquerda e termina no alto — a ponta da tinta e o lugar onde ela cruza a
+aresta de cima estão a meio centímetro um do outro, e saíam como **416 e 417,
+empilhados sobre a mesma seta**. Duas cotas do MESMO dono a menos de 2 cm uma
+da outra são uma medida só; fica a de natureza mais forte (a borda antes da
+travessia), que é também a que a peça tem garantida. A exigência de mesmo
+NÚMERO que protege a herança entre peças diferentes (§ `dedupe`) não vale aqui:
+sem dono a herdar, ela só produzia o número duplo.
+
 ### 6. A linha de extensão vai ATÉ o item — e sai do ponto certo
 
 Não é enfeite: é o que diz a que peça o número se refere. Em **2.780 de 3.348**

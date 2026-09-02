@@ -681,6 +681,16 @@ const PRIORITY: Record<Dimension["kind"], number> = {
  * traziam um valor diferente do que a peça herdeira mediria sozinha. Duas cotas
  * com números diferentes não dizem a mesma coisa — dizem duas, e as duas são
  * verdade sobre peças diferentes.
+ *
+ * PEÇAS DIFERENTES. Na MESMA peça não há herança a proteger, e as duas
+ * exigências que protegem a herança — mesma natureza, mesmo número — passam a
+ * trabalhar contra: a faixa do DiCasa recebe a distância de bloco (416, da
+ * ponta da tinta) e a travessia da aresta de cima (417, de onde ela cruza o
+ * teto), que são o mesmo meio centímetro do desenho medido duas vezes, e o
+ * aplicador vê dois números empilhados sobre a mesma seta sem saber qual valia.
+ * Quando o dono é o mesmo, pontas a menos de 2 cm bastam: é uma medida só, e
+ * fica a de natureza mais forte (a borda antes da travessia, `PRIORITY`), que é
+ * também a que a peça tem garantida.
  */
 function dedupe(routed: Routed[], tol = 2): Routed[] {
   const out: Routed[] = [];
@@ -688,10 +698,10 @@ function dedupe(routed: Routed[], tol = 2): Routed[] {
     const d = r.dimension;
     const host = out.find((o) => {
       const e = o.dimension;
+      const sameOwner = d.targetIndex !== undefined && e.targetIndex === d.targetIndex;
       return (
         e.axis === d.axis &&
-        PRIORITY[e.kind] === PRIORITY[d.kind] &&
-        e.valueCm === d.valueCm &&
+        (sameOwner || (PRIORITY[e.kind] === PRIORITY[d.kind] && e.valueCm === d.valueCm)) &&
         Math.abs(e.aCm - d.aCm) < tol &&
         Math.abs(e.bCm - d.bCm) < tol
       );
