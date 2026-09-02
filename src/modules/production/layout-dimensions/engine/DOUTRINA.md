@@ -350,6 +350,32 @@ como um pedaço (542 de 839, 448 de 839, 547 de 939) ou duplicada. Faces
 reconhecidas em modo navegador: 629 → 606, faces sem cota nenhuma 5,7% → 4,6%,
 faces com um item só 13,4% → 11,7%.
 
+### 13-bis. A borda de baixo é a que está DESENHADA
+
+A ponte pt ↔ cm sai da LARGURA — `ptPerCm = largura do quadro ÷ largura
+informada` — e é só ela: a posição da tinta, a linha de extensão, o afastamento
+da linha de cota, tudo passa por esse número. A altura informada entrava depois,
+sozinha, como o valor de "y da borda de baixo". Quando as duas medidas não
+fecham na mesma escala, o quadro tem uma altura e a conta tem outra, e **a reta
+que deveria assentar no piso do baú assenta no ar**.
+
+É o DiCasa 839 × 242: o desenho traz 686 pt de altura, que a 1:10 são 242 cm
+redondos; o cadastro diz 241. A extensão da cota de base saía 2,9 pt acima do
+traço do quadro — visível na tela e sem explicação possível para quem olha, já
+que o número está certo e é a reta que não bate.
+
+Então a face mede o que está desenhado nos DOIS eixos: a largura por construção,
+a altura pela mesma régua (`altura do quadro ÷ ptPerCm`). A medida informada
+continua sendo a verdade sobre o implemento, e é contra ela que
+`aspectErrorPct` cobra a divergência: quem avisa que desenho e cadastro
+discordam é o aviso da face, não uma cota que não fecha com o próprio traço.
+
+⚠️ **As bancadas não medem isto.** `bench.mjs` e `grouping-bench.mjs` montam a
+face a partir do NOME do arquivo ("839 - 242"), que é a mesma medida com que o
+desenho foi feito — ali a divergência é sempre zero e a mudança sai neutra até
+o último dígito (verificado). Quem sente é o arquivo real, com a medida que o
+cadastro tem.
+
 ### 14. Não saber cotar é um defeito; impedir de medir é outro, e pior
 
 ⚠️ Esta seção descreve o motor **quando ele rodava no navegador**. Hoje ele roda

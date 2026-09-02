@@ -299,11 +299,37 @@ export async function buildLayoutFaces(
   const dimensions: Dimension[] = [];
   const warnings: string[] = [];
 
-  matches.forEach(({ rect, panel }, faceIndex) => {
-    const widthCm = panelWidthCm(panel);
+  matches.forEach(({ rect, panel: informed }, faceIndex) => {
+    const widthCm = panelWidthCm(informed);
     const scale: Scale = { ptPerCm: rectWidth(rect) / widthCm, panelPt: rect };
-    const byHeight = rectHeight(rect) / panel.heightCm;
+    const byHeight = rectHeight(rect) / informed.heightCm;
     const aspectErrorPct = (Math.abs(scale.ptPerCm - byHeight) / scale.ptPerCm) * 100;
+
+    /**
+     * A BORDA DE BAIXO É A QUE ESTÁ DESENHADA.
+     *
+     * A ponte pt ↔ cm sai da LARGURA (`ptPerCm = largura do quadro ÷ largura
+     * informada`), e é só ela: todo cm que o motor produz — a posição da tinta,
+     * a linha de extensão, o afastamento da linha de cota — passa por esse
+     * número. A altura informada entrava depois, sozinha, como o valor de "y da
+     * borda de baixo". Quando as duas medidas não fecham na mesma escala, o
+     * quadro tem uma altura e a conta tem outra, e a linha que deveria assentar
+     * no piso do baú assenta no ar.
+     *
+     * É o DiCasa 839 × 242: o desenho traz 686 pt de altura, que a 1:10 são
+     * 242 cm redondos; a medida cadastrada diz 241. A extensão da cota de base
+     * saía 2,9 pt acima do traço do quadro — visível na tela, e sem explicação
+     * possível para quem olha (o número está certo, a reta é que não bate).
+     *
+     * Então a face mede o que está desenhado nos DOIS eixos: a largura por
+     * construção, a altura pela mesma régua. A medida informada continua sendo
+     * a verdade sobre o implemento, e é contra ela que `aspectErrorPct` cobra a
+     * divergência — quem avisa que desenho e cadastro discordam é o aviso, não
+     * uma cota que não fecha com o próprio traço.
+     */
+    const drawnHeightCm = rectHeight(rect) / scale.ptPerCm;
+    const panel: Panel =
+      drawnHeightCm === informed.heightCm ? informed : { ...informed, heightCm: drawnHeightCm };
 
     const { pieces } = classify(geometry, scale, grouping);
     const built = buildItems(pieces, scale, grouping, { trimToInk: options.trimToInk });
