@@ -1750,13 +1750,17 @@ export function buildItems(
       }
     }
 
+    /** O alcance que ESTE par ganhou — é contra ele que a tinta responde. */
+    let grantedPt: number;
     if (onSameLine(ra, rb, params)) {
-      if (gap.x > sameLineReachPairPt(ra, rb)) return false;
+      grantedPt = sameLineReachPairPt(ra, rb);
+      if (gap.x > grantedPt) return false;
     } else {
       // empilhadas ou soltas: alcance curto, e nada de soldar aqui o que é
       // conjunto — isso é trabalho do estágio de baixo
       const height = Math.max(rectH(ra), rectH(rb));
       const reach = Math.min(params.maxLineStackCm * scale.ptPerCm, params.lineStackFactor * height);
+      grantedPt = reach;
       if (gap.x > reach || gap.y > reach) return false;
       if (!alignedEnough(ra, rb, params.weldAlignFrac)) return false;
     }
@@ -1786,7 +1790,39 @@ export function buildItems(
      * continuam votando, porque carregam prova de porte e de percurso.
      */
     const oneSideIsBackdrop = backdropPiece(a) !== backdropPiece(b);
-    if (sameColour && !oneSideIsBackdrop) return true;
+    if (sameColour && !oneSideIsBackdrop) {
+      /**
+       * CAIXA SOBREPOSTA NÃO É TINTA VIZINHA — a mesma trava que o estágio de
+       * conjunto já tem (EXP-C(1)), e que faltava aqui.
+       *
+       * A folga entre caixas é um LIMITE INFERIOR da distância entre tintas:
+       * duas caixas que se cruzam devolvem folga zero, e zero passa por
+       * qualquer alcance. Numa forma cheia isso é verdade; numa forma que é
+       * quase toda vazio, não. A onda do DiCasa tem um brilho branco em
+       * crescente cuja caixa mede 144 × 99 cm e cuja tinta é um filete
+       * diagonal; a caixa das letras brancas do logotipo entra por dentro
+       * dessa caixa 40 cm longe de qualquer pixel do crescente. Mesma cor
+       * (#fefefe contra #ffffff), folga zero, solda — e por esse fio o
+       * logotipo inteiro entrava na faixa: clicar na marca da traseira
+       * devolvia a faixa e a marca num item só.
+       *
+       * Então quando as caixas se SOBREPÕEM a cor sozinha não conclui nada: a
+       * tinta tem de estar dentro do alcance que a caixa alegou. O piso de
+       * área deixa de fora o miúdo (o pingo do "i", o contorno interno de um
+       * glifo), onde a caixa é pequena o bastante para a sobreposição já ser
+       * prova.
+       */
+      const minPairAreaPt = params.minAreaCm2 * scale.ptPerCm * scale.ptPerCm;
+      if (
+        gap.x === 0 &&
+        gap.y === 0 &&
+        Math.min(rectArea(ra), rectArea(rb)) >= minPairAreaPt &&
+        contourDistance(elements[a].outline, elements[b].outline, grantedPt) > grantedPt
+      ) {
+        return false;
+      }
+      return true;
+    }
     // logotipo multicor com uma peça DENTRO da outra, encostando (o caso "Ki")
     if (
       nestedFraction(ra, rb) >= params.nestedMergeFrac &&

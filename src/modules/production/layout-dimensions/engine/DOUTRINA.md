@@ -220,6 +220,21 @@ para menos: item grande demais engole o vizinho e a cota fica sem dono.
   39 cm que a distância vértice-a-segmento inventava (tiles do RKO) — e o
   alcance da junção multicolor acompanha a peça: 0,6 × altura menor, entre
   8 e 12 cm; na faixa (8, 12] só junta quem compartilha fronteira de verdade.
+- **Caixa sobreposta não é tinta vizinha — nem entre peças da MESMA cor.** A
+  folga entre caixas é um limite inferior da distância entre tintas: duas
+  caixas que se cruzam dão folga zero, e zero passa por qualquer alcance. Numa
+  forma cheia isso é verdade; numa forma que é quase toda vazio, não. O brilho
+  branco da onda do DiCasa é um crescente cuja CAIXA mede 144 × 99 cm e cuja
+  tinta é um filete diagonal; a caixa das letras brancas do logotipo entra por
+  dentro dela a 40 cm de qualquer pixel do crescente. Mesma cor (#fefefe contra
+  #ffffff), folga zero, solda — e por esse fio o logotipo inteiro entrava na
+  faixa: **na traseira, clicar na marca devolvia a marca e a faixa num item
+  só.** Quando as caixas se sobrepõem, a cor sozinha não conclui: a tinta tem
+  de estar dentro do alcance que a caixa alegou. É a mesma trava que o estágio
+  de CONJUNTO já tinha (o bloco de telefone da FRICARNE 840, encaixado na quina
+  da caixa do logotipo com a tinta 78 cm longe) e que faltava no de peça. O
+  piso de área (90 cm²) deixa de fora o miúdo, onde a caixa é pequena o
+  bastante para a sobreposição já ser prova.
 - **A fusão roda até PONTO FIXO no conjunto.** Par a par não fecha cadeia: o
   predicado que falha entre dois cacos passa entre os conjuntos já fundidos.
   As guardas anti-monstro (varrer mais de 55% do eixo sem encostar em aresta;
