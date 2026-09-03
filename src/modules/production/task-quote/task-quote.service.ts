@@ -3589,6 +3589,16 @@ export class TaskQuoteService {
           customForecastDays: true,
           simultaneousTasks: true,
           budgetNumber: true,
+          // JUNTO OU SEPARADO — a página pública LÊ este campo.
+          //
+          // Sem ele a página assume `JOINT` (o padrão do cliente) e um orçamento
+          // `PER_TASK` é exibido errado nos dois pontos que mais importam: a
+          // frase das parcelas fala do total quando deveria falar de cada
+          // veículo, e `computeQuoteMoney` devolve o total geral onde deveria
+          // devolver o unitário. É a página em que o cliente APROVA — aprovar
+          // uma coisa e receber outra é a classe de defeito que este campo
+          // existe para impedir.
+          billingSplit: true,
           createdAt: true,
           updatedAt: true,
           layoutFiles: {
