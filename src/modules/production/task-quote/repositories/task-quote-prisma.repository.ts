@@ -6,6 +6,10 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { TaskQuoteRepository } from './task-quote.repository';
+import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
+
+/** A ordem canônica das tarefas de um orçamento — ver `QUOTE_TASKS_ORDER_BY`. */
+const TASK_ORDER = QUOTE_TASKS_ORDER_BY;
 import type {
   TaskQuote,
   TaskQuoteInclude,
@@ -202,12 +206,18 @@ export class TaskQuotePrismaRepository
             }
           : include.services;
     }
-    if ((include as any).task !== undefined) {
-      if (typeof (include as any).task === 'boolean') {
-        mappedInclude.task = (include as any).task;
-      } else {
-        mappedInclude.task = { include: (include as any).task.include as any };
-      }
+    // `include: { task: … }` do cliente é traduzido para a relação de LISTA.
+    //
+    // A chave `task` continua aceita de propósito: ela vem do app Flutter
+    // instalado nos aparelhos e do `kTaskQuoteDetailInclude` gravado em cache, e
+    // recusá-la faria a tela de detalhe do orçamento voltar sem tarefa nenhuma.
+    // A ordem canônica é imposta aqui, não pelo cliente.
+    const requestedTaskInclude = (include as any).tasks ?? (include as any).task;
+    if (requestedTaskInclude !== undefined) {
+      mappedInclude.tasks =
+        typeof requestedTaskInclude === 'boolean'
+          ? { orderBy: TASK_ORDER }
+          : { orderBy: TASK_ORDER, include: requestedTaskInclude.include as any };
     }
     if ((include as any).layoutFiles !== undefined)
       mappedInclude.layoutFiles = (include as any).layoutFiles;
@@ -428,7 +438,7 @@ export class TaskQuotePrismaRepository
    */
   async findByTaskId(taskId: string): Promise<TaskQuote | null> {
     const quote = await this.prisma.taskQuote.findFirst({
-      where: { task: { id: taskId } },
+      where: { tasks: { some: { id: taskId } } },
       include: {
         layoutFiles: { orderBy: { createdAt: 'asc' } },
         services: {
@@ -488,7 +498,7 @@ export class TaskQuotePrismaRepository
             },
           },
         },
-        task: true,
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
             customer: {
@@ -531,7 +541,7 @@ export class TaskQuotePrismaRepository
             },
           },
         },
-        task: true,
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
             customer: {
@@ -554,7 +564,7 @@ export class TaskQuotePrismaRepository
   async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
     const quote = await this.prisma.taskQuote.findFirst({
       where: {
-        task: { id: taskId },
+        tasks: { some: { id: taskId } },
         status: {
           in: [
             TASK_QUOTE_STATUS.BILLING_APPROVED,
@@ -618,7 +628,8 @@ export class TaskQuotePrismaRepository
           },
         },
       },
-      task: {
+      tasks: {
+        orderBy: TASK_ORDER,
         select: { id: true, name: true, createdAt: true },
       },
     };
@@ -626,10 +637,7 @@ export class TaskQuotePrismaRepository
     // 1. Try exact match (case-insensitive)
     let quote = await this.prisma.taskQuote.findFirst({
       where: {
-        task: {
-          ...baseWhere,
-          name: { equals: params.name, mode: 'insensitive' },
-        },
+        tasks: { some: { ...baseWhere, name: { equals: params.name, mode: 'insensitive' } } },
       },
       include: includeClause,
       orderBy: { createdAt: 'desc' },
@@ -639,10 +647,7 @@ export class TaskQuotePrismaRepository
     if (!quote) {
       quote = await this.prisma.taskQuote.findFirst({
         where: {
-          task: {
-            ...baseWhere,
-            name: { startsWith: params.name, mode: 'insensitive' },
-          },
+          tasks: { some: { ...baseWhere, name: { startsWith: params.name, mode: 'insensitive' } } },
         },
         include: includeClause,
         orderBy: { createdAt: 'desc' },
@@ -654,7 +659,7 @@ export class TaskQuotePrismaRepository
     const mapped = this.mapDatabaseEntityToEntity(quote);
     return {
       ...mapped,
-      taskCreatedAt: quote.task?.createdAt || quote.createdAt,
+      taskCreatedAt: quote.tasks?.[0]?.createdAt || quote.createdAt,
     };
   }
 }

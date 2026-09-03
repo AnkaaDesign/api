@@ -24,10 +24,21 @@
  * with "clear").
  */
 import { BadRequestException } from '@nestjs/common';
+import { expectedConfigTaskIds } from './quote-money';
 import { PrismaTransaction } from '../modules/common/base/base.repository';
 
 export interface IncomingCustomerConfig {
   customerId: string;
+  /**
+   * A FATIA que esta configuração representa: a tarefa que ela fatura, `null`
+   * para "todas as do orçamento", ou AUSENTE para "expanda pelo modo de
+   * faturamento".
+   *
+   * A distinção entre `null` e ausente importa: `null` é uma instrução explícita
+   * ("esta é a fatia única"), ausente delega ao servidor — que é o que toda tela
+   * faz, para não ter de montar sessenta objetos idênticos.
+   */
+  taskId?: string | null;
   subtotal?: number | null;
   total?: number | null;
   discountType?: string | null;
@@ -54,8 +65,10 @@ function buildConfigWriteData(config: IncomingCustomerConfig): Record<string, un
   if (config.total !== undefined) d.total = config.total ?? 0;
   if (config.discountType !== undefined) d.discountType = config.discountType || 'NONE';
   if (config.discountValue !== undefined) d.discountValue = config.discountValue ?? null;
-  if (config.discountReference !== undefined) d.discountReference = config.discountReference ?? null;
-  if (config.customPaymentText !== undefined) d.customPaymentText = config.customPaymentText ?? null;
+  if (config.discountReference !== undefined)
+    d.discountReference = config.discountReference ?? null;
+  if (config.customPaymentText !== undefined)
+    d.customPaymentText = config.customPaymentText ?? null;
   if (config.generateInvoice !== undefined) d.generateInvoice = config.generateInvoice;
   if (config.generateBankSlip !== undefined) d.generateBankSlip = config.generateBankSlip;
   if (config.orderNumber !== undefined) d.orderNumber = config.orderNumber ?? null;
@@ -116,11 +129,71 @@ export async function reconcileQuoteCustomerConfigs(
   tx: PrismaTransaction,
   quoteId: string,
   incomingConfigs: IncomingCustomerConfig[],
+  /**
+   * COMO FATIAR o faturamento, e sobre quais tarefas.
+   *
+   * Omitido = lê do banco. O parâmetro existe para o caminho em que a gravação
+   * MUDA o modo ou o conjunto de tarefas na mesma transação: ler do banco ali
+   * devolveria o estado de antes, e a reconciliação criaria as fatias erradas.
+   */
+  options?: { billingSplit?: string | null; taskIds?: readonly string[] | null },
 ): Promise<ReconcileConfigsResult> {
   const existing = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
-  const existingByCustomer = new Map(existing.map(c => [c.customerId, c]));
-  const incomingCustomerIds = new Set(incomingConfigs.map(c => c.customerId));
   const diff: ConfigDiffEntry[] = [];
+
+  // ── AS FATIAS ─────────────────────────────────────────────────────────────
+  //
+  // A chave natural da configuração era `(quoteId, customerId)`. Passou a ser
+  // `(quoteId, customerId, taskId)`, porque com `PER_TASK` o mesmo cliente tem
+  // uma configuração por veículo — cada uma com sua fatura, seu plano de
+  // parcelas e sua NFS-e.
+  //
+  // ⚠️ Isto NÃO é detalhe de indexação. Um mapa chaveado só por cliente, como o
+  // anterior, colapsaria as sessenta configurações do Marquespan numa e a
+  // reconciliação APAGARIA cinquenta e nove — com as faturas, as parcelas e os
+  // boletos delas, por cascata. A chave composta é o que impede isso.
+  const billingSplit =
+    options?.billingSplit ??
+    (await tx.taskQuote.findUnique({ where: { id: quoteId }, select: { billingSplit: true } }))
+      ?.billingSplit ??
+    'JOINT';
+  const taskIds =
+    options?.taskIds ??
+    (
+      await tx.task.findMany({
+        where: { quoteId },
+        select: { id: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+    ).map(t => t.id);
+  const slices = expectedConfigTaskIds(billingSplit, taskIds);
+
+  /** Chave composta estável. Fatia nula (`JOINT`) usa string vazia. */
+  const keyOf = (customerId: string, taskId: string | null) => `${customerId}::${taskId ?? ''}`;
+
+  const existingByKey = new Map(existing.map(c => [keyOf(c.customerId, c.taskId ?? null), c]));
+  /** Todas as configurações de um cliente, qualquer fatia — a base da herança. */
+  const existingByCustomer = new Map<string, typeof existing>();
+  for (const c of existing) {
+    const list = existingByCustomer.get(c.customerId) ?? [];
+    list.push(c);
+    existingByCustomer.set(c.customerId, list);
+  }
+
+  const incomingCustomerIds = new Set(incomingConfigs.map(c => c.customerId));
+
+  /** O produto (cliente × fatia) que este orçamento deve ter ao fim. */
+  const wanted: Array<{ config: IncomingCustomerConfig; taskId: string | null }> = [];
+  for (const config of incomingConfigs) {
+    // Uma configuração que veio com `taskId` explícito é edição de UMA fatia (a
+    // tela mexeu só no caminhão 37) e não se expande.
+    if (config.taskId !== undefined && config.taskId !== null) {
+      wanted.push({ config, taskId: config.taskId });
+      continue;
+    }
+    for (const taskId of slices) wanted.push({ config, taskId });
+  }
+  const wantedKeys = new Set(wanted.map(w => keyOf(w.config.customerId, w.taskId)));
 
   // ── Customer REPLACEMENT detection ────────────────────────────────────────
   // A swap is not modelled by the per-customer upsert below: it decomposes into
@@ -135,14 +208,27 @@ export async function reconcileQuoteCustomerConfigs(
   // unambiguous 1:1 replacement, so the displaced row's deal terms carry forward.
   // Multi-config reshuffles are left alone — there is no non-guessing way to map
   // several removals onto several creations.
-  const removedConfigs = existing.filter(c => !incomingCustomerIds.has(c.customerId));
-  const addedConfigs = incomingConfigs.filter(c => !existingByCustomer.has(c.customerId));
-  const replacedBy =
-    removedConfigs.length === 1 && addedConfigs.length === 1 ? removedConfigs[0] : null;
+  //
+  // ⚠️ A troca é detectada por CLIENTE, nunca por fatia. Num orçamento
+  // `PER_TASK` de sessenta caminhões, substituir o cliente decompõe em sessenta
+  // remoções e sessenta criações, e uma heurística que exige exatamente 1+1
+  // nunca dispararia — o desconto seria perdido nas sessenta faturas de uma vez,
+  // que é a versão em escala do prejuízo que ela existe para evitar.
+  const removedConfigs = existing.filter(
+    c => !wantedKeys.has(keyOf(c.customerId, c.taskId ?? null)),
+  );
+  const removedCustomers = [...new Set(removedConfigs.map(c => c.customerId))].filter(
+    id => !incomingCustomerIds.has(id),
+  );
+  const addedCustomers = incomingConfigs
+    .map(c => c.customerId)
+    .filter(id => !existingByCustomer.has(id));
+  const replacedCustomerId =
+    removedCustomers.length === 1 && addedCustomers.length === 1 ? removedCustomers[0] : null;
 
-  // ── Upsert each incoming config by (quoteId, customerId) ──────────────────
-  for (const config of incomingConfigs) {
-    const prev = existingByCustomer.get(config.customerId);
+  // ── Upsert de cada (cliente × fatia) ──────────────────────────────────────
+  for (const { config, taskId: sliceTaskId } of wanted) {
+    const prev = existingByKey.get(keyOf(config.customerId, sliceTaskId));
     const writeData = buildConfigWriteData(config);
     if (prev) {
       // Update in place — preserves id, issued Invoice/Installments, and any
@@ -152,27 +238,54 @@ export async function reconcileQuoteCustomerConfigs(
         const before = (prev as any)[field];
         const after = (writeData as any)[field];
         if (String(before ?? '') !== String(after ?? '')) {
-          diff.push({ type: 'updated', customerId: config.customerId, field, oldValue: before, newValue: after });
+          diff.push({
+            type: 'updated',
+            customerId: config.customerId,
+            field,
+            oldValue: before,
+            newValue: after,
+          });
         }
       }
       await tx.taskQuoteCustomerConfig.update({ where: { id: prev.id }, data: writeData });
     } else {
       let inherited = false;
-      if (replacedBy && config.customerId === addedConfigs[0].customerId) {
-        // Deal terms carry over unless the payload explicitly sets a DIFFERENT one.
-        // For the discount this must override an explicit 'NONE': every web wizard
-        // unconditionally sends `discountType: "NONE"` for a newly added customer,
-        // so an absence-only rule would never fire for the paths that caused the
-        // real losses. Consequence, by design: clearing a discount and swapping the
-        // customer cannot happen in a single save — clear it in a separate save.
-        if (hasNoEffectiveDiscount(config) && !hasNoEffectiveDiscount(replacedBy)) {
-          for (const field of DISCOUNT_FIELDS) (writeData as any)[field] = (replacedBy as any)[field];
+      // ── DE QUEM ESTA FATIA NOVA HERDA AS CONDIÇÕES ──────────────────────
+      //
+      // Três origens, na ordem em que respondem certo:
+      //
+      //  1. OUTRA FATIA DO MESMO CLIENTE neste orçamento. É o caso novo e o mais
+      //     frequente: trocar `JOINT` por `PER_TASK` remove a fatia única e cria
+      //     sessenta; acrescentar um caminhão a um orçamento `PER_TASK` cria a
+      //     sexagésima primeira. Sem herança, cada uma dessas nasceria com
+      //     `discountType DEFAULT 'NONE'`, `recalcQuoteTotals` levantaria o total
+      //     ao subtotal e a aprovação congelaria o valor inflado em
+      //     `Invoice.totalAmount` — o desconto combinado sumindo em sessenta
+      //     faturas de uma vez.
+      //  2. O CLIENTE SUBSTITUÍDO, quando a troca é 1:1 e inequívoca. É a regra
+      //     que já existia, agora avaliada por cliente e não por linha.
+      //  3. Ninguém — cliente genuinamente novo, condições vêm do payload.
+      const donor =
+        existingByCustomer.get(config.customerId)?.[0] ??
+        (replacedCustomerId && addedCustomers.includes(config.customerId)
+          ? (existingByCustomer.get(replacedCustomerId)?.[0] ?? null)
+          : null);
+
+      if (donor) {
+        // O desconto sobrescreve um 'NONE' EXPLÍCITO de propósito: toda tela
+        // manda `discountType: "NONE"` para um cliente recém-adicionado, então
+        // uma regra que só preenchesse ausências nunca dispararia justamente nos
+        // caminhos que causaram o prejuízo real. Consequência assumida: limpar um
+        // desconto e trocar o cliente não cabem na mesma gravação — limpe numa
+        // gravação separada.
+        if (hasNoEffectiveDiscount(config) && !hasNoEffectiveDiscount(donor)) {
+          for (const field of DISCOUNT_FIELDS) (writeData as any)[field] = (donor as any)[field];
           inherited = true;
         }
-        // Payment terms follow the documented "absence = preserve" rule: only fill
-        // what the payload did not carry at all.
+        // As condições de pagamento seguem a regra documentada "ausência =
+        // preserva": só se preenche o que o payload não trouxe de forma alguma.
         for (const field of DEAL_TERM_FIELDS) {
-          if (!(field in writeData)) (writeData as any)[field] = (replacedBy as any)[field];
+          if (!(field in writeData)) (writeData as any)[field] = (donor as any)[field];
         }
       }
       diff.push({
@@ -186,12 +299,21 @@ export async function reconcileQuoteCustomerConfigs(
         inherited,
       });
       await tx.taskQuoteCustomerConfig.create({
-        data: { quoteId, customerId: config.customerId, ...writeData },
+        data: {
+          quoteId,
+          customerId: config.customerId,
+          ...(sliceTaskId ? { taskId: sliceTaskId } : {}),
+          ...writeData,
+        },
       });
     }
   }
 
-  // ── Delete ONLY removed customers, guarding issued financial records ──────
+  // ── Apaga SÓ as fatias que saíram, guardando o que já foi emitido ────────
+  //
+  // "Saiu" é: o par (cliente, fatia) não está no conjunto desejado. Cobre os
+  // três casos — cliente removido, modo de faturamento trocado e veículo
+  // retirado do orçamento — com a mesma conta.
   const toRemove = removedConfigs;
   let cancelledInvoices = false;
   if (toRemove.length > 0) {

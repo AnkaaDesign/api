@@ -12,6 +12,15 @@ export interface TaskQuoteReceiptData {
   customerDocument: string | null;
   vehicleLabel: string | null;
   services: { description: string; amount: number }[];
+  /**
+   * Quantos veículos o orçamento cobre.
+   *
+   * Os preços da lista de serviços são POR VEÍCULO. Com mais de um, o cupom
+   * precisa da linha de multiplicação: sem ela a soma dos itens não fecha com o
+   * TOTAL PAGO — num orçamento de sessenta caminhões, por um fator de sessenta —
+   * e um recibo cujos números não fecham é um recibo que não serve de recibo.
+   */
+  vehicleCount: number;
   total: number;
   /** Mostra "a NFS-e foi enviada por e-mail" só quando a tarefa realmente emite NFS-e. */
   nfseNoticeEnabled: boolean;
@@ -153,6 +162,22 @@ export function buildTaskQuoteReceiptHtml(
     <table class="items">
       ${itemsHtml}
     </table>
+
+    ${
+      data.vehicleCount > 1
+        ? `<table class="items"><tr>
+             <td class="desc">Valor por veículo</td>
+             <td class="amt">${formatCurrencyBRL(
+               data.services.reduce((sum, sv) => sum + sv.amount, 0),
+             )
+               .replace('R$', '')
+               .trim()}</td>
+           </tr><tr>
+             <td class="desc">Veículos</td>
+             <td class="amt">&times; ${data.vehicleCount}</td>
+           </tr></table>`
+        : ''
+    }
 
     <div class="total-line">
       <span class="lbl">TOTAL PAGO</span>

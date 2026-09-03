@@ -138,15 +138,26 @@ export class SignatureDeletionService {
     if (!taskIds.length) return [];
     const envelopes = await client.signatureEnvelope.findMany({
       where: {
-        quote: { task: { id: { in: taskIds } } },
+        quote: { tasks: { some: { id: { in: taskIds } } } },
         OR: [{ status: 'COMPLETED' }, { signers: { some: { status: 'SIGNED' } } }],
       },
-      select: { quote: { select: { task: { select: { id: true } } } } },
+      select: {
+        quote: {
+          select: {
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+          },
+        },
+      },
     });
     return [
       ...new Set(
+        // TODAS as tarefas do orçamento, não a primeira: a pergunta é "quais das
+        // tarefas que me pediram têm assinatura colhida?", e num orçamento de
+        // sessenta caminhões a coleta protege os sessenta. Devolver só o primeiro
+        // deixaria os outros cinquenta e nove passarem por uma guarda de exclusão
+        // que existe justamente para não apagar tarefa com assinatura viva.
         envelopes
-          .map(e => e.quote?.task?.id)
+          .flatMap(e => (e.quote?.tasks ?? []).map(t => t.id))
           .filter((id): id is string => Boolean(id))
           .filter(id => taskIds.includes(id)),
       ),

@@ -3143,7 +3143,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const positionGroups = await this.prisma.user.groupBy({
       by: ['positionId'],
-      where: this.sanitizeWhereForGroupBy({ currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } }),
+      where: this.sanitizeWhereForGroupBy({
+        currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
+      }),
       _count: { id: true },
     });
 
@@ -3862,9 +3864,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return {
       totalQuotes: total,
       pendingQuotes: statusMap['PENDING'] || 0,
-      approvedQuotes:
-        (statusMap['BUDGET_APPROVED'] || 0) +
-        (statusMap['BILLING_APPROVED'] || 0),
+      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
       settledQuotes: statusMap['SETTLED'] || 0,
       byStatus: {
         labels: Object.values(statusLabels),
@@ -4072,7 +4072,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
           orderBy: { updatedAt: 'desc' },
           take: perType,
           include: {
-            task: {
+            tasks: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
               include: { customer: { select: { corporateName: true, fantasyName: true } } },
             },
           },
@@ -4143,7 +4144,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       })),
       ...recentQuotes.map(q => ({
         id: q.id,
-        title: customerName(q.task?.customer),
+        title: customerName(q.tasks?.[0]?.customer),
         description: `${quoteStatusLabels[q.status] || q.status} · R$ ${Number(q.total).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         type: 'quote' as const,
         timestamp: q.updatedAt,

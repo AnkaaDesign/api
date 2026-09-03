@@ -52,7 +52,9 @@ import { onlyDigits } from '../utils/identity';
 // `normText` mora em `quote-diff` para que aquele módulo não precise importar
 // nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
 // mantém o ciclo entre os dois arquivos inofensivo.
+import { sortQuoteTasks } from '@utils/quote-tasks';
 import {
+  snapshotVehicles,
   describeQuoteChange,
   describeQuoteChanges,
   diffQuoteSnapshots,
@@ -60,6 +62,18 @@ import {
   type QuoteChange,
   type QuoteDiffOptions,
 } from './quote-diff';
+
+/** Deduplica por `id` preservando a primeira ocorrência. */
+function dedupeById<T extends { id: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
+}
 
 /** Dinheiro sempre como string de 2 casas — nunca float. */
 function money(value: Prisma.Decimal | number | null | undefined): string {
@@ -77,6 +91,28 @@ export interface QuoteSnapshotSigner {
   roles: string[];
 }
 
+/** Um veículo do orçamento, como o documento o identifica. */
+export interface QuoteSnapshotVehicle {
+  /** `Task.id` — a chave estável que pareia o congelado com o atual. */
+  taskId: string;
+  taskName: string | null;
+  serialNumber: string | null;
+  plate: string | null;
+  chassisNumber: string | null;
+  category: string | null;
+  implementType: string | null;
+}
+
+/**
+ * Os veículos de um snapshot — reexportado.
+ *
+ * A IMPLEMENTAÇÃO mora em `quote-diff` pelo mesmo motivo que `normText`: aquele
+ * módulo precisa dela e não pode importar nada de RUNTIME daqui (este importa
+ * `diffQuoteSnapshots` de lá, e o ciclo em runtime derrubaria o módulo). O
+ * import de lá para cá é só de tipos, e é isso que mantém o ciclo inofensivo.
+ */
+export { snapshotVehicles } from './quote-diff';
+
 export interface QuoteSnapshot {
   /** Versão do formato. Incrementar quando o template mudar o que é exibido. */
   schemaVersion: number;
@@ -89,12 +125,32 @@ export interface QuoteSnapshot {
     fantasyName: string | null;
     document: string | null;
   } | null;
-  task: {
+  /**
+   * OS VEÍCULOS, na ordem em que o documento os lista — um por tarefa.
+   *
+   * Substituiu `task` + `truck` singulares na v3 do snapshot, quando um
+   * orçamento passou a poder cobrir sessenta caminhões. Os dois campos antigos
+   * continuam DECLARADOS abaixo porque todo envelope congelado antes disso os
+   * tem gravados no JSONB, e reler coleta de meses atrás é rotina (o portal de
+   * verificação faz isso). Quem consome deve ir por `snapshotVehicles()`, que
+   * responde nas duas formas.
+   */
+  vehicles: QuoteSnapshotVehicle[];
+  /**
+   * Junto ou separado. Entra no snapshot porque APARECE no documento — a frase
+   * das parcelas diz "para cada um dos 60 veículos" ou não diz — e é material:
+   * um plano único de R$ 730.224,00 e sessenta planos de R$ 12.170,40 são
+   * obrigações diferentes para quem assina.
+   */
+  billingSplit: string;
+  /** @deprecated Forma v1/v2. Só existe em snapshots congelados antes da v3. */
+  task?: {
     id: string;
     name: string | null;
     serialNumber: string | null;
   } | null;
-  truck: {
+  /** @deprecated Forma v1/v2. Só existe em snapshots congelados antes da v3. */
+  truck?: {
     plate: string | null;
     chassisNumber: string | null;
     category: string | null;
@@ -124,7 +180,11 @@ export interface QuoteSnapshot {
   commercialUserId: string | null;
 }
 
-export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
+/**
+ * v3 (2026-09-03): `task`/`truck` singulares deram lugar a `vehicles[]`, e
+ * `billingSplit` entrou — o orçamento passou a poder cobrir N veículos.
+ */
+export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 3;
 
 /**
  * Versão do RECORTE MATERIAL — versionada à parte de propósito.
@@ -153,10 +213,24 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 2;
  * regra nova derrubaria assinaturas por mudanças que, para eles, nunca foram
  * materiais.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 4;
+/**
+ * v5 (2026-09-03): o recorte material passou a levar a LISTA de veículos e o
+ * `billingSplit`, porque um orçamento passou a poder cobrir sessenta caminhões.
+ *
+ * Acrescentar um veículo à lista muda o total e muda o objeto do contrato;
+ * trocar `JOINT` por `PER_TASK` troca um plano de quatro parcelas de
+ * R$ 182.556,00 por sessenta planos de quatro parcelas de R$ 3.042,60. As duas
+ * coisas são exatamente o que o art. 431 chama de proposta nova.
+ *
+ * As versões 1–4 continuam sendo emitidas com `truck` no SINGULAR, tirado do
+ * primeiro veículo — e como todo envelope congelado sob elas pertence a um
+ * orçamento de uma tarefa só, a reprodução é byte a byte a de antes. É isso que
+ * permite reconhecer um envelope NÃO alterado depois desta mudança de recorte.
+ */
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 5;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
-export const SUPPORTED_MATERIAL_VERSIONS = [4, 3, 2, 1] as const;
+export const SUPPORTED_MATERIAL_VERSIONS = [5, 4, 3, 2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -192,8 +266,22 @@ export interface QuoteMaterialProjection {
    * a chave precisa continuar existindo naquelas versões para que o hash antigo
    * seja reproduzível, e precisa desaparecer na v3 (o canonicalizador descarta
    * `undefined`, exatamente como faz com o canal do OTP nos signatários).
+   *
+   * Só é emitido até a v4. Na v5 quem responde é `vehicles`, e esta chave
+   * desaparece — mesmo mecanismo, mesma razão.
    */
-  truck: { plate: string | null; chassisNumber?: string | null } | null;
+  truck?: { plate: string | null; chassisNumber?: string | null } | null;
+  /**
+   * A LISTA de placas, na ordem do documento — emitida só na v5.
+   *
+   * A ordem entra no recorte de propósito: ela é a ordem em que a tabela de
+   * identificação lista os veículos, e é o que faz "acrescentei o caminhão 61"
+   * sair do diff como UM veículo novo no fim, em vez de sessenta e uma linhas
+   * deslocadas.
+   */
+  vehicles?: Array<{ plate: string | null }>;
+  /** Junto ou separado — emitido só na v5. Ver `QuoteSnapshot.billingSplit`. */
+  billingSplit?: string;
   /**
    * Identidade dos signatários e o CANAL do OTP — não a grafia do nome.
    *
@@ -240,7 +328,13 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
       installments: { orderBy: { number: 'asc' } },
     },
   },
-  task: {
+  tasks: {
+    // A MESMA ordem canônica de `QUOTE_TASKS_ORDER_BY`, escrita aqui porque este
+    // objeto tem de satisfazer `Prisma.TaskQuoteInclude` literalmente. A ordem
+    // dos veículos entra no documento assinado E no hash do snapshot: deixá-la
+    // para o plano do Postgres faria o mesmo orçamento hashear diferente entre
+    // duas leituras.
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: {
       customer: true,
       truck: true,
@@ -273,9 +367,13 @@ export class QuoteSnapshotService {
    * que agora tem consequência jurídica.
    */
   build(quote: QuoteWithSnapshotGraph): QuoteSnapshot {
-    const task = quote.task ?? null;
-    const customer = task?.customer ?? null;
-    const truck = task?.truck ?? null;
+    const tasks = sortQuoteTasks(quote.tasks ?? []);
+    // A tarefa ÂNCORA só responde por cliente: o cadastro do tomador é do
+    // orçamento, não do veículo, e num orçamento de sessenta caminhões os
+    // sessenta são do mesmo cliente por construção (a tela de criação parte de um
+    // cliente só). Tudo o mais que era `task.*` virou lista.
+    const anchor = tasks[0] ?? null;
+    const customer = anchor?.customer ?? null;
     const firstConfig = quote.customerConfigs[0] ?? null;
 
     return {
@@ -294,17 +392,16 @@ export class QuoteSnapshotService {
             document: onlyDigits(customer.cnpj ?? customer.cpf ?? '') || null,
           }
         : null,
-      task: task
-        ? { id: task.id, name: task.name ?? null, serialNumber: task.serialNumber ?? null }
-        : null,
-      truck: truck
-        ? {
-            plate: truck.plate ?? null,
-            chassisNumber: truck.chassisNumber ?? null,
-            category: truck.category ?? null,
-            implementType: truck.implementType ?? null,
-          }
-        : null,
+      vehicles: tasks.map(t => ({
+        taskId: t.id,
+        taskName: t.name ?? null,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassisNumber: t.truck?.chassisNumber ?? null,
+        category: t.truck?.category ?? null,
+        implementType: t.truck?.implementType ?? null,
+      })),
+      billingSplit: (quote as any).billingSplit ?? 'JOINT',
       services: quote.services.map(s => ({
         description: s.description,
         amount: money(s.amount),
@@ -329,7 +426,14 @@ export class QuoteSnapshotService {
       layoutFileIds: quote.layoutFiles.map(f => f.id).sort(),
       // Os signatários aparecem no documento (uma linha de assinatura cada), logo
       // adicionar ou remover um responsável É alteração material.
-      signers: (task?.responsibles ?? [])
+      //
+      // UNIÃO das tarefas, deduplicada por `Responsible.id`. Na prática as
+      // sessenta tarefas de um orçamento carregam o mesmo elenco — a tela de
+      // criação replica os contatos da primeira nas demais —, mas nada no banco
+      // obriga: um contato acrescentado depois a UMA das tarefas passaria a
+      // constar do documento, e ler só a primeira o esconderia do recorte
+      // material justamente no campo que existe para pegá-lo.
+      signers: dedupeById(tasks.flatMap(t => t.responsibles ?? []))
         .map(r => ({
           responsibleId: r.id,
           name: r.name,
@@ -383,15 +487,30 @@ export class QuoteSnapshotService {
       expiresAt: s.expiresAt,
       layoutFileIds: [...s.layoutFileIds].sort(),
       customer: s.customer ? { id: s.customer.id, document: s.customer.document } : null,
-      truck: s.truck
+      // O OBJETO DO CONTRATO, na versão pedida.
+      //
+      // v5 emite a LISTA e o modo de faturamento; v1–v4 emitem `truck` no
+      // singular a partir do PRIMEIRO veículo — e como todo envelope congelado
+      // sob elas pertence a um orçamento de uma tarefa só, "o primeiro" é "o
+      // único" e o hash sai byte a byte igual ao de antes desta feature. Emitir
+      // a chave da outra versão quebraria essa reprodutibilidade, que é
+      // justamente o que permite reconhecer um envelope NÃO alterado.
+      ...(version >= 5
         ? {
-            plate: normText(s.truck.plate),
-            // Igual aos signatários: emitir a chave da OUTRA versão quebraria a
-            // reprodutibilidade do hash antigo, que é o que permite reconhecer
-            // um envelope não-alterado depois da mudança de recorte.
-            ...(version >= 3 ? {} : { chassisNumber: normText(s.truck.chassisNumber) }),
+            vehicles: snapshotVehicles(s).map(v => ({ plate: normText(v.plate) })),
+            billingSplit: s.billingSplit ?? 'JOINT',
           }
-        : null,
+        : (() => {
+            const first = snapshotVehicles(s)[0] ?? null;
+            return {
+              truck: first
+                ? {
+                    plate: normText(first.plate),
+                    ...(version >= 3 ? {} : { chassisNumber: normText(first.chassisNumber) }),
+                  }
+                : null,
+            };
+          })()),
       // O canal muda com a versão. Emitir a chave da OUTRA versão quebraria a
       // reprodutibilidade do hash antigo, que é justamente o que permite
       // reconhecer um envelope não-alterado depois da migração de canal.
@@ -549,15 +668,57 @@ export class QuoteSnapshotService {
     current: QuoteSnapshot,
     frozen: QuoteSnapshot,
   ): QuoteSnapshot {
-    if (!current.truck) return current;
-    const hadPlate = normText(frozen.truck?.plate) !== null;
+    const currentVehicles = snapshotVehicles(current);
+    if (currentVehicles.length === 0) return current;
+    const frozenVehicles = snapshotVehicles(frozen);
+
+    // PAREADO POR `taskId`, nunca por posição.
+    //
+    // Com um veículo os dois critérios coincidiam. Com sessenta, não: excluir o
+    // caminhão 12 desloca os quarenta e oito seguintes, e a comparação por
+    // posição passaria a confrontar a placa do 13 com a congelada do 12 — o que
+    // leria como "a placa mudou" em quarenta e oito veículos que ninguém tocou,
+    // e ao mesmo tempo deixaria de ver a exclusão, que é a mudança real.
+    //
+    // `taskId` é imutável e existe nos dois lados (nos snapshots v1/v2 ele vem de
+    // `task.id`, pelo normalizador). Veículo sem par no congelado é veículo NOVO:
+    // nada a tolerar nele, e o hash divergir é exatamente o que se quer.
+    const frozenByTask = new Map(frozenVehicles.map(v => [v.taskId, v]));
+
     return {
       ...current,
-      truck: {
-        ...current.truck,
-        chassisNumber: frozen.truck?.chassisNumber ?? null,
-        plate: hadPlate ? current.truck.plate : (frozen.truck?.plate ?? null),
-      },
+      vehicles: currentVehicles.map(v => {
+        const was = frozenByTask.get(v.taskId);
+        if (!was) return v;
+        const hadPlate = normText(was.plate) !== null;
+        return {
+          ...v,
+          chassisNumber: was.chassisNumber ?? null,
+          plate: hadPlate ? v.plate : (was.plate ?? null),
+        };
+      }),
+      // Um snapshot v1/v2 tolerado tem de continuar reproduzindo o hash v1–v4, e
+      // a projeção daquelas versões lê o PRIMEIRO veículo. Como ela passa por
+      // `snapshotVehicles`, que prefere `vehicles` quando existe, as duas formas
+      // já convergem — mas as chaves antigas ficam no objeto e seriam hasheadas
+      // no caminho do snapshot COMPLETO (`hash()`), que cobre tudo. Zerá-las
+      // aqui manteria a divergência; reescrevê-las a partir do veículo tolerado é
+      // o que faz as duas projeções contarem a mesma história.
+      ...(current.truck
+        ? {
+            truck: (() => {
+              const v = currentVehicles[0];
+              const was = v ? frozenByTask.get(v.taskId) : null;
+              if (!v || !was) return current.truck;
+              const hadPlate = normText(was.plate) !== null;
+              return {
+                ...current.truck,
+                chassisNumber: was.chassisNumber ?? null,
+                plate: hadPlate ? v.plate : (was.plate ?? null),
+              };
+            })(),
+          }
+        : {}),
     };
   }
 

@@ -196,11 +196,25 @@ const htmlFor = (sections: readonly QuoteSection[]): string =>
         corporateName: 'TRANSPORTES XYZ LTDA',
         customerDocumentFormatted: '12.345.678/0001-99',
         contactName: 'Ana',
-        serialNumber: '4821',
-        plate: null,
-        chassisNumber: null,
-        truckCategoryLabel: 'SEMI_TRAILER_2_AXLES',
-        truckImplementLabel: 'BAU',
+        vehicles: [
+          {
+            taskId: 'task-1',
+            serialNumber: '4821',
+            plate: null,
+            chassisNumber: null,
+            categoryLabel: 'SEMI_TRAILER_2_AXLES',
+            implementLabel: 'BAU',
+          },
+        ],
+        billing: {
+          corporateName: 'TRANSPORTES XYZ LTDA',
+          documentFormatted: '12.345.678/0001-99',
+          stateRegistration: '123.456.789',
+          municipalRegistration: '98765',
+          addressLine: 'Rua das Palmeiras, 1200',
+          addressLocality: 'Centro — Ibiporã/PR — CEP 86200-000',
+          orderNumber: '4500123456',
+        },
         services: [{ description: 'Pintura completa', amount: 48500, observation: 'com adesivo' }],
         subtotal: 48500,
         total: 46075,
@@ -226,11 +240,16 @@ const htmlFor = (sections: readonly QuoteSection[]): string =>
 
 /** Marcadores de CONTEÚDO, um por seção — nunca de estilo. */
 const MARKS: Record<QuoteSection, (html: string) => boolean> = {
-  VEHICLE: h => h.includes('no veículo'),
+  // A identificação do veículo virou TABELA (era prosa dentro do parágrafo de
+  // abertura). O marcador é a tabela, não a frase — a frase agora só a anuncia.
+  VEHICLE: h => h.includes('class="vehicle-table"'),
   SERVICES: h => /Pintura Completa|Pintura completa/.test(h),
   PRICING: h => h.includes('total-row-final'),
   DELIVERY: h => h.includes('Prazo de entrega'),
-  PAYMENT: h => h.includes('Condições de pagamento'),
+  // A seção passou a se chamar "Faturamento" e abre com o quadro do tomador. A
+  // CHAVE do enum continua `PAYMENT` de propósito: ela compõe o `variantKey` do
+  // recorte completo, escrito como literal na migração 20260901123000.
+  PAYMENT: h => h.includes('<h2 class="terms-title">Faturamento</h2>'),
   GUARANTEE: h => h.includes('Garantias'),
   LAYOUT: h => h.includes('class="layout-image"'),
 };
@@ -302,7 +321,16 @@ for (const only of TOGGLEABLE_SECTIONS) {
   const html = htmlFor(sectionsForRoles(['FINANCIAL']));
   check('o recorte do financeiro não contém a arte', !html.includes('class="layout-image"'));
   check('o recorte do financeiro traz os totais', html.includes('total-row-final'));
-  check('o recorte do financeiro traz o pagamento', html.includes('Condições de pagamento'));
+  check(
+    'o recorte do financeiro traz o faturamento',
+    html.includes('<h2 class="terms-title">Faturamento</h2>'),
+  );
+  // O QUADRO DO TOMADOR é o que a seção ganhou. Sem esta verificação, renomear a
+  // seção passaria e o quadro poderia sumir sem ninguém notar — e ele é a razão
+  // de o cliente conferir o cadastro ANTES de a NFS-e ser emitida.
+  check('o recorte do financeiro traz o quadro do tomador', html.includes('billing-table'));
+  check('o quadro do tomador traz a inscrição municipal', html.includes('98765'));
+  check('o quadro do tomador traz o endereço', html.includes('Rua das Palmeiras, 1200'));
 }
 
 // ===========================================================================
@@ -312,7 +340,7 @@ for (const only of TOGGLEABLE_SECTIONS) {
 const snapshots = new QuoteSnapshotService(null as never);
 
 const snapshotWith = (signers: QuoteSnapshot['signers']): QuoteSnapshot => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   budgetNumber: 947,
   issuedAt: '2026-08-12T12:00:00.000Z',
   expiresAt: '2026-09-12T12:00:00.000Z',
@@ -322,13 +350,18 @@ const snapshotWith = (signers: QuoteSnapshot['signers']): QuoteSnapshot => ({
     fantasyName: null,
     document: '12345678000199',
   },
-  task: { id: 'task-1', name: 'Baú', serialNumber: '4821' },
-  truck: {
-    plate: 'ABB8468',
-    chassisNumber: '9BW1',
-    category: 'SEMI_TRAILER_2_AXLES',
-    implementType: 'BAU',
-  },
+  vehicles: [
+    {
+      taskId: 'task-1',
+      taskName: 'Baú',
+      serialNumber: '4821',
+      plate: 'ABB8468',
+      chassisNumber: '9BW1',
+      category: 'SEMI_TRAILER_2_AXLES',
+      implementType: 'BAU',
+    },
+  ],
+  billingSplit: 'JOINT',
   services: [{ description: 'Pintura', amount: '48500.00', observation: null, position: 0 }],
   subtotal: '48500.00',
   total: '48500.00',
@@ -532,12 +565,17 @@ async function verifySalutation(): Promise<void> {
     layoutFiles: [],
     customerConfigs: [],
     commercialUserId: null,
-    task: {
-      serialNumber: '4821',
-      customer: { corporateName: 'TRANSPORTES XYZ LTDA', cnpj: '12345678000199' },
-      truck: { plate: 'ABB8468', chassisNumber: '9BW1', category: null, implementType: null },
-      responsibles: [responsible('r-bia', 'Beatriz'), responsible('r-ken', 'Kennedy')],
-    },
+    billingSplit: 'JOINT',
+    tasks: [
+      {
+        id: 'task-1',
+        createdAt: new Date('2026-08-12T12:00:00Z'),
+        serialNumber: '4821',
+        customer: { corporateName: 'TRANSPORTES XYZ LTDA', cnpj: '12345678000199' },
+        truck: { plate: 'ABB8468', chassisNumber: '9BW1', category: null, implementType: null },
+        responsibles: [responsible('r-bia', 'Beatriz'), responsible('r-ken', 'Kennedy')],
+      },
+    ],
   };
 
   const seed = (id: string, name: string, side: 'ANKAA' | 'CUSTOMER') => ({
@@ -592,8 +630,8 @@ async function verifySalutation(): Promise<void> {
     'EMAIL',
     sectionsForRoles(['MARKETING']),
   );
-  equal('o recorte do marketing leva o número de série', input.serialNumber, '4821');
-  equal('o recorte do marketing leva a placa', input.plate, 'ABB8468');
+  equal('o recorte do marketing leva o número de série', input.vehicles?.[0]?.serialNumber, '4821');
+  equal('o recorte do marketing leva a placa', input.vehicles?.[0]?.plate, 'ABB8468');
   equal(
     'o recorte do marketing declara só as seções dele',
     input.sections,
@@ -635,10 +673,14 @@ async function verifyLateSlotGuard(): Promise<void> {
     lateSlots: Object.fromEntries(reserved.map(k => [k, { page: 0, x: 1, y: 2 }])),
     documents: [{ lateSlots: Object.fromEntries(reserved.map(k => [k, { page: 0 }])) }],
     quote: {
-      task: {
-        serialNumber: registry.serialNumber ?? null,
-        truck: { plate: registry.plate ?? null, chassisNumber: registry.chassis ?? null },
-      },
+      tasks: [
+        {
+          id: 'task-1',
+          createdAt: new Date('2026-08-12T12:00:00Z'),
+          serialNumber: registry.serialNumber ?? null,
+          truck: { plate: registry.plate ?? null, chassisNumber: registry.chassis ?? null },
+        },
+      ],
     },
   });
 

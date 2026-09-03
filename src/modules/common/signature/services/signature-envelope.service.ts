@@ -46,6 +46,17 @@ import {
 } from './quote-snapshot.service';
 import { describeQuoteChange, type QuoteChange } from './quote-diff';
 import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
+import {
+  buildLateValueMap,
+  lateSlotKey,
+  parseLateSlotKey,
+  primaryTask,
+  quoteTasks,
+  sortQuoteTasks,
+  taskCount as countQuoteTasks,
+} from '@utils/quote-tasks';
+import { computeQuoteMoney } from '@utils/quote-money';
+import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import {
   canonicalSections,
@@ -78,6 +89,7 @@ import {
 } from '../signature.constants';
 import {
   formatCnpj,
+  formatCpf,
   formatVerificationCode,
   maskCpf,
   isCpfWellFormed,
@@ -116,6 +128,8 @@ import {
 import { sha256Hex } from '../utils/canonical';
 import { describeSignatureSecretProblems, inspectSignatureSecrets } from '../utils/secrets';
 import {
+  formatBillingLocalityLine,
+  formatBillingStreetLine,
   formatCurrencyBRL,
   generateGuaranteeText,
   generatePaymentText,
@@ -229,6 +243,18 @@ export interface SignatureDeliveryResult {
    * reapertar o botão contra uma parede que só cai amanhã.
    */
   code?: string | null;
+}
+
+/** Deduplica responsáveis por id, preservando a primeira ocorrência. */
+function dedupeResponsibles<T extends { id: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
 }
 
 @Injectable()
@@ -405,6 +431,14 @@ export class SignatureEnvelopeService {
      * depois disso ele só existe como linha da trilha de auditoria.
      */
     vehicle: { plate: string | null; chassisNumber: string | null; missing: string[] } | null;
+    /** Um por veículo do orçamento, na ordem do documento. */
+    vehicles: Array<{
+      taskId: string;
+      serialNumber: string | null;
+      plate: string | null;
+      chassisNumber: string | null;
+      missing: string[];
+    }>;
   }> {
     const settings = this.getDeliverySettings();
 
@@ -414,8 +448,12 @@ export class SignatureEnvelopeService {
         id: true,
         expiresAt: true,
         commercialUserId: true,
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
             responsibles: {
               // `roles` entra porque é delas que sai o recorte padrão de cada
               // contato — o preflight existe justamente para mostrar isso ANTES
@@ -451,7 +489,19 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const responsibles = quote.task?.responsibles ?? [];
+    // União dos responsáveis de TODAS as tarefas, deduplicada — mesma regra do
+    // snapshot. Ler só a primeira esconderia do preflight um contato
+    // acrescentado a outra tarefa do mesmo orçamento, e ele apareceria como
+    // signatário surpresa na emissão.
+    const quoteTaskRows = sortQuoteTasks(quote.tasks ?? []);
+    const seenResponsibleIds = new Set<string>();
+    const responsibles = quoteTaskRows
+      .flatMap(t => t.responsibles ?? [])
+      .filter(r => {
+        if (seenResponsibleIds.has(r.id)) return false;
+        seenResponsibleIds.add(r.id);
+        return true;
+      });
     if (responsibles.length === 0) {
       blockers.push(
         'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
@@ -530,10 +580,25 @@ export class SignatureEnvelopeService {
       };
     };
 
-    const truck = quote.task?.truck ?? null;
-    const missingVehicle: string[] = [];
-    if (!truck?.plate?.trim()) missingVehicle.push('placa');
-    if (!truck?.chassisNumber?.trim()) missingVehicle.push('chassi');
+    // UM POR VEÍCULO. O que a tela faz com isto é avisar que a placa e o chassi
+    // vão congelar como "a registrar" — e num orçamento de sessenta caminhões
+    // essa lacuna existe em graus diferentes por caminhão: alguns já chegaram
+    // emplacados, outros não. Reportar só o primeiro diria "falta a placa" num
+    // orçamento em que faltam cinquenta e nove, ou nada num em que falta uma.
+    const vehicleRows = quoteTaskRows.map(t => {
+      const missing: string[] = [];
+      if (!t.truck?.plate?.trim()) missing.push('placa');
+      if (!t.truck?.chassisNumber?.trim()) missing.push('chassi');
+      return {
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassisNumber: t.truck?.chassisNumber ?? null,
+        missing,
+      };
+    });
+    const truck = quoteTaskRows[0]?.truck ?? null;
+    const missingVehicle = vehicleRows[0]?.missing ?? [];
 
     return {
       ...settings,
@@ -552,6 +617,14 @@ export class SignatureEnvelopeService {
         WHATSAPP: statusFor('WHATSAPP'),
         EMAIL: statusFor('EMAIL'),
       },
+      vehicles: vehicleRows,
+      // ⚠️ MANTIDO DE PROPÓSITO, apontando para o PRIMEIRO veículo.
+      //
+      // O app Flutter está instalado nos aparelhos e não é atualizado no mesmo
+      // instante que a API. Uma versão anterior a esta feature lê `vehicle` e
+      // quebraria a tela de envio se o campo sumisse. Ele é redundante com
+      // `vehicles[0]` e deve sair quando não houver mais cliente antigo em
+      // circulação.
       vehicle: {
         plate: truck?.plate ?? null,
         chassisNumber: truck?.chassisNumber ?? null,
@@ -664,7 +737,14 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const responsibles = quote.task?.responsibles ?? [];
+    // UNIÃO dos responsáveis das N tarefas, deduplicada por `Responsible.id` —
+    // a mesma regra do snapshot, e tem de ser a mesma: o elenco impresso no
+    // documento e o elenco que entra no hash material precisam ser o mesmo
+    // conjunto, senão a coleta nasce com um signatário que o recorte material
+    // não protege.
+    const responsibles = dedupeResponsibles(
+      sortQuoteTasks(quote.tasks ?? []).flatMap(t => t.responsibles ?? []),
+    );
     if (responsibles.length === 0) {
       throw new BadRequestException(
         'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
@@ -796,7 +876,7 @@ export class SignatureEnvelopeService {
     };
 
     const customerCompany =
-      quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '';
+      primaryTask(quote)?.customer?.corporateName ?? primaryTask(quote)?.customer?.fantasyName ?? '';
 
     interface VariantPlan {
       sections: QuoteSection[];
@@ -1183,7 +1263,14 @@ export class SignatureEnvelopeService {
   private pendingLateSlots(env: {
     lateSlots?: unknown;
     documents?: Array<{ lateSlots?: unknown }>;
-    quote: { task?: { serialNumber?: string | null; truck?: { plate?: string | null; chassisNumber?: string | null } | null } | null };
+    quote: {
+      tasks?: Array<{
+        id: string;
+        createdAt?: Date | null;
+        serialNumber?: string | null;
+        truck?: { plate?: string | null; chassisNumber?: string | null } | null;
+      }> | null;
+    };
   }): Array<{ key: string; label: string }> {
     const reserved = new Set<string>();
     const collect = (raw: unknown) => {
@@ -1191,16 +1278,46 @@ export class SignatureEnvelopeService {
     };
     collect(env.lateSlots);
     for (const doc of env.documents ?? []) collect(doc.lateSlots);
+    if (reserved.size === 0) return [];
 
-    const registry: Record<string, string | null | undefined> = {
-      serialNumber: env.quote.task?.serialNumber,
-      plate: env.quote.task?.truck?.plate,
-      chassis: env.quote.task?.truck?.chassisNumber,
-    };
+    const tasks = sortQuoteTasks(env.quote.tasks ?? []);
+    const multi = tasks.length > 1;
+
+    // O registro responde às DUAS formas de chave — `plate#<taskId>` (envelopes
+    // desta feature em diante) e `plate` cru (os anteriores, que têm uma tarefa
+    // só). Ver `buildLateValueMap`, que produz o mesmo par pelo mesmo motivo:
+    // um envelope congelado não pode ser reescrito, então quem o lê é que se
+    // adapta.
+    const registry: Record<string, string | null | undefined> = {};
+    const labelSuffix: Record<string, string> = {};
+    tasks.forEach((t, index) => {
+      const values: Record<string, string | null | undefined> = {
+        serialNumber: t.serialNumber,
+        plate: t.truck?.plate,
+        chassis: t.truck?.chassisNumber,
+      };
+      const suffix = multi
+        ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.truck?.plate ?? t.id.slice(0, 8))}`
+        : '';
+      for (const [field, value] of Object.entries(values)) {
+        registry[lateSlotKey(field, t.id)] = value;
+        labelSuffix[lateSlotKey(field, t.id)] = suffix;
+        if (index === 0) {
+          registry[field] = value;
+          labelSuffix[field] = '';
+        }
+      }
+    });
 
     return [...reserved]
       .filter(key => !(registry[key] ?? '').trim())
-      .map(key => ({ key, label: LATE_SLOT_LABELS[key] ?? key }))
+      .map(key => {
+        const { field } = parseLateSlotKey(key);
+        return {
+          key,
+          label: `${LATE_SLOT_LABELS[field] ?? field}${labelSuffix[key] ?? ''}`,
+        };
+      })
       // Ordem estável para a mensagem e para a tela.
       .sort((a, b) => a.key.localeCompare(b.key));
   }
@@ -1344,18 +1461,35 @@ export class SignatureEnvelopeService {
           quote.services.filter(s => s.invoiceToCustomerId === segment.customerId)
         : quote.services;
 
-    const total = Number(segment ? segment.total : quote.total);
-    const subtotal = Number(segment ? segment.subtotal : quote.subtotal);
-
+    // ── DINHEIRO ──────────────────────────────────────────────────────────────
+    //
+    // O documento imprime o preço POR VEÍCULO e multiplica; `config.total` é o
+    // que a FATURA cobra, que em `JOINT` já vem multiplicado. Ler `config.total`
+    // aqui faria a lista de serviços (unitária) não fechar com o total logo
+    // abaixo dela — num orçamento de sessenta caminhões, por um fator de
+    // sessenta.
+    //
+    // Por isso a conta é refeita a partir dos serviços, com a MESMA fórmula que
+    // `recalcQuoteTotals` usa para gravar `config.total`: é o que garante que o
+    // documento assinado e o boleto fechem no centavo.
+    const vehicleTasks = sortQuoteTasks(quote.tasks ?? []);
     const discountValue = config?.discountValue != null ? Number(config.discountValue) : null;
     const discountType = config?.discountType ?? 'NONE';
-    let discountAmount = 0;
+    const money = computeQuoteMoney({
+      serviceAmounts: services.map(sv => Number(sv.amount)),
+      discountType,
+      discountValue,
+      taskCount: vehicleTasks.length,
+      billingSplit: (quote as any).billingSplit ?? 'JOINT',
+    });
+    const subtotal = money.perVehicleSubtotal;
+    const total = money.perVehicleTotal;
+    const discountAmount = money.perVehicleDiscount;
+
     let discountLabel: string | null = null;
     if (discountType === 'PERCENTAGE' && discountValue) {
-      discountAmount = Math.round(subtotal * discountValue) / 100;
       discountLabel = `${discountValue}%`;
     } else if (discountType === 'FIXED_VALUE' && discountValue) {
-      discountAmount = Math.min(discountValue, subtotal);
       discountLabel = config?.discountReference ?? null;
     }
 
@@ -1366,7 +1500,7 @@ export class SignatureEnvelopeService {
     // Quem o documento identifica como cliente: no recorte é o cliente da
     // configuração, e não o da tarefa — são diferentes justamente no faturamento
     // dividido, que é o único caso em que isto roda.
-    const customer = segment?.customer ?? quote.task?.customer ?? null;
+    const customer = segment?.customer ?? primaryTask(quote)?.customer ?? null;
 
     return {
       sections,
@@ -1393,13 +1527,22 @@ export class SignatureEnvelopeService {
       contactName:
         segment?.responsible?.name ??
         formatContactList(signers.filter(x => x.side === 'CUSTOMER').map(x => x.name)) ??
-        pickPrimaryResponsible(quote.task?.responsibles ?? [])?.name ??
+        pickPrimaryResponsible(
+          // O responsável PRINCIPAL sai da união das tarefas, não da primeira:
+          // é o mesmo conjunto que assina o documento.
+          dedupeResponsibles(vehicleTasks.flatMap(t => t.responsibles ?? [])),
+        )?.name ??
         null,
-      serialNumber: quote.task?.serialNumber ?? null,
-      plate: quote.task?.truck?.plate ?? null,
-      chassisNumber: quote.task?.truck?.chassisNumber ?? null,
-      truckCategoryLabel: quote.task?.truck?.category ?? null,
-      truckImplementLabel: quote.task?.truck?.implementType ?? null,
+      // A TABELA DE IDENTIFICAÇÃO. Uma linha por tarefa, na ordem canônica — a
+      // mesma ordem que entra no hash do snapshot.
+      vehicles: vehicleTasks.map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassisNumber: t.truck?.chassisNumber ?? null,
+        categoryLabel: t.truck?.category ?? null,
+        implementLabel: t.truck?.implementType ?? null,
+      })),
       services: services.map(s => ({
         description: s.description,
         amount: Number(s.amount),
@@ -1420,7 +1563,14 @@ export class SignatureEnvelopeService {
         customPaymentText: config?.customPaymentText ?? null,
         paymentConfig: (config?.paymentConfig as any) ?? null,
         paymentCondition: config?.paymentCondition ?? null,
-        total,
+        // `configTotal`, não `total`: a cláusula descreve o que a FATURA cobra —
+        // o total geral em `JOINT`, o total de um veículo em `PER_TASK` —
+        // enquanto `total` acima é sempre o unitário, que é o que a lista de
+        // serviços imprime. Confundir os dois faria a frase prometer parcelas de
+        // R$ 3.042,60 num boleto de R$ 182.556,00.
+        total: money.configTotal,
+        vehicleCount: money.vehicleCount,
+        perVehicleBilling: ((quote as any).billingSplit ?? 'JOINT') === 'PER_TASK',
         // Quando o faturamento já emitiu as parcelas, a cláusula cita o
         // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
         // Antes da assinatura não há parcela e cai no `specificDate`.
@@ -1429,6 +1579,26 @@ export class SignatureEnvelopeService {
           config?.installments?.[0]?.dueDate ??
           null,
       }),
+      // O QUADRO DO TOMADOR — o cadastro que a prefeitura vai exigir na NFS-e,
+      // posto no documento para o cliente conferir na aprovação. Sai do cliente
+      // do RECORTE (a configuração), não do cliente da tarefa: no faturamento
+      // dividido eles são diferentes, e é a nota do cliente da configuração que
+      // será emitida.
+      billing: customer
+        ? {
+            corporateName: customer.corporateName ?? customer.fantasyName ?? null,
+            documentFormatted: customer.cnpj
+              ? formatCnpj(customer.cnpj)
+              : customer.cpf
+                ? formatCpf(customer.cpf)
+                : null,
+            stateRegistration: (customer as any).stateRegistration ?? null,
+            municipalRegistration: (customer as any).municipalRegistration ?? null,
+            addressLine: formatBillingStreetLine(customer as any),
+            addressLocality: formatBillingLocalityLine(customer as any),
+            orderNumber: config?.orderNumber ?? null,
+          }
+        : null,
       guaranteeText: generateGuaranteeText({
         customGuaranteeText: quote.customGuaranteeText ?? null,
         guaranteeYears: quote.guaranteeYears ?? null,
@@ -1710,7 +1880,7 @@ export class SignatureEnvelopeService {
         user: {
           select: { position: { select: { name: true } }, sector: { select: { name: true } } },
         },
-        envelope: { include: { quote: { include: { task: { include: { customer: true } } } } } },
+        envelope: { include: { quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } } } },
       },
     });
     if (!signer) throw new NotFoundException('Link de assinatura inválido.');
@@ -1772,7 +1942,7 @@ export class SignatureEnvelopeService {
       documentHash: env.originalSha256,
     });
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const sections = this.sectionsOf(signer.document);
     const kind = this.ceremonyKindOf(signer.authMethod);
     const showsTotal = hasSection(sections, 'PRICING');
@@ -2308,7 +2478,7 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
     });
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const signerSections = this.sectionsOf(signer.document);
     // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
     // aquela pessoa leu, e o template pode mudar entre versões — e agora também
@@ -2609,7 +2779,7 @@ export class SignatureEnvelopeService {
             lateSlots: true,
           },
         },
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
@@ -2720,7 +2890,7 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const sections = this.sectionsOf(ankaa.document);
     const declarations = this.renderDeclarationsFor({
       kind: 'INTERNAL',
@@ -3159,7 +3329,7 @@ export class SignatureEnvelopeService {
       include: {
         envelope: {
           include: {
-            quote: { include: { task: { select: { id: true } } } },
+            quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true } } } },
             signers: { select: { orderGroup: true, authMethod: true, status: true } },
           },
         },
@@ -3169,7 +3339,7 @@ export class SignatureEnvelopeService {
     // O canal da COLETA, lido do lado do cliente: o `authMethod` da Ankaa virou
     // `INTERNAL_SESSION` e não descreve canal nenhum. Ver `noticeChannelOf`.
     const channel = this.noticeChannelOf(signer.envelope.signers);
-    const quoteUrl = this.internalQuoteUrl(signer.envelope.quote.task?.id ?? null);
+    const quoteUrl = this.internalQuoteUrl(primaryTask(signer.envelope.quote)?.id ?? null);
     const signedCount = signer.envelope.signers.filter(
       s => s.orderGroup === 0 && s.status === EnvelopeSignerStatus.SIGNED,
     ).length;
@@ -3234,7 +3404,7 @@ export class SignatureEnvelopeService {
         // de modelo inteiro — é o que a guarda de reentrância abaixo lê.)
         // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
         // que se pergunta ao cadastro o que já chegou desde a emissão.
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
         originalFile: true,
       },
     });
@@ -3357,7 +3527,7 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
     const verificationUrl = this.verificationUrl(env.verificationCode);
 
@@ -3370,11 +3540,17 @@ export class SignatureEnvelopeService {
     const events = await this.audit.getTrail(envelopeId);
     const chainTip = await this.audit.getChainTip(envelopeId);
 
-    const lateValues = {
-      serialNumber: env.quote.task?.serialNumber ?? null,
-      plate: env.quote.task?.truck?.plate ?? null,
-      chassis: env.quote.task?.truck?.chassisNumber ?? null,
-    };
+    // Os valores que carimbam as lacunas, veículo a veículo — nas duas formas de
+    // chave, para que envelopes anteriores a esta feature continuem sendo
+    // carimbados. Ver `buildLateValueMap`.
+    const lateValues = buildLateValueMap(
+      sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassis: t.truck?.chassisNumber ?? null,
+      })),
+    );
 
     const sealed: Array<{
       documentId: string | null;
@@ -4186,7 +4362,7 @@ export class SignatureEnvelopeService {
         // `truck`: a remontagem ao vivo também carimba a identidade que chegou
         // depois — o cliente que abre o link durante a coleta vê o cadastro de
         // hoje, não o de quando o documento foi congelado.
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
         originalFile: true,
         finalFile: true,
       },
@@ -4230,7 +4406,7 @@ export class SignatureEnvelopeService {
 
     const docSections = this.sectionsOf(doc);
     const filename = budgetPdfFilename(
-      env.quote.task?.customer,
+      primaryTask(env.quote)?.customer,
       env.quote.budgetNumber,
       // Sufixo só quando há mais de um recorte: o documento único da coleta comum
       // continua chegando com o nome que sempre teve.
@@ -4244,15 +4420,21 @@ export class SignatureEnvelopeService {
     }
 
     const originalPdf = readFileSync(doc.originalFile.path);
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
     const anchors = (doc.anchors ?? {}) as Record<string, unknown>;
 
-    const lateValues: Record<string, string | null> = {
-      serialNumber: env.quote.task?.serialNumber ?? null,
-      plate: env.quote.task?.truck?.plate ?? null,
-      chassis: env.quote.task?.truck?.chassisNumber ?? null,
-    };
+    // Os valores que carimbam as lacunas, veículo a veículo — nas duas formas de
+    // chave, para que envelopes anteriores a esta feature continuem sendo
+    // carimbados. Ver `buildLateValueMap`.
+    const lateValues = buildLateValueMap(
+      sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassis: t.truck?.chassisNumber ?? null,
+      })),
+    );
 
     // Só quem tem âncora NESTE pdf — a mesma regra do `finalize`, pelo mesmo
     // motivo: carimbar o selo de alguém numa folha em que ele não tem linha de
@@ -4344,7 +4526,7 @@ export class SignatureEnvelopeService {
           orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
           include: { finalFile: true },
         },
-        quote: { include: { task: { include: { customer: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Envelope não encontrado.');
@@ -4394,7 +4576,7 @@ export class SignatureEnvelopeService {
       // recorte muda a chave, e o navegador não serve a versão de antes.
       etag: `"${sha256Hex(etagParts.join('|')).slice(0, 32)}"`,
       filename: budgetPdfFilename(
-        env.quote.task?.customer,
+        primaryTask(env.quote)?.customer,
         env.quote.budgetNumber,
         '-todos-os-recortes',
       ),
@@ -4434,38 +4616,110 @@ export class SignatureEnvelopeService {
       include: {
         documents: { select: { lateSlots: true } },
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: {
+          include: {
+            tasks: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              include: { customer: true, truck: true },
+            },
+          },
+        },
       },
     });
     if (!envelope) return null;
     if (envelope.addendumFileId) return null;
 
-    const reserved = new Set<string>();
-    const collect = (raw: unknown) => {
-      if (raw && typeof raw === 'object') for (const key of Object.keys(raw)) reserved.add(key);
-    };
-    collect(envelope.lateSlots);
-    for (const doc of envelope.documents) collect(doc.lateSlots);
-    if (reserved.size === 0) return null;
+    // ═════════════════════════════════════════════════════════════════════════
+    // O QUE ADITAR SAI DO SNAPSHOT CONGELADO, NÃO DAS LACUNAS RESERVADAS
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    // Antes a lista vinha de `lateSlots` — as lacunas que o renderizador
+    // conseguiu MEDIR. Isso funcionava porque o documento tinha um veículo e a
+    // frase dele abria a primeira folha, então toda lacuna era medível.
+    //
+    // Com sessenta veículos deixa de funcionar, e falha do lado errado:
+    // `resolveLateSlots` descarta tudo que cai fora da primeira folha, e a
+    // tabela de sessenta caminhões ocupa quase três. Da linha ~35 em diante não
+    // há lacuna registrada — e o aditivo, guiado por elas, simplesmente NÃO
+    // declararia o chassi daqueles vinte e cinco caminhões. O dado existiria no
+    // cadastro, o cliente teria assinado um documento que diz "a registrar", e
+    // nada no artefato fecharia a lacuna.
+    //
+    // A pergunta certa não é "esta lacuna foi medida?" e sim "este campo estava
+    // EM BRANCO quando o cliente assinou, e está preenchido agora?". Quem
+    // responde é o snapshot congelado — que é, por definição, o que o
+    // signatário viu.
+    const frozen = envelope.quoteSnapshot as unknown as QuoteSnapshot;
+    const frozenByTask = new Map(snapshotVehicles(frozen).map(v => [v.taskId, v]));
+    const currentVehicles = sortQuoteTasks(envelope.quote.tasks ?? []);
+    const multiVehicle = currentVehicles.length > 1;
 
-    const registry: Record<string, string | null | undefined> = {
-      serialNumber: envelope.quote.task?.serialNumber,
-      plate: envelope.quote.task?.truck?.plate,
-      chassis: envelope.quote.task?.truck?.chassisNumber,
-    };
+    interface AddendumField {
+      key: string;
+      label: string;
+      value: string;
+      taskId: string;
+      truckId: string | null;
+    }
+    const pending: AddendumField[] = [];
+    for (const task of currentVehicles) {
+      const was = frozenByTask.get(task.id);
+      // Veículo que NÃO estava no documento assinado não se adita: ele é uma
+      // alteração material do orçamento, e alteração material invalida a coleta
+      // (ou marca o assinado como alterado). Aditar seria fingir que o
+      // documento sempre falou dele.
+      if (!was) continue;
+      const now: Record<string, string | null> = {
+        serialNumber: task.serialNumber ?? null,
+        plate: task.truck?.plate ?? null,
+        chassis: task.truck?.chassisNumber ?? null,
+      };
+      const before: Record<string, string | null> = {
+        serialNumber: was.serialNumber ?? null,
+        plate: was.plate ?? null,
+        chassis: was.chassisNumber ?? null,
+      };
+      for (const field of ['serialNumber', 'plate', 'chassis'] as const) {
+        const value = (now[field] ?? '').trim();
+        // Só o que estava em branco E chegou depois. Um campo que já constava do
+        // assinado não é cadastro tardio; um que continua vazio não tem o que
+        // declarar — uma folha selada dizendo "chassi: não registrado" não
+        // acrescenta nada a um documento que já diz "a registrar".
+        if (!value) continue;
+        if ((before[field] ?? '').trim()) continue;
+        pending.push({
+          key: lateSlotKey(field, task.id),
+          // Com um veículo o rótulo é o de sempre ("Chassi"); com sessenta ele
+          // precisa dizer DE QUAL — senão a folha lista vinte e cinco linhas
+          // chamadas "Chassi" e nenhuma diz a que caminhão pertence.
+          label: multiVehicle
+            ? `${LATE_SLOT_LABELS[field] ?? field} — ${
+                task.serialNumber ? `nº ${task.serialNumber}` : (task.truck?.plate ?? task.id.slice(0, 8))
+              }`
+            : (LATE_SLOT_LABELS[field] ?? field),
+          value,
+          taskId: task.id,
+          truckId: task.truck?.id ?? null,
+        });
+      }
+    }
+    if (pending.length === 0) return null;
 
-    // Só vale a pena aditar o que de fato chegou. Uma folha selada dizendo
-    // "chassi: não registrado" não acrescenta nada a um documento que já diz
-    // "a registrar" — seria cerimônia sobre uma ausência.
-    const filled = [...reserved].filter(key => (registry[key] ?? '').trim());
-    if (filled.length === 0) return null;
+    const filled = pending.map(f => f.key);
 
-    const registeredAt = await this.lateSlotRegistrationDates(
-      envelope.quote.task?.id ?? null,
-      envelope.quote.task?.truck?.id ?? null,
-    );
+    // As datas de registro saem do changelog, veículo a veículo: `updatedAt` do
+    // caminhão se move a cada toque na linha (uma troca de vaga no pátio) e
+    // dataria o chassi pelo último desses toques.
+    const registeredAtByTask = new Map<string, Record<string, Date | null>>();
+    for (const task of currentVehicles) {
+      if (!pending.some(f => f.taskId === task.id)) continue;
+      registeredAtByTask.set(
+        task.id,
+        await this.lateSlotRegistrationDates(task.id, task.truck?.id ?? null),
+      );
+    }
 
-    const customer = envelope.quote.task?.customer ?? null;
+    const customer = currentVehicles[0]?.customer ?? null;
     const addendumPdf = await this.assembler.buildVehicleAddendum({
       budgetNumber: envelope.quote.budgetNumber,
       verificationCode: envelope.verificationCode,
@@ -4480,13 +4734,15 @@ export class SignatureEnvelopeService {
           cargo: sig.informedCargo,
           signedAt: sig.signedAt,
         })),
-      fields: [...reserved]
-        .sort()
-        .map(key => ({
-          label: LATE_SLOT_LABELS[key] ?? key,
-          value: (registry[key] ?? '').trim() || null,
-          registeredAt: registeredAt[key] ?? null,
-        })),
+      // Na ordem dos VEÍCULOS (a do documento), e dentro de cada um na ordem
+      // série → placa → chassi. Ordenar por chave alfabética espalharia os três
+      // campos do mesmo caminhão por toda a folha.
+      fields: pending.map(f => ({
+        label: f.label,
+        value: f.value,
+        registeredAt:
+          registeredAtByTask.get(f.taskId)?.[parseLateSlotKey(f.key).field] ?? null,
+      })),
     });
 
     // ---- Selo PAdES ----
@@ -4566,7 +4822,7 @@ export class SignatureEnvelopeService {
         quote: {
           select: {
             budgetNumber: true,
-            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
           },
         },
       },
@@ -4581,7 +4837,7 @@ export class SignatureEnvelopeService {
     return {
       pdf: readFileSync(env.addendumFile.path),
       filename: budgetPdfFilename(
-        env.quote.task?.customer,
+        primaryTask(env.quote)?.customer,
         env.quote.budgetNumber,
         '-aditivo',
       ),
@@ -4670,7 +4926,7 @@ export class SignatureEnvelopeService {
             sealedAt: true,
           },
         },
-        quote: { include: { task: { include: { customer: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Código de verificação não encontrado.');
@@ -4683,7 +4939,7 @@ export class SignatureEnvelopeService {
     });
 
     const chain = await this.audit.verifyChain(env.id);
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
 
     return {
       verificationCode: env.verificationCode,
@@ -4798,7 +5054,7 @@ export class SignatureEnvelopeService {
         },
         quote: {
           select: {
-            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
           },
         },
       },
@@ -4807,7 +5063,7 @@ export class SignatureEnvelopeService {
 
     // A linha "empresa" do selo: razão social do cliente do lado CUSTOMER, a
     // Ankaa do lado ANKAA. Idêntico ao que `renderServedDocument` monta.
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const customerLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
 
     const changes = (await this.changesSinceFrozen(quoteId, [env])).get(env.id) ?? [];
@@ -4924,7 +5180,7 @@ export class SignatureEnvelopeService {
         where: { id: quoteId },
         select: {
           budgetNumber: true,
-          task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
         },
       });
       // ETag sobre os bytes servidos: a renderização é feita a partir dos dados
@@ -4932,7 +5188,7 @@ export class SignatureEnvelopeService {
       return {
         pdf,
         etag: `"${sha256Hex(pdf).slice(0, 32)}"`,
-        filename: budgetPdfFilename(quote?.task?.customer, quote?.budgetNumber),
+        filename: budgetPdfFilename(primaryTask(quote)?.customer, quote?.budgetNumber),
       };
     }
     return this.renderServedDocument(env.id);
@@ -4970,8 +5226,8 @@ export class SignatureEnvelopeService {
     // fatia. Manter o cliente da tarefa poria o nome do outro pagador embaixo da
     // assinatura de um documento que não é dele.
     const signatureSubtitle =
-      (segment?.customer ?? quote.task?.customer)?.corporateName ??
-      (segment?.customer ?? quote.task?.customer)?.fantasyName ??
+      (segment?.customer ?? primaryTask(quote)?.customer)?.corporateName ??
+      (segment?.customer ?? primaryTask(quote)?.customer)?.fantasyName ??
       '';
 
     // No recorte, quem assina pelo cliente é o contato DAQUELA configuração —
@@ -4980,7 +5236,9 @@ export class SignatureEnvelopeService {
     // um responsável só, o do cliente principal). Sem contato na configuração,
     // segue a regra de sempre.
     const responsibles =
-      segment?.responsible != null ? [segment.responsible] : (quote.task?.responsibles ?? []);
+      segment?.responsible != null
+        ? [segment.responsible]
+        : dedupeResponsibles(quoteTasks(quote as any).flatMap((t: any) => t.responsibles ?? []));
     const seeds: Array<{
       id: string;
       name: string;
@@ -5059,8 +5317,11 @@ export class SignatureEnvelopeService {
     const vehicle = await this.prisma.taskQuote.findUnique({
       where: { id: quoteId },
       select: {
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
+            id: true,
+            createdAt: true,
             serialNumber: true,
             truck: { select: { plate: true, chassisNumber: true } },
           },
@@ -5285,7 +5546,7 @@ export class SignatureEnvelopeService {
       include: {
         envelope: {
           include: {
-            quote: { include: { task: { select: { id: true } } } },
+            quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true } } } },
             signers: { select: { orderGroup: true, authMethod: true, status: true } },
           },
         },
@@ -5421,7 +5682,14 @@ export class SignatureEnvelopeService {
    * descartado e nunca pode ser recomputado.
    */
   private async persistPdf(
-    quote: { budgetNumber: number; task?: { customer?: { fantasyName?: string } | null } | null },
+    quote: {
+      budgetNumber: number;
+      tasks?: Array<{
+        id: string;
+        createdAt?: Date | null;
+        customer?: { fantasyName?: string } | null;
+      }> | null;
+    },
     pdf: Buffer,
     /**
      * Rótulo do arquivo no disco. Aceita sufixo de RECORTE
@@ -5445,7 +5713,7 @@ export class SignatureEnvelopeService {
     // diretório com a permissão certa e devolve caminho ABSOLUTO — `FILES_ROOT` é
     // `./files` em dev, e um caminho relativo ao cwd estourava ENOENT em qualquer
     // processo iniciado de outro diretório (cron, script, worker).
-    const customerName = quote.task?.customer?.fantasyName ?? 'Sem Cliente';
+    const customerName = primaryTask(quote)?.customer?.fantasyName ?? 'Sem Cliente';
     const baseName =
       kind === 'dossie'
         ? `dossie_${quote.budgetNumber}_${verificationCode}.pdf`

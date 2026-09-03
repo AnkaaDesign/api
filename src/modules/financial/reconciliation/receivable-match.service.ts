@@ -142,7 +142,8 @@ const onlyDigits = (v: string | null | undefined): string => (v || '').replace(/
  * memo/counterparty fallback, so a row imported before the parser learned the
  * pattern is still recognised.
  */
-const COLLECTION_MEMO_RE = /LIQ[\s.\-]*COBRAN|COBRAN[C\u00c7]A\s+SIMPLES|LIQUIDACAO[\s.\-]*(DE\s+)?COBRAN/i;
+const COLLECTION_MEMO_RE =
+  /LIQ[\s.\-]*COBRAN|COBRAN[C\u00c7]A\s+SIMPLES|LIQUIDACAO[\s.\-]*(DE\s+)?COBRAN/i;
 
 const isCollectionCredit = (tx: {
   subtype?: string | null;
@@ -409,8 +410,20 @@ export class ReceivableMatchService {
     }>;
   }> {
     const credits = await this.prisma.bankTransaction.findMany({
-      where: { type: 'CREDIT', reconciliationStatus: ReconciliationStatus.PENDING, bankSlipId: null, ...extra },
-      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true },
+      where: {
+        type: 'CREDIT',
+        reconciliationStatus: ReconciliationStatus.PENDING,
+        bankSlipId: null,
+        ...extra,
+      },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyName: true,
+        counterpartyCnpjCpf: true,
+      },
       orderBy: { amount: 'desc' },
     });
     const index = await this.buildCustomerIdentityIndex();
@@ -456,7 +469,8 @@ export class ReceivableMatchService {
             report.wouldAutoMatch.count += 1;
             report.wouldAutoMatch.value += amount;
             report.wouldAutoMatch.byVia[resolved.via] += 1;
-            report.wouldAutoMatch.byKind[plan.kind] = (report.wouldAutoMatch.byKind[plan.kind] ?? 0) + 1;
+            report.wouldAutoMatch.byKind[plan.kind] =
+              (report.wouldAutoMatch.byKind[plan.kind] ?? 0) + 1;
           } else {
             report.suggestion.count += 1;
             report.suggestion.value += amount;
@@ -471,7 +485,14 @@ export class ReceivableMatchService {
       }
 
       if (report.samples.length < 30) {
-        report.samples.push({ amount, counterparty: tx.counterpartyName, via, auto, kind, installments });
+        report.samples.push({
+          amount,
+          counterparty: tx.counterpartyName,
+          via,
+          auto,
+          kind,
+          installments,
+        });
       }
     }
 
@@ -496,7 +517,13 @@ export class ReceivableMatchService {
       confidence: number;
       kind: string;
       totalAmount: number;
-      allocations: Array<{ installmentId: string; amount: number; linkOnly: boolean; number: number; dueDate: Date }>;
+      allocations: Array<{
+        installmentId: string;
+        amount: number;
+        linkOnly: boolean;
+        number: number;
+        dueDate: Date;
+      }>;
     } | null;
   }> {
     const tx = await this.prisma.bankTransaction.findUnique({
@@ -566,19 +593,32 @@ export class ReceivableMatchService {
   async confirmReceivableSuggestion(transactionId: string, userId?: string) {
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: transactionId },
-      select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true, counterpartyCnpjCpf: true, reconciliationStatus: true },
+      select: {
+        id: true,
+        postedAt: true,
+        amount: true,
+        type: true,
+        counterpartyName: true,
+        counterpartyCnpjCpf: true,
+        reconciliationStatus: true,
+      },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada.');
-    if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+    if (tx.type !== 'CREDIT')
+      throw new BadRequestException('Conciliação de entrada requer um crédito.');
     if (tx.reconciliationStatus !== ReconciliationStatus.PENDING) {
       throw new BadRequestException('Esta transação já foi conciliada.');
     }
 
     const index = await this.buildCustomerIdentityIndex();
     const resolved = this.resolveCustomer(tx, index);
-    if (!resolved) throw new BadRequestException('Nenhum cliente pôde ser identificado para esta entrada.');
+    if (!resolved)
+      throw new BadRequestException('Nenhum cliente pôde ser identificado para esta entrada.');
     const plan = await this.planCustomerMatch(tx, resolved.customerId, resolved.via);
-    if (!plan) throw new BadRequestException('Nenhuma combinação de parcelas corresponde ao valor recebido.');
+    if (!plan)
+      throw new BadRequestException(
+        'Nenhuma combinação de parcelas corresponde ao valor recebido.',
+      );
 
     await this.applyReceivableAllocation(tx, plan.allocations, ReconciliationSource.MANUAL, userId);
     await this.learnCustomerDocument(resolved.customerId, tx.counterpartyCnpjCpf);
@@ -736,7 +776,13 @@ export class ReceivableMatchService {
       (!runnerUp || best.confidence - runnerUp.confidence >= AUTO_RUNNER_UP_GAP);
 
     if (isUnique || clearWinner) {
-      await this.settleInstallment(tx, best.id, ReconciliationSource.AUTO, undefined, best.confidence);
+      await this.settleInstallment(
+        tx,
+        best.id,
+        ReconciliationSource.AUTO,
+        undefined,
+        best.confidence,
+      );
       this.logger.log(
         `Inflow tx ${tx.id} value-matched to installment ${best.id} (conf ${best.confidence}${isUnique ? ', unique' : ''})`,
       );
@@ -876,7 +922,10 @@ export class ReceivableMatchService {
     let bestSim = 0;
     let secondSim = 0;
     for (const c of index.customers) {
-      const sim = Math.max(nameSimilarity(name, c.fantasyName), nameSimilarity(name, c.corporateName));
+      const sim = Math.max(
+        nameSimilarity(name, c.fantasyName),
+        nameSimilarity(name, c.corporateName),
+      );
       if (sim > bestSim) {
         secondSim = bestSim;
         bestSim = sim;
@@ -942,7 +991,11 @@ export class ReceivableMatchService {
     const paidUpper = new Date(postedAt.getTime() + PAID_LINK_WINDOW_DAYS * 86_400_000);
 
     const statusOr: Prisma.InstallmentWhereInput[] = [
-      { status: { in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
+      {
+        status: {
+          in: OPEN_INSTALLMENT_STATUSES as unknown as Prisma.EnumInstallmentStatusFilter['in'],
+        },
+      },
     ];
     if (this.linkPaidEnabled) {
       statusOr.push({ status: 'PAID', paidAt: { gte: paidLower, lte: paidUpper } });
@@ -1066,9 +1119,7 @@ export class ReceivableMatchService {
     // among many — with several near-identical parcelas (the common shape: six
     // 7.502,00 fees on one customer) "first found" and "best fit" are routinely
     // different sets.
-    const usable = items
-      .map(i => ({ i, c: Math.round(attr(i) * 100) }))
-      .filter(x => x.c > 0);
+    const usable = items.map(i => ({ i, c: Math.round(attr(i) * 100) })).filter(x => x.c > 0);
     if (usable.length < 2) return null;
 
     const targetC = Math.round(target * 100);
@@ -1331,9 +1382,7 @@ export class ReceivableMatchService {
             allocatedAmount: slips.length === 1 ? abs : new Decimal(s.amount),
             matchType: ReconciliationMatchType.BANK_SLIP_BRIDGE,
             confidenceScore: slips.length === 1 ? 98 : 90,
-            notes:
-              `Conciliação ${kind} boleto ${s.nossoNumero}` +
-              (cob ? ` (lote ${cob})` : ''),
+            notes: `Conciliação ${kind} boleto ${s.nossoNumero}` + (cob ? ` (lote ${cob})` : ''),
           },
         });
       }
@@ -1490,8 +1539,7 @@ export class ReceivableMatchService {
       for (const invoiceId of invoiceIds) await this.recalcInvoice(db, invoiceId);
 
       const allocatedTotal = Number((spent + written).toFixed(2));
-      const fullyAllocated =
-        Math.abs(allocatedTotal - creditAbs) <= aggregateTolerance(creditAbs);
+      const fullyAllocated = Math.abs(allocatedTotal - creditAbs) <= aggregateTolerance(creditAbs);
       await db.bankTransaction.update({
         where: { id: tx.id },
         data: {
@@ -1534,7 +1582,9 @@ export class ReceivableMatchService {
 
     try {
       await this.prisma.customer.update({ where: { id: customerId }, data: { [field]: doc } });
-      this.logger.log(`Learned ${field} ${doc} for customer ${customerId} from a reconciled credit`);
+      this.logger.log(
+        `Learned ${field} ${doc} for customer ${customerId} from a reconciled credit`,
+      );
     } catch (err) {
       this.logger.debug(`Skipped ${field} backfill for customer ${customerId}: ${err}`);
     }
@@ -1547,7 +1597,12 @@ export class ReceivableMatchService {
    * UI (so the panel never shows a score the auto path silently can't act on).
    */
   private async findScoredCandidates(
-    tx: { postedAt: Date; amount: Prisma.Decimal | number; counterpartyName?: string | null; counterpartyCnpjCpf?: string | null },
+    tx: {
+      postedAt: Date;
+      amount: Prisma.Decimal | number;
+      counterpartyName?: string | null;
+      counterpartyCnpjCpf?: string | null;
+    },
     opts: {
       exactValueOnly: boolean;
       windowDays?: number;
@@ -1625,7 +1680,11 @@ export class ReceivableMatchService {
           AND: [
             {
               OR: [
-                { status: { in: openStatuses as unknown as Prisma.EnumInstallmentStatusFilter['in'] } },
+                {
+                  status: {
+                    in: openStatuses as unknown as Prisma.EnumInstallmentStatusFilter['in'],
+                  },
+                },
                 ...(this.linkPaidEnabled
                   ? [
                       {
@@ -1674,10 +1733,21 @@ export class ReceivableMatchService {
         customerConfig: {
           select: {
             customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
-            quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+            quote: {
+              select: {
+                tasks: {
+                  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                  select: { id: true, name: true, serialNumber: true },
+                },
+              },
+            },
           },
         },
-        externalOperation: { select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } } },
+        externalOperation: {
+          select: {
+            customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+          },
+        },
       },
       orderBy: { dueDate: 'asc' },
       // The cap is a pre-score cut ordered by dueDate, so anything past it is
@@ -1691,7 +1761,10 @@ export class ReceivableMatchService {
     return installments
       .map(inst => {
         const customer =
-          inst.invoice?.customer ?? inst.customerConfig?.customer ?? inst.externalOperation?.customer ?? null;
+          inst.invoice?.customer ??
+          inst.customerConfig?.customer ??
+          inst.externalOperation?.customer ??
+          null;
         const amount = Number(inst.amount);
         const paidAmount = Number(inst.paidAmount ?? 0);
         const remaining = Math.max(0, amount - paidAmount);
@@ -1699,7 +1772,7 @@ export class ReceivableMatchService {
         const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
         // Task-quote context: prefer the invoice's task, else the customerConfig's
         // quote task (TASK_QUOTE receivables without a materialized invoice).
-        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.task ?? null;
+        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.tasks?.[0] ?? null;
         // Score against the outstanding balance so a partially-paid installment
         // surfaced in the manual path scores on what the credit can still settle.
         const confidence = this.scoreCandidate({
@@ -1757,7 +1830,8 @@ export class ReceivableMatchService {
 
     // Date proximity (max 20).
     const days = Math.abs(p.instDueDate.getTime() - p.txPostedAt.getTime()) / 86_400_000;
-    const date = days <= 2 ? 20 : days <= 5 ? 16 : days <= 10 ? 12 : days <= 20 ? 8 : days <= 40 ? 4 : 1;
+    const date =
+      days <= 2 ? 20 : days <= 5 ? 16 : days <= 10 ? 12 : days <= 20 ? 8 : days <= 40 ? 4 : 1;
 
     // Counterparty CNPJ/CPF (max 25) — exact identity is the strongest signal.
     const cnpj = p.txCnpj && p.custCnpj && p.txCnpj === p.custCnpj ? 25 : 0;
@@ -1792,7 +1866,8 @@ export class ReceivableMatchService {
       },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada.');
-    if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+    if (tx.type !== 'CREDIT')
+      throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
     // A collection credit (LIQ.COBRANCA lote) can only be composed of boletos —
     // see `isCollectionCredit`. That rules out the OPEN parcelas of the direct
@@ -1956,19 +2031,34 @@ export class ReceivableMatchService {
               select: {
                 taskId: true,
                 totalAmount: true,
-                customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
+                customer: {
+                  select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
+                },
                 task: { select: { id: true, name: true, serialNumber: true } },
                 _count: { select: { installments: true } },
               },
             },
             customerConfig: {
               select: {
-                customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
-                quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+                customer: {
+                  select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
+                },
+                quote: {
+                  select: {
+                    tasks: {
+                      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                      select: { id: true, name: true, serialNumber: true },
+                    },
+                  },
+                },
               },
             },
             externalOperation: {
-              select: { customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } } },
+              select: {
+                customer: {
+                  select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
+                },
+              },
             },
           },
         },
@@ -1981,8 +2071,11 @@ export class ReceivableMatchService {
       .map(s => {
         const inst = s.installment!;
         const customer =
-          inst.invoice?.customer ?? inst.customerConfig?.customer ?? inst.externalOperation?.customer ?? null;
-        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.task ?? null;
+          inst.invoice?.customer ??
+          inst.customerConfig?.customer ??
+          inst.externalOperation?.customer ??
+          null;
+        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.tasks?.[0] ?? null;
         const paid = Number(s.paidAmount ?? inst.amount);
         const confidence = this.scoreCandidate({
           txAbs: abs,
@@ -2024,7 +2117,8 @@ export class ReceivableMatchService {
       select: { id: true, postedAt: true, amount: true, type: true, counterpartyName: true },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada.');
-    if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+    if (tx.type !== 'CREDIT')
+      throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
     const installment = await this.prisma.installment.findUnique({
       where: { id: installmentId },
@@ -2032,7 +2126,9 @@ export class ReceivableMatchService {
         id: true,
         status: true,
         reconciliationMatches: { where: { reversedAt: null }, select: { id: true } },
-        bankSlip: { select: { id: true, status: true, transactions: { select: { id: true }, take: 1 } } },
+        bankSlip: {
+          select: { id: true, status: true, transactions: { select: { id: true }, take: 1 } },
+        },
       },
     });
     if (!installment) throw new NotFoundException('Parcela a receber não encontrada.');
@@ -2140,7 +2236,8 @@ export class ReceivableMatchService {
       select: { id: true, postedAt: true, amount: true, type: true },
     });
     if (!tx) throw new NotFoundException('Transação não encontrada.');
-    if (tx.type !== 'CREDIT') throw new BadRequestException('Conciliação de entrada requer um crédito.');
+    if (tx.type !== 'CREDIT')
+      throw new BadRequestException('Conciliação de entrada requer um crédito.');
 
     const creditAbs = new Decimal(Math.abs(Number(tx.amount)));
     const totalAlloc = allocations.reduce((s, a) => s.add(new Decimal(a.amount)), new Decimal(0));
@@ -2182,7 +2279,8 @@ export class ReceivableMatchService {
       const ceiling = linkOnly
         ? new Decimal(inst.amount)
         : new Decimal(inst.amount).sub(inst.paidAmount ?? new Decimal(0));
-      if (new Decimal(a.amount).lte(0)) throw new BadRequestException('Cada alocação deve ser positiva.');
+      if (new Decimal(a.amount).lte(0))
+        throw new BadRequestException('Cada alocação deve ser positiva.');
       if (new Decimal(a.amount).gt(ceiling.add(AMOUNT_TOLERANCE))) {
         throw new BadRequestException(
           linkOnly
@@ -2229,7 +2327,9 @@ export class ReceivableMatchService {
       await db.bankTransaction.update({
         where: { id: tx.id },
         data: {
-          reconciliationStatus: fullyAllocated ? ReconciliationStatus.RECONCILED : ReconciliationStatus.PARTIAL,
+          reconciliationStatus: fullyAllocated
+            ? ReconciliationStatus.RECONCILED
+            : ReconciliationStatus.PARTIAL,
           reconciliationSource: ReconciliationSource.MANUAL,
           topMatchScore: null,
         },
@@ -2389,7 +2489,10 @@ export class ReceivableMatchService {
           transactionId: tx.id,
           installmentId,
           allocatedAmount: abs,
-          matchType: source === ReconciliationSource.MANUAL ? ReconciliationMatchType.MANUAL : ReconciliationMatchType.VALUE_DATE,
+          matchType:
+            source === ReconciliationSource.MANUAL
+              ? ReconciliationMatchType.MANUAL
+              : ReconciliationMatchType.VALUE_DATE,
           confidenceScore: source === ReconciliationSource.MANUAL ? 100 : (confidence ?? 95),
           matchedByUserId: userId ?? null,
         },
@@ -2482,7 +2585,8 @@ export class ReceivableMatchService {
       // No configs at all is not a mint signature — it is a degenerate quote that
       // predates this feature. Leave it alone.
       if (configs.length === 0) continue;
-      if (!configs.every(c => c.generateInvoice === false && c.generateBankSlip === false)) continue;
+      if (!configs.every(c => c.generateInvoice === false && c.generateBankSlip === false))
+        continue;
 
       const configIds = configs.map(c => c.id);
       const stillHoldsMoney = await db.installment.count({

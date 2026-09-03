@@ -503,9 +503,14 @@ export const RULE_QUERIES: RuleQuery[] = [
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
     where: (): Prisma.TaskQuoteWhereInput => ({
-      // Task.quoteId is @unique, so this is a to-one relation filter; it also implicitly requires
-      // the task to exist, which is what we want (a quote with no task bills nothing).
-      task: { status: TaskStatus.COMPLETED },
+      // `Task.quoteId` DEIXOU DE SER @unique: um orçamento cobre N veículos, e o
+      // filtro passou de to-one para `some`. A semântica muda de propósito —
+      // "algum veículo já está pronto" é o gatilho certo: num orçamento de
+      // sessenta caminhões o dinheiro já está parado quando o primeiro sai, e
+      // esperar os sessenta esconderia o problema por meses. `some` também
+      // continua exigindo que exista tarefa, que é o que se quer (orçamento sem
+      // tarefa não fatura nada).
+      tasks: { some: { status: TaskStatus.COMPLETED } },
       ...NOT_YET_INVOICED,
       customerConfigs: { some: IBIPORA_MISSING_ORDER_NUMBER },
     }),
@@ -519,7 +524,7 @@ export const RULE_QUERIES: RuleQuery[] = [
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
     where: (): Prisma.TaskQuoteWhereInput => ({
-      task: { status: TaskStatus.COMPLETED },
+      tasks: { some: { status: TaskStatus.COMPLETED } },
       status: TaskQuoteStatus.BUDGET_APPROVED,
       customerConfigs: {
         some: { generateInvoice: true, customer: CUSTOMER_MISSING_BILLING_DATA },

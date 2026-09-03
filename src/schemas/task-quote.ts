@@ -408,8 +408,7 @@ const taskQuoteTransform = (data: any) => {
     // stripped digits ("13.636" and "13636" both hit)
     const searchDigits = rawTerm.replace(/\D/g, '');
     if (searchDigits.length > 0) {
-      const documentTerms =
-        searchDigits === term ? [searchDigits] : [term, searchDigits];
+      const documentTerms = searchDigits === term ? [searchDigits] : [term, searchDigits];
       for (const documentTerm of documentTerms) {
         searchConditions.push(
           { task: { customer: { cnpjNormalized: { contains: documentTerm } } } },
@@ -530,55 +529,71 @@ export const paymentConfigSchema = z.object({
   installmentCount: z.number().int().min(2).max(6).optional(),
   installmentStep: z.number().int().min(1).max(365).optional(),
   entryDays: z.number().int().min(1).max(365).optional(),
-  specificDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  specificDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
-export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
-  customerId: z.string().uuid('ID de cliente invalido'),
-  // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
-  // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
-  // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
-  // silently defeats the "absence = preserve" contract that
-  // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
-  // orderings are one token apart with opposite semantics and no type-level signal,
-  // so keep them all in this form. Real columns already carry @default in Prisma.
-  subtotal: moneySchema.default(0).optional(),
-  total: moneySchema.default(0).optional(),
-  // Global customer discount
-  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
-  discountValue: moneySchema.nullable().optional(),
-  discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
-  // Payment condition — legacy string enum (deprecated, use paymentConfig instead)
-  paymentCondition: paymentConditionSchema.optional().nullable(),
-  // Structured payment config (replaces paymentCondition for new billing flow)
-  paymentConfig: paymentConfigSchema.optional().nullable(),
-  customPaymentText: z.string().max(2000).optional().nullable(),
-  // Must stay `.default().optional()` — see the ordering note above. With the
-  // reverse order an update that omits these silently reset BOTH to true,
-  // re-enabling NFS-e emission and boleto registration for a customer configured
-  // not to receive them.
-  generateInvoice: z.boolean().default(true).optional(),
-  generateBankSlip: z.boolean().default(true).optional(),
-  orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
-  responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
-  // Direct installments (alternative to paymentCondition-based generation)
-  installments: z.array(installmentInputSchema).optional(),
-}).superRefine((data, ctx) => {
-  // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
-  // silently clamps the computed total to 0 (a free quote). FIXED_VALUE keeps its
-  // own non-negative bound from moneySchema and has no upper limit.
-  if (
-    data.discountType === DISCOUNT_TYPE.PERCENTAGE &&
-    data.discountValue != null &&
-    (data.discountValue < 0 || data.discountValue > 100)
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['discountValue'],
-      message: 'Desconto em porcentagem deve estar entre 0 e 100.',
-    });
-  }
-});
+export const taskQuoteCustomerConfigCreateNestedSchema = z
+  .object({
+    customerId: z.string().uuid('ID de cliente invalido'),
+    /**
+     * A TAREFA que esta configuração fatura, ou ausente/nulo para "todas".
+     *
+     * Normalmente o cliente NÃO manda isto: quem deriva as configurações a partir
+     * de `billingSplit` + as tarefas do orçamento é o servidor
+     * (`expectedConfigTaskIds`), justamente para que a tela não precise montar
+     * sessenta objetos idênticos a cada gravação. O campo existe para o caminho em
+     * que a tela edita UMA fatia — mudar a condição de pagamento só do caminhão
+     * 37, por exemplo.
+     */
+    taskId: z.string().uuid('Tarefa invalida').optional().nullable(),
+    // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
+    // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
+    // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
+    // silently defeats the "absence = preserve" contract that
+    // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
+    // orderings are one token apart with opposite semantics and no type-level signal,
+    // so keep them all in this form. Real columns already carry @default in Prisma.
+    subtotal: moneySchema.default(0).optional(),
+    total: moneySchema.default(0).optional(),
+    // Global customer discount
+    discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
+    discountValue: moneySchema.nullable().optional(),
+    discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
+    // Payment condition — legacy string enum (deprecated, use paymentConfig instead)
+    paymentCondition: paymentConditionSchema.optional().nullable(),
+    // Structured payment config (replaces paymentCondition for new billing flow)
+    paymentConfig: paymentConfigSchema.optional().nullable(),
+    customPaymentText: z.string().max(2000).optional().nullable(),
+    // Must stay `.default().optional()` — see the ordering note above. With the
+    // reverse order an update that omits these silently reset BOTH to true,
+    // re-enabling NFS-e emission and boleto registration for a customer configured
+    // not to receive them.
+    generateInvoice: z.boolean().default(true).optional(),
+    generateBankSlip: z.boolean().default(true).optional(),
+    orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
+    responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
+    // Direct installments (alternative to paymentCondition-based generation)
+    installments: z.array(installmentInputSchema).optional(),
+  })
+  .superRefine((data, ctx) => {
+    // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
+    // silently clamps the computed total to 0 (a free quote). FIXED_VALUE keeps its
+    // own non-negative bound from moneySchema and has no upper limit.
+    if (
+      data.discountType === DISCOUNT_TYPE.PERCENTAGE &&
+      data.discountValue != null &&
+      (data.discountValue < 0 || data.discountValue > 100)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['discountValue'],
+        message: 'Desconto em porcentagem deve estar entre 0 e 100.',
+      });
+    }
+  });
 
 // Simultaneous tasks schema
 export const simultaneousTasksSchema = z
@@ -645,35 +660,94 @@ export const taskQuoteCreateNestedSchema = z.object({
 });
 
 // =====================
+// Junto ou separado
+// =====================
+
+/**
+ * Como o cliente paga um orçamento que cobre mais de um veículo.
+ *
+ * `JOINT` (padrão) é o comportamento de sempre: uma configuração de faturamento
+ * por cliente, uma fatura, um plano de parcelas, uma NFS-e. Num orçamento de uma
+ * tarefa só, indistinguível do que existia antes desta feature.
+ *
+ * `PER_TASK` fatia por veículo: uma configuração por (cliente × tarefa), e o
+ * financeiro aprova veículo a veículo.
+ */
+export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK']);
+
+// =====================
 // CRUD Schemas - TaskQuote
 // =====================
 
-export const taskQuoteCreateSchema = z.object({
-  subtotal: moneySchema,
-  total: moneySchema,
-  expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
-  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
-  taskId: z.string().uuid('Tarefa invalida'),
-  services: z
-    .array(taskQuoteServiceCreateNestedSchema)
-    .min(1, 'Pelo menos um servico e obrigatorio')
-    .optional(),
+export const taskQuoteCreateSchema = z
+  .object({
+    subtotal: moneySchema,
+    total: moneySchema,
+    expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
+    status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
+    /**
+     * A TAREFA do orçamento — forma antiga, de UMA tarefa.
+     *
+     * Mantida e ainda aceita: o app Flutter instalado nos aparelhos envia este
+     * campo, e ele não é atualizado no mesmo instante que a API. Quando `taskIds`
+     * vem, ele é ignorado; quando não vem, `taskIds = [taskId]`.
+     */
+    taskId: z.string().uuid('Tarefa invalida').optional(),
+    /**
+     * AS TAREFAS do orçamento — uma por veículo.
+     *
+     * A tela de criação já produzia N tarefas do produto cartesiano de placas ×
+     * números de série; o que mudou é que agora elas compartilham UM orçamento em
+     * vez de gerar um por tarefa. Dois números de série ⇒ um orçamento para os
+     * dois; um número de série ⇒ uma tarefa, como sempre.
+     */
+    taskIds: z
+      .array(z.string().uuid('Tarefa invalida'))
+      .min(1, 'Pelo menos uma tarefa e obrigatoria')
+      .max(200, 'Maximo de 200 tarefas por orcamento')
+      .optional(),
+    billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
+    services: z
+      .array(taskQuoteServiceCreateNestedSchema)
+      .min(1, 'Pelo menos um servico e obrigatorio')
+      .optional(),
 
-  // Guarantee Terms
-  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
-  customGuaranteeText: z.string().max(2000).optional().nullable(),
+    // Guarantee Terms
+    guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+    customGuaranteeText: z.string().max(2000).optional().nullable(),
 
-  // Custom Forecast - manual override for production days displayed in budget (1-30 days)
-  customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
+    // Custom Forecast - manual override for production days displayed in budget (1-30 days)
+    customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-  // Layout Files (max 2, ordered File ids)
-  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
+    // Layout Files (max 2, ordered File ids)
+    layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
-  simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z
-    .array(taskQuoteCustomerConfigCreateNestedSchema)
-    .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
-});
+    simultaneousTasks: simultaneousTasksSchema,
+    customerConfigs: z
+      .array(taskQuoteCustomerConfigCreateNestedSchema)
+      .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
+  })
+  .superRefine((data, ctx) => {
+    // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
+    // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
+    // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
+    if (!data.taskIds?.length && !data.taskId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['taskIds'],
+        message: 'Informe ao menos uma tarefa para o orçamento.',
+      });
+    }
+    // Duplicata no array cria duas linhas de veículo idênticas no documento e
+    // dobra o total. Vem de retentativa de envio, não de intenção.
+    if (data.taskIds && new Set(data.taskIds).size !== data.taskIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['taskIds'],
+        message: 'A mesma tarefa foi informada mais de uma vez.',
+      });
+    }
+  });
 
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
@@ -683,6 +757,20 @@ export const taskQuoteUpdateSchema = z.object({
     .optional(),
   status: taskQuoteStatusSchema.optional(),
   taskId: z.string().uuid('Tarefa invalida').optional(),
+  /**
+   * O CONJUNTO de tarefas do orçamento. Ausente = não mexe; presente =
+   * reconcilia (vincula as novas, desvincula as que saíram).
+   *
+   * Acrescentar ou retirar um veículo é alteração MATERIAL: muda o total e muda
+   * o objeto do contrato. A detecção de mudança material derruba a coleta de
+   * assinaturas em andamento, e é isso que se quer.
+   */
+  taskIds: z
+    .array(z.string().uuid('Tarefa invalida'))
+    .min(1, 'Pelo menos uma tarefa e obrigatoria')
+    .max(200, 'Maximo de 200 tarefas por orcamento')
+    .optional(),
+  billingSplit: quoteBillingSplitSchema.optional(),
   services: z.array(taskQuoteServiceCreateNestedSchema).optional(),
 
   // Guarantee Terms

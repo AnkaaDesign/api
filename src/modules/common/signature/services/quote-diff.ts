@@ -37,7 +37,11 @@
  * humano confere um orçamento, e é diferente da ordem em que o hash é calculado.
  */
 
-import type { QuoteSnapshot, QuoteSnapshotSigner } from './quote-snapshot.service';
+import type {
+  QuoteSnapshot,
+  QuoteSnapshotSigner,
+  QuoteSnapshotVehicle,
+} from './quote-snapshot.service';
 import { formatCurrencyBRL } from '../document/quote-text';
 import { maskEmail, maskPhone, onlyDigits } from '../utils/identity';
 
@@ -564,6 +568,204 @@ function withDefaults(s: QuoteSnapshot): QuoteSnapshot {
   };
 }
 
+/**
+ * As diferenças de VEÍCULO, pareadas por tarefa.
+ *
+ * O QUE MUDOU E POR QUÊ
+ *   Havia quatro comparações escalares (placa, chassi, categoria, implemento) e
+ *   duas de tarefa (nome, número de série), todas sobre um veículo só. Um
+ *   orçamento passou a poder cobrir sessenta, e com isso a comparação por
+ *   posição deixou de servir: excluir o caminhão 12 desloca os quarenta e oito
+ *   seguintes, e comparar por índice confrontaria a placa do 13 com a congelada
+ *   do 12 — quarenta e oito "a placa mudou" em veículos que ninguém tocou, e a
+ *   exclusão, que é a mudança real, invisível.
+ *
+ *   O pareamento é por `taskId`, que é imutável e existe nos dois lados (nos
+ *   snapshots v1/v2 ele vem de `task.id`, por `snapshotVehicles`).
+ *
+ * GRAVIDADES
+ *   · Veículo ACRESCENTADO ou REMOVIDO é MATERIAL. Não é uma questão de opinião:
+ *     muda o total (o "× N" do documento) e muda o objeto do contrato. Quem
+ *     assinou por três caminhões não assinou por quatro.
+ *   · Nos veículos pareados as gravidades são as que sempre foram: placa
+ *     material na TROCA e cosmética no preenchimento (cadastro tardio); chassi,
+ *     categoria, implemento, nome e série cosméticos.
+ *
+ * O `subject` só é preenchido quando há mais de um veículo em jogo. Com um só,
+ * "Placa do veículo" já é inequívoco, e acrescentar "(nº 39239)" ali mudaria o
+ * texto de toda tela e todo e-mail dos orçamentos de um veículo — que são a
+ * esmagadora maioria — sem informar nada.
+ */
+function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[] {
+  const out: QuoteChange[] = [];
+  const beforeList = snapshotVehicles(before);
+  const afterList = snapshotVehicles(after);
+
+  const beforeByTask = new Map(beforeList.map(v => [v.taskId, v]));
+  const afterByTask = new Map(afterList.map(v => [v.taskId, v]));
+  const multi = beforeList.length > 1 || afterList.length > 1;
+
+  /** Como o veículo se apresenta numa linha de diff. */
+  const describe = (v: QuoteSnapshotVehicle): string =>
+    [
+      v.serialNumber ? `nº ${v.serialNumber}` : null,
+      v.plate,
+      // Chassi só entra quando não há série nem placa: é longo, e nesse caso é a
+      // única coisa que identifica o veículo.
+      !v.serialNumber && !v.plate ? v.chassisNumber : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'sem identificação';
+
+  // REMOVIDOS na ordem do congelado, ACRESCENTADOS na ordem do atual: é a ordem
+  // em que o leitor viu (ou verá) o documento.
+  for (const v of beforeList) {
+    if (afterByTask.has(v.taskId)) continue;
+    out.push({
+      key: `vehicleRemoved:${v.taskId}`,
+      severity: 'MATERIAL',
+      kind: 'REMOVED',
+      group: 'VEHICLE',
+      label: 'Veículo retirado do orçamento',
+      subject: describe(v),
+      before: describe(v),
+      after: null,
+    });
+  }
+  for (const v of afterList) {
+    if (beforeByTask.has(v.taskId)) continue;
+    out.push({
+      key: `vehicleAdded:${v.taskId}`,
+      severity: 'MATERIAL',
+      kind: 'ADDED',
+      group: 'VEHICLE',
+      label: 'Veículo acrescentado ao orçamento',
+      subject: describe(v),
+      before: null,
+      after: describe(v),
+    });
+  }
+
+  for (const nowV of afterList) {
+    const wasV = beforeByTask.get(nowV.taskId);
+    if (!wasV) continue;
+    // O assunto sai do estado ATUAL quando ele identifica, e do congelado quando
+    // o atual ainda está em branco — um veículo cuja série só chegou depois seria
+    // rotulado "sem identificação" na própria linha que anuncia a série.
+    const subject = multi ? (describe(nowV) || describe(wasV)) : null;
+
+    scalar(out, {
+      key: `truckPlate:${nowV.taskId}`,
+      severity: 'MATERIAL',
+      // CADASTRO TARDIO: implemento 0 km sai da fábrica sem emplacar e é orçado
+      // assim — a placa chega depois, junto com o chassi. Preencher o que estava
+      // em branco é completar o cadastro do mesmo veículo, não trocar de
+      // veículo, e não pode custar assinatura. Trocar ABC1D23 por XYZ9K88
+      // continua derrubando.
+      cosmeticOnFillIn: true,
+      group: 'VEHICLE',
+      label: 'Placa do veículo',
+      subject,
+      before: normText(wasV.plate),
+      after: normText(nowV.plate),
+    });
+    // O chassi é CADASTRO, não condição comercial. Na prática ele quase nunca
+    // existe na hora do orçamento — implemento 0 km ainda em fabricação — e é
+    // preenchido semanas depois, quando o veículo chega. Tratá-lo como material
+    // fazia esse preenchimento derrubar uma coleta inteira (ou marcar um
+    // orçamento já assinado como "mudou"), que é o mesmo erro do nº 590 com
+    // outro campo: o veículo é o mesmo, a proposta é a mesma, ninguém teria
+    // motivo para reconsiderar a assinatura. Quem identifica materialmente o
+    // objeto do contrato é a PLACA, logo acima.
+    scalar(out, {
+      key: `truckChassis:${nowV.taskId}`,
+      severity: 'COSMETIC',
+      group: 'VEHICLE',
+      label: 'Chassi',
+      subject,
+      before: normText(wasV.chassisNumber),
+      after: normText(nowV.chassisNumber),
+    });
+    scalar(out, {
+      key: `truckCategory:${nowV.taskId}`,
+      severity: 'COSMETIC',
+      group: 'VEHICLE',
+      label: 'Categoria do veículo',
+      subject,
+      before: normText(wasV.category),
+      after: normText(nowV.category),
+    });
+    scalar(out, {
+      key: `truckImplement:${nowV.taskId}`,
+      severity: 'COSMETIC',
+      group: 'VEHICLE',
+      label: 'Tipo de implemento',
+      subject,
+      before: normText(wasV.implementType),
+      after: normText(nowV.implementType),
+    });
+    scalar(out, {
+      key: `taskSerialNumber:${nowV.taskId}`,
+      severity: 'COSMETIC',
+      group: 'VEHICLE',
+      label: 'Número de série',
+      subject,
+      before: normText(wasV.serialNumber),
+      after: normText(nowV.serialNumber),
+    });
+    scalar(out, {
+      key: `taskName:${nowV.taskId}`,
+      severity: 'COSMETIC',
+      group: 'DOCUMENT',
+      label: 'Nome da tarefa',
+      subject,
+      before: normText(wasV.taskName),
+      after: normText(nowV.taskName),
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Os veículos de um snapshot, seja ele v3+ ou v1/v2.
+ *
+ * É a ÚNICA porta de entrada. O snapshot v1/v2 guarda `task` e `truck` no
+ * singular; o v3+ guarda `vehicles`. Espalhar esse `if` pelo diff, pela
+ * tolerância de cadastro tardio e pela projeção material seria três lugares para
+ * a compatibilidade quebrar em silêncio quando alguém esquecesse um deles.
+ */
+export function snapshotVehicles(s: QuoteSnapshot | null | undefined): QuoteSnapshotVehicle[] {
+  if (!s) return [];
+  if (Array.isArray(s.vehicles)) return s.vehicles;
+  if (!s.task && !s.truck) return [];
+  return [
+    {
+      taskId: s.task?.id ?? '',
+      taskName: s.task?.name ?? null,
+      serialNumber: s.task?.serialNumber ?? null,
+      plate: s.truck?.plate ?? null,
+      chassisNumber: s.truck?.chassisNumber ?? null,
+      category: s.truck?.category ?? null,
+      implementType: s.truck?.implementType ?? null,
+    },
+  ];
+}
+
+/**
+ * Rótulo do modo de faturamento, em português.
+ *
+ * Formatado AQUI, no servidor, como todo `before`/`after` do diff: é o que
+ * garante que a tela do web, o app Flutter e o e-mail de invalidação digam a
+ * mesma coisa sobre a mesma mudança.
+ */
+function billingSplitLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (value === 'PER_TASK') return 'Uma fatura por veículo';
+  if (value === 'JOINT') return 'Fatura única para todos os veículos';
+  return value;
+}
+
 /** Campo escalar: só entra na lista quando de fato mudou. */
 function scalar(
   out: QuoteChange[],
@@ -692,6 +894,26 @@ export function diffQuoteSnapshots(
     before: normText(before.customPaymentText),
     after: normText(after.customPaymentText),
   });
+  // JUNTO OU SEPARADO é material, e não é uma sutileza. Nos sessenta caminhões do
+  // Marquespan, `JOINT` é uma fatura de R$ 730.224,00 em quatro parcelas de
+  // R$ 182.556,00; `PER_TASK` são sessenta faturas de R$ 12.170,40, sessenta
+  // notas fiscais e duzentos e quarenta boletos de R$ 3.042,60. São obrigações
+  // diferentes, com prazos diferentes, e a frase impressa no documento muda
+  // junto — quem assinou uma não assinou a outra.
+  //
+  // Sai só quando um dos lados existe: snapshot congelado antes desta feature
+  // não tem a chave, e comparar `undefined` com `'JOINT'` marcaria como alterado
+  // todo orçamento anterior a ela.
+  if (before.billingSplit || after.billingSplit) {
+    scalar(out, {
+      key: 'billingSplit',
+      severity: 'MATERIAL',
+      group: 'PAYMENT',
+      label: 'Forma de faturamento',
+      before: billingSplitLabel(before.billingSplit),
+      after: billingSplitLabel(after.billingSplit),
+    });
+  }
 
   // ---- Garantia -----------------------------------------------------------
   scalar(out, {
@@ -788,74 +1010,13 @@ export function diffQuoteSnapshots(
     after: normText(after.customer?.fantasyName),
   });
 
-  // ---- Veículo ------------------------------------------------------------
-  // A placa continua sendo o identificador material do objeto do contrato: trocar
-  // ABC1D23 por XYZ9K88 é outro veículo, e derruba. Mas implemento 0 km sai da
-  // fábrica sem emplacar e é orçado assim — a placa chega depois, junto com o
-  // chassi. Preencher o que estava em branco é o mesmo cadastro tardio, e não
-  // pode custar assinatura.
-  scalar(out, {
-    key: 'truckPlate',
-    severity: 'MATERIAL',
-    cosmeticOnFillIn: true,
-    group: 'VEHICLE',
-    label: 'Placa do veículo',
-    before: normText(before.truck?.plate),
-    after: normText(after.truck?.plate),
-  });
-  // O chassi é CADASTRO, não condição comercial. Na prática ele quase nunca
-  // existe na hora do orçamento — implemento 0 km ainda em fabricação — e é
-  // preenchido semanas depois, quando o veículo chega. Tratá-lo como material
-  // fazia esse preenchimento derrubar uma coleta inteira (ou marcar um orçamento
-  // já assinado como "mudou"), que é o mesmo erro do nº 590 com outro campo: o
-  // veículo é o mesmo, a proposta é a mesma, ninguém teria motivo para
-  // reconsiderar a assinatura. Quem identifica materialmente o objeto do
-  // contrato é a PLACA, logo acima — essa continua derrubando.
-  scalar(out, {
-    key: 'truckChassis',
-    severity: 'COSMETIC',
-    group: 'VEHICLE',
-    label: 'Chassi',
-    before: normText(before.truck?.chassisNumber),
-    after: normText(after.truck?.chassisNumber),
-  });
-  scalar(out, {
-    key: 'truckCategory',
-    severity: 'COSMETIC',
-    group: 'VEHICLE',
-    label: 'Categoria do veículo',
-    before: normText(before.truck?.category),
-    after: normText(after.truck?.category),
-  });
-  scalar(out, {
-    key: 'truckImplement',
-    severity: 'COSMETIC',
-    group: 'VEHICLE',
-    label: 'Tipo de implemento',
-    before: normText(before.truck?.implementType),
-    after: normText(after.truck?.implementType),
-  });
+  // ---- Veículos -----------------------------------------------------------
+  out.push(...diffVehicles(before, after));
 
   // ---- Responsáveis -------------------------------------------------------
   out.push(...diffSigners(before, after, options));
 
   // ---- Documento (cosmético) ----------------------------------------------
-  scalar(out, {
-    key: 'taskName',
-    severity: 'COSMETIC',
-    group: 'DOCUMENT',
-    label: 'Nome da tarefa',
-    before: normText(before.task?.name),
-    after: normText(after.task?.name),
-  });
-  scalar(out, {
-    key: 'taskSerialNumber',
-    severity: 'COSMETIC',
-    group: 'DOCUMENT',
-    label: 'Número de série',
-    before: normText(before.task?.serialNumber),
-    after: normText(after.task?.serialNumber),
-  });
   // Só o id do vendedor viaja no snapshot, e um UUID na tela não informa nada —
   // por isso esta linha não tem antes/depois. Quem precisa do nome tem a trilha.
   if ((before.commercialUserId ?? null) !== (after.commercialUserId ?? null)) {

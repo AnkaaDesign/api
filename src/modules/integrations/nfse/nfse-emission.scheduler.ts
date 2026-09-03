@@ -327,12 +327,49 @@ export class NfseEmissionScheduler {
                   },
                 },
               },
+              // O ORÇAMENTO da nota, pelo vínculo direto (`NfseDocument.quoteId`) e
+              // pela configuração de faturamento. É por aqui que a nota CONJUNTA
+              // — a que cobre os sessenta caminhões e por isso tem
+              // `Invoice.taskId` nulo — encontra os serviços e os veículos.
               customerConfig: {
                 select: {
                   orderNumber: true,
                   discountType: true,
                   discountValue: true,
                   responsible: { select: { email: true, phone: true, roles: true } },
+                  taskId: true,
+                  quote: {
+                    select: {
+                      id: true,
+                      budgetNumber: true,
+                      billingSplit: true,
+                      services: {
+                        select: {
+                          description: true,
+                          observation: true,
+                          amount: true,
+                          invoiceToCustomerId: true,
+                        },
+                        orderBy: { position: 'asc' as const },
+                      },
+                      tasks: {
+                        orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+                        select: {
+                          id: true,
+                          name: true,
+                          serialNumber: true,
+                          truck: {
+                            select: {
+                              plate: true,
+                              chassisNumber: true,
+                              category: true,
+                              implementType: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
                 },
               },
               externalOperation: {
@@ -381,8 +418,14 @@ export class NfseEmissionScheduler {
           const task = invoice.task;
           const withdrawal = (invoice as any).externalOperation;
           const isWithdrawal = !!invoice.externalOperationId;
-          // Withdrawal-backed invoices ("Operação Externa") have no task — that's expected.
-          if (!task && !isWithdrawal) {
+          // Fatura sem tarefa é ESPERADO em dois casos: "Operação Externa" e a
+          // nota CONJUNTA de um orçamento multitarefa, em que `Invoice.taskId` é
+          // nulo de propósito (a nota cobre os sessenta caminhões e não é de
+          // nenhum deles). O que não pode faltar é o vínculo com o ORÇAMENTO —
+          // sem ele não há serviço nem veículo para discriminar, e marcar ERROR
+          // é a resposta certa.
+          const hasQuoteContext = !!(invoice as any).customerConfig?.quote;
+          if (!task && !isWithdrawal && !hasQuoteContext) {
             this.logger.warn(`NfseDocument ${doc.id} has no task, skipping`);
             await this.prisma.nfseDocument.update({
               where: { id: doc.id },
@@ -403,6 +446,17 @@ export class NfseEmissionScheduler {
           let services: { description: string; amount: number }[] | undefined;
           let orderNumber: string | undefined;
           let globalDiscount: { type: string; value: number } | undefined;
+          /** Todos os veículos que a nota cobre — ver `ElotechInvoiceInput.vehicles`. */
+          let emitVehicles:
+            | Array<{
+                serialNumber?: string | null;
+                plate?: string | null;
+                chassisNumber?: string | null;
+                category?: string | null;
+                implementType?: string | null;
+              }>
+            | undefined;
+          let emitBudgetNumber: number | null = null;
 
           if (isWithdrawal) {
             // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
@@ -421,8 +475,17 @@ export class NfseEmissionScheduler {
               })),
             ];
           } else {
+            // O ORÇAMENTO da nota. Vem pela configuração de faturamento, e não
+            // pela tarefa: numa nota CONJUNTA `Invoice.taskId` é nulo de
+            // propósito (ela não é de nenhum dos sessenta caminhões em
+            // particular) e `task` aqui é null. Ler os serviços por
+            // `task.quote` deixaria a nota conjunta sem nenhum item de serviço —
+            // a Elotech receberia uma linha só, com a descrição de fallback.
+            const nfseQuote =
+              ((invoice as any).customerConfig?.quote ?? (task as any)?.quote) ?? null;
+
             // Build services list from task quote, filtered by customer
-            const allServices = (task as any).quote?.services as
+            const allServices = nfseQuote?.services as
               | Array<{
                   description: string;
                   observation: string | null;
@@ -452,11 +515,16 @@ export class NfseEmissionScheduler {
                 ? Number(customerConfig.discountValue)
                 : undefined;
 
-            const truck = (task as any).truck;
+            // A tarefa da FATIA quando existe; a primeira do orçamento quando a
+            // fatura é conjunta. Serve de contexto (rótulo de fallback); quais
+            // veículos a nota cobre é `emitVehicles`, abaixo.
+            const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
+            const sliceTask = (task as any) ?? quoteTaskRows[0] ?? null;
+            const truck = sliceTask?.truck;
             emitTask = {
-              id: task!.id,
-              name: task!.name,
-              serialNumber: (task as any).serialNumber || undefined,
+              id: sliceTask?.id ?? invoice.id,
+              name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
+              serialNumber: sliceTask?.serialNumber || undefined,
             };
             emitTruck = truck
               ? {
@@ -466,6 +534,27 @@ export class NfseEmissionScheduler {
                   implementType: truck.implementType || undefined,
                 }
               : undefined;
+
+            // OS VEÍCULOS QUE ESTA NOTA COBRE.
+            //
+            // Fatia com tarefa ⇒ um veículo (e a discriminação sai idêntica à de
+            // sempre). Fatura conjunta ⇒ os N veículos do orçamento, e a
+            // discriminação declara a contagem e a faixa de séries.
+            emitVehicles = (
+              (invoice as any).customerConfig?.taskId
+                ? quoteTaskRows.filter(t => t.id === (invoice as any).customerConfig.taskId)
+                : task
+                  ? [task as any]
+                  : quoteTaskRows
+            ).map((t: any) => ({
+              serialNumber: t.serialNumber ?? null,
+              plate: t.truck?.plate ?? null,
+              chassisNumber: t.truck?.chassisNumber ?? null,
+              category: t.truck?.category ?? null,
+              implementType: t.truck?.implementType ?? null,
+            }));
+            emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
+
             orderNumber = (invoice as any).customerConfig?.orderNumber || undefined;
             globalDiscount = resolveGlobalDiscount(
               services,
@@ -482,6 +571,8 @@ export class NfseEmissionScheduler {
             customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
             task: emitTask,
             truck: emitTruck,
+            vehicles: emitVehicles,
+            budgetNumber: emitBudgetNumber,
             orderNumber,
             services,
             globalDiscount,
@@ -586,12 +677,47 @@ export class NfseEmissionScheduler {
                 },
               },
             },
+            // Mesmo grafo do caminho agendado: é por aqui que a nota CONJUNTA
+            // (sem tarefa) acha os serviços, os veículos e o nº do orçamento.
             customerConfig: {
               select: {
                 orderNumber: true,
                 discountType: true,
                 discountValue: true,
                 responsible: { select: { email: true, phone: true, roles: true } },
+                taskId: true,
+                quote: {
+                  select: {
+                    id: true,
+                    budgetNumber: true,
+                    billingSplit: true,
+                    services: {
+                      select: {
+                        description: true,
+                        observation: true,
+                        amount: true,
+                        invoiceToCustomerId: true,
+                      },
+                      orderBy: { position: 'asc' as const },
+                    },
+                    tasks: {
+                      orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+                      select: {
+                        id: true,
+                        name: true,
+                        serialNumber: true,
+                        truck: {
+                          select: {
+                            plate: true,
+                            chassisNumber: true,
+                            category: true,
+                            implementType: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
             externalOperation: {
@@ -618,8 +744,12 @@ export class NfseEmissionScheduler {
         const withdrawal = (invoice as any)?.externalOperation;
         const isWithdrawal = !!invoice?.externalOperationId;
 
-        // Withdrawal-backed invoices ("Operação Externa") have no task — that's expected.
-        if (!invoice || !customer || (!task && !isWithdrawal)) {
+        // Fatura sem tarefa é ESPERADO em dois casos: "Operação Externa" e a
+        // nota CONJUNTA de um orçamento multitarefa (`Invoice.taskId` nulo de
+        // propósito). O que não pode faltar é o vínculo com o orçamento, que é de
+        // onde saem os serviços e os veículos.
+        const hasQuoteContext = !!(invoice as any)?.customerConfig?.quote;
+        if (!invoice || !customer || (!task && !isWithdrawal && !hasQuoteContext)) {
           this.logger.warn(
             `[NFSE_TARGETED] NfseDocument ${doc.id} missing invoice/customer/task — skipping`,
           );
@@ -638,6 +768,16 @@ export class NfseEmissionScheduler {
         let services: { description: string; amount: number }[] | undefined;
         let orderNumber: string | undefined;
         let globalDiscount: { type: string; value: number } | undefined;
+        let emitVehicles:
+          | Array<{
+              serialNumber?: string | null;
+              plate?: string | null;
+              chassisNumber?: string | null;
+              category?: string | null;
+              implementType?: string | null;
+            }>
+          | undefined;
+        let emitBudgetNumber: number | null = null;
 
         if (isWithdrawal) {
           // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
@@ -656,7 +796,12 @@ export class NfseEmissionScheduler {
             })),
           ];
         } else {
-          const allServices = (task as any).quote?.services as
+          // Ver o caminho agendado: numa nota CONJUNTA `Invoice.taskId` é nulo e
+          // `task` aqui é null, então os serviços vêm pela configuração de
+          // faturamento. Ler por `task.quote` deixaria a nota conjunta sem item.
+          const nfseQuote =
+            ((invoice as any).customerConfig?.quote ?? (task as any)?.quote) ?? null;
+          const allServices = nfseQuote?.services as
             | Array<{
                 description: string;
                 observation: string | null;
@@ -686,11 +831,13 @@ export class NfseEmissionScheduler {
               ? Number(customerConfig.discountValue)
               : undefined;
 
-          const truck = (task as any).truck;
+          const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
+          const sliceTask = (task as any) ?? quoteTaskRows[0] ?? null;
+          const truck = sliceTask?.truck;
           emitTask = {
-            id: task!.id,
-            name: task!.name,
-            serialNumber: (task as any).serialNumber || undefined,
+            id: sliceTask?.id ?? invoice.id,
+            name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
+            serialNumber: sliceTask?.serialNumber || undefined,
           };
           emitTruck = truck
             ? {
@@ -700,6 +847,20 @@ export class NfseEmissionScheduler {
                 implementType: truck.implementType || undefined,
               }
             : undefined;
+          emitVehicles = (
+            customerConfig?.taskId
+              ? quoteTaskRows.filter(t => t.id === customerConfig.taskId)
+              : task
+                ? [task as any]
+                : quoteTaskRows
+          ).map((t: any) => ({
+            serialNumber: t.serialNumber ?? null,
+            plate: t.truck?.plate ?? null,
+            chassisNumber: t.truck?.chassisNumber ?? null,
+            category: t.truck?.category ?? null,
+            implementType: t.truck?.implementType ?? null,
+          }));
+          emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
           orderNumber = customerConfig?.orderNumber || undefined;
           globalDiscount = resolveGlobalDiscount(
             services,
@@ -715,6 +876,8 @@ export class NfseEmissionScheduler {
           customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
           task: emitTask,
           truck: emitTruck,
+          vehicles: emitVehicles,
+          budgetNumber: emitBudgetNumber,
           orderNumber,
           services,
           globalDiscount,

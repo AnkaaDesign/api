@@ -41,7 +41,23 @@ export class InvoiceGenerationService {
     taskId: string,
     userId: string,
     approvalDate?: Date,
-    options?: { skipBankSlips?: boolean; skipNfse?: boolean },
+    options?: {
+      skipBankSlips?: boolean;
+      skipNfse?: boolean;
+      /**
+       * FATIAS a faturar, quando o orçamento cobra veículo a veículo.
+       *
+       * Ausente = todas as fatias que ainda não foram faturadas. É o
+       * comportamento de `JOINT` (onde existe uma fatia só, a de `taskId` nulo)
+       * e é também o "faturar tudo de uma vez" em `PER_TASK`.
+       *
+       * Presente = só as configurações daquelas tarefas. É o "veículo a
+       * veículo": os sessenta caminhões do Marquespan não terminam no mesmo dia,
+       * e o financeiro aprova os que já saíram — cada um com sua fatura, sua
+       * NFS-e e seus boletos, com o vencimento contado dali.
+       */
+      onlyTaskIds?: readonly string[] | null;
+    },
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
@@ -54,6 +70,7 @@ export class InvoiceGenerationService {
         quote: {
           include: {
             customerConfigs: {
+              orderBy: { createdAt: 'asc' },
               include: {
                 customer: {
                   select: {
@@ -62,6 +79,10 @@ export class InvoiceGenerationService {
                     cnpj: true,
                   },
                 },
+                // A tarefa da FATIA: é ela que vai para `Invoice.taskId` e para
+                // `NfseDocument.taskId`, e é nula quando a fatura cobre o
+                // orçamento inteiro.
+                task: { select: { id: true, finishedAt: true } },
               },
             },
           },
@@ -82,10 +103,22 @@ export class InvoiceGenerationService {
     }
 
     const quote = task.quote;
-    const customerConfigs = quote.customerConfigs;
+
+    // ── QUAIS FATIAS ESTA APROVAÇÃO FATURA ────────────────────────────────────
+    //
+    // `onlyTaskIds` restringe às configurações daquelas tarefas. A configuração
+    // de fatia NULA (o `JOINT`) entra sempre: ela cobre o orçamento inteiro, e
+    // portanto também o veículo que se está aprovando.
+    const onlyTaskIds = options?.onlyTaskIds ? new Set(options.onlyTaskIds) : null;
+    const customerConfigs = (quote.customerConfigs ?? []).filter(config => {
+      if (!onlyTaskIds) return true;
+      const sliceTaskId = (config as any).taskId ?? null;
+      return sliceTaskId === null || onlyTaskIds.has(sliceTaskId);
+    });
 
     this.logger.log(
-      `[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)`,
+      `[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)` +
+        (onlyTaskIds ? ` (fatia restrita a ${onlyTaskIds.size} tarefa(s))` : ''),
     );
 
     if (!customerConfigs || customerConfigs.length === 0) {
@@ -161,7 +194,13 @@ export class InvoiceGenerationService {
         // is only a legacy fallback (the installment generators use `approvalDate ?? finishedAt`).
         // Billing can now be approved BEFORE the task is finished, so fall back to
         // approvalDate/now instead of skipping generation when finishedAt is null.
-        const finishedAt = task.finishedAt ?? approvalDate ?? new Date();
+        // A tarefa da FATIA manda no `finishedAt`, não a tarefa por onde a
+        // aprovação entrou: em `PER_TASK` cada caminhão fecha num dia diferente,
+        // e usar a data de um deles para os sessenta é como todos os vencimentos
+        // acabariam iguais. Cai na tarefa de entrada e depois na data de
+        // aprovação, que é o que os geradores já preferem.
+        const sliceFinishedAt = (config as any).task?.finishedAt ?? null;
+        const finishedAt = sliceFinishedAt ?? task.finishedAt ?? approvalDate ?? new Date();
 
         const paymentConfig = (config as any).paymentConfig ?? null;
         const generatedInstallments = paymentConfig
@@ -205,10 +244,20 @@ export class InvoiceGenerationService {
         }
 
         // Create the Invoice
+        // `Invoice.taskId` É A TAREFA DA FATIA — nula quando a fatura cobre o
+        // orçamento inteiro (`JOINT` com N veículos).
+        //
+        // Antes era sempre a tarefa por onde a aprovação entrou. Num orçamento
+        // de sessenta caminhões faturado junto, isso apontaria a fatura de
+        // R$ 730.224,00 para UM caminhão, e as telas que listam "faturas desta
+        // tarefa" mostrariam a cobrança inteira em um e nada nos outros
+        // cinquenta e nove. Nulo é a resposta honesta: quem cobre a pergunta
+        // "de quais tarefas é esta fatura?" é `customerConfig.quote.tasks`.
+        const sliceTaskId = ((config as any).taskId ?? null) as string | null;
         const invoice = await tx.invoice.create({
           data: {
             customerConfigId: config.id,
-            taskId: taskId,
+            taskId: sliceTaskId,
             customerId: config.customerId,
             totalAmount: totalAmount,
             paidAmount: 0,
@@ -296,9 +345,26 @@ export class InvoiceGenerationService {
           // no other path zeroes it (invoice cancellation marks CANCELLED, it never deletes).
           // Such a note must be SUPERSEDED — a new note is minted here, and
           // supersedePreviousNfses() then cancels the old one citing the new as substituta.
+          //
+          // ⚠️ O ESCOPO DA GUARDA PASSOU A SER A FATIA, não a tarefa por onde a
+          // aprovação entrou.
+          //
+          // A busca era `taskId: taskId` — a tarefa de entrada. Num orçamento de
+          // sessenta caminhões faturado veículo a veículo, isso faria a segunda
+          // aprovação encontrar a nota da primeira e REAPONTÁ-LA para a fatura
+          // nova: o caminhão 1 ficaria sem nota municipal (e o boleto dele
+          // travado em CREATING para sempre, porque o portão exige nota
+          // autorizada) e o caminhão 2 herdaria uma nota emitida com os dados de
+          // outro veículo.
+          //
+          // A pergunta certa é "já existe nota viva para ESTA fatia neste
+          // ciclo?": mesma tarefa quando há tarefa, mesmo orçamento com tarefa
+          // nula quando a fatura é conjunta.
           const existingLiveNfse = await tx.nfseDocument.findFirst({
             where: {
-              taskId: taskId,
+              ...(sliceTaskId
+                ? { taskId: sliceTaskId }
+                : { quoteId: quote.id, taskId: null }),
               status: { notIn: ['CANCELLED', 'CANCEL_REQUESTED'] },
               // Never re-point a note already claimed by an earlier config in this
               // same run — that note belongs to the other customer's invoice.
@@ -328,7 +394,12 @@ export class InvoiceGenerationService {
             const createdNfse = await tx.nfseDocument.create({
               data: {
                 invoiceId: invoice.id,
-                taskId: taskId,
+                // A tarefa da FATIA (nula na fatura conjunta) e SEMPRE o
+                // orçamento: é `quoteId` que sustenta a guarda acima e que faz a
+                // nota conjunta aparecer no histórico dos sessenta veículos em
+                // vez de em um só.
+                taskId: sliceTaskId,
+                quoteId: quote.id,
                 status: 'PENDING',
               },
             });

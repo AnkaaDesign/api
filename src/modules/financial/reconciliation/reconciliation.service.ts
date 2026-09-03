@@ -118,7 +118,7 @@ function normalizeInstallmentInvoice(inst: InstallmentReceivable) {
         totalAmount: customerConfig.total,
         status: rest.status,
         customer: customerConfig.customer,
-        task: customerConfig.quote?.task ?? null,
+        task: customerConfig.quote?.tasks?.[0] ?? null,
         installmentsCount: customerConfig._count.installments,
       },
     };

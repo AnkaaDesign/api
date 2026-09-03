@@ -66,7 +66,7 @@ export class TaskQuotePaymentScheduler {
           customerConfig: {
             quote: {
               status: { in: ['UPCOMING', 'DUE', 'PARTIAL'] },
-              task: { status: { not: 'CANCELLED' } },
+              tasks: { some: { status: { not: 'CANCELLED' } } },
             },
           },
         },
@@ -75,7 +75,8 @@ export class TaskQuotePaymentScheduler {
             include: {
               quote: {
                 include: {
-                  task: {
+                  tasks: {
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                     select: {
                       id: true,
                       name: true,
@@ -102,8 +103,15 @@ export class TaskQuotePaymentScheduler {
 
       for (const installment of dueInstallments) {
         const config = installment.customerConfig;
+        if (!config) continue;
         const quote = config.quote;
-        const task = quote.task;
+        // A tarefa da FATIA quando a parcela é de um veículo só; a primeira do
+        // orçamento quando a cobrança é conjunta. O aviso de vencimento cita uma
+        // tarefa para o operador se localizar, e qualquer uma serve para isso.
+        const task =
+          (config.taskId ? quote.tasks?.find(t => t.id === config.taskId) : null) ??
+          quote.tasks?.[0] ??
+          null;
 
         if (!task) continue;
 

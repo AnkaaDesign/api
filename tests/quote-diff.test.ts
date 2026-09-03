@@ -309,9 +309,23 @@ console.log('\nResponsável entra e sai');
 
   check('remoção nomeada', changes.some(c => c.kind === 'REMOVED' && c.subject === 'Paulo Cvarvalho'));
   check('inclusão nomeada', changes.some(c => c.kind === 'ADDED' && c.subject === 'Marina Alves'));
+  // ⚠️ AS DUAS NÃO SÃO SIMÉTRICAS, e a assimetria é deliberada — este teste
+  // afirmava que ambas eram materiais e ficou defasado quando a tolerância de
+  // elenco entrou (assinatura diversificada, 01/09).
+  //
+  // TIRAR quem ainda tem linha em branco no documento é material: o envelope
+  // fica sem como concluir. ACRESCENTAR nunca é: o documento foi congelado sem
+  // aquele contato, ele não tem linha de assinatura nele, e nenhuma alteração de
+  // cadastro pode lhe dar uma — quem precisa que ele assine reemite a coleta. A
+  // regra antiga anulava as assinaturas JÁ COLHIDAS de todo mundo porque alguém
+  // acrescentou um contato à tarefa.
   check(
-    'ambas materiais — quem assina o documento mudou',
-    changes.filter(c => c.group === 'SIGNERS').every(c => c.severity === 'MATERIAL'),
+    'a remoção é material — quem assinaria o documento saiu',
+    changes.some(c => c.group === 'SIGNERS' && c.kind === 'REMOVED' && c.severity === 'MATERIAL'),
+  );
+  check(
+    'a inclusão é cosmética — ela não pode custar assinatura já colhida',
+    changes.some(c => c.group === 'SIGNERS' && c.kind === 'ADDED' && c.severity === 'COSMETIC'),
   );
 }
 

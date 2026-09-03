@@ -15,10 +15,7 @@ import {
   businessPeriodEnd,
   getPeriodForDate,
 } from '../../../utils/business-period';
-import {
-  TASK_QUOTE_STATUS_LABELS,
-  NFSE_STATUS_LABELS,
-} from '../../../constants/enum-labels';
+import { TASK_QUOTE_STATUS_LABELS, NFSE_STATUS_LABELS } from '../../../constants/enum-labels';
 import type {
   CollectionAnalyticsData,
   CollectionItem,
@@ -284,9 +281,7 @@ export class InvoiceAnalyticsService {
       const { key } = getPeriodForDate(inst.paidAt);
       return selectedKeys.has(key);
     });
-    const daysToPayment = periodPaidInstallments.map(inst =>
-      diffDays(inst.dueDate, inst.paidAt!),
-    );
+    const daysToPayment = periodPaidInstallments.map(inst => diffDays(inst.dueDate, inst.paidAt!));
     const avgDaysToPayment =
       daysToPayment.length > 0
         ? Math.round((daysToPayment.reduce((a, b) => a + b, 0) / daysToPayment.length) * 10) / 10
@@ -656,7 +651,8 @@ export class InvoiceAnalyticsService {
         statusOrder: true,
         createdAt: true,
         billingApprovedAt: true,
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             customerId: true,
@@ -689,8 +685,7 @@ export class InvoiceAnalyticsService {
           ? totalEntries
           : quotes.filter(
               q =>
-                (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >=
-                stageDefs[idx - 1].orderThreshold,
+                (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >= stageDefs[idx - 1].orderThreshold,
             ).length;
 
       const conversionFromPrevious =
@@ -787,7 +782,7 @@ export class InvoiceAnalyticsService {
       { id: string; name: string; count: number; total: number; settled: number }
     >();
     for (const q of quotes) {
-      const c = q.task?.customer;
+      const c = q.tasks?.[0]?.customer;
       if (!c) continue;
       if (!customerMap.has(c.id)) {
         customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
@@ -817,7 +812,7 @@ export class InvoiceAnalyticsService {
       { id: string; name: string; count: number; total: number; settled: number }
     >();
     for (const q of quotes) {
-      const s = q.task?.sector;
+      const s = q.tasks?.[0]?.sector;
       if (!s) continue;
       if (!sectorMap.has(s.id)) {
         sectorMap.set(s.id, { id: s.id, name: s.name, count: 0, total: 0, settled: 0 });
@@ -889,12 +884,7 @@ export class InvoiceAnalyticsService {
   async getReceivablesAnalytics(
     filters: ReceivablesAnalyticsFilters & { status?: string[] },
   ): Promise<ReceivablesAnalyticsData> {
-    const {
-      customerIds,
-      status,
-      forecastPeriodType = 'month',
-      forecastPeriodCount = 4,
-    } = filters;
+    const { customerIds, status, forecastPeriodType = 'month', forecastPeriodCount = 4 } = filters;
     void filters.limit; // retained in schema for compat; not used now
     const now = new Date();
     const dateRange = this.resolveDateRange(filters);
@@ -988,20 +978,21 @@ export class InvoiceAnalyticsService {
     // Period windows are STRICTLY in the future — they don't include the
     // in-progress period (that has its own CURRENT bucket below). This keeps
     // the forecast cards self-evidently forward-looking.
-    const currentPeriod = forecastPeriodType === 'year'
-      ? {
-          start: businessPeriodStart(now.getFullYear(), 1),
-          end: businessPeriodEnd(now.getFullYear(), 12),
-          label: now.getFullYear().toString(),
-        }
-      : (() => {
-          const { year, month } = getPeriodForDate(now);
-          return {
-            start: businessPeriodStart(year, month),
-            end: businessPeriodEnd(year, month),
-            label: `${MONTH_NAMES_PT[month - 1]} ${year}`,
-          };
-        })();
+    const currentPeriod =
+      forecastPeriodType === 'year'
+        ? {
+            start: businessPeriodStart(now.getFullYear(), 1),
+            end: businessPeriodEnd(now.getFullYear(), 12),
+            label: now.getFullYear().toString(),
+          }
+        : (() => {
+            const { year, month } = getPeriodForDate(now);
+            return {
+              start: businessPeriodStart(year, month),
+              end: businessPeriodEnd(year, month),
+              label: `${MONTH_NAMES_PT[month - 1]} ${year}`,
+            };
+          })();
 
     const computePeriods = (): PeriodWindow[] => {
       const wins: PeriodWindow[] = [];
@@ -1020,7 +1011,10 @@ export class InvoiceAnalyticsService {
         let { year: y, month: m } = getPeriodForDate(now);
         for (let i = 1; i <= periodCount; i++) {
           m += 1;
-          if (m > 12) { m = 1; y += 1; }
+          if (m > 12) {
+            m = 1;
+            y += 1;
+          }
           wins.push({
             key: `P${i}`,
             label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
@@ -1040,12 +1034,32 @@ export class InvoiceAnalyticsService {
     // includes implicitly — it's exposed so the synthetic "all open" union
     // can drill into it, but it isn't rendered as its own card (the Próximo
     // card and the period-scoped KPIs already cover that visual).
-    const bucketDefs: Array<{ bucket: string; bucketLabel: string; start: Date | null; end: Date | null }> = [
+    const bucketDefs: Array<{
+      bucket: string;
+      bucketLabel: string;
+      start: Date | null;
+      end: Date | null;
+    }> = [
       { bucket: 'OVERDUE', bucketLabel: 'Vencidas', start: null, end: null },
-      { bucket: 'CURRENT', bucketLabel: `${currentPeriod.label} (em curso)`, start: currentPeriod.start, end: currentPeriod.end },
-      ...periodWindows.map(p => ({ bucket: p.key, bucketLabel: p.label, start: p.start, end: p.end })),
+      {
+        bucket: 'CURRENT',
+        bucketLabel: `${currentPeriod.label} (em curso)`,
+        start: currentPeriod.start,
+        end: currentPeriod.end,
+      },
+      ...periodWindows.map(p => ({
+        bucket: p.key,
+        bucketLabel: p.label,
+        start: p.start,
+        end: p.end,
+      })),
       { bucket: 'BEYOND', bucketLabel: 'Além do horizonte', start: null, end: null },
-      { bucket: 'PAID', bucketLabel: 'Recebido no período', start: dateRange.start, end: dateRange.end },
+      {
+        bucket: 'PAID',
+        bucketLabel: 'Recebido no período',
+        start: dateRange.start,
+        end: dateRange.end,
+      },
     ];
 
     const BUCKET_CAP = 100;
@@ -1054,7 +1068,9 @@ export class InvoiceAnalyticsService {
       {
         dueAmount: number;
         installmentCount: number;
-        instances: Array<typeof installments[number] & { _daysFromNow: number; _isPaid: boolean }>;
+        instances: Array<
+          (typeof installments)[number] & { _daysFromNow: number; _isPaid: boolean }
+        >;
       }
     > = {};
     bucketDefs.forEach(b => {
@@ -1094,9 +1110,7 @@ export class InvoiceAnalyticsService {
       } else if (inst.dueDate > forecastHorizonEnd) {
         bucketKey = 'BEYOND';
       } else {
-        const found = periodWindows.find(
-          p => inst.dueDate >= p.start && inst.dueDate <= p.end,
-        );
+        const found = periodWindows.find(p => inst.dueDate >= p.start && inst.dueDate <= p.end);
         bucketKey = found ? found.key : 'BEYOND';
       }
 
@@ -1372,9 +1386,7 @@ export class InvoiceAnalyticsService {
 
     // ---------- Summary ----------
     const totalEvents = events.length;
-    const totalProcessed = events.filter(
-      e => e.status === WEBHOOK_EVENT_STATUS.PROCESSED,
-    ).length;
+    const totalProcessed = events.filter(e => e.status === WEBHOOK_EVENT_STATUS.PROCESSED).length;
     const totalFailed = events.filter(e => e.status === WEBHOOK_EVENT_STATUS.FAILED).length;
     const totalLiquidation = events.reduce((s, e) => s + Number(e.valorLiquidacao || 0), 0);
     const totalDiscountGiven = events.reduce((s, e) => s + Number(e.valorDesconto || 0), 0);
@@ -1535,7 +1547,8 @@ export class InvoiceAnalyticsService {
     const grossServiceRevenue = docs
       .filter(d => d.status === NFSE_STATUS.AUTHORIZED)
       .reduce((s, d) => s + Number(d.invoice?.totalAmount ?? 0), 0);
-    const estimatedIssAmount = Math.round((grossServiceRevenue * issRatePercent) / 100 * 100) / 100;
+    const estimatedIssAmount =
+      Math.round(((grossServiceRevenue * issRatePercent) / 100) * 100) / 100;
     const netServiceRevenue = Math.round((grossServiceRevenue - estimatedIssAmount) * 100) / 100;
     const pendingGrossRevenue = docs
       .filter(d => d.status === NFSE_STATUS.PENDING || d.status === NFSE_STATUS.PROCESSING)

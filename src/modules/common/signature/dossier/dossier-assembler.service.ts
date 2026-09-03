@@ -82,7 +82,14 @@
  *    assinado é o instrumento com o escopo inteiro.
  */
 
-import { Injectable, Logger, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -92,11 +99,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
-import {
-  canonicalSections,
-  describeSections,
-  variantFilenameSuffix,
-} from '../quote-sections';
+import { canonicalSections, describeSections, variantFilenameSuffix } from '../quote-sections';
 import { dossierPdfFilename } from '../document/document-filename';
 import { formatDateBR } from '../document/quote-text';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
@@ -189,7 +192,8 @@ export class DossierAssemblerService {
             customer: { select: { corporateName: true, fantasyName: true } },
           },
         },
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             serialNumber: true,
@@ -301,7 +305,8 @@ export class DossierAssemblerService {
     components.push(budgetComponent);
 
     // ---- 2. Dossiê fotográfico ----
-    const fotos = await this.renderPhotoDossier(quote.task?.id, quote.budgetNumber);
+    const dossierTaskIds = (quote.tasks ?? []).map(t => t.id);
+    const fotos = await this.renderPhotoDossier(dossierTaskIds, quote.budgetNumber);
     if (fotos) {
       const component: DossierComponent = {
         kind: 'FOTOS',
@@ -315,7 +320,7 @@ export class DossierAssemblerService {
     }
 
     // ---- 3. Boletos ----
-    for (const slip of await this.listBankSlips(quote.task?.id, customerId)) {
+    for (const slip of await this.listBankSlips(quote.id, dossierTaskIds, customerId)) {
       const n = slip.installment?.number;
       const component: DossierComponent = {
         kind: 'BOLETO',
@@ -343,7 +348,7 @@ export class DossierAssemblerService {
     }
 
     // ---- 4. Notas fiscais ----
-    for (const nfse of await this.listNfse(quote.task?.id, customerId)) {
+    for (const nfse of await this.listNfse(quote.id, dossierTaskIds, customerId)) {
       const component: DossierComponent = {
         kind: 'NFSE',
         label: `NFS-e nº ${nfse.nfseNumber ?? nfse.elotechNfseId}`,
@@ -387,7 +392,9 @@ export class DossierAssemblerService {
         bodies.push({ bytes, component });
       } catch (error) {
         component.note = `PDF indisponível (${msg(error)})`;
-        this.logger.warn(`Aditivo do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`);
+        this.logger.warn(
+          `Aditivo do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`,
+        );
       }
     }
 
@@ -486,7 +493,7 @@ export class DossierAssemblerService {
       // baixar os dois dossiês de um faturamento com dois clientes gravava dois
       // arquivos de mesmo nome, e o segundo sobrescrevia o primeiro.
       filename: dossierPdfFilename(
-        selectedConfig?.customer ?? quote.task?.customer,
+        selectedConfig?.customer ?? quote.tasks?.[0]?.customer,
         quote.budgetNumber,
       ),
       components,
@@ -523,7 +530,6 @@ export class DossierAssemblerService {
     return bytes;
   }
 
-
   /**
    * Dossiê fotográfico: uma página por ordem de serviço, "ANTES" (check-in) e
    * "DEPOIS" (check-out).
@@ -541,23 +547,40 @@ export class DossierAssemblerService {
    * permite servir o dossiê a quem não tem sessão.
    */
   private async renderPhotoDossier(
-    taskId: string | undefined,
+    /**
+     * TODAS as tarefas do orçamento, na ordem do documento.
+     *
+     * Era uma tarefa só. Num orçamento de sessenta caminhões, mandar as fotos de
+     * um e omitir as dos outros cinquenta e nove entregaria ao cliente um dossiê
+     * que parece completo e não é — o pior formato possível para uma peça que
+     * existe para provar o que foi feito.
+     */
+    taskIds: string[],
     budgetNumber: number,
   ): Promise<Buffer | null> {
-    if (!taskId) return null;
+    if (!taskIds.length) return null;
 
     const orders = await this.prisma.serviceOrder.findMany({
-      where: { taskId },
-      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      where: { taskId: { in: taskIds } },
+      // Agrupado POR TAREFA antes de por posição: o dossiê fotográfico se lê
+      // caminhão a caminhão, e intercalar as ordens de sessenta veículos por
+      // número de posição produziria sessenta blocos de "Logomarca Laterais"
+      // seguidos de sessenta de "Logomarca Traseira".
+      orderBy: [{ taskId: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
       select: {
         description: true,
         observation: true,
+        taskId: true,
+        task: { select: { serialNumber: true, truck: { select: { plate: true } } } },
         checkinFiles: { select: { path: true, mimetype: true } },
         checkoutFiles: { select: { path: true, mimetype: true } },
       },
     });
     const comFotos = orders.filter(o => o.checkinFiles.length > 0 || o.checkoutFiles.length > 0);
     if (!comFotos.length) return null;
+
+    /** O orçamento cobre mais de um veículo? Decide o rótulo por folha. */
+    const multiVehicle = new Set(comFotos.map(o => o.taskId)).size > 1 || taskIds.length > 1;
 
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -619,14 +642,66 @@ export class DossierAssemblerService {
       // ---- rodapé ----
       const lineY = MB + 26;
       page.drawRectangle({ x: ML, y: lineY, width: CW, height: 1, color: GREEN });
-      page.drawText(winAnsi(COMPANY.name), { x: ML, y: lineY - 14, size: 10, font: bold, color: GREEN });
-      page.drawText(winAnsi(COMPANY.address ?? ''), { x: ML, y: lineY - 26, size: 8, font, color: GRAY });
-      page.drawText(winAnsi(COMPANY.phone ?? ''), { x: ML, y: lineY - 38, size: 8, font, color: GREEN });
-      page.drawText(winAnsi(COMPANY.websiteUrl ?? ''), { x: ML, y: lineY - 50, size: 8, font, color: GREEN });
+      page.drawText(winAnsi(COMPANY.name), {
+        x: ML,
+        y: lineY - 14,
+        size: 10,
+        font: bold,
+        color: GREEN,
+      });
+      page.drawText(winAnsi(COMPANY.address ?? ''), {
+        x: ML,
+        y: lineY - 26,
+        size: 8,
+        font,
+        color: GRAY,
+      });
+      page.drawText(winAnsi(COMPANY.phone ?? ''), {
+        x: ML,
+        y: lineY - 38,
+        size: 8,
+        font,
+        color: GREEN,
+      });
+      page.drawText(winAnsi(COMPANY.websiteUrl ?? ''), {
+        x: ML,
+        y: lineY - 50,
+        size: 8,
+        font,
+        color: GREEN,
+      });
 
       if (soIndex === 0) {
-        page.drawText(winAnsi('Dossie Fotografico'), { x: ML, y, size: 12, font: bold, color: GREEN });
+        page.drawText(winAnsi('Dossie Fotografico'), {
+          x: ML,
+          y,
+          size: 12,
+          font: bold,
+          color: GREEN,
+        });
         y -= 20;
+      }
+
+      // ── DE QUE VEÍCULO É ESTA FOLHA ─────────────────────────────────────
+      //
+      // Só sai quando o orçamento cobre mais de um. Com um veículo, dizer o
+      // número de série em cada folha é repetir na sessenta e primeira vez o que
+      // a capa já disse; com sessenta, é a ÚNICA coisa que distingue duas folhas
+      // de "Logomarca Laterais" cujas fotos são de caminhões diferentes.
+      //
+      // O rótulo vai acima do cartão, e não dentro: dentro ele competiria com a
+      // descrição do serviço, que é o título do cartão.
+      if (multiVehicle) {
+        const vehicleLine = winAnsi(
+          [
+            so.task?.serialNumber ? `No de serie ${so.task.serialNumber}` : null,
+            so.task?.truck?.plate ? `Placa ${so.task.truck.plate}` : null,
+          ]
+            .filter(Boolean)
+            .join('  ·  ') || 'Veiculo sem identificacao',
+        );
+        page.drawText(vehicleLine, { x: ML, y, size: 9.5, font: bold, color: DARK });
+        y -= 16;
       }
 
       // ---- cartão: verde arredondado + corpo branco por cima ----
@@ -761,15 +836,34 @@ export class DossierAssemblerService {
    * de um dos clientes seria atribuí-la a ele por omissão. No modo completo ela
    * continua entrando, como sempre entrou.
    */
-  private async listNfse(taskId: string | undefined, customerId: string | null) {
-    if (!taskId) return [];
+  /**
+   * As notas do ORÇAMENTO — e só as do cliente pedido, quando há um.
+   *
+   * O escopo era a tarefa. Passou a ser o orçamento porque uma nota pode não ter
+   * tarefa: quando os sessenta caminhões são faturados juntos, `NfseDocument.taskId`
+   * é NULO de propósito (a nota não é de nenhum deles em particular) e quem liga é
+   * `quoteId`. Buscar por tarefa deixaria o dossiê de um faturamento conjunto SEM
+   * nota fiscal nenhuma.
+   */
+  private async listNfse(
+    quoteId: string,
+    taskIds: string[],
+    customerId: string | null,
+  ) {
     return this.prisma.nfseDocument.findMany({
       where: {
         status: 'AUTHORIZED',
         elotechNfseId: { not: null },
-        ...(customerId
-          ? { invoice: { taskId, customerId } }
-          : { OR: [{ taskId }, { invoice: { taskId } }] }),
+        // A nota pertence ao orçamento por `quoteId` (forma nova) ou por
+        // `taskId` (notas emitidas antes desta coluna existir, e notas
+        // reconciliadas da Elotech que só têm a tarefa).
+        OR: [
+          { quoteId },
+          ...(taskIds.length ? [{ taskId: { in: taskIds } }] : []),
+          ...(taskIds.length ? [{ invoice: { taskId: { in: taskIds } } }] : []),
+          { invoice: { customerConfig: { quoteId } } },
+        ],
+        ...(customerId ? { invoice: { is: { customerId } } } : {}),
       },
       select: { id: true, elotechNfseId: true, nfseNumber: true },
       orderBy: { nfseNumber: 'asc' },
@@ -785,11 +879,26 @@ export class DossierAssemblerService {
    * reversão de faturamento — e um boleto sem lastro de configuração cairia no
    * dossiê de todo mundo.
    */
-  private async listBankSlips(taskId: string | undefined, customerId: string | null) {
-    if (!taskId) return [];
+  private async listBankSlips(
+    quoteId: string,
+    taskIds: string[],
+    customerId: string | null,
+  ) {
     return this.prisma.bankSlip.findMany({
       where: {
-        installment: { invoice: customerId ? { taskId, customerId } : { taskId } },
+        // Mesmo motivo do `listNfse`: numa cobrança conjunta a fatura não tem
+        // tarefa, e o vínculo com o orçamento é pela configuração de faturamento.
+        installment: {
+          invoice: {
+            is: {
+              ...(customerId ? { customerId } : {}),
+              OR: [
+                { customerConfig: { quoteId } },
+                ...(taskIds.length ? [{ taskId: { in: taskIds } }] : []),
+              ],
+            },
+          },
+        },
         // CANCELLED/REJECTED não são cobrança viva: mandá-los ao cliente junto
         // do orçamento assinado seria pedir pagamento de um título morto.
         status: { in: ['ACTIVE', 'OVERDUE', 'PAID', 'REGISTERING'] },
@@ -854,7 +963,6 @@ export class DossierAssemblerService {
     }
   }
 
-
   /**
    * MESMA fonte do `webBase()` do SignatureEnvelopeService, e na mesma ordem.
    * O rodapé impresso em cada página do orçamento assinado já aponta para esta
@@ -875,19 +983,29 @@ export class DossierAssemblerService {
 /** Retângulo com os QUATRO cantos arredondados (SVG usa Y para baixo). */
 function roundedRectAllPath(w: number, h: number, r: number): string {
   return [
-    `M ${r} 0`, `L ${w - r} 0`, `A ${r} ${r} 0 0 1 ${w} ${r}`,
-    `L ${w} ${h - r}`, `A ${r} ${r} 0 0 1 ${w - r} ${h}`,
-    `L ${r} ${h}`, `A ${r} ${r} 0 0 1 0 ${h - r}`,
-    `L 0 ${r}`, `A ${r} ${r} 0 0 1 ${r} 0`, 'Z',
+    `M ${r} 0`,
+    `L ${w - r} 0`,
+    `A ${r} ${r} 0 0 1 ${w} ${r}`,
+    `L ${w} ${h - r}`,
+    `A ${r} ${r} 0 0 1 ${w - r} ${h}`,
+    `L ${r} ${h}`,
+    `A ${r} ${r} 0 0 1 0 ${h - r}`,
+    `L 0 ${r}`,
+    `A ${r} ${r} 0 0 1 ${r} 0`,
+    'Z',
   ].join(' ');
 }
 
 /** Só os cantos de BAIXO arredondados — o corpo branco sob a barra verde. */
 function roundedRectBottomPath(w: number, h: number, r: number): string {
   return [
-    `M 0 0`, `L ${w} 0`, `L ${w} ${h - r}`,
-    `A ${r} ${r} 0 0 1 ${w - r} ${h}`, `L ${r} ${h}`,
-    `A ${r} ${r} 0 0 1 0 ${h - r}`, 'Z',
+    `M 0 0`,
+    `L ${w} 0`,
+    `L ${w} ${h - r}`,
+    `A ${r} ${r} 0 0 1 ${w - r} ${h}`,
+    `L ${r} ${h}`,
+    `A ${r} ${r} 0 0 1 0 ${h - r}`,
+    'Z',
   ].join(' ');
 }
 
@@ -923,8 +1041,7 @@ function stripSignatureWidgets(pageNode: PDFDict): void {
       const ft = annot.lookup(PDFName.of('FT'));
       const subtype = annot.lookup(PDFName.of('Subtype'));
       const isSigWidget =
-        ft === PDFName.of('Sig') ||
-        (subtype === PDFName.of('Widget') && String(ft) === '/Sig');
+        ft === PDFName.of('Sig') || (subtype === PDFName.of('Widget') && String(ft) === '/Sig');
       if (isSigWidget) annots.remove(i);
     }
   } catch {

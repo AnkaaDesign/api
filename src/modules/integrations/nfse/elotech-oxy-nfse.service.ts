@@ -40,6 +40,27 @@ export interface MunicipalEmitNfseInput {
     category?: string; // TruckCategory enum value
     implementType?: string; // ImplementType enum value
   };
+  /**
+   * TODOS os veículos que esta nota cobre.
+   *
+   * `task`/`truck` acima descrevem UM veículo e continuam existindo: é o que
+   * toda nota emitida até aqui teve, e é o que uma nota fatiada por veículo
+   * (`billingSplit = PER_TASK`) continua tendo.
+   *
+   * Esta lista existe para a nota CONJUNTA: um orçamento de sessenta caminhões
+   * faturado de uma vez produz UMA nota de R$ 730.224,00, e a discriminação dela
+   * precisa dizer de que veículos fala. Sem isso a nota citaria um caminhão de
+   * sessenta — ou nenhum, porque `Invoice.taskId` é nulo nesse caso.
+   */
+  vehicles?: Array<{
+    serialNumber?: string | null;
+    plate?: string | null;
+    chassisNumber?: string | null;
+    category?: string | null;
+    implementType?: string | null;
+  }>;
+  /** Nº do orçamento, para a discriminação citá-lo quando os veículos são muitos. */
+  budgetNumber?: number | null;
   orderNumber?: string; // Customer's purchase order number
   services?: Array<{
     description: string;
@@ -1274,39 +1295,81 @@ export class ElotechOxyNfseService {
     }
 
     const totalAmount = invoice.totalAmount;
-    const serialNumber = invoice.task.serialNumber || invoice.task.name;
+    // A nota CONJUNTA não tem tarefa (`Invoice.taskId` nulo de propósito), e o
+    // chamador então manda uma tarefa de contexto — mas o rótulo de fallback
+    // ("Ref. OS X") precisa de algo que identifique o lote, não um dos sessenta.
+    const serialNumber =
+      invoice.task.serialNumber ||
+      (invoice.budgetNumber ? `Orçamento ${invoice.budgetNumber}` : invoice.task.name);
 
-    // Build vehicle description — category/implement first, then identifiers
-    // Format: "Referente aos serviços executados no veículo Caminhão Carga seca de n série: X, placa: Y, chassi: Z."
-    const vehicleTypeParts: string[] = [];
-    if (invoice.truck?.category) {
-      vehicleTypeParts.push(
-        this.TRUCK_CATEGORY_LABELS[invoice.truck.category] ?? invoice.truck.category,
-      );
-    }
-    if (invoice.truck?.implementType) {
-      vehicleTypeParts.push(
-        this.IMPLEMENT_TYPE_LABELS[invoice.truck.implementType] ?? invoice.truck.implementType,
-      );
-    }
+    // ═════════════════════════════════════════════════════════════════════════
+    // A QUE VEÍCULOS ESTA NOTA SE REFERE
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    // Um orçamento pode cobrir sessenta caminhões e ser faturado de UMA vez:
+    // então esta é uma nota de R$ 730.224,00 que fala de sessenta veículos, e a
+    // discriminação precisa dizer isso. Faturado veículo a veículo, cada nota
+    // fala de um — e sai exatamente com o texto de sempre.
+    //
+    // ⚠️ O TETO É RÍGIDO: `DISCRIMINACAO_MAX_LINES = 11`, e o cabeçalho (pedido +
+    // veículo) disputa essas linhas com a lista de serviços. Sessenta veículos
+    // por extenso comeriam a discriminação inteira e a lista de serviços — que é
+    // o que o fiscal e o cliente de fato leem — sumiria. A partir de quatro
+    // veículos, portanto, a nota declara a CONTAGEM e a FAIXA de séries, e cita o
+    // orçamento: quem precisa do veículo por veículo tem o orçamento assinado e o
+    // dossiê, ambos com a tabela completa.
+    const vehicleList =
+      invoice.vehicles && invoice.vehicles.length > 0
+        ? invoice.vehicles
+        : [
+            {
+              serialNumber: invoice.task.serialNumber ?? null,
+              plate: invoice.truck?.plate ?? null,
+              chassisNumber: invoice.truck?.chassisNumber ?? null,
+              category: invoice.truck?.category ?? null,
+              implementType: invoice.truck?.implementType ?? null,
+            },
+          ];
 
-    const vehicleIdParts: string[] = [];
-    if (invoice.task.serialNumber) vehicleIdParts.push(`n série: ${invoice.task.serialNumber}`);
-    if (invoice.truck?.plate) vehicleIdParts.push(`placa: ${invoice.truck.plate}`);
-    if (invoice.truck?.chassisNumber) vehicleIdParts.push(`chassi: ${invoice.truck.chassisNumber}`);
+    /** "Caminhão Carga seca de n série: X, placa: Y, chassi: Z" para um veículo. */
+    const describeOneVehicle = (v: (typeof vehicleList)[number]): string => {
+      const typeParts: string[] = [];
+      if (v.category) typeParts.push(this.TRUCK_CATEGORY_LABELS[v.category] ?? v.category);
+      if (v.implementType) {
+        typeParts.push(this.IMPLEMENT_TYPE_LABELS[v.implementType] ?? v.implementType);
+      }
+      const idParts: string[] = [];
+      if (v.serialNumber) idParts.push(`n série: ${v.serialNumber}`);
+      if (v.plate) idParts.push(`placa: ${v.plate}`);
+      if (v.chassisNumber) idParts.push(`chassi: ${v.chassisNumber}`);
+      const typePart = typeParts.join(' ');
+      const idPart = idParts.join(', ');
+      if (typePart && idPart) return `${typePart} de ${idPart}`;
+      return typePart || idPart;
+    };
 
-    const typePart = vehicleTypeParts.join(' ');
-    const idPart = vehicleIdParts.join(', ');
+    const described = vehicleList.map(describeOneVehicle).filter(Boolean);
+    const budgetRef = invoice.budgetNumber ? ` Orçamento nº ${invoice.budgetNumber}.` : '';
 
     let vehicleRef: string;
-    if (typePart && idPart) {
-      vehicleRef = `Referente aos serviços executados no veículo ${typePart} de ${idPart}.`;
-    } else if (typePart) {
-      vehicleRef = `Referente aos serviços executados no veículo ${typePart}.`;
-    } else if (idPart) {
-      vehicleRef = `Referente aos serviços executados no veículo de ${idPart}.`;
-    } else {
+    if (described.length === 0) {
       vehicleRef = `Ref. OS ${serialNumber}`;
+    } else if (described.length === 1) {
+      vehicleRef = `Referente aos serviços executados no veículo ${described[0]}.`;
+    } else if (described.length <= 3) {
+      // Dois ou três cabem por extenso e é o que o cliente prefere ler.
+      vehicleRef = `Referente aos serviços executados nos veículos ${described.join('; ')}.`;
+    } else {
+      const serials = vehicleList
+        .map(v => v.serialNumber)
+        .filter((n): n is string => Boolean(n))
+        .sort();
+      const range =
+        serials.length > 1
+          ? ` (séries ${serials[0]} a ${serials[serials.length - 1]})`
+          : '';
+      vehicleRef =
+        `Referente aos serviços executados em ${vehicleList.length} veículos${range}.` + budgetRef;
     }
 
     // Build line items — must use exact field names from Elotech portal

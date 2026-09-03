@@ -287,8 +287,7 @@ export class TaskService {
 
     const activeProduction = sos.filter(
       so =>
-        so.type === SERVICE_ORDER_TYPE.PRODUCTION &&
-        so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+        so.type === SERVICE_ORDER_TYPE.PRODUCTION && so.status !== SERVICE_ORDER_STATUS.CANCELLED,
     );
     const anyCheckinPhotos = activeProduction.some(so => so._count.checkinFiles > 0);
     const anyCheckoutPhotos = activeProduction.some(so => so._count.checkoutFiles > 0);
@@ -302,14 +301,9 @@ export class TaskService {
         .toLowerCase()
         .trim();
 
-    const reconcile = async (
-      matchDescription: string,
-      hasPhotos: boolean,
-    ): Promise<void> => {
+    const reconcile = async (matchDescription: string, hasPhotos: boolean): Promise<void> => {
       const checklist = sos.find(
-        so =>
-          so.type === SERVICE_ORDER_TYPE.LOGISTIC &&
-          norm(so.description) === matchDescription,
+        so => so.type === SERVICE_ORDER_TYPE.LOGISTIC && norm(so.description) === matchDescription,
       );
       if (!checklist) return;
       // Respect manual terminal/pause states — never auto-touch them.
@@ -319,9 +313,7 @@ export class TaskService {
       ) {
         return;
       }
-      const target = hasPhotos
-        ? SERVICE_ORDER_STATUS.COMPLETED
-        : SERVICE_ORDER_STATUS.PENDING;
+      const target = hasPhotos ? SERVICE_ORDER_STATUS.COMPLETED : SERVICE_ORDER_STATUS.PENDING;
       if (checklist.status === target) return; // idempotent
 
       const now = new Date();
@@ -633,9 +625,7 @@ export class TaskService {
             description: service.description,
             observation: service.observation ?? null,
             type: SERVICE_ORDER_TYPE.PRODUCTION,
-            status: isTaskCompleted
-              ? SERVICE_ORDER_STATUS.COMPLETED
-              : SERVICE_ORDER_STATUS.PENDING,
+            status: isTaskCompleted ? SERVICE_ORDER_STATUS.COMPLETED : SERVICE_ORDER_STATUS.PENDING,
             statusOrder: isTaskCompleted
               ? 4
               : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
@@ -687,9 +677,7 @@ export class TaskService {
       } else if (key === 'services') {
         if (
           Array.isArray(value) &&
-          this.quoteArrayChanged(existing.services, value, v =>
-            this.canonicalizeQuoteService(v),
-          )
+          this.quoteArrayChanged(existing.services, value, v => this.canonicalizeQuoteService(v))
         ) {
           filtered[key] = value;
         }
@@ -1316,7 +1304,9 @@ export class TaskService {
           (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure);
 
         if (hasImplementMeasures) {
-          this.logger.log(`[Task Create] Creating truck with implementMeasures for task ${newTask.id}`);
+          this.logger.log(
+            `[Task Create] Creating truck with implementMeasures for task ${newTask.id}`,
+          );
 
           // Find the truck already created by the repository (via nested create)
           let truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
@@ -1954,7 +1944,9 @@ export class TaskService {
           const implementMeasure = await tx.implementMeasure.create({
             data: {
               height: implementMeasureData.height,
-              ...(implementMeasureData.photoId && { photo: { connect: { id: implementMeasureData.photoId } } }),
+              ...(implementMeasureData.photoId && {
+                photo: { connect: { id: implementMeasureData.photoId } },
+              }),
               sections: {
                 create: implementMeasureData.sections.map((section: any, idx: number) => ({
                   width: section.width,
@@ -1984,7 +1976,9 @@ export class TaskService {
           ) {
             taskImplementMeasureDataMap.set(index, {
               leftSideMeasure: truckData.leftSideMeasure ? { ...truckData.leftSideMeasure } : null,
-              rightSideMeasure: truckData.rightSideMeasure ? { ...truckData.rightSideMeasure } : null,
+              rightSideMeasure: truckData.rightSideMeasure
+                ? { ...truckData.rightSideMeasure }
+                : null,
               backSideMeasure: truckData.backSideMeasure ? { ...truckData.backSideMeasure } : null,
             });
             // Remove implementMeasure data from truck so repository doesn't try to handle it
@@ -2012,9 +2006,7 @@ export class TaskService {
             undefined,
             tx,
           );
-          this.logger.log(
-            `[batchCreate] Converted to ${layoutEntityIds.length} Layout entity IDs`,
-          );
+          this.logger.log(`[batchCreate] Converted to ${layoutEntityIds.length} Layout entity IDs`);
           // Replace File IDs with Layout entity IDs in all tasks
           // and remove layoutStatuses (already processed above)
           for (const task of data.tasks) {
@@ -2351,10 +2343,7 @@ export class TaskService {
           // as a no-op) signals "keep this status" and must suppress the
           // auto-revert inside enforceNestedQuoteGuards.
           const quoteStatusPinned = (data as any).quote.status !== undefined;
-          const filteredQuote = this.filterNoOpQuoteFields(
-            existingTask.quote,
-            (data as any).quote,
-          );
+          const filteredQuote = this.filterNoOpQuoteFields(existingTask.quote, (data as any).quote);
           if (filteredQuote === null) {
             delete (data as any).quote;
           } else {
@@ -2383,10 +2372,7 @@ export class TaskService {
         // throws when the privilege cannot be determined, so access is denied.
         const effectiveFieldPrivilege: SECTOR_PRIVILEGES =
           (userPrivilege as SECTOR_PRIVILEGES) || (await this.getActingUserPrivilege(userId, tx));
-        validateSectorFieldAccess(
-          effectiveFieldPrivilege,
-          data as Record<string, unknown>,
-        );
+        validateSectorFieldAccess(effectiveFieldPrivilege, data as Record<string, unknown>);
 
         // Validate task data
         await this.validateTask(data, id, tx);
@@ -2527,7 +2513,8 @@ export class TaskService {
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
               if (truckData.chassisNumber !== undefined)
                 updateFields.chassisNumber = truckData.chassisNumber;
-              if (truckData.vinPlateId !== undefined) updateFields.vinPlateId = truckData.vinPlateId;
+              if (truckData.vinPlateId !== undefined)
+                updateFields.vinPlateId = truckData.vinPlateId;
               if (truckData.category !== undefined) updateFields.category = truckData.category;
               if (truckData.implementType !== undefined)
                 updateFields.implementType = truckData.implementType;
@@ -2569,7 +2556,10 @@ export class TaskService {
             const processImplementMeasure = async (
               implementMeasureData: any,
               existingImplementMeasureId: string | null,
-              implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
+              implementMeasureField:
+                | 'leftSideMeasureId'
+                | 'rightSideMeasureId'
+                | 'backSideMeasureId',
             ) => {
               if (implementMeasureData === undefined) return; // Not in payload, skip
 
@@ -2579,7 +2569,10 @@ export class TaskService {
                   this.logger.log(`[Task Update] Removing ${implementMeasureField} from truck`);
 
                   // Disconnect this truck from the implementMeasure first
-                  await tx.truck.update({ where: { id: truckId! }, data: { [implementMeasureField]: null } });
+                  await tx.truck.update({
+                    where: { id: truckId! },
+                    data: { [implementMeasureField]: null },
+                  });
 
                   // Check if other trucks still reference this implementMeasure
                   const relationName =
@@ -2600,7 +2593,10 @@ export class TaskService {
                       entityId: id,
                       action: CHANGE_ACTION.UPDATE,
                       field: 'implementMeasures',
-                      oldValue: { [implementMeasureField]: formatImplementMeasureForChangelog(implementMeasureWithRefs) },
+                      oldValue: {
+                        [implementMeasureField]:
+                          formatImplementMeasureForChangelog(implementMeasureWithRefs),
+                      },
                       newValue: { [implementMeasureField]: null },
                       reason: `ImplementMeasure ${implementMeasureField} removido`,
                       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
@@ -2612,8 +2608,12 @@ export class TaskService {
                     const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
                     if (remainingTrucks.length === 0) {
                       // No other trucks reference this implementMeasure - safe to delete
-                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
-                      await tx.implementMeasure.delete({ where: { id: existingImplementMeasureId } });
+                      await tx.implementMeasureSection.deleteMany({
+                        where: { implementMeasureId: existingImplementMeasureId },
+                      });
+                      await tx.implementMeasure.delete({
+                        where: { id: existingImplementMeasureId },
+                      });
 
                       await logEntityChange({
                         changeLogService: this.changeLogService,
@@ -2626,7 +2626,9 @@ export class TaskService {
                         reason: `ImplementMeasure ${implementMeasureField} removido`,
                         transaction: tx,
                       });
-                      this.logger.log(`[Task Update] Deleted ${implementMeasureField} (no other references)`);
+                      this.logger.log(
+                        `[Task Update] Deleted ${implementMeasureField} (no other references)`,
+                      );
                     } else {
                       this.logger.log(
                         `[Task Update] ImplementMeasure ${existingImplementMeasureId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
@@ -2655,7 +2657,8 @@ export class TaskService {
                   // measures. Blindly delete+recreate wiped them on partial saves
                   // (the "truck measures disappeared on save" bug).
                   const wantsSectionRewrite =
-                    Array.isArray(implementMeasureData.sections) && implementMeasureData.sections.length > 0;
+                    Array.isArray(implementMeasureData.sections) &&
+                    implementMeasureData.sections.length > 0;
                   const sectionCreate = wantsSectionRewrite
                     ? implementMeasureData.sections.map((section: any, index: number) => ({
                         width: section.width,
@@ -2675,9 +2678,9 @@ export class TaskService {
 
                   // Copy-on-write: if OTHER trucks share this ImplementMeasure, editing it in
                   // place would corrupt theirs — fork a private copy for this truck.
-                  const otherTrucks = ((existingImplementMeasure as any)?.[relationName] || []).filter(
-                    (t: any) => t.id !== truckId,
-                  );
+                  const otherTrucks = (
+                    (existingImplementMeasure as any)?.[relationName] || []
+                  ).filter((t: any) => t.id !== truckId);
 
                   let updatedImplementMeasure: any;
                   if (otherTrucks.length > 0) {
@@ -2692,7 +2695,11 @@ export class TaskService {
                             ? { photo: { connect: { id: implementMeasureData.photoId } } }
                             : {}
                           : (existingImplementMeasure as any)?.photoId
-                            ? { photo: { connect: { id: (existingImplementMeasure as any).photoId } } }
+                            ? {
+                                photo: {
+                                  connect: { id: (existingImplementMeasure as any).photoId },
+                                },
+                              }
                             : {}),
                         sections: { create: sectionCreate ?? fallbackSections },
                       },
@@ -2709,12 +2716,16 @@ export class TaskService {
                     // Sole owner: update in place. Rewrite sections only when sent,
                     // and preserve photoId when the payload omits it.
                     if (wantsSectionRewrite) {
-                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
+                      await tx.implementMeasureSection.deleteMany({
+                        where: { implementMeasureId: existingImplementMeasureId },
+                      });
                     }
                     updatedImplementMeasure = await tx.implementMeasure.update({
                       where: { id: existingImplementMeasureId },
                       data: {
-                        ...(implementMeasureData.height !== undefined && { height: implementMeasureData.height }),
+                        ...(implementMeasureData.height !== undefined && {
+                          height: implementMeasureData.height,
+                        }),
                         ...(implementMeasureData.photoId !== undefined && {
                           photoId: implementMeasureData.photoId || null,
                         }),
@@ -2747,8 +2758,14 @@ export class TaskService {
                     entityId: id,
                     action: CHANGE_ACTION.UPDATE,
                     field: 'implementMeasures',
-                    oldValue: { [implementMeasureField]: formatImplementMeasureForChangelog(existingImplementMeasure) },
-                    newValue: { [implementMeasureField]: formatImplementMeasureForChangelog(updatedImplementMeasure) },
+                    oldValue: {
+                      [implementMeasureField]:
+                        formatImplementMeasureForChangelog(existingImplementMeasure),
+                    },
+                    newValue: {
+                      [implementMeasureField]:
+                        formatImplementMeasureForChangelog(updatedImplementMeasure),
+                    },
                     reason: `ImplementMeasure ${implementMeasureField} atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     triggeredById: id,
@@ -2764,14 +2781,18 @@ export class TaskService {
                   const newImplementMeasure = await tx.implementMeasure.create({
                     data: {
                       height: implementMeasureData.height,
-                      ...(implementMeasureData.photoId && { photo: { connect: { id: implementMeasureData.photoId } } }),
+                      ...(implementMeasureData.photoId && {
+                        photo: { connect: { id: implementMeasureData.photoId } },
+                      }),
                       sections: {
-                        create: implementMeasureData.sections.map((section: any, index: number) => ({
-                          width: section.width,
-                          isDoor: section.isDoor,
-                          doorHeight: section.doorHeight,
-                          position: section.position ?? index,
-                        })),
+                        create: implementMeasureData.sections.map(
+                          (section: any, index: number) => ({
+                            width: section.width,
+                            isDoor: section.isDoor,
+                            doorHeight: section.doorHeight,
+                            position: section.position ?? index,
+                          }),
+                        ),
                       },
                     },
                     include: {
@@ -2803,7 +2824,10 @@ export class TaskService {
                     action: CHANGE_ACTION.UPDATE,
                     field: 'implementMeasures',
                     oldValue: { [implementMeasureField]: null },
-                    newValue: { [implementMeasureField]: formatImplementMeasureForChangelog(newImplementMeasure) },
+                    newValue: {
+                      [implementMeasureField]:
+                        formatImplementMeasureForChangelog(newImplementMeasure),
+                    },
                     reason: `ImplementMeasure ${implementMeasureField} criado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     triggeredById: id,
@@ -2838,7 +2862,9 @@ export class TaskService {
             // Handle implementMeasure photo uploads
             if (files) {
               const customerName = existingTask.customer?.fantasyName;
-              const implementMeasurePhotoKeys = Object.keys(files).filter(k => k.startsWith('implementMeasurePhotos.'));
+              const implementMeasurePhotoKeys = Object.keys(files).filter(k =>
+                k.startsWith('implementMeasurePhotos.'),
+              );
 
               for (const key of implementMeasurePhotoKeys) {
                 const side = key.replace('implementMeasurePhotos.', '') as
@@ -2900,7 +2926,8 @@ export class TaskService {
         const vinPlateUpload = files?.truckVinPlate?.[0];
         if (vinPlateUpload) {
           const vinPlateTruckId =
-            (await tx.truck.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ?? null;
+            (await tx.truck.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ??
+            null;
 
           if (vinPlateTruckId) {
             const previousVinPlateId = existingTask.truck?.vinPlateId ?? null;
@@ -3280,7 +3307,9 @@ export class TaskService {
 
           // Merge client-sent existing ids with the newly uploaded ones (order preserved,
           // de-duplicated), capped at 2 implementMeasure files.
-          const existingImplementMeasureIds: string[] = Array.isArray((data as any).quote.layoutFileIds)
+          const existingImplementMeasureIds: string[] = Array.isArray(
+            (data as any).quote.layoutFileIds,
+          )
             ? (data as any).quote.layoutFileIds
             : [];
           (data as any).quote.layoutFileIds = [
@@ -4192,7 +4221,7 @@ export class TaskService {
                 const matchingQuoteItems = await tx.taskQuoteService.findMany({
                   where: {
                     quote: {
-                      task: { id: id },
+                      tasks: { some: { id: id } },
                     },
                   },
                 });
@@ -4217,7 +4246,7 @@ export class TaskService {
                 // Discount-aware recalc keeps TaskQuote and CustomerConfig in sync.
                 if (deletedQuoteItemIds.length > 0) {
                   const taskQuote = await tx.taskQuote.findFirst({
-                    where: { task: { id: id } },
+                    where: { tasks: { some: { id: id } } },
                   });
                   if (taskQuote) {
                     await this.recalcQuoteTotals(tx, taskQuote.id);
@@ -4938,8 +4967,7 @@ export class TaskService {
         // touched in this request.
         // =====================================================================
         const checkinCheckoutFilesTouched =
-          (soFileMapping && soFileMapping.length > 0) ||
-          !!(data as any).serviceOrderFiles;
+          (soFileMapping && soFileMapping.length > 0) || !!(data as any).serviceOrderFiles;
         if (checkinCheckoutFilesTouched) {
           await this.syncChecklistServiceOrdersFromPhotos(tx, id, userId);
         }
@@ -5437,8 +5465,7 @@ export class TaskService {
                 );
               }
 
-              const newAirbrushingStatus =
-                airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
+              const newAirbrushingStatus = airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
               const newAirbrushing = await tx.airbrushing.create({
                 data: {
                   taskId: id,
@@ -5747,8 +5774,7 @@ export class TaskService {
           // If layoutIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
           // The frontend now cleans up layoutStatuses when files are removed, so this safeguard
           // should only trigger in edge cases where frontend sends status changes without file IDs.
-          const hasLayoutStatusChanges =
-            layoutStatuses && Object.keys(layoutStatuses).length > 0;
+          const hasLayoutStatusChanges = layoutStatuses && Object.keys(layoutStatuses).length > 0;
           const layoutIdsWasNotSent = fileIdsFromRequest === undefined;
           const layoutIdsIsEmptyArray =
             Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
@@ -5839,11 +5865,7 @@ export class TaskService {
                 // Determine status for new upload
                 // Use newLayoutStatuses array (by index) if provided, otherwise try layoutStatuses map, otherwise DRAFT
                 let newFileStatus: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT';
-                if (
-                  newLayoutStatuses &&
-                  Array.isArray(newLayoutStatuses) &&
-                  newLayoutStatuses[i]
-                ) {
+                if (newLayoutStatuses && Array.isArray(newLayoutStatuses) && newLayoutStatuses[i]) {
                   newFileStatus = newLayoutStatuses[i];
                   this.logger.log(
                     `[Task Update] Using status from newLayoutStatuses[${i}]: ${newFileStatus}`,
@@ -7696,7 +7718,9 @@ export class TaskService {
             // update path (which honours newLayoutStatuses[i]); without this new batch uploads always
             // fell back to DRAFT regardless of what the user picked.
             const newLayoutStatuses = (
-              data.tasks[0]?.data as { newLayoutStatuses?: Array<'DRAFT' | 'APPROVED' | 'REPROVED'> }
+              data.tasks[0]?.data as {
+                newLayoutStatuses?: Array<'DRAFT' | 'APPROVED' | 'REPROVED'>;
+              }
             )?.newLayoutStatuses;
             const layoutStatusMap: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined =
               Array.isArray(newLayoutStatuses)
@@ -7793,7 +7817,9 @@ export class TaskService {
             rightSide?: string;
             backSide?: string;
           } = {};
-          const implementMeasurePhotoKeys = Object.keys(files).filter(k => k.startsWith('implementMeasurePhotos.'));
+          const implementMeasurePhotoKeys = Object.keys(files).filter(k =>
+            k.startsWith('implementMeasurePhotos.'),
+          );
           this.logger.log(
             `[batchUpdate] ImplementMeasure photo keys found: ${implementMeasurePhotoKeys.length > 0 ? implementMeasurePhotoKeys.join(', ') : 'NONE'}`,
           );
@@ -8471,7 +8497,8 @@ export class TaskService {
             // Only rewrite sections when the payload actually carries them —
             // absence = preserve existing measures.
             const wantsSectionRewrite =
-              Array.isArray(implementMeasureData.sections) && implementMeasureData.sections.length > 0;
+              Array.isArray(implementMeasureData.sections) &&
+              implementMeasureData.sections.length > 0;
             const sectionCreate = wantsSectionRewrite
               ? implementMeasureData.sections.map((section: any, index: number) => ({
                   width: section.width,
@@ -8496,12 +8523,16 @@ export class TaskService {
               if (existingImplementMeasure && otherTrucks.length === 0) {
                 // Sole owner → update IN PLACE, preserving the ImplementMeasure id.
                 if (wantsSectionRewrite) {
-                  await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
+                  await tx.implementMeasureSection.deleteMany({
+                    where: { implementMeasureId: existingImplementMeasureId },
+                  });
                 }
                 await tx.implementMeasure.update({
                   where: { id: existingImplementMeasureId },
                   data: {
-                    ...(implementMeasureData.height !== undefined && { height: implementMeasureData.height }),
+                    ...(implementMeasureData.height !== undefined && {
+                      height: implementMeasureData.height,
+                    }),
                     ...(implementMeasureData.photoId !== undefined && {
                       photoId: implementMeasureData.photoId || null,
                     }),
@@ -8559,12 +8590,14 @@ export class TaskService {
                   photo: { connect: { id: implementMeasureData.photoId } },
                 }),
                 sections: {
-                  create: (implementMeasureData.sections || []).map((section: any, index: number) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
+                  create: (implementMeasureData.sections || []).map(
+                    (section: any, index: number) => ({
+                      width: section.width,
+                      isDoor: section.isDoor,
+                      doorHeight: section.doorHeight,
+                      position: section.position ?? index,
+                    }),
+                  ),
                 },
               },
             });
@@ -8605,7 +8638,9 @@ export class TaskService {
               const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
               if (remainingTrucks.length === 0) {
                 // No other trucks reference this implementMeasure - safe to delete
-                await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasureId } });
+                await tx.implementMeasureSection.deleteMany({
+                  where: { implementMeasureId: existingImplementMeasureId },
+                });
                 await tx.implementMeasure.delete({ where: { id: existingImplementMeasureId } });
                 this.logger.log(
                   `[batchUpdate] Deleted orphaned ${sideName} implementMeasure: ${existingImplementMeasureId}`,
@@ -8693,13 +8728,28 @@ export class TaskService {
             );
 
             if (newLeftId && existingLeftId !== newLeftId) {
-              await safeDisconnectImplementMeasure(truckId, existingLeftId, 'leftSideMeasureId', 'left');
+              await safeDisconnectImplementMeasure(
+                truckId,
+                existingLeftId,
+                'leftSideMeasureId',
+                'left',
+              );
             }
             if (newRightId && existingRightId !== newRightId) {
-              await safeDisconnectImplementMeasure(truckId, existingRightId, 'rightSideMeasureId', 'right');
+              await safeDisconnectImplementMeasure(
+                truckId,
+                existingRightId,
+                'rightSideMeasureId',
+                'right',
+              );
             }
             if (newBackId && existingBackId !== newBackId) {
-              await safeDisconnectImplementMeasure(truckId, existingBackId, 'backSideMeasureId', 'back');
+              await safeDisconnectImplementMeasure(
+                truckId,
+                existingBackId,
+                'backSideMeasureId',
+                'back',
+              );
             }
 
             // Point truck to the individual implementMeasures
@@ -8817,7 +8867,9 @@ export class TaskService {
               }
             }
 
-            this.logger.log(`[batchUpdate] Finished processing implementMeasures for task ${taskId}`);
+            this.logger.log(
+              `[batchUpdate] Finished processing implementMeasures for task ${taskId}`,
+            );
           }
         }
 
@@ -9360,8 +9412,7 @@ export class TaskService {
             // bulk edits desynced SOs ⇄ quote services + totals. The shared helper
             // is non-destructive (only ADDS rows) and swallows its own errors.
             // =====================================================================
-            const batchTouchedServiceOrders =
-              (updateData as any).serviceOrders !== undefined;
+            const batchTouchedServiceOrders = (updateData as any).serviceOrders !== undefined;
             const batchTouchedQuoteServices =
               (updateData as any).quote?.services !== undefined &&
               Array.isArray((updateData as any).quote.services) &&
@@ -9637,7 +9688,10 @@ export class TaskService {
    * faturamento + cancelamento de cerimônias RUNNING), preservando envelope,
    * trilha de auditoria e PDFs congelados.
    */
-  private async cancelTaskInsteadOfDelete(id: string, userId?: string): Promise<TaskDeleteResponse> {
+  private async cancelTaskInsteadOfDelete(
+    id: string,
+    userId?: string,
+  ): Promise<TaskDeleteResponse> {
     const task = await this.prisma.task.findUnique({
       where: { id },
       select: { id: true, name: true, status: true, quoteId: true },
@@ -9791,9 +9845,7 @@ export class TaskService {
         await this.cancelTaskInsteadOfDelete(taskId, userId);
         cancelledCount++;
       } catch (error) {
-        cancelFailures.push(
-          `${taskId}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        cancelFailures.push(`${taskId}: ${error instanceof Error ? error.message : String(error)}`);
         this.logger.error(`[batchDelete] Falha ao cancelar tarefa protegida ${taskId}:`, error);
       }
     }
@@ -10629,7 +10681,8 @@ export class TaskService {
 
           const rollbackData: any = { [fieldToRevert]: convertedValue };
           if (fieldToRevert === 'status' && convertedValue && typeof convertedValue === 'string') {
-            rollbackData.statusOrder = TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS] ?? undefined;
+            rollbackData.statusOrder =
+              TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS] ?? undefined;
           }
           await tx.taskQuote.update({
             where: { id: changeLog.entityId },
@@ -11104,9 +11157,8 @@ export class TaskService {
                     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                   status: quoteData.status || 'PENDING',
                   statusOrder:
-                    TASK_QUOTE_STATUS_ORDER[
-                      (quoteData.status || 'PENDING') as TASK_QUOTE_STATUS
-                    ] ?? undefined,
+                    TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS] ??
+                    undefined,
                   guaranteeYears: quoteData.guaranteeYears ?? null,
                   customGuaranteeText: quoteData.customGuaranteeText ?? null,
                   customForecastDays: quoteData.customForecastDays ?? null,
@@ -11147,15 +11199,18 @@ export class TaskService {
               // a raw `connect` of the snapshot ids would STEAL them from their
               // live owner (the FK lives on File.quoteLayoutId).
               if (Array.isArray(quoteData.layoutFileIds) && quoteData.layoutFileIds.length > 0) {
-                const resolvedImplementMeasureIds = await this.fileService.resolveLayoutFileIdsForQuote(
-                  tx,
-                  quoteIdToRestore,
-                  quoteData.layoutFileIds,
-                );
+                const resolvedImplementMeasureIds =
+                  await this.fileService.resolveLayoutFileIdsForQuote(
+                    tx,
+                    quoteIdToRestore,
+                    quoteData.layoutFileIds,
+                  );
                 await tx.taskQuote.update({
                   where: { id: quoteIdToRestore },
                   data: {
-                    layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) },
+                    layoutFiles: {
+                      set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
+                    },
                   },
                 });
               }
@@ -11433,7 +11488,9 @@ export class TaskService {
 
       // 5g. Special handling for implementMeasures (composite relation on truck)
       if (fieldToRevert === 'implementMeasures') {
-        this.logger.log(`[Rollback] Starting implementMeasures rollback for task ${changeLog.entityId}`);
+        this.logger.log(
+          `[Rollback] Starting implementMeasures rollback for task ${changeLog.entityId}`,
+        );
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
@@ -11509,7 +11566,9 @@ export class TaskService {
             if (implementMeasureWithRefs) {
               const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
               if (remainingTrucks.length === 0) {
-                await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: currentImplementMeasureId } });
+                await tx.implementMeasureSection.deleteMany({
+                  where: { implementMeasureId: currentImplementMeasureId },
+                });
                 await tx.implementMeasure.delete({ where: { id: currentImplementMeasureId } });
                 this.logger.log(
                   `[Rollback] Deleted orphaned ${sideName} implementMeasure: ${currentImplementMeasureId}`,
@@ -11524,7 +11583,9 @@ export class TaskService {
 
             // Try to reconnect by id if the implementMeasure still exists
             if (oldSideImplementMeasure.id) {
-              const existing = await tx.implementMeasure.findUnique({ where: { id: oldSideImplementMeasure.id } });
+              const existing = await tx.implementMeasure.findUnique({
+                where: { id: oldSideImplementMeasure.id },
+              });
               if (existing) {
                 targetImplementMeasureId = existing.id;
                 this.logger.log(
@@ -11549,7 +11610,9 @@ export class TaskService {
                 },
               });
               targetImplementMeasureId = newImplementMeasure.id;
-              this.logger.log(`[Rollback] Recreated ${sideName} implementMeasure: ${targetImplementMeasureId}`);
+              this.logger.log(
+                `[Rollback] Recreated ${sideName} implementMeasure: ${targetImplementMeasureId}`,
+              );
             }
 
             if (targetImplementMeasureId) {
@@ -12846,7 +12909,7 @@ export class TaskService {
     // Clone the source quote's implementMeasure files so the new quote owns INDEPENDENT
     // copies — connecting the source ids would steal them (FK lives on File).
     const clonedImplementMeasureIds: string[] = [];
-    for (const f of ((sourceQuote as any).layoutFiles ?? [])) {
+    for (const f of (sourceQuote as any).layoutFiles ?? []) {
       clonedImplementMeasureIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
     }
 
@@ -12869,7 +12932,7 @@ export class TaskService {
         ...(clonedImplementMeasureIds.length
           ? {
               layoutFiles: {
-                connect: clonedImplementMeasureIds.map((id) => ({ id })),
+                connect: clonedImplementMeasureIds.map(id => ({ id })),
               },
             }
           : {}),
@@ -12947,9 +13010,7 @@ export class TaskService {
     // still holding its id 404s on save (PUT /task-quotes/<id>). The UI must not
     // offer this, but the guard belongs here: this is where the damage happens.
     if (destinationTaskId === sourceTaskId) {
-      throw new BadRequestException(
-        'A tarefa de origem não pode ser a mesma tarefa de destino.',
-      );
+      throw new BadRequestException('A tarefa de origem não pode ser a mesma tarefa de destino.');
     }
 
     this.logger.log(
@@ -13675,7 +13736,9 @@ export class TaskService {
                 });
 
                 // Helper to clone a implementMeasure as a new individual instance
-                const cloneImplementMeasure = async (sourceImplementMeasure: any): Promise<string | null> => {
+                const cloneImplementMeasure = async (
+                  sourceImplementMeasure: any,
+                ): Promise<string | null> => {
                   if (!sourceImplementMeasure) return null;
                   const cloned = await tx.implementMeasure.create({
                     data: {
@@ -13702,7 +13765,10 @@ export class TaskService {
                 const safeDisconnectOldImplementMeasure = async (
                   truckId: string,
                   oldImplementMeasureId: string | null,
-                  implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
+                  implementMeasureField:
+                    | 'leftSideMeasureId'
+                    | 'rightSideMeasureId'
+                    | 'backSideMeasureId',
                 ) => {
                   if (!oldImplementMeasureId) return;
                   await tx.truck.update({
@@ -13722,7 +13788,9 @@ export class TaskService {
                   if (implementMeasureWithRefs) {
                     const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
                     if (remainingTrucks.length === 0) {
-                      await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: oldImplementMeasureId } });
+                      await tx.implementMeasureSection.deleteMany({
+                        where: { implementMeasureId: oldImplementMeasureId },
+                      });
                       await tx.implementMeasure.delete({ where: { id: oldImplementMeasureId } });
                     }
                   }
@@ -13730,7 +13798,9 @@ export class TaskService {
 
                 // Clone each side's implementMeasure as an individual instance
                 const clonedLeftId = await cloneImplementMeasure(sourceTask.truck.leftSideMeasure);
-                const clonedRightId = await cloneImplementMeasure(sourceTask.truck.rightSideMeasure);
+                const clonedRightId = await cloneImplementMeasure(
+                  sourceTask.truck.rightSideMeasure,
+                );
                 const clonedBackId = await cloneImplementMeasure(sourceTask.truck.backSideMeasure);
 
                 const implementMeasureData: any = {};
@@ -13778,7 +13848,9 @@ export class TaskService {
                 // Helper to calculate dimensions from implementMeasure
                 const getImplementMeasureDimensions = (implementMeasure: any) => {
                   if (!implementMeasure) return null;
-                  const height = implementMeasure.height ? Math.round(implementMeasure.height * 100) : 0;
+                  const height = implementMeasure.height
+                    ? Math.round(implementMeasure.height * 100)
+                    : 0;
                   const totalWidth = implementMeasure.sections
                     ? implementMeasure.sections.reduce(
                         (sum: number, s: any) => sum + (s.width || 0) * 100,
@@ -13791,9 +13863,15 @@ export class TaskService {
                 // Store cloned implementMeasure data with dimensions for changelog display
                 details.implementMeasures = {
                   ...implementMeasureData,
-                  leftSideDimensions: getImplementMeasureDimensions(sourceTask.truck.leftSideMeasure),
-                  rightSideDimensions: getImplementMeasureDimensions(sourceTask.truck.rightSideMeasure),
-                  backSideDimensions: getImplementMeasureDimensions(sourceTask.truck.backSideMeasure),
+                  leftSideDimensions: getImplementMeasureDimensions(
+                    sourceTask.truck.leftSideMeasure,
+                  ),
+                  rightSideDimensions: getImplementMeasureDimensions(
+                    sourceTask.truck.rightSideMeasure,
+                  ),
+                  backSideDimensions: getImplementMeasureDimensions(
+                    sourceTask.truck.backSideMeasure,
+                  ),
                 };
               }
               break;

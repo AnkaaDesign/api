@@ -44,7 +44,10 @@ export class TaskQuoteReceiptService {
     const quote = await this.prisma.taskQuote.findUnique({
       where: { id: quoteId },
       include: {
-        task: { include: { customer: true, truck: true } },
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          include: { customer: true, truck: true },
+        },
         services: { orderBy: { position: 'asc' } },
         customerConfigs: { include: { customer: true, installments: true } },
       },
@@ -59,7 +62,8 @@ export class TaskQuoteReceiptService {
       );
     }
 
-    const customer = quote.task?.customer ?? quote.customerConfigs[0]?.customer ?? null;
+    const quoteTaskRows = quote.tasks ?? [];
+    const customer = quoteTaskRows[0]?.customer ?? quote.customerConfigs[0]?.customer ?? null;
     const customerName = customer?.fantasyName ?? customer?.corporateName ?? 'Cliente';
     const customerDocument = formatDocument(customer?.cnpj ?? customer?.cpf ?? null);
 
@@ -75,14 +79,39 @@ export class TaskQuoteReceiptService {
     // (Truck.plate) — nunca o nome da tarefa, que é texto livre e não identifica
     // o veículo. Pelo menos um dos dois está disponível quando o orçamento chega
     // a SETTLED; mostra os dois quando ambos existirem.
-    const truck = quote.task?.truck ?? null;
-    const serialNumber = quote.task?.serialNumber ?? null;
+    const truck = quoteTaskRows[0]?.truck ?? null;
+    const serialNumber = quoteTaskRows[0]?.serialNumber ?? null;
     const plate = truck?.plate ?? null;
-    const vehicleParts = [
-      serialNumber ? `Série ${serialNumber}` : null,
-      plate ? `Placa ${plate}` : null,
-    ].filter((part): part is string => Boolean(part));
-    const vehicleLabel = vehicleParts.length ? vehicleParts.join(' · ') : null;
+
+    /** `Série 38781 · Placa ABC1D23` para um veículo. */
+    const describeVehicle = (t: (typeof quoteTaskRows)[number]): string | null => {
+      const parts = [
+        t.serialNumber ? `Série ${t.serialNumber}` : null,
+        t.truck?.plate ? `Placa ${t.truck.plate}` : null,
+      ].filter((part): part is string => Boolean(part));
+      return parts.length ? parts.join(' · ') : null;
+    };
+
+    // O cupom tem OITENTA MILÍMETROS de largura. Listar sessenta veículos ali
+    // gastaria meio metro de papel térmico com o dado menos consultado do
+    // documento — quem confere veículo a veículo tem o orçamento assinado e o
+    // dossiê. Até três saem por extenso; a partir daí, a contagem e a faixa de
+    // séries, que é o que identifica o lote.
+    const vehicleDescriptions = quoteTaskRows
+      .map(describeVehicle)
+      .filter((v): v is string => Boolean(v));
+    let vehicleLabel: string | null = null;
+    if (vehicleDescriptions.length > 0 && vehicleDescriptions.length <= 3) {
+      vehicleLabel = vehicleDescriptions.join(' | ');
+    } else if (vehicleDescriptions.length > 3) {
+      const serials = quoteTaskRows
+        .map(t => t.serialNumber)
+        .filter((n): n is string => Boolean(n))
+        .sort();
+      const range =
+        serials.length > 1 ? ` · séries ${serials[0]} a ${serials[serials.length - 1]}` : '';
+      vehicleLabel = `${quoteTaskRows.length} veículos${range}`;
+    }
 
     const paidDates = quote.customerConfigs
       .flatMap(config => config.installments)
@@ -108,6 +137,7 @@ export class TaskQuoteReceiptService {
         description: s.description,
         amount: Number(s.amount),
       })),
+      vehicleCount: Math.max(1, quoteTaskRows.length),
       total: Number(quote.total),
       nfseNoticeEnabled,
     };

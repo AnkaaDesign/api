@@ -42,11 +42,7 @@ import {
   TASK_QUOTE_STATUS_ORDER,
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
-import {
-  formatDueDateYMD,
-  parseDueDateYMD,
-  todayInSaoPauloAtNoonUtc,
-} from '@utils/due-date.util';
+import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 
 /**
  * Controller for Invoice endpoints.
@@ -238,10 +234,7 @@ export class InvoiceController {
         },
       });
     } catch (error) {
-      this.logger.error(
-        'Falha ao notificar cancelamento de boleto (bank_slip.cancelled):',
-        error,
-      );
+      this.logger.error('Falha ao notificar cancelamento de boleto (bank_slip.cancelled):', error);
     }
   }
 
@@ -252,7 +245,12 @@ export class InvoiceController {
    * List invoices with filters (taskId, customerId, status) and pagination.
    */
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async findMany(@Query() query: InvoiceGetManyFormData) {
     return this.invoiceService.findMany(query);
   }
@@ -262,7 +260,12 @@ export class InvoiceController {
    * Get a single invoice with installments, bank slips, and NFS-e.
    */
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoiceService.findById(id, {
       installments: { include: { bankSlip: { include: { pdfFile: true } } } },
@@ -278,7 +281,12 @@ export class InvoiceController {
    * Get all invoices for a specific task.
    */
   @Get('task/:taskId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
     return this.invoiceService.findByTaskId(taskId);
   }
@@ -288,7 +296,12 @@ export class InvoiceController {
    * Get all invoices for a specific customer.
    */
   @Get('customer/:customerId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async findByCustomerId(@Param('customerId', ParseUUIDPipe) customerId: string) {
     return this.invoiceService.findByCustomerId(customerId);
   }
@@ -303,10 +316,19 @@ export class InvoiceController {
    */
   @Put(':id/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async cancelInvoice(@Param('id', ParseUUIDPipe) id: string, @Body() body: { reason?: string }) {
     // Collect bank slips that are live at Sicredi BEFORE we touch the DB.
-    const eligibleStatuses = [BANK_SLIP_STATUS.ACTIVE, BANK_SLIP_STATUS.OVERDUE, BANK_SLIP_STATUS.REGISTERING];
+    const eligibleStatuses = [
+      BANK_SLIP_STATUS.ACTIVE,
+      BANK_SLIP_STATUS.OVERDUE,
+      BANK_SLIP_STATUS.REGISTERING,
+    ];
     const installments = await this.prisma.installment.findMany({
       where: { invoiceId: id },
       select: { bankSlip: { select: { nossoNumero: true, status: true } } },
@@ -389,7 +411,12 @@ export class InvoiceController {
    */
   @Post(':installmentId/boleto/regenerate')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async regenerateBoleto(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate?: string },
@@ -522,11 +549,20 @@ export class InvoiceController {
             select: {
               externalOperationId: true,
               customerConfig: {
-                select: { quote: { select: { task: { select: { id: true } } } } },
+                select: {
+                  quote: {
+                    select: {
+                      tasks: {
+                        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                        select: { id: true },
+                      },
+                    },
+                  },
+                },
               },
             },
           });
-          taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+          taskIdForLink = invoiceForLink?.customerConfig?.quote?.tasks?.[0]?.id ?? null;
           withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
         const webUrlForLink = withdrawalIdForLink
@@ -545,27 +581,23 @@ export class InvoiceController {
 
         const nossoNumeroLabel = bankSlip?.nossoNumero ?? 'novo boleto';
 
-        await this.dispatchService.dispatchByConfiguration(
-          'bank_slip.due_date_changed',
-          'system',
-          {
-            entityType: 'BankSlip',
-            entityId: taskIdForLink ?? withdrawalIdForLink ?? installmentId,
-            action: 'due_date_changed',
-            data: {
-              nossoNumero: nossoNumeroLabel,
-              oldDueDate,
-              newDueDate: newDueDateLabel,
-            },
-            overrides: {
-              title: 'Vencimento de Boleto Alterado',
-              body: `A data de vencimento do boleto ${nossoNumeroLabel}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
-              relatedEntityType: 'BANK_SLIP',
-              ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
-              ...(mobileUrlForLink ? { mobileUrl: mobileUrlForLink } : {}),
-            },
+        await this.dispatchService.dispatchByConfiguration('bank_slip.due_date_changed', 'system', {
+          entityType: 'BankSlip',
+          entityId: taskIdForLink ?? withdrawalIdForLink ?? installmentId,
+          action: 'due_date_changed',
+          data: {
+            nossoNumero: nossoNumeroLabel,
+            oldDueDate,
+            newDueDate: newDueDateLabel,
           },
-        );
+          overrides: {
+            title: 'Vencimento de Boleto Alterado',
+            body: `A data de vencimento do boleto ${nossoNumeroLabel}${oldDueDate ? ` foi alterada de ${oldDueDate}` : ' foi alterada'} para ${newDueDateLabel}.`,
+            relatedEntityType: 'BANK_SLIP',
+            ...(webUrlForLink ? { webUrl: webUrlForLink } : {}),
+            ...(mobileUrlForLink ? { mobileUrl: mobileUrlForLink } : {}),
+          },
+        });
       } catch (notifyErr) {
         this.logger.error(
           'Falha ao notificar alteração de vencimento na regeneração (bank_slip.due_date_changed):',
@@ -583,7 +615,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async cancelBoleto(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
@@ -666,7 +703,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/sync-from-sicredi')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async syncBoletoFromSicredi(@Param('installmentId', ParseUUIDPipe) installmentId: string) {
     const bankSlip = await this.prisma.bankSlip.findUnique({
       where: { installmentId },
@@ -695,12 +737,14 @@ export class InvoiceController {
       bankSlip.status === BANK_SLIP_STATUS.PAID ||
       bankSlip.status === BANK_SLIP_STATUS.CANCELLED
     ) {
-      throw new BadRequestException(
-        'Não é possível sincronizar um boleto já pago ou cancelado.',
-      );
+      throw new BadRequestException('Não é possível sincronizar um boleto já pago ou cancelado.');
     }
 
-    if (!bankSlip.nossoNumero || bankSlip.nossoNumero.startsWith('TMP-') || bankSlip.nossoNumero.startsWith('ERR-')) {
+    if (
+      !bankSlip.nossoNumero ||
+      bankSlip.nossoNumero.startsWith('TMP-') ||
+      bankSlip.nossoNumero.startsWith('ERR-')
+    ) {
       throw new BadRequestException('Boleto ainda não foi registrado no Sicredi.');
     }
 
@@ -796,7 +840,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/mark-paid')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async markBoletoAsPaid(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body()
@@ -816,9 +865,7 @@ export class InvoiceController {
     // at the boundary so an invalid string can never reach the (enum-typed) column.
     const paymentMethod = body.paymentMethod as INSTALLMENT_PAYMENT_METHOD;
     if (!Object.values(INSTALLMENT_PAYMENT_METHOD).includes(paymentMethod)) {
-      throw new BadRequestException(
-        `Método de pagamento inválido: ${body.paymentMethod}.`,
-      );
+      throw new BadRequestException(`Método de pagamento inválido: ${body.paymentMethod}.`);
     }
     if (body.receiptFileIds && !Array.isArray(body.receiptFileIds)) {
       throw new BadRequestException('receiptFileIds deve ser uma lista.');
@@ -998,7 +1045,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/receipts')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async updateInstallmentReceipts(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body()
@@ -1030,9 +1082,7 @@ export class InvoiceController {
     if (body.paymentMethod !== undefined && body.paymentMethod !== null) {
       paymentMethod = body.paymentMethod as INSTALLMENT_PAYMENT_METHOD;
       if (!Object.values(INSTALLMENT_PAYMENT_METHOD).includes(paymentMethod)) {
-        throw new BadRequestException(
-          `Método de pagamento inválido: ${body.paymentMethod}.`,
-        );
+        throw new BadRequestException(`Método de pagamento inválido: ${body.paymentMethod}.`);
       }
     }
     const paidAt = this.parsePaidAt(body.paidAt);
@@ -1053,8 +1103,7 @@ export class InvoiceController {
     const methodChanged =
       paymentMethod !== undefined && paymentMethod !== installment.paymentMethod;
     const paidAtChanged =
-      paidAt !== undefined &&
-      paidAt.getTime() !== (installment.paidAt?.getTime() ?? NaN);
+      paidAt !== undefined && paidAt.getTime() !== (installment.paidAt?.getTime() ?? NaN);
 
     await this.prisma.$transaction(async tx => {
       await tx.installment.update({
@@ -1143,7 +1192,11 @@ export class InvoiceController {
       const customerName = installmentForMove?.customerConfig?.customer?.fantasyName;
       if (customerName) {
         for (const fileId of body.receiptFileIds) {
-          await this.filesStorageService.moveFileToCustomerContext(fileId, 'installmentReceipts', customerName);
+          await this.filesStorageService.moveFileToCustomerContext(
+            fileId,
+            'installmentReceipts',
+            customerName,
+          );
         }
       }
     }
@@ -1157,7 +1210,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/receipt')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async updateInstallmentReceiptLegacy(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body()
@@ -1189,7 +1247,12 @@ export class InvoiceController {
    */
   @Get(':installmentId/receipts/:fileId/download')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async downloadReceipt(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Param('fileId', ParseUUIDPipe) fileId: string,
@@ -1228,7 +1291,12 @@ export class InvoiceController {
    */
   @Put(':installmentId/boleto/due-date')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async changeBankSlipDueDate(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Body() body: { newDueDate: string },
@@ -1344,11 +1412,20 @@ export class InvoiceController {
             select: {
               externalOperationId: true,
               customerConfig: {
-                select: { quote: { select: { task: { select: { id: true } } } } },
+                select: {
+                  quote: {
+                    select: {
+                      tasks: {
+                        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                        select: { id: true },
+                      },
+                    },
+                  },
+                },
               },
             },
           });
-          taskIdForLink = invoiceForLink?.customerConfig?.quote?.task?.id ?? null;
+          taskIdForLink = invoiceForLink?.customerConfig?.quote?.tasks?.[0]?.id ?? null;
           withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
         const webUrlForLink = withdrawalIdForLink
@@ -1483,7 +1560,12 @@ export class InvoiceController {
    * If no local PDF exists, fetches directly from Sicredi using linhaDigitavel.
    */
   @Get(':installmentId/boleto/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async downloadBoletoPdf(
     @Param('installmentId', ParseUUIDPipe) installmentId: string,
     @Res() res: Response,
@@ -1657,7 +1739,12 @@ export class InvoiceController {
    */
   @Post(':invoiceId/nfse/emit')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
     // Verify the invoice exists and is not cancelled
     const invoice = await this.prisma.invoice.findUnique({
@@ -1707,9 +1794,7 @@ export class InvoiceController {
     }
 
     if (existingNfse?.status === 'PROCESSING') {
-      throw new BadRequestException(
-        'Emissão de NFS-e já está em andamento para esta fatura.',
-      );
+      throw new BadRequestException('Emissão de NFS-e já está em andamento para esta fatura.');
     }
 
     // PENDING or ERROR: reset the existing record instead of creating a new one.
@@ -1763,7 +1848,12 @@ export class InvoiceController {
    */
   @Put(':invoiceId/nfse/cancel')
   @HttpCode(HttpStatus.OK)
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body()
@@ -1851,7 +1941,12 @@ export class InvoiceController {
    * Fetches directly from Elotech OXY using elotechNfseId.
    */
   @Get(':invoiceId/nfse/pdf')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async downloadNfsePdf(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
@@ -1961,7 +2056,7 @@ export class InvoiceController {
           valorDoc: e?.valorDoc ?? null,
           valorISS: e?.valorISS ?? null,
           tomadorRazaoNome: e?.tomadorRazaoNome ?? null,
-          cancelada: e?.cancelada ?? (d.status === 'CANCELLED'),
+          cancelada: e?.cancelada ?? d.status === 'CANCELLED',
         };
       }),
     };
@@ -1988,7 +2083,12 @@ export class InvoiceController {
   }
 
   @Post('analytics/quote-funnel')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   @HttpCode(HttpStatus.OK)
   async getQuoteFunnelAnalytics(@Body() filters: any) {
     const data = await this.invoiceAnalyticsService.getQuoteFunnelAnalytics(filters);

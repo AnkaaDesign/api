@@ -7,8 +7,11 @@ const logger = new Logger('QuoteTaskLayoutSync');
 
 /** Image identity: same picture regardless of File id (a private clone keeps the
  * source's originalName + byte size, so two records of the same image match). */
-const imageKey = (f: { originalName?: string | null; filename?: string | null; size?: number | null }): string =>
-  `${(f.originalName || f.filename || '').trim().toLowerCase()}::${f.size ?? 0}`;
+const imageKey = (f: {
+  originalName?: string | null;
+  filename?: string | null;
+  size?: number | null;
+}): string => `${(f.originalName || f.filename || '').trim().toLowerCase()}::${f.size ?? 0}`;
 
 /**
  * Materialize a quote's approved layout files (`TaskQuote.layoutFiles`, the
@@ -55,7 +58,8 @@ export async function syncTaskLayoutsFromQuote(
     const quote = await (prisma as any).taskQuote.findUnique({
       where: { id: quoteId },
       select: {
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             layouts: {
@@ -96,8 +100,7 @@ export async function syncTaskLayoutsFromQuote(
     for (const qf of quoteFiles) {
       // Resolve the task layout that represents this quote file: exact File id
       // first, then same image (the private-copy case).
-      const match =
-        taskLayoutByFileId.get(qf.id) || taskLayoutByImage.get(imageKey(qf));
+      const match = taskLayoutByFileId.get(qf.id) || taskLayoutByImage.get(imageKey(qf));
 
       if (match) {
         // Already a task layout on THIS task (it came from task.layouts, so it is
@@ -106,8 +109,7 @@ export async function syncTaskLayoutsFromQuote(
         // re-approve a previously-REPROVED layout that has been re-selected
         // (selection is authoritative: selected ⇒ APPROVED).
         const shouldPromote =
-          match.status === 'DRAFT' ||
-          (reapproveReprovedSelection && match.status === 'REPROVED');
+          match.status === 'DRAFT' || (reapproveReprovedSelection && match.status === 'REPROVED');
         if (shouldPromote) {
           await (prisma as any).layout.update({
             where: { id: match.id },
@@ -146,7 +148,7 @@ export async function syncTaskLayoutsFromQuote(
     if (layoutIdsToConnect.length > 0) {
       await (prisma as any).task.update({
         where: { id: taskId },
-        data: { layouts: { connect: layoutIdsToConnect.map((id) => ({ id })) } },
+        data: { layouts: { connect: layoutIdsToConnect.map(id => ({ id })) } },
       });
     }
 
@@ -203,7 +205,8 @@ export async function reproveDroppedTaskLayoutsFromQuote(
     const quote = await (prisma as any).taskQuote.findUnique({
       where: { id: quoteId },
       select: {
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             layouts: {
@@ -334,7 +337,8 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
     const quote = await (prisma as any).taskQuote.findUnique({
       where: { id: quoteId },
       select: {
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             layouts: {

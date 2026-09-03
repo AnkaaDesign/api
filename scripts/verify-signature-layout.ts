@@ -64,6 +64,8 @@ function inputFor(opts: {
   services: number;
   layouts: number;
   signers: number;
+  /** Quantos veículos o orçamento cobre. Ausente = 1, o caso de sempre. */
+  vehicles?: number;
 }): RenderInput {
   return {
     sections: opts.sections,
@@ -73,11 +75,25 @@ function inputFor(opts: {
     corporateName: 'TRANSPORTES SANTA HELENA LTDA',
     customerDocumentFormatted: '12.345.678/0001-99',
     contactName: 'Ana Paula Rodrigues',
-    serialNumber: '4821',
-    plate: null,
-    chassisNumber: null,
-    truckCategoryLabel: 'SEMI_TRAILER_2_AXLES',
-    truckImplementLabel: 'BAU',
+    vehicles: Array.from({ length: opts.vehicles ?? 1 }, (_, i) => ({
+      taskId: `task-${i + 1}`,
+      serialNumber: String(4821 + i),
+      // Placa e chassi VAZIOS de propósito: é o caso do implemento 0 km, e é o
+      // que faz a lacuna de cadastro tardio existir para ser medida.
+      plate: null,
+      chassisNumber: null,
+      categoryLabel: 'SEMI_TRAILER_2_AXLES',
+      implementLabel: 'BAU',
+    })),
+    billing: {
+      corporateName: 'TRANSPORTES SANTA HELENA LTDA',
+      documentFormatted: '12.345.678/0001-99',
+      stateRegistration: '123.456.789.000',
+      municipalRegistration: '98765',
+      addressLine: 'Rodovia BR-369, 1200, Galpão B',
+      addressLocality: 'Distrito Industrial — Ibiporã/PR — CEP 86200-000',
+      orderNumber: '4500123456',
+    },
     services: Array.from({ length: opts.services }, (_, i) => ({
       description: `Pintura completa do implemento — etapa ${i + 1} com preparação de superfície`,
       amount: 4850 + i * 137,
@@ -125,6 +141,22 @@ const GRID = [
   { services: 12, layouts: 1, signers: 2 },
   { services: 12, layouts: 0, signers: 6 },
   { services: 24, layouts: 1, signers: 4 },
+  // ── ORÇAMENTO MULTITAREFA ────────────────────────────────────────────────
+  //
+  // Três configurações que só existem desde que um orçamento passou a cobrir N
+  // veículos. A tabela de identificação cresce uma linha por veículo, e é ela
+  // que decide se a lacuna de cadastro tardio ainda cai na primeira folha (onde
+  // é carimbável) — ver `resolveLateSlots`.
+  //
+  //  ·  3 veículos: o caso comum de um lote pequeno; tudo na folha 1.
+  //  · 12 veículos: a tabela já empurra os serviços para a segunda folha.
+  //  · 60 veículos: o Marquespan real. Aqui a tabela ocupa quase três folhas e
+  //    as lacunas das últimas linhas DEIXAM de ser carimbáveis — o que o
+  //    aditivo cobre, e é por isso que ele é montado a partir dos veículos e não
+  //    das lacunas medidas.
+  { services: 3, layouts: 1, signers: 2, vehicles: 3 },
+  { services: 3, layouts: 1, signers: 2, vehicles: 12 },
+  { services: 3, layouts: 0, signers: 2, vehicles: 60 },
 ];
 
 async function main() {
@@ -149,7 +181,7 @@ async function main() {
       const pages = doc.getPageCount();
       pagesOf.set(cut.label, pages);
 
-      const scenario = `${grid.services} serviços, ${grid.layouts} arte(s), ${grid.signers} signatários · ${cut.label}`;
+      const scenario = `${(grid as any).vehicles ?? 1} veíc., ${grid.services} serviços, ${grid.layouts} arte(s), ${grid.signers} signatários · ${cut.label}`;
 
       // 1. Nenhum signatário pode ser clipado. É a única falha desta lista que
       //    apaga uma pessoa do documento sem deixar rastro.
@@ -163,12 +195,36 @@ async function main() {
         Object.keys(r.anchors).length === expected,
       );
 
-      // 3. A frase do veículo é obrigatória, então a lacuna de cadastro tardio
-      //    tem de ser medida em TODO recorte: a placa que chega depois precisa
-      //    de um retângulo onde ser carimbada, seja qual for o recorte.
+      // 3. A tabela de identificação do veículo é obrigatória, então a lacuna de
+      //    cadastro tardio tem de ser medida em TODO recorte: a placa que chega
+      //    depois precisa de um retângulo onde ser carimbada, seja qual for o
+      //    recorte.
+      //
+      //    ⚠️ COM MUITOS VEÍCULOS ISSO DEIXA DE VALER, e o teto é a primeira
+      //    folha (`resolveLateSlots`): a tabela de sessenta caminhões ocupa quase
+      //    três, e da linha ~35 em diante nenhuma lacuna é carimbável. Não é
+      //    perda de informação — o ADITIVO declara esses campos e é montado a
+      //    partir dos veículos, não das lacunas medidas —, então o que se exige
+      //    aqui é que as PRIMEIRAS linhas continuem carimbáveis, que é o que
+      //    prova que a medição segue funcionando.
+      const vehiclesInGrid = (grid as any).vehicles ?? 1;
       check(
         `[${scenario}] reservou as lacunas de cadastro tardio`,
         Object.keys(r.lateSlots).length > 0,
+      );
+      // Duas por veículo (placa e chassi; a série vem preenchida), até o teto da
+      // primeira folha. Com um veículo o número é exato.
+      if (vehiclesInGrid === 1) {
+        check(
+          `[${scenario}] reservou as 2 lacunas do único veículo`,
+          Object.keys(r.lateSlots).length === 2,
+        );
+      }
+      // Toda chave reservada leva a TAREFA junto: sem isso o chassi do caminhão
+      // 3 seria carimbado no espaço do caminhão 1.
+      check(
+        `[${scenario}] as lacunas são chaveadas por veículo`,
+        Object.keys(r.lateSlots).every(k => k.includes('#')),
       );
 
       // 4. Nada de folha em branco no fim.
