@@ -1903,12 +1903,30 @@ model TaskQuote {
   /// the configured director. There is no other User relation on TaskQuote.
   commercialUserId String? @map("commercialUserId")
 
-  task               Task?                     @relation("TASK_QUOTE")
+  /// As TAREFAS deste orçamento — uma por veículo.
+  ///
+  /// Era 1:1 (`Task.quoteId @unique`). Passou a 1:N porque a criação já produzia
+  /// N tarefas do produto cartesiano placas × números de série e emitia UM
+  /// orçamento para cada uma: o Marquespan de 02/09 saiu como os orçamentos 642
+  /// a 701 — sessenta números, sessenta PDFs, sessenta cerimônias de assinatura,
+  /// todos com a mesma lista (Logomarca Laterais, Logomarca Traseira, Aerografia
+  /// Parcial) e o mesmo valor. Agora é um orçamento só, e o "×60" do documento
+  /// sai daqui.
+  ///
+  /// A lista de serviços é UMA, compartilhada por todas as tarefas: o preço de
+  /// `TaskQuoteService.amount` é POR VEÍCULO. Veículo que precisa de outra lista
+  /// é outro orçamento.
+  tasks Task[] @relation("TASK_QUOTE")
+
+  /// Se o cliente paga os N veículos numa fatura só ou uma por veículo.
+  /// Ver `QuoteBillingSplit` e `TaskQuoteCustomerConfig.taskId`.
+  billingSplit       QuoteBillingSplit         @default(JOINT)
   layoutFiles        File[]                    @relation("QUOTE_LAYOUT")
   services           TaskQuoteService[]        @relation("QUOTE_SERVICES")
   customerConfigs    TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
   commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
   signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
+  nfseDocuments      NfseDocument[]            @relation("QuoteNfseDocuments")
 
   @@index([status])
   @@index([statusOrder])
@@ -1936,9 +1954,35 @@ model TaskQuoteService {
 }
 
 model TaskQuoteCustomerConfig {
-  id                  String        @id @default(uuid())
-  quoteId             String
-  customerId          String
+  id         String @id @default(uuid())
+  quoteId    String
+  customerId String
+
+  /// A TAREFA que esta configuração fatura, ou NULO para "todas as do orçamento".
+  ///
+  /// É a chave do "pagar junto ou separado". Nulo = uma fatura só para os N
+  /// veículos (`JOINT`, o padrão e o comportamento de sempre). Preenchido = uma
+  /// configuração por veículo (`PER_TASK`), cada uma com sua fatura, seu plano de
+  /// parcelas, seus boletos e sua NFS-e — que é o que o Marquespan de 60
+  /// caminhões precisa quando o cliente paga caminhão a caminhão.
+  ///
+  /// A unicidade NÃO cabe num `@@unique` do Prisma porque as duas formas
+  /// convivem no mesmo modelo e o Postgres não deduplica NULO: são dois índices
+  /// PARCIAIS, criados à mão na migração
+  /// `20260903120000_multitask_quote` —
+  /// `TaskQuoteCustomerConfig_one_joint_per_customer` (WHERE "taskId" IS NULL) e
+  /// `TaskQuoteCustomerConfig_one_per_customer_task` (WHERE "taskId" IS NOT NULL).
+  taskId String?
+
+  /// Quando ESTA fatia teve o faturamento aprovado.
+  ///
+  /// Existe porque, com `PER_TASK`, os sessenta caminhões não terminam no mesmo
+  /// dia: o financeiro aprova os que já saíram, e cada aprovação gera a fatura,
+  /// a NFS-e e os boletos daquele veículo com o vencimento contado dali.
+  /// `TaskQuote.billingApprovedAt` continua sendo a data em que a ÚLTIMA fatia
+  /// fechou — é ela que faz o orçamento inteiro estar faturado.
+  billingApprovedAt DateTime?
+
   subtotal            Decimal       @default(0) @db.Decimal(10, 2)
   total               Decimal       @default(0) @db.Decimal(10, 2)
   discountType        DiscountType  @default(NONE)
@@ -1960,12 +2004,17 @@ model TaskQuoteCustomerConfig {
   customerSignature   File?         @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   invoice             Invoice?      @relation("InvoiceCustomerConfig")
   installments        Installment[] @relation("CustomerConfigInstallments")
+  task                Task?         @relation("CustomerConfigTask", fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@unique([quoteId, customerId])
+  // O `@@unique([quoteId, customerId])` saiu: ver `taskId` acima. Os dois
+  // índices parciais que o substituem vivem na migração, porque o Prisma não
+  // sabe declarar índice com `WHERE`.
   @@index([quoteId])
   @@index([customerId])
   @@index([responsibleId])
   @@index([customerSignatureId])
+  @@index([taskId])
+  @@index([quoteId, taskId])
 }
 
 model Supplier {
@@ -2013,60 +2062,65 @@ model Supplier {
 }
 
 model Task {
-  id                    String                @id @default(uuid())
-  name                  String?               @default("Tarefa Sem Nome")
-  status                TaskStatus            @default(PREPARATION)
-  statusOrder           Int                   @default(1)
-  serialNumber          String?               @unique
+  id                    String                    @id @default(uuid())
+  name                  String?                   @default("Tarefa Sem Nome")
+  status                TaskStatus                @default(PREPARATION)
+  statusOrder           Int                       @default(1)
+  serialNumber          String?                   @unique
   details               String?
   entryDate             DateTime?
   term                  DateTime?
   startedAt             DateTime?
   finishedAt            DateTime?
   forecastDate          DateTime?
-  cleared               Boolean               @default(false)
+  cleared               Boolean                   @default(false)
   paintId               String?
   customerId            String?
   sectorId              String?
   bonification          BonificationStatus?
-  bonificationOrder     Int                   @default(3)
+  bonificationOrder     Int                       @default(3)
   createdById           String?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
   bonusDiscountId       String?
-  quoteId               String?               @unique
-  airbrushings          Airbrushing[]         @relation("AIRBRUSHING")
-  cuts                  Cut[]                 @relation("CUT_TASK")
-  observation           Observation?          @relation("OBSERVATION_TO_TASK")
-  serviceOrders         ServiceOrder[]        @relation("SERVICE_ORDER_TASK")
-  bonusDiscount         BonusDiscount?        @relation(fields: [bonusDiscountId], references: [id])
-  createdBy             User?                 @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
-  customer              Customer?             @relation("TaskCustomer", fields: [customerId], references: [id])
-  generalPainting       Paint?                @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  quote                 TaskQuote?            @relation("TASK_QUOTE", fields: [quoteId], references: [id])
-  sector                Sector?               @relation(fields: [sectorId], references: [id])
-  fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
+  /// Sem `@unique` desde o orçamento multitarefa: N tarefas apontam para o
+  /// MESMO orçamento. Ver `TaskQuote.tasks`.
+  quoteId               String?
+  airbrushings          Airbrushing[]             @relation("AIRBRUSHING")
+  cuts                  Cut[]                     @relation("CUT_TASK")
+  observation           Observation?              @relation("OBSERVATION_TO_TASK")
+  serviceOrders         ServiceOrder[]            @relation("SERVICE_ORDER_TASK")
+  bonusDiscount         BonusDiscount?            @relation(fields: [bonusDiscountId], references: [id])
+  createdBy             User?                     @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer              Customer?                 @relation("TaskCustomer", fields: [customerId], references: [id])
+  generalPainting       Paint?                    @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  quote                 TaskQuote?                @relation("TASK_QUOTE", fields: [quoteId], references: [id])
+  sector                Sector?                   @relation(fields: [sectorId], references: [id])
+  fieldChangeLogs       TaskFieldChangeLog[]      @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
-  paintingAnalyses      PaintingAnalysis[]    @relation("TASK_PAINTING_ANALYSES")
-  bonuses               Bonus[]               @relation("BonusTasks")
-  relatedTo             Task[]                @relation("RelatedTasks")
-  relatedTasks          Task[]                @relation("RelatedTasks")
-  baseFiles             File[]                @relation("TASK_BASE_FILES")
-  budgets               File[]                @relation("TASK_BUDGETS")
-  invoices              File[]                @relation("TASK_INVOICES")
-  invoiceReimbursements File[]                @relation("TASK_INVOICE_REIMBURSEMENTS")
-  logoPaints            Paint[]               @relation("TASK_LOGO_PAINT")
-  receipts              File[]                @relation("TASK_RECEIPTS")
-  bankSlips             File[]                @relation("TASK_BANK_SLIPS")
-  reimbursements        File[]                @relation("TASK_REIMBURSEMENTS")
-  layouts               Layout[]              @relation("TaskLayouts")
-  projectFiles          File[]                @relation("TASK_PROJECT_FILES")
-  checkinFiles          File[]                @relation("TASK_CHECKIN_FILES")
-  checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")
-  responsibles          Responsible[]         @relation("TaskResponsibles")
-  invoiceEntities       Invoice[]             @relation("TaskInvoiceEntities")
-  nfseDocuments         NfseDocument[]        @relation("TaskNfseDocuments")
-  forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
+  paintingAnalyses      PaintingAnalysis[]        @relation("TASK_PAINTING_ANALYSES")
+  bonuses               Bonus[]                   @relation("BonusTasks")
+  relatedTo             Task[]                    @relation("RelatedTasks")
+  relatedTasks          Task[]                    @relation("RelatedTasks")
+  baseFiles             File[]                    @relation("TASK_BASE_FILES")
+  budgets               File[]                    @relation("TASK_BUDGETS")
+  invoices              File[]                    @relation("TASK_INVOICES")
+  invoiceReimbursements File[]                    @relation("TASK_INVOICE_REIMBURSEMENTS")
+  logoPaints            Paint[]                   @relation("TASK_LOGO_PAINT")
+  receipts              File[]                    @relation("TASK_RECEIPTS")
+  bankSlips             File[]                    @relation("TASK_BANK_SLIPS")
+  reimbursements        File[]                    @relation("TASK_REIMBURSEMENTS")
+  layouts               Layout[]                  @relation("TaskLayouts")
+  projectFiles          File[]                    @relation("TASK_PROJECT_FILES")
+  checkinFiles          File[]                    @relation("TASK_CHECKIN_FILES")
+  checkoutFiles         File[]                    @relation("TASK_CHECKOUT_FILES")
+  responsibles          Responsible[]             @relation("TaskResponsibles")
+  invoiceEntities       Invoice[]                 @relation("TaskInvoiceEntities")
+  nfseDocuments         NfseDocument[]            @relation("TaskNfseDocuments")
+  forecastHistory       TaskForecastHistory[]     @relation("TASK_FORECAST_HISTORY")
+  /// Configurações de faturamento amarradas a ESTA tarefa — só existem quando o
+  /// orçamento cobra veículo a veículo (`TaskQuote.billingSplit = PER_TASK`).
+  quoteCustomerConfigs  TaskQuoteCustomerConfig[] @relation("CustomerConfigTask")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -2080,6 +2134,7 @@ model Task {
   @@index([createdAt])
   @@index([customerId])
   @@index([createdById])
+  @@index([quoteId])
 }
 
 model TaskFieldChangeLog {
@@ -4220,6 +4275,23 @@ enum BonificationStatus {
   SUSPENDED_BONIFICATION
 }
 
+/**
+ * Como o cliente paga um orçamento que cobre mais de um veículo.
+ * `JOINT` é o padrão e é o comportamento de sempre: UMA configuração de
+ * faturamento por cliente, uma fatura, um plano de parcelas, uma NFS-e — e, num
+ * orçamento de uma tarefa só, é indistinguível do que existia antes desta
+ * feature.
+ * `PER_TASK` fatia por veículo: uma configuração por (cliente × tarefa). O
+ * financeiro aprova veículo a veículo, e cada aprovação emite a fatura, a NFS-e
+ * e os boletos daquele caminhão com o vencimento contado do momento em que foi
+ * aprovado — que é o que os sessenta caminhões do Marquespan pedem, já que não
+ * terminam no mesmo dia.
+ */
+enum QuoteBillingSplit {
+  JOINT
+  PER_TASK
+}
+
 enum TaskQuoteStatus {
   PENDING
   BUDGET_APPROVED
@@ -4603,7 +4675,16 @@ model NfseDocument {
   invoiceId     String?
   // Durable link to the task so the full NFS-e history (incl. cancelled/rejected/orphan
   // notes re-linked from Elotech) is always visible on the task quote page.
+  //
+  // NULO quando a nota cobre o orçamento inteiro (`billingSplit = JOINT` com mais
+  // de uma tarefa): ali ela não é de UMA tarefa, e escolher uma das sessenta
+  // faria as outras cinquenta e nove exibirem "sem nota" tendo sido faturadas.
+  // Nesses casos quem liga é `quoteId`.
   taskId        String?
+  /// Link durável ao ORÇAMENTO. Preenchido sempre — inclusive quando `taskId`
+  /// está — porque é ele que sustenta a guarda de "nunca emitir uma segunda nota
+  /// viva no mesmo ciclo" agora que um ciclo pode ter N tarefas.
+  quoteId       String?
   elotechNfseId Int?
   nfseNumber    Int?
   status        NfseStatus @default(PENDING)
@@ -4643,6 +4724,7 @@ model NfseDocument {
 
   invoice        Invoice?        @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
   task           Task?           @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  quote          TaskQuote?      @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
   supersededBy   NfseDocument?   @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
   supersedes     NfseDocument[]  @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
@@ -4652,6 +4734,7 @@ model NfseDocument {
 
   @@index([invoiceId])
   @@index([taskId])
+  @@index([quoteId])
   @@index([elotechNfseId])
   @@index([status])
   @@index([supersededByNfseDocumentId])
