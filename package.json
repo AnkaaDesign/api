@@ -83,7 +83,8 @@
     "audit:recurrent-links": "tsx scripts/audit-recurrent-payable-links.ts",
     "test:task-match": "tsx tests/task-match-allocation.test.ts",
     "test:task-match:integration": "tsx tests/task-match-integration.test.ts",
-    "seed:painting": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-painting-config.ts"
+    "seed:painting": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-painting-config.ts",
+    "test:quote-list-query": "tsx tests/quote-list-query.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

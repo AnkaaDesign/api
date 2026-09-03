@@ -174,10 +174,23 @@ export class SignatureDeletionService {
     return this.purge(tx, { quoteId: { in: quoteIds } });
   }
 
-  /** Purga os envelopes dos orçamentos ligados às tarefas indicadas. */
+  /**
+   * Purga os envelopes dos orçamentos ligados às tarefas indicadas.
+   *
+   * `tasks: { some }` e não o filtro to-one: `Task.quoteId` deixou de ser
+   * `@unique` (orçamento multitarefa), e `quote.task` não existe mais no
+   * `TaskQuoteWhereInput` — a forma antiga passava pelo `tsc` porque `purge`
+   * recebe `Record<string, unknown>`, e estourava no Prisma em runtime, no meio
+   * da transação de exclusão de tarefa.
+   *
+   * A semântica é deliberada: o envelope cobre o ORÇAMENTO inteiro, e tirar um
+   * veículo dele muda o documento (ver `diffVehicles` — acrescentar ou retirar
+   * veículo é material). Um envelope que continuasse de pé descreveria uma
+   * frota que não existe mais.
+   */
   async purgeForTasks(tx: PrismaTransaction, taskIds: string[]): Promise<SignaturePurgeResult> {
     if (!taskIds.length) return EMPTY_PURGE;
-    return this.purge(tx, { quote: { task: { id: { in: taskIds } } } });
+    return this.purge(tx, { quote: { tasks: { some: { id: { in: taskIds } } } } });
   }
 
   /** Purga envelopes por id — usado pela limpeza operacional de envelopes órfãos. */

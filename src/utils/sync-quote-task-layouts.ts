@@ -80,80 +80,28 @@ export async function syncTaskLayoutsFromQuote(
 
     // No task linked yet (e.g. a freshly-cloned quote before its task.update) —
     // the caller must invoke this only after the task↔quote link exists.
-    if (!quote?.task) return;
+    const tasks: any[] = quote?.tasks || [];
+    if (tasks.length === 0) return;
 
-    const taskId: string = quote.task.id;
     const quoteFiles: any[] = quote.layoutFiles || [];
     if (quoteFiles.length === 0) return; // nothing added — removal is not our concern
 
-    const taskLayouts: any[] = quote.task.layouts || [];
-    // Existing task layouts indexed by File id AND by image identity.
-    const taskLayoutByFileId = new Map<string, { id: string; status: string }>();
-    const taskLayoutByImage = new Map<string, { id: string; status: string }>();
-    for (const l of taskLayouts) {
-      taskLayoutByFileId.set(l.fileId, { id: l.id, status: l.status });
-      taskLayoutByImage.set(imageKey(l.file || {}), { id: l.id, status: l.status });
-    }
-
-    const layoutIdsToConnect: string[] = [];
-
-    for (const qf of quoteFiles) {
-      // Resolve the task layout that represents this quote file: exact File id
-      // first, then same image (the private-copy case).
-      const match = taskLayoutByFileId.get(qf.id) || taskLayoutByImage.get(imageKey(qf));
-
-      if (match) {
-        // Already a task layout on THIS task (it came from task.layouts, so it is
-        // connected). Promote a DRAFT so the quote's approved layout is never a
-        // DRAFT task layout. On the authoritative quote-selection path also
-        // re-approve a previously-REPROVED layout that has been re-selected
-        // (selection is authoritative: selected ⇒ APPROVED).
-        const shouldPromote =
-          match.status === 'DRAFT' || (reapproveReprovedSelection && match.status === 'REPROVED');
-        if (shouldPromote) {
-          await (prisma as any).layout.update({
-            where: { id: match.id },
-            data: { status: 'APPROVED' },
-          });
-        }
-        continue;
-      }
-
-      // No image twin on the task. Reuse a Layout for this exact File if one
-      // exists anywhere (fileId is @unique), else create it approved-directly.
-      const existing = await (prisma as any).layout.findUnique({
-        where: { fileId: qf.id },
-        select: { id: true, status: true },
-      });
-      if (!existing) {
-        const created = await (prisma as any).layout.create({
-          data: { fileId: qf.id, status: 'APPROVED' },
-          select: { id: true },
-        });
-        layoutIdsToConnect.push(created.id);
-      } else {
-        const shouldPromote =
-          existing.status === 'DRAFT' ||
-          (reapproveReprovedSelection && existing.status === 'REPROVED');
-        if (shouldPromote) {
-          await (prisma as any).layout.update({
-            where: { id: existing.id },
-            data: { status: 'APPROVED' },
-          });
-        }
-        layoutIdsToConnect.push(existing.id);
-      }
-    }
-
-    if (layoutIdsToConnect.length > 0) {
-      await (prisma as any).task.update({
-        where: { id: taskId },
-        data: { layouts: { connect: layoutIdsToConnect.map(id => ({ id })) } },
-      });
+    // UMA VEZ POR VEÍCULO. A lista de layouts do orçamento é única e vale para
+    // todas as tarefas: o caminhão 37 precisa da arte aprovada na SUA galeria
+    // tanto quanto o primeiro. Materializar só na tarefa âncora deixaria 59
+    // veículos sem layout nenhum na produção.
+    let linkedTotal = 0;
+    for (const task of tasks) {
+      linkedTotal += await syncOneTaskFromQuoteFiles(
+        prisma,
+        task,
+        quoteFiles,
+        reapproveReprovedSelection,
+      );
     }
 
     logger.log(
-      `[Quote→Task Layout Sync] Quote ${quoteId} / Task ${taskId}: ${quoteFiles.length} quote layout(s), ${layoutIdsToConnect.length} newly linked as task layouts.`,
+      `[Quote→Task Layout Sync] Quote ${quoteId} / ${tasks.length} tarefa(s): ${quoteFiles.length} quote layout(s), ${linkedTotal} newly linked as task layouts.`,
     );
   } catch (error) {
     logger.error(
@@ -161,6 +109,96 @@ export async function syncTaskLayoutsFromQuote(
     );
     // Swallow — best-effort sync; must never break the caller's flow.
   }
+}
+
+/**
+ * O corpo do reconciliador, para UMA tarefa. Devolve quantos layouts novos
+ * ligou a ela.
+ *
+ * Extraído porque o laço por veículo precisa dele N vezes e porque cada tarefa
+ * tem a SUA galeria: os mapas por File id e por imagem são reconstruídos a cada
+ * volta. Compartilhá-los entre veículos faria o segundo caminhão em diante achar
+ * que a arte já estava na galeria dele quando estava na do primeiro — e ele
+ * terminaria sem layout.
+ *
+ * `Layout.fileId` é `@unique`, então a linha `Layout` de um mesmo arquivo é UMA
+ * e as N tarefas a compartilham pelo m2m `Task.layouts`. A primeira volta cria,
+ * as seguintes encontram e apenas conectam.
+ */
+async function syncOneTaskFromQuoteFiles(
+  prisma: PrismaContext,
+  task: { id: string; layouts?: any[] | null },
+  quoteFiles: any[],
+  reapproveReprovedSelection: boolean,
+): Promise<number> {
+  const taskId: string = task.id;
+  const taskLayouts: any[] = task.layouts || [];
+  // Existing task layouts indexed by File id AND by image identity.
+  const taskLayoutByFileId = new Map<string, { id: string; status: string }>();
+  const taskLayoutByImage = new Map<string, { id: string; status: string }>();
+  for (const l of taskLayouts) {
+    taskLayoutByFileId.set(l.fileId, { id: l.id, status: l.status });
+    taskLayoutByImage.set(imageKey(l.file || {}), { id: l.id, status: l.status });
+  }
+
+  const layoutIdsToConnect: string[] = [];
+
+  for (const qf of quoteFiles) {
+    // Resolve the task layout that represents this quote file: exact File id
+    // first, then same image (the private-copy case).
+    const match = taskLayoutByFileId.get(qf.id) || taskLayoutByImage.get(imageKey(qf));
+
+    if (match) {
+      // Already a task layout on THIS task (it came from task.layouts, so it is
+      // connected). Promote a DRAFT so the quote's approved layout is never a
+      // DRAFT task layout. On the authoritative quote-selection path also
+      // re-approve a previously-REPROVED layout that has been re-selected
+      // (selection is authoritative: selected ⇒ APPROVED).
+      const shouldPromote =
+        match.status === 'DRAFT' || (reapproveReprovedSelection && match.status === 'REPROVED');
+      if (shouldPromote) {
+        await (prisma as any).layout.update({
+          where: { id: match.id },
+          data: { status: 'APPROVED' },
+        });
+      }
+      continue;
+    }
+
+    // No image twin on the task. Reuse a Layout for this exact File if one
+    // exists anywhere (fileId is @unique), else create it approved-directly.
+    const existing = await (prisma as any).layout.findUnique({
+      where: { fileId: qf.id },
+      select: { id: true, status: true },
+    });
+    if (!existing) {
+      const created = await (prisma as any).layout.create({
+        data: { fileId: qf.id, status: 'APPROVED' },
+        select: { id: true },
+      });
+      layoutIdsToConnect.push(created.id);
+    } else {
+      const shouldPromote =
+        existing.status === 'DRAFT' ||
+        (reapproveReprovedSelection && existing.status === 'REPROVED');
+      if (shouldPromote) {
+        await (prisma as any).layout.update({
+          where: { id: existing.id },
+          data: { status: 'APPROVED' },
+        });
+      }
+      layoutIdsToConnect.push(existing.id);
+    }
+  }
+
+  if (layoutIdsToConnect.length > 0) {
+    await (prisma as any).task.update({
+      where: { id: taskId },
+      data: { layouts: { connect: layoutIdsToConnect.map(id => ({ id })) } },
+    });
+  }
+
+  return layoutIdsToConnect.length;
 }
 
 /**
@@ -224,20 +262,16 @@ export async function reproveDroppedTaskLayoutsFromQuote(
         },
       },
     });
-    if (!quote?.task) return reprovedLayoutIds;
+    const tasks: any[] = quote?.tasks || [];
+    if (tasks.length === 0) return reprovedLayoutIds;
 
     // Images the quote STILL references after the write — never reprove these.
     const currentImageKeys = new Set<string>(
       (quote.layoutFiles || []).map((f: any) => imageKey(f)),
     );
 
-    // Task layouts of THIS task, indexed by image identity.
-    const taskLayoutByImage = new Map<string, { id: string; status: string }>();
-    for (const l of quote.task.layouts || []) {
-      taskLayoutByImage.set(imageKey(l.file || {}), { id: l.id, status: l.status });
-    }
-
-    // The genuinely-dropped images (de-duped, still-referenced removed).
+    // The genuinely-dropped images (de-duped, still-referenced removed). É uma
+    // conta do ORÇAMENTO, não da tarefa: a seleção é uma só para os N veículos.
     const droppedKeys = new Set<string>();
     for (const pf of previousLayoutFiles) {
       const k = imageKey(pf);
@@ -245,53 +279,74 @@ export async function reproveDroppedTaskLayoutsFromQuote(
     }
     if (droppedKeys.size === 0) return reprovedLayoutIds;
 
-    for (const k of droppedKeys) {
-      const match = taskLayoutByImage.get(k);
-      // Only reprove an APPROVED task layout for this exact image on this task.
-      if (!match || match.status !== 'APPROVED') continue;
+    // Tirar a referência do orçamento reprova a arte em TODOS os veículos dele:
+    // a seleção é do orçamento, e deixar o caminhão 37 com a arte aprovada
+    // depois de ela sair do orçamento é exatamente a divergência que a produção
+    // não tem como perceber.
+    const alreadyReproved = new Set<string>();
+    for (const task of tasks) {
+      // Task layouts of THIS task, indexed by image identity.
+      const taskLayoutByImage = new Map<string, { id: string; status: string }>();
+      for (const l of task.layouts || []) {
+        taskLayoutByImage.set(imageKey(l.file || {}), { id: l.id, status: l.status });
+      }
 
-      // Guard against corrupting a still-in-use reference. This Layout row can be
-      // shared (m2m) across sibling tasks; reprove it only if NO OTHER quote —
-      // among the tasks connected to THIS Layout row — still references the same
-      // image. (Scoping to the Layout row, not the image, means a sibling task
-      // with its OWN separate row for the same picture does NOT block the
-      // reprove, while a genuinely shared row is protected until every quote on
-      // it has dropped the image — e.g. the last task in a bulk apply.)
-      const layoutRow = await (prisma as any).layout.findUnique({
-        where: { id: match.id },
-        select: {
-          tasks: {
-            select: {
-              quote: {
-                select: {
-                  id: true,
-                  layoutFiles: {
-                    select: { originalName: true, filename: true, size: true },
+      for (const k of droppedKeys) {
+        const match = taskLayoutByImage.get(k);
+        // Only reprove an APPROVED task layout for this exact image on this task.
+        if (!match || match.status !== 'APPROVED') continue;
+        // A MESMA linha `Layout` costuma estar ligada a vários veículos deste
+        // orçamento (`fileId` é `@unique`). Sem esta guarda ela seria reprovada
+        // sessenta vezes e entraria sessenta vezes no resultado, disparando a
+        // reconciliação de Em Negociação uma vez por veículo.
+        if (alreadyReproved.has(match.id)) continue;
+
+        // Guard against corrupting a still-in-use reference. This Layout row can be
+        // shared (m2m) across sibling tasks; reprove it only if NO OTHER quote —
+        // among the tasks connected to THIS Layout row — still references the same
+        // image. (Scoping to the Layout row, not the image, means a sibling task
+        // with its OWN separate row for the same picture does NOT block the
+        // reprove, while a genuinely shared row is protected until every quote on
+        // it has dropped the image — e.g. the last task in a bulk apply.)
+        // As tarefas do PRÓPRIO orçamento nunca bloqueiam: o filtro é
+        // `t.quote.id !== quoteId`, e todas elas carregam este mesmo `quoteId`.
+        const layoutRow = await (prisma as any).layout.findUnique({
+          where: { id: match.id },
+          select: {
+            tasks: {
+              select: {
+                quote: {
+                  select: {
+                    id: true,
+                    layoutFiles: {
+                      select: { originalName: true, filename: true, size: true },
+                    },
                   },
                 },
               },
             },
           },
-        },
-      });
-      const referencedElsewhere = (layoutRow?.tasks || []).some(
-        (t: any) =>
-          t.quote &&
-          t.quote.id !== quoteId &&
-          (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
-      );
-      if (referencedElsewhere) continue;
+        });
+        const referencedElsewhere = (layoutRow?.tasks || []).some(
+          (t: any) =>
+            t.quote &&
+            t.quote.id !== quoteId &&
+            (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
+        );
+        if (referencedElsewhere) continue;
 
-      await (prisma as any).layout.update({
-        where: { id: match.id },
-        data: { status: 'REPROVED' },
-      });
-      reprovedLayoutIds.push(match.id);
+        await (prisma as any).layout.update({
+          where: { id: match.id },
+          data: { status: 'REPROVED' },
+        });
+        alreadyReproved.add(match.id);
+        reprovedLayoutIds.push(match.id);
+      }
     }
 
     if (reprovedLayoutIds.length > 0) {
       logger.log(
-        `[Quote→Task Layout Reprove] Quote ${quoteId} / Task ${quote.task.id}: reproved ${reprovedLayoutIds.length} dropped reference layout(s).`,
+        `[Quote→Task Layout Reprove] Quote ${quoteId} / ${tasks.length} tarefa(s): reproved ${reprovedLayoutIds.length} dropped reference layout(s).`,
       );
     }
   } catch (error) {
@@ -356,7 +411,8 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
         },
       },
     });
-    if (!quote?.task) return reprovedLayoutIds;
+    const tasks: any[] = quote?.tasks || [];
+    if (tasks.length === 0) return reprovedLayoutIds;
 
     const selected: any[] = quote.layoutFiles || [];
     // Authoritative only when there IS a selection — never mass-reprove empty.
@@ -364,47 +420,56 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
 
     const selectedImageKeys = new Set<string>(selected.map((f: any) => imageKey(f)));
 
-    for (const l of quote.task.layouts || []) {
-      if (l.status !== 'APPROVED') continue; // only downgrade APPROVED
-      const k = imageKey(l.file || {});
-      if (selectedImageKeys.has(k)) continue; // this layout IS the approved selection
+    // A seleção é AUTORITATIVA para o orçamento inteiro, logo para cada um dos
+    // seus veículos: o que não está escolhido é reprovado na galeria de todos.
+    const alreadyReproved = new Set<string>();
+    for (const task of tasks) {
+      for (const l of task.layouts || []) {
+        if (l.status !== 'APPROVED') continue; // only downgrade APPROVED
+        const k = imageKey(l.file || {});
+        if (selectedImageKeys.has(k)) continue; // this layout IS the approved selection
+        // Linha `Layout` compartilhada entre os veículos deste mesmo orçamento —
+        // reprovar uma vez basta. Ver a mesma guarda em reproveDropped.
+        if (alreadyReproved.has(l.id)) continue;
 
-      // Shared m2m row guard: skip if ANOTHER quote still selects this image.
-      const layoutRow = await (prisma as any).layout.findUnique({
-        where: { id: l.id },
-        select: {
-          tasks: {
-            select: {
-              quote: {
-                select: {
-                  id: true,
-                  layoutFiles: {
-                    select: { originalName: true, filename: true, size: true },
+        // Shared m2m row guard: skip if ANOTHER quote still selects this image.
+        const layoutRow = await (prisma as any).layout.findUnique({
+          where: { id: l.id },
+          select: {
+            tasks: {
+              select: {
+                quote: {
+                  select: {
+                    id: true,
+                    layoutFiles: {
+                      select: { originalName: true, filename: true, size: true },
+                    },
                   },
                 },
               },
             },
           },
-        },
-      });
-      const referencedElsewhere = (layoutRow?.tasks || []).some(
-        (t: any) =>
-          t.quote &&
-          t.quote.id !== quoteId &&
-          (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
-      );
-      if (referencedElsewhere) continue;
+        });
+        const referencedElsewhere = (layoutRow?.tasks || []).some(
+          (t: any) =>
+            t.quote &&
+            t.quote.id !== quoteId &&
+            (t.quote.layoutFiles || []).some((f: any) => imageKey(f) === k),
+        );
+        if (referencedElsewhere) continue;
 
-      await (prisma as any).layout.update({
-        where: { id: l.id },
-        data: { status: 'REPROVED' },
-      });
-      reprovedLayoutIds.push(l.id);
+        await (prisma as any).layout.update({
+          where: { id: l.id },
+          data: { status: 'REPROVED' },
+        });
+        alreadyReproved.add(l.id);
+        reprovedLayoutIds.push(l.id);
+      }
     }
 
     if (reprovedLayoutIds.length > 0) {
       logger.log(
-        `[Quote→Task Layout Reprove] Quote ${quoteId} / Task ${quote.task.id}: reproved ${reprovedLayoutIds.length} non-selected task layout(s).`,
+        `[Quote→Task Layout Reprove] Quote ${quoteId} / ${tasks.length} tarefa(s): reproved ${reprovedLayoutIds.length} non-selected task layout(s).`,
       );
     }
   } catch (error) {

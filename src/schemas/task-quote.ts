@@ -73,45 +73,67 @@ export const guaranteeYearsSchema = z
 // TaskQuote Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
+/**
+ * Como se pede as TAREFAS do orçamento — a mesma forma nas duas chaves.
+ *
+ * `z.object()` do zod DESCARTA chave desconhecida em silêncio (não é `strict`
+ * aqui). Enquanto só `task` estava declarada, o `include: { tasks: … }` que o
+ * app manda desde o orçamento multitarefa era removido antes de chegar ao
+ * repositório, e o orçamento voltava sem veículo nenhum: a lista ficava sem
+ * LOGOMARCA e sem IDENTIFICADOR, e a tela de detalhe sem tarefa. Silencioso,
+ * porque um `include` descartado não é erro — é só um campo que não veio.
+ */
+const quoteTasksIncludeSchema = z
+  .union([
+    z.boolean(),
+    z.object({
+      include: z
+        .object({
+          sector: z.boolean().optional(),
+          customer: z.boolean().optional(),
+          budgets: z.boolean().optional(),
+          invoices: z.boolean().optional(),
+          receipts: z.boolean().optional(),
+          observation: z.boolean().optional(),
+          generalPainting: z.boolean().optional(),
+          createdBy: z.boolean().optional(),
+          // `layouts` (renamed Artwork relation) carries a File. The mobile
+          // budget/quote detail sends `layouts: { include: { file: true } }`
+          // to render the layout thumbnail, so accept the nested form as well
+          // as the plain boolean — a bare boolean here broke the whole `task`
+          // union with invalid_union.
+          layouts: z
+            .union([
+              z.boolean(),
+              z.object({
+                include: z.object({ file: z.boolean().optional() }).optional(),
+              }),
+            ])
+            .optional(),
+          logoPaints: z.boolean().optional(),
+          serviceOrders: z.boolean().optional(),
+          truck: z.boolean().optional(),
+          airbrushing: z.boolean().optional(),
+          quote: z.boolean().optional(),
+        })
+        .optional(),
+    }),
+  ])
+  .optional();
+
 export const taskQuoteIncludeSchema = z
   .object({
-    task: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              sector: z.boolean().optional(),
-              customer: z.boolean().optional(),
-              budgets: z.boolean().optional(),
-              invoices: z.boolean().optional(),
-              receipts: z.boolean().optional(),
-              observation: z.boolean().optional(),
-              generalPainting: z.boolean().optional(),
-              createdBy: z.boolean().optional(),
-              // `layouts` (renamed Artwork relation) carries a File. The mobile
-              // budget/quote detail sends `layouts: { include: { file: true } }`
-              // to render the layout thumbnail, so accept the nested form as well
-              // as the plain boolean — a bare boolean here broke the whole `task`
-              // union with invalid_union.
-              layouts: z
-                .union([
-                  z.boolean(),
-                  z.object({
-                    include: z.object({ file: z.boolean().optional() }).optional(),
-                  }),
-                ])
-                .optional(),
-              logoPaints: z.boolean().optional(),
-              serviceOrders: z.boolean().optional(),
-              truck: z.boolean().optional(),
-              airbrushing: z.boolean().optional(),
-              quote: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
+    /** As tarefas do orçamento — uma por veículo. A forma corrente. */
+    tasks: quoteTasksIncludeSchema,
+    /**
+     * @deprecated Forma anterior ao orçamento multitarefa.
+     *
+     * Continua aceita porque o app Flutter instalado nos aparelhos e o
+     * `kTaskQuoteDetailInclude` já gravado em cache mandam esta chave, e
+     * recusá-la devolveria a tela de detalhe sem tarefa nenhuma.
+     * `mapIncludeToDatabaseInclude` traduz as duas para a relação de LISTA.
+     */
+    task: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
     layoutFiles: z.boolean().optional(),
     customerConfigs: z
@@ -166,9 +188,20 @@ export const taskQuoteOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
+        budgetNumber: orderByDirectionSchema.optional(),
         simultaneousTasks: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
+        /**
+         * @deprecated Ordenação por campo da tarefa, anterior ao multitarefa.
+         *
+         * O Prisma NÃO ordena um pai por campo de uma relação de LISTA — e
+         * `tasks` virou lista. Não há resposta certa possível: qual dos sessenta
+         * prazos ordenaria o orçamento? Continua aceito porque o app instalado
+         * manda `{'task.term': 'asc'}` no `baseOrderBy`, e recusar derrubaria a
+         * lista inteira; `mapOrderByToDatabaseOrderBy` DESCARTA a entrada antes
+         * do banco. Ordene por `budgetNumber`, `createdAt` ou `expiresAt`.
+         */
         task: z
           .object({
             id: orderByDirectionSchema.optional(),
@@ -195,13 +228,14 @@ export const taskQuoteOrderBySchema = z
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
+          budgetNumber: orderByDirectionSchema.optional(),
           simultaneousTasks: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
-          // Nested task orderBy — mirrors the single-object branch above. Without
-          // it, zod silently STRIPS `task` from array entries (e.g. the mobile
-          // budget list's [{statusOrder:'asc'},{task:{term:'asc'}}]), degrading
-          // the sort instead of applying it.
+          // Aceito e DESCARTADO pelo repositório — ver a nota do ramo acima.
+          // Continua declarado de propósito: `z.object` não-strict apagaria a
+          // entrada em silêncio, e o repositório precisa VER a chave para poder
+          // descartá-la de forma consciente.
           task: z
             .object({
               id: orderByDirectionSchema.optional(),
@@ -292,12 +326,6 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      // Relation filter for the parent Task (to-one, nullable). The mobile budget
-      // list sends `task: { isNot: null }` to fetch only quotes that still have a
-      // task — the same shape the internal `hasTask` transform produces. Without
-      // this the strict() where rejected it with unrecognized_keys: 'task'. Nested
-      // Task fields are passed through (Prisma validates them) to avoid a circular
-      // import with taskWhereSchema.
       simultaneousTasks: z
         .union([
           z.number(),
@@ -337,9 +365,26 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      // To-one relation filter for the linked Task. Accepts Prisma's
-      // is/isNot form (e.g. { isNot: null } to require a linked task, as the
-      // budget list sends) as well as a direct nested where (e.g. { id }).
+      // Filtro da relação de LISTA `tasks` — a forma corrente, na gramática do
+      // Prisma para to-many. A lista de Orçamentos manda `{ some: {} }` ("tem
+      // ao menos um veículo"), que é a pergunta que o antigo `{ isNot: null }`
+      // respondia. Sem esta chave declarada, o `.strict()` recusava a consulta
+      // inteira com unrecognized_keys: 'tasks'.
+      tasks: z
+        .object({
+          some: z.record(z.any()).optional(),
+          every: z.record(z.any()).optional(),
+          none: z.record(z.any()).optional(),
+        })
+        .optional(),
+      /**
+       * @deprecated Filtro to-one, anterior ao orçamento multitarefa.
+       *
+       * `Task.quoteId` deixou de ser `@unique` e `TaskQuoteWhereInput.task` não
+       * existe mais; mandá-lo ao Prisma estoura a consulta. Continua ACEITO aqui
+       * porque o app instalado ainda o envia, e `mapWhereToDatabaseWhere` o
+       * traduz para `tasks: { some: … }` antes do banco.
+       */
       task: z
         .union([
           z.object({
@@ -384,13 +429,20 @@ const taskQuoteTransform = (data: any) => {
     const rawTerm = data.searchingFor.trim();
     const term = normalizeSearchTerm(rawTerm);
     const searchConditions: any[] = [
-      // Logomarca + série (direct task fields)
-      { task: { nameNormalized: { contains: term } } },
-      { task: { serialNumberNormalized: { contains: term } } },
-      { task: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } } },
+      // Logomarca + série — campos das TAREFAS do orçamento. `some` e não o
+      // filtro to-one: um orçamento cobre N veículos, e achar o orçamento pela
+      // série de QUALQUER um deles é justamente o que o operador quer quando
+      // digita o número que está lendo no caminhão à frente dele.
+      { tasks: { some: { nameNormalized: { contains: term } } } },
+      { tasks: { some: { serialNumberNormalized: { contains: term } } } },
+      {
+        tasks: {
+          some: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } },
+        },
+      },
       // Cliente — task's own customer and each billing customer config
-      { task: { customer: { fantasyNameNormalized: { contains: term } } } },
-      { task: { customer: { corporateNameNormalized: { contains: term } } } },
+      { tasks: { some: { customer: { fantasyNameNormalized: { contains: term } } } } },
+      { tasks: { some: { customer: { corporateNameNormalized: { contains: term } } } } },
       {
         customerConfigs: {
           some: { customer: { fantasyNameNormalized: { contains: term } } },
@@ -411,8 +463,8 @@ const taskQuoteTransform = (data: any) => {
       const documentTerms = searchDigits === term ? [searchDigits] : [term, searchDigits];
       for (const documentTerm of documentTerms) {
         searchConditions.push(
-          { task: { customer: { cnpjNormalized: { contains: documentTerm } } } },
-          { task: { customer: { cpfNormalized: { contains: documentTerm } } } },
+          { tasks: { some: { customer: { cnpjNormalized: { contains: documentTerm } } } } },
+          { tasks: { some: { customer: { cpfNormalized: { contains: documentTerm } } } } },
           {
             customerConfigs: {
               some: { customer: { cnpjNormalized: { contains: documentTerm } } },
@@ -434,19 +486,23 @@ const taskQuoteTransform = (data: any) => {
   }
 
   // Handle taskId filter (FK lives on Task, not TaskQuote)
+  // `some`: "o orçamento que cobre esta tarefa". Com um veículo é a mesma
+  // consulta de sempre; com sessenta, é a única que responde.
   if (data.taskId) {
     transformed.where = {
       ...transformed.where,
-      task: { id: data.taskId },
+      tasks: { some: { id: data.taskId } },
     };
     delete transformed.taskId;
   }
 
   // Handle hasTask filter
+  // `some: {}` / `none: {}` é a forma to-many de "tem tarefa" / "não tem": o
+  // `isNot: null` / `null` do to-one não existe mais no `TaskQuoteWhereInput`.
   if (data.hasTask !== undefined) {
     transformed.where = {
       ...transformed.where,
-      task: data.hasTask ? { isNot: null } : null,
+      tasks: data.hasTask ? { some: {} } : { none: {} },
     };
     delete transformed.hasTask;
   }
