@@ -246,3 +246,54 @@ export function sliceTask<T extends { id: string }>(
   }
   return tasks[0] ?? null;
 }
+
+/**
+ * O QUE DEU ERRADO, em uma frase que chega à TELA.
+ *
+ * `catch (e) { throw new InternalServerErrorException('Erro ao criar orçamento.') }`
+ * é o padrão mais comum desta base — e é o que faz um defeito real chegar ao
+ * operador como três palavras sem conteúdo, com a causa presa no terminal da
+ * API. Quando a criação de um orçamento falha, a tela precisa dizer ao menos a
+ * CLASSE do problema, ou a recuperação vira adivinhação (e, num orçamento de N
+ * veículos, a instrução errada — "crie o orçamento por uma das tarefas" — recria
+ * o problema que a feature existe para resolver).
+ *
+ * Traduz o que é traduzível e devolve `null` para o resto, para quem chama
+ * manter a mensagem genérica quando não há nada honesto a dizer.
+ */
+export function describePrismaFailure(error: unknown): string | null {
+  const err = error as { code?: string; message?: string; meta?: Record<string, unknown> };
+  const code = err?.code;
+  const target = Array.isArray(err?.meta?.target)
+    ? (err!.meta!.target as string[]).join(', ')
+    : typeof err?.meta?.target === 'string'
+      ? (err!.meta!.target as string)
+      : null;
+
+  switch (code) {
+    case 'P2002':
+      return `Já existe um registro com o mesmo valor único${target ? ` (${target})` : ''}.`;
+    case 'P2003':
+      return 'Um registro relacionado não existe mais (chave estrangeira). Recarregue a tela e tente de novo.';
+    case 'P2025':
+      return 'Um registro necessário não foi encontrado — ele pode ter sido excluído por outra pessoa.';
+    case 'P2028':
+      return 'A transação expirou antes de terminar. Tente novamente.';
+    default:
+      break;
+  }
+
+  // Erro de VALIDAÇÃO do Prisma (campo/argumento desconhecido). É o que aparece
+  // quando o código e o banco estão em versões diferentes — a migração não foi
+  // aplicada, ou o processo está rodando com um client gerado antes dela. Dizer
+  // isso poupa uma tarde: o sintoma é indistinguível de um defeito de regra.
+  const message = String(err?.message ?? '');
+  const unknownArg = message.match(/Unknown argument `([^`]+)`/);
+  if (unknownArg) {
+    return `O servidor está fora de sincronia com o banco (campo "${unknownArg[1]}"). Aplique as migrações pendentes e reinicie a API.`;
+  }
+  if (/does not exist in the current database|column .* does not exist/i.test(message)) {
+    return 'O banco de dados está sem uma migração que este servidor espera. Aplique as migrações pendentes.';
+  }
+  return null;
+}

@@ -8,6 +8,7 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
@@ -73,7 +74,7 @@ import {
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { computeQuoteMoney, expectedConfigTaskIds, round2 } from '@utils/quote-money';
-import { primaryTask, quoteTasks, sortQuoteTasks } from '@utils/quote-tasks';
+import { describePrismaFailure, primaryTask, quoteTasks, sortQuoteTasks } from '@utils/quote-tasks';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
@@ -208,9 +209,25 @@ export class TaskQuoteService {
 
   /**
    * Create new quote
+   *
+   * `externalTx` existe para a criação ATÔMICA de tarefas + orçamento
+   * (`TaskService.batchCreateWithQuote`). A tela de criação produzia N tarefas
+   * numa requisição cada e o orçamento numa última: quando a última falhava, as
+   * N tarefas ficavam órfãs e o operador recebia N avisos de sucesso seguidos de
+   * um de erro — com a instrução de "criar o orçamento por uma das tarefas", que
+   * deixaria os outros N-1 veículos de fora. Recebendo a transação de fora, o
+   * orçamento nasce ou não nasce JUNTO com as tarefas.
    */
-  async create(data: TaskQuoteCreateFormData, userId: string): Promise<TaskQuoteCreateResponse> {
+  async create(
+    data: TaskQuoteCreateFormData,
+    userId: string,
+    externalTx?: PrismaTransaction,
+  ): Promise<TaskQuoteCreateResponse> {
     try {
+      // Toda leitura de validação usa a transação quando ela existe: fora dela,
+      // as tarefas recém-criadas pelo mesmo `$transaction` ainda não estão
+      // visíveis, e a validação de existência recusaria o próprio lote.
+      const db = externalTx ?? this.prisma;
       // ═══════════════════════════════════════════════════════════════════════
       // AS TAREFAS DO ORÇAMENTO
       // ═══════════════════════════════════════════════════════════════════════
@@ -238,7 +255,7 @@ export class TaskQuoteService {
 
       // Carrega TODAS as tarefas: existência, vínculo prévio e o elenco de
       // responsáveis (que é a união das tarefas, não a da primeira).
-      const tasks = await this.prisma.task.findMany({
+      const tasks = await db.task.findMany({
         where: { id: { in: taskIds } },
         include: {
           responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } },
@@ -312,7 +329,7 @@ export class TaskQuoteService {
 
       // Validate customerConfigs customer IDs
       const customerIds = data.customerConfigs.map(c => c.customerId);
-      const customers = await this.prisma.customer.findMany({
+      const customers = await db.customer.findMany({
         where: { id: { in: customerIds } },
         select: { id: true },
       });
@@ -391,8 +408,9 @@ export class TaskQuoteService {
         aggregateTotal = round2(aggregateTotal + unassignedRounded);
       }
 
-      // Create quote with items in transaction
-      const quote = await this.prisma.$transaction(async tx => {
+      // Create quote with items in transaction (ou DENTRO da transação de quem
+      // chamou, no caminho atômico de tarefas + orçamento).
+      const createInTransaction = async (tx: PrismaTransaction) => {
         // Get next budget number (auto-increment, advisory-locked against concurrent minters)
         const nextBudgetNumber = await allocateBudgetNumber(tx);
 
@@ -633,7 +651,11 @@ export class TaskQuoteService {
             },
           },
         });
-      });
+      };
+
+      const quote = externalTx
+        ? await createInTransaction(externalTx)
+        : await this.prisma.$transaction(createInTransaction);
 
       return {
         success: true,
@@ -642,8 +664,20 @@ export class TaskQuoteService {
       };
     } catch (error: unknown) {
       this.logger.error('Error creating task quote:', error);
-      if (error instanceof BadRequestException) throw error;
-      throw new InternalServerErrorException('Erro ao criar orçamento.');
+      if (error instanceof HttpException) throw error;
+      // A CAUSA CHEGA À TELA quando é traduzível.
+      //
+      // "Erro ao criar orçamento." é tudo o que o operador via — e, num
+      // orçamento multitarefa, ele recebia junto a instrução de criar o
+      // orçamento por UMA das tarefas, que deixaria os outros N-1 veículos de
+      // fora. Quem está com as tarefas criadas e o orçamento não precisa saber
+      // se o problema é dele (registro duplicado, cliente que sumiu) ou do
+      // servidor (migração pendente), porque a ação seguinte é outra em cada
+      // caso. Ver `describePrismaFailure`.
+      const detail = describePrismaFailure(error);
+      throw new InternalServerErrorException(
+        detail ? `Erro ao criar orçamento: ${detail}` : 'Erro ao criar orçamento.',
+      );
     }
   }
 

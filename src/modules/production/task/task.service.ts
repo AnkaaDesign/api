@@ -8,6 +8,7 @@ import {
   Logger,
   Inject,
   forwardRef,
+  HttpException,
 } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -118,6 +119,7 @@ import {
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import { TaskQuoteService } from '../task-quote/task-quote.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
+import { describePrismaFailure } from '../../../utils/quote-tasks';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
@@ -1919,17 +1921,27 @@ export class TaskService {
   /**
    * Batch create tasks
    */
+  /**
+   * Cria N tarefas numa transação só.
+   *
+   * `externalTx`: usado pela criação ATÔMICA de tarefas + orçamento
+   * (`batchCreateWithQuote`), onde as tarefas e o orçamento têm de nascer no
+   * mesmo commit. Quando ela vem, os eventos `task.created` NÃO são emitidos
+   * aqui — quem abriu a transação os emite depois do commit, porque um ouvinte
+   * que lê o banco antes dele não encontraria a tarefa.
+   */
   async batchCreate(
     data: TaskBatchCreateFormData,
     include?: TaskInclude,
     userId?: string,
+    externalTx?: PrismaTransaction,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
     try {
       // Field-level access control per sector also applies on CREATE (B6).
       // Resolved once — enforced per item inside the loop below.
       const creatorPrivilege = await this.getActingUserPrivilege(userId);
 
-      const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const runBatch = async (tx: PrismaTransaction) => {
         // Process each task individually - "best effort" approach
         const successfulTasks: Task[] = [];
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
@@ -2128,28 +2140,14 @@ export class TaskService {
           totalCreated: successfulTasks.length,
           totalFailed: failedTasks.length,
         };
-      });
+      };
 
-      // Emit task.created events for all successfully created tasks (outside transaction)
-      if (userId && result.success.length > 0) {
-        try {
-          const createdByUser = await this.prisma.user.findUnique({
-            where: { id: userId },
-          });
-          if (createdByUser) {
-            for (const task of result.success) {
-              this.eventEmitter.emit(
-                'task.created',
-                new TaskCreatedEvent(task as Task, createdByUser as any),
-              );
-            }
-            this.logger.log(
-              `Emitted ${result.success.length} task.created events for batch creation`,
-            );
-          }
-        } catch (error) {
-          this.logger.error('Error emitting task.created events for batch creation:', error);
-        }
+      const result = externalTx ? await runBatch(externalTx) : await this.prisma.$transaction(runBatch);
+
+      // Emit task.created events for all successfully created tasks (outside transaction).
+      // Com transação externa quem emite é o dono dela, DEPOIS do commit.
+      if (!externalTx) {
+        await this.emitTaskCreatedEvents(result.success as Task[], userId);
       }
 
       const successMessage =
@@ -2186,6 +2184,162 @@ export class TaskService {
       throw new InternalServerErrorException(
         'Erro interno do servidor na criação em lote. Tente novamente.',
       );
+    }
+  }
+
+  /**
+   * AS TAREFAS E O ORÇAMENTO, NUM COMMIT SÓ.
+   *
+   * A tela de criação fazia N+1 requisições: uma por tarefa (cada uma com o seu
+   * aviso de sucesso na tela) e uma última para o orçamento. Quando a última
+   * falhava — e ela falha por motivos banais, um cliente que sumiu, uma migração
+   * pendente —, as N tarefas já estavam gravadas, o operador via N avisos verdes
+   * seguidos de um vermelho, e a orientação era "abra uma delas e crie o
+   * orçamento por ela": o que criaria um orçamento de UM veículo e deixaria os
+   * outros N-1 de fora, refazendo à mão o problema que o orçamento multitarefa
+   * existe para resolver.
+   *
+   * Aqui é tudo ou nada. Uma tarefa que falha derruba o lote inteiro, e o
+   * orçamento nasce ligado às N tarefas dentro da mesma transação.
+   *
+   * O tempo limite é maior que o padrão da casa (60s) porque o trabalho cresce
+   * com o número de veículos: sessenta caminhões são sessenta tarefas com
+   * caminhão, layouts, responsáveis e seis ordens de serviço cada, mais o
+   * orçamento com as suas fatias — e uma transação que estoura o relógio no meio
+   * é indistinguível, para quem está na tela, de um defeito de regra.
+   */
+  async batchCreateWithQuote(
+    data: { tasks: any[]; quote: any },
+    include?: TaskInclude,
+    userId?: string,
+  ): Promise<{
+    success: true;
+    message: string;
+    data: { tasks: Task[]; quote: any };
+  }> {
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx: PrismaTransaction) => {
+          // ─── RESPONSÁVEIS NOVOS: CRIADOS UMA VEZ PARA O LOTE ───────────────
+          //
+          // `newResponsibles` no payload de uma tarefa cria os contatos junto
+          // com ela. Com N tarefas do mesmo orçamento, mandá-los em todas
+          // criaria N cópias do mesmo responsável — e é por isso que a tela
+          // fazia o passo em duas etapas: mandava os novos só na primeira
+          // requisição e reaproveitava os ids nas seguintes, uma dança que só
+          // existia porque as tarefas nasciam uma a uma.
+          //
+          // Aqui eles são criados uma vez, deduplicados por nome + telefone (o
+          // mesmo critério que a tela usava para reencontrá-los), e o id entra
+          // em TODAS as tarefas do lote.
+          const uniqueNewResponsibles = new Map<string, any>();
+          for (const t of data.tasks) {
+            for (const r of ((t as any).newResponsibles ?? []) as any[]) {
+              uniqueNewResponsibles.set(`${r.name ?? ''}::${r.phone ?? ''}`, r);
+            }
+          }
+          const sharedResponsibleIds: string[] = [];
+          for (const r of uniqueNewResponsibles.values()) {
+            const created = await tx.responsible.create({
+              data: {
+                ...r,
+                companyId: r.companyId || (data.tasks[0] as any)?.customerId || null,
+                password: r.password || null,
+              },
+              select: { id: true },
+            });
+            sharedResponsibleIds.push(created.id);
+          }
+
+          const tasksToCreate = data.tasks.map(t => {
+            const { newResponsibles: _hoisted, ...rest } = t as any;
+            return sharedResponsibleIds.length > 0
+              ? {
+                  ...rest,
+                  responsibleIds: [...((rest.responsibleIds ?? []) as string[]), ...sharedResponsibleIds],
+                }
+              : rest;
+          });
+
+          const batch = await this.batchCreate(
+            { tasks: tasksToCreate } as any,
+            include,
+            userId,
+            tx,
+          );
+          const created = ((batch.data as any)?.success ?? []) as Task[];
+          const failed = ((batch.data as any)?.failed ?? []) as Array<{
+            index: number;
+            error: string;
+          }>;
+
+          // TUDO OU NADA. `batchCreate` é "melhor esforço" por item — devolve o
+          // que deu certo e o que não deu. Aqui a falha de uma tarefa desfaz as
+          // outras e o orçamento: um orçamento que cobre 10 dos 11 caminhões que
+          // o operador digitou é pior do que nenhum, porque ninguém confere o
+          // que não aparece.
+          if (failed.length > 0 || created.length !== data.tasks.length) {
+            const first = failed[0];
+            throw new BadRequestException(
+              failed.length > 0
+                ? `Falha ao criar a tarefa ${(first.index ?? 0) + 1} de ${data.tasks.length}: ${first.error}`
+                : 'Não foi possível criar todas as tarefas do orçamento.',
+            );
+          }
+
+          const quote = await this.taskQuoteService.create(
+            { ...data.quote, taskIds: created.map(t => t.id) },
+            userId as string,
+            tx,
+          );
+
+          return { tasks: created, quote: quote.data };
+        },
+        { timeout: 180000, maxWait: 20000 },
+      );
+
+      // Depois do commit, como em `batchCreate`.
+      await this.emitTaskCreatedEvents(result.tasks, userId);
+
+      const count = result.tasks.length;
+      return {
+        success: true,
+        message:
+          count === 1
+            ? 'Tarefa e orçamento criados com sucesso.'
+            : `${count} tarefas e o orçamento criados com sucesso.`,
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error('Erro na criação atômica de tarefas + orçamento:', error);
+      if (error instanceof HttpException) throw error;
+      const detail = describePrismaFailure(error);
+      throw new InternalServerErrorException(
+        detail
+          ? `Erro ao criar as tarefas e o orçamento: ${detail}`
+          : 'Erro ao criar as tarefas e o orçamento.',
+      );
+    }
+  }
+
+  /**
+   * Emite `task.created` para cada tarefa criada — sempre DEPOIS do commit.
+   *
+   * Extraído de `batchCreate` porque a criação atômica de tarefas + orçamento
+   * abre a transação por fora e precisa emitir os mesmos eventos no mesmo ponto
+   * do ciclo: um ouvinte que lê o banco antes do commit não acha a tarefa.
+   */
+  private async emitTaskCreatedEvents(tasks: Task[], userId?: string): Promise<void> {
+    if (!userId || tasks.length === 0) return;
+    try {
+      const createdByUser = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (!createdByUser) return;
+      for (const task of tasks) {
+        this.eventEmitter.emit('task.created', new TaskCreatedEvent(task, createdByUser as any));
+      }
+      this.logger.log(`Emitted ${tasks.length} task.created events for batch creation`);
+    } catch (error) {
+      this.logger.error('Error emitting task.created events for batch creation:', error);
     }
   }
 

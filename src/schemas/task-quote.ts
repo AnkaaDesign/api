@@ -735,7 +735,7 @@ export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK']);
 // CRUD Schemas - TaskQuote
 // =====================
 
-export const taskQuoteCreateSchema = z
+export const taskQuoteCreateBaseSchema = z
   .object({
     subtotal: moneySchema,
     total: moneySchema,
@@ -782,7 +782,9 @@ export const taskQuoteCreateSchema = z
     customerConfigs: z
       .array(taskQuoteCustomerConfigCreateNestedSchema)
       .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
-  })
+  });
+
+export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema
   .superRefine((data, ctx) => {
     // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
     // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
@@ -804,6 +806,20 @@ export const taskQuoteCreateSchema = z
       });
     }
   });
+
+/**
+ * O orçamento de uma criação ATÔMICA de tarefas + orçamento.
+ *
+ * É o mesmo corpo, sem `taskId`/`taskIds`: as tarefas ainda não existem quando o
+ * pedido chega — elas nascem na MESMA transação, e é o servidor que liga uma
+ * coisa na outra. Exigir os ids aqui obrigaria a tela a criar as tarefas antes,
+ * que é exatamente o que deixava N tarefas órfãs quando o orçamento falhava.
+ */
+export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit({
+  taskId: true,
+  taskIds: true,
+});
+
 
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),

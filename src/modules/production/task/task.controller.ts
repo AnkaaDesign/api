@@ -92,6 +92,7 @@ import type {
   TaskBatchDeleteResponse,
 } from '../../../types';
 import type { SuccessResponse } from '../../../types';
+import { taskBatchCreateWithQuoteSchema } from '../../../schemas/task';
 
 @Controller('tasks')
 export class TaskController {
@@ -240,6 +241,34 @@ export class TaskController {
     @UserId() userId: string,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
     return this.tasksService.batchCreate(data, query.include, userId);
+  }
+
+  /**
+   * POST /tasks/batch-with-quote
+   *
+   * As N tarefas do produto placas × números de série E o orçamento que as
+   * cobre, num commit só. Ou tudo nasce, ou nada nasce.
+   *
+   * Substitui a sequência N+1 requisições da tela de criação (uma por tarefa,
+   * mais uma para o orçamento): quando a última falhava, as N tarefas ficavam
+   * gravadas sem orçamento e o operador via N avisos de sucesso seguidos de um
+   * erro — e a única saída oferecida criava um orçamento de um veículo só.
+   *
+   * Registrada ANTES de `@Post(':id/...')` não é necessário (o caminho tem um
+   * segmento fixo), mas fica ao lado de `batch` de propósito: são a mesma
+   * família de operação.
+   *
+   * Access: ADMIN, COMMERCIAL — os mesmos de `POST /tasks/batch`.
+   */
+  @Post('batch-with-quote')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.CREATED)
+  async batchCreateWithQuote(
+    @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema)) data: any,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ) {
+    return this.tasksService.batchCreateWithQuote(data, query.include, userId);
   }
 
   @Put('batch')

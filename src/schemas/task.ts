@@ -30,7 +30,7 @@ import {
 import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
-import { taskQuoteCreateNestedSchema } from './task-quote';
+import { taskQuoteCreateNestedSchema, taskQuoteCreateNestedInBatchSchema } from './task-quote';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
 
 // E-mail dos responsáveis criados inline (newResponsibles). A regra é a mesma
@@ -3040,6 +3040,25 @@ export const taskUpdateSchema = z
 export const taskBatchCreateSchema = z.object({
   tasks: z.array(taskCreateSchema).min(1, 'Pelo menos uma tarefa deve ser fornecida'),
 });
+
+/**
+ * `POST /tasks/batch-with-quote` — as N tarefas e o ORÇAMENTO que as cobre, num
+ * commit só.
+ *
+ * As tarefas passam pelo MESMO `taskCreateSchema` da criação avulsa: o corpo é o
+ * mesmo, só o momento da gravação muda. O orçamento vem sem `taskId`/`taskIds`
+ * (as tarefas ainda não existem quando o pedido chega — quem as liga é o
+ * servidor, dentro da transação).
+ */
+export const taskBatchCreateWithQuoteSchema = z.object({
+  tasks: z
+    .array(taskCreateSchema)
+    .min(1, 'Pelo menos uma tarefa deve ser fornecida')
+    .max(200, 'Maximo de 200 tarefas por orcamento'),
+  quote: taskQuoteCreateNestedInBatchSchema,
+});
+
+export type TaskBatchCreateWithQuoteFormData = z.infer<typeof taskBatchCreateWithQuoteSchema>;
 
 export const taskBatchUpdateSchema = z.object({
   tasks: z
