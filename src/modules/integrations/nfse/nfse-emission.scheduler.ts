@@ -7,6 +7,7 @@ import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
+import { orderNumberLabel } from '../../../utils/quote-tasks';
 
 /**
  * Scheduler for automatic NFS-e emission.
@@ -333,7 +334,6 @@ export class NfseEmissionScheduler {
               // `Invoice.taskId` nulo — encontra os serviços e os veículos.
               customerConfig: {
                 select: {
-                  orderNumber: true,
                   discountType: true,
                   discountValue: true,
                   responsible: { select: { email: true, phone: true, roles: true } },
@@ -358,6 +358,9 @@ export class NfseEmissionScheduler {
                           id: true,
                           name: true,
                           serialNumber: true,
+                          // O NÚMERO DO PEDIDO DE COMPRA é do VEÍCULO: a nota
+                          // conjunta cita o de todos os que ela cobre.
+                          customerOrderNumber: true,
                           truck: {
                             select: {
                               plate: true,
@@ -555,7 +558,16 @@ export class NfseEmissionScheduler {
             }));
             emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
 
-            orderNumber = (invoice as any).customerConfig?.orderNumber || undefined;
+            // O pedido dos VEÍCULOS desta fatura (o do caminhão quando a
+            // cobrança é veículo a veículo; os do orçamento quando é conjunta).
+            orderNumber =
+              orderNumberLabel(
+                (invoice as any).customerConfig?.taskId
+                  ? (nfseQuote?.tasks ?? []).filter(
+                      (t: any) => t.id === (invoice as any).customerConfig?.taskId,
+                    )
+                  : (nfseQuote?.tasks ?? []),
+              ) ?? undefined;
             globalDiscount = resolveGlobalDiscount(
               services,
               Number(invoice.totalAmount),
@@ -681,7 +693,6 @@ export class NfseEmissionScheduler {
             // (sem tarefa) acha os serviços, os veículos e o nº do orçamento.
             customerConfig: {
               select: {
-                orderNumber: true,
                 discountType: true,
                 discountValue: true,
                 responsible: { select: { email: true, phone: true, roles: true } },
@@ -706,6 +717,8 @@ export class NfseEmissionScheduler {
                         id: true,
                         name: true,
                         serialNumber: true,
+                        // Ver a nota do caminho agendado: o pedido é do veículo.
+                        customerOrderNumber: true,
                         truck: {
                           select: {
                             plate: true,
@@ -861,7 +874,14 @@ export class NfseEmissionScheduler {
             implementType: t.truck?.implementType ?? null,
           }));
           emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
-          orderNumber = customerConfig?.orderNumber || undefined;
+          orderNumber =
+            orderNumberLabel(
+              customerConfig?.taskId
+                ? ((customerConfig as any)?.quote?.tasks ?? []).filter(
+                    (t: any) => t.id === customerConfig?.taskId,
+                  )
+                : ((customerConfig as any)?.quote?.tasks ?? []),
+            ) ?? undefined;
           globalDiscount = resolveGlobalDiscount(
             services,
             Number(invoice.totalAmount),

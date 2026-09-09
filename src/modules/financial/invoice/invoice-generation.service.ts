@@ -6,6 +6,7 @@ import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants
 import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
+import { orderNumberLabel } from '../../../utils/quote-tasks';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -776,13 +777,22 @@ export class InvoiceGenerationService {
             customerConfig: {
               select: {
                 generateInvoice: true,
-                orderNumber: true,
                 customerId: true,
+                // A TAREFA desta fatia, quando a cobrança é veículo a veículo.
+                taskId: true,
                 quote: {
                   select: {
                     services: {
                       select: { description: true, observation: true, invoiceToCustomerId: true },
                       orderBy: { position: 'asc' },
+                    },
+                    // O NÚMERO DO PEDIDO mora na TAREFA desde que um orçamento
+                    // passou a cobrir N caminhões: o pedido é por entrega, e
+                    // obrigar os sessenta a citar o mesmo era o que o campo
+                    // antigo (por cliente) fazia. Ver `orderNumberLabel`.
+                    tasks: {
+                      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                      select: { id: true, customerOrderNumber: true },
                     },
                   },
                 },
@@ -1036,7 +1046,16 @@ export class InvoiceGenerationService {
       return parts.length > 0 ? parts : undefined;
     }
 
-    const orderNumber = installment.invoice?.customerConfig?.orderNumber;
+    // O pedido dos veículos que ESTA fatura cobre: o do caminhão quando a
+    // cobrança é veículo a veículo, e os do orçamento inteiro (deduplicados)
+    // quando é conjunta. `80` é o que sobra da linha do boleto informativo.
+    const cfgForOrder = installment.invoice?.customerConfig;
+    const orderNumber = orderNumberLabel(
+      cfgForOrder?.taskId
+        ? (cfgForOrder.quote?.tasks ?? []).filter(t => t.id === cfgForOrder.taskId)
+        : (cfgForOrder?.quote?.tasks ?? []),
+      80,
+    );
     const task = installment.invoice?.task;
     const truck = task?.truck;
     const customerId = installment.invoice?.customerConfig?.customerId;

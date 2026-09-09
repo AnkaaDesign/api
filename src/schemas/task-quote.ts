@@ -629,6 +629,12 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
     // not to receive them.
     generateInvoice: z.boolean().default(true).optional(),
     generateBankSlip: z.boolean().default(true).optional(),
+    /**
+     * @deprecated O número do pedido de compra é do VEÍCULO
+     * (`Task.customerOrderNumber`): um orçamento cobre N caminhões e o pedido é
+     * por entrega. Continua ACEITO porque o app instalado o envia, e o serviço o
+     * grava em todas as tarefas do orçamento — o mesmo efeito que ele tinha.
+     */
     orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
     responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
     // Direct installments (alternative to paymentCondition-based generation)

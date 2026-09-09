@@ -297,3 +297,60 @@ export function describePrismaFailure(error: unknown): string | null {
   }
   return null;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE
+//
+// Mora em `Task.customerOrderNumber` — por VEÍCULO — desde que um orçamento
+// passou a cobrir N caminhões. Antes era um campo da configuração de
+// faturamento, por CLIENTE, e os sessenta veículos do mesmo orçamento eram
+// obrigados a citar o mesmo pedido na nota e no boleto.
+//
+// Quem imprime (nota, boleto, documento) cobre uma FATURA, e uma fatura pode
+// cobrir um veículo (`PER_TASK`) ou todos (`JOINT`). Daí as duas funções abaixo:
+// a lista do que existe, e a linha que a representa.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Os números de pedido dos veículos indicados, sem brancos e sem repetição. */
+export function orderNumbersOfTasks(
+  tasks: ReadonlyArray<{ customerOrderNumber?: string | null }> | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  for (const t of tasks ?? []) {
+    const value = (t.customerOrderNumber ?? '').trim();
+    if (value) seen.add(value);
+  }
+  return [...seen];
+}
+
+/**
+ * UMA LINHA para a nota, o boleto e o documento.
+ *
+ * Um número quando é um só — o caso comum, inclusive num orçamento de sessenta
+ * caminhões comprados no mesmo pedido. Vários, separados por vírgula, quando
+ * diferem: a nota conjunta cobre todos e omitir os outros faria o cliente
+ * receber uma nota que não bate com nenhum pedido dele.
+ *
+ * `maxLength` apara pelo limite do campo de destino (a discriminação da NFS-e
+ * tem tamanho fixo) sem cortar um número ao meio.
+ */
+export function orderNumberLabel(
+  tasks: ReadonlyArray<{ customerOrderNumber?: string | null }> | null | undefined,
+  maxLength?: number,
+): string | null {
+  const numbers = orderNumbersOfTasks(tasks);
+  if (numbers.length === 0) return null;
+  const full = numbers.join(', ');
+  if (!maxLength || full.length <= maxLength) return full;
+
+  const kept: string[] = [];
+  for (const n of numbers) {
+    const candidate = [...kept, n].join(', ');
+    // `+ 4` reserva o " (+N)" que fecha a linha.
+    if (candidate.length + 5 > maxLength) break;
+    kept.push(n);
+  }
+  if (kept.length === 0) return numbers[0].slice(0, maxLength);
+  const rest = numbers.length - kept.length;
+  return rest > 0 ? `${kept.join(', ')} (+${rest})` : kept.join(', ');
+}

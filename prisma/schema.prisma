@@ -2006,7 +2006,6 @@ model TaskQuoteCustomerConfig {
   customPaymentText   String?
   generateInvoice     Boolean       @default(true)
   generateBankSlip    Boolean       @default(true)
-  orderNumber         String?
   responsibleId       String?
   paymentCondition    String?
   paymentConfig       Json?
@@ -2082,6 +2081,19 @@ model Task {
   status                TaskStatus                @default(PREPARATION)
   statusOrder           Int                       @default(1)
   serialNumber          String?                   @unique
+
+  /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
+  ///
+  /// Morava em `TaskQuoteCustomerConfig.orderNumber`, uma linha por cliente do
+  /// orçamento. Com um orçamento cobrindo N caminhões isso obrigava os sessenta a
+  /// citarem o MESMO pedido na nota e no boleto, e o pedido é por ENTREGA: às
+  /// vezes é o mesmo para todos, às vezes muda a cada veículo, às vezes vem em
+  /// blocos (1–20 num pedido, 21–60 noutro).
+  ///
+  /// Livre e NÃO único de propósito: repetir o mesmo número em vários veículos é
+  /// caso legítimo, não erro. A nota conjunta cita o número quando é um só e
+  /// lista por veículo quando difere.
+  customerOrderNumber   String?
   details               String?
   entryDate             DateTime?
   term                  DateTime?

@@ -189,8 +189,7 @@ export class ReceivablesService {
             },
           },
           customerConfig: {
-            select: {
-              orderNumber: true,
+            select:  {
               // A TAREFA DESTA FATIA. Nulo = fatia conjunta (`JOINT`); preenchido
               // = a fatura é de um veículo só, e é ele que a linha nomeia e abre.
               taskId: true,
@@ -242,7 +241,10 @@ export class ReceivablesService {
         else if (paidAmount > 0 && paidAmount < amount) state = 'PARTIALLY_RECEIVED';
         else state = 'AWAITING_RECEIPT';
 
-        const label = customer?.fantasyName ?? inst.customerConfig?.orderNumber ?? 'Cliente';
+        // O pedido de compra é do VEÍCULO agora; como rótulo de linha ele só
+        // servia de último recurso, e a tarefa (nomeada logo abaixo) responde
+        // melhor. Sem cliente, "Cliente" continua sendo o que sobra.
+        const label = customer?.fantasyName ?? 'Cliente';
 
         // Primary row label is the task (faturamento) name; non-task receivables
         // (external ops / standalone invoices) fall back to the customer / parcela.

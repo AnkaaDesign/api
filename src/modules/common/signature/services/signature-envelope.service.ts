@@ -54,6 +54,7 @@ import {
   quoteTasks,
   sortQuoteTasks,
   taskCount as countQuoteTasks,
+  orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
 import { snapshotVehicles } from './quote-snapshot.service';
@@ -1596,7 +1597,14 @@ export class SignatureEnvelopeService {
             municipalRegistration: (customer as any).municipalRegistration ?? null,
             addressLine: formatBillingStreetLine(customer as any),
             addressLocality: formatBillingLocalityLine(customer as any),
-            orderNumber: config?.orderNumber ?? null,
+            // O pedido é do VEÍCULO. Numa fatia conjunta o documento cita os
+            // números dos veículos que ela cobre; numa fatia de um caminhão, o
+            // dele. Ver `orderNumberLabel`.
+            orderNumber: orderNumberLabel(
+              (config as any)?.taskId
+                ? ((quote as any).tasks ?? []).filter((t: any) => t.id === (config as any).taskId)
+                : ((quote as any).tasks ?? []),
+            ),
           }
         : null,
       guaranteeText: generateGuaranteeText({

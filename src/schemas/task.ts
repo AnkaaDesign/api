@@ -1160,6 +1160,7 @@ const taskOrderByFieldsSchema = z.object({
   status: orderByDirectionSchema.optional(),
   statusOrder: orderByDirectionSchema.optional(),
   serialNumber: orderByWithNullsSchema.optional(),
+  customerOrderNumber: orderByWithNullsSchema.optional(),
   bonificationOrder: orderByDirectionSchema.optional(),
   entryDate: orderByDirectionSchema.optional(),
   term: orderByDirectionSchema.optional(),
@@ -1246,6 +1247,20 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
         .optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
+      // Pedido de compra do cliente, por veículo — o filtro "sem pedido" da lista
+      // de Faturamento pergunta por ele.
+      customerOrderNumber: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            contains: z.string().optional(),
+            equals: z.string().nullable().optional(),
+            not: z.union([z.string(), z.null()]).optional(),
+            in: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       bonification: z
         .union([
@@ -2542,6 +2557,20 @@ export const taskCreateSchema = z
       .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
+    /**
+     * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo.
+     *
+     * Livre e não único: os sessenta caminhões de um orçamento podem vir num
+     * pedido só, em pedidos diferentes ou em blocos. Morava na configuração de
+     * faturamento (por cliente), o que obrigava os N veículos a citarem o mesmo
+     * número na nota e no boleto.
+     */
+    customerOrderNumber: z
+      .string()
+      .max(100, 'Máximo de 100 caracteres')
+      .optional()
+      .nullable()
+      .transform(val => (val === '' ? null : val)),
     serialNumberFrom: z
       .number({
         invalid_type_error: 'Número de série inicial deve ser um número',
@@ -2811,6 +2840,16 @@ export const taskUpdateSchema = z
       .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
+    /**
+     * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo. Ver o schema de
+     * criação: o pedido é por ENTREGA, e a tela edita veículo a veículo.
+     */
+    customerOrderNumber: z
+      .string()
+      .max(100, 'Máximo de 100 caracteres')
+      .optional()
+      .nullable()
+      .transform(val => (val === '' ? null : val)),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),

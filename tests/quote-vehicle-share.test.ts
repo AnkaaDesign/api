@@ -23,7 +23,12 @@
  * de outro veículo na tela.
  */
 
-import { perVehicleAmount, sliceTask } from '../src/utils/quote-tasks';
+import {
+  orderNumberLabel,
+  orderNumbersOfTasks,
+  perVehicleAmount,
+  sliceTask,
+} from '../src/utils/quote-tasks';
 
 let failures = 0;
 
@@ -106,6 +111,47 @@ console.log('\n`sliceTask`: a parcela do caminhão 37 abre o caminhão 37');
   check('orçamento sem tarefa nenhuma devolve nulo', sliceTask({ taskId: null, quote: { tasks: [] } }) === null);
   check('configuração ausente devolve nulo', sliceTask(null) === null);
   check('configuração sem orçamento devolve nulo', sliceTask({ taskId: 'x' }) === null);
+}
+
+console.log('\nO número do pedido é do VEÍCULO');
+{
+  const tasks = [
+    { customerOrderNumber: '16677' },
+    { customerOrderNumber: '16677' },
+    { customerOrderNumber: ' 16680 ' },
+    { customerOrderNumber: null },
+    { customerOrderNumber: '' },
+  ];
+  check(
+    'deduplica e apara: dois veículos no mesmo pedido contam uma vez',
+    JSON.stringify(orderNumbersOfTasks(tasks)) === JSON.stringify(['16677', '16680']),
+    JSON.stringify(orderNumbersOfTasks(tasks)),
+  );
+  check(
+    'um pedido só (o caso comum, mesmo com sessenta caminhões) sai limpo',
+    orderNumberLabel([{ customerOrderNumber: '16677' }, { customerOrderNumber: '16677' }]) ===
+      '16677',
+  );
+  check(
+    'pedidos diferentes na nota conjunta são listados — omiti-los faria a nota não bater com nenhum',
+    orderNumberLabel(tasks) === '16677, 16680',
+    String(orderNumberLabel(tasks)),
+  );
+  check('nenhum veículo com pedido devolve nulo', orderNumberLabel([{ customerOrderNumber: null }]) === null);
+  check('sem tarefa nenhuma devolve nulo', orderNumberLabel([]) === null);
+
+  // O campo da discriminação da NFS-e e a linha do boleto têm tamanho fixo.
+  const muitos = Array.from({ length: 30 }, (_, i) => ({ customerOrderNumber: `PED${1000 + i}` }));
+  const aparado = orderNumberLabel(muitos, 40);
+  check(
+    'com limite, a linha cabe e diz quantos ficaram de fora',
+    aparado !== null && aparado.length <= 40 && aparado.includes('(+'),
+    String(aparado),
+  );
+  check(
+    'sem limite, todos entram',
+    (orderNumberLabel(muitos) ?? '').split(', ').length === 30,
+  );
 }
 
 if (failures > 0) {

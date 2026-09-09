@@ -523,6 +523,25 @@ export class TaskQuoteService {
           data: { quoteId: newQuote.id },
         });
 
+        // COMPATIBILIDADE: `customerConfigs[].orderNumber`.
+        //
+        // O número do pedido de compra virou campo do VEÍCULO
+        // (`Task.customerOrderNumber`) — o pedido é por entrega, e um orçamento
+        // cobre N caminhões. O app instalado nos aparelhos ainda o manda na
+        // configuração de faturamento; aplicá-lo a todas as tarefas é exatamente
+        // o efeito que ele tinha antes. Só valor preenchido conta: um `null` de
+        // um cliente que não lê mais o campo não pode apagar o que a tela nova
+        // gravou por veículo.
+        const legacyOrderNumber = (data.customerConfigs as any[])
+          .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+          .find(v => v.length > 0);
+        if (legacyOrderNumber) {
+          await tx.task.updateMany({
+            where: { id: { in: taskIds } },
+            data: { customerOrderNumber: legacyOrderNumber },
+          });
+        }
+
         // Any layout file added straight onto the quote must also exist as an
         // APPROVED task layout (now that the task↔quote link is set). The Step-2
         // selection is authoritative: promote the selected images (re-approving a
@@ -1264,6 +1283,21 @@ export class TaskQuoteService {
             // banco aqui criaria as fatias erradas.
             { billingSplit: updateBillingSplit, taskIds: nextTaskIds },
           );
+
+          // COMPATIBILIDADE: `customerConfigs[].orderNumber` (ver a mesma nota em
+          // `create`). O pedido é do VEÍCULO; o app instalado ainda o manda na
+          // fatia, e ali ele vale para todas as tarefas do orçamento. Um `null`
+          // NÃO apaga — a tela nova escreve por veículo, e um cliente antigo que
+          // não lê mais o campo mandaria nulo em toda gravação.
+          const legacyOrderNumber = (data.customerConfigs as any[])
+            .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+            .find(v => v.length > 0);
+          if (legacyOrderNumber) {
+            await tx.task.updateMany({
+              where: { quoteId: id },
+              data: { customerOrderNumber: legacyOrderNumber },
+            });
+          }
 
           // Audit the per-customer billing terms. The discount lives on the config
           // row, so when it moved off TaskQuote (migration 20260408000003) it left
@@ -3520,36 +3554,42 @@ export class TaskQuoteService {
   }
 
   /**
-   * Update only the orderNumber field on a CustomerConfig.
-   * Bypasses the financial obligation guard — orderNumber is metadata only
-   * and does not affect invoices, installments, or bank slips.
+   * @deprecated O número do pedido é do VEÍCULO (`Task.customerOrderNumber`).
+   *
+   * Continua aqui porque o app instalado nos aparelhos ainda chama esta rota, e
+   * recusá-la deixaria o campo sem escrita em campo. O que ela faz mudou: grava
+   * o mesmo número em TODAS as tarefas do orçamento — que é o comportamento que
+   * ela sempre teve na prática, agora dito com todas as letras. Para escrever o
+   * pedido de UM caminhão, use `PUT /tasks/:id` com `customerOrderNumber`.
+   *
+   * O `customerId` deixou de ter efeito: o pedido não é mais por cliente. Ele
+   * segue no corpo (o app o manda) e serve só para verificar que o cliente
+   * pertence mesmo a este orçamento.
    */
   async updateCustomerConfigOrderNumber(
     quoteId: string,
     customerId: string,
     orderNumber: string | null,
   ): Promise<{ message: string }> {
-    // `findMany`, não `findUnique`: a chave `(quoteId, customerId)` deixou de ser
-    // única quando a configuração passou a poder ser por veículo. Num orçamento
-    // `PER_TASK` de sessenta caminhões o mesmo cliente tem sessenta
-    // configurações, e o número do pedido é do CLIENTE (ele emite um pedido para
-    // o lote): grava nas sessenta, senão a NFS-e do caminhão 2 sai sem o pedido
-    // e o cliente a recusa.
-    const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+    const configs = await this.prisma.taskQuoteCustomerConfig.count({
       where: { quoteId, customerId },
-      select: { id: true },
     });
 
-    if (configs.length === 0) {
+    if (configs === 0) {
       throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
     }
 
-    await this.prisma.taskQuoteCustomerConfig.updateMany({
-      where: { id: { in: configs.map(c => c.id) } },
-      data: { orderNumber: orderNumber || null },
+    const updated = await this.prisma.task.updateMany({
+      where: { quoteId },
+      data: { customerOrderNumber: orderNumber || null },
     });
 
-    return { message: 'Número do pedido atualizado com sucesso.' };
+    return {
+      message:
+        updated.count > 1
+          ? `Número do pedido aplicado aos ${updated.count} veículos do orçamento.`
+          : 'Número do pedido atualizado com sucesso.',
+    };
   }
 
   /**
@@ -3687,7 +3727,6 @@ export class TaskQuoteService {
               customPaymentText: true,
               generateInvoice: true,
               generateBankSlip: true,
-              orderNumber: true,
               paymentCondition: true,
               paymentConfig: true,
               responsible: {
