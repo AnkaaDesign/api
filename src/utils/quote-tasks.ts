@@ -190,3 +190,59 @@ export function buildLateValueMap(
   });
   return out;
 }
+
+/**
+ * O valor de UM VEÍCULO a partir do total do orçamento.
+ *
+ * `TaskQuote.total` é o valor do CONTRATO: `preço por veículo × N`. Toda leitura
+ * feita pelo lado da TAREFA — a linha da lista, o cartão da Preparação, a
+ * receita do painel, a coluna de valor do Histórico — quer o valor DAQUELE
+ * veículo, e lia o total dos sessenta. O painel, que soma linha a linha, chegava
+ * a sessenta vezes o contrato.
+ *
+ * Dividir e não somar-por-orçamento-distinto: a soma das N fatias reconstrói o
+ * contrato (`12.170,40 × 60 = 730.224,00`), então todo agregado existente
+ * continua correto sem saber que existe multitarefa — e o valor de cada linha
+ * passa a ser verdade. O piso em 1 protege o orçamento sem tarefa vinculada
+ * (o registro nasce antes do vínculo).
+ */
+export function perVehicleAmount(
+  total: unknown,
+  vehicleCount?: number | null,
+): number {
+  const grand = Number(total ?? 0);
+  if (!Number.isFinite(grand)) return 0;
+  const count = Math.max(1, Math.trunc(Number(vehicleCount ?? 1)) || 1);
+  return Math.round((grand / count) * 100) / 100;
+}
+
+/**
+ * A TAREFA que uma fatia de faturamento descreve.
+ *
+ * `TaskQuoteCustomerConfig.taskId` nulo é a fatia `JOINT` — uma fatura para os N
+ * veículos, e qualquer tarefa serve de âncora para o link da tela. Preenchido é
+ * `PER_TASK`: a fatia é DAQUELE caminhão, e responder com o primeiro do
+ * orçamento faz a parcela do caminhão 37 abrir a tela do caminhão 1 — com o
+ * número de série, a placa e o cliente errados na frente de quem confere
+ * dinheiro.
+ *
+ * Cai para o primeiro veículo quando a fatia é conjunta ou quando a tarefa da
+ * fatia não veio na consulta: é o comportamento anterior, e ele está certo para
+ * `JOINT`.
+ */
+export function sliceTask<T extends { id: string }>(
+  config:
+    | {
+        taskId?: string | null;
+        quote?: { tasks?: readonly T[] | null } | null;
+      }
+    | null
+    | undefined,
+): T | null {
+  const tasks = config?.quote?.tasks ?? [];
+  if (config?.taskId) {
+    const own = tasks.find(t => t.id === config.taskId);
+    if (own) return own;
+  }
+  return tasks[0] ?? null;
+}

@@ -43,6 +43,7 @@ import {
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
+import { sliceTask } from '../../../utils/quote-tasks';
 
 /**
  * Controller for Invoice endpoints.
@@ -550,6 +551,9 @@ export class InvoiceController {
               externalOperationId: true,
               customerConfig: {
                 select: {
+                  // A tarefa DESTA fatia: a fatura de um orçamento `PER_TASK` é de
+                  // um veículo, e o link tem de abrir o dele. Ver `sliceTask`.
+                  taskId: true,
                   quote: {
                     select: {
                       tasks: {
@@ -562,7 +566,7 @@ export class InvoiceController {
               },
             },
           });
-          taskIdForLink = invoiceForLink?.customerConfig?.quote?.tasks?.[0]?.id ?? null;
+          taskIdForLink = sliceTask(invoiceForLink?.customerConfig)?.id ?? null;
           withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
         const webUrlForLink = withdrawalIdForLink
@@ -1413,6 +1417,9 @@ export class InvoiceController {
               externalOperationId: true,
               customerConfig: {
                 select: {
+                  // A tarefa DESTA fatia: a fatura de um orçamento `PER_TASK` é de
+                  // um veículo, e o link tem de abrir o dele. Ver `sliceTask`.
+                  taskId: true,
                   quote: {
                     select: {
                       tasks: {
@@ -1425,7 +1432,7 @@ export class InvoiceController {
               },
             },
           });
-          taskIdForLink = invoiceForLink?.customerConfig?.quote?.tasks?.[0]?.id ?? null;
+          taskIdForLink = sliceTask(invoiceForLink?.customerConfig)?.id ?? null;
           withdrawalIdForLink = invoiceForLink?.externalOperationId ?? null;
         }
         const webUrlForLink = withdrawalIdForLink

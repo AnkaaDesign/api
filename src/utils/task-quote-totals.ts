@@ -1,6 +1,10 @@
 /**
  * Discount-aware recomputation of a TaskQuote's monetary totals.
  *
+ * Grava também `vehicleCount` — a contagem de tarefas que multiplica os totais.
+ * É o divisor que as telas por TAREFA usam para voltar do valor do contrato ao
+ * valor de um veículo, e sai da mesma contagem, na mesma escrita.
+ *
  * A quote's money lives in two places that MUST stay consistent:
  *   - the aggregate `TaskQuote.subtotal` / `TaskQuote.total`
  *   - one `TaskQuoteCustomerConfig.subtotal` / `.total` per invoiced customer
@@ -41,7 +45,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     const rounded = round2(round2(sum) * vehicleCount);
     await tx.taskQuote.update({
       where: { id: quoteId },
-      data: { subtotal: rounded, total: rounded },
+      data: { subtotal: rounded, total: rounded, vehicleCount },
     });
     return;
   }
@@ -105,6 +109,11 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     data: {
       subtotal: round2(aggregateSubtotal),
       total: round2(aggregateTotal),
+      // A CONTAGEM vai junto do total, sempre, porque é o divisor dele. `total`
+      // é o valor do contrato (`por veículo × N`) e toda tela que mostra uma
+      // linha por veículo precisa do N para dividir; gravá-los em pontos
+      // diferentes é o que permitiria a um ficar velho enquanto o outro anda.
+      vehicleCount,
     },
   });
 }

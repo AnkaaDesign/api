@@ -1,4 +1,5 @@
 import { FiscalDocumentOperation, Prisma } from '@prisma/client';
+import { sliceTask } from '../../../utils/quote-tasks';
 
 /**
  * What actually backs a bank transaction, and whether anything is still owed to
@@ -76,6 +77,11 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
     select: {
       id: true,
       total: true,
+      // A TAREFA DESTA FATIA — nulo na fatura conjunta, preenchido quando a
+      // cobrança é de um veículo (`billingSplit = PER_TASK`). Sem esta coluna,
+      // `sliceTask` só conseguiria responder o primeiro veículo, e a parcela do
+      // caminhão 37 abriria a tela do caminhão 1.
+      taskId: true,
       customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
       quote: {
         select: {
@@ -588,7 +594,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // The parcela reached either directly or through its boleto. Both carry the
     // same task-quote context; prefer whichever this match actually anchored.
     const inst = instMatch?.installment ?? slip?.installment ?? null;
-    const task = inst?.invoice?.task ?? inst?.customerConfig?.quote?.tasks?.[0] ?? null;
+    const task = inst?.invoice?.task ?? sliceTask(inst?.customerConfig) ?? null;
     const customer = inst?.invoice?.customer ?? inst?.customerConfig?.customer;
     const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
     const parcelCount =

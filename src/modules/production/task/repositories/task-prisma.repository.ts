@@ -2319,11 +2319,38 @@ export class TaskPrismaRepository
         }
       }
 
+      // ─── O VÍNCULO COM O ORÇAMENTO ESTÁ MUDANDO? ─────────────────────────
+      //
+      // Mover a tarefa para outro orçamento (ou desvinculá-la) muda a CONTAGEM
+      // de veículos dos dois lados, e a contagem é o multiplicador de todo total
+      // (`por veículo × N`). Sem recalcular os dois, o orçamento de onde a tarefa
+      // saiu segue cobrando por ela e o que a recebeu não a cobra. Lido antes do
+      // update porque depois o vínculo anterior já se foi.
+      const linkChanging = (data as any).quoteId !== undefined;
+      const previousQuoteId = linkChanging
+        ? ((
+            await transaction.task.findUnique({ where: { id }, select: { quoteId: true } })
+          )?.quoteId ?? null)
+        : null;
+
       const result = await transaction.task.update({
         where: { id },
         data: updateInput,
         include: includeInput,
       });
+
+      if (linkChanging) {
+        const nextQuoteId = ((data as any).quoteId as string | null) ?? null;
+        const affected = Array.from(
+          new Set([previousQuoteId, nextQuoteId].filter((q): q is string => Boolean(q))),
+        );
+        for (const quoteId of affected) {
+          // O orçamento pode ter sido apagado na mesma transação (relação
+          // `SET NULL`): recalcular linha inexistente derrubaria a transação.
+          const stillThere = await transaction.taskQuote.count({ where: { id: quoteId } });
+          if (stillThere > 0) await recalcQuoteTotals(transaction, quoteId);
+        }
+      }
 
       // Task↔quote link is now settled (existing quote, or the new one connected
       // via updateInput.quote above): materialize quote layout files as APPROVED
@@ -2347,12 +2374,45 @@ export class TaskPrismaRepository
     }
   }
 
+  /**
+   * Exclui a tarefa e RECALCULA o orçamento que ela deixou.
+   *
+   * Desde o orçamento multitarefa, `TaskQuote.total` é `por veículo × N` e
+   * `vehicleCount` é esse N. Apagar um dos sessenta caminhões sem recalcular
+   * deixava o orçamento afirmando sessenta veículos e cobrando por sessenta,
+   * com cinquenta e nove no registro: o documento recalcula na renderização (lê
+   * `tasks`), então o PDF passava a divergir do banco — e a fatura, o boleto e a
+   * NFS-e seguem o banco.
+   *
+   * Aqui e não no serviço porque há dois caminhos de exclusão (unitária e em
+   * lote, e a de lote passa por este mesmo método): um recálculo no serviço
+   * cobriria um e não o outro.
+   */
   async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Task> {
     try {
+      // Lido ANTES: depois do delete não há mais de onde tirar o vínculo.
+      const before = await transaction.task.findUnique({
+        where: { id },
+        select: { quoteId: true },
+      });
+
       const result = await transaction.task.delete({
         where: { id },
         include: this.getDefaultInclude(),
       });
+
+      if (before?.quoteId) {
+        // O orçamento pode estar sendo apagado na MESMA transação (a relação é
+        // `SET NULL`, então o delete dele não barra) — recalcular uma linha que
+        // não existe mais estouraria a transação inteira por um efeito
+        // secundário.
+        const quoteStillThere = await transaction.taskQuote.count({
+          where: { id: before.quoteId },
+        });
+        if (quoteStillThere > 0) {
+          await recalcQuoteTotals(transaction, before.quoteId);
+        }
+      }
 
       return this.mapDatabaseEntityToEntity(result);
     } catch (error) {

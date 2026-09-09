@@ -8,6 +8,7 @@ import {
   wasEffectedDuring,
 } from '../../../utils/business-period';
 import { countBrazilianBusinessDaysInRange } from '../../../utils/brazilian-holidays.util';
+import { perVehicleAmount } from '../../../utils/quote-tasks';
 
 const MONTH_NAMES_PT = [
   'Janeiro',
@@ -534,6 +535,10 @@ export class TaskAnalyticsService {
         quote: {
           select: {
             total: true,
+            // `total` é o CONTRATO (`por veículo × N`) e cada linha aqui é UMA
+            // tarefa: a receita desta tarefa é a fatia dela. Ver
+            // `perVehicleAmount`.
+            vehicleCount: true,
           },
         },
         customer: {
@@ -567,7 +572,7 @@ export class TaskAnalyticsService {
           revenue: 0,
           count: 0,
         };
-        existing.revenue += Number(task.quote!.total);
+        existing.revenue += perVehicleAmount(task.quote!.total, task.quote!.vehicleCount);
         existing.count++;
         bySector.set(sectorId, existing);
       }
@@ -590,7 +595,7 @@ export class TaskAnalyticsService {
           revenue: 0,
           count: 0,
         };
-        existing.revenue += Number(task.quote!.total);
+        existing.revenue += perVehicleAmount(task.quote!.total, task.quote!.vehicleCount);
         existing.count++;
         byCustomer.set(customerId, existing);
       }
@@ -611,7 +616,7 @@ export class TaskAnalyticsService {
       for (const task of tasksWithRevenue) {
         const key = monthKey(task.finishedAt!);
         const existing = byMonth.get(key) || { revenue: 0, count: 0 };
-        existing.revenue += Number(task.quote!.total);
+        existing.revenue += perVehicleAmount(task.quote!.total, task.quote!.vehicleCount);
         existing.count++;
         byMonth.set(key, existing);
       }
@@ -632,7 +637,7 @@ export class TaskAnalyticsService {
 
     // Summary
     const totalRevenue =
-      Math.round(tasksWithRevenue.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
+      Math.round(tasksWithRevenue.reduce((sum, t) => sum + perVehicleAmount(t.quote!.total, t.quote!.vehicleCount), 0) * 100) / 100;
 
     const avgTaskValue =
       tasksWithRevenue.length > 0
@@ -643,7 +648,7 @@ export class TaskAnalyticsService {
     const revenueByMonth = new Map<string, number>();
     for (const task of tasksWithRevenue) {
       const key = monthKey(task.finishedAt!);
-      revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + Number(task.quote!.total));
+      revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + perVehicleAmount(task.quote!.total, task.quote!.vehicleCount));
     }
     const sortedMonths = Array.from(revenueByMonth.keys()).sort();
     let monthOverMonthGrowth = 0;
@@ -663,7 +668,7 @@ export class TaskAnalyticsService {
         name: task.customer.fantasyName,
         revenue: 0,
       };
-      existing.revenue += Number(task.quote!.total);
+      existing.revenue += perVehicleAmount(task.quote!.total, task.quote!.vehicleCount);
       customerRevenue.set(task.customerId, existing);
     }
 
@@ -697,7 +702,7 @@ export class TaskAnalyticsService {
       result.comparison = sectorIds.map(sectorId => {
         const sectorTasks = tasksWithRevenue.filter(t => t.sectorId === sectorId);
         const revenue =
-          Math.round(sectorTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
+          Math.round(sectorTasks.reduce((sum, t) => sum + perVehicleAmount(t.quote!.total, t.quote!.vehicleCount), 0) * 100) / 100;
 
         return {
           sectorId,
@@ -717,7 +722,7 @@ export class TaskAnalyticsService {
           t => t.finishedAt && t.finishedAt >= period.start && t.finishedAt <= period.end,
         );
         const revenue =
-          Math.round(periodTasks.reduce((sum, t) => sum + Number(t.quote!.total), 0) * 100) / 100;
+          Math.round(periodTasks.reduce((sum, t) => sum + perVehicleAmount(t.quote!.total, t.quote!.vehicleCount), 0) * 100) / 100;
 
         return {
           start: period.start,

@@ -16,6 +16,7 @@ import {
   getPeriodForDate,
 } from '../../../utils/business-period';
 import { TASK_QUOTE_STATUS_LABELS, NFSE_STATUS_LABELS } from '../../../constants/enum-labels';
+import { perVehicleAmount } from '../../../utils/quote-tasks';
 import type {
   CollectionAnalyticsData,
   CollectionItem,
@@ -781,17 +782,31 @@ export class InvoiceAnalyticsService {
       string,
       { id: string; name: string; count: number; total: number; settled: number }
     >();
+    // POR VEÍCULO, não pelo primeiro. Um orçamento multitarefa pode cobrir
+    // sessenta caminhões, e creditar o contrato inteiro ao cliente do primeiro
+    // some com os demais quando eles diferem. O valor de cada veículo é a fatia
+    // (`total ÷ N`), e a soma das fatias reconstrói o contrato. A CONTAGEM de
+    // orçamentos é por orçamento, não por veículo: sessenta caminhões de um
+    // cliente são um orçamento dele, e contá-los sessenta vezes inflaria o
+    // "quoteCount" que a tela chama de "orçamentos".
     for (const q of quotes) {
-      const c = q.tasks?.[0]?.customer;
-      if (!c) continue;
-      if (!customerMap.has(c.id)) {
-        customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
-      }
-      const entry = customerMap.get(c.id)!;
-      entry.count++;
-      entry.total += Number(q.total);
-      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
-        entry.settled += Number(q.total);
+      const share = perVehicleAmount(q.total, q.tasks?.length);
+      const countedCustomers = new Set<string>();
+      for (const task of q.tasks ?? []) {
+        const c = task.customer;
+        if (!c) continue;
+        if (!customerMap.has(c.id)) {
+          customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
+        }
+        const entry = customerMap.get(c.id)!;
+        if (!countedCustomers.has(c.id)) {
+          entry.count++;
+          countedCustomers.add(c.id);
+        }
+        entry.total += share;
+        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+          entry.settled += share;
+        }
       }
     }
     const topCustomers: QuoteTopCustomer[] = Array.from(customerMap.values())
@@ -811,17 +826,26 @@ export class InvoiceAnalyticsService {
       string,
       { id: string; name: string; count: number; total: number; settled: number }
     >();
+    // Mesma distribuição do bloco de clientes: os sessenta caminhões podem estar
+    // repartidos entre setores, e o setor do primeiro não responde pelos outros.
     for (const q of quotes) {
-      const s = q.tasks?.[0]?.sector;
-      if (!s) continue;
-      if (!sectorMap.has(s.id)) {
-        sectorMap.set(s.id, { id: s.id, name: s.name, count: 0, total: 0, settled: 0 });
-      }
-      const entry = sectorMap.get(s.id)!;
-      entry.count++;
-      entry.total += Number(q.total);
-      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
-        entry.settled += Number(q.total);
+      const share = perVehicleAmount(q.total, q.tasks?.length);
+      const countedSectors = new Set<string>();
+      for (const task of q.tasks ?? []) {
+        const sec = task.sector;
+        if (!sec) continue;
+        if (!sectorMap.has(sec.id)) {
+          sectorMap.set(sec.id, { id: sec.id, name: sec.name, count: 0, total: 0, settled: 0 });
+        }
+        const entry = sectorMap.get(sec.id)!;
+        if (!countedSectors.has(sec.id)) {
+          entry.count++;
+          countedSectors.add(sec.id);
+        }
+        entry.total += share;
+        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+          entry.settled += share;
+        }
       }
     }
     const topSectors: QuoteTopSector[] = Array.from(sectorMap.values())

@@ -1918,6 +1918,21 @@ model TaskQuote {
   /// é outro orçamento.
   tasks Task[] @relation("TASK_QUOTE")
 
+  /// QUANTOS VEÍCULOS este orçamento cobre — `tasks.length`, desnormalizado.
+  ///
+  /// Existe porque `total` é o valor do CONTRATO (`por veículo × N`) e quase
+  /// toda tela lê o orçamento pelo lado da TAREFA: a lista de Orçamentos, a de
+  /// Faturamento, a Preparação, o Histórico, o painel de receita. Sem este
+  /// número ali, cada linha de veículo mostra o total dos sessenta — e o painel,
+  /// que soma linha a linha, mostra sessenta vezes o contrato.
+  ///
+  /// Coluna e não `_count`: um `select` de orçamento existente ganha o campo com
+  /// uma linha, ordena como qualquer escalar e nenhum cliente pode esquecer de
+  /// pedi-lo. Quem escreve é `recalcQuoteTotals`, na MESMA função e a partir da
+  /// MESMA contagem que multiplica os totais — se um dia divergir, os totais já
+  /// terão divergido antes.
+  vehicleCount Int @default(1)
+
   /// Se o cliente paga os N veículos numa fatura só ou uma por veículo.
   /// Ver `QuoteBillingSplit` e `TaskQuoteCustomerConfig.taskId`.
   billingSplit       QuoteBillingSplit         @default(JOINT)

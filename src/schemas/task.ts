@@ -434,6 +434,11 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 statusOrder: z.boolean().optional(),
                 expiresAt: z.boolean().optional(),
                 budgetNumber: z.boolean().optional(),
+                // QUANTOS VEÍCULOS o orçamento cobre. Sem esta chave a lista de
+                // tarefas recebe `total` (o contrato, `por veículo × N`) sem o
+                // divisor, e mostra o valor dos sessenta em cada linha. O objeto
+                // não é `.strict()`: a chave ausente sairia em SILÊNCIO.
+                vehicleCount: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
                 services: z.boolean().optional(),

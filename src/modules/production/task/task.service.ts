@@ -12860,6 +12860,19 @@ export class TaskService {
    * Creates a new independent quote with a new budgetNumber.
    * Does NOT copy customerSignatureId (signature is specific to the original budget).
    */
+  /**
+   * Cria uma CÓPIA independente do orçamento para UMA tarefa.
+   *
+   * A cópia é sempre de um veículo — quem chama é "copiar campos de outra
+   * tarefa" (`copyFromTask`), e o destino é uma tarefa só. Por isso a origem
+   * `PER_TASK`, que tem uma fatia de faturamento POR VEÍCULO (sessenta fatias do
+   * mesmo cliente), precisa ser achatada para uma fatia por CLIENTE antes de
+   * gravar: as sessenta linhas nasceriam sem `taskId` e a segunda já violaria o
+   * índice parcial `TaskQuoteCustomerConfig_one_joint_per_customer` — 500 no meio
+   * da transação de cópia, com o campo "Orçamento" oferecido na tela para
+   * ADMIN/FINANCEIRO/COMERCIAL. O `billingSplit` também não é copiado: a cópia
+   * tem um veículo, e a única leitura possível ali é `JOINT`.
+   */
   private async duplicateTaskQuote(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
     const sourceQuote = await tx.taskQuote.findUnique({
       where: { id: sourceQuoteId },
@@ -12901,6 +12914,16 @@ export class TaskService {
     if (!sourceQuote) {
       throw new NotFoundException(`Precificação de origem não encontrada (ID: ${sourceQuoteId})`);
     }
+
+    // UMA configuração por CLIENTE. Num orçamento `PER_TASK` há uma por veículo,
+    // todas do mesmo cliente e com as MESMAS condições (a reconciliação as
+    // mantém em pé de igualdade), então a primeira de cada cliente descreve as
+    // outras — e é a única que cabe num orçamento de um veículo.
+    const configsByCustomer = Array.from(
+      new Map(
+        (sourceQuote.customerConfigs ?? []).map(c => [c.customerId, c] as const),
+      ).values(),
+    );
 
     // Get next budget number (advisory-locked — a bulk copy mints one per target
     // and the bare MAX+1 read raced itself into P2002).
@@ -12950,10 +12973,10 @@ export class TaskService {
             invoiceToCustomerId: (service as any).invoiceToCustomerId ?? null,
           })),
         },
-        ...(sourceQuote.customerConfigs.length > 0
+        ...(configsByCustomer.length > 0
           ? {
               customerConfigs: {
-                create: sourceQuote.customerConfigs.map(c => ({
+                create: configsByCustomer.map(c => ({
                   customerId: c.customerId,
                   subtotal: c.subtotal,
                   total: c.total,

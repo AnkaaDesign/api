@@ -45,6 +45,15 @@ import { TaskQuote as PrismaTaskQuote, Prisma } from '@prisma/client';
  * Recorre por `AND`/`OR`/`NOT` porque é lá que os filtros compostos da lista
  * montam suas condições, e uma chave `task` escondida dentro de um `OR` estoura
  * do mesmo jeito que no topo.
+ *
+ * O IRMÃO ESQUECIDO: `taskId`. A COLUNA também se foi — a FK mudou de lado e
+ * hoje mora em `Task.quoteId` —, e o zod continuava declarando `taskId` no
+ * `where` sem nada que o traduzisse. Declarado e não traduzido é o pior dos dois
+ * mundos: o `.strict()` deixa passar, o Prisma recusa, e a lista devolve 500
+ * ("Unknown argument `taskId`"). Basta um filtro salvo ou um link antigo com
+ * `?taskId=` para derrubar a tela. Aqui ele vira `tasks: { some: { id } }` — o
+ * valor pode ser o id cru ou um filtro (`{ in: [...] }`), e os dois passam para
+ * `id` sem interpretação.
  */
 export function translateLegacyTaskFilter(where: any): any {
   if (!where || typeof where !== 'object') return where;
@@ -54,6 +63,16 @@ export function translateLegacyTaskFilter(where: any): any {
   for (const [key, value] of Object.entries(where)) {
     if (key === 'AND' || key === 'OR' || key === 'NOT') {
       out[key] = translateLegacyTaskFilter(value);
+      continue;
+    }
+    if (key === 'taskId') {
+      // `task` é MAIS EXPRESSIVO que `taskId` (casa por qualquer campo da
+      // tarefa, não só pelo id), e `tasks` é a forma corrente: qualquer uma das
+      // duas presente descarta esta. Sem essa precedência, um cliente que manda
+      // as duas formas teria o filtro decidido pela ordem das chaves do JSON.
+      if ('tasks' in where || 'task' in where) continue;
+      if (value === null || value === undefined) continue;
+      out.tasks = { some: { id: value } };
       continue;
     }
     if (key !== 'task') {
@@ -103,7 +122,9 @@ export function translateLegacyTaskFilter(where: any): any {
 export function stripUnorderableTaskEntries(orderBy: any): any {
   const clean = (entry: any): any | null => {
     if (!entry || typeof entry !== 'object') return entry;
-    const { task: _dropped, ...rest } = entry as Record<string, unknown>;
+    // `taskId` sai junto: a coluna não existe mais em `TaskQuote` (a FK está em
+    // `Task.quoteId`), então ordenar por ela é o mesmo 500 de `task`.
+    const { task: _dropped, taskId: _droppedId, ...rest } = entry as Record<string, unknown>;
     return Object.keys(rest).length > 0 ? rest : null;
   };
   if (Array.isArray(orderBy)) {

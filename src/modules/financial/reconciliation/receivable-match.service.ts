@@ -13,6 +13,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { nameSimilarity } from './text-normalization';
 import { isDueDateOverdue } from '@utils/due-date.util';
+import { sliceTask } from '../../../utils/quote-tasks';
 import {
   RECON_ADVISORY_LOCK_KEY,
   TOP_MATCH_SCORE_BADGE_FLOOR,
@@ -1732,6 +1733,8 @@ export class ReceivableMatchService {
         },
         customerConfig: {
           select: {
+            // A tarefa DESTA fatia (`PER_TASK`) — ver `sliceTask`.
+            taskId: true,
             customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
             quote: {
               select: {
@@ -1772,7 +1775,7 @@ export class ReceivableMatchService {
         const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
         // Task-quote context: prefer the invoice's task, else the customerConfig's
         // quote task (TASK_QUOTE receivables without a materialized invoice).
-        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.tasks?.[0] ?? null;
+        const task = inst.invoice?.task ?? sliceTask(inst.customerConfig) ?? null;
         // Score against the outstanding balance so a partially-paid installment
         // surfaced in the manual path scores on what the credit can still settle.
         const confidence = this.scoreCandidate({
@@ -2040,6 +2043,8 @@ export class ReceivableMatchService {
             },
             customerConfig: {
               select: {
+                // A tarefa DESTA fatia (`PER_TASK`) — ver `sliceTask`.
+                taskId: true,
                 customer: {
                   select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
                 },
@@ -2075,7 +2080,7 @@ export class ReceivableMatchService {
           inst.customerConfig?.customer ??
           inst.externalOperation?.customer ??
           null;
-        const task = inst.invoice?.task ?? inst.customerConfig?.quote?.tasks?.[0] ?? null;
+        const task = inst.invoice?.task ?? sliceTask(inst.customerConfig) ?? null;
         const paid = Number(s.paidAmount ?? inst.amount);
         const confidence = this.scoreCandidate({
           txAbs: abs,

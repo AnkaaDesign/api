@@ -426,6 +426,10 @@ export class TaskQuoteService {
             simultaneousTasks: data.simultaneousTasks || null,
             customForecastDays: data.customForecastDays || null,
             billingSplit,
+            // O divisor dos totais acima: `aggregateTotal` é `por veículo × N`, e
+            // é este N que devolve o valor de UM veículo às telas que listam
+            // tarefas. Gravado aqui, na mesma linha do total que ele divide.
+            vehicleCount: taskIds.length,
             // ─── CONFIGURAÇÕES DE FATURAMENTO ─────────────────────────────
             //
             // Uma por (cliente × fatia). A fatia é NULA em `JOINT` — uma fatura
@@ -1608,7 +1612,17 @@ export class TaskQuoteService {
         // truth — runs whenever services OR configs changed, so a services-only
         // edit (configs stripped by filterToMaterialChanges) never leaves
         // subtotal/total stale (the "detail ≠ wizard" + mis-billed-invoice bug).
-        if (data.services !== undefined || data.customerConfigs !== undefined) {
+        //
+        // `taskIds` entra na condição junto: mudar o CONJUNTO de veículos muda o
+        // multiplicador de todo total (`por veículo × N`) e a contagem
+        // desnormalizada, e uma edição que só acrescenta ou retira caminhão não
+        // manda serviços nem configurações. Sem esta chave, tirar um veículo de
+        // sessenta deixava o contrato afirmando sessenta.
+        if (
+          data.services !== undefined ||
+          data.customerConfigs !== undefined ||
+          data.taskIds !== undefined
+        ) {
           await recalcQuoteTotals(tx, id);
         }
 

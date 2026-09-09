@@ -16,10 +16,21 @@
  * e o orçamento voltava sem veículo nenhum — sem erro, sem log, só colunas
  * vazias.
  *
+ * O IRMÃO ESQUECIDO: `taskId`
+ * ─────────────────────────────────────────────────────────────────────────────
+ * A varredura seguinte achou que a coluna `TaskQuote.taskId` foi embora junto
+ * com a relação to-one — o FK mudou de lado e hoje mora em `Task.quoteId`. Mas
+ * o zod continuava DECLARANDO `taskId` no `where` e no `orderBy`, e nada o
+ * traduzia. Declarado e não traduzido é o pior dos dois mundos: o `.strict()`
+ * deixa passar, o Prisma recusa, e a lista inteira devolve 500 —
+ * "Unknown argument `taskId`". Basta um filtro salvo, um app não atualizado ou
+ * um link antigo com `?taskId=` para derrubar a tela.
+ *
  * O que este arquivo protege:
  *   · nenhuma consulta emite a chave to-one `task` para o Prisma;
- *   · a chave legada continua ACEITA (o app instalado ainda a manda) e é
- *     traduzida, nunca recusada;
+ *   · nenhuma consulta emite a coluna extinta `taskId` para o Prisma;
+ *   · as chaves legadas continuam ACEITAS (o app instalado ainda as manda) e são
+ *     traduzidas ou descartadas, nunca recusadas;
  *   · `tasks` sobrevive ao include e ao where do zod;
  *   · a busca por série/placa/cliente acha o orçamento por QUALQUER veículo.
  *
@@ -54,6 +65,26 @@ function hasToOneTaskKey(value: unknown): boolean {
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (k === 'task') return true;
     if (hasToOneTaskKey(v)) return true;
+  }
+  return false;
+}
+
+/**
+ * Procura a coluna extinta `taskId` NO NÍVEL DO ORÇAMENTO.
+ *
+ * Só no nível do orçamento: `tasks: { some: { … } }` desce para `Task`, onde
+ * `taskId` pode legitimamente existir em relações da tarefa. O que não pode
+ * existir é um `taskId` irmão de `status`/`budgetNumber` — esse vai direto para
+ * `TaskQuoteWhereInput`, que não tem a coluna.
+ */
+function hasQuoteLevelTaskIdKey(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(hasQuoteLevelTaskIdKey);
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (k === 'taskId') return true;
+    // `tasks`/`task` mudam de modelo: dali para baixo é `Task`, não `TaskQuote`.
+    if (k === 'tasks' || k === 'task') continue;
+    if (hasQuoteLevelTaskIdKey(v)) return true;
   }
   return false;
 }
@@ -108,6 +139,60 @@ console.log('\nTradução do filtro legado `task` → `tasks`');
   );
 }
 
+console.log('\nTradução do filtro legado `taskId` (coluna extinta) → `tasks`');
+{
+  const plain = translateLegacyTaskFilter({ taskId: 'task-1' });
+  check(
+    '`taskId: "x"` vira `tasks: { some: { id: "x" } }`',
+    !hasQuoteLevelTaskIdKey(plain) &&
+      JSON.stringify(plain) === JSON.stringify({ tasks: { some: { id: 'task-1' } } }),
+    JSON.stringify(plain),
+  );
+  const filtered = translateLegacyTaskFilter({ taskId: { in: ['a', 'b'] } });
+  check(
+    '`taskId: { in: [...] }` vira `tasks: { some: { id: { in: [...] } } }`',
+    JSON.stringify(filtered) ===
+      JSON.stringify({ tasks: { some: { id: { in: ['a', 'b'] } } } }),
+    JSON.stringify(filtered),
+  );
+  const nested = translateLegacyTaskFilter({
+    status: 'PENDING',
+    OR: [{ taskId: 'a' }, { budgetNumber: 7 }],
+  });
+  check(
+    'recorre por OR — `taskId` escondido num ramo estoura igual ao do topo',
+    !hasQuoteLevelTaskIdKey(nested),
+    JSON.stringify(nested),
+  );
+  check(
+    'a forma corrente vence: `tasks` presente descarta o `taskId` legado',
+    JSON.stringify(
+      translateLegacyTaskFilter({ tasks: { some: { id: 'novo' } }, taskId: 'legado' }),
+    ) === JSON.stringify({ tasks: { some: { id: 'novo' } } }),
+    JSON.stringify(
+      translateLegacyTaskFilter({ tasks: { some: { id: 'novo' } }, taskId: 'legado' }),
+    ),
+  );
+  check(
+    '`task` (mais expressivo) vence `taskId` quando os dois vêm',
+    JSON.stringify(translateLegacyTaskFilter({ task: { id: 'rico' }, taskId: 'pobre' })) ===
+      JSON.stringify({ tasks: { some: { id: 'rico' } } }),
+    JSON.stringify(translateLegacyTaskFilter({ task: { id: 'rico' }, taskId: 'pobre' })),
+  );
+  check(
+    '`taskId` DENTRO de `tasks.some` é de outro modelo e passa intacto',
+    JSON.stringify(
+      translateLegacyTaskFilter({ tasks: { some: { truck: { taskId: 'x' } } } }),
+    ) === JSON.stringify({ tasks: { some: { truck: { taskId: 'x' } } } }),
+  );
+  const legacyWhere = taskQuoteWhereSchema.parse({ taskId: 'task-1' });
+  check(
+    'o zod continua ACEITANDO `taskId` (recusar derrubaria o app instalado)',
+    (legacyWhere as any).taskId === 'task-1',
+    JSON.stringify(legacyWhere),
+  );
+}
+
 console.log('\nOrdenação por campo da tarefa — descartada, nunca enviada');
 {
   const kept = stripUnorderableTaskEntries([{ statusOrder: 'asc' }, { task: { term: 'asc' } }]);
@@ -128,6 +213,16 @@ console.log('\nOrdenação por campo da tarefa — descartada, nunca enviada');
     'ordenação por campo do próprio orçamento passa intacta',
     JSON.stringify(stripUnorderableTaskEntries({ budgetNumber: 'desc' })) ===
       JSON.stringify({ budgetNumber: 'desc' }),
+  );
+  const withTaskId = stripUnorderableTaskEntries([{ taskId: 'asc' }, { budgetNumber: 'desc' }]);
+  check(
+    '`taskId` (coluna extinta) também sai do orderBy',
+    JSON.stringify(withTaskId) === JSON.stringify([{ budgetNumber: 'desc' }]),
+    JSON.stringify(withTaskId),
+  );
+  check(
+    'objeto só com `taskId` vira undefined',
+    stripUnorderableTaskEntries({ taskId: 'asc' }) === undefined,
   );
 }
 

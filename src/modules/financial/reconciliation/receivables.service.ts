@@ -9,6 +9,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { isDueDateOverdue } from '@utils/due-date.util';
+import { sliceTask } from '@utils/quote-tasks';
 import {
   ReceivableRow,
   ReceivableSource,
@@ -190,6 +191,9 @@ export class ReceivablesService {
           customerConfig: {
             select: {
               orderNumber: true,
+              // A TAREFA DESTA FATIA. Nulo = fatia conjunta (`JOINT`); preenchido
+              // = a fatura é de um veículo só, e é ele que a linha nomeia e abre.
+              taskId: true,
               customer: { select: { id: true, fantasyName: true } },
               quote: {
                 select: {
@@ -242,7 +246,8 @@ export class ReceivablesService {
 
         // Primary row label is the task (faturamento) name; non-task receivables
         // (external ops / standalone invoices) fall back to the customer / parcela.
-        const taskName = inst.invoice?.task?.name ?? inst.customerConfig?.quote?.tasks?.[0]?.name ?? null;
+        const taskName =
+          inst.invoice?.task?.name ?? sliceTask(inst.customerConfig)?.name ?? null;
         const description = taskName ?? customer?.fantasyName ?? `Parcela ${inst.number}`;
         const totalInstallments =
           inst.invoice?._count?.installments ??
@@ -278,7 +283,7 @@ export class ReceivablesService {
           id: inst.id,
           invoiceId: inst.invoiceId,
           // Task-quote (faturamento) the receipt belongs to — the row's nav target.
-          taskId: inst.invoice?.taskId ?? inst.customerConfig?.quote?.tasks?.[0]?.id ?? null,
+          taskId: inst.invoice?.taskId ?? sliceTask(inst.customerConfig)?.id ?? null,
           customerId: customer?.id ?? null,
           customerName: label,
           description,
