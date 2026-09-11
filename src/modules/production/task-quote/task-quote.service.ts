@@ -3785,6 +3785,12 @@ export class TaskQuoteService {
               status: true,
               startedAt: true,
               finishedAt: true,
+              // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. A página pública e o
+              // relatório de serviço o imprimem no quadro do tomador — é o número
+              // pelo qual o cliente reconhece a compra. Ele lia
+              // `customerConfigs[].orderNumber`, uma coluna que já não existe, e
+              // o quadro saía sem a linha. Não é dado sensível: veio do cliente.
+              customerOrderNumber: true,
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },

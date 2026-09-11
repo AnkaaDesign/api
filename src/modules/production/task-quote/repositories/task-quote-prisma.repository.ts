@@ -564,6 +564,10 @@ export class TaskQuotePrismaRepository
             createdAt: true,
             term: true,
             forecastDate: true,
+            // O pedido de compra é do VEÍCULO. Fora deste `select` a tela de
+            // Orçamento abriria o campo em branco e o gravaria por cima do que o
+            // cliente já tinha informado.
+            customerOrderNumber: true,
             truck: { select: { id: true, plate: true, chassisNumber: true } },
           },
         },
