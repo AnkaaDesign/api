@@ -84,6 +84,24 @@ export class WhatsAppCloudConfig implements OnModuleInit {
     return Boolean(this.accessToken && this.phoneNumberId);
   }
 
+  /**
+   * Chave que vira o canal do CLIENTE para a Cloud API.
+   *
+   * Separada de `canSend` de propósito, e o padrão é DESLIGADO. Configurar o
+   * token não é o mesmo que estar pronto para falar com cliente: os templates
+   * precisam estar APROVADOS na Meta, e aprovação é dela, não nossa. Com a
+   * chave desligada, a cerimônia segue no Baileys exatamente como antes — o
+   * código novo fica no ar, inerte, e o dia da virada é uma variável de
+   * ambiente em vez de um deploy.
+   *
+   * É também o botão de pânico: se um template for pausado por qualidade no
+   * meio de uma coleta, `false` devolve o canal do cliente ao Baileys sem
+   * recompilar nada.
+   */
+  get clientChannelEnabled(): boolean {
+    return (this.config.get<string>('WHATSAPP_CLOUD_ENABLED') ?? '').trim().toLowerCase() === 'true';
+  }
+
   /** O RECEBIMENTO está configurado (verify token + app secret). */
   get canReceive(): boolean {
     return Boolean(this.verifyToken && this.appSecret);
@@ -103,7 +121,8 @@ export class WhatsAppCloudConfig implements OnModuleInit {
 
     if (missing.length === 0) {
       this.logger.log(
-        `WhatsApp Cloud API configurada (WABA ${this.wabaId ?? '?'}, número ${this.phoneNumberId}, Graph ${this.graphVersion})`,
+        `WhatsApp Cloud API configurada (WABA ${this.wabaId ?? '?'}, número ${this.phoneNumberId}, ` +
+          `Graph ${this.graphVersion}) — canal do cliente ${this.clientChannelEnabled ? 'LIGADO' : 'desligado (WHATSAPP_CLOUD_ENABLED)'}`,
       );
       return;
     }
