@@ -59,6 +59,46 @@ const SIGNER_NAMES = [
   'Fernanda Alcântara',
 ];
 
+/**
+ * Quantas folhas levam o carimbo "Página N de M".
+ *
+ * Duas camadas entre o texto e o arquivo, e o teste tem de atravessar as duas:
+ *
+ *   1. o content stream da página é gravado COMPRIMIDO (Flate) — procurar no
+ *      arquivo cru acha zero com o carimbo funcionando;
+ *   2. dentro do stream o pdf-lib escreve o texto como STRING HEXADECIMAL
+ *      (`<50E167696E61> Tj`), não como literal — procurar "Página" ali também
+ *      acha zero.
+ *
+ * Então: infla, decodifica os hexadecimais (WinAnsi ≈ latin1 para este texto) e
+ * conta. Escrever esta função foi o que provou que o carimbo estava correto e o
+ * detector é que não estava.
+ */
+function countPageStamps(pdf: Buffer | Uint8Array): number {
+  const zlib = require('zlib') as typeof import('zlib');
+  const raw = Buffer.from(pdf);
+  const flat = raw.toString('latin1');
+  let count = 0;
+  const re = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(flat)) !== null) {
+    const start = m.index + m[0].length;
+    const end = flat.indexOf('endstream', start);
+    if (end < 0) continue;
+    let text: string;
+    try {
+      text = zlib.inflateSync(raw.subarray(start, end)).toString('latin1');
+    } catch {
+      continue; // fluxo não-Flate (imagem, fonte): não é onde o carimbo mora
+    }
+    const decoded = (text.match(/<([0-9A-Fa-f]+)>/g) ?? [])
+      .map(h => Buffer.from(h.slice(1, -1), 'hex').toString('latin1'))
+      .join(' ');
+    count += (decoded.match(/gina \d+ de \d+/g) ?? []).length;
+  }
+  return count;
+}
+
 function inputFor(opts: {
   sections: readonly QuoteSection[];
   services: number;
@@ -82,6 +122,9 @@ function inputFor(opts: {
       // que faz a lacuna de cadastro tardio existir para ser medida.
       plate: null,
       chassisNumber: null,
+      // O pedido de compra do veículo — vira COLUNA da tabela. Alternado para
+      // que a coluna exista e para exercitar o travessão do que não tem.
+      orderNumber: i % 2 === 0 ? `PED-${1000 + i}` : null,
       categoryLabel: 'SEMI_TRAILER_2_AXLES',
       implementLabel: 'BAU',
     })),
@@ -294,6 +337,47 @@ async function main() {
     check(`o orçamento cheio com arte NÃO é espremido em uma folha (obtido ${pages})`, pages >= 2);
     // eslint-disable-next-line no-console
     console.log(`  completo com 24 serviços e 2 artes: ${pages} folhas`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 9. TODA FOLHA SE IDENTIFICA
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // O cabeçalho e o rodapé do documento são elementos EM FLUXO: saem uma vez no
+  // topo e uma vez no fim. Enquanto o orçamento coube numa folha isso bastou; um
+  // de sessenta veículos ocupa quatro, e as folhas do MEIO saíam anônimas — sem
+  // número de orçamento, sem empresa, sem contagem. Uma folha solta que não diz
+  // de que contrato é não prova nada, e a falta de uma folha do meio é
+  // indetectável.
+  //
+  // O carimbo é feito com pdf-lib depois da união (é só ali que se sabe o TOTAL),
+  // e ANTES do hash: a numeração é parte do documento que se assina.
+  {
+    const [longo] = await renderer.renderAll([
+      inputFor({ sections: [...FULL_SECTIONS], services: 3, layouts: 0, signers: 2, vehicles: 60 }),
+    ]);
+    const doc = await PDFDocument.load(longo.pdf, { updateMetadata: false });
+    const pages = doc.getPageCount();
+    check(`sessenta veículos paginam (obtido ${pages})`, pages >= 3);
+
+    const stamped = countPageStamps(longo.pdf);
+    check(
+      `toda folha leva "Página N de ${pages}" (encontradas ${stamped} de ${pages})`,
+      stamped >= pages,
+    );
+
+    // eslint-disable-next-line no-console
+    console.log(`  60 veículos: ${pages} folhas, ${stamped} carimbo(s) de página`);
+  }
+
+  // 10. E o contrário: um documento de UMA folha não leva numeração. "Página 1
+  //     de 1" é ruído, e uma folha só não tem como se perder no meio.
+  {
+    const [curto] = await renderer.renderAll([
+      inputFor({ sections: sectionsForRoles(['MARKETING']), services: 2, layouts: 1, signers: 2 }),
+    ]);
+    const pages = (await PDFDocument.load(curto.pdf, { updateMetadata: false })).getPageCount();
+    check('documento de uma folha NÃO leva numeração', pages > 1 || countPageStamps(curto.pdf) === 0);
   }
 
   if (failures.length) {

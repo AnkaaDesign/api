@@ -854,6 +854,15 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      nome de coluna. */
   .vehicle-table tr { break-inside: avoid; }
   .vehicle-table thead { display: table-header-group; }
+  /* A frase "nos veiculos abaixo relacionados:" e a tabela que ela anuncia nao
+     se separam: a promessa numa folha e a lista na seguinte deixa o leitor
+     procurando o que ja passou. */
+  .intro-text { break-after: avoid; }
+  /* Com poucos veiculos o bloco inteiro fica junto; com muitos ele PAGINA (e o
+     cabecalho da tabela se repete, via table-header-group), porque prende-lo
+     custaria uma folha em branco.
+     SEM CRASE neste comentario: ele vive dentro de um template literal. */
+  .customer-section { break-inside: auto; }
 
   /* ── QUADRO DO TOMADOR (secao Faturamento) ────────────────────────────────
      Rotulo a esquerda em largura fixa para que os valores alinhem numa coluna
@@ -882,9 +891,15 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   /* Sem regua sob o titulo: a unica divisoria horizontal do documento e a do
      cabecalho (e a do rodape, que a espelha). Titulos de secao se distinguem
      pelo peso e pela cor. */
+  /* Titulo NUNCA fica sozinho no pe de uma folha: "Servicos" no fim de uma
+     pagina com a lista comecando na seguinte e um defeito de leitura que so
+     aparece quando o orcamento cresce — e ele cresceu (sessenta veiculos
+     ocupam quatro folhas). O break-after abaixo prende o titulo ao que ele
+     anuncia. */
   .section-title-green {
     font-size: 11pt; font-weight: 700; color: var(--green);
     margin-bottom: 2.5mm;
+    break-after: avoid;
   }
 
   .service-row {
@@ -942,8 +957,16 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      de uma folha, com o texto na seguinte, e um defeito de leitura num
      documento contratual. */
   .terms-section { break-inside: avoid; }
-  .terms-title { font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm; }
-  .terms-content { font-size: 9pt; line-height: 1.5; text-align: justify; }
+  .terms-title {
+    font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm;
+    break-after: avoid;
+  }
+  /* Duas linhas minimas de cada lado de uma quebra: uma linha solta no pe ou no
+     topo de uma folha e o que faz um paragrafo contratual parecer truncado. */
+  .terms-content {
+    font-size: 9pt; line-height: 1.5; text-align: justify;
+    orphans: 2; widows: 2;
+  }
 
   .acceptance-clause {
     margin-top: 6mm; font-size: 7pt; line-height: 1.45; color: var(--gray);

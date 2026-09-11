@@ -92,6 +92,9 @@ export interface RenderedQuoteDocument {
 
 const MAX_FIT_ITERATIONS = 12;
 
+/** Milímetros → pontos PostScript (72 pt por polegada). */
+const MM_TO_PT = 72 / 25.4;
+
 /**
  * Quanto de ARTE a folha fundida precisa preservar, em mm.
  *
@@ -435,7 +438,7 @@ export class QuoteRendererService {
       }
 
       // ---- União: conteúdo + assinaturas ----
-      const { pdf, contentPages } = await this.mergeParts(contentPdf, sigPdf);
+      const { pdf, contentPages } = await this.mergeParts(contentPdf, sigPdf, input.budgetNumber);
 
       // A página de assinaturas é, por construção, a última do documento.
       const resolved: SignatureAnchorMap = {};
@@ -695,8 +698,9 @@ export class QuoteRendererService {
   private async mergeParts(
     contentPdf: Buffer,
     signaturesPdf: Buffer,
+    budgetNumber: number,
   ): Promise<{ pdf: Buffer; contentPages: number }> {
-    const { PDFDocument } = await import('pdf-lib');
+    const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
 
     const out = await PDFDocument.create();
     const contentDoc = await PDFDocument.load(contentPdf, { updateMetadata: false });
@@ -708,6 +712,52 @@ export class QuoteRendererService {
     copiedContent.forEach(p => out.addPage(p));
     const copiedSig = await out.copyPages(sigDoc, sigDoc.getPageIndices());
     copiedSig.forEach(p => out.addPage(p));
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // IDENTIFICAÇÃO EM TODA FOLHA
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // O cabeçalho (logo + nº do orçamento) e o rodapé (endereço da Ankaa) são
+    // elementos EM FLUXO: saem uma vez no topo do documento e uma vez no fim.
+    // Enquanto o orçamento coube numa folha isso bastou. Um orçamento de
+    // sessenta veículos ocupa quatro, e as folhas do MEIO saíam anônimas — sem
+    // número, sem empresa, sem contagem. Uma folha solta de um contrato que não
+    // diz de que contrato é não prova nada, e a falta de uma folha no meio é
+    // indetectável.
+    //
+    // Carimbado AQUI, com pdf-lib, e não em CSS, por três razões:
+    //   · só depois da união se sabe o TOTAL de folhas ("3 de 5");
+    //   · a margem inferior da @page está vazia — a linha não desloca uma única
+    //     medida já tomada (âncoras de assinatura e lacunas de cadastro tardio
+    //     foram medidas no DOM, antes disto);
+    //   · é determinístico. `displayHeaderFooter` do Playwright reabriria a
+    //     negociação de margens com o Chromium a cada atualização dele.
+    //
+    // ⚠️ Antes do hash, de propósito: a numeração é parte do documento que se
+    // assina, não uma sobreposição posterior. `final.pdf = original.pdf +
+    // selos` continua valendo — isto acontece do lado do `original`.
+    //
+    // Só com mais de uma folha: "Página 1 de 1" é ruído, e um documento de uma
+    // folha não tem como perder uma.
+    const total = out.getPageCount();
+    if (total > 1) {
+      const font = await out.embedFont(StandardFonts.Helvetica);
+      const size = 7;
+      const gray = rgb(0.45, 0.45, 0.45);
+      out.getPages().forEach((page, i) => {
+        const label = `Orçamento Nº ${String(budgetNumber).padStart(4, '0')}  ·  Página ${i + 1} de ${total}`;
+        const width = font.widthOfTextAtSize(label, size);
+        page.drawText(label, {
+          // Centralizado na folha e dentro da margem inferior de 12mm, a 5mm da
+          // borda: abaixo de todo conteúdo, acima do limite de impressão.
+          x: (page.getWidth() - width) / 2,
+          y: 5 * MM_TO_PT,
+          size,
+          font,
+          color: gray,
+        });
+      });
+    }
 
     // Metadados fixos: nada de relógio dentro do artefato congelado.
     out.setProducer('ankaa-quote-renderer');
