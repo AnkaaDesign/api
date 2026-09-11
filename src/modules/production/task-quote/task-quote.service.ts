@@ -74,7 +74,14 @@ import {
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { computeQuoteMoney, expectedConfigTaskIds, round2 } from '@utils/quote-money';
-import { describePrismaFailure, primaryTask, quoteTasks, sortQuoteTasks } from '@utils/quote-tasks';
+import {
+  describePrismaFailure,
+  hasMultipleCustomers,
+  isSingleCustomerQuote,
+  primaryTask,
+  quoteTasks,
+  sortQuoteTasks,
+} from '@utils/quote-tasks';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import {
@@ -360,7 +367,12 @@ export class TaskQuoteService {
       // `configTotal` já vem no escopo certo: o total geral em `JOINT` (uma
       // fatura para os sessenta caminhões) e o total por veículo em `PER_TASK`
       // (sessenta faturas).
-      const isSingleConfig = data.customerConfigs.length === 1;
+      // ⚠️ UM CLIENTE, não UMA FATIA. Com `PER_TASK` há uma configuração por
+      // VEÍCULO: quatro caminhões do mesmo cliente são quatro configurações, e
+      // contá-las fazia o filtro abaixo rodar — deixando as quatro com ZERO
+      // serviços, porque num orçamento de um cliente só ninguém preenche
+      // `invoiceToCustomerId`. Ver a nota em `utils/quote-tasks.ts`.
+      const isSingleConfig = isSingleCustomerQuote(data.customerConfigs);
       const perConfigMoney = new Map<string, ReturnType<typeof computeQuoteMoney>>();
       for (const config of data.customerConfigs) {
         // Com uma configuração só, TODO serviço é dela, independentemente de um
@@ -1048,7 +1060,8 @@ export class TaskQuoteService {
         // When services weren't edited (stripped by filterToMaterialChanges), fall back to the
         // existing DB services so totals are recomputed against the new customer/discount.
         const servicesToUse = data.services ?? (existing as any).services ?? [];
-        const isSingleConfig = data.customerConfigs.length === 1;
+        // ⚠️ UM CLIENTE, não UMA FATIA — gêmea da guarda em `create`.
+        const isSingleConfig = isSingleCustomerQuote(data.customerConfigs);
         for (const config of data.customerConfigs) {
           // In single-config, all services belong to the one customer regardless of invoiceToCustomerId.
           // This handles customer replacements where services may still carry the old customer's ID.
@@ -4424,7 +4437,11 @@ export class TaskQuoteService {
         }
 
         // Multi-customer: all services must have invoiceToCustomerId
-        if (configs.length >= 2) {
+        //
+        // ⚠️ Contando FATIAS, esta guarda recusava o orçamento `PER_TASK`
+        // inteiro — e o erro era impossível de obedecer: "Faturar Para" só
+        // aparece com mais de um CLIENTE, então não havia onde atribuir nada.
+        if (hasMultipleCustomers(configs)) {
           const unassigned = services.filter(s => !s.invoiceToCustomerId);
           if (unassigned.length > 0) {
             throw new BadRequestException(

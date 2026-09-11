@@ -247,6 +247,78 @@ export function sliceTask<T extends { id: string }>(
   return tasks[0] ?? null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// QUANTOS CLIENTES — e por que NUNCA se conta `customerConfigs.length`
+//
+// Antes do orçamento multitarefa havia exatamente UMA configuração por cliente,
+// e `length === 1` / `length >= 2` eram formas corretas — por acidente — de
+// perguntar quantos CLIENTES o orçamento tem.
+//
+// Com `billingSplit = PER_TASK` existe uma fatia POR VEÍCULO. Quatro caminhões
+// de UM cliente são QUATRO configurações, e as duas leituras passaram a mentir:
+//
+//   • `isSingleConfig` (create e update) decide se TODO serviço pertence à
+//     configuração ou se ele é filtrado por `invoiceToCustomerId`. Num orçamento
+//     de um cliente só nenhum serviço carrega esse campo — nem precisa —, então
+//     contar fatias fazia as quatro fatias receberem uma lista VAZIA de
+//     serviços, e `configTotal` era computado sobre nada.
+//   • A guarda "todos os serviços devem ter cliente atribuído" recusava o
+//     orçamento `PER_TASK` inteiro, com um erro impossível de obedecer: o
+//     seletor "Faturar Para" só existe com mais de um cliente.
+//
+// A pergunta certa é sobre CLIENTES DISTINTOS — a mesma correção que
+// `reconcileQuoteCustomerConfigs` já faz ao detectar troca de cliente.
+//
+// ESPELHADO em `web/src/utils/quote-tasks.ts`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface ConfigWithCustomer {
+  customerId?: string | null;
+}
+
+/** Os clientes distintos cobertos pelas fatias, na ordem em que aparecem. */
+export function distinctCustomerIds(
+  configs: readonly ConfigWithCustomer[] | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  for (const config of configs ?? []) {
+    // Fatia sem cliente é registro pela metade; contá-la como "outro cliente"
+    // é o mesmo erro de contar fatias, por outro caminho.
+    if (config.customerId) seen.add(config.customerId);
+  }
+  return [...seen];
+}
+
+/** Quantos CLIENTES distintos este orçamento fatura. */
+export function customerCount(
+  configs: readonly ConfigWithCustomer[] | null | undefined,
+): number {
+  return distinctCustomerIds(configs).length;
+}
+
+/**
+ * O orçamento é faturado para mais de um cliente?
+ *
+ * ⚠️ Use SEMPRE isto no lugar de `customerConfigs.length >= 2`.
+ */
+export function hasMultipleCustomers(
+  configs: readonly ConfigWithCustomer[] | null | undefined,
+): boolean {
+  return customerCount(configs) >= 2;
+}
+
+/**
+ * O orçamento é de um cliente só? (Inclui o `PER_TASK` com N fatias dele.)
+ *
+ * É a pergunta que decide se um serviço sem `invoiceToCustomerId` pertence à
+ * configuração — e a resposta certa, com um cliente só, é sempre SIM.
+ */
+export function isSingleCustomerQuote(
+  configs: readonly ConfigWithCustomer[] | null | undefined,
+): boolean {
+  return customerCount(configs) <= 1;
+}
+
 /**
  * O QUE DEU ERRADO, em uma frase que chega à TELA.
  *
