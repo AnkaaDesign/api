@@ -634,7 +634,13 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
      * (`Task.customerOrderNumber`): um orçamento cobre N caminhões e o pedido é
      * por entrega. Continua ACEITO porque o app instalado o envia, e o serviço o
      * grava em todas as tarefas do orçamento — o mesmo efeito que ele tinha.
+     *
+     * ⚠️ NÃO remova a chave do schema achando que "o campo não existe mais". O
+     * objeto não é `.strict()`: sem ela o zod APAGA o valor em silêncio, a
+     * tradução para as tarefas nunca acontece, e o pedido de compra que o
+     * aparelho mandou some entre o botão e o banco.
      */
+    orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
     responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
     // Direct installments (alternative to paymentCondition-based generation)
     installments: z.array(installmentInputSchema).optional(),

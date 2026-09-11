@@ -36,6 +36,7 @@ import { NestFactory } from '@nestjs/core';
 // Roda sob `ts-node-dev`, o mesmo runner do `npm run dev`: sob `tsx` o baileys
 // (WhatsApp) não resolve `exports`.
 import { AppModule } from '../src/app.module';
+import { taskBatchCreateWithQuoteSchema } from '../src/schemas/task';
 import { PrismaService } from '../src/modules/common/prisma/prisma.service';
 import { TaskService } from '../src/modules/production/task/task.service';
 import { TaskQuoteService } from '../src/modules/production/task-quote/task-quote.service';
@@ -49,6 +50,22 @@ function check(name: string, condition: boolean, detail?: string) {
     failures++;
     console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ''}`);
   }
+}
+
+/**
+ * O MESMO portão do controller: `ZodValidationPipe(taskBatchCreateWithQuoteSchema)`.
+ *
+ * Chamar o serviço com um objeto literal pularia a validação — e o zod não só
+ * valida, ele TRANSFORMA (aplica defaults, coage datas) e DESCARTA o que não
+ * está declarado. Um teste que pula esta etapa não vê um campo removido do
+ * contrato.
+ */
+function parseBody(body: unknown): any {
+  const parsed = taskBatchCreateWithQuoteSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(`o zod recusou o corpo: ${JSON.stringify(parsed.error.issues)}`);
+  }
+  return parsed.data;
 }
 
 const SUFFIX = Date.now().toString().slice(-6);
@@ -91,8 +108,13 @@ async function main() {
     // A forma EXATA que a tela de criação envia: quatro tarefas com o mesmo
     // `customerOrderNumber` (o campo do passo 1 vale para todas as que nascem) e
     // um orçamento com uma configuração de cliente.
+    // ⚠️ O CORPO PASSA PELO ZOD ANTES DO SERVIÇO — é o que o controller faz
+    // (`@Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema))`). Chamar o
+    // serviço direto pularia a validação, e um campo APAGADO do schema (o objeto
+    // não é `.strict()`: ele não recusa, ele descarta) passaria despercebido
+    // aqui e sumiria em produção entre o botão e o banco.
     const created = await tasks.batchCreateWithQuote(
-      {
+      parseBody({
         tasks: [1, 2, 3, 4].map(n => ({
           status: 'PREPARATION',
           name: TASK_NAME,
@@ -114,11 +136,18 @@ async function main() {
               discountType: 'NONE',
               generateInvoice: true,
               generateBankSlip: true,
-            },
+              paymentConfig: { type: 'CASH', method: 'BANK_SLIP', cashDays: 5 },
+              // A TELA MANDA ISTO. `customerData` é o cadastro fiscal que o
+              // formulário edita junto — não é campo da fatia, e o zod (não
+              // `.strict()`) o descarta. Está aqui porque o corpo real o traz:
+              // se um dia ele passar, vira "Unknown argument `customerData`" no
+              // Prisma, que é exatamente como `orderNumber` derrubou tudo.
+              customerData: { corporateName: 'Teste', cnpj: '12345678000199' },
+            } as any,
           ],
           services: [{ description: 'Logomarca Lateral', amount: 100 }],
-        } as any,
-      } as any,
+        },
+      }),
       undefined,
       user.id,
     );
@@ -238,30 +267,38 @@ async function main() {
     // O aparelho instalado não se atualiza junto com a API. O campo tem de ser
     // ACEITO e traduzido para as tarefas — nunca recusado, e nunca escrito numa
     // coluna que não existe.
-    const legacy = await tasks.batchCreateWithQuote(
-      {
-        tasks: [
-          {
-            status: 'PREPARATION',
-            name: `${TASK_NAME}-LEGADO`,
-            customerId: customer.id,
-            serialNumber: `ZZ${SUFFIX}L`,
-          },
-        ] as any,
-        quote: {
-          expiresAt: new Date(Date.now() + 30 * 86400000),
-          status: 'PENDING',
-          subtotal: 50,
-          total: 50,
-          customerConfigs: [
-            { customerId: customer.id, subtotal: 50, total: 50, orderNumber: 'PED-LEGADO' },
-          ],
-          services: [{ description: 'Logomarca Lateral', amount: 50 }],
-        } as any,
-      } as any,
-      undefined,
-      user.id,
+    const legacyBody = parseBody({
+      tasks: [
+        {
+          status: 'PREPARATION',
+          name: `${TASK_NAME}-LEGADO`,
+          customerId: customer.id,
+          serialNumber: `ZZ${SUFFIX}L`,
+        },
+      ],
+      quote: {
+        expiresAt: new Date(Date.now() + 30 * 86400000),
+        status: 'PENDING',
+        subtotal: 50,
+        total: 50,
+        customerConfigs: [
+          { customerId: customer.id, subtotal: 50, total: 50, orderNumber: 'PED-LEGADO' },
+        ],
+        services: [{ description: 'Logomarca Lateral', amount: 50 }],
+      },
+    });
+
+    // O zod NÃO é `.strict()`: tirar a chave do schema não recusa o corpo, apaga
+    // o valor. Sem esta verificação, remover `orderNumber` do
+    // `taskQuoteCustomerConfigCreateNestedSchema` passaria por todos os portões
+    // e o pedido de compra do aparelho instalado sumiria em silêncio.
+    check(
+      'o zod PRESERVA `orderNumber` na fatia (não é `.strict()`: ele apagaria)',
+      (legacyBody as any)?.quote?.customerConfigs?.[0]?.orderNumber === 'PED-LEGADO',
+      JSON.stringify((legacyBody as any)?.quote?.customerConfigs?.[0]),
     );
+
+    const legacy = await tasks.batchCreateWithQuote(legacyBody, undefined, user.id);
     const legacyQuoteId = (legacy as any)?.data?.quote?.id as string | undefined;
     const legacyTaskIds = ((legacy as any)?.data?.tasks ?? []).map((t: any) => t.id) as string[];
     if (legacyQuoteId) createdQuoteIds.push(legacyQuoteId);
