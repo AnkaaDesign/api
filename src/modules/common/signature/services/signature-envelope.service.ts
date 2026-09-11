@@ -107,12 +107,16 @@ import {
   generateSignatureOtpEmail,
   generateAnkaaCountersignEmail,
   generateEnvelopeVoidedEmail,
+  generateSignatureReminderEmail,
+  generateSignatureExpiredEmail,
 } from '../../../../templates/signature-emails';
 import {
   generateSignatureInvitationWhatsApp,
   generateSignatureOtpWhatsApp,
   generateAnkaaCountersignWhatsApp,
   generateEnvelopeVoidedWhatsApp,
+  generateSignatureReminderWhatsApp,
+  generateSignatureExpiredWhatsApp,
 } from '../../../../templates/signature-whatsapp';
 import {
   auditChannelOf,
@@ -135,9 +139,12 @@ import {
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
+import { isReminderDue, spDayDiff } from '../signature-reminder-cadence';
 import {
+  expiredTemplate,
   invitationTemplate,
   otpTemplate,
+  reminderTemplate,
   resendTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
@@ -509,7 +516,7 @@ export class SignatureEnvelopeService {
 
     if (quote.expiresAt.getTime() <= Date.now()) {
       blockers.push(
-        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
           'Atualize a data de validade antes de enviar para assinatura.',
       );
     }
@@ -672,6 +679,45 @@ export class SignatureEnvelopeService {
     this.onCompleted = cb;
   }
 
+  /**
+   * Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
+   * Ankaa. Mesma inversão de dependência do `onCompleted`: a cerimônia sabe que
+   * o grupo 0 fechou, e só o dono do orçamento sabe que isso significa SIGNED.
+   *
+   * Por que é um gancho SEPARADO e não um parâmetro do `onCompleted`: os dois
+   * momentos são distintos e podem estar a dias de distância — o cliente assina
+   * na sexta, a Ankaa contra-assina na segunda. Entre um e outro há um estado
+   * em que a lista precisa dizer que a bola está do nosso lado.
+   */
+  private onCustomerSideSigned: ((quoteId: string, envelopeId: string) => Promise<void>) | null =
+    null;
+  setOnCustomerSideSigned(cb: (quoteId: string, envelopeId: string) => Promise<void>): void {
+    this.onCustomerSideSigned = cb;
+  }
+
+  /** A validade venceu com assinatura de cliente faltando. Ver `SignatureExpiryScheduler`. */
+  private onEnvelopeExpired: ((quoteId: string, envelopeId: string) => Promise<void>) | null = null;
+  setOnEnvelopeExpired(cb: (quoteId: string, envelopeId: string) => Promise<void>): void {
+    this.onEnvelopeExpired = cb;
+  }
+
+  /**
+   * Dispara o gancho de vencimento. Existe como método público para que a
+   * varredura não precise alcançar o campo privado — e para que a ausência do
+   * gancho (API subindo sem o módulo de orçamento, o que acontece em teste) seja
+   * um log e não um `undefined is not a function` dentro do cron.
+   */
+  async notifyQuoteExpired(quoteId: string, envelopeId: string): Promise<void> {
+    if (!this.onEnvelopeExpired) {
+      this.logger.warn(
+        `Envelope ${envelopeId} venceu, mas nenhum ouvinte de vencimento está registrado — ` +
+          'o orçamento NÃO foi movido para "Aguardando Reanálise".',
+      );
+      return;
+    }
+    await this.onEnvelopeExpired(quoteId, envelopeId);
+  }
+
   // ===========================================================================
   // CRIAÇÃO
   // ===========================================================================
@@ -757,7 +803,7 @@ export class SignatureEnvelopeService {
     // com "esta coleta não está mais ativa" e o operador não entendia por quê.
     if (quote.expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException(
-        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
           'Atualize a data de validade antes de enviar para assinatura.',
       );
     }
@@ -1048,6 +1094,19 @@ export class SignatureEnvelopeService {
         });
         supersededIds.push(...supersedable);
       }
+
+      // NOVA COLETA, NOVO DIREITO A UM AVISO DE VENCIMENTO.
+      //
+      // `TaskQuote.expiryNoticeSentAt` impede que a varredura horária avise duas
+      // vezes pelo MESMO vencimento. Mas um orçamento reformulado — preço
+      // revisto, validade nova — que vença outra vez é outra proposta, e o
+      // cliente precisa saber dela também. Sem esta limpeza, o segundo
+      // vencimento passaria em silêncio: o carimbo do primeiro continuaria lá, a
+      // varredura leria "já avisei" e ninguém receberia nada.
+      await tx.taskQuote.update({
+        where: { id: args.quoteId },
+        data: { expiryNoticeSentAt: null },
+      });
 
       const created = await tx.signatureEnvelope.create({
         data: {
@@ -1669,7 +1728,7 @@ export class SignatureEnvelopeService {
       // Canal do SIGNATÁRIO, não da configuração: ver `channelForAuthMethod`.
       const channel = channelForAuthMethod(signer.authMethod);
       const signingUrl = this.signingUrl(signer.accessToken);
-      const deadlineDate = envelope.deadlineAt.toLocaleDateString('pt-BR');
+      const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
 
       const delivery = await this.deliverToSigner({
         signer,
@@ -1721,6 +1780,254 @@ export class SignatureEnvelopeService {
         },
       });
     }
+  }
+
+  // ===========================================================================
+  // LEMBRETES E AVISO DE VENCIMENTO
+  // ===========================================================================
+
+  /**
+   * A data de validade como o CLIENTE a lê.
+   *
+   * ⚠️ O `timeZone` não é preciosismo. `TaskQuote.expiresAt` é gravado às
+   * 23:59:59.999 de São Paulo — que em UTC já é 02:59 do DIA SEGUINTE. Num
+   * servidor que roda em UTC (o normal em Linux, e o caso de produção), um
+   * `toLocaleDateString('pt-BR')` sem fuso imprimia o dia seguinte: o convite
+   * prometia um dia a mais do que o documento, e o link morria na véspera do que
+   * a mensagem dizia. Como a máquina de desenvolvimento roda em
+   * America/Sao_Paulo, a diferença é invisível localmente.
+   */
+  private deadlineLabel(date: Date): string {
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  /**
+   * Varre os envelopes vivos e manda o lembrete de quem está na hora.
+   *
+   * Roda pelo `SignatureReminderScheduler`. Devolve a contagem para o log — o
+   * agendador não decide nada, só chama.
+   *
+   * SÓ O GRUPO 0. O signatário da Ankaa não recebe lembrete por este caminho:
+   * ele não assina por link, e a cobrança interna de contra-assinatura é uma
+   * notificação do sistema, não um WhatsApp para o celular de quem já está
+   * sentado na frente da tela. Ver `TaskQuoteService.markSigned`.
+   */
+  async dispatchDueReminders(now: Date = new Date()): Promise<{ sent: number; failed: number }> {
+    const envelopes = await this.prisma.signatureEnvelope.findMany({
+      where: {
+        status: EnvelopeStatus.RUNNING,
+        // Vencido não se lembra: quem passou do prazo recebe o aviso de
+        // vencimento, que é outra mensagem e sai da varredura de expiração.
+        deadlineAt: { gt: now },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        deadlineAt: true,
+        quote: { select: { budgetNumber: true } },
+        signers: {
+          where: {
+            orderGroup: 0,
+            // Quem já assinou, recusou, foi anulado ou perdeu o prazo não é
+            // cobrado. Escrito como exclusão e não como `status: PENDING`: um
+            // estado intermediário novo no enum deve continuar recebendo
+            // lembrete, que é a direção segura para uma cobrança.
+            status: {
+              notIn: [
+                EnvelopeSignerStatus.SIGNED,
+                EnvelopeSignerStatus.REFUSED,
+                EnvelopeSignerStatus.VOIDED,
+                EnvelopeSignerStatus.EXPIRED,
+              ],
+            },
+          },
+          select: {
+            id: true,
+            declaredName: true,
+            declaredEmail: true,
+            declaredPhone: true,
+            accessToken: true,
+            authMethod: true,
+            lastReminderAt: true,
+            reminderCount: true,
+          },
+        },
+      },
+    });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const envelope of envelopes) {
+      for (const signer of envelope.signers) {
+        const due = isReminderDue(
+          {
+            lastReminderAt: signer.lastReminderAt,
+            reminderCount: signer.reminderCount,
+            // O convite sai de dentro de `createEnvelope`, então a emissão É a
+            // data do convite. Não há coluna `invitedAt` — e uma seria um
+            // segundo lugar para a mesma verdade divergir.
+            invitedAt: envelope.createdAt,
+          },
+          now,
+        );
+        if (!due) continue;
+
+        const channel = channelForAuthMethod(signer.authMethod);
+        const signingUrl = this.signingUrl(signer.accessToken);
+        const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
+        // Nunca negativo: o `deadlineAt > now` da consulta garante pelo menos o
+        // dia corrente, e `Math.max` protege o texto de um fuso na virada.
+        const daysLeft = Math.max(0, spDayDiff(now, envelope.deadlineAt));
+
+        const payload = {
+          signerName: signer.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+          signingUrl,
+          deadlineDate,
+          daysLeft,
+        };
+
+        const delivery = await this.deliverToSigner({
+          signer,
+          channel,
+          email: generateSignatureReminderEmail(payload),
+          whatsapp: generateSignatureReminderWhatsApp(payload),
+          whatsappPreview: this.signingLinkPreview(
+            envelope.quote.budgetNumber,
+            signingUrl,
+            'invite',
+          ),
+          whatsappTemplate: reminderTemplate({
+            signerName: signer.declaredName,
+            budgetNumber: envelope.quote.budgetNumber,
+            deadlineDate,
+            accessToken: signer.accessToken,
+          }),
+          kind: 'SIGNATURE_REMINDER',
+        });
+
+        // O CARIMBO É GRAVADO MESMO QUANDO A ENTREGA FALHA.
+        //
+        // Sem isto, um signatário com telefone errado no cadastro voltaria à
+        // fila todo dia útil até o orçamento vencer: trinta tentativas, trinta
+        // recusas da guarda de saída, trinta linhas de erro no journal — e
+        // nenhuma delas conserta o número. Falhou entra na cadência como se
+        // tivesse saído; o que registra o problema é a trilha, abaixo.
+        await this.prisma.envelopeSigner.update({
+          where: { id: signer.id },
+          data: { lastReminderAt: now, reminderCount: { increment: 1 } },
+        });
+
+        await this.audit.recordBestEffort(envelope.id, {
+          eventType: delivery.ok ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+          actorType: 'SYSTEM',
+          actorId: signer.id,
+          actorLabel: signer.declaredName,
+          payload: {
+            channel: auditChannelOf(channel),
+            destination: this.maskContactFor(signer, channel),
+            reminderNumber: signer.reminderCount + 1,
+            daysLeft,
+            ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+            ...(delivery.code ? { failureCode: delivery.code } : {}),
+          },
+        });
+
+        if (delivery.ok) sent++;
+        else failed++;
+      }
+    }
+
+    return { sent, failed };
+  }
+
+  /**
+   * Avisa os responsáveis de que a validade venceu e o valor será reanalisado.
+   *
+   * VAI PARA TODOS DO GRUPO 0, inclusive quem já assinou (decisão dele,
+   * 11/09/2026). Quem assinou e vê a coleta simplesmente sumir conclui que
+   * perdemos a assinatura dele; a mensagem diz, em uma frase, que o ato ficou
+   * registrado e que o que venceu foi o prazo.
+   *
+   * O signatário da Ankaa fica de fora: o aviso interno é a notificação de
+   * sistema que o comercial recebe, com link para a tela.
+   *
+   * Devolve quantos foram efetivamente avisados — o chamador decide se carimba
+   * o orçamento como avisado.
+   */
+  async notifyExpiry(envelopeId: string): Promise<{ notified: number; failed: number }> {
+    const envelope = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: {
+        id: true,
+        deadlineAt: true,
+        quote: { select: { budgetNumber: true } },
+        signers: {
+          where: { orderGroup: 0 },
+          select: {
+            id: true,
+            declaredName: true,
+            declaredEmail: true,
+            declaredPhone: true,
+            authMethod: true,
+            signedAt: true,
+          },
+        },
+      },
+    });
+    if (!envelope) return { notified: 0, failed: 0 };
+
+    const expiredOn = this.deadlineLabel(envelope.deadlineAt);
+
+    let notified = 0;
+    let failed = 0;
+
+    for (const signer of envelope.signers) {
+      const channel = channelForAuthMethod(signer.authMethod);
+      const payload = {
+        signerName: signer.declaredName,
+        budgetNumber: envelope.quote.budgetNumber,
+        hadSigned: signer.signedAt !== null,
+        expiredOn,
+      };
+
+      const delivery = await this.deliverToSigner({
+        signer,
+        channel,
+        email: generateSignatureExpiredEmail(payload),
+        whatsapp: generateSignatureExpiredWhatsApp(payload),
+        // SEM cartão de prévia: a mensagem não carrega link nenhum. O link de
+        // assinatura não vale mais, e mandar um cartão sem destino é convite a
+        // tocar em algo que vai dar erro.
+        whatsappPreview: null,
+        whatsappTemplate: expiredTemplate({
+          signerName: signer.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+        }),
+        kind: 'SIGNATURE_EXPIRED',
+      });
+
+      await this.audit.recordBestEffort(envelope.id, {
+        eventType: 'EXPIRY_NOTICE_SENT',
+        actorType: 'SYSTEM',
+        actorId: signer.id,
+        actorLabel: signer.declaredName,
+        payload: {
+          channel: auditChannelOf(channel),
+          destination: this.maskContactFor(signer, channel),
+          delivered: delivery.ok,
+          hadSigned: payload.hadSigned,
+          ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+          ...(delivery.code ? { failureCode: delivery.code } : {}),
+        },
+      });
+
+      if (delivery.ok) notified++;
+      else failed++;
+    }
+
+    return { notified, failed };
   }
 
   /**
@@ -1973,7 +2280,7 @@ export class SignatureEnvelopeService {
     if (!expiresAt) return;
     if (expiresAt.getTime() >= Date.now()) return;
     throw new ForbiddenException(
-      `Este link de assinatura expirou em ${expiresAt.toLocaleDateString('pt-BR')}. ` +
+      `Este link de assinatura expirou em ${this.deadlineLabel(expiresAt)}. ` +
         'Solicite um novo link à Ankaa.',
     );
   }
@@ -3198,6 +3505,28 @@ export class SignatureEnvelopeService {
     // assinou do outro lado).
     const group0Pending = pending.filter(s => s.orderGroup === 0);
     if (group0Pending.length === 0) {
+      // O ORÇAMENTO PASSA A "ASSINADO".
+      //
+      // Este ramo só é alcançado com `pending.length > 0` — ou seja, sempre há
+      // alguém do grupo 1 faltando. Quando NÃO há signatário da Ankaa, o bloco
+      // acima já finalizou e o orçamento vai direto a BUDGET_APPROVED, que é o
+      // certo: SIGNED quer dizer "espera por nós", e sem contraparte nossa não
+      // há espera nenhuma.
+      //
+      // SEM `await`, e best-effort, pela mesma razão do aviso à Ankaa logo
+      // abaixo: isto roda dentro do POST do CLIENTE, que está com a tela do
+      // celular aberta. A assinatura dele já está persistida; o rótulo da nossa
+      // lista interna não é motivo para segurar a resposta.
+      if (this.onCustomerSideSigned) {
+        void this.onCustomerSideSigned(env.quoteId, env.id).catch(error =>
+          this.logger.error(
+            `Falha ao marcar o orçamento ${env.quoteId} como assinado: ${
+              error instanceof Error ? error.message : error
+            }`,
+          ),
+        );
+      }
+
       const ankaa = pending.find(s => s.orderGroup === 1);
       // A guarda é `!signedAt`, e NÃO `!firstViewedAt`.
       //
@@ -5663,7 +5992,7 @@ export class SignatureEnvelopeService {
       signerName: signer.declaredName,
       budgetNumber: signer.envelope.quote.budgetNumber,
       signingUrl: this.signingUrl(signer.accessToken),
-      deadlineDate: signer.envelope.deadlineAt.toLocaleDateString('pt-BR'),
+      deadlineDate: this.deadlineLabel(signer.envelope.deadlineAt),
       isResend: true,
     };
 

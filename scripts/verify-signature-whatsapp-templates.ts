@@ -22,8 +22,10 @@
  */
 import { config } from 'dotenv';
 import {
+  expiredTemplate,
   invitationTemplate,
   otpTemplate,
+  reminderTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
 } from '../src/modules/common/signature/signature-whatsapp-templates';
@@ -97,6 +99,19 @@ async function main(): Promise<void> {
       rotulo: 'coleta cancelada',
       descritor: voidedTemplate({ signerName: 'Sérgio Rodrigues', budgetNumber: 1459 }),
     },
+    {
+      rotulo: 'lembrete de assinatura',
+      descritor: reminderTemplate({
+        signerName: 'Sérgio Rodrigues',
+        budgetNumber: 1459,
+        deadlineDate: '18/09/2026',
+        accessToken: 'token-de-exemplo',
+      }),
+    },
+    {
+      rotulo: 'orçamento vencido',
+      descritor: expiredTemplate({ signerName: 'Sérgio Rodrigues', budgetNumber: 1459 }),
+    },
   ];
 
   for (const { rotulo, descritor } of esperados) {
@@ -127,10 +142,21 @@ async function main(): Promise<void> {
 
     const botoes = meta.components?.find(c => c.type === 'BUTTONS')?.buttons ?? [];
     const mandaBotao = Boolean(descritor.urlButtonParam ?? descritor.otpButtonParam);
+    // ⚠️ OS PARÊNTESES SÃO O CONSERTO, não estilo.
+    //
+    // Estava escrito `mandaBotao === botoes.length > 0`, e `===` tem
+    // precedência MAIOR que `>`: o JavaScript lia `(mandaBotao ===
+    // botoes.length) > 0`, comparava um boolean com um number (sempre `false`) e
+    // avaliava `false > 0` — ou seja, esta conferência reprovava TODO template,
+    // sempre. Passou despercebida porque o script sai cedo com êxito quando não
+    // há credencial da Cloud API no ambiente, que é o caso de toda máquina de
+    // desenvolvimento.
     check(
       `${rotulo}: botão`,
-      mandaBotao === botoes.length > 0,
-      mandaBotao ? `código manda parâmetro, template tem ${botoes.length} botão(ões)` : 'sem botão dos dois lados',
+      mandaBotao === (botoes.length > 0),
+      mandaBotao
+        ? `código manda parâmetro, template tem ${botoes.length} botão(ões)`
+        : 'sem botão dos dois lados',
     );
 
     // Só o convite tem link. O prefixo mora no template, e é ele que decide

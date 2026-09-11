@@ -1889,6 +1889,12 @@ model TaskQuote {
   expiresAt           DateTime
   status              TaskQuoteStatus @default(PENDING)
   statusOrder         Int             @default(1)
+
+  /// Quando o cliente foi avisado de que a validade venceu sem todas as
+  /// assinaturas. Existe para que a varredura horária avise UMA vez: sem ele,
+  /// uma falha parcial no meio do laço faria a rodada seguinte remandar o aviso
+  /// a quem já o recebeu.
+  expiryNoticeSentAt  DateTime?
   guaranteeYears      Int?
   customGuaranteeText String?
   createdAt           DateTime        @default(now())
@@ -4321,6 +4327,17 @@ enum QuoteBillingSplit {
 
 enum TaskQuoteStatus {
   PENDING
+
+  /// Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
+  /// Ankaa. Sem este estado o momento era indistinguível de PENDING, e quem
+  /// precisa saber o que depende de NÓS não tinha como ver numa lista.
+  SIGNED
+
+  /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
+  /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" — `DUE` já
+  /// ocupa a palavra "Vencido", e lá ela quer dizer parcela em atraso.
+  EXPIRED
+
   BUDGET_APPROVED
   BILLING_APPROVED
   UPCOMING
@@ -8036,6 +8053,12 @@ model EnvelopeSigner {
   timesViewed    Int       @default(0)
   maxPageReached Int?
 
+  /// Agendamento do lembrete de assinatura pendente. A cadência (3 primeiros
+  /// dias úteis, depois de 5 em 5) é ancorada no ÚLTIMO envio e não na data da
+  /// emissão: um dia de API fora do ar não vira dois lembretes no dia seguinte.
+  lastReminderAt DateTime?
+  reminderCount  Int       @default(0)
+
   /// signedAt = relógio do SERVIDOR (é o que vale). clientSignedAt = relógio do
   /// dispositivo, guardado só como evidência de skew.
   signedAt       DateTime?
@@ -8216,6 +8239,14 @@ enum SignatureEventType {
   /// Aditivo de identificação do veículo emitido e selado. Ver
   /// `SignatureEnvelope.addendumFileId`.
   ADDENDUM_ISSUED
+
+  /// Lembrete periódico de que a assinatura segue pendente.
+  REMINDER_SENT
+  REMINDER_FAILED
+
+  /// Aviso ao signatário de que a validade do orçamento venceu e o comercial
+  /// vai reanalisar o valor.
+  EXPIRY_NOTICE_SENT
 }
 
 // ============================================================================

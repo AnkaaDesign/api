@@ -155,16 +155,26 @@ export const BONIFICATION_STATUS_ORDER: Record<BONIFICATION_STATUS, number> = {
   [BONIFICATION_STATUS.SUSPENDED_BONIFICATION]: 4,
 };
 
+// Ordena por QUEM PRECISA AGIR, do mais urgente ao inerte. Os dois primeiros
+// são dinheiro e prazo vencidos; o terceiro é a única linha da lista em que o
+// gargalo somos nós.
+//
+// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `TaskQuote.statusOrder` na escrita do
+// status. Mexer nela exige backfill — a migração
+// `20260911160000_quote_signed_expired_and_reminders` reescreveu as 598 linhas
+// existentes quando EXPIRED e SIGNED entraram no meio.
 export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
   [TASK_QUOTE_STATUS.DUE]: 1,
-  [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 3,
-  [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
-  [TASK_QUOTE_STATUS.UPCOMING]: 5,
-  [TASK_QUOTE_STATUS.PARTIAL]: 6,
-  [TASK_QUOTE_STATUS.SETTLED]: 7,
-  [TASK_QUOTE_STATUS.PENDING]: 8,
+  [TASK_QUOTE_STATUS.EXPIRED]: 2,
+  [TASK_QUOTE_STATUS.SIGNED]: 3,
+  [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 4,
+  [TASK_QUOTE_STATUS.BILLING_APPROVED]: 5,
+  [TASK_QUOTE_STATUS.UPCOMING]: 6,
+  [TASK_QUOTE_STATUS.PARTIAL]: 7,
+  [TASK_QUOTE_STATUS.SETTLED]: 8,
+  [TASK_QUOTE_STATUS.PENDING]: 9,
   // Terminal — sorts last in the faturamento views.
-  [TASK_QUOTE_STATUS.CANCELLED]: 9,
+  [TASK_QUOTE_STATUS.CANCELLED]: 10,
 };
 
 export const ORDER_STATUS_ORDER: Record<string, number> = {

@@ -29,6 +29,10 @@ export function registerEmNegociacaoEventEmitter(emitter: EmitterLike): void {
 
 const EM_NEGOCIACAO_DESC = 'em negociação';
 
+// SIGNED e EXPIRED ficam de FORA desta lista de propósito: os dois são
+// anteriores à aprovação comercial, e nos dois a Em Negociação continua
+// IN_PROGRESS — no primeiro porque falta a nossa contra-assinatura, no segundo
+// porque o valor volta para a mesa. É exatamente onde o comercial deve vê-los.
 const STATUSES_AT_OR_ABOVE_BUDGET_APPROVED: TASK_QUOTE_STATUS[] = [
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
   TASK_QUOTE_STATUS.BILLING_APPROVED,

@@ -22,8 +22,15 @@ import {
 // TaskQuote Status Schema
 // =====================
 
+// ⚠️ ESTA LISTA É ESCRITA À MÃO e o `tsc` não a confere contra o enum: um
+// estado que exista no banco e falte aqui não vira erro de tipo — o zod o APAGA
+// do filtro, e a lista volta sem ele em silêncio. Ver
+// `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
+// também, sempre.
 export const taskQuoteStatusSchema = z.enum([
   TASK_QUOTE_STATUS.PENDING,
+  TASK_QUOTE_STATUS.SIGNED,
+  TASK_QUOTE_STATUS.EXPIRED,
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
   TASK_QUOTE_STATUS.BILLING_APPROVED,
   TASK_QUOTE_STATUS.UPCOMING,

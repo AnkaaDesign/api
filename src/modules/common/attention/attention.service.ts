@@ -303,7 +303,16 @@ const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL]
  * post-invoice status through, so quotes whose nota was issued and paid months ago kept matching.
  */
 const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
-  status: { in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.BUDGET_APPROVED] },
+  // SIGNED entra: o cliente assinou, a nota vem a seguir, e é exatamente a
+  // janela em que faltar o número do pedido ainda trava alguma coisa.
+  //
+  // EXPIRED fica de FORA. Ali o que segura a nota é o PREÇO, que voltou para a
+  // mesa do comercial — cobrar o número do pedido de compra de um orçamento que
+  // vai ser reformulado é pedir um dado que talvez nem se use. Ele volta a esta
+  // lista sozinho quando a reformulação o devolve a PENDING.
+  status: {
+    in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.SIGNED, TaskQuoteStatus.BUDGET_APPROVED],
+  },
 };
 
 /**

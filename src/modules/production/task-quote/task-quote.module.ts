@@ -79,5 +79,17 @@ export class TaskQuoteModule implements OnModuleInit {
     this.signatureEnvelopes.setOnEnvelopeCompleted(async (quoteId, _envelopeId, actorUserId) => {
       await this.taskQuoteService.budgetApprove(quoteId, actorUserId ?? '');
     });
+
+    // O cliente fechou o lado dele; falta a nossa caneta. Momento distinto da
+    // conclusão acima e, às vezes, dias antes dela.
+    this.signatureEnvelopes.setOnCustomerSideSigned(async quoteId => {
+      await this.taskQuoteService.markSigned(quoteId);
+    });
+
+    // A validade venceu com assinatura de cliente faltando: o orçamento volta
+    // para o comercial reanalisar o valor.
+    this.signatureEnvelopes.setOnEnvelopeExpired(async quoteId => {
+      await this.taskQuoteService.markExpiredBySignature(quoteId);
+    });
   }
 }

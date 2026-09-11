@@ -3633,7 +3633,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksAwaitingBudgetApproval(limit = 50): Promise<HomeDashboardTask[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
-        quote: { status: 'PENDING' as any },
+        // SIGNED entra: é o orçamento em que o cliente já assinou e o que falta
+        // é a contra-assinatura da Ankaa — o caso mais urgente de "aguardando
+        // aprovação" que existe, e o único em que a demora é nossa. EXPIRED fica
+        // de fora: ele não espera aprovação, espera REANÁLISE do valor.
+        quote: { status: { in: ['PENDING', 'SIGNED'] as any } },
       },
       select: {
         id: true,
@@ -3866,8 +3870,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
       total += group._count.id;
     }
 
+    // ⚠️ `total` conta TODOS os grupos, e o gráfico só desenha as chaves desta
+    // tabela. Um status ausente aqui some do gráfico e continua inflando o
+    // total — as barras deixam de somar o número exibido ao lado delas.
     const statusLabels: Record<string, string> = {
       PENDING: 'Pendente',
+      SIGNED: 'Assinado',
+      EXPIRED: 'Aguardando Reanálise',
       BUDGET_APPROVED: 'Aprovado',
       BILLING_APPROVED: 'Fat. Aprovado',
       UPCOMING: 'A Vencer',

@@ -610,7 +610,20 @@ export class InvoiceAnalyticsService {
   //      everything past internal approval: UPCOMING/DUE/PARTIAL/SETTLED)
   //
   // Quotes never abandoned still progress; cancelled quotes are excluded
-  // upstream. statusOrder is the monotone index used to derive "passed".
+  // upstream.
+  //
+  // ⚠️ NÃO USE `TaskQuote.statusOrder` AQUI. Foi o que este código fazia, e
+  // estava errado desde sempre: aquela coluna é uma ordem de PRIORIDADE para a
+  // lista do operador (`DUE` primeiro, porque é dinheiro atrasado), não uma
+  // progressão do funil. Com ela, `PENDING` valia 8 e passava por todos os
+  // limiares — todo orçamento criado contava como faturado, e o funil desenhava
+  // 100% de conversão em qualquer recorte. O índice do funil é o mapa local
+  // abaixo, e só ele.
+  //
+  // Onde os dois estados novos entram: `SIGNED` é o degrau entre a criação e a
+  // aprovação comercial — o cliente aceitou, falta a contra-assinatura. E
+  // `EXPIRED` NÃO é degrau nenhum: é abandono. Ele fica no estágio 1, que é o
+  // que o funil tem a dizer sobre ele (entrou e não converteu).
 
   async getQuoteFunnelAnalytics(
     filters: QuoteFunnelAnalyticsFilters,
@@ -619,16 +632,24 @@ export class InvoiceAnalyticsService {
     const dateRange = this.resolveDateRange(filters);
     const keyFn = groupBy === 'week' ? weekKey : monthKey;
 
-    // Status order positions (matches TASK_QUOTE_STATUS_ORDER in domain)
+    // Progressão do funil. Deliberadamente PRÓPRIA — ver a nota acima sobre por
+    // que `statusOrder` não serve.
     const STATUS_ORDER: Record<string, number> = {
       [TASK_QUOTE_STATUS.PENDING]: 1,
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 3,
-      [TASK_QUOTE_STATUS.UPCOMING]: 4,
-      [TASK_QUOTE_STATUS.DUE]: 5,
-      [TASK_QUOTE_STATUS.PARTIAL]: 6,
-      [TASK_QUOTE_STATUS.SETTLED]: 7,
+      // Vencido sem assinatura não avança: entrou no funil e parou aqui.
+      [TASK_QUOTE_STATUS.EXPIRED]: 1,
+      // Assinado pelo cliente, à espera da contra-assinatura da Ankaa. Ainda
+      // não é aprovação comercial, mas já não é um orçamento que ninguém olhou.
+      [TASK_QUOTE_STATUS.SIGNED]: 2,
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 3,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
+      [TASK_QUOTE_STATUS.UPCOMING]: 5,
+      [TASK_QUOTE_STATUS.DUE]: 6,
+      [TASK_QUOTE_STATUS.PARTIAL]: 7,
+      [TASK_QUOTE_STATUS.SETTLED]: 8,
     };
+    /** Degrau do funil de um orçamento. Nunca a coluna persistida. */
+    const stageOf = (quote: { status: string }): number => STATUS_ORDER[quote.status] ?? 1;
 
     // Build where clause for quotes (joining to Task for sector/customer filters)
     const where: any = {
@@ -668,14 +689,15 @@ export class InvoiceAnalyticsService {
     // ---------- Funnel stages ----------
     const stageDefs: Array<{ stage: string; orderThreshold: number }> = [
       { stage: TASK_QUOTE_STATUS.PENDING, orderThreshold: 1 },
-      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 2 },
-      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 3 },
+      { stage: TASK_QUOTE_STATUS.SIGNED, orderThreshold: 2 },
+      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 3 },
+      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 4 },
     ];
 
     const totalEntries = quotes.length;
     const funnel: QuoteFunnelStage[] = stageDefs.map((def, idx) => {
       const reached = quotes.filter(
-        q => (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >= def.orderThreshold,
+        q => stageOf(q) >= def.orderThreshold,
       );
       const count = reached.length;
       const totalValue = reached.reduce((s, q) => s + Number(q.total), 0);
@@ -686,7 +708,7 @@ export class InvoiceAnalyticsService {
           ? totalEntries
           : quotes.filter(
               q =>
-                (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >= stageDefs[idx - 1].orderThreshold,
+                stageOf(q) >= stageDefs[idx - 1].orderThreshold,
             ).length;
 
       const conversionFromPrevious =
@@ -697,12 +719,15 @@ export class InvoiceAnalyticsService {
       // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, billingApprovedAt for billing-approved)
       const ages = reached
         .map(q => {
-          if (def.orderThreshold >= 3 && q.billingApprovedAt) {
+          // Só o degrau de FATURAMENTO tem carimbo de data real
+          // (`billingApprovedAt`). Era `>= 3` porque BILLING_APPROVED valia 3
+          // no mapa antigo; com SIGNED no meio ele vale 4.
+          if (def.orderThreshold >= 4 && q.billingApprovedAt) {
             return diffDays(q.createdAt, q.billingApprovedAt);
           }
           // for upstream stages we don't have stage-transition timestamps,
           // so we use current age as a proxy (only meaningful for current-stage quotes)
-          if ((q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) === def.orderThreshold) {
+          if (stageOf(q) === def.orderThreshold) {
             return diffDays(q.createdAt, new Date());
           }
           return null;
@@ -751,10 +776,13 @@ export class InvoiceAnalyticsService {
         });
       }
       const bucket = periodMap.get(key)!;
-      const sOrder = q.statusOrder ?? STATUS_ORDER[q.status] ?? 1;
+      const sOrder = stageOf(q);
       bucket.newQuotes++;
       bucket.totalValue += Number(q.total);
-      if (sOrder >= 2) bucket.approvedQuotes++;
+      // "Aprovado" é aprovação COMERCIAL (3). Era `>= 2`, que no mapa novo é
+      // SIGNED — contaria como aprovado o orçamento que o cliente assinou e nós
+      // ainda não contra-assinamos.
+      if (sOrder >= 3) bucket.approvedQuotes++;
       if (sOrder >= 4) bucket.billedQuotes++;
       if (q.status === TASK_QUOTE_STATUS.SETTLED) {
         bucket.settledQuotes++;

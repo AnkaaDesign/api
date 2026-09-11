@@ -1729,7 +1729,12 @@ const taskTransform = (data: any): any => {
       AND: [
         taskStatusFilter,
         { quote: { isNot: null } },
-        { quote: { status: { notIn: ['PENDING'] } } },
+        // SIGNED e EXPIRED entram junto de PENDING: os três são ANTERIORES à
+        // aprovação comercial, e a tela do financeiro é para aprovar
+        // faturamento. Um orçamento vencido, à espera de reanálise do valor,
+        // aparecendo na fila de faturar é pedir para alguém faturar um preço
+        // que o comercial acabou de decidir rever.
+        { quote: { status: { notIn: ['PENDING', 'SIGNED', 'EXPIRED'] } } },
       ],
     });
     delete data.shouldDisplayForFinancial;

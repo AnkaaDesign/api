@@ -2435,6 +2435,150 @@ export class TaskQuoteService {
   }
 
   /**
+   * TODOS OS RESPONSÁVEIS DO CLIENTE ASSINARAM. Falta a contra-assinatura da Ankaa.
+   *
+   * Chamado pela cerimônia (`setOnCustomerSideSigned`), nunca por rota. Escreve
+   * `SIGNED`, que é o estado que a lista de Orçamentos usa para responder à
+   * pergunta "o que está parado esperando a gente?".
+   *
+   * POR QUE O ESTADO PRECISAVA EXISTIR
+   *   Entre a assinatura do cliente e a nossa podem passar dias — o cliente
+   *   assina na sexta à noite, quem contra-assina volta na segunda. Nesse
+   *   intervalo o orçamento era `PENDING`, exatamente igual a um criado naquela
+   *   manhã e ainda não enviado. Quem abria a lista para achar o que travou não
+   *   tinha como distinguir "o cliente nem viu" de "só falta a nossa caneta".
+   *
+   * NÃO USA `updateStatus`: a máquina de transição é um catálogo de mudanças
+   * MANUAIS, e esta não é uma. Vai pelo `update(..., _internal: true)`, como o
+   * cascateamento de parcelas.
+   */
+  async markSigned(quoteId: string, userId: string = 'system'): Promise<void> {
+    const existing = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: { status: true },
+    });
+    if (!existing) return;
+
+    // SÓ DE PENDING.
+    //
+    // Um orçamento já aprovado, faturado ou cancelado não volta para "assinado"
+    // porque uma assinatura atrasada chegou: `BUDGET_APPROVED` é posterior a
+    // este estado, e regredir apagaria a aprovação. Cancelado, então, é pior —
+    // reviveria na lista de quem vende um negócio que morreu.
+    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
+      this.logger.log(
+        `Orçamento ${quoteId} não foi marcado como assinado: está em ${existing.status}.`,
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.SIGNED }, userId, true);
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId },
+      select: { id: true },
+    });
+    if (task) {
+      await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+    }
+
+    // O aviso de contra-assinatura para QUEM ASSINA pela Ankaa sai da própria
+    // cerimônia (`notifyAnkaaSigner`, com link). Este é o aviso de SETOR: o
+    // comercial e a administração precisam ver na lista de notificações que há
+    // um orçamento fechado do lado do cliente esperando a nossa assinatura.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      await this.dispatchService.dispatchByConfiguration('task_quote.signed', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'signed',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Assinado pelo Cliente',
+          body: `O orçamento ${quoteLabel} foi assinado por todos os responsáveis do cliente e aguarda a contra-assinatura da Ankaa.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar orçamento assinado (task_quote.signed):', error);
+    }
+  }
+
+  /**
+   * A VALIDADE VENCEU SEM TODAS AS ASSINATURAS.
+   *
+   * Chamado pela varredura de expiração (`setOnEnvelopeExpired`). O orçamento
+   * vai para `EXPIRED` — rotulado "Aguardando Reanálise" — e o comercial é
+   * avisado de que há um valor para rever.
+   *
+   * O DEFEITO QUE ISTO FECHA
+   *   `SignatureEnvelope` expirava de hora em hora desde sempre; o ORÇAMENTO
+   *   nunca. Ele ficava PENDING para sempre, misturado aos recém-criados em toda
+   *   lista, filtro e relatório, e ninguém era avisado. Na prática a validade era
+   *   um texto no PDF: impedia assinar (`assertSignable`) e não movia mais nada.
+   *
+   * SÓ DE PENDING, pelas mesmas razões de `markSigned` — com uma a mais: um
+   * orçamento em `SIGNED` não chega aqui porque a varredura o exclui de
+   * propósito (o cliente aceitou dentro do prazo; o que falta é nosso).
+   */
+  async markExpiredBySignature(quoteId: string, userId: string = 'system'): Promise<void> {
+    const existing = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: { status: true, expiresAt: true },
+    });
+    if (!existing) return;
+
+    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
+      this.logger.log(
+        `Orçamento ${quoteId} não foi marcado como vencido: está em ${existing.status}.`,
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.EXPIRED }, userId, true);
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId },
+      select: { id: true },
+    });
+    if (task) {
+      await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+    }
+
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      const expiredOn = existing.expiresAt.toLocaleDateString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      });
+      await this.dispatchService.dispatchByConfiguration('task_quote.expired', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'expired',
+        data: { quoteLabel, expiredOn },
+        overrides: {
+          title: 'Orçamento Vencido — Reanalisar',
+          body: `A validade do orçamento ${quoteLabel} venceu em ${expiredOn} sem todas as assinaturas. Revise o valor e reemita a proposta.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar orçamento vencido (task_quote.expired):', error);
+    }
+  }
+
+  /**
    * Commercial approves the budget.
    *
    * This is the single commercial approval gate. Once the budget is approved
@@ -4128,6 +4272,25 @@ export class TaskQuoteService {
     // to clean up in that case, so it's safe.
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
       [TASK_QUOTE_STATUS.PENDING]: [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.CANCELLED],
+      // SIGNED é escrito pela CERIMÔNIA (grupo do cliente completo), nunca à
+      // mão — por isso não é destino de ninguém aqui. O que esta linha declara
+      // é como se SAI dele: aprovar (a contra-assinatura aconteceu, ou o
+      // operador aprova à mão porque ela travou), voltar para PENDING (o
+      // cliente desistiu, ou o valor foi editado e as assinaturas caíram) e
+      // cancelar. EXPIRED não está na lista de propósito: uma vez que o cliente
+      // aceitou dentro do prazo, o relógio deixa de correr contra ele — o que
+      // falta é nosso. Ver `SignatureExpiryScheduler`.
+      [TASK_QUOTE_STATUS.SIGNED]: [
+        TASK_QUOTE_STATUS.BUDGET_APPROVED,
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
+      // Vencido sem todas as assinaturas. O comercial reanalisa o valor: ou
+      // reformula (o que já devolve o orçamento a PENDING pelo auto-revert de
+      // edição de valor), ou estende a validade, ou cancela. Não vai direto
+      // para BUDGET_APPROVED — aprovar sem assinatura é exatamente o que a
+      // cerimônia existe para impedir.
+      [TASK_QUOTE_STATUS.EXPIRED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.CANCELLED],
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: [
         TASK_QUOTE_STATUS.PENDING,
         TASK_QUOTE_STATUS.BILLING_APPROVED,
@@ -4400,6 +4563,8 @@ export class TaskQuoteService {
   private getStatusLabel(status: TASK_QUOTE_STATUS): string {
     const labels: Record<string, string> = {
       [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
+      [TASK_QUOTE_STATUS.SIGNED]: 'assinado pelo cliente',
+      [TASK_QUOTE_STATUS.EXPIRED]: 'marcado para reanálise',
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado',
       [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'faturamento aprovado',
       [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',
