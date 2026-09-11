@@ -44,7 +44,7 @@ import {
   QuoteSnapshotService,
   QuoteWithSnapshotGraph,
 } from './quote-snapshot.service';
-import { describeQuoteChange, type QuoteChange } from './quote-diff';
+import { type QuoteChange } from './quote-diff';
 import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import {
@@ -120,6 +120,13 @@ import {
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
+import {
+  invitationTemplate,
+  otpTemplate,
+  resendTemplate,
+  voidedTemplate,
+  type SignatureWhatsAppTemplate,
+} from '../signature-whatsapp-templates';
 
 export interface RequestContext {
   ipAddress: string | null;
@@ -169,6 +176,23 @@ interface WhatsAppSender {
      */
     preview?: { url: string; title: string; description?: string } | null,
   ): Promise<{ ok: boolean; reason: string | null }>;
+
+  /**
+   * Envio pelo canal OFICIAL (Cloud API), por template aprovado.
+   *
+   * OPCIONAL no contrato porque o Baileys não tem template — e não é omissão a
+   * corrigir: são dois canais com regras diferentes convivendo de propósito. O
+   * Baileys atende o tráfego INTERNO, onde texto livre é a forma certa; a Cloud
+   * API atende o CLIENTE, onde, fora da janela de 24 h, texto livre é recusado
+   * pela plataforma. Quem chama pergunta se o método existe antes de usá-lo.
+   *
+   * Não recebe `priority` nem `preview`: a fila e a guarda de saída são do
+   * Baileys, e o cartão de link vira BOTÃO, declarado no template.
+   */
+  sendTemplate?(
+    phone: string,
+    template: SignatureWhatsAppTemplate,
+  ): Promise<{ ok: boolean; reason?: string; code?: string }>;
 }
 
 /**
@@ -1485,6 +1509,13 @@ export class SignatureEnvelopeService {
           signingUrl,
           'invite',
         ),
+        whatsappTemplate: invitationTemplate({
+          signerName: signer.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+          deadlineDate,
+          // O TOKEN, não a URL: o template guarda o prefixo do link.
+          accessToken: signer.accessToken,
+        }),
         kind: 'SIGNATURE_INVITATION',
       });
 
@@ -1563,6 +1594,11 @@ export class SignatureEnvelopeService {
     kind: string,
     priority: 'CRITICAL' | 'NORMAL',
     preview?: { url: string; title: string; description?: string } | null,
+    /**
+     * Template aprovado, quando a mensagem tem um. Ausente = texto livre pelo
+     * Baileys, que é o caso dos avisos INTERNOS.
+     */
+    template?: SignatureWhatsAppTemplate | null,
   ): Promise<SignatureDeliveryResult> {
     const phone = onlyDigits(to);
     // Mesma guarda do e-mail: destinatário vazio não pode virar INVITATION_SENT.
@@ -1575,6 +1611,20 @@ export class SignatureEnvelopeService {
       this.logger.error('Transporte de WhatsApp não configurado — mensagem não enviada.');
       return { ok: false, reason: 'Transporte de WhatsApp indisponível no servidor.' };
     }
+    // Canal oficial primeiro. Quando existe template E o transporte sabe
+    // enviá-lo, o texto livre montado acima é descartado — ele permanece no
+    // código como a versão do Baileys, que segue valendo se a Cloud API for
+    // desligada por configuração.
+    if (template && this.whatsapp.sendTemplate) {
+      const sent = await this.whatsapp.sendTemplate(phone, template);
+      if (!sent.ok) {
+        this.logger.error(
+          `Falha ao enviar template ${template.name} (${kind}): ${sent.reason ?? 'sem motivo'}`,
+        );
+      }
+      return { ok: sent.ok, reason: sent.reason ?? null, code: sent.code ?? null };
+    }
+
     const result = await this.whatsapp.sendMessage(phone, message, priority, preview);
     if (!result.ok) {
       this.logger.error(`Falha ao enviar WhatsApp (${kind}): ${result.reason ?? 'sem motivo'}`);
@@ -1657,6 +1707,11 @@ export class SignatureEnvelopeService {
     whatsapp: string;
     /** Cartão de prévia, quando a mensagem de WhatsApp carrega um link. */
     whatsappPreview?: { url: string; title: string; description?: string } | null;
+    /**
+     * Template do canal oficial. As mensagens do CLIENTE têm um; os avisos
+     * internos, não — e é essa ausência que os mantém no Baileys.
+     */
+    whatsappTemplate?: SignatureWhatsAppTemplate | null;
     kind: string;
   }): Promise<SignatureDeliveryResult> {
     if (args.channel === 'WHATSAPP') {
@@ -1669,6 +1724,7 @@ export class SignatureEnvelopeService {
         // fila normal, com teto de primeiro contato.
         args.kind === 'SIGNATURE_OTP' ? 'CRITICAL' : 'NORMAL',
         args.whatsappPreview ?? null,
+        args.whatsappTemplate ?? null,
       );
     }
     const ok = await this.sendEmail(
@@ -2122,6 +2178,7 @@ export class SignatureEnvelopeService {
         channel: otpChannel,
         email: generateSignatureOtpEmail(otpPayload),
         whatsapp: generateSignatureOtpWhatsApp(otpPayload),
+        whatsappTemplate: otpTemplate({ code: challenge.code }),
         kind: 'SIGNATURE_OTP',
       });
     }
@@ -4038,7 +4095,6 @@ export class SignatureEnvelopeService {
           after: c.after,
         })),
       };
-      const voidedLines = materialEntries.map(describeQuoteChange);
       // O lado da Ankaa não tem canal no `authMethod` (é `INTERNAL_SESSION`), e
       // `channelForAuthMethod` devolveria e-mail para ele numa coleta de
       // WhatsApp — mandando o aviso por um canal que a cerimônia não usou e
@@ -4051,7 +4107,17 @@ export class SignatureEnvelopeService {
         signer: s,
         channel,
         email: generateEnvelopeVoidedEmail(voidedPayload),
-        whatsapp: generateEnvelopeVoidedWhatsApp({ ...voidedPayload, changes: voidedLines }),
+        whatsapp: generateEnvelopeVoidedWhatsApp(voidedPayload),
+        // O lado da Ankaa recebe o aviso pelo canal interno, em texto livre: o
+        // template é do CLIENTE, e a lista de mudanças que interessa a quem
+        // trabalha aqui não cabe num corpo aprovado com duas variáveis.
+        whatsappTemplate:
+          this.ceremonyKindOf(s.authMethod) === 'INTERNAL'
+            ? null
+            : voidedTemplate({
+                signerName: voidedPayload.signerName,
+                budgetNumber: voidedPayload.budgetNumber,
+              }),
         kind: 'SIGNATURE_VOIDED',
       });
       const notified = voidNotice.ok;
@@ -5338,6 +5404,12 @@ export class SignatureEnvelopeService {
         invitation.signingUrl,
         'invite',
       ),
+      whatsappTemplate: resendTemplate({
+        signerName: signer.declaredName,
+        budgetNumber: signer.envelope.quote.budgetNumber,
+        deadlineDate: invitation.deadlineDate,
+        accessToken: signer.accessToken,
+      }),
       kind: 'SIGNATURE_INVITATION_RESEND',
     });
 

@@ -137,6 +137,12 @@ export const envSchema = z.object({
   // Segredo do handshake GET, inventado por nós e colado no painel da Meta.
   WHATSAPP_CLOUD_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_CLOUD_API_VERSION: z.string().default('v25.0'),
+  // Liga o canal do CLIENTE (convite, código, cancelamento) na Cloud API.
+  // Desligado por padrão: token configurado não significa template aprovado.
+  WHATSAPP_CLOUD_ENABLED: z
+    .string()
+    .transform(val => val === 'true')
+    .default('false'),
 
   // Email Template
   SUPPORT_PHONE: z.string().default('+554384190989'),

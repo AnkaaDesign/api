@@ -29,8 +29,11 @@
 
 import { Inject, Logger, Module, OnModuleInit, Optional, forwardRef } from '@nestjs/common';
 import { WhatsAppModule } from '@modules/common/whatsapp/whatsapp.module';
+import { WhatsAppCloudModule } from '@modules/integrations/whatsapp-cloud/whatsapp-cloud.module';
+import { WhatsAppCloudSender } from '@modules/integrations/whatsapp-cloud/whatsapp-cloud-sender.service';
 import { SignatureModule } from './signature.module';
 import { SignatureEnvelopeService } from './services/signature-envelope.service';
+import type { SignatureWhatsAppTemplate } from './signature-whatsapp-templates';
 
 /** Só o que a cerimônia usa do cliente — evita depender da classe concreta. */
 interface WhatsAppClient {
@@ -44,7 +47,11 @@ interface WhatsAppClient {
 }
 
 @Module({
-  imports: [forwardRef(() => WhatsAppModule), forwardRef(() => SignatureModule)],
+  imports: [
+    forwardRef(() => WhatsAppModule),
+    forwardRef(() => SignatureModule),
+    WhatsAppCloudModule,
+  ],
 })
 export class SignatureWhatsAppBridgeModule implements OnModuleInit {
   private readonly logger = new Logger(SignatureWhatsAppBridgeModule.name);
@@ -52,10 +59,17 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
   constructor(
     private readonly envelopes: SignatureEnvelopeService,
     @Optional() @Inject('WhatsAppService') private readonly whatsapp?: WhatsAppClient,
+    /**
+     * Canal oficial. Opcional pelo mesmo motivo do Baileys: um ambiente sem
+     * Cloud API configurada é legítimo, e a cerimônia cai no e-mail.
+     */
+    @Optional() private readonly cloud?: WhatsAppCloudSender,
   ) {}
 
   onModuleInit(): void {
-    if (!this.whatsapp) {
+    const cloudReady = this.cloud?.isConfigured ?? false;
+
+    if (!this.whatsapp && !cloudReady) {
       this.logger.warn(
         'Transporte de WhatsApp indisponível — a assinatura de orçamento só poderá usar e-mail. ' +
           'Se SIGNATURE_DELIVERY_CHANNEL incluir "whatsapp", os envios vão falhar.',
@@ -69,6 +83,12 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
     // em vez de um 500 na cara do operador.
     this.envelopes.setWhatsAppSender({
       sendMessage: async (phone, message, priority, preview) => {
+        // Sem Baileys, texto livre não tem por onde sair. Só as mensagens
+        // INTERNAS chegam aqui quando a Cloud API está ativa — as do cliente
+        // vão por template, logo abaixo.
+        if (!this.whatsapp) {
+          return { ok: false, reason: 'O transporte interno de WhatsApp está fora do ar.' };
+        }
         try {
           // Devolve o booleano do transporte em vez de assumir `true`. Hoje o
           // Baileys sempre lança em caso de falha, mas o port é booleano: se um
@@ -104,8 +124,22 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
           };
         }
       },
+
+      // O canal do CLIENTE. Só é registrado quando há token e número na
+      // configuração — a cerimônia pergunta se o método existe antes de usá-lo,
+      // então a ausência aqui não quebra nada: cai no texto livre do Baileys.
+      ...(cloudReady
+        ? {
+            sendTemplate: (phone: string, template: SignatureWhatsAppTemplate) =>
+              this.cloud!.sendTemplate(phone, template),
+          }
+        : {}),
     });
 
-    this.logger.log('Transporte de WhatsApp registrado na cerimônia de assinatura.');
+    this.logger.log(
+      cloudReady
+        ? 'Assinatura: cliente pela Cloud API (template), avisos internos pelo Baileys.'
+        : 'Assinatura: WhatsApp pelo Baileys (Cloud API não configurada).',
+    );
   }
 }
