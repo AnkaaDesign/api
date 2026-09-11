@@ -106,6 +106,18 @@ import { SignatureEnvelopeService } from '../services/signature-envelope.service
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 
+/** Milímetros → pontos PostScript (72 pt por polegada). */
+const MM_TO_PT = 72 / 25.4;
+
+/** Como cada componente se chama no pé da folha — curto, porque divide a linha. */
+const DOSSIER_KIND_LABEL: Record<string, string> = {
+  ORCAMENTO: 'Orçamento',
+  FOTOS: 'Dossiê fotográfico',
+  ADITIVO: 'Aditivo de identificação',
+  BOLETO: 'Boleto',
+  NFSE: 'NFS-e',
+};
+
 export type DossierComponentKind = 'ORCAMENTO' | 'ADITIVO' | 'FOTOS' | 'NFSE' | 'BOLETO';
 
 export interface DossierComponent {
@@ -407,12 +419,30 @@ export class DossierAssemblerService {
     // Capa depois dos corpos? Não: ela precisa contar as páginas de cada
     // componente, então os corpos entram primeiro numa lista e a capa é
     // prependida ao final.
+    //
+    // `firstPage` é anotado enquanto se monta: é o que permite numerar as
+    // páginas e montar os marcadores depois, sem reabrir o documento.
+    const placed: Array<{ component: DossierComponent; firstPage: number; ours: boolean }> = [];
     for (const body of bodies) {
+      const firstPage = container.getPageCount();
       const pageCount = await this.appendPdf(container, body.bytes, body.component);
       body.component.pages = pageCount;
+      if (pageCount > 0) {
+        placed.push({
+          component: body.component,
+          firstPage,
+          // NOSSAS páginas são as que este servidor desenhou: o orçamento
+          // renderizado agora, o dossiê fotográfico e o aditivo. Boleto e NFS-e
+          // são documentos de TERCEIROS — ver a decisão 2 — e não se escreve
+          // sobre a folha de outro.
+          ours: body.component.kind !== 'BOLETO' && body.component.kind !== 'NFSE',
+        });
+      }
     }
 
     // Sem capa: ver a decisão 4 no cabeçalho deste arquivo.
+    await this.stampDossierPages(container, quote.budgetNumber, placed);
+    this.addOutline(container, placed);
 
     // ---- 6. Os documentos assinados, byte a byte ----
     // DEPOIS das páginas e ANTES do save: o anexo é um objeto do documento, e é
@@ -937,6 +967,106 @@ export class DossierAssemblerService {
    * assinatura que não existe neste arquivo — exatamente a confusão que este
    * desenho quer evitar.
    */
+
+  /**
+   * IDENTIFICAÇÃO E NUMERAÇÃO EM TODA FOLHA NOSSA.
+   *
+   * O dossiê de um orçamento de quatro veículos é o orçamento (quatro folhas),
+   * as fotos, quatro boletos e quatro notas: passa de quinze páginas. Sem nada
+   * no pé, uma folha solta não diz de que dossiê é, quem lê não sabe em que
+   * componente está, e a falta de uma página é indetectável.
+   *
+   * ⚠️ SÓ NAS NOSSAS. Boleto e NFS-e são documentos de terceiros (decisão 2):
+   * escrever na folha deles seria alterar documento alheio dentro do nosso
+   * invólucro — e a margem inferior de um boleto não é nossa para usar. Eles
+   * aparecem nos MARCADORES, que não tocam no conteúdo.
+   *
+   * A contagem é a do DOSSIÊ inteiro ("Página 7 de 19"), não a do componente: o
+   * que se procura ao folhear é onde se está no maço.
+   */
+  private async stampDossierPages(
+    container: PDFDocument,
+    budgetNumber: number,
+    placed: Array<{ component: DossierComponent; firstPage: number; ours: boolean }>,
+  ): Promise<void> {
+    const total = container.getPageCount();
+    if (total <= 1) return; // uma folha não se perde no meio de nada
+
+    const font = await container.embedFont(StandardFonts.Helvetica);
+    const size = 7;
+    const gray = rgb(0.45, 0.45, 0.45);
+    const pages = container.getPages();
+
+    for (const entry of placed) {
+      if (!entry.ours) continue;
+      for (let i = 0; i < entry.component.pages; i++) {
+        const index = entry.firstPage + i;
+        const page = pages[index];
+        if (!page) continue;
+        const label =
+          `Dossiê · Orçamento nº ${String(budgetNumber).padStart(4, '0')} · ` +
+          `${DOSSIER_KIND_LABEL[entry.component.kind] ?? entry.component.kind} · ` +
+          `Página ${index + 1} de ${total}`;
+        const width = font.widthOfTextAtSize(label, size);
+        page.drawText(label, {
+          x: (page.getWidth() - width) / 2,
+          y: 5 * MM_TO_PT,
+          size,
+          font,
+          color: gray,
+        });
+      }
+    }
+  }
+
+  /**
+   * MARCADORES (a árvore lateral do leitor de PDF), um por componente.
+   *
+   * É a navegação que um documento de vinte páginas precisa e a única que não
+   * custa uma folha: a decisão 4 recusou a CAPA, e com razão — o que o cliente
+   * recebe é orçamento, fotos, nota e boleto, não um sumário administrativo.
+   * Marcador é invisível até ser usado e funciona em todo leitor sério,
+   * inclusive no celular, que é onde isto é aberto.
+   *
+   * Montado à mão porque o pdf-lib não tem API de outline: `/Outlines` é um
+   * dicionário com lista duplamente encadeada de itens, cada um apontando para
+   * a página por `/Dest [page /Fit]`.
+   */
+  private addOutline(
+    container: PDFDocument,
+    placed: Array<{ component: DossierComponent; firstPage: number }>,
+  ): void {
+    if (placed.length < 2) return; // um componente só não tem o que navegar
+
+    const context = container.context;
+    const pages = container.getPages();
+    const outlinesRef = context.nextRef();
+
+    const itemRefs = placed.map(() => context.nextRef());
+    placed.forEach((entry, i) => {
+      const page = pages[entry.firstPage];
+      if (!page) return;
+      const dict = new Map<PDFName, any>();
+      dict.set(PDFName.of('Title'), context.obj(entry.component.label));
+      dict.set(PDFName.of('Parent'), outlinesRef);
+      if (i > 0) dict.set(PDFName.of('Prev'), itemRefs[i - 1]);
+      if (i < placed.length - 1) dict.set(PDFName.of('Next'), itemRefs[i + 1]);
+      dict.set(
+        PDFName.of('Dest'),
+        context.obj([page.ref, PDFName.of('Fit')]),
+      );
+      context.assign(itemRefs[i], PDFDict.fromMapWithContext(dict, context));
+    });
+
+    const outlines = new Map<PDFName, any>();
+    outlines.set(PDFName.of('Type'), PDFName.of('Outlines'));
+    outlines.set(PDFName.of('First'), itemRefs[0]);
+    outlines.set(PDFName.of('Last'), itemRefs[itemRefs.length - 1]);
+    outlines.set(PDFName.of('Count'), context.obj(placed.length));
+    context.assign(outlinesRef, PDFDict.fromMapWithContext(outlines, context));
+    container.catalog.set(PDFName.of('Outlines'), outlinesRef);
+  }
+
   private async appendPdf(
     container: PDFDocument,
     bytes: Buffer,
