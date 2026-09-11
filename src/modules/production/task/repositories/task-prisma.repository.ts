@@ -871,6 +871,10 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
+      // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. Sem estar nesta
+      // desestruturação o campo é ACEITO pelo zod e DESCARTADO aqui: a tela
+      // grava, a API responde 200, e o valor nunca chega ao banco.
+      customerOrderNumber,
       details,
       entryDate,
       term,
@@ -912,6 +916,9 @@ export class TaskPrismaRepository
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
+    if (customerOrderNumber !== undefined) {
+      taskData.customerOrderNumber = customerOrderNumber;
+    }
     if (details !== undefined) taskData.details = details;
     if (entryDate !== undefined) taskData.entryDate = entryDate;
     if (term !== undefined) taskData.term = term;
@@ -1183,6 +1190,10 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
+      // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. Sem estar nesta
+      // desestruturação o campo é ACEITO pelo zod e DESCARTADO aqui: a tela
+      // grava, a API responde 200, e o valor nunca chega ao banco.
+      customerOrderNumber,
       details,
       entryDate,
       term,
@@ -1219,6 +1230,9 @@ export class TaskPrismaRepository
 
     if (name !== undefined) updateData.name = name;
     if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
+    if (customerOrderNumber !== undefined) {
+      updateData.customerOrderNumber = customerOrderNumber;
+    }
     if (details !== undefined) updateData.details = details;
     if (entryDate !== undefined) {
       updateData.entryDate = entryDate;
