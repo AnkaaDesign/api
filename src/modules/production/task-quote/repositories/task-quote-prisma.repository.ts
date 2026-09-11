@@ -568,7 +568,19 @@ export class TaskQuotePrismaRepository
             // Orçamento abriria o campo em branco e o gravaria por cima do que o
             // cliente já tinha informado.
             customerOrderNumber: true,
-            truck: { select: { id: true, plate: true, chassisNumber: true } },
+            // Categoria e implemento junto: a relação de veículos do Resumo tem
+            // as MESMAS colunas do documento e da página pública, e sem estes
+            // dois campos ela sairia com duas colunas a menos que o PDF que o
+            // cliente vai receber — a conferência deixaria de ser a mesma.
+            truck: {
+              select: {
+                id: true,
+                plate: true,
+                chassisNumber: true,
+                category: true,
+                implementType: true,
+              },
+            },
           },
         },
         layoutFiles: { orderBy: { createdAt: 'asc' } },
