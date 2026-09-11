@@ -13,6 +13,19 @@ import type { File } from './file';
 export interface TaskQuoteCustomerConfig extends BaseEntity {
   quoteId: string;
   customerId: string;
+  /**
+   * A TAREFA que esta fatia fatura, ou NULO para "todas as do orçamento".
+   *
+   * É a chave do "pagar junto ou separado": nulo = uma fatura para os N veículos
+   * (`JOINT`); preenchido = uma fatia por veículo (`PER_TASK`), cada uma com sua
+   * fatura, suas parcelas, seus boletos e sua NFS-e.
+   */
+  taskId?: string | null;
+  /**
+   * Quando ESTA fatia teve o faturamento aprovado. `TaskQuote.billingApprovedAt`
+   * é a data em que a ÚLTIMA fechou.
+   */
+  billingApprovedAt?: Date | null;
   subtotal: number;
   total: number;
   discountType: string;

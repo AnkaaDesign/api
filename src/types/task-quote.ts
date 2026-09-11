@@ -30,6 +30,16 @@ export type TASK_QUOTE_STATUS =
   | 'CANCELLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 
+/**
+ * JUNTO OU SEPARADO (`QuoteBillingSplit` no schema).
+ *
+ * `JOINT`: uma fatura, um plano de parcelas e uma NFS-e para os N veículos —
+ * o padrão, e byte a byte o comportamento anterior ao orçamento multitarefa.
+ * `PER_TASK`: uma fatia de faturamento POR VEÍCULO, aprovada veículo a veículo,
+ * porque os sessenta caminhões não terminam no mesmo dia.
+ */
+export type QUOTE_BILLING_SPLIT = 'JOINT' | 'PER_TASK';
+
 // =====================
 // TaskQuote Interface
 // =====================
@@ -54,8 +64,36 @@ export interface TaskQuote extends BaseEntity {
 
   simultaneousTasks: number | null;
 
+  /**
+   * JUNTO OU SEPARADO — uma fatura para os N veículos (`JOINT`, o padrão e o
+   * comportamento de sempre) ou uma por veículo (`PER_TASK`).
+   */
+  billingSplit: QUOTE_BILLING_SPLIT;
+
+  /**
+   * QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o DIVISOR de
+   * [total].
+   *
+   * Coluna desnormalizada (a API a mantém em `recalcQuoteTotals`) e não um
+   * `_count`: um `select` existente ganha o campo com uma linha, e as listas —
+   * que pedem escalares do orçamento e nunca a relação de veículos — não teriam
+   * como dividir sem ela.
+   */
+  vehicleCount: number;
+
+  /** Quando a ÚLTIMA fatia de faturamento fechou. */
+  billingApprovedAt?: Date | null;
+
   // Relations
-  task?: Task; // One-to-one relationship with task
+  /**
+   * @deprecated Um orçamento cobre N veículos desde a migração
+   * `20260903120000_multitask_quote`: use [tasks]. Mantido para o código que só
+   * precisa de UMA tarefa de âncora (um link, um rótulo) — nunca para dinheiro,
+   * documento ou decisão de faturamento, onde a resposta é a lista inteira.
+   */
+  task?: Task;
+  /** OS VEÍCULOS deste orçamento, na ordem do documento (`createdAt`, `id`). */
+  tasks?: Task[];
   services?: TaskQuoteService[];
   customerConfigs?: TaskQuoteCustomerConfig[];
 }
@@ -65,10 +103,19 @@ export interface TaskQuote extends BaseEntity {
 // =====================
 
 export interface TaskQuoteIncludes {
+  /** @deprecated Ver `TaskQuote.task`. O servidor ainda ACEITA e traduz. */
   task?:
     | boolean
     | {
         include?: TaskIncludes;
+      };
+  /** OS VEÍCULOS. `select` além de `include` porque as listas pedem só o id. */
+  tasks?:
+    | boolean
+    | {
+        include?: TaskIncludes;
+        select?: Record<string, unknown>;
+        orderBy?: Record<string, unknown> | Array<Record<string, unknown>>;
       };
   services?:
     | boolean

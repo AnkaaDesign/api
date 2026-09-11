@@ -473,7 +473,13 @@ export class TaskQuoteService {
                     config.generateInvoice !== undefined ? config.generateInvoice : true,
                   generateBankSlip:
                     config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                  orderNumber: (config as any).orderNumber || null,
+                  // ⚠️ `orderNumber` NÃO entra aqui. A coluna saiu do modelo na
+                  // migração `20260909170000` — o pedido de compra é do VEÍCULO
+                  // (`Task.customerOrderNumber`) — e `x || null` emitia a chave
+                  // SEMPRE, mesmo quando o cliente não a mandava: o Prisma
+                  // respondia "Unknown argument `orderNumber`" e TODA criação de
+                  // orçamento morria em 500. O valor legado é traduzido para as
+                  // tarefas mais abaixo (`legacyOrderNumber`).
                   ...(config.responsibleId && {
                     responsible: { connect: { id: config.responsibleId } },
                   }),
@@ -724,7 +730,11 @@ export class TaskQuoteService {
       customPaymentText: config.customPaymentText ?? null,
       generateInvoice: config.generateInvoice !== false,
       generateBankSlip: config.generateBankSlip !== false,
-      orderNumber: config.orderNumber ?? null,
+      // `orderNumber` fora da canonicalização: a coluna não existe mais na fatia
+      // (o pedido é do VEÍCULO). O registro gravado NUNCA a tem, então um app
+      // antigo que ainda a manda faria todo salvamento parecer MATERIALMENTE
+      // alterado — disparando o delete+recreate destrutivo das configurações e,
+      // em `BILLING_APPROVED`+, batendo na trava de status.
       responsibleId: config.responsibleId ?? null,
       paymentConfig: config.paymentConfig ?? null,
     });
@@ -851,6 +861,17 @@ export class TaskQuoteService {
         include: {
           services: { orderBy: { position: 'asc' } },
           customerConfigs: true,
+          // ⚠️ OS VEÍCULOS. Sem esta linha `existingTaskIds` sai VAZIO e leva
+          // junto tudo o que depende de quantos veículos o orçamento cobre:
+          // `updateVehicleCount` cai para 1 (e `computeQuoteMoney` calcula o
+          // contrato como se fosse um caminhão só), `nextTaskIds` fica vazio e a
+          // reconciliação de fatias, com `PER_TASK`, produz UMA fatia conjunta
+          // em vez de uma por veículo — o que faz a aprovação "veículo a
+          // veículo" faturar os sessenta de uma vez.
+          //
+          // A gravação só manda `taskIds` quando MUDA o conjunto de veículos;
+          // em toda outra gravação o conjunto é o que está no banco.
+          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
           // Captured BEFORE the write so an UNSELECTED reference (dropped from
           // layoutFiles) can be reproved on the task layout afterwards.
           layoutFiles: true,
@@ -1262,6 +1283,59 @@ export class TaskQuoteService {
           // REPROVED — unless a sibling quote still references the image. No-op
           // when the selection is empty (never mass-reprove).
           await reproveNonSelectedTaskLayoutsFromQuote(tx, id, userId);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TROCAR "JUNTO OU SEPARADO" SOZINHO TAMBÉM REFATIA
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // A reconciliação abaixo só roda quando a gravação traz
+        // `customerConfigs` — e a tela de orçamento traz sempre, porque
+        // reenvia o formulário inteiro. Mas `billingSplit` é editável sozinho
+        // (o seletor "Faturamento dos N veículos"), e um corpo com só ele
+        // deixava o orçamento afirmando `PER_TASK` com UMA fatia conjunta.
+        //
+        // O estrago não é cosmético: `internalApprove` por veículo procura a
+        // fatia daquele caminhão, acha a conjunta — que cobre todos — e aprova
+        // o faturamento dos sessenta de uma vez, emitindo sessenta notas com
+        // vencimento contado de hoje. Exatamente o que a escolha "separado"
+        // existe para impedir.
+        //
+        // Aqui as configurações de ENTRADA são as que já estão no banco, uma
+        // por cliente: o que muda é o fatiamento, não os termos.
+        const billingSplitChanged =
+          (data as any).billingSplit !== undefined &&
+          updateBillingSplit !== ((existing as any).billingSplit ?? 'JOINT');
+        if (data.customerConfigs === undefined && billingSplitChanged) {
+          const storedConfigs = await tx.taskQuoteCustomerConfig.findMany({
+            where: { quoteId: id },
+            orderBy: { createdAt: 'asc' },
+          });
+          const byCustomer = new Map<string, (typeof storedConfigs)[number]>();
+          for (const c of storedConfigs) {
+            if (!byCustomer.has(c.customerId)) byCustomer.set(c.customerId, c);
+          }
+          if (byCustomer.size > 0) {
+            await reconcileQuoteCustomerConfigs(
+              tx,
+              id,
+              [...byCustomer.values()].map(c => ({
+                customerId: c.customerId,
+                subtotal: Number(c.subtotal),
+                total: Number(c.total),
+                discountType: c.discountType,
+                discountValue: c.discountValue != null ? Number(c.discountValue) : null,
+                discountReference: c.discountReference,
+                customPaymentText: c.customPaymentText,
+                generateInvoice: c.generateInvoice,
+                generateBankSlip: c.generateBankSlip,
+                responsibleId: c.responsibleId,
+                paymentCondition: c.paymentCondition,
+                paymentConfig: c.paymentConfig,
+              })),
+              { billingSplit: updateBillingSplit, taskIds: nextTaskIds },
+            );
+          }
         }
 
         // Handle customerConfigs changes

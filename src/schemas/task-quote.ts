@@ -635,7 +635,6 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
      * por entrega. Continua ACEITO porque o app instalado o envia, e o serviço o
      * grava em todas as tarefas do orçamento — o mesmo efeito que ele tinha.
      */
-    orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
     responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
     // Direct installments (alternative to paymentCondition-based generation)
     installments: z.array(installmentInputSchema).optional(),
@@ -741,77 +740,75 @@ export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK']);
 // CRUD Schemas - TaskQuote
 // =====================
 
-export const taskQuoteCreateBaseSchema = z
-  .object({
-    subtotal: moneySchema,
-    total: moneySchema,
-    expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
-    status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
-    /**
-     * A TAREFA do orçamento — forma antiga, de UMA tarefa.
-     *
-     * Mantida e ainda aceita: o app Flutter instalado nos aparelhos envia este
-     * campo, e ele não é atualizado no mesmo instante que a API. Quando `taskIds`
-     * vem, ele é ignorado; quando não vem, `taskIds = [taskId]`.
-     */
-    taskId: z.string().uuid('Tarefa invalida').optional(),
-    /**
-     * AS TAREFAS do orçamento — uma por veículo.
-     *
-     * A tela de criação já produzia N tarefas do produto cartesiano de placas ×
-     * números de série; o que mudou é que agora elas compartilham UM orçamento em
-     * vez de gerar um por tarefa. Dois números de série ⇒ um orçamento para os
-     * dois; um número de série ⇒ uma tarefa, como sempre.
-     */
-    taskIds: z
-      .array(z.string().uuid('Tarefa invalida'))
-      .min(1, 'Pelo menos uma tarefa e obrigatoria')
-      .max(200, 'Maximo de 200 tarefas por orcamento')
-      .optional(),
-    billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
-    services: z
-      .array(taskQuoteServiceCreateNestedSchema)
-      .min(1, 'Pelo menos um servico e obrigatorio')
-      .optional(),
+export const taskQuoteCreateBaseSchema = z.object({
+  subtotal: moneySchema,
+  total: moneySchema,
+  expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
+  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
+  /**
+   * A TAREFA do orçamento — forma antiga, de UMA tarefa.
+   *
+   * Mantida e ainda aceita: o app Flutter instalado nos aparelhos envia este
+   * campo, e ele não é atualizado no mesmo instante que a API. Quando `taskIds`
+   * vem, ele é ignorado; quando não vem, `taskIds = [taskId]`.
+   */
+  taskId: z.string().uuid('Tarefa invalida').optional(),
+  /**
+   * AS TAREFAS do orçamento — uma por veículo.
+   *
+   * A tela de criação já produzia N tarefas do produto cartesiano de placas ×
+   * números de série; o que mudou é que agora elas compartilham UM orçamento em
+   * vez de gerar um por tarefa. Dois números de série ⇒ um orçamento para os
+   * dois; um número de série ⇒ uma tarefa, como sempre.
+   */
+  taskIds: z
+    .array(z.string().uuid('Tarefa invalida'))
+    .min(1, 'Pelo menos uma tarefa e obrigatoria')
+    .max(200, 'Maximo de 200 tarefas por orcamento')
+    .optional(),
+  billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
+  services: z
+    .array(taskQuoteServiceCreateNestedSchema)
+    .min(1, 'Pelo menos um servico e obrigatorio')
+    .optional(),
 
-    // Guarantee Terms
-    guaranteeYears: guaranteeYearsSchema.optional().nullable(),
-    customGuaranteeText: z.string().max(2000).optional().nullable(),
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
 
-    // Custom Forecast - manual override for production days displayed in budget (1-30 days)
-    customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
+  // Custom Forecast - manual override for production days displayed in budget (1-30 days)
+  customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-    // Layout Files (max 2, ordered File ids)
-    layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
+  // Layout Files (max 2, ordered File ids)
+  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
-    simultaneousTasks: simultaneousTasksSchema,
-    customerConfigs: z
-      .array(taskQuoteCustomerConfigCreateNestedSchema)
-      .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
-  });
+  simultaneousTasks: simultaneousTasksSchema,
+  customerConfigs: z
+    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
+});
 
-export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema
-  .superRefine((data, ctx) => {
-    // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
-    // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
-    // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
-    if (!data.taskIds?.length && !data.taskId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['taskIds'],
-        message: 'Informe ao menos uma tarefa para o orçamento.',
-      });
-    }
-    // Duplicata no array cria duas linhas de veículo idênticas no documento e
-    // dobra o total. Vem de retentativa de envio, não de intenção.
-    if (data.taskIds && new Set(data.taskIds).size !== data.taskIds.length) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['taskIds'],
-        message: 'A mesma tarefa foi informada mais de uma vez.',
-      });
-    }
-  });
+export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema.superRefine((data, ctx) => {
+  // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
+  // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
+  // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
+  if (!data.taskIds?.length && !data.taskId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['taskIds'],
+      message: 'Informe ao menos uma tarefa para o orçamento.',
+    });
+  }
+  // Duplicata no array cria duas linhas de veículo idênticas no documento e
+  // dobra o total. Vem de retentativa de envio, não de intenção.
+  if (data.taskIds && new Set(data.taskIds).size !== data.taskIds.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['taskIds'],
+      message: 'A mesma tarefa foi informada mais de uma vez.',
+    });
+  }
+});
 
 /**
  * O orçamento de uma criação ATÔMICA de tarefas + orçamento.
@@ -825,7 +822,6 @@ export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit
   taskId: true,
   taskIds: true,
 });
-
 
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),

@@ -86,7 +86,8 @@
     "seed:painting": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-painting-config.ts",
     "test:quote-list-query": "tsx tests/quote-list-query.test.ts",
     "test:quote-vehicle-share": "tsx tests/quote-vehicle-share.test.ts",
-    "test:task-order-number": "tsx tests/task-order-number.test.ts"
+    "test:task-order-number": "tsx tests/task-order-number.test.ts",
+    "test:multitask-quote": "ts-node-dev -r tsconfig-paths/register --transpile-only --no-notify --no-deps --respawn=false tests/multitask-quote-e2e.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
