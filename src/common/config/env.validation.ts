@@ -126,6 +126,18 @@ export const envSchema = z.object({
     .transform(val => val !== 'false')
     .default('true'),
 
+  // WhatsApp Cloud API — canal OFICIAL, voltado ao cliente (orçamento + OTP).
+  // Todas opcionais: sem elas a API sobe normalmente, o Baileys segue atendendo
+  // o tráfego interno e o webhook recusa o que não puder verificar.
+  WHATSAPP_CLOUD_WABA_ID: z.string().optional(),
+  WHATSAPP_CLOUD_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_CLOUD_TOKEN: z.string().optional(),
+  // App Secret do app na Meta — chave da assinatura do webhook, não do envio.
+  WHATSAPP_CLOUD_APP_SECRET: z.string().optional(),
+  // Segredo do handshake GET, inventado por nós e colado no painel da Meta.
+  WHATSAPP_CLOUD_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_CLOUD_API_VERSION: z.string().default('v25.0'),
+
   // Email Template
   SUPPORT_PHONE: z.string().default('+554384190989'),
   EMAIL_LOGO_URL: z

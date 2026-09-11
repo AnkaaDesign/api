@@ -78,6 +78,7 @@ import { SignatureWhatsAppBridgeModule } from './modules/common/signature/signat
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
 import { SicrediModule } from './modules/integrations/sicredi/sicredi.module';
+import { WhatsAppCloudModule } from './modules/integrations/whatsapp-cloud/whatsapp-cloud.module';
 import { NfseModule } from './modules/integrations/nfse/nfse.module';
 import { SiegModule } from './modules/integrations/sieg/sieg.module';
 import { InvoiceModule } from './modules/financial/invoice/invoice.module';
@@ -174,6 +175,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     MessageModule,
     DeepLinkModule,
     SicrediModule,
+    WhatsAppCloudModule,
     NfseModule,
     SiegModule,
     InvoiceModule,
