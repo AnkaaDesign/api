@@ -233,6 +233,23 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     return entities.map(entity => this.mapToEntity(entity));
   }
 
+  /**
+   * As faturas de TODOS os veículos de um orçamento.
+   *
+   * `Invoice.taskId` é o veículo; o orçamento é o pai dele. A ordenação é por
+   * `task.createdAt` — a MESMA de `QUOTE_TASKS_ORDER_BY` —, para que a tela
+   * liste as sessenta faturas na ordem em que lista os sessenta caminhões.
+   */
+  async findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]> {
+    const entities = await this.prisma.invoice.findMany({
+      where: { task: { quoteId } },
+      include: this.buildInclude(include),
+      orderBy: [{ task: { createdAt: 'asc' } }, { createdAt: 'asc' }],
+    });
+
+    return entities.map(entity => this.mapToEntity(entity));
+  }
+
   async findByCustomerId(customerId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     const entities = await this.prisma.invoice.findMany({
       where: { customerId },

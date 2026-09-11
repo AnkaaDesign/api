@@ -293,6 +293,28 @@ export class InvoiceController {
   }
 
   /**
+   * GET /invoices/quote/:quoteId
+   * As faturas de TODOS os veículos de um orçamento.
+   *
+   * `Invoice.taskId` aponta para UM veículo. Com `billingSplit = PER_TASK` um
+   * orçamento de sessenta caminhões tem sessenta faturas, cada uma na sua
+   * tarefa, e perguntar pela rota `/task/:taskId` responde com UMA — a do
+   * veículo por onde a tela entrou. A tela de ORÇAMENTO (o app abre o orçamento
+   * inteiro, não um caminhão) precisa das sessenta, e pedi-las uma a uma seriam
+   * sessenta requisições.
+   */
+  @Get('quote/:quoteId')
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
+  async findByQuoteId(@Param('quoteId', ParseUUIDPipe) quoteId: string) {
+    return this.invoiceService.findByQuoteId(quoteId);
+  }
+
+  /**
    * GET /invoices/customer/:customerId
    * Get all invoices for a specific customer.
    */
