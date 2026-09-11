@@ -149,7 +149,11 @@ async function bootstrap() {
     app.use((req: any, res, next) => {
       const isWebhookRoute =
         req.method === 'POST' &&
-        (req.url === '/deployments/webhook' || req.url === '/webhooks/sicredi');
+        (req.url === '/deployments/webhook' ||
+          req.url === '/webhooks/sicredi' ||
+          // A assinatura do webhook da Meta (x-hub-signature-256) é sobre os BYTES
+          // exatos do corpo — reserializar o JSON já invalida a conferência.
+          req.url === '/webhooks/whatsapp');
 
       if (isWebhookRoute) {
         const chunks: Buffer[] = [];
