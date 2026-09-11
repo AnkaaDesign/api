@@ -538,6 +538,10 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // O NÚMERO DO PEDIDO saiu daqui: virou coluna da tabela de veículos, porque
   // ele identifica a ENTREGA e um orçamento de quatro caminhões pode ter quatro
   // pedidos diferentes — que numa linha só não cabem.
+  const joinBillingAddress = (a: string | null, b: string | null): string | null => {
+    const parts = [a, b].map(p => (p ?? '').trim()).filter(Boolean);
+    return parts.length > 0 ? parts.join(' — ') : null;
+  };
   const billingRows: Array<Array<[string, string | null]>> = data.billing
     ? [
         [['Razão social', data.billing.corporateName]],
@@ -546,8 +550,10 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
           ['Inscrição estadual', data.billing.stateRegistration],
           ['Inscrição municipal', data.billing.municipalRegistration],
         ],
-        [['Endereço', data.billing.addressLine]],
-        [['Município', data.billing.addressLocality]],
+        // ENDEREÇO NUMA LINHA SÓ. Eram duas — logradouro e depois "Município"
+        // com bairro, cidade/UF e CEP —, e nenhuma das duas enchia a largura: o
+        // quadro gastava dois renques para dizer um endereço.
+        [['Endereço', joinBillingAddress(data.billing.addressLine, data.billing.addressLocality)]],
       ]
     : [];
 
