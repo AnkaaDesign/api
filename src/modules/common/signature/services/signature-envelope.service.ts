@@ -1543,6 +1543,10 @@ export class SignatureEnvelopeService {
         chassisNumber: t.truck?.chassisNumber ?? null,
         categoryLabel: t.truck?.category ?? null,
         implementLabel: t.truck?.implementType ?? null,
+        // O pedido de compra DESTE veículo — vira coluna da tabela. Era linha do
+        // quadro do tomador, onde só cabia um número: quatro caminhões comprados
+        // em pedidos diferentes não cabiam ali.
+        orderNumber: (t as { customerOrderNumber?: string | null }).customerOrderNumber ?? null,
       })),
       services: services.map(s => ({
         description: s.description,

@@ -127,6 +127,15 @@ export interface QuoteHtmlVehicle {
    */
   categoryLabel: string | null;
   implementLabel: string | null;
+  /**
+   * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo
+   * (`Task.customerOrderNumber`).
+   *
+   * Sai como COLUNA da tabela, e não como linha do quadro do tomador: o pedido
+   * identifica a ENTREGA, como a série e a placa, e um orçamento de quatro
+   * caminhões comprados em pedidos diferentes não cabe numa linha só.
+   */
+  orderNumber: string | null;
 }
 
 /**
@@ -146,7 +155,14 @@ export interface QuoteHtmlBilling {
   addressLine: string | null;
   /** Linha 2: bairro, cidade/UF e CEP. */
   addressLocality: string | null;
-  /** Número do pedido do cliente — é o que a nota precisa citar. */
+  /**
+   * @deprecated O número do pedido virou COLUNA da tabela de veículos
+   * (`QuoteHtmlVehicle.orderNumber`): ele identifica a ENTREGA, e um orçamento
+   * de quatro caminhões pode ter quatro pedidos, que numa linha só não cabem.
+   *
+   * Segue no tipo porque os envelopes CONGELADOS antes desta mudança guardam o
+   * campo no snapshot, e o material que os re-renderiza tem de aceitá-lo.
+   */
   orderNumber: string | null;
 }
 
@@ -409,10 +425,17 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // classificação, não identidade, e uma coluna inteira de travessões não
   // informa nada. Também não ganham lacuna, porque já estão preenchidos na
   // emissão — o que chega depois é identidade, não classificação.
+  //
+  // O PEDIDO DE COMPRA segue a mesma regra da categoria: só ganha coluna se
+  // ALGUM veículo o tiver. Ele identifica a entrega — dois caminhões do mesmo
+  // orçamento podem ter vindo em pedidos diferentes —, e é por isso que deixou
+  // de ser uma linha do quadro do tomador, onde só cabia um número.
+  const anyOrderNumber = vehicles.some(v => !!(v.orderNumber ?? '').trim());
   const vehicleColumns: Array<{ key: string; label: string }> = [
     { key: 'serialNumber', label: 'Nº de série' },
     { key: 'plate', label: 'Placa' },
     { key: 'chassis', label: 'Chassi' },
+    ...(anyOrderNumber ? [{ key: 'orderNumber', label: 'Nº do pedido' }] : []),
     ...(anyCategory ? [{ key: 'category', label: 'Categoria' }] : []),
     ...(anyImplement ? [{ key: 'implement', label: 'Implemento' }] : []),
   ];
@@ -429,6 +452,10 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
         return v.chassisNumber
           ? vehicleValueHtml(v.chassisNumber)
           : lateSlotHtml('chassis', v.taskId);
+      case 'orderNumber':
+        return (v.orderNumber ?? '').trim()
+          ? vehicleValueHtml(v.orderNumber!.trim())
+          : '<span class="vehicle-empty">&mdash;</span>';
       case 'category':
         return truckCategoryLabel(v.categoryLabel)
           ? vehicleValueHtml(truckCategoryLabel(v.categoryLabel)!)
@@ -501,29 +528,41 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   //
   // Campo vazio sai como travessão em vez de sumir: a linha ausente esconderia
   // exatamente o buraco que o quadro existe para expor.
-  const billingRows: Array<[string, string | null]> = data.billing
+  //
+  // CADA LINHA PODE TER DOIS PARES. Razão social, endereço e município são
+  // longos e ocupam a largura; as duas inscrições são curtas e ficavam com
+  // dois terços da folha em branco à direita de cada uma — duas linhas onde
+  // cabia uma, num documento que agora pode ter quatro seções e sessenta
+  // veículos disputando a mesma folha.
+  //
+  // O NÚMERO DO PEDIDO saiu daqui: virou coluna da tabela de veículos, porque
+  // ele identifica a ENTREGA e um orçamento de quatro caminhões pode ter quatro
+  // pedidos diferentes — que numa linha só não cabem.
+  const billingRows: Array<Array<[string, string | null]>> = data.billing
     ? [
-        ['Razão social', data.billing.corporateName],
-        ['CNPJ / CPF', data.billing.documentFormatted],
-        ['Inscrição estadual', data.billing.stateRegistration],
-        ['Inscrição municipal', data.billing.municipalRegistration],
-        ['Endereço', data.billing.addressLine],
-        ['Município', data.billing.addressLocality],
-        // Só sai quando existe: o número do pedido é exigência de alguns
-        // clientes e não de todos, e uma linha "Nº do pedido —" num orçamento
-        // que não usa pedido leria como pendência.
-        ...(data.billing.orderNumber
-          ? ([['Nº do pedido', data.billing.orderNumber]] as Array<[string, string | null]>)
-          : []),
+        [['Razão social', data.billing.corporateName]],
+        [['CNPJ / CPF', data.billing.documentFormatted]],
+        [
+          ['Inscrição estadual', data.billing.stateRegistration],
+          ['Inscrição municipal', data.billing.municipalRegistration],
+        ],
+        [['Endereço', data.billing.addressLine]],
+        [['Município', data.billing.addressLocality]],
       ]
     : [];
 
+  const billingCellHtml = ([label, value]: [string, string | null], span: number): string =>
+    `<th>${escapeHtml(label)}</th>
+     <td${span > 1 ? ` colspan="${span}"` : ''}>${
+       value ? escapeHtml(value) : '<span class="billing-empty">&mdash;</span>'
+     }</td>`;
+
   const billingRowsHtml = billingRows
     .map(
-      ([label, value]) => `<tr>
-        <th>${escapeHtml(label)}</th>
-        <td>${value ? escapeHtml(value) : '<span class="billing-empty">&mdash;</span>'}</td>
-      </tr>`,
+      pairs =>
+        `<tr>${pairs
+          .map(pair => billingCellHtml(pair, pairs.length === 1 ? 3 : 1))
+          .join('')}</tr>`,
     )
     .join('');
 
@@ -825,9 +864,13 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   }
   .billing-table th {
     text-align: left; font-weight: 600; color: var(--gray);
-    width: 34mm; padding: .8mm 3mm .8mm 0; vertical-align: baseline;
+    width: 32mm; padding: .8mm 3mm .8mm 0; vertical-align: baseline;
     white-space: nowrap;
   }
+  /* O SEGUNDO par de uma linha ganha respiro à esquerda: sem ele o valor da
+     inscricao estadual encosta no rotulo da municipal e os dois leem como um
+     texto so. */
+  .billing-table th + td + th { padding-left: 6mm; }
   .billing-table td { padding: .8mm 0; vertical-align: baseline; }
   .billing-empty { color: var(--gray); }
   /* Um filete separa o quadro da frase das parcelas: sao duas coisas de natureza
@@ -1058,6 +1101,16 @@ ${part === 'content' || part === 'fused' ? `
     }
 
     ${
+      showGuarantee && data.guaranteeText
+        ? `<div class="page-content-gap"></div>
+           <section class="terms-section">
+             <h2 class="terms-title">Garantias</h2>
+             <p class="terms-content">${formatGuaranteeHtml(data.guaranteeText)}</p>
+           </section>`
+        : ''
+    }
+
+    ${
       showPayment && (data.paymentText || billingRowsHtml)
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
@@ -1074,16 +1127,6 @@ ${part === 'content' || part === 'fused' ? `
                    )}</p>`
                  : ''
              }
-           </section>`
-        : ''
-    }
-
-    ${
-      showGuarantee && data.guaranteeText
-        ? `<div class="page-content-gap"></div>
-           <section class="terms-section">
-             <h2 class="terms-title">Garantias</h2>
-             <p class="terms-content">${formatGuaranteeHtml(data.guaranteeText)}</p>
            </section>`
         : ''
     }

@@ -3807,7 +3807,33 @@ export class TaskQuoteService {
                 select: { id: true, name: true, roles: true },
               },
               customer: {
-                select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
+                // O QUADRO DO TOMADOR. Não é só nome e documento: a seção
+                // "Faturamento" imprime inscrição estadual, municipal e o
+                // endereço completo — é o cadastro que a prefeitura exige na
+                // NFS-e, posto no documento para o cliente CONFERIR antes de
+                // aprovar. Sem estes campos no `select` a página mostrava "—"
+                // em todas as linhas de um cliente que tem tudo preenchido, e
+                // nada acusava: ausência não é erro de tipo.
+                //
+                // Não são dados sensíveis — são os do próprio cliente, que ele
+                // já conhece e está ali para verificar.
+                select: {
+                  id: true,
+                  corporateName: true,
+                  fantasyName: true,
+                  cnpj: true,
+                  cpf: true,
+                  stateRegistration: true,
+                  municipalRegistration: true,
+                  streetType: true,
+                  address: true,
+                  addressNumber: true,
+                  addressComplement: true,
+                  neighborhood: true,
+                  city: true,
+                  state: true,
+                  zipCode: true,
+                },
               },
               customerSignature: {
                 select: { id: true, filename: true, originalName: true, mimetype: true },
