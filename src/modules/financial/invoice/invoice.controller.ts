@@ -1947,11 +1947,28 @@ export class InvoiceController {
       }
     }
 
+    // Estado do ADN por nota. A listagem não carrega esse campo — ele só existe no resumo,
+    // uma chamada por nota. Vale o custo: sem ele a tela não tem como saber que a nota está
+    // válida no município mas ausente do ambiente nacional, que é o estado em que o DANFSe
+    // sai carimbado de erro e o cancelamento é recusado com E1831.
+    const adnByDocId = new Map<string, { hasError: boolean; errorMessage: string | null; canResend: boolean }>();
+    const adnTargets = docs.filter(d => d.elotechNfseId != null && d.status !== 'CANCELLED');
+    if (adnTargets.length > 0) {
+      const states = await Promise.allSettled(
+        adnTargets.map(d => this.municipalNfseService.getAdnState(d.elotechNfseId!)),
+      );
+      states.forEach((res, i) => {
+        if (res.status === 'fulfilled') adnByDocId.set(adnTargets[i].id, res.value);
+        else this.logger.warn(`taskNfseHistory: ADN state failed for ${adnTargets[i].id}: ${res.reason}`);
+      });
+    }
+
     return {
       taskId,
       total: docs.length,
       nfses: docs.map(d => {
         const e = d.elotechNfseId ? elotechById.get(d.elotechNfseId) : null;
+        const adn = adnByDocId.get(d.id) ?? null;
         return {
           ...d,
           // invoiceId null = the note outlived its invoice (billing reverted) or was re-linked
@@ -1962,6 +1979,8 @@ export class InvoiceController {
           valorISS: e?.valorISS ?? null,
           tomadorRazaoNome: e?.tomadorRazaoNome ?? null,
           cancelada: e?.cancelada ?? (d.status === 'CANCELLED'),
+          adnError: adn?.hasError ? adn.errorMessage : null,
+          adnCanResend: adn?.canResend ?? false,
         };
       }),
     };
