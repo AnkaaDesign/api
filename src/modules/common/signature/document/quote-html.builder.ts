@@ -167,6 +167,36 @@ export interface QuoteHtmlInput {
   signers: QuoteHtmlSignerSlot[];
 
   /**
+   * Como os signatários se distribuem pelas FOLHAS de assinatura.
+   *
+   * A folha de assinaturas tem altura fixa — é dela que saem as âncoras dos
+   * selos, e um bloco que transborda clipa uma linha inteira sem sinal nenhum.
+   * Enquanto havia uma folha só, "não coube" só podia virar recusa: era o
+   * `BadRequestException` que dizia ao operador para tirar responsáveis da
+   * coleta. Não há razão para esse limite existir — assinar é o ato de uma
+   * pessoa, e quantas pessoas assinam é decisão do cliente, não do papel.
+   *
+   * Então quando não cabe, o bloco SE PARTE: o renderizador mede, reduz quantos
+   * cabem por folha e repete. Cada grupo vira uma `.page-signatures` própria,
+   * com cabeçalho e rodapé, e cada âncora carrega a folha em que foi medida.
+   *
+   * Omitido = todos numa folha, que é o caso de sempre.
+   */
+  signerPages?: QuoteHtmlSignerSlot[][];
+
+  /**
+   * A arte vai no CORPO do orçamento, não na folha de assinaturas.
+   *
+   * O padrão é a folha de assinaturas: com uma arte ela sobra bem, e a folha que
+   * já existe passa a carregar o que o cliente está de fato aprovando. Com
+   * VÁRIAS artes essa folha divide a mesma sobra entre todas e cada uma vira
+   * miniatura — o renderizador mede isso e, abaixo do piso de legibilidade,
+   * manda a arte para o corpo, onde ela pagina livremente a 105mm por imagem.
+   * Uma folha a mais custa menos que uma arte que ninguém consegue conferir.
+   */
+  layoutInContent?: boolean;
+
+  /**
    * O RECORTE deste documento: as seções que ele exibe.
    *
    * Omitido significa o documento inteiro — é o que mantém funcionando todo
@@ -357,14 +387,25 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // Ate 3 signatarios cabem confortavelmente em 2 colunas. A partir de 4, duas
   // colunas empilham 3 fileiras e o bloco come a folha inteira — 3 colunas com
   // caixas menores mantem o mesmo bloco em 2 fileiras.
-  const gridClass = data.signers.length > 3 ? 'signature-grid cols-3' : 'signature-grid';
+  //
+  // Por FOLHA, e nao pelo total: quando o bloco se parte, a ultima folha pode
+  // levar dois signatarios, e espremer esses dois em 3 colunas seria encolher a
+  // caixa sem nenhuma folha a ganhar com isso.
+  const gridClassFor = (signers: QuoteHtmlSignerSlot[]) =>
+    signers.length > 3 ? 'signature-grid cols-3' : 'signature-grid';
 
-  const layoutInContent = part === 'fused' ? layoutHtml : '';
-  const layoutInSignatures = part === 'signatures' ? layoutHtml : '';
+  // `layoutInContent` sai no corpo por dois caminhos: na folha fundida (onde o
+  // corpo E a folha de assinaturas) e quando o renderizador mediu que a arte nao
+  // fica conferivel na folha de assinaturas. Ver `QuoteHtmlInput.layoutInContent`.
+  const layoutInContent =
+    part === 'fused' || (part === 'content' && data.layoutInContent) ? layoutHtml : '';
+  const layoutInSignatures =
+    part === 'signatures' && !data.layoutInContent ? layoutHtml : '';
 
-  const signersHtml = data.signers
-    .map(
-      s => `
+  const signersHtmlFor = (signers: QuoteHtmlSignerSlot[]) =>
+    signers
+      .map(
+        s => `
       <div class="signature-box">
         <div class="signature-seal-area"
              data-signature-slot="${escapeHtml(s.id)}"
@@ -374,8 +415,13 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
           <div class="signature-title">${escapeHtml(s.subtitle)}</div>
         </div>
       </div>`,
-    )
-    .join('');
+      )
+      .join('');
+
+  // Uma folha por grupo. Sem `signerPages` é o comportamento de sempre: um
+  // grupo com todo mundo, uma folha só.
+  const signerSheets: QuoteHtmlSignerSlot[][] =
+    data.signerPages?.length ? data.signerPages : [data.signers];
 
   const fontFace = data.fontDataUri
     ? `@font-face {
@@ -674,11 +720,32 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   /* flex-start: a imagem encosta no titulo "Layout". Centralizada, a sobra da
      proporcao virava vao acima E abaixo dela. */
   .signatures-content.has-layout .layout-grid {
-    flex: 1 1 auto; min-height: 0; justify-content: flex-start;
+    flex: 1 1 auto; min-height: 0; justify-content: flex-start; overflow: hidden;
   }
   /* Sem o teto de --layout-max-h aqui: quem limita e o espaco que sobra depois do
-     cabecalho, do bloco de assinaturas e do rodape. */
-  .signatures-content.has-layout .layout-image { max-height: 100%; }
+     cabecalho, do bloco de assinaturas e do rodape.
+
+     ESSE ESPACO E DIVIDIDO, nao oferecido a cada imagem. max-height:100% dava a
+     CADA arte a altura inteira da grade, e como a grade empilha em coluna, N
+     artes somavam N vezes o espaco disponivel: a folha transbordava, o detector
+     acusava, e o laco de sacrificio nao tinha o que sacrificar — ele encolhe
+     --layout-max-h, que este seletor sobrescrevia. O envio entao morria num
+     BadRequest culpando o numero de signatarios, que nao tinha nada com isso.
+     (Reproduzido: 2 artes e 4 signatarios, recorte completo.)
+
+     flex 1 1 0 reparte a sobra em partes iguais e nunca ultrapassa a grade —
+     e o comportamento com UMA arte, que e o caso normal, continua identico: uma
+     parte de um e a sobra inteira. object-fit:contain preserva a proporcao
+     dentro da caixa que o flex arbitrou.
+
+     E a mesma licao ja anotada em .page-content.has-layout .layout-grid logo
+     acima, que aqui faltava aplicar. */
+  .signatures-content.has-layout .layout-image {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+    width: 100%;
+  }
 
   .signatures-title {
     font-size: 11pt; font-weight: 700; color: var(--green); text-align: left;
@@ -798,7 +865,7 @@ ${part === 'content' || part === 'fused' ? `
         ? `<div class="page-content-gap"></div>
     <section class="signatures-section">
       <h2 class="signatures-title">Assinaturas</h2>
-      <div class="${gridClass}">${signersHtml}</div>
+      <div class="${gridClassFor(data.signers)}">${signersHtmlFor(data.signers)}</div>
     </section>`
         : ''
     }
@@ -806,19 +873,30 @@ ${part === 'content' || part === 'fused' ? `
   </div>
   ${footerBlock}
 </div>
-` : `
-<div class="page-signatures" id="page-signatures">
+` : signerSheets
+      .map((sheet, index) => {
+        // A arte sai na PRIMEIRA folha de assinaturas, e só nela: repeti-la em
+        // cada folha faria o documento afirmar N artes onde há uma.
+        const layoutHere = index === 0 ? layoutInSignatures : '';
+        const suffix = index === 0 ? '' : `-${index + 1}`;
+        // O par "2/3" existe para quem recebe o papel: sem ele, uma folha de
+        // assinaturas solta não diz se é a única ou se falta gente adiante.
+        const counter =
+          signerSheets.length > 1 ? ` (folha ${index + 1} de ${signerSheets.length})` : '';
+        return `
+<div class="page-signatures" id="page-signatures${suffix}">
   ${headerBlock}
-  <div class="signatures-content${layoutInSignatures ? ' has-layout' : ''}" id="signatures-content">
-    ${layoutInSignatures}
+  <div class="signatures-content${layoutHere ? ' has-layout' : ''}" id="signatures-content${suffix}">
+    ${layoutHere}
     <section class="signatures-section">
-      <h2 class="signatures-title">Assinaturas</h2>
-      <div class="${gridClass}">${signersHtml}</div>
+      <h2 class="signatures-title">Assinaturas${counter}</h2>
+      <div class="${gridClassFor(sheet)}">${signersHtmlFor(sheet)}</div>
     </section>
   </div>
   ${footerBlock}
-</div>
-`}
+</div>`;
+      })
+      .join('\n')}
 
 </body>
 </html>`;

@@ -125,6 +125,11 @@ const GRID = [
   { services: 12, layouts: 1, signers: 2 },
   { services: 12, layouts: 0, signers: 6 },
   { services: 24, layouts: 1, signers: 4 },
+  // O caso que quebrou em produção: VÁRIAS artes na folha de assinaturas. Cada
+  // uma recebia a altura inteira da grade (max-height:100% numa coluna flex), as
+  // três somavam três folhas de altura, a folha transbordava — e o envio morria
+  // num 400 que culpava o número de signatários.
+  { services: 8, layouts: 3, signers: 6 },
 ];
 
 async function main() {
@@ -238,6 +243,31 @@ async function main() {
     check(`o orçamento cheio com arte NÃO é espremido em uma folha (obtido ${pages})`, pages >= 2);
     // eslint-disable-next-line no-console
     console.log(`  completo com 24 serviços e 2 artes: ${pages} folhas`);
+  }
+
+  // 9. NÃO HÁ TETO DE SIGNATÁRIOS. O bloco se parte em quantas folhas precisar, e
+  //    cada âncora aponta para a folha em que foi medida — um selo com a página
+  //    errada carimbaria o rosto de alguém no meio do orçamento.
+  for (const signers of [5, 12, 30]) {
+    const [out] = await renderer.renderAll([
+      inputFor({ sections: [...FULL_SECTIONS], services: 8, layouts: 1, signers }),
+    ]);
+    const pages = (await PDFDocument.load(out.pdf, { updateMetadata: false })).getPageCount();
+    const anchorPages = Object.values(out.anchors).map(a => a.page);
+    check(`[${signers} signatários] a folha de assinaturas não transborda`, !out.overflowed);
+    check(
+      `[${signers} signatários] mediu as ${signers} âncoras (obtido ${anchorPages.length})`,
+      anchorPages.length === signers,
+    );
+    check(
+      `[${signers} signatários] toda âncora aponta para uma folha existente (0..${pages - 1})`,
+      anchorPages.every(p => p >= 0 && p < pages),
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      `  ${String(signers).padStart(2)} signatários → ${pages} folhas, assinaturas em ` +
+        `[${[...new Set(anchorPages)].sort((a, b) => a - b).join(', ')}]`,
+    );
   }
 
   if (failures.length) {
