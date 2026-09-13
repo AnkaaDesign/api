@@ -6,7 +6,11 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { TaskQuoteRepository } from './task-quote.repository';
-import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
+import {
+  QUOTE_TASKS_ORDER_BY,
+  QUOTE_COVERAGE_INCLUDE,
+  withCoverageInclude,
+} from '@utils/quote-tasks';
 
 /** A ordem canônica das tarefas de um orçamento — ver `QUOTE_TASKS_ORDER_BY`. */
 const TASK_ORDER = QUOTE_TASKS_ORDER_BY;
@@ -329,7 +333,10 @@ export class TaskQuotePrismaRepository
     if ((include as any).layoutFiles !== undefined)
       mappedInclude.layoutFiles = (include as any).layoutFiles;
     if ((include as any).customerConfigs !== undefined) {
-      mappedInclude.customerConfigs =
+      // A COBERTURA ENTRA SEMPRE, seja qual for a forma que o chamador pediu.
+      // Ver `withCoverageInclude`: uma fatura que chega à tela sem a cobertura é
+      // uma fatura sem resposta para "de quais veículos é isto?".
+      mappedInclude.customerConfigs = withCoverageInclude(
         (include as any).customerConfigs === true
           ? {
               include: {
@@ -356,7 +363,8 @@ export class TaskQuotePrismaRepository
                 },
               },
             }
-          : (include as any).customerConfigs;
+          : (include as any).customerConfigs,
+      ) as any;
     }
 
     return mappedInclude;
@@ -388,6 +396,7 @@ export class TaskQuotePrismaRepository
       },
       customerConfigs: {
         include: {
+          coveredTasks: QUOTE_COVERAGE_INCLUDE,
           customer: {
             select: { id: true, fantasyName: true, cnpj: true },
           },
@@ -594,6 +603,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: {
                 id: true,
@@ -644,6 +654,7 @@ export class TaskQuotePrismaRepository
         tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -687,6 +698,7 @@ export class TaskQuotePrismaRepository
         tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -729,6 +741,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },

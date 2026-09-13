@@ -25,18 +25,19 @@ import { computeQuoteMoney, round2 } from './quote-money';
 
 export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
   const allItems = await tx.taskQuoteService.findMany({ where: { quoteId } });
-  const allConfigs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
+  // A COBERTURA VEM JUNTO. É ela que multiplica o valor de cada fatura
+  // (`por veículo × cobertos`); uma consulta sem ela devolveria cobertura vazia,
+  // e cobertura vazia numa conta de dinheiro é R$ 0,00 numa fatura que tem valor.
+  const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
+    where: { quoteId },
+    include: { coveredTasks: { select: { taskId: true } } },
+  });
 
   // QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o multiplicador
   // de todo total. `TaskQuoteService.amount` é o preço de UM veículo; ignorar a
   // contagem aqui faria o orçamento do Marquespan gravar R$ 12.170,40 num
   // contrato de R$ 730.224,00.
   const vehicleCount = Math.max(1, await tx.task.count({ where: { quoteId } }));
-  const quoteRow = await tx.taskQuote.findUnique({
-    where: { id: quoteId },
-    select: { billingSplit: true },
-  });
-  const billingSplit = (quoteRow as any)?.billingSplit ?? 'JOINT';
 
   // No customer configs: aggregate is just the raw services sum — vezes os
   // veículos, porque o serviço é prestado em cada um.
@@ -66,12 +67,17 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
       : allItems.filter(s => s.invoiceToCustomerId === config.customerId);
     // A MESMA fórmula do documento e da criação. Ver `computeQuoteMoney`: é o
     // único lugar onde a aritmética do orçamento existe.
+    // QUANTOS VEÍCULOS ESTA FATURA COBRA. Substituiu o `billingSplit` da conta:
+    // `JOINT` cobre N, `PER_TASK` cobre 1, um lote cobre k — e a fórmula é a
+    // mesma nos três. A cobertura vazia (orçamento ainda sem veículo vinculado)
+    // cai no padrão de `computeQuoteMoney`, que é cobrir o orçamento inteiro.
+    const coveredCount = ((config as any).coveredTasks ?? []).length || undefined;
     const money = computeQuoteMoney({
       serviceAmounts: assignedServices.map(sv => Number(sv.amount || 0)),
       discountType: config.discountType || 'NONE',
       discountValue: config.discountValue ? Number(config.discountValue) : null,
       taskCount: vehicleCount,
-      billingSplit,
+      coveredTaskCount: coveredCount,
     });
 
     await tx.taskQuoteCustomerConfig.update({
@@ -79,9 +85,11 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
       data: { subtotal: money.configSubtotal, total: money.configTotal },
     });
 
-    // Somar as configurações dá o total do CONTRATO nos dois modos: em `JOINT`
-    // cada configuração carrega o total geral e há uma por cliente; em
-    // `PER_TASK` cada uma carrega o de um veículo e há uma por veículo.
+    // Somar as fatias dá o total do CONTRATO nos três modos, porque as coberturas
+    // PARTICIONAM os veículos: em `JOINT` uma fatia cobre os N; em `PER_TASK` são
+    // N fatias de um; num lote, K fatias que somam N. É o índice único
+    // `(taskId, customerId)` que sustenta essa soma — sem ele, uma sobreposição
+    // faria o total do orçamento passar do contrato sem nada acusar.
     aggregateSubtotal += money.configSubtotal;
     aggregateTotal += money.configTotal;
   }

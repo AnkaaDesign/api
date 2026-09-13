@@ -319,8 +319,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 select: {
                   generateInvoice: true,
                   customerId: true,
-                  // A tarefa desta fatia (cobrança veículo a veículo).
-                  taskId: true,
+                  // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                  //
+                  // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                  // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                  // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                  // `coveredTaskIds()` de `@utils/quote-tasks`.
+                  coveredTasks: { select: { taskId: true } },
                   quote: {
                     select: {
                       // O NÚMERO DO PEDIDO é do VEÍCULO desde o orçamento

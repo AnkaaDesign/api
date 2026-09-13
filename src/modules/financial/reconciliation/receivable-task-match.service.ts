@@ -17,7 +17,7 @@ import {
   OPEN_INSTALLMENT_STATUSES,
 } from './task-match-allocation';
 import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
-import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
+import { QUOTE_TASKS_ORDER_BY, sliceAnchorTaskId } from '@utils/quote-tasks';
 import type {
   TaskBillingState,
   TaskMatchAllocationInput,
@@ -705,11 +705,13 @@ export class ReceivableTaskMatchService {
               select: {
                 id: true,
                 customerId: true,
-                // A TAREFA DA FATIA. Nula quando a fatia cobre o orçamento
-                // inteiro (`JOINT`); preenchida quando o orçamento fatura
-                // veículo a veículo (`PER_TASK`). Sem ela, a fatura da fatia do
-                // caminhão 37 nasceria apontando para o caminhão 1.
-                taskId: true,
+                // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                //
+                // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                // `coveredTaskIds()` de `@utils/quote-tasks`.
+                coveredTasks: { select: { taskId: true } },
                 subtotal: true,
                 total: true,
                 paymentCondition: true,
@@ -1047,10 +1049,11 @@ export class ReceivableTaskMatchService {
         const invoice = await db.invoice.create({
           data: {
             customerConfigId: config.id,
-            // A tarefa DESTA fatia primeiro: em `PER_TASK` cada fatia é um
-            // veículo, e usar a âncora para todas faria as sessenta faturas
-            // apontarem para o caminhão 1.
-            taskId: config.taskId ?? anchorTask?.id ?? null,
+            // O veículo DESTA fatura quando ela é de um só; a âncora do
+            // orçamento como reserva para a fatia sem cobertura. Usar a âncora
+            // para todas faria as sessenta faturas apontarem para o caminhão 1;
+            // usá-la numa fatura de lote afirmaria que os vinte são um.
+            taskId: sliceAnchorTaskId(config as any) ?? anchorTask?.id ?? null,
             customerId: config.customerId,
             totalAmount: new Decimal(total),
             paidAmount: 0,
@@ -1133,10 +1136,11 @@ export class ReceivableTaskMatchService {
       config = {
         id: created.id,
         customerId: created.customerId,
-        // `taskId` nulo: esta fatia de reparo cobre o ORÇAMENTO inteiro, que é o
-        // que `JOINT` significa. Amarrá-la a um veículo faria a fatura nascer
-        // recortada num caminhão que ninguém escolheu.
-        taskId: null,
+        // Cobertura VAZIA: esta fatia de reparo nasce sem veículo escolhido, e
+        // quem a completa é a reconciliação de faturamento (que a estende para o
+        // orçamento inteiro no modo `JOINT`). Amarrá-la aqui a um caminhão faria
+        // a fatura nascer recortada num veículo que ninguém escolheu.
+        coveredTasks: [],
         subtotal: created.subtotal,
         total: created.total,
         paymentCondition: null,
@@ -1569,8 +1573,8 @@ type QuoteWithConfigs = {
   customerConfigs: {
     id: string;
     customerId: string;
-    /** A tarefa da fatia — nula em `JOINT`, o veículo em `PER_TASK`. */
-    taskId: string | null;
+    /** A COBERTURA — os veículos que esta fatura cobra. Ver `QuoteBillingTask`. */
+    coveredTasks: { taskId: string }[];
     subtotal: Prisma.Decimal | number;
     total: Prisma.Decimal | number;
     paymentCondition: string | null;

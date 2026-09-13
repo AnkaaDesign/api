@@ -763,7 +763,27 @@ function billingSplitLabel(value: string | null | undefined): string | null {
   if (!value) return null;
   if (value === 'PER_TASK') return 'Uma fatura por veículo';
   if (value === 'JOINT') return 'Fatura única para todos os veículos';
+  if (value === 'CUSTOM') return 'Faturamento em lotes';
   return value;
+}
+
+/**
+ * Os LOTES, em uma frase.
+ *
+ * "Faturamento em lotes" sozinho não diz o que mudou: três faturas de vinte e
+ * duas de trinta são o mesmo modo e obrigações diferentes. Quem assina precisa
+ * ler o tamanho, e é o tamanho que muda o número impresso na cláusula.
+ */
+function billingGroupsLabel(groups: string[][] | null | undefined): string | null {
+  if (!groups || groups.length === 0) return null;
+  if (groups.length === 1) {
+    return `1 fatura cobrindo ${plural(groups[0].length, 'veículo', 'veículos')}`;
+  }
+  const sizes = groups.map(g => g.length);
+  const uniform = sizes.every(n => n === sizes[0]);
+  return uniform
+    ? `${plural(groups.length, 'fatura', 'faturas')} de ${plural(sizes[0], 'veículo', 'veículos')}`
+    : `${plural(groups.length, 'fatura', 'faturas')} (${sizes.join(' + ')} veículos)`;
 }
 
 /** Campo escalar: só entra na lista quando de fato mudou. */
@@ -912,6 +932,23 @@ export function diffQuoteSnapshots(
       label: 'Forma de faturamento',
       before: billingSplitLabel(before.billingSplit),
       after: billingSplitLabel(after.billingSplit),
+    });
+  }
+  // OS LOTES. Entram por si porque reagrupar sem trocar de modo muda o valor de
+  // cada fatura sem mexer em nenhum outro campo do recorte — "três de vinte"
+  // para "duas de trinta" é o mesmo `CUSTOM` e outro boleto.
+  //
+  // Sai só quando um dos lados tem a chave: snapshot congelado antes da v4 não
+  // a tem, e comparar `undefined` com a lista marcaria como alterado todo
+  // orçamento anterior a esta feature.
+  if (before.billingGroups || after.billingGroups) {
+    scalar(out, {
+      key: 'billingGroups',
+      severity: 'MATERIAL',
+      group: 'PAYMENT',
+      label: 'Lotes de faturamento',
+      before: billingGroupsLabel(before.billingGroups),
+      after: billingGroupsLabel(after.billingGroups),
     });
   }
 

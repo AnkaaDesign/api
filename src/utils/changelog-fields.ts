@@ -784,6 +784,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     customForecastDays: 'Dias de Previsão Personalizados',
     simultaneousTasks: 'Tarefas Simultâneas',
     discountReference: 'Referência do Desconto',
+    billingSplit: 'Forma de Faturamento',
+    billingCoverage: 'Veículos por Fatura',
+    vehicleCount: 'Quantidade de Veículos',
     // Nested relationship fields
     'services.length': 'Quantidade de Serviços',
     services_snapshot: 'Serviços do Orçamento',

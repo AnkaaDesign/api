@@ -77,11 +77,13 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
     select: {
       id: true,
       total: true,
-      // A TAREFA DESTA FATIA — nulo na fatura conjunta, preenchido quando a
-      // cobrança é de um veículo (`billingSplit = PER_TASK`). Sem esta coluna,
-      // `sliceTask` só conseguiria responder o primeiro veículo, e a parcela do
-      // caminhão 37 abriria a tela do caminhão 1.
-      taskId: true,
+      // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+      //
+      // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+      // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+      // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+      // `coveredTaskIds()` de `@utils/quote-tasks`.
+      coveredTasks: { select: { taskId: true } },
       customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
       quote: {
         select: {

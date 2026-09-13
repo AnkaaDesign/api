@@ -1733,8 +1733,13 @@ export class ReceivableMatchService {
         },
         customerConfig: {
           select: {
-            // A tarefa DESTA fatia (`PER_TASK`) — ver `sliceTask`.
-            taskId: true,
+            // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+            //
+            // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+            // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+            // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+            // `coveredTaskIds()` de `@utils/quote-tasks`.
+            coveredTasks: { select: { taskId: true } },
             customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
             quote: {
               select: {
@@ -2043,8 +2048,13 @@ export class ReceivableMatchService {
             },
             customerConfig: {
               select: {
-                // A tarefa DESTA fatia (`PER_TASK`) — ver `sliceTask`.
-                taskId: true,
+                // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                //
+                // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                // `coveredTaskIds()` de `@utils/quote-tasks`.
+                coveredTasks: { select: { taskId: true } },
                 customer: {
                   select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
                 },

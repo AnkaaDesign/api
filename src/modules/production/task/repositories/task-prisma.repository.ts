@@ -35,6 +35,10 @@ import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layo
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
+import {
+  QUOTE_COVERAGE_INCLUDE,
+  withCoverageInclude,
+} from '../../../../utils/quote-tasks';
 
 // =====================
 // Query Pattern Definitions
@@ -247,6 +251,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       layoutFiles: { orderBy: { createdAt: 'asc' } },
       customerConfigs: {
         include: {
+          coveredTasks: QUOTE_COVERAGE_INCLUDE,
           customer: {
             select: {
               id: true,
@@ -1730,6 +1735,22 @@ export class TaskPrismaRepository
         }
       }
     });
+
+    // ─── A COBERTURA DO FATURAMENTO ENTRA SEMPRE ─────────────────────────────
+    //
+    // O merge acima deixa o `customerConfigs` do CHAMADOR substituir o do padrão,
+    // e é isso que a tela de Faturamento faz (ela pede cliente, parcelas e
+    // responsável). Sem esta injeção, ela receberia as faturas sem a cobertura e
+    // não teria como dizer de qual caminhão é cada uma — que é justamente o que
+    // ela precisa mostrar. Um único ponto de injeção, no fim, para que nenhuma
+    // tela futura possa esquecer.
+    const quoteNode = databaseInclude.quote;
+    if (quoteNode && typeof quoteNode === 'object') {
+      const nested = (quoteNode.include ?? quoteNode.select) as Record<string, unknown> | undefined;
+      if (nested && nested.customerConfigs !== undefined && nested.customerConfigs !== false) {
+        nested.customerConfigs = withCoverageInclude(nested.customerConfigs);
+      }
+    }
 
     this.logger.log(
       '[mapIncludeToDatabaseInclude] Output include for Prisma:',

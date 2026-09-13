@@ -1883,12 +1883,12 @@ model ServiceOrder {
 }
 
 model TaskQuote {
-  id                  String          @id @default(uuid())
-  subtotal            Decimal         @db.Decimal(10, 2)
-  total               Decimal         @db.Decimal(10, 2)
-  expiresAt           DateTime
-  status              TaskQuoteStatus @default(PENDING)
-  statusOrder         Int             @default(1)
+  id          String          @id @default(uuid())
+  subtotal    Decimal         @db.Decimal(10, 2)
+  total       Decimal         @db.Decimal(10, 2)
+  expiresAt   DateTime
+  status      TaskQuoteStatus @default(PENDING)
+  statusOrder Int             @default(1)
 
   /// Quando o cliente foi avisado de que a validade venceu sem todas as
   /// assinaturas. Existe para que a varredura horária avise UMA vez: sem ele,
@@ -1897,10 +1897,10 @@ model TaskQuote {
   expiryNoticeSentAt  DateTime?
   guaranteeYears      Int?
   customGuaranteeText String?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   billingApprovedAt   DateTime?
-  budgetNumber        Int             @unique
+  budgetNumber        Int       @unique
   customForecastDays  Int?
   simultaneousTasks   Int?
 
@@ -1939,8 +1939,15 @@ model TaskQuote {
   /// terão divergido antes.
   vehicleCount Int @default(1)
 
-  /// Se o cliente paga os N veículos numa fatura só ou uma por veículo.
-  /// Ver `QuoteBillingSplit` e `TaskQuoteCustomerConfig.taskId`.
+  /// COMO os N veículos são cobrados — junto, um a um, ou em lotes.
+  ///
+  /// É a INTENÇÃO declarada, não a cobertura: quem diz de quais veículos cada
+  /// fatura é são as linhas de `QuoteBillingTask`. O modo serve para a máquina
+  /// saber refatiar sozinha quando um veículo entra ou sai do orçamento —
+  /// `JOINT` estende o faturamento existente, `PER_TASK` cria um novo, `CUSTOM`
+  /// isola o recém-chegado em vez de chutar um lote.
+  ///
+  /// Ver `QuoteBillingSplit` e `QuoteBillingTask`.
   billingSplit       QuoteBillingSplit         @default(JOINT)
   layoutFiles        File[]                    @relation("QUOTE_LAYOUT")
   services           TaskQuoteService[]        @relation("QUOTE_SERVICES")
@@ -1979,22 +1986,6 @@ model TaskQuoteCustomerConfig {
   quoteId    String
   customerId String
 
-  /// A TAREFA que esta configuração fatura, ou NULO para "todas as do orçamento".
-  ///
-  /// É a chave do "pagar junto ou separado". Nulo = uma fatura só para os N
-  /// veículos (`JOINT`, o padrão e o comportamento de sempre). Preenchido = uma
-  /// configuração por veículo (`PER_TASK`), cada uma com sua fatura, seu plano de
-  /// parcelas, seus boletos e sua NFS-e — que é o que o Marquespan de 60
-  /// caminhões precisa quando o cliente paga caminhão a caminhão.
-  ///
-  /// A unicidade NÃO cabe num `@@unique` do Prisma porque as duas formas
-  /// convivem no mesmo modelo e o Postgres não deduplica NULO: são dois índices
-  /// PARCIAIS, criados à mão na migração
-  /// `20260903120000_multitask_quote` —
-  /// `TaskQuoteCustomerConfig_one_joint_per_customer` (WHERE "taskId" IS NULL) e
-  /// `TaskQuoteCustomerConfig_one_per_customer_task` (WHERE "taskId" IS NOT NULL).
-  taskId String?
-
   /// Quando ESTA fatia teve o faturamento aprovado.
   ///
   /// Existe porque, com `PER_TASK`, os sessenta caminhões não terminam no mesmo
@@ -2024,17 +2015,63 @@ model TaskQuoteCustomerConfig {
   customerSignature   File?         @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   invoice             Invoice?      @relation("InvoiceCustomerConfig")
   installments        Installment[] @relation("CustomerConfigInstallments")
-  task                Task?         @relation("CustomerConfigTask", fields: [taskId], references: [id], onDelete: Cascade)
 
-  // O `@@unique([quoteId, customerId])` saiu: ver `taskId` acima. Os dois
-  // índices parciais que o substituem vivem na migração, porque o Prisma não
-  // sabe declarar índice com `WHERE`.
+  /// OS VEÍCULOS QUE ESTE FATURAMENTO COBRE — a cobertura, como DADO.
+  ///
+  /// Era a coluna `taskId`, nula querendo dizer "todos". Isso fazia a resposta a
+  /// "de quais veículos é esta fatura?" ser uma REGRA avaliada na hora da
+  /// leitura, e não um registro: uma fatura já emitida passava a cobrir um
+  /// caminhão acrescentado ao orçamento depois, sem deixar rastro. E não
+  /// permitia lote — "1 a 20 num pedido, 21 a 60 noutro" não era representável.
+  ///
+  /// Ver `QuoteBillingTask`. Quem responde a pergunta é `coveredTaskIds()`.
+  coveredTasks QuoteBillingTask[] @relation("BillingCoverage")
+
+  // Não há `@@unique` do faturamento em si: com lote, o mesmo cliente tem K
+  // faturamentos no mesmo orçamento e K é livre. A unicidade que importa mudou
+  // de lugar e ficou MAIS forte — `QuoteBillingTask.@@unique([taskId, customerId])`
+  // diz que um veículo é cobrado por exatamente UM faturamento daquele cliente,
+  // e isso o banco garante nos três modos.
   @@index([quoteId])
   @@index([customerId])
   @@index([responsibleId])
   @@index([customerSignatureId])
+}
+
+/// A COBERTURA DE UM FATURAMENTO — quais veículos ele cobra.
+///
+/// É a linha que separa o ORÇAMENTO (o que foi vendido e assinado: preço,
+/// garantia, os N veículos) do FATURAMENTO (como se cobra: quantas faturas,
+/// quantas notas, quantos planos de parcelas). O orçamento continua um só, com
+/// uma assinatura só; o faturamento passa a ser um particionamento explícito dos
+/// veículos dele.
+///
+/// Os três modos de `TaskQuote.billingSplit` são a MESMA forma, com coberturas
+/// diferentes — não três caminhos de código:
+///
+///   JOINT     1 faturamento × N veículos          (o padrão, e o de sempre)
+///   PER_TASK  N faturamentos × 1 veículo cada
+///   CUSTOM    K faturamentos, lotes livres        (1–20 | 21–60)
+///
+/// `customerId` é desnormalizado de propósito: é ele que permite ao BANCO
+/// garantir a regra que realmente importa — um veículo é cobrado por exatamente
+/// um faturamento daquele cliente. Sem ele a unicidade só existiria em código, e
+/// o modo de falha seria cobrar o mesmo caminhão duas vezes. É seguro
+/// desnormalizar porque o cliente de um faturamento nunca muda no lugar: a
+/// reconciliação casa por cliente e troca de cliente é criação + remoção.
+model QuoteBillingTask {
+  configId   String
+  taskId     String
+  customerId String
+  createdAt  DateTime @default(now())
+
+  config TaskQuoteCustomerConfig @relation("BillingCoverage", fields: [configId], references: [id], onDelete: Cascade)
+  task   Task                    @relation("TaskBillingCoverage", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([configId, taskId])
+  @@unique([taskId, customerId])
   @@index([taskId])
-  @@index([quoteId, taskId])
+  @@index([customerId])
 }
 
 model Supplier {
@@ -2082,11 +2119,11 @@ model Supplier {
 }
 
 model Task {
-  id                    String                    @id @default(uuid())
-  name                  String?                   @default("Tarefa Sem Nome")
-  status                TaskStatus                @default(PREPARATION)
-  statusOrder           Int                       @default(1)
-  serialNumber          String?                   @unique
+  id           String     @id @default(uuid())
+  name         String?    @default("Tarefa Sem Nome")
+  status       TaskStatus @default(PREPARATION)
+  statusOrder  Int        @default(1)
+  serialNumber String?    @unique
 
   /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
   ///
@@ -2106,54 +2143,59 @@ model Task {
   startedAt             DateTime?
   finishedAt            DateTime?
   forecastDate          DateTime?
-  cleared               Boolean                   @default(false)
+  cleared               Boolean               @default(false)
   paintId               String?
   customerId            String?
   sectorId              String?
   bonification          BonificationStatus?
-  bonificationOrder     Int                       @default(3)
+  bonificationOrder     Int                   @default(3)
   createdById           String?
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
   bonusDiscountId       String?
   /// Sem `@unique` desde o orçamento multitarefa: N tarefas apontam para o
   /// MESMO orçamento. Ver `TaskQuote.tasks`.
   quoteId               String?
-  airbrushings          Airbrushing[]             @relation("AIRBRUSHING")
-  cuts                  Cut[]                     @relation("CUT_TASK")
-  observation           Observation?              @relation("OBSERVATION_TO_TASK")
-  serviceOrders         ServiceOrder[]            @relation("SERVICE_ORDER_TASK")
-  bonusDiscount         BonusDiscount?            @relation(fields: [bonusDiscountId], references: [id])
-  createdBy             User?                     @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
-  customer              Customer?                 @relation("TaskCustomer", fields: [customerId], references: [id])
-  generalPainting       Paint?                    @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  quote                 TaskQuote?                @relation("TASK_QUOTE", fields: [quoteId], references: [id])
-  sector                Sector?                   @relation(fields: [sectorId], references: [id])
-  fieldChangeLogs       TaskFieldChangeLog[]      @relation("TASK_FIELD_CHANGE_LOGS")
+  airbrushings          Airbrushing[]         @relation("AIRBRUSHING")
+  cuts                  Cut[]                 @relation("CUT_TASK")
+  observation           Observation?          @relation("OBSERVATION_TO_TASK")
+  serviceOrders         ServiceOrder[]        @relation("SERVICE_ORDER_TASK")
+  bonusDiscount         BonusDiscount?        @relation(fields: [bonusDiscountId], references: [id])
+  createdBy             User?                 @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer              Customer?             @relation("TaskCustomer", fields: [customerId], references: [id])
+  generalPainting       Paint?                @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  quote                 TaskQuote?            @relation("TASK_QUOTE", fields: [quoteId], references: [id])
+  sector                Sector?               @relation(fields: [sectorId], references: [id])
+  fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
-  paintingAnalyses      PaintingAnalysis[]        @relation("TASK_PAINTING_ANALYSES")
-  bonuses               Bonus[]                   @relation("BonusTasks")
-  relatedTo             Task[]                    @relation("RelatedTasks")
-  relatedTasks          Task[]                    @relation("RelatedTasks")
-  baseFiles             File[]                    @relation("TASK_BASE_FILES")
-  budgets               File[]                    @relation("TASK_BUDGETS")
-  invoices              File[]                    @relation("TASK_INVOICES")
-  invoiceReimbursements File[]                    @relation("TASK_INVOICE_REIMBURSEMENTS")
-  logoPaints            Paint[]                   @relation("TASK_LOGO_PAINT")
-  receipts              File[]                    @relation("TASK_RECEIPTS")
-  bankSlips             File[]                    @relation("TASK_BANK_SLIPS")
-  reimbursements        File[]                    @relation("TASK_REIMBURSEMENTS")
-  layouts               Layout[]                  @relation("TaskLayouts")
-  projectFiles          File[]                    @relation("TASK_PROJECT_FILES")
-  checkinFiles          File[]                    @relation("TASK_CHECKIN_FILES")
-  checkoutFiles         File[]                    @relation("TASK_CHECKOUT_FILES")
-  responsibles          Responsible[]             @relation("TaskResponsibles")
-  invoiceEntities       Invoice[]                 @relation("TaskInvoiceEntities")
-  nfseDocuments         NfseDocument[]            @relation("TaskNfseDocuments")
-  forecastHistory       TaskForecastHistory[]     @relation("TASK_FORECAST_HISTORY")
-  /// Configurações de faturamento amarradas a ESTA tarefa — só existem quando o
-  /// orçamento cobra veículo a veículo (`TaskQuote.billingSplit = PER_TASK`).
-  quoteCustomerConfigs  TaskQuoteCustomerConfig[] @relation("CustomerConfigTask")
+  paintingAnalyses      PaintingAnalysis[]    @relation("TASK_PAINTING_ANALYSES")
+  bonuses               Bonus[]               @relation("BonusTasks")
+  relatedTo             Task[]                @relation("RelatedTasks")
+  relatedTasks          Task[]                @relation("RelatedTasks")
+  baseFiles             File[]                @relation("TASK_BASE_FILES")
+  budgets               File[]                @relation("TASK_BUDGETS")
+  invoices              File[]                @relation("TASK_INVOICES")
+  invoiceReimbursements File[]                @relation("TASK_INVOICE_REIMBURSEMENTS")
+  logoPaints            Paint[]               @relation("TASK_LOGO_PAINT")
+  receipts              File[]                @relation("TASK_RECEIPTS")
+  bankSlips             File[]                @relation("TASK_BANK_SLIPS")
+  reimbursements        File[]                @relation("TASK_REIMBURSEMENTS")
+  layouts               Layout[]              @relation("TaskLayouts")
+  projectFiles          File[]                @relation("TASK_PROJECT_FILES")
+  checkinFiles          File[]                @relation("TASK_CHECKIN_FILES")
+  checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")
+  responsibles          Responsible[]         @relation("TaskResponsibles")
+  invoiceEntities       Invoice[]             @relation("TaskInvoiceEntities")
+  nfseDocuments         NfseDocument[]        @relation("TaskNfseDocuments")
+  forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
+  /// O FATURAMENTO que cobra ESTE veículo — uma linha por cliente do orçamento.
+  ///
+  /// Em `JOINT` a linha aponta para o faturamento conjunto, que os N veículos
+  /// compartilham; em `PER_TASK`, para o faturamento só deste; em `CUSTOM`, para
+  /// o do lote a que ele pertence. Nos três casos a pergunta "quem cobra este
+  /// caminhão?" tem resposta direta, e o banco garante que ela é única por
+  /// cliente. Ver `QuoteBillingTask`.
+  billingCoverage       QuoteBillingTask[]    @relation("TaskBillingCoverage")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -4323,6 +4365,16 @@ enum BonificationStatus {
 enum QuoteBillingSplit {
   JOINT
   PER_TASK
+
+  /// LOTES LIVRES. A cobertura não é derivável do modo: ela vem das linhas de
+  /// `QuoteBillingTask` que a tela montou — "1 a 20 no pedido 8842, 21 a 60 no
+  /// 9013". É o caso que `JOINT`/`PER_TASK` não cobrem, e é também por que a
+  /// cobertura deixou de ser calculada e passou a ser gravada.
+  ///
+  /// Um veículo acrescentado depois a um orçamento `CUSTOM` NÃO entra em lote
+  /// nenhum por adivinhação: ganha o próprio faturamento, e a tela mostra que
+  /// ele está sozinho.
+  CUSTOM
 }
 
 enum TaskQuoteStatus {

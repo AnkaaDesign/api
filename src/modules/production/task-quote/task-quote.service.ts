@@ -73,7 +73,7 @@ import {
 } from '../../../utils/sync-quote-task-layouts';
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
-import { computeQuoteMoney, expectedConfigTaskIds, round2 } from '@utils/quote-money';
+import { computeQuoteMoney, planCoverage, round2 } from '@utils/quote-money';
 import {
   describePrismaFailure,
   hasMultipleCustomers,
@@ -257,8 +257,12 @@ export class TaskQuoteService {
       if (taskIds.length === 0) {
         throw new BadRequestException('Informe ao menos uma tarefa para o orçamento.');
       }
-      const billingSplit: 'JOINT' | 'PER_TASK' =
-        (data as any).billingSplit === 'PER_TASK' ? 'PER_TASK' : 'JOINT';
+      const billingSplit: 'JOINT' | 'PER_TASK' | 'CUSTOM' =
+        (data as any).billingSplit === 'PER_TASK'
+          ? 'PER_TASK'
+          : (data as any).billingSplit === 'CUSTOM'
+            ? 'CUSTOM'
+            : 'JOINT';
 
       // Carrega TODAS as tarefas: existência, vínculo prévio e o elenco de
       // responsáveis (que é a união das tarefas, não a da primeira).
@@ -364,47 +368,64 @@ export class TaskQuoteService {
       // `recalcQuoteTotals` usa depois e a mesma que o documento imprime — é
       // isso que faz o PDF assinado e o boleto fecharem no centavo.
       //
-      // `configTotal` já vem no escopo certo: o total geral em `JOINT` (uma
-      // fatura para os sessenta caminhões) e o total por veículo em `PER_TASK`
-      // (sessenta faturas).
-      // ⚠️ UM CLIENTE, não UMA FATIA. Com `PER_TASK` há uma configuração por
-      // VEÍCULO: quatro caminhões do mesmo cliente são quatro configurações, e
-      // contá-las fazia o filtro abaixo rodar — deixando as quatro com ZERO
-      // serviços, porque num orçamento de um cliente só ninguém preenche
+      // `configTotal` já vem no escopo certo, porque a conta é `por veículo ×
+      // veículos COBERTOS`: o total geral quando a fatura cobre os sessenta, o de
+      // um caminhão quando cobre um, o do lote quando cobre vinte.
+      //
+      // ⚠️ UM CLIENTE, não UMA FATURA. Um orçamento cobrado veículo a veículo tem
+      // uma fatura por VEÍCULO: quatro caminhões do mesmo cliente são quatro
+      // faturas, e contá-las fazia o filtro abaixo rodar — deixando as quatro com
+      // ZERO serviços, porque num orçamento de um cliente só ninguém preenche
       // `invoiceToCustomerId`. Ver a nota em `utils/quote-tasks.ts`.
       const isSingleConfig = isSingleCustomerQuote(data.customerConfigs);
-      const perConfigMoney = new Map<string, ReturnType<typeof computeQuoteMoney>>();
+
+      // ─── O PLANO DE FATURAMENTO ──────────────────────────────────────────
+      //
+      // Uma entrada por FATURA a criar: o cliente, os veículos que ela cobra e o
+      // dinheiro dela. `planCoverage` reparte os veículos conforme o modo; num
+      // orçamento em lotes, conforme o que a tela declarou em `taskIds`.
+      const plannedConfigs: Array<{
+        config: (typeof data.customerConfigs)[number];
+        coverage: string[];
+        money: ReturnType<typeof computeQuoteMoney>;
+      }> = [];
+
       for (const config of data.customerConfigs) {
-        // Com uma configuração só, TODO serviço é dela, independentemente de um
-        // `invoiceToCustomerId` remanescente de quando o orçamento teve dois
-        // clientes. Filtrar ali derrubaria serviços do subtotal em silêncio.
+        // Com um cliente só, TODO serviço é dele, independentemente de um
+        // `invoiceToCustomerId` remanescente de quando o orçamento teve dois.
+        // Filtrar ali derrubaria serviços do subtotal em silêncio.
         const assignedServices = isSingleConfig
           ? data.services || []
           : (data.services || []).filter(s => s.invoiceToCustomerId === config.customerId);
-        const money = computeQuoteMoney({
-          serviceAmounts: assignedServices.map(sv => sv.amount || 0),
-          discountType: (config as any).discountType,
-          discountValue: (config as any).discountValue,
-          taskCount: taskIds.length,
-          billingSplit,
-        });
-        perConfigMoney.set(config.customerId, money);
-        config.subtotal = money.configSubtotal;
-        config.total = money.configTotal;
+        const declared = Array.isArray((config as any).taskIds)
+          ? [(config as any).taskIds as string[]]
+          : (config as any).taskId
+            ? [[(config as any).taskId as string]]
+            : null;
+        const groups = planCoverage(
+          declared ? 'CUSTOM' : billingSplit,
+          taskIds,
+          declared,
+        );
+        for (const coverage of groups) {
+          const money = computeQuoteMoney({
+            serviceAmounts: assignedServices.map(sv => sv.amount || 0),
+            discountType: (config as any).discountType,
+            discountValue: (config as any).discountValue,
+            taskCount: taskIds.length,
+            coveredTaskCount: coverage.length || undefined,
+          });
+          plannedConfigs.push({ config, coverage, money });
+        }
       }
 
-      // O agregado do orçamento é SEMPRE o valor do contrato inteiro — o total
-      // geral. Em `PER_TASK` isso é `configTotal × nº de configurações daquele
-      // cliente`, e como criamos uma configuração por veículo, somar as
-      // configurações dá o mesmo número. Em `JOINT` cada configuração já carrega
-      // o total geral e há uma por cliente.
-      const configCount = billingSplit === 'PER_TASK' ? taskIds.length : 1;
+      // O agregado do orçamento é SEMPRE o valor do contrato inteiro. Somar as
+      // faturas dá esse número nos três modos, porque as coberturas PARTICIONAM
+      // os veículos — uma fatura de sessenta, sessenta de um, ou três de vinte.
       let aggregateSubtotal = round2(
-        data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0) * configCount, 0),
+        plannedConfigs.reduce((sum, p) => sum + p.money.configSubtotal, 0),
       );
-      let aggregateTotal = round2(
-        data.customerConfigs.reduce((sum, c) => sum + (c.total || 0) * configCount, 0),
-      );
+      let aggregateTotal = round2(plannedConfigs.reduce((sum, p) => sum + p.money.configTotal, 0));
       if (!isSingleConfig) {
         // Serviço sem cliente atribuído não entra em nenhuma configuração acima,
         // então o valor dele sairia do agregado. Ele entra sem desconto e
@@ -460,23 +481,31 @@ export class TaskQuoteService {
             // é este N que devolve o valor de UM veículo às telas que listam
             // tarefas. Gravado aqui, na mesma linha do total que ele divide.
             vehicleCount: taskIds.length,
-            // ─── CONFIGURAÇÕES DE FATURAMENTO ─────────────────────────────
+            // ─── OS FATURAMENTOS ──────────────────────────────────────────
             //
-            // Uma por (cliente × fatia). A fatia é NULA em `JOINT` — uma fatura
-            // por cliente para os N veículos, que é o comportamento de sempre —
-            // e é a tarefa em `PER_TASK`, uma fatura por caminhão.
+            // Um por (cliente × grupo de cobertura), com a cobertura GRAVADA:
+            // `JOINT` cria um cobrindo os N veículos, `PER_TASK` cria N de um, e
+            // um orçamento em lotes cria os lotes que a tela declarou.
             //
-            // Quem monta o produto é o SERVIDOR (`expectedConfigTaskIds`), não a
-            // tela: sessenta objetos idênticos exceto pelo `taskId` viajando em
-            // cada gravação seria payload inútil e uma segunda fonte de verdade
-            // sobre quantas fatias existem.
+            // Quem reparte é o SERVIDOR (`planCoverage`), não a tela, quando o
+            // modo basta: sessenta objetos idênticos viajando em cada gravação
+            // seria payload inútil e uma segunda fonte de verdade. A tela só fala
+            // quando o modo NÃO basta — que é exatamente o caso do lote.
             customerConfigs: {
-              create: data.customerConfigs.flatMap(config =>
-                expectedConfigTaskIds(billingSplit, taskIds).map(configTaskId => ({
+              create: plannedConfigs.map(({ config, coverage, money }) => ({
                   customer: { connect: { id: config.customerId } },
-                  ...(configTaskId ? { task: { connect: { id: configTaskId } } } : {}),
-                  subtotal: config.subtotal || 0,
-                  total: config.total || 0,
+                  // A COBERTURA. Escrita junto da fatura, na mesma transação:
+                  // uma fatura sem cobertura é uma fatura sem resposta para "de
+                  // quais veículos é isto?", e o multiplicador do valor dela
+                  // cairia no orçamento inteiro.
+                  coveredTasks: {
+                    create: coverage.map(coveredTaskId => ({
+                      task: { connect: { id: coveredTaskId } },
+                      customerId: config.customerId,
+                    })),
+                  },
+                  subtotal: money.configSubtotal,
+                  total: money.configTotal,
                   discountType: (config as any).discountType || 'NONE',
                   discountValue: (config as any).discountValue ?? null,
                   discountReference: (config as any).discountReference || null,
@@ -498,7 +527,6 @@ export class TaskQuoteService {
                   paymentCondition: config.paymentCondition || null,
                   paymentConfig: (config as any).paymentConfig ?? null,
                 })),
-              ),
             },
             services: {
               create: data.services.map((service, index) => ({
@@ -1048,12 +1076,14 @@ export class TaskQuoteService {
       const nextTaskIds =
         data.taskIds && data.taskIds.length > 0 ? [...new Set(data.taskIds)] : existingTaskIds;
       const updateVehicleCount = Math.max(1, nextTaskIds.length);
-      const updateBillingSplit: 'JOINT' | 'PER_TASK' =
+      const updateBillingSplit: 'JOINT' | 'PER_TASK' | 'CUSTOM' =
         (data as any).billingSplit === 'PER_TASK'
           ? 'PER_TASK'
           : (data as any).billingSplit === 'JOINT'
             ? 'JOINT'
-            : ((existing as any).billingSplit ?? 'JOINT');
+            : (data as any).billingSplit === 'CUSTOM'
+              ? 'CUSTOM'
+              : ((existing as any).billingSplit ?? 'JOINT');
 
       // Compute per-customer totals from global customer discount
       if (data.customerConfigs && data.customerConfigs.length > 0) {
@@ -1068,12 +1098,26 @@ export class TaskQuoteService {
           const assignedServices = isSingleConfig
             ? servicesToUse
             : servicesToUse.filter((s: any) => s.invoiceToCustomerId === config.customerId);
+          // Quantos veículos ESTA fatura cobre. Quando a tela declarou a
+          // cobertura (lote), é o tamanho dela; quando não, o modo decide, e
+          // `planCoverage` devolve o primeiro grupo — que é o único em `JOINT` e
+          // tem tamanho 1 em `PER_TASK`.
+          //
+          // Este valor é provisório de propósito: `recalcQuoteTotals`, no fim da
+          // MESMA transação, reescreve subtotal e total de cada fatura a partir
+          // da cobertura JÁ GRAVADA. Ele existe para o agregado abaixo e para que
+          // a fatia nasça com um número plausível, nunca como fonte de verdade.
+          const declaredCoverage = Array.isArray((config as any).taskIds)
+            ? ((config as any).taskIds as string[]).length
+            : (config as any).taskId
+              ? 1
+              : (planCoverage(updateBillingSplit, nextTaskIds)[0]?.length ?? undefined);
           const money = computeQuoteMoney({
             serviceAmounts: assignedServices.map((sv: any) => sv.amount || 0),
             discountType: (config as any).discountType,
             discountValue: (config as any).discountValue,
             taskCount: updateVehicleCount,
-            billingSplit: updateBillingSplit,
+            coveredTaskCount: declaredCoverage,
           });
           config.subtotal = money.configSubtotal;
           config.total = money.configTotal;
@@ -1085,9 +1129,12 @@ export class TaskQuoteService {
       // into the aggregate so it matches recalcQuoteTotals. servicesToUse is the
       // same source the per-config loop summed above (data.services ?? existing).
       const computeAggregates = data.customerConfigs && data.customerConfigs.length > 0;
-      // Em `PER_TASK` cada configuração enviada vira UMA POR VEÍCULO, então o
-      // agregado (que é o valor do contrato) multiplica pelas fatias. Em `JOINT`
-      // a configuração já carrega o total geral e o multiplicador é 1.
+      // Quantas FATURAS cada configuração enviada vira. Em `PER_TASK` são N (uma
+      // por veículo) e o agregado — que é o valor do contrato — multiplica por
+      // elas; em `JOINT` é uma, que já carrega o total geral. Com lotes o
+      // agregado provisório não fecha exatamente, e não precisa:
+      // `recalcQuoteTotals` reescreve o total do orçamento a partir da cobertura
+      // gravada antes de a transação fechar.
       const updateConfigCount = updateBillingSplit === 'PER_TASK' ? updateVehicleCount : 1;
       let aggregateSubtotal = computeAggregates
         ? round2(
@@ -1773,10 +1820,18 @@ export class TaskQuoteService {
         // desnormalizada, e uma edição que só acrescenta ou retira caminhão não
         // manda serviços nem configurações. Sem esta chave, tirar um veículo de
         // sessenta deixava o contrato afirmando sessenta.
+        //
+        // ⚠️ `billingSplit` ENTRA NA CONDIÇÃO. Trocar "junto" por "separado" é
+        // uma gravação que normalmente não traz serviço nem configuração
+        // nenhuma — e ela refatia o faturamento logo acima. Sem esta chave, as
+        // sessenta faturas novas nasciam copiando o `total` da conjunta: o valor
+        // do CONTRATO inteiro em cada uma, sessenta vezes, congelado em
+        // `Invoice.totalAmount` na aprovação seguinte.
         if (
           data.services !== undefined ||
           data.customerConfigs !== undefined ||
-          data.taskIds !== undefined
+          data.taskIds !== undefined ||
+          (data as any).billingSplit !== undefined
         ) {
           await recalcQuoteTotals(tx, id);
         }
@@ -2726,30 +2781,41 @@ export class TaskQuoteService {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
 
-    // ── AS FATIAS DESTE ORÇAMENTO ─────────────────────────────────────────────
+    // ── OS FATURAMENTOS DESTE ORÇAMENTO ───────────────────────────────────────
     const quoteSlices = await this.prisma.taskQuote.findUnique({
       where: { id },
       select: {
         billingSplit: true,
         customerConfigs: {
-          select: { id: true, taskId: true, billingApprovedAt: true },
+          select: {
+            id: true,
+            billingApprovedAt: true,
+            coveredTasks: { select: { taskId: true } },
+          },
           orderBy: { createdAt: 'asc' },
         },
       },
     });
-    const perTask = ((quoteSlices as any)?.billingSplit ?? 'JOINT') === 'PER_TASK';
     const allConfigs = (quoteSlices?.customerConfigs ?? []) as Array<{
       id: string;
-      taskId: string | null;
       billingApprovedAt: Date | null;
+      coveredTasks: Array<{ taskId: string }>;
     }>;
 
-    // Alvo desta aprovação: a fatia pedida, ou todas as pendentes.
+    // Alvo desta aprovação: os faturamentos que COBREM o veículo pedido, ou
+    // todos os pendentes quando nenhum veículo foi pedido.
+    //
+    // A pergunta é de cobertura, não de igualdade: aprovar o caminhão 37 fecha a
+    // fatura do lote 21–60, porque é ela que cobra o 37 — e fecha os quarenta de
+    // uma vez, que é o que o lote significa. Num orçamento conjunto de dois
+    // clientes, cobre as duas faturas, como sempre foi.
     const targetConfigs = allConfigs.filter(c => {
       if (c.billingApprovedAt) return false;
       if (!sliceTaskId) return true;
-      // A fatia NULA cobre o orçamento inteiro e portanto também este veículo.
-      return c.taskId === null || c.taskId === sliceTaskId;
+      // Fatura sem cobertura é o orçamento que nasceu antes do vínculo: não há o
+      // que restringir, e recusá-la deixaria a aprovação sem fatura nenhuma.
+      if (c.coveredTasks.length === 0) return true;
+      return c.coveredTasks.some(row => row.taskId === sliceTaskId);
     });
 
     if (targetConfigs.length === 0) {
@@ -2870,11 +2936,17 @@ export class TaskQuoteService {
         task.id,
         userId,
         approvalDate,
-        // As fatias ALVO. Sem isto, aprovar o caminhão 1 de um orçamento
-        // `PER_TASK` emitiria as sessenta faturas, as sessenta notas fiscais e os
-        // duzentos e quarenta boletos de uma vez — exatamente o que "veículo a
-        // veículo" existe para não fazer.
-        perTask && sliceTaskId ? { onlyTaskIds: [sliceTaskId] } : undefined,
+        // O VEÍCULO PEDIDO. Sem isto, aprovar o caminhão 1 de um orçamento
+        // cobrado veículo a veículo emitiria as sessenta faturas, as sessenta
+        // notas fiscais e os duzentos e quarenta boletos de uma vez — exatamente
+        // o que "veículo a veículo" existe para não fazer.
+        //
+        // Passado SEMPRE que um veículo foi pedido, sem olhar o modo: a geração
+        // filtra por COBERTURA, e num orçamento conjunto a fatura que cobre esse
+        // veículo é a que cobre todos — o filtro não exclui nada, e o resultado é
+        // idêntico ao de não filtrar. Condicionar ao modo era o que fazia um
+        // orçamento em lotes emitir os três lotes ao aprovar um caminhão.
+        sliceTaskId ? { onlyTaskIds: [sliceTaskId] } : undefined,
       );
       this.logger.log(
         `[INTERNAL_APPROVE] Invoice generation complete: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}]`,

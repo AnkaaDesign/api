@@ -41,7 +41,7 @@ export function round2(value: number): number {
 }
 
 export type QuoteDiscountType = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE' | string;
-export type QuoteBillingSplitValue = 'JOINT' | 'PER_TASK' | string;
+export type QuoteBillingSplitValue = 'JOINT' | 'PER_TASK' | 'CUSTOM' | string;
 
 export interface QuoteMoneyInput {
   /** Os serviços DESTA configuração, com o preço unitário (por veículo). */
@@ -55,7 +55,21 @@ export interface QuoteMoneyInput {
    * orçamento que tem preço.
    */
   taskCount?: number | null;
-  billingSplit?: QuoteBillingSplitValue | null;
+  /**
+   * QUANTOS VEÍCULOS ESTA FATURA COBRA — o tamanho da cobertura da fatia.
+   *
+   * Substituiu `billingSplit` na aritmética, e isso é a simplificação central
+   * desta feature. Antes a conta tinha um "se": `PER_TASK` cobrava um veículo,
+   * o resto cobrava todos. Com lotes existiria um terceiro caso, e um terceiro
+   * caso numa fórmula de dinheiro é onde os centavos divergem.
+   *
+   *     total da fatura = total por veículo × veículos COBERTOS
+   *
+   * JOINT cobre N, `PER_TASK` cobre 1, um lote cobre k — e os três são a mesma
+   * linha. Omitido = `taskCount` (a fatura cobre o orçamento inteiro), que é o
+   * padrão e o comportamento de sempre.
+   */
+  coveredTaskCount?: number | null;
 }
 
 export interface QuoteMoney {
@@ -71,12 +85,15 @@ export interface QuoteMoney {
   grandSubtotal: number;
   /** `perVehicleTotal × N`. É o valor do contrato. */
   grandTotal: number;
+  /** Quantos veículos ESTA fatura cobre. Ver `coveredTaskCount`. */
+  coveredVehicleCount: number;
   /**
    * O que UMA configuração de faturamento cobra — ou seja, o que vai para
    * `TaskQuoteCustomerConfig.total`, `Invoice.totalAmount` e a soma das parcelas.
    *
-   * `JOINT`: o total geral (uma fatura para os sessenta caminhões).
-   * `PER_TASK`: o total por veículo (sessenta faturas, uma por caminhão).
+   * É `por veículo × cobertos`, sem ramificação: o total geral quando a fatura
+   * cobre os sessenta, o de um caminhão quando cobre um, o do lote quando cobre
+   * vinte.
    */
   configSubtotal: number;
   configTotal: number;
@@ -106,7 +123,16 @@ export function computeQuoteMoney(input: QuoteMoneyInput): QuoteMoney {
   const grandSubtotal = round2(perVehicleSubtotal * vehicleCount);
   const grandTotal = round2(perVehicleTotal * vehicleCount);
 
-  const perTask = input.billingSplit === 'PER_TASK';
+  // Quantos veículos ESTA fatura cobra.
+  //
+  // Ausente, zero ou inválido caem em "cobre o orçamento inteiro" — o padrão, e
+  // o comportamento de sempre. É deliberado que ZERO caia aí e não em um: uma
+  // cobertura vazia significa "a consulta não trouxe a relação" ou "a fatia
+  // acabou de nascer", nunca "esta fatura é de um veículo", e responder um faria
+  // uma fatura de sessenta caminhões cobrar um. O teto em `vehicleCount` impede
+  // o contrário — cobrar setenta num orçamento de sessenta.
+  const requested = Math.trunc(Number(input.coveredTaskCount ?? 0)) || 0;
+  const coveredVehicleCount = requested > 0 ? Math.min(vehicleCount, requested) : vehicleCount;
 
   return {
     vehicleCount,
@@ -115,22 +141,66 @@ export function computeQuoteMoney(input: QuoteMoneyInput): QuoteMoney {
     perVehicleTotal,
     grandSubtotal,
     grandTotal,
-    configSubtotal: perTask ? perVehicleSubtotal : grandSubtotal,
-    configTotal: perTask ? perVehicleTotal : grandTotal,
+    coveredVehicleCount,
+    configSubtotal: round2(perVehicleSubtotal * coveredVehicleCount),
+    configTotal: round2(perVehicleTotal * coveredVehicleCount),
   };
 }
 
 /**
- * Quantas configurações de faturamento um orçamento deve ter, por cliente.
+ * COMO OS VEÍCULOS SE REPARTEM ENTRE AS FATURAS DE UM CLIENTE.
  *
- * `JOINT` → 1 (a de `taskId` nulo). `PER_TASK` → uma por veículo. É o que a
- * reconciliação de configurações usa para decidir o que criar e o que apagar, e
- * o que a aprovação de faturamento usa para saber se o orçamento inteiro fechou.
+ * Devolve os grupos de cobertura — um por faturamento. É o que a reconciliação
+ * usa para decidir o que criar, o que manter e o que apagar, e o que a aprovação
+ * usa para saber se o orçamento inteiro fechou.
+ *
+ *     JOINT     → [[t1..tN]]              uma fatura para todos
+ *     PER_TASK  → [[t1], [t2], … [tN]]    uma por veículo
+ *     CUSTOM    → os lotes que a tela montou, saneados
+ *
+ * Substituiu `expectedConfigTaskIds`, que devolvia `Array<string | null>` com
+ * `null` querendo dizer "todos". Aquele `null` era a cobertura implícita que
+ * esta feature existe para eliminar: um grupo VAZIO e um grupo com os sessenta
+ * eram a mesma coisa escrita, e a diferença só aparecia na leitura.
+ *
+ * ⚠️ SANEAMENTO DO `CUSTOM`, e por que ele não adivinha. Os lotes recebidos são
+ * filtrados pelas tarefas que o orçamento realmente tem (um veículo removido não
+ * pode continuar coberto), os grupos que sobram vazios caem, e todo veículo NÃO
+ * coberto ganha um grupo SÓ DELE — nunca é enfiado no primeiro lote. Enfiá-lo
+ * mudaria em silêncio o valor de uma fatura que alguém já conferiu; isolá-lo faz
+ * a tela mostrar um faturamento novo, sozinho, que é uma pergunta visível.
  */
-export function expectedConfigTaskIds(
+export function planCoverage(
   billingSplit: QuoteBillingSplitValue | null | undefined,
   taskIds: readonly string[],
-): Array<string | null> {
-  if (billingSplit === 'PER_TASK' && taskIds.length > 0) return [...taskIds];
-  return [null];
+  existingGroups?: readonly (readonly string[])[] | null,
+): string[][] {
+  // Orçamento ainda sem veículo vinculado (o registro nasce antes do vínculo):
+  // um faturamento, cobertura vazia. Devolver lista vazia faria a reconciliação
+  // apagar a configuração do cliente e, com ela, o desconto combinado.
+  if (taskIds.length === 0) return [[]];
+
+  if (billingSplit === 'PER_TASK') return taskIds.map(id => [id]);
+
+  if (billingSplit === 'CUSTOM') {
+    const valid = new Set(taskIds);
+    const seen = new Set<string>();
+    const groups: string[][] = [];
+    for (const group of existingGroups ?? []) {
+      const kept: string[] = [];
+      for (const id of group) {
+        if (!valid.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        kept.push(id);
+      }
+      if (kept.length > 0) groups.push(kept);
+    }
+    // Os veículos que nenhum lote reivindicou — inclusive o caso em que NENHUM
+    // lote veio, que é o `CUSTOM` recém-declarado: ali cada veículo começa
+    // sozinho, e a tela agrupa a partir daí.
+    for (const id of taskIds) if (!seen.has(id)) groups.push([id]);
+    return groups.length > 0 ? groups : [[...taskIds]];
+  }
+
+  return [[...taskIds]];
 }

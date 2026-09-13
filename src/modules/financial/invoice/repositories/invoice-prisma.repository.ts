@@ -236,13 +236,19 @@ export class InvoicePrismaRepository implements InvoiceRepository {
   /**
    * As faturas de TODOS os veículos de um orçamento.
    *
-   * `Invoice.taskId` é o veículo; o orçamento é o pai dele. A ordenação é por
-   * `task.createdAt` — a MESMA de `QUOTE_TASKS_ORDER_BY` —, para que a tela
-   * liste as sessenta faturas na ordem em que lista os sessenta caminhões.
+   * ⚠️ O caminho é o FATURAMENTO (`customerConfig.quoteId`), nunca a tarefa.
+   * `Invoice.taskId` só existe quando a fatura é de UM veículo: numa fatura
+   * conjunta — o caso exato para o qual esta rota foi criada — ele é nulo, e
+   * `where: { task: { quoteId } }` devolvia LISTA VAZIA. A fatura sempre tem
+   * `customerConfigId`, e a fatia sempre tem `quoteId`.
+   *
+   * A ordenação é por `task.createdAt` — a MESMA de `QUOTE_TASKS_ORDER_BY` —,
+   * para que a tela liste as sessenta faturas na ordem em que lista os sessenta
+   * caminhões; a fatura conjunta, sem tarefa, ordena por `createdAt` próprio.
    */
   async findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     const entities = await this.prisma.invoice.findMany({
-      where: { task: { quoteId } },
+      where: { customerConfig: { is: { quoteId } } },
       include: this.buildInclude(include),
       orderBy: [{ task: { createdAt: 'asc' } }, { createdAt: 'asc' }],
     });

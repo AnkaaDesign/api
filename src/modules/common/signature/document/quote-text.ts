@@ -131,19 +131,27 @@ export function conditionToConfig(condition?: string | null): PaymentConfig | nu
  * Num orçamento de um veículo não existe: a frase é "Fica acertado o pagamento
  * em 4 parcelas de R$ 6.075,30", e é isso.
  *
- * Com sessenta veículos a mesma frase é ambígua e a ambiguidade é caríssima. Em
- * `JOINT` o cliente paga UM plano sobre o total geral: quatro parcelas de
- * R$ 182.556,00. Em `PER_TASK` ele paga sessenta planos, um por caminhão:
- * quatro parcelas de R$ 3.042,60 cada, duzentos e quarenta boletos. Sem dizer
- * qual dos dois, o número impresso não identifica a obrigação — e é justamente
- * o número que o cliente confere antes de assinar.
+ * Com sessenta veículos a mesma frase é ambígua e a ambiguidade é caríssima. O
+ * que a desfaz é QUANTOS VEÍCULOS CADA FATURA COBRE:
+ *
+ *   cobre os 60  → uma fatura: quatro parcelas de R$ 182.556,00. Sem prefixo,
+ *                  porque não há o que desambiguar.
+ *   cobre 1      → sessenta faturas: quatro parcelas de R$ 3.042,60 CADA,
+ *                  duzentos e quarenta boletos.
+ *   cobre 20     → três faturas: quatro parcelas de R$ 60.852,00 por lote.
+ *
+ * Sem isso o número impresso não identifica a obrigação — e é justamente o
+ * número que o cliente confere antes de assinar.
  */
-function paymentScope(vehicleCount: number, perVehicle: boolean): { prefix: string; suffix: string } {
-  if (vehicleCount <= 1 || !perVehicle) return { prefix: '', suffix: '' };
-  return {
-    prefix: `, para cada um dos ${vehicleCount} veículos,`,
-    suffix: '',
-  };
+function paymentScope(
+  vehicleCount: number,
+  coveredCount: number,
+): { prefix: string; suffix: string } {
+  if (vehicleCount <= 1 || coveredCount >= vehicleCount) return { prefix: '', suffix: '' };
+  if (coveredCount <= 1) {
+    return { prefix: `, para cada um dos ${vehicleCount} veículos,`, suffix: '' };
+  }
+  return { prefix: `, para cada grupo de ${coveredCount} veículos,`, suffix: '' };
 }
 
 function fromConfig(
@@ -152,18 +160,20 @@ function fromConfig(
   methodPhrase: string,
   firstDueDate: Date | null,
   vehicleCount: number,
-  perVehicle: boolean,
+  coveredCount: number,
 ): string {
   const dueDate = firstDueDate ?? parseSpecificDate(pc.specificDate);
-  const scope = paymentScope(vehicleCount, perVehicle);
-  // Quantas cobranças o cliente vai receber no total. Sai só quando são muitas e
-  // divididas por veículo, porque aí o número surpreende: sessenta caminhões em
-  // quatro parcelas são duzentos e quarenta boletos, e o financeiro do cliente
-  // precisa saber disso ANTES de aprovar, não quando o malote chegar.
+  const scope = paymentScope(vehicleCount, coveredCount);
+  // Quantas FATURAS este cliente vai receber — `veículos ÷ cobertos por fatura`,
+  // arredondado para cima porque um lote menor no fim ainda é uma fatura.
+  const invoiceCount =
+    coveredCount > 0 && coveredCount < vehicleCount ? Math.ceil(vehicleCount / coveredCount) : 1;
+  // Quantas cobranças o cliente vai receber no total. Sai só quando são muitas,
+  // porque aí o número surpreende: sessenta caminhões em quatro parcelas são
+  // duzentos e quarenta boletos, e o financeiro do cliente precisa saber disso
+  // ANTES de aprovar, não quando o malote chegar.
   const chargeNote = (perCharge: number): string =>
-    vehicleCount > 1 && perVehicle
-      ? ` Serão ${perCharge * vehicleCount} cobranças no total.`
-      : '';
+    invoiceCount > 1 ? ` Serão ${perCharge * invoiceCount} cobranças no total.` : '';
 
   if (pc.type === 'CASH') {
     const head = `Pagamento à vista${scope.prefix} no valor de ${formatCurrencyBRL(total)}${methodPhrase}`;
@@ -220,9 +230,16 @@ export function generatePaymentText(args: {
    */
   vehicleCount?: number | null;
   /**
-   * `true` quando cada veículo tem a própria fatura (`billingSplit = PER_TASK`).
-   * É o que decide se `total` é o valor de UM veículo ou o do orçamento inteiro,
-   * e portanto o que a frase precisa declarar.
+   * QUANTOS VEÍCULOS A FATURA DESTA CLÁUSULA COBRE.
+   *
+   * É o que decide se `total` é o valor de um caminhão, de um lote ou do
+   * orçamento inteiro — e portanto o que a frase precisa declarar. Omitido =
+   * cobre todos (fatura conjunta), que é o padrão e o comportamento de sempre.
+   */
+  coveredVehicleCount?: number | null;
+  /**
+   * @deprecated Use `coveredVehicleCount`. Equivale a `coveredVehicleCount: 1`
+   * quando verdadeiro; só existe para o chamador que ainda não migrou.
    */
   perVehicleBilling?: boolean | null;
 }): string {
@@ -255,7 +272,14 @@ export function generatePaymentText(args: {
     methodPhrase,
     firstDueDate,
     Math.max(1, Math.trunc(args.vehicleCount ?? 1) || 1),
-    args.perVehicleBilling === true,
+    // A cobertura, com o booleano antigo como reserva e "cobre tudo" como
+    // padrão: nesta ordem, um chamador não migrado produz exatamente o texto
+    // que produzia antes.
+    args.coveredVehicleCount != null
+      ? Math.max(1, Math.trunc(args.coveredVehicleCount) || 1)
+      : args.perVehicleBilling === true
+        ? 1
+        : Math.max(1, Math.trunc(args.vehicleCount ?? 1) || 1),
   );
 }
 

@@ -2,6 +2,7 @@
 
 import type { BaseEntity } from './common';
 import type { TaskQuote } from './task-quote';
+import type { Task } from './task';
 import type { Customer } from './customer';
 import type { Installment } from './invoice';
 import type { File } from './file';
@@ -14,13 +15,18 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   quoteId: string;
   customerId: string;
   /**
-   * A TAREFA que esta fatia fatura, ou NULO para "todas as do orçamento".
+   * A COBERTURA — de quais VEÍCULOS esta fatura é.
    *
-   * É a chave do "pagar junto ou separado": nulo = uma fatura para os N veículos
-   * (`JOINT`); preenchido = uma fatia por veículo (`PER_TASK`), cada uma com sua
-   * fatura, suas parcelas, seus boletos e sua NFS-e.
+   * Era a coluna `taskId`, com nulo querendo dizer "todos". Virou registro
+   * (`QuoteBillingTask`) porque a cobertura implícita não sabia responder a
+   * "quais dos sessenta?" quando a resposta era vinte, e porque uma fatura já
+   * emitida passava a cobrir um caminhão acrescentado depois sem deixar rastro.
+   *
+   * ⚠️ Relação: um `select` que não a inclui devolve VAZIO, e vazio numa conta
+   * de dinheiro é R$ 0,00 numa fatura que tem valor. Leia por `coveredTaskIds()`
+   * / `coveredTaskCount()` de `@utils/quote-tasks`.
    */
-  taskId?: string | null;
+  coveredTasks?: Array<{ configId: string; taskId: string; customerId: string; task?: Task }>;
   /**
    * Quando ESTA fatia teve o faturamento aprovado. `TaskQuote.billingApprovedAt`
    * é a data em que a ÚLTIMA fechou.

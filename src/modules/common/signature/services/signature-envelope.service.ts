@@ -48,6 +48,7 @@ import { type QuoteChange } from './quote-diff';
 import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
 import {
   buildLateValueMap,
+  coveredTaskCount,
   lateSlotKey,
   parseLateSlotKey,
   primaryTask,
@@ -1564,7 +1565,10 @@ export class SignatureEnvelopeService {
       discountType,
       discountValue,
       taskCount: vehicleTasks.length,
-      billingSplit: (quote as any).billingSplit ?? 'JOINT',
+      // A COBERTURA DESTA FATURA. Os três números lidos logo abaixo são por
+      // VEÍCULO e não dependem dela, mas `configTotal` — que a cláusula de
+      // pagamento imprime — depende: é `por veículo × cobertos`.
+      coveredTaskCount: coveredTaskCount(config as any) || undefined,
     });
     const subtotal = money.perVehicleSubtotal;
     const total = money.perVehicleTotal;
@@ -1658,7 +1662,11 @@ export class SignatureEnvelopeService {
         // R$ 3.042,60 num boleto de R$ 182.556,00.
         total: money.configTotal,
         vehicleCount: money.vehicleCount,
-        perVehicleBilling: ((quote as any).billingSplit ?? 'JOINT') === 'PER_TASK',
+        // QUANTOS VEÍCULOS ESTA FATURA COBRE — o que decide se a frase diz
+        // "R$ 730.224,00", "para cada um dos 60 veículos" ou "para cada grupo de
+        // 20". Sai da cobertura, não do modo: com lotes o modo não sabe o
+        // tamanho, e era o tamanho que a frase precisava.
+        coveredVehicleCount: money.coveredVehicleCount,
         // Quando o faturamento já emitiu as parcelas, a cláusula cita o
         // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
         // Antes da assinatura não há parcela e cai no `specificDate`.

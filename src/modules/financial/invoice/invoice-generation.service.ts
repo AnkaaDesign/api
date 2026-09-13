@@ -6,7 +6,7 @@ import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants
 import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
-import { orderNumberLabel } from '../../../utils/quote-tasks';
+import { coveredTaskIds, orderNumberLabel, sliceAnchorTaskId } from '../../../utils/quote-tasks';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -80,10 +80,14 @@ export class InvoiceGenerationService {
                     cnpj: true,
                   },
                 },
-                // A tarefa da FATIA: é ela que vai para `Invoice.taskId` e para
-                // `NfseDocument.taskId`, e é nula quando a fatura cobre o
-                // orçamento inteiro.
-                task: { select: { id: true, finishedAt: true } },
+                // A COBERTURA — os veículos que esta fatura cobra. Decide três
+                // coisas: quais fatias esta aprovação fatura, o multiplicador do
+                // valor (`por veículo × cobertos`) e o `Invoice.taskId` /
+                // `NfseDocument.taskId`, que só é preenchido quando a fatura é
+                // de UM veículo.
+                coveredTasks: {
+                  select: { taskId: true, task: { select: { id: true, finishedAt: true } } },
+                },
               },
             },
           },
@@ -105,16 +109,24 @@ export class InvoiceGenerationService {
 
     const quote = task.quote;
 
-    // ── QUAIS FATIAS ESTA APROVAÇÃO FATURA ────────────────────────────────────
+    // ── QUAIS FATURAS ESTA APROVAÇÃO EMITE ────────────────────────────────────
     //
-    // `onlyTaskIds` restringe às configurações daquelas tarefas. A configuração
-    // de fatia NULA (o `JOINT`) entra sempre: ela cobre o orçamento inteiro, e
-    // portanto também o veículo que se está aprovando.
+    // `onlyTaskIds` restringe às faturas que COBREM um daqueles veículos. A
+    // pergunta é de sobreposição, não de igualdade: aprovar o caminhão 37 emite
+    // a fatura do lote 21–60, porque é essa a que cobra o 37 — e ela cobra os
+    // quarenta de uma vez, que é o que o lote significa.
+    //
+    // ⚠️ Antes a regra era `taskId === null || onlyTaskIds.has(taskId)`, com o
+    // nulo significando "cobre tudo". Um lote teria `taskId` nulo por não caber
+    // numa coluna, e a regra o faturaria a cada aprovação de qualquer veículo.
     const onlyTaskIds = options?.onlyTaskIds ? new Set(options.onlyTaskIds) : null;
     const customerConfigs = (quote.customerConfigs ?? []).filter(config => {
       if (!onlyTaskIds) return true;
-      const sliceTaskId = (config as any).taskId ?? null;
-      return sliceTaskId === null || onlyTaskIds.has(sliceTaskId);
+      const covered = ((config as any).coveredTasks ?? []) as Array<{ taskId: string }>;
+      // Fatia sem cobertura é o orçamento que ainda não tem veículo vinculado:
+      // ali não há o que restringir, e recusá-la deixaria a aprovação sem fatura.
+      if (covered.length === 0) return true;
+      return covered.some(row => onlyTaskIds.has(row.taskId));
     });
 
     this.logger.log(
@@ -195,12 +207,23 @@ export class InvoiceGenerationService {
         // is only a legacy fallback (the installment generators use `approvalDate ?? finishedAt`).
         // Billing can now be approved BEFORE the task is finished, so fall back to
         // approvalDate/now instead of skipping generation when finishedAt is null.
-        // A tarefa da FATIA manda no `finishedAt`, não a tarefa por onde a
-        // aprovação entrou: em `PER_TASK` cada caminhão fecha num dia diferente,
-        // e usar a data de um deles para os sessenta é como todos os vencimentos
-        // acabariam iguais. Cai na tarefa de entrada e depois na data de
-        // aprovação, que é o que os geradores já preferem.
-        const sliceFinishedAt = (config as any).task?.finishedAt ?? null;
+        // A COBERTURA manda no `finishedAt`, não a tarefa por onde a aprovação
+        // entrou: cada caminhão fecha num dia diferente, e usar a data de um
+        // deles para os sessenta é como todos os vencimentos acabariam iguais.
+        //
+        // Numa fatura de vários veículos a data é a do ÚLTIMO a fechar — é dali
+        // que o prazo do cliente corre, porque antes disso a entrega do lote não
+        // aconteceu. E só vale quando TODOS fecharam: com um pendente não existe
+        // "data de conclusão" do lote, e a conta cai na data de aprovação, que é
+        // o que os geradores já preferem.
+        const coveredRows = ((config as any).coveredTasks ?? []) as Array<{
+          task?: { finishedAt: Date | null } | null;
+        }>;
+        const coveredFinishedAt = coveredRows.map(r => r.task?.finishedAt ?? null);
+        const sliceFinishedAt =
+          coveredFinishedAt.length > 0 && coveredFinishedAt.every(d => d != null)
+            ? new Date(Math.max(...coveredFinishedAt.map(d => new Date(d as Date).getTime())))
+            : null;
         const finishedAt = sliceFinishedAt ?? task.finishedAt ?? approvalDate ?? new Date();
 
         const paymentConfig = (config as any).paymentConfig ?? null;
@@ -245,16 +268,23 @@ export class InvoiceGenerationService {
         }
 
         // Create the Invoice
-        // `Invoice.taskId` É A TAREFA DA FATIA — nula quando a fatura cobre o
-        // orçamento inteiro (`JOINT` com N veículos).
+        // `Invoice.taskId` É O VEÍCULO DESTA FATURA — e só existe quando a
+        // fatura é de UM.
         //
         // Antes era sempre a tarefa por onde a aprovação entrou. Num orçamento
         // de sessenta caminhões faturado junto, isso apontaria a fatura de
         // R$ 730.224,00 para UM caminhão, e as telas que listam "faturas desta
         // tarefa" mostrariam a cobrança inteira em um e nada nos outros
-        // cinquenta e nove. Nulo é a resposta honesta: quem cobre a pergunta
-        // "de quais tarefas é esta fatura?" é `customerConfig.quote.tasks`.
-        const sliceTaskId = ((config as any).taskId ?? null) as string | null;
+        // cinquenta e nove.
+        //
+        // ⚠️ A conta é sobre a COBERTURA, nunca sobre `billingSplit`. Decidir
+        // por modo gravava NULO em todo orçamento `JOINT` — inclusive nos de UMA
+        // tarefa, que são o acervo inteiro —, e as três telas que perguntam por
+        // `Invoice.taskId` (detalhe da tarefa, cartão de faturas, assistente de
+        // Faturamento) ficavam sem fatura nenhuma. Pela cobertura, um orçamento
+        // de um veículo cobre um veículo, e o campo continua preenchido como
+        // sempre foi. Ver `sliceAnchorTaskId`.
+        const sliceTaskId = sliceAnchorTaskId(config as any);
         const invoice = await tx.invoice.create({
           data: {
             customerConfigId: config.id,
@@ -358,21 +388,24 @@ export class InvoiceGenerationService {
           // autorizada) e o caminhão 2 herdaria uma nota emitida com os dados de
           // outro veículo.
           //
-          // A pergunta certa é "já existe nota viva para ESTA fatia neste
-          // ciclo?": mesma tarefa quando há tarefa, mesmo orçamento com tarefa
-          // nula quando a fatura é conjunta.
+          // A pergunta certa é "já existe nota viva para ESTE FATURAMENTO neste
+          // ciclo?" — e o endereço dela é a fatia, não a tarefa.
+          //
+          // ⚠️ Endereçar por tarefa (ou por "orçamento com tarefa nula") não
+          // sobrevive ao lote: duas faturas do mesmo orçamento cobrindo vinte
+          // caminhões cada têm as duas `taskId` nulo, e a guarda daria a nota da
+          // primeira para a segunda. `customerConfigId` é único por fatura e
+          // atravessa reversão e reemissão, que é exatamente o ciclo que a
+          // guarda mede.
           const existingLiveNfse = await tx.nfseDocument.findFirst({
             where: {
-              ...(sliceTaskId
-                ? { taskId: sliceTaskId }
-                : { quoteId: quote.id, taskId: null }),
+              invoice: { is: { customerConfigId: config.id, status: { not: 'CANCELLED' } } },
               status: { notIn: ['CANCELLED', 'CANCEL_REQUESTED'] },
               // Never re-point a note already claimed by an earlier config in this
               // same run — that note belongs to the other customer's invoice.
               id: { notIn: usedNfseIds },
               // Current cycle only: orphaned notes are the previous cycle's, to be replaced.
               invoiceId: { not: null },
-              invoice: { is: { status: { not: 'CANCELLED' } } },
             },
             orderBy: { createdAt: 'desc' },
           });
@@ -395,10 +428,10 @@ export class InvoiceGenerationService {
             const createdNfse = await tx.nfseDocument.create({
               data: {
                 invoiceId: invoice.id,
-                // A tarefa da FATIA (nula na fatura conjunta) e SEMPRE o
-                // orçamento: é `quoteId` que sustenta a guarda acima e que faz a
-                // nota conjunta aparecer no histórico dos sessenta veículos em
-                // vez de em um só.
+                // O veículo, quando a nota é de UM (ver `sliceAnchorTaskId`), e
+                // SEMPRE o orçamento: é `quoteId` que faz a nota de um lote
+                // aparecer no histórico de todos os veículos que ela cobre em vez
+                // de em um só.
                 taskId: sliceTaskId,
                 quoteId: quote.id,
                 status: 'PENDING',
@@ -778,8 +811,13 @@ export class InvoiceGenerationService {
               select: {
                 generateInvoice: true,
                 customerId: true,
-                // A TAREFA desta fatia, quando a cobrança é veículo a veículo.
-                taskId: true,
+                // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                //
+                // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                // `coveredTaskIds()` de `@utils/quote-tasks`.
+                coveredTasks: { select: { taskId: true } },
                 quote: {
                   select: {
                     services: {
@@ -1046,13 +1084,16 @@ export class InvoiceGenerationService {
       return parts.length > 0 ? parts : undefined;
     }
 
-    // O pedido dos veículos que ESTA fatura cobre: o do caminhão quando a
-    // cobrança é veículo a veículo, e os do orçamento inteiro (deduplicados)
-    // quando é conjunta. `80` é o que sobra da linha do boleto informativo.
+    // O pedido dos veículos que ESTA fatura cobre — exatamente eles, nem mais
+    // nem menos. Um só quando a cobrança é veículo a veículo; os do lote quando
+    // é um lote; os do orçamento inteiro quando é conjunta. Citar um pedido que
+    // não é da entrega cobrada faz o cliente receber um boleto que não bate com
+    // nenhum pedido dele. `80` é o que sobra da linha do boleto informativo.
     const cfgForOrder = installment.invoice?.customerConfig;
+    const coveredForOrder = new Set(coveredTaskIds(cfgForOrder as any));
     const orderNumber = orderNumberLabel(
-      cfgForOrder?.taskId
-        ? (cfgForOrder.quote?.tasks ?? []).filter(t => t.id === cfgForOrder.taskId)
+      coveredForOrder.size > 0
+        ? (cfgForOrder?.quote?.tasks ?? []).filter(t => coveredForOrder.has(t.id))
         : (cfgForOrder?.quote?.tasks ?? []),
       80,
     );

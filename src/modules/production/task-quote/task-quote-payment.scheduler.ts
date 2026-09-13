@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
+import { sliceTask } from '@utils/quote-tasks';
 
 /**
  * Scheduler for task quote payment reminders.
@@ -73,6 +74,10 @@ export class TaskQuotePaymentScheduler {
         include: {
           customerConfig: {
             include: {
+              // A COBERTURA — o aviso de vencimento cita o veículo desta fatura,
+              // e sem ela a âncora cairia sempre no primeiro caminhão do
+              // orçamento, inclusive numa parcela que é de outro.
+              coveredTasks: { select: { taskId: true } },
               quote: {
                 include: {
                   tasks: {
@@ -105,13 +110,11 @@ export class TaskQuotePaymentScheduler {
         const config = installment.customerConfig;
         if (!config) continue;
         const quote = config.quote;
-        // A tarefa da FATIA quando a parcela é de um veículo só; a primeira do
-        // orçamento quando a cobrança é conjunta. O aviso de vencimento cita uma
-        // tarefa para o operador se localizar, e qualquer uma serve para isso.
-        const task =
-          (config.taskId ? quote.tasks?.find(t => t.id === config.taskId) : null) ??
-          quote.tasks?.[0] ??
-          null;
+        // A tarefa ÂNCORA da fatura — o primeiro veículo que ela cobre. O aviso
+        // de vencimento cita uma tarefa para o operador se localizar, e qualquer
+        // uma da cobertura serve para isso; o que não serve é citar um veículo
+        // que esta fatura NÃO cobra.
+        const task = sliceTask(config as any) ?? quote.tasks?.[0] ?? null;
 
         if (!task) continue;
 

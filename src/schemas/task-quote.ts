@@ -600,16 +600,39 @@ export const paymentConfigSchema = z.object({
 
 export const taskQuoteCustomerConfigCreateNestedSchema = z
   .object({
+    /**
+     * O ID DESTA FATIA, quando a tela edita uma que já existe.
+     *
+     * ⚠️ NÃO É DECORATIVO, e a ausência dele foi um defeito real. O objeto não é
+     * `.strict()`: enquanto a chave não existiu aqui, o zod APAGOU em silêncio o
+     * `id` que os assistentes já mandavam, a reconciliação ficou sem identidade
+     * para casar as fatias e quatro faturamentos do mesmo cliente chegavam
+     * indistinguíveis — a última gravação vencia sobre as outras três, levando
+     * junto desconto, condição de pagamento e "gerar NF/boleto" de cada uma.
+     */
+    id: z.string().uuid('ID de faturamento invalido').optional(),
     customerId: z.string().uuid('ID de cliente invalido'),
     /**
-     * A TAREFA que esta configuração fatura, ou ausente/nulo para "todas".
+     * A COBERTURA — os VEÍCULOS que esta fatura cobra.
      *
-     * Normalmente o cliente NÃO manda isto: quem deriva as configurações a partir
-     * de `billingSplit` + as tarefas do orçamento é o servidor
-     * (`expectedConfigTaskIds`), justamente para que a tela não precise montar
-     * sessenta objetos idênticos a cada gravação. O campo existe para o caminho em
-     * que a tela edita UMA fatia — mudar a condição de pagamento só do caminhão
-     * 37, por exemplo.
+     * Ausente = "decida pelo modo" (`billingSplit` + as tarefas do orçamento),
+     * que é o que as telas mandam quando não estão compondo lotes: não precisam
+     * montar sessenta objetos idênticos a cada gravação. Presente = a tela está
+     * dizendo exatamente quem cobra quem, e o modo não sobrescreve.
+     *
+     * Um veículo só pode estar na cobertura de UM faturamento por cliente — é
+     * índice único no banco (`QuoteBillingTask`), não convenção.
+     */
+    taskIds: z
+      .array(z.string().uuid('Tarefa invalida'))
+      .max(200, 'Maximo de 200 tarefas por faturamento')
+      .optional(),
+    /**
+     * @deprecated Forma anterior à cobertura explícita: UMA tarefa, `null` para
+     * "todas". Equivale a `taskIds: [taskId]`; `null` equivale a ausência.
+     *
+     * ⚠️ NÃO remova a chave achando que "o campo não existe mais" — ver a nota
+     * sobre `.strict()` em `id` e em `orderNumber`.
      */
     taskId: z.string().uuid('Tarefa invalida').optional().nullable(),
     // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
@@ -740,14 +763,19 @@ export const taskQuoteCreateNestedSchema = z.object({
 /**
  * Como o cliente paga um orçamento que cobre mais de um veículo.
  *
- * `JOINT` (padrão) é o comportamento de sempre: uma configuração de faturamento
- * por cliente, uma fatura, um plano de parcelas, uma NFS-e. Num orçamento de uma
- * tarefa só, indistinguível do que existia antes desta feature.
+ * `JOINT` (padrão) é o comportamento de sempre: um faturamento por cliente, uma
+ * fatura, um plano de parcelas, uma NFS-e. Num orçamento de uma tarefa só,
+ * indistinguível do que existia antes desta feature.
  *
- * `PER_TASK` fatia por veículo: uma configuração por (cliente × tarefa), e o
+ * `PER_TASK` fatia por veículo: um faturamento por (cliente × tarefa), e o
  * financeiro aprova veículo a veículo.
+ *
+ * `CUSTOM` são lotes livres — "1 a 20 no pedido 8842, 21 a 60 no 9013". Aqui o
+ * modo não DERIVA a cobertura: ela vem em `customerConfigs[].taskIds`, e o
+ * servidor só sameia (descarta veículo que não é do orçamento) e isola o que
+ * nenhum lote reivindicou.
  */
-export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK']);
+export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK', 'CUSTOM']);
 
 // =====================
 // CRUD Schemas - TaskQuote

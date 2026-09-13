@@ -216,35 +216,112 @@ export function perVehicleAmount(
   return Math.round((grand / count) * 100) / 100;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// A COBERTURA DE UM FATURAMENTO — quais veículos ele cobra
+//
+// Era `TaskQuoteCustomerConfig.taskId`, com NULO querendo dizer "todos". Agora
+// são linhas em `QuoteBillingTask`, e a diferença é de natureza: a cobertura
+// deixou de ser calculada na leitura e passou a ser gravada. Ver o modelo no
+// `schema.prisma`.
+//
+// ⚠️ QUEM CONSULTA PRECISA PEDIR. `coveredTasks` é uma relação: um `select` que
+// não a inclui devolve cobertura VAZIA, e os helpers abaixo respondem "cobre
+// zero veículos" — o que, em dinheiro, é R$ 0,00 numa fatura que tem valor. É a
+// razão de `coveredTaskIds` distinguir "relação ausente" de "relação vazia" e de
+// as funções que decidem dinheiro receberem a contagem explicitamente.
+//
+// ESPELHADO em `web/src/utils/quote-tasks.ts`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Uma fatia de faturamento como as consultas a devolvem. */
+export interface BillingConfigLike<T extends QuoteTaskLike = QuoteTaskLike> {
+  coveredTasks?: ReadonlyArray<{ taskId: string; task?: T | null }> | null;
+  quote?: { tasks?: readonly T[] | null } | null;
+}
+
 /**
- * A TAREFA que uma fatia de faturamento descreve.
+ * Os ids dos veículos que este faturamento cobra, na ordem canônica do
+ * orçamento quando ela é conhecida.
  *
- * `TaskQuoteCustomerConfig.taskId` nulo é a fatia `JOINT` — uma fatura para os N
- * veículos, e qualquer tarefa serve de âncora para o link da tela. Preenchido é
- * `PER_TASK`: a fatia é DAQUELE caminhão, e responder com o primeiro do
- * orçamento faz a parcela do caminhão 37 abrir a tela do caminhão 1 — com o
- * número de série, a placa e o cliente errados na frente de quem confere
- * dinheiro.
- *
- * Cai para o primeiro veículo quando a fatia é conjunta ou quando a tarefa da
- * fatia não veio na consulta: é o comportamento anterior, e ele está certo para
- * `JOINT`.
+ * A ordem importa porque a âncora (`sliceTask`) é o primeiro desta lista, e ela
+ * batiza arquivo, link de notificação e rótulo de trilha: uma âncora que muda
+ * entre duas leituras faz o mesmo faturamento apontar para caminhões diferentes.
  */
-export function sliceTask<T extends { id: string }>(
-  config:
-    | {
-        taskId?: string | null;
-        quote?: { tasks?: readonly T[] | null } | null;
-      }
-    | null
-    | undefined,
+export function coveredTaskIds(config: BillingConfigLike | null | undefined): string[] {
+  const rows = config?.coveredTasks;
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const ids = new Set(rows.map(r => r.taskId));
+  const ordered = quoteTasks(config?.quote as any)
+    .map(t => t.id)
+    .filter(id => ids.has(id));
+  // Tarefas que a consulta não trouxe entram pelo fim, sem ordem melhor
+  // disponível — melhor uma âncora estável e incompleta do que nenhuma.
+  for (const id of ids) if (!ordered.includes(id)) ordered.push(id);
+  return ordered;
+}
+
+/** Quantos veículos este faturamento cobra. É o multiplicador do valor da fatura. */
+export function coveredTaskCount(config: BillingConfigLike | null | undefined): number {
+  return coveredTaskIds(config).length;
+}
+
+/** Este faturamento cobra ESTE veículo? */
+export function coversTask(
+  config: BillingConfigLike | null | undefined,
+  taskId: string | null | undefined,
+): boolean {
+  if (!taskId) return false;
+  return (config?.coveredTasks ?? []).some(r => r.taskId === taskId);
+}
+
+/**
+ * A TAREFA ÂNCORA de uma fatia de faturamento — a primeira que ela cobre.
+ *
+ * Use onde uma tarefa qualquer da fatia serve e a escolha não muda o
+ * significado: o `taskId` de um link, o rótulo de uma trilha, o nome de um
+ * arquivo, o cabeçalho de uma parcela.
+ *
+ * NÃO use para dinheiro nem para a discriminação de uma NFS-e: ali a resposta é
+ * a cobertura inteira, e a âncora seria uma afirmação falsa sobre os outros
+ * veículos da mesma fatura. Para esses, `coveredTaskIds`.
+ *
+ * Cai para o primeiro veículo do orçamento quando a cobertura não veio na
+ * consulta — é o que o código fazia antes desta feature, e continua sendo a
+ * única resposta possível sem a relação.
+ */
+export function sliceTask<T extends QuoteTaskLike>(
+  config: BillingConfigLike<T> | null | undefined,
 ): T | null {
-  const tasks = config?.quote?.tasks ?? [];
-  if (config?.taskId) {
-    const own = tasks.find(t => t.id === config.taskId);
+  const tasks = quoteTasks(config?.quote as any) as T[];
+  const covered = coveredTaskIds(config);
+  if (covered.length > 0) {
+    const own = tasks.find(t => t.id === covered[0]);
     if (own) return own;
+    const embedded = (config?.coveredTasks ?? []).find(r => r.taskId === covered[0])?.task;
+    if (embedded) return embedded as T;
   }
   return tasks[0] ?? null;
+}
+
+/**
+ * O `Invoice.taskId` / `NfseDocument.taskId` de uma fatia: o veículo quando a
+ * fatura é de UM, nulo quando cobre vários.
+ *
+ * Nulo é a resposta honesta para a fatura de sessenta caminhões — apontá-la para
+ * um faria as telas de "faturas desta tarefa" mostrarem a cobrança inteira num
+ * veículo e nada nos outros cinquenta e nove.
+ *
+ * ⚠️ E é por isso que a conta é sobre a COBERTURA e não sobre o modo. Num
+ * orçamento de UMA tarefa — o acervo inteiro — `JOINT` cobre exatamente um
+ * veículo, então o campo continua preenchido como sempre foi. A versão anterior
+ * decidia por `billingSplit` e gravava NULO ali, deixando sem fatura as três
+ * telas que perguntam por `Invoice.taskId`.
+ */
+export function sliceAnchorTaskId(
+  config: BillingConfigLike | null | undefined,
+): string | null {
+  const covered = coveredTaskIds(config);
+  return covered.length === 1 ? covered[0] : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -425,4 +502,73 @@ export function orderNumberLabel(
   if (kept.length === 0) return numbers[0].slice(0, maxLength);
   const rest = numbers.length - kept.length;
   return rest > 0 ? `${kept.join(', ')} (+${rest})` : kept.join(', ');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A COBERTURA VIAJA SEMPRE
+//
+// `coveredTasks` é relação, e relação que ninguém pede não vem. O modo de falha
+// é silencioso e caro: a tela recebe uma fatura com cobertura VAZIA, mostra
+// "nenhum veículo" numa fatura de vinte, e qualquer conta feita a partir dela dá
+// R$ 0,00. Pior, é o tipo de defeito que só aparece na tela que esqueceu de
+// pedir — não no `tsc`, não nos testes das outras.
+//
+// Por isso nenhum repositório escreve o include à mão: todo caminho que devolve
+// `customerConfigs` passa por `withCoverageInclude`, que injeta a cobertura no
+// que o chamador pediu, seja `true`, `include` ou `select`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A cobertura como as telas precisam dela: o id da tarefa e o suficiente para
+ * NOMEAR o veículo (série, nome, placa) sem uma segunda consulta.
+ *
+ * Ordenada pela MESMA regra de `QUOTE_TASKS_ORDER_BY`: a ordem da cobertura
+ * decide a âncora (`sliceTask`), e âncora que muda entre duas leituras faz o
+ * mesmo faturamento apontar para caminhões diferentes.
+ */
+export const QUOTE_COVERAGE_INCLUDE: {
+  select: Record<string, unknown>;
+  orderBy: Array<Record<string, unknown>>;
+} = {
+  select: {
+    taskId: true,
+    customerId: true,
+    task: {
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        createdAt: true,
+        customerOrderNumber: true,
+        truck: { select: { plate: true } },
+      },
+    },
+  },
+  orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+};
+
+/**
+ * Injeta a cobertura no nó de include/select de `customerConfigs`, qualquer que
+ * seja a forma que o chamador usou.
+ *
+ * `true` e ausente viram `{ include: { coveredTasks } }`. Um nó com `select`
+ * recebe a chave dentro do `select` (pôr num `include` ao lado de um `select` é
+ * erro do Prisma); um nó com `include`, ou sem nenhum dos dois, recebe dentro do
+ * `include`.
+ */
+export function withCoverageInclude(node: unknown): unknown {
+  if (node === undefined || node === null || node === true) {
+    return { include: { coveredTasks: QUOTE_COVERAGE_INCLUDE } };
+  }
+  if (node === false || typeof node !== 'object') return node;
+
+  const next = { ...(node as Record<string, unknown>) };
+  const select = next.select as Record<string, unknown> | undefined;
+  if (select && typeof select === 'object') {
+    next.select = { ...select, coveredTasks: QUOTE_COVERAGE_INCLUDE };
+    return next;
+  }
+  const include = (next.include as Record<string, unknown> | undefined) ?? {};
+  next.include = { ...include, coveredTasks: QUOTE_COVERAGE_INCLUDE };
+  return next;
 }

@@ -143,6 +143,22 @@ export interface QuoteSnapshot {
    * obrigações diferentes para quem assina.
    */
   billingSplit: string;
+  /**
+   * OS LOTES DE FATURAMENTO — quais veículos entram em cada fatura, na ordem do
+   * documento.
+   *
+   * Entra no snapshot (v4) porque APARECE no documento e é MATERIAL. `billingSplit`
+   * sozinho não responde mais: com lotes, "CUSTOM" pode significar três faturas de
+   * vinte ou duas de trinta, e a cláusula de pagamento imprime números diferentes
+   * nos dois casos. Um plano de R$ 730.224,00, três de R$ 243.408,00 e sessenta de
+   * R$ 12.170,40 são obrigações diferentes para quem assina.
+   *
+   * Cada lote é a lista de `taskId` que uma fatura cobre; a ordem de dentro e a
+   * dos lotes seguem a do documento. Ausente em snapshots congelados antes da v4
+   * — ali a cobertura se deduz de `billingSplit` + `vehicles`, que é exatamente o
+   * que aquela versão significava.
+   */
+  billingGroups?: string[][];
   /** @deprecated Forma v1/v2. Só existe em snapshots congelados antes da v3. */
   task?: {
     id: string;
@@ -183,8 +199,12 @@ export interface QuoteSnapshot {
 /**
  * v3 (2026-09-03): `task`/`truck` singulares deram lugar a `vehicles[]`, e
  * `billingSplit` entrou — o orçamento passou a poder cobrir N veículos.
+ *
+ * v4 (2026-09-13): `billingGroups` entrou — a cobertura de cada fatura virou
+ * DADO (`QuoteBillingTask`), e com lotes o modo sozinho já não diz quantas
+ * faturas existem nem de que tamanho.
  */
-export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 3;
+export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
 
 /**
  * Versão do RECORTE MATERIAL — versionada à parte de propósito.
@@ -227,10 +247,24 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 3;
  * orçamento de uma tarefa só, a reprodução é byte a byte a de antes. É isso que
  * permite reconhecer um envelope NÃO alterado depois desta mudança de recorte.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 5;
+/**
+ * v6 (2026-09-13): a COBERTURA entrou no recorte.
+ *
+ * `billingSplit` sozinho deixou de identificar a obrigação quando os lotes
+ * chegaram: "CUSTOM" pode ser três faturas de vinte ou duas de trinta, e a
+ * cláusula que o cliente assina imprime números diferentes nos dois casos.
+ * Reagrupar os lotes de uma coleta em andamento é proposta nova (CC art. 431),
+ * e sem isto no hash seria uma troca silenciosa.
+ *
+ * A v5 continua calculável e continua NÃO emitindo `billingGroups`: todo
+ * envelope congelado sob ela é `JOINT` ou `PER_TASK`, onde a cobertura é
+ * derivável do modo — e emitir a chave nova ali quebraria a reprodutibilidade
+ * que permite reconhecer um envelope não alterado.
+ */
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 6;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
-export const SUPPORTED_MATERIAL_VERSIONS = [5, 4, 3, 2, 1] as const;
+export const SUPPORTED_MATERIAL_VERSIONS = [6, 5, 4, 3, 2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -280,8 +314,16 @@ export interface QuoteMaterialProjection {
    * deslocadas.
    */
   vehicles?: Array<{ plate: string | null }>;
-  /** Junto ou separado — emitido só na v5. Ver `QuoteSnapshot.billingSplit`. */
+  /** Junto ou separado — emitido a partir da v5. Ver `QuoteSnapshot.billingSplit`. */
   billingSplit?: string;
+  /**
+   * OS LOTES — emitido só a partir da v6. Ver `QuoteSnapshot.billingGroups`.
+   *
+   * Normalizado antes de entrar no hash: os ids de cada lote ordenados, e os
+   * lotes ordenados entre si pelo primeiro id. Sem isso, reordenar as faturas
+   * sem mudar quem cobra quem derrubaria a coleta.
+   */
+  billingGroups?: string[][];
   /**
    * Identidade dos signatários e o CANAL do OTP — não a grafia do nome.
    *
@@ -326,6 +368,13 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
       // quando o faturamento já as gerou. Na assinatura ainda não existem, e a
       // cláusula continua saindo do `specificDate`, como antes.
       installments: { orderBy: { number: 'asc' } },
+      // A COBERTURA. Entra no grafo compartilhado porque o documento DEPENDE
+      // dela: é ela que decide se a cláusula de pagamento diz "quatro parcelas de
+      // R$ 182.556,00", "para cada um dos 60 veículos" ou "para cada grupo de 20".
+      coveredTasks: {
+        select: { taskId: true },
+        orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+      },
     },
   },
   tasks: {
@@ -402,6 +451,13 @@ export class QuoteSnapshotService {
         implementType: t.truck?.implementType ?? null,
       })),
       billingSplit: (quote as any).billingSplit ?? 'JOINT',
+      // OS LOTES, na ordem do documento. A ordem dos veículos dentro de cada
+      // lote vem do `orderBy` da cobertura (a mesma de `QUOTE_TASKS_ORDER_BY`),
+      // e a ordem dos lotes, da criação das faturas — as duas estáveis, porque
+      // uma ordem que muda entre duas leituras muda o hash sem nada ter mudado.
+      billingGroups: quote.customerConfigs.map(c =>
+        ((c as any).coveredTasks ?? []).map((row: { taskId: string }) => row.taskId),
+      ),
       services: quote.services.map(s => ({
         description: s.description,
         amount: money(s.amount),
@@ -499,6 +555,17 @@ export class QuoteSnapshotService {
         ? {
             vehicles: snapshotVehicles(s).map(v => ({ plate: normText(v.plate) })),
             billingSplit: s.billingSplit ?? 'JOINT',
+            // Os LOTES só a partir da v6, e normalizados: a identidade de um
+            // agrupamento é QUEM está com QUEM, não a ordem em que as faturas
+            // foram criadas. Sem normalizar, uma reordenação sem efeito nenhum
+            // sobre o cliente invalidaria as assinaturas já colhidas.
+            ...(version >= 6
+              ? {
+                  billingGroups: (s.billingGroups ?? [])
+                    .map(group => [...group].sort())
+                    .sort((a, b) => (a[0] ?? '').localeCompare(b[0] ?? '')),
+                }
+              : {}),
           }
         : (() => {
             const first = snapshotVehicles(s)[0] ?? null;
