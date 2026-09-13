@@ -377,7 +377,8 @@ ${
     : '<p>O link de assinatura que você recebeu não vale mais.</p>'
 }
 <p>Nosso time comercial vai revisar os valores e enviar uma proposta atualizada para sua
-apreciação. Se houver urgência ou alguma condição nova a considerar, basta responder este e-mail.</p>
+apreciação. Se houver urgência ou alguma condição nova a considerar, basta responder este e-mail
+ou falar com ${esc(COMPANY.directorName)}, ${esc(COMPANY.directorTitle)}, pelo ${esc(COMPANY.phone)}.</p>
 <p class="muted">Nenhuma providência é necessária da sua parte neste momento.</p>`,
     }),
   };

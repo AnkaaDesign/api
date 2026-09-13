@@ -56,8 +56,11 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
   /**
    * A validade venceu sem todas as assinaturas. `{{1}}` nome · `{{2}}` orçamento.
    *
-   * SEM BOTÃO, de propósito: o link não assina mais nada, e um botão que leva a
-   * uma página dizendo "expirado" é pior do que botão nenhum.
+   * SEM BOTÃO DE LINK, de propósito: o link não assina mais nada, e um botão que
+   * leva a uma página dizendo "expirado" é pior do que botão nenhum. O que o
+   * template carrega é um botão de TELEFONE ("Falar com o comercial"), estático:
+   * a Meta o resolve no aparelho, ele não consome parâmetro de envio, e por isso
+   * `expiredTemplate` continua mandando só as duas variáveis do corpo.
    */
   EXPIRED: 'orcamento_vencido',
 } as const;

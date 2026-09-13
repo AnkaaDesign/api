@@ -162,6 +162,12 @@ export interface WhatsAppExpiredData extends SignatureWhatsAppBase {
  * descuido nosso. A frase do `hadSigned` existe para dizer que o ato dele foi
  * registrado e que o que venceu foi o prazo, não a assinatura.
  *
+ * O CONTATO É NOMEADO, e não "responda esta mensagem" — que era o que estava
+ * escrito aqui até 13/09. No canal oficial aquilo virou um beco: a resposta do
+ * cliente chega pelo webhook, vira uma linha de log e não abre conversa com
+ * ninguém. Dizer COM QUEM falar, e por qual número, é o que transforma o aviso
+ * de vencimento na próxima proposta em vez de numa mensagem sem saída.
+ *
  * Espelha o template `orcamento_vencido` da Cloud API.
  */
 export function generateSignatureExpiredWhatsApp(data: WhatsAppExpiredData): string {
@@ -172,7 +178,7 @@ export function generateSignatureExpiredWhatsApp(data: WhatsAppExpiredData): str
       ? 'Sua assinatura ficou registrada — o que venceu foi o prazo do orçamento, não ela.'
       : 'O link que você recebeu não vale mais.',
     '',
-    `A ${COMPANY.name} vai revisar os valores e enviar uma proposta atualizada. Se quiser adiantar, é só responder esta mensagem.`,
+    `A ${COMPANY.name} vai revisar os valores e enviar uma proposta atualizada. Se preferir adiantar, fale com ${COMPANY.directorName}, ${COMPANY.directorTitle}: ${COMPANY.phone}.`,
   ].join('\n');
 }
 

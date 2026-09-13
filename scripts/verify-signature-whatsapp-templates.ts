@@ -141,6 +141,13 @@ async function main(): Promise<void> {
     );
 
     const botoes = meta.components?.find(c => c.type === 'BUTTONS')?.buttons ?? [];
+    // Só conta o botão que RECEBE parâmetro no envio — o que tem `{{n}}` na URL
+    // (o "Revisar e assinar" do convite e o "Copiar código" do OTP, que a Meta
+    // implementa como URL). Botão de TELEFONE e URL fixa são estáticos: quem os
+    // resolve é o aparelho, e o envio não manda nada por eles. Contar os dois
+    // juntos reprovaria o `orcamento_vencido`, cujo botão é o telefone do
+    // comercial enquanto o código, corretamente, não manda parâmetro de botão.
+    const botoesComParametro = botoes.filter(b => (b.url ?? '').includes('{{'));
     const mandaBotao = Boolean(descritor.urlButtonParam ?? descritor.otpButtonParam);
     // ⚠️ OS PARÊNTESES SÃO O CONSERTO, não estilo.
     //
@@ -153,10 +160,10 @@ async function main(): Promise<void> {
     // desenvolvimento.
     check(
       `${rotulo}: botão`,
-      mandaBotao === (botoes.length > 0),
+      mandaBotao === (botoesComParametro.length > 0),
       mandaBotao
-        ? `código manda parâmetro, template tem ${botoes.length} botão(ões)`
-        : 'sem botão dos dois lados',
+        ? `código manda parâmetro, template tem ${botoesComParametro.length} botão(ões) com variável`
+        : `sem botão com variável dos dois lados (${botoes.length} estático(s) no template)`,
     );
 
     // Só o convite tem link. O prefixo mora no template, e é ele que decide
