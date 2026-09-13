@@ -76,6 +76,7 @@ import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import { computeQuoteMoney, planCoverage, round2 } from '@utils/quote-money';
 import {
   describePrismaFailure,
+  distinctCustomerIds,
   hasMultipleCustomers,
   isSingleCustomerQuote,
   primaryTask,
@@ -341,8 +342,15 @@ export class TaskQuoteService {
         }
       }
 
-      // Validate customerConfigs customer IDs
-      const customerIds = data.customerConfigs.map(c => c.customerId);
+      // Validate customerConfigs customer IDs.
+      //
+      // ⚠️ CLIENTES DISTINTOS, não fatias. Com lote — e com `PER_TASK` — o mesmo
+      // cliente aparece K vezes em `customerConfigs`, e comparar o tamanho da
+      // lista COM REPETIÇÃO contra as linhas encontradas no banco recusava o
+      // orçamento inteiro com "cliente não encontrado" — sobre um cliente que
+      // existe. É a mesma confusão de `configs.length` com nº de clientes que já
+      // recusara a aprovação de faturamento em cinco telas.
+      const customerIds = distinctCustomerIds(data.customerConfigs);
       const customers = await db.customer.findMany({
         where: { id: { in: customerIds } },
         select: { id: true },
@@ -1033,7 +1041,9 @@ export class TaskQuoteService {
 
       // Validate customerConfigs customer IDs if provided
       if (data.customerConfigs && data.customerConfigs.length > 0) {
-        const customerIds = data.customerConfigs.map(c => c.customerId);
+        // Distintos — ver a nota em `create`. Numa gravação de lotes esta linha
+        // é a diferença entre gravar e recusar.
+        const customerIds = distinctCustomerIds(data.customerConfigs);
         const customers = await this.prisma.customer.findMany({
           where: { id: { in: customerIds } },
           select: { id: true },

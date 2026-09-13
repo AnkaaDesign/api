@@ -586,10 +586,30 @@ async function syncCoverage(
 
   const toCreate = after.filter(id => !beforeSet.has(id));
   if (toCreate.length > 0) {
+    // ── O VEÍCULO SAI DA OUTRA FATIA ANTES DE ENTRAR NESTA ──────────────────
+    //
+    // Um veículo é cobrado por UMA fatia daquele cliente — índice único
+    // `(taskId, customerId)`. Quando o plano MOVE um caminhão de uma fatia para
+    // outra (compor um lote a partir do faturamento por veículo, redividir um
+    // lote, remover uma fatia), a linha antiga ainda está de pé neste ponto: as
+    // fatias que saíram só são apagadas no fim da reconciliação, e a que perdeu
+    // o veículo pode ser processada DEPOIS desta.
+    //
+    // O insert então esbarrava no índice e `skipDuplicates` o descartava EM
+    // SILÊNCIO — o veículo terminava a transação em fatura NENHUMA. Era assim
+    // que compor "dois no pedido 8842, dois no 9013" a partir de quatro fatias
+    // por veículo devolvia quatro fatias por veículo de novo, sem erro nenhum.
+    //
+    // Escopo: o mesmo cliente, e nunca esta fatia. Uma fatia CONGELADA não perde
+    // veículo aqui porque o plano jamais entrega a outro grupo um veículo que
+    // ela cobre — a cobertura dela é semeada antes de tudo e sai do bolo.
+    await tx.quoteBillingTask.deleteMany({
+      where: { customerId, taskId: { in: toCreate }, configId: { not: configId } },
+    });
     // `skipDuplicates` cobre a corrida entre duas gravações do mesmo orçamento;
-    // o índice único `(taskId, customerId)` continua sendo quem garante que o
-    // veículo não acaba em duas faturas do mesmo cliente — aqui ele só não
-    // derruba a transação por uma repetição idêntica.
+    // o índice único continua sendo quem garante que o veículo não acaba em duas
+    // faturas do mesmo cliente — aqui ele só não derruba a transação por uma
+    // repetição idêntica.
     await tx.quoteBillingTask.createMany({
       data: toCreate.map(taskId => ({ configId, taskId, customerId })),
       skipDuplicates: true,
