@@ -42,6 +42,15 @@ Os três primeiros estão `APPROVED` e são os únicos que `main` usa hoje. Os d
 últimos foram submetidos em 13/09/2026 e pertencem ao fluxo que vive em
 `feat/orcamento-multitarefa` — lembrete e vencimento.
 
+### `orcamento_vencido` é MARKETING, e isso foi aceito
+
+Submetido como UTILITY, a Meta reclassificou para MARKETING — provavelmente pela
+frase que promete a proposta atualizada. **Decisão de 13/09/2026: fica como
+está.** Marketing custa ~8× a utility e pode ser silenciado pelo destinatário,
+mas o vencimento é a exceção da exceção: 2 em 43 envelopes até aqui, e o
+lembrete diário existe justamente para que não se chegue lá. Não é descuido —
+não "conserte" editando o corpo sem antes rever esta conta.
+
 O botão de telefone do `orcamento_vencido` é **estático**: a Meta o resolve no
 aparelho e ele não consome parâmetro de envio. É por isso que `expiredTemplate`
 manda só as duas variáveis do corpo e mesmo assim o template tem botão.
