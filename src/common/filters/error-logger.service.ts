@@ -59,6 +59,12 @@ export class ErrorLoggerService {
       return {
         name: exception.name,
         message: exception.message,
+        // Prisma's known-request errors carry the only diagnosis there is on the
+        // generic Portuguese messages (which constraint, which field). Without
+        // this a P2003 logs as "Referência inválida" and nothing else, and the
+        // offending FK has to be guessed from the schema.
+        ...((exception as any).code ? { code: (exception as any).code } : {}),
+        ...((exception as any).meta ? { meta: (exception as any).meta } : {}),
         stack: exception.stack?.split('\n').slice(0, 5), // Limit stack trace
       };
     }
