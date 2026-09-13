@@ -322,15 +322,21 @@ export class TaskQuoteController {
   @HttpCode(HttpStatus.OK)
   async updateCustomerConfigOrderNumber(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { customerId: string; orderNumber: string | null },
+    @Body() body: { customerId?: string; taskId?: string; orderNumber: string | null },
   ) {
-    if (!body.customerId) {
-      throw new BadRequestException('customerId é obrigatório.');
+    // `customerId` deixou de ser obrigatório e `taskId` entrou: o número do
+    // pedido é do VEÍCULO desde a migração `20260909170000`, e num orçamento de
+    // sessenta caminhões escrever nos sessenta a cada edição é o defeito que a
+    // mudança de dono existe para acabar. Sem `taskId` o comportamento antigo
+    // (todos) é mantido — é o que o app instalado pede.
+    if (!body.customerId && !body.taskId) {
+      throw new BadRequestException('Informe o veículo (taskId) ou o cliente (customerId).');
     }
     return this.taskQuoteService.updateCustomerConfigOrderNumber(
       id,
-      body.customerId,
+      body.customerId ?? null,
       body.orderNumber ?? null,
+      body.taskId ?? null,
     );
   }
 

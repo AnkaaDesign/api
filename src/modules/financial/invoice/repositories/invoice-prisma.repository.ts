@@ -43,6 +43,13 @@ export class InvoicePrismaRepository implements InvoiceRepository {
           serialNumber: true,
         },
       },
+      // A COBERTURA no include PADRÃO. É ela que responde "de quais veículos é
+      // esta fatura?", e quem chama a rota por ORÇAMENTO precisa dela para
+      // filtrar as faturas do caminhão que está na tela — `Invoice.taskId` só
+      // existe quando a fatura é de um veículo só.
+      customerConfig: {
+        include: { coveredTasks: { select: { taskId: true } } },
+      },
     };
   }
 

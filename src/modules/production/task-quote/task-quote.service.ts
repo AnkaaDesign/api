@@ -3905,15 +3905,41 @@ export class TaskQuoteService {
    */
   async updateCustomerConfigOrderNumber(
     quoteId: string,
-    customerId: string,
+    customerId: string | null,
     orderNumber: string | null,
-  ): Promise<{ message: string }> {
-    const configs = await this.prisma.taskQuoteCustomerConfig.count({
-      where: { quoteId, customerId },
-    });
+    taskId?: string | null,
+  ): Promise<{ success: true; message: string }> {
+    // O cliente ainda é aceito (o app instalado o manda) e serve de guarda: o
+    // número pertence ao orçamento daquele cliente, não a um orçamento qualquer.
+    if (customerId) {
+      const configs = await this.prisma.taskQuoteCustomerConfig.count({
+        where: { quoteId, customerId },
+      });
+      if (configs === 0) {
+        throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
+      }
+    }
 
-    if (configs === 0) {
-      throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
+    // ─── UM VEÍCULO, OU TODOS ────────────────────────────────────────────────
+    //
+    // O pedido de compra é da ENTREGA: às vezes é o mesmo para os sessenta
+    // caminhões, às vezes muda a cada um. Com `taskId` a escrita é do veículo
+    // pedido — e a guarda garante que ele é DESTE orçamento, senão o app poderia
+    // carimbar o pedido no caminhão de outro contrato.
+    //
+    // Sem `taskId` a escrita é em todos, que é o comportamento do app instalado
+    // (ele mandava só o cliente) e continua sendo a leitura certa do que ele
+    // pede: "o pedido deste orçamento".
+    if (taskId) {
+      const belongs = await this.prisma.task.count({ where: { id: taskId, quoteId } });
+      if (belongs === 0) {
+        throw new BadRequestException('A tarefa informada não pertence a este orçamento.');
+      }
+      await this.prisma.task.update({
+        where: { id: taskId },
+        data: { customerOrderNumber: orderNumber || null },
+      });
+      return { success: true, message: 'Número do pedido atualizado com sucesso.' };
     }
 
     const updated = await this.prisma.task.updateMany({
@@ -3922,6 +3948,7 @@ export class TaskQuoteService {
     });
 
     return {
+      success: true,
       message:
         updated.count > 1
           ? `Número do pedido aplicado aos ${updated.count} veículos do orçamento.`
