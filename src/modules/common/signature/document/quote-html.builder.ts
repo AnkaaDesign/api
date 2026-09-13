@@ -974,6 +974,11 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     orphans: 2; widows: 2;
   }
 
+  /* Duas cláusulas de pagamento só existem quando o cliente paga em LOTES (uma
+     frase por fatura). O seletor irmão garante que o documento de uma fatura
+     só — o acervo inteiro — não muda um pixel. */
+  .terms-content + .terms-content { margin-top: 2mm; }
+
   .acceptance-clause {
     margin-top: 6mm; font-size: 7pt; line-height: 1.45; color: var(--gray);
     border-top: .5px solid #ddd; padding-top: 2mm; text-align: justify;
@@ -1151,9 +1156,23 @@ ${part === 'content' || part === 'fused' ? `
              }
              ${
                data.paymentText
-                 ? `<p class="terms-content${billingRowsHtml ? ' terms-content-after-table' : ''}">${escapeHtml(
-                     data.paymentText,
-                   )}</p>`
+                 ? // UMA CLÁUSULA POR FATURA. O texto chega com uma linha por
+                   // faturamento — é o cliente que paga em LOTES, com K planos de
+                   // parcelas no mesmo orçamento, e enfiá-los num parágrafo só os
+                   // faria correr emendados na justificação. Com uma linha (o
+                   // acervo inteiro, `JOINT` e `PER_TASK`) o HTML é exatamente o
+                   // de antes: um `<p>`, as mesmas classes.
+                   data.paymentText
+                     .split('\n')
+                     .map(line => line.trim())
+                     .filter(Boolean)
+                     .map(
+                       (line, i) =>
+                         `<p class="terms-content${
+                           billingRowsHtml && i === 0 ? ' terms-content-after-table' : ''
+                         }">${escapeHtml(line)}</p>`,
+                     )
+                     .join('')
                  : ''
              }
            </section>`

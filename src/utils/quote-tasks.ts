@@ -317,6 +317,51 @@ export function sliceTask<T extends QuoteTaskLike>(
  * decidia por `billingSplit` e gravava NULO ali, deixando sem fatura as três
  * telas que perguntam por `Invoice.taskId`.
  */
+/**
+ * COMO NOMEAR, numa frase, os veículos que um faturamento cobre.
+ *
+ * Existe para a CLÁUSULA DE PAGAMENTO do documento: um cliente que paga em lotes
+ * tem K faturamentos no mesmo orçamento, cada um com o seu total e o seu plano
+ * de parcelas, e uma frase por lote só é legível se disser de quais caminhões
+ * ela fala. Série quando existe, senão placa, senão o nome da tarefa, senão o
+ * começo do id — nessa ordem porque é assim que quem opera identifica um
+ * implemento.
+ *
+ * `total` é quantos veículos o ORÇAMENTO tem. Cobrir todos não vira lista: em
+ * sessenta caminhões, "Todos os 60 veículos" é a informação, e imprimir as
+ * sessenta séries é ruído que ninguém lê.
+ *
+ * ESPELHADO em `web/src/utils/quote-tasks.ts` (`coverageLabels`/`coverageSummary`).
+ */
+export function coverageLabels<T extends QuoteTaskLike & { truck?: { plate?: string | null } | null }>(
+  config: BillingConfigLike<T> | null | undefined,
+  tasks?: readonly T[] | null,
+): string[] {
+  const byId = new Map((tasks ?? quoteTasks(config?.quote as any) ?? []).map(t => [t.id, t]));
+  return (config?.coveredTasks ?? []).map(row => {
+    const t = (row.task ?? byId.get(row.taskId) ?? null) as T | null;
+    return (
+      (t?.serialNumber || undefined) ??
+      (t?.truck?.plate || undefined) ??
+      (t?.name || undefined) ??
+      row.taskId.slice(0, 8)
+    );
+  });
+}
+
+/** O rótulo de UM faturamento, em uma linha. Ver `coverageLabels`. */
+export function coverageSummary<T extends QuoteTaskLike & { truck?: { plate?: string | null } | null }>(
+  config: BillingConfigLike<T> | null | undefined,
+  total: number,
+  tasks?: readonly T[] | null,
+): string {
+  const labels = coverageLabels(config, tasks);
+  if (labels.length === 0) return total > 1 ? `Todos os ${total} veículos` : 'Veículo único';
+  if (total > 1 && labels.length === total) return `Todos os ${total} veículos`;
+  if (labels.length === 1) return `Veículo ${labels[0]}`;
+  return `Veículos ${labels.join(', ')}`;
+}
+
 export function sliceAnchorTaskId(
   config: BillingConfigLike | null | undefined,
 ): string | null {

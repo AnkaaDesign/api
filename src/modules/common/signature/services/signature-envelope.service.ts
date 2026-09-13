@@ -48,6 +48,7 @@ import { type QuoteChange } from './quote-diff';
 import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
 import {
   buildLateValueMap,
+  coverageSummary,
   coveredTaskCount,
   coveredTaskIds,
   lateSlotKey,
@@ -1528,6 +1529,25 @@ export class SignatureEnvelopeService {
     // pedido quando há recorte, senão a primeira (a regra de sempre).
     const config = segment ?? firstConfig;
 
+    // ── AS FATIAS QUE ESTE DOCUMENTO DESCREVE ────────────────────────────────
+    //
+    // O recorte do documento é por CLIENTE. Com lotes, um cliente tem K
+    // faturamentos no MESMO orçamento — "os vinte primeiros no pedido 8842, os
+    // quarenta no 9013" —, cada um com a sua cobertura, o seu total e o seu
+    // plano de parcelas. Enquanto isto era `config` sozinho, o documento
+    // descrevia o PRIMEIRO lote e calava sobre os outros: o cliente assinava um
+    // instrumento que prometia quatro parcelas sobre vinte caminhões e nada
+    // sobre os quarenta restantes.
+    //
+    // A lista vem na ordem de `createdAt` (a do include compartilhado), que é a
+    // mesma ordem em que a tela compôs os lotes.
+    const billingCustomerId = config?.customerId ?? null;
+    const slices = billingCustomerId
+      ? quote.customerConfigs.filter(c => c.customerId === billingCustomerId)
+      : config
+        ? [config]
+        : [];
+
     // Quais serviços são deste cliente.
     //
     // O corte é `invoiceToCustomerId`, mas há um faturamento de dois clientes em
@@ -1570,7 +1590,11 @@ export class SignatureEnvelopeService {
     // A leitura passava por `as any`, então o `tsc` não viu, e a condição virou
     // sempre-falsa: todo documento recortado passou a citar os pedidos dos
     // sessenta.
-    const coveredIds = new Set(coveredTaskIds(config as any));
+    //
+    // É a união das fatias do cliente, não a da primeira: o quadro é um só para
+    // o documento inteiro, e num cliente com dois lotes citar só os pedidos do
+    // primeiro deixaria de fora metade dos caminhões que ele está comprando.
+    const coveredIds = new Set(slices.flatMap(c => coveredTaskIds(c as any)));
     const coveredVehicleTasks =
       coveredIds.size > 0 ? vehicleTasks.filter(t => coveredIds.has(t.id)) : [];
     // Acervo sem linha de cobertura (ou fatia ainda sem veículo): o orçamento
@@ -1599,6 +1623,120 @@ export class SignatureEnvelopeService {
     } else if (discountType === 'FIXED_VALUE' && discountValue) {
       discountLabel = config?.discountReference ?? null;
     }
+
+    // ── A CLÁUSULA DE PAGAMENTO ──────────────────────────────────────────────
+    //
+    // Uma frase por PLANO, não por fatura e não por documento.
+    //
+    // Por que não por fatura: `PER_TASK` com sessenta caminhões são SESSENTA
+    // faturas do mesmo cliente, todas com os mesmos termos. Sessenta parágrafos
+    // rotulados diriam sessenta vezes a mesma coisa; a frase única — "em 4
+    // parcelas de R$ 3.042,60, para cada um dos 60 veículos" — diz tudo numa
+    // linha, e é o que o documento sempre disse.
+    //
+    // Por que não por documento: com LOTES DESIGUAIS — vinte no pedido 8842 e
+    // quarenta no 9013 — não existe uma frase só que seja verdadeira. Enquanto
+    // havia, o documento descrevia o PRIMEIRO lote e calava sobre o resto: o
+    // cliente assinava um instrumento que prometia parcelas sobre vinte
+    // caminhões e nada sobre os outros quarenta.
+    //
+    // Então: agrupa as fatias por TERMOS + TAMANHO DA COBERTURA. Um grupo só —
+    // o acervo inteiro, todo `JOINT`, todo `PER_TASK` e os lotes IGUAIS — produz
+    // exatamente a frase de antes, sem rótulo, e o documento sai byte a byte o
+    // mesmo. Mais de um grupo produz uma frase por grupo, cada uma dizendo de
+    // quais caminhões fala.
+    type QuoteSlice = (typeof quote.customerConfigs)[number];
+    const sliceKey = (c: QuoteSlice): string =>
+      JSON.stringify([
+        c.discountType ?? 'NONE',
+        c.discountValue != null ? Number(c.discountValue) : null,
+        c.paymentCondition ?? null,
+        c.customPaymentText ?? null,
+        // O vencimento da 1ª parcela fica DE FORA de propósito: em `PER_TASK` o
+        // financeiro aprova veículo a veículo e cada fatia ganha a sua data, o
+        // que quebraria a frase única em sessenta por uma diferença que a
+        // cláusula já resolve citando a data da primeira.
+        (c.paymentConfig as unknown) ?? null,
+        coveredTaskCount(c as any),
+      ]);
+
+    const clauseGroups: QuoteSlice[][] = [];
+    const groupByKey = new Map<string, QuoteSlice[]>();
+    for (const c of slices) {
+      const key = sliceKey(c);
+      let group = groupByKey.get(key);
+      if (!group) {
+        group = [];
+        groupByKey.set(key, group);
+        clauseGroups.push(group);
+      }
+      group.push(c);
+    }
+
+    const clauseForGroup = (group: QuoteSlice[], alone: boolean): string => {
+      const head = group[0];
+      const groupMoney = computeQuoteMoney({
+        serviceAmounts: services.map(sv => Number(sv.amount)),
+        discountType: head.discountType ?? 'NONE',
+        discountValue: head.discountValue != null ? Number(head.discountValue) : null,
+        taskCount: vehicleTasks.length,
+        // A COBERTURA DE UMA FATURA DESTE GRUPO — todas têm o mesmo tamanho, é o
+        // que define o grupo. É ela que multiplica: `por veículo × cobertos`.
+        coveredTaskCount: coveredTaskCount(head as any) || undefined,
+      });
+      return generatePaymentText({
+        customPaymentText: head.customPaymentText ?? null,
+        paymentConfig: (head.paymentConfig as any) ?? null,
+        paymentCondition: head.paymentCondition ?? null,
+        // `configTotal`, não o unitário: a cláusula descreve o que a FATURA
+        // cobra — o total geral em `JOINT`, o de um veículo em `PER_TASK`, o do
+        // lote num lote —, enquanto o `total` da lista de serviços é sempre por
+        // veículo. Confundir os dois faz a frase prometer parcelas de
+        // R$ 3.042,60 num boleto de R$ 182.556,00.
+        total: groupMoney.configTotal,
+        // SOBRE QUANTOS VEÍCULOS ESTA FRASE FALA. Grupo único: o orçamento
+        // inteiro, e a frase diz "para cada um dos 60". Um grupo entre vários: só
+        // os veículos DELE — senão a frase do lote de vinte anunciaria cobranças
+        // dos quarenta que estão na outra.
+        vehicleCount: alone
+          ? groupMoney.vehicleCount
+          : Math.max(
+              1,
+              group.reduce((sum, c) => sum + coveredTaskCount(c as any), 0),
+            ),
+        // QUANTOS VEÍCULOS CADA FATURA DESTE GRUPO COBRE — o que decide se a
+        // frase diz "R$ 730.224,00", "para cada um dos 60 veículos" ou "para cada
+        // grupo de 20". Sai da cobertura, não do modo: com lotes o modo não sabe
+        // o tamanho, e era o tamanho que a frase precisava.
+        coveredVehicleCount: groupMoney.coveredVehicleCount,
+        // Quando o faturamento já emitiu as parcelas, a cláusula cita o
+        // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
+        // Antes da assinatura não há parcela e cai no `specificDate`.
+        firstDueDate:
+          head.installments?.find(i => i.number === 1)?.dueDate ??
+          head.installments?.[0]?.dueDate ??
+          null,
+      });
+    };
+
+    const paymentText = clauseGroups
+      .map(group => {
+        const text = clauseForGroup(group, clauseGroups.length === 1);
+        if (!text) return null;
+        if (clauseGroups.length === 1) return text;
+        // O rótulo é a união dos veículos do GRUPO — as vinte séries do lote,
+        // não a fatia que calhou de vir primeiro.
+        const label = coverageSummary(
+          { coveredTasks: group.flatMap(c => (c as any).coveredTasks ?? []) } as any,
+          vehicleTasks.length,
+          vehicleTasks as any,
+        );
+        return `${label}: ${text}`;
+      })
+      .filter((v): v is string => Boolean(v))
+      // O builder quebra em um parágrafo por linha. Com uma linha só, o HTML é
+      // idêntico ao de antes desta mudança.
+      .join('\n');
 
     const layoutImages = quote.layoutFiles
       .map(f => this.renderer.resolveLayoutImageDataUri(f))
@@ -1670,30 +1808,7 @@ export class SignatureEnvelopeService {
       discountAmount,
       deliveryDays: quote.customForecastDays ?? null,
       simultaneousTasks: quote.simultaneousTasks ?? null,
-      paymentText: generatePaymentText({
-        customPaymentText: config?.customPaymentText ?? null,
-        paymentConfig: (config?.paymentConfig as any) ?? null,
-        paymentCondition: config?.paymentCondition ?? null,
-        // `configTotal`, não `total`: a cláusula descreve o que a FATURA cobra —
-        // o total geral em `JOINT`, o total de um veículo em `PER_TASK` —
-        // enquanto `total` acima é sempre o unitário, que é o que a lista de
-        // serviços imprime. Confundir os dois faria a frase prometer parcelas de
-        // R$ 3.042,60 num boleto de R$ 182.556,00.
-        total: money.configTotal,
-        vehicleCount: money.vehicleCount,
-        // QUANTOS VEÍCULOS ESTA FATURA COBRE — o que decide se a frase diz
-        // "R$ 730.224,00", "para cada um dos 60 veículos" ou "para cada grupo de
-        // 20". Sai da cobertura, não do modo: com lotes o modo não sabe o
-        // tamanho, e era o tamanho que a frase precisava.
-        coveredVehicleCount: money.coveredVehicleCount,
-        // Quando o faturamento já emitiu as parcelas, a cláusula cita o
-        // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
-        // Antes da assinatura não há parcela e cai no `specificDate`.
-        firstDueDate:
-          config?.installments?.find(i => i.number === 1)?.dueDate ??
-          config?.installments?.[0]?.dueDate ??
-          null,
-      }),
+      paymentText,
       // O QUADRO DO TOMADOR — o cadastro que a prefeitura vai exigir na NFS-e,
       // posto no documento para o cliente conferir na aprovação. Sai do cliente
       // do RECORTE (a configuração), não do cliente da tarefa: no faturamento
