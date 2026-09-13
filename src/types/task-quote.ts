@@ -21,6 +21,8 @@ import type { File } from './file';
 
 export type TASK_QUOTE_STATUS =
   | 'PENDING'
+  | 'SIGNED'
+  | 'EXPIRED'
   | 'BUDGET_APPROVED'
   | 'BILLING_APPROVED'
   | 'UPCOMING'
@@ -29,6 +31,18 @@ export type TASK_QUOTE_STATUS =
   | 'SETTLED'
   | 'CANCELLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
+
+/**
+ * JUNTO, SEPARADO OU EM LOTES (`QuoteBillingSplit` no schema).
+ *
+ * `JOINT`: uma fatura, um plano de parcelas e uma NFS-e para os N veículos —
+ * o padrão, e byte a byte o comportamento anterior ao orçamento multitarefa.
+ * `PER_TASK`: um faturamento POR VEÍCULO, aprovado veículo a veículo, porque os
+ * sessenta caminhões não terminam no mesmo dia.
+ * `CUSTOM`: lotes livres — a cobertura vem das linhas de `QuoteBillingTask`, não
+ * do modo.
+ */
+export type QUOTE_BILLING_SPLIT = 'JOINT' | 'PER_TASK' | 'CUSTOM';
 
 // =====================
 // TaskQuote Interface
@@ -54,8 +68,38 @@ export interface TaskQuote extends BaseEntity {
 
   simultaneousTasks: number | null;
 
+  /**
+   * COMO os N veículos são cobrados. É a INTENÇÃO declarada, não a cobertura:
+   * quem diz de quais veículos cada fatura é são as linhas de
+   * `TaskQuoteCustomerConfig.coveredTasks`. O modo serve para refatiar sozinho
+   * quando um veículo entra ou sai do orçamento.
+   */
+  billingSplit: QUOTE_BILLING_SPLIT;
+
+  /**
+   * QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o DIVISOR de
+   * [total].
+   *
+   * Coluna desnormalizada (a API a mantém em `recalcQuoteTotals`) e não um
+   * `_count`: um `select` existente ganha o campo com uma linha, e as listas —
+   * que pedem escalares do orçamento e nunca a relação de veículos — não teriam
+   * como dividir sem ela.
+   */
+  vehicleCount: number;
+
+  /** Quando a ÚLTIMA fatia de faturamento fechou. */
+  billingApprovedAt?: Date | null;
+
   // Relations
-  task?: Task; // One-to-one relationship with task
+  /**
+   * @deprecated Um orçamento cobre N veículos desde a migração
+   * `20260903120000_multitask_quote`: use [tasks]. Mantido para o código que só
+   * precisa de UMA tarefa de âncora (um link, um rótulo) — nunca para dinheiro,
+   * documento ou decisão de faturamento, onde a resposta é a lista inteira.
+   */
+  task?: Task;
+  /** OS VEÍCULOS deste orçamento, na ordem do documento (`createdAt`, `id`). */
+  tasks?: Task[];
   services?: TaskQuoteService[];
   customerConfigs?: TaskQuoteCustomerConfig[];
 }
@@ -65,10 +109,19 @@ export interface TaskQuote extends BaseEntity {
 // =====================
 
 export interface TaskQuoteIncludes {
+  /** @deprecated Ver `TaskQuote.task`. O servidor ainda ACEITA e traduz. */
   task?:
     | boolean
     | {
         include?: TaskIncludes;
+      };
+  /** OS VEÍCULOS. `select` além de `include` porque as listas pedem só o id. */
+  tasks?:
+    | boolean
+    | {
+        include?: TaskIncludes;
+        select?: Record<string, unknown>;
+        orderBy?: Record<string, unknown> | Array<Record<string, unknown>>;
       };
   services?:
     | boolean

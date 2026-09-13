@@ -282,6 +282,108 @@ ${rows}
 </table>`;
 }
 
+export interface ReminderEmailData extends SignatureEmailBase {
+  signingUrl: string;
+  deadlineDate: string;
+  /** Dias inteiros restantes de validade. Nunca negativo. */
+  daysLeft: number;
+}
+
+/**
+ * Lembrete de que a assinatura segue pendente.
+ *
+ * Deliberadamente MAIS CURTO que o convite. O convite precisa explicar a
+ * cerimônia para quem nunca assinou eletronicamente; o lembrete fala com alguém
+ * que já leu tudo isso. Repetir a explicação transformaria o lembrete num
+ * segundo convite, e a pessoa pararia de abrir os dois.
+ *
+ * O assunto carrega o PRAZO e não o número do orçamento: na caixa de entrada, o
+ * que faz abrir é "faltam 2 dias", não "nº 839" — que ela já viu três vezes.
+ */
+export function generateSignatureReminderEmail(data: ReminderEmailData): {
+  subject: string;
+  html: string;
+} {
+  const prazoFrase =
+    data.daysLeft <= 0
+      ? 'hoje é o último dia de validade'
+      : data.daysLeft === 1
+        ? 'a validade vence amanhã'
+        : `faltam ${data.daysLeft} dias para a validade vencer`;
+
+  const subject =
+    data.daysLeft <= 0
+      ? `Último dia: orçamento nº ${data.budgetNumber} aguarda sua assinatura`
+      : `Faltam ${data.daysLeft} dia${data.daysLeft === 1 ? '' : 's'}: orçamento nº ${
+          data.budgetNumber
+        } aguarda sua assinatura`;
+
+  return {
+    subject,
+    html: shell({
+      title: 'Assinatura pendente',
+      subtitle: `Orçamento nº ${data.budgetNumber}`,
+      preheader: `${prazoFrase.charAt(0).toUpperCase()}${prazoFrase.slice(1)}.`,
+      footerNote: `Este é um e-mail automático referente ao orçamento nº ${esc(data.budgetNumber)}.`,
+      body: `
+<p>Olá, ${esc(data.signerName)}.</p>
+<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> ainda aguarda sua assinatura — <strong>${esc(
+        prazoFrase,
+      )}</strong> (validade até ${esc(data.deadlineDate)}).</p>
+<p style="text-align:center;margin:26px 0;">
+  <a href="${data.signingUrl}" class="button">Revisar e assinar o orçamento</a>
+</p>
+<p class="muted">Se o botão não funcionar, copie e cole este endereço no navegador:</p>
+<p class="linkbox">${esc(data.signingUrl)}</p>
+<p class="muted">Se já não houver interesse na proposta, basta responder este e-mail — assim
+paramos os lembretes e liberamos a agenda de produção.</p>`,
+    }),
+  };
+}
+
+export interface ExpiredEmailData extends SignatureEmailBase {
+  hadSigned: boolean;
+  /** Data em que a validade venceu, já formatada em pt-BR. */
+  expiredOn: string;
+}
+
+/**
+ * A validade venceu sem todas as assinaturas.
+ *
+ * O e-mail diz o mesmo que o WhatsApp e acrescenta o que só cabe aqui: a data
+ * exata do vencimento e a promessa da proposta nova. Ver a nota gêmea em
+ * `generateSignatureExpiredWhatsApp` sobre o tom — o prazo é nosso, a validade é
+ * do PREÇO, e o cliente não descumpriu coisa alguma.
+ */
+export function generateSignatureExpiredEmail(data: ExpiredEmailData): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `Orçamento nº ${data.budgetNumber} — validade encerrada`,
+    html: shell({
+      title: 'Validade encerrada',
+      subtitle: `Orçamento nº ${data.budgetNumber}`,
+      preheader: 'Vamos revisar os valores e enviar uma proposta atualizada.',
+      footerNote: 'E-mail automático da cerimônia de assinatura.',
+      body: `
+<p>Olá, ${esc(data.signerName)}.</p>
+<p>A validade do orçamento nº <strong>${esc(data.budgetNumber)}</strong> venceu em
+<strong>${esc(data.expiredOn)}</strong>, e a coleta de assinaturas foi encerrada.</p>
+${
+  data.hadSigned
+    ? `<div class="alert"><strong>Sua assinatura ficou registrada.</strong>
+       O que venceu foi o prazo de validade do orçamento — não a assinatura que você fez.</div>`
+    : '<p>O link de assinatura que você recebeu não vale mais.</p>'
+}
+<p>Nosso time comercial vai revisar os valores e enviar uma proposta atualizada para sua
+apreciação. Se houver urgência ou alguma condição nova a considerar, basta responder este e-mail
+ou falar com ${esc(COMPANY.directorName)}, ${esc(COMPANY.directorTitle)}, pelo ${esc(COMPANY.phone)}.</p>
+<p class="muted">Nenhuma providência é necessária da sua parte neste momento.</p>`,
+    }),
+  };
+}
+
 export function generateEnvelopeVoidedEmail(data: VoidedEmailData): {
   subject: string;
   html: string;

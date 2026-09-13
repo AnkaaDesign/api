@@ -31,6 +31,15 @@ export const QUOTE_STATUS_LOCKED: TASK_QUOTE_STATUS[] = [
  */
 export const QUOTE_VALUE_REVERTABLE_STATUSES: TASK_QUOTE_STATUS[] = [
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
+  // SIGNED significa "o cliente assinou ISTO". Mexer no valor derruba o
+  // envelope (a conferência do hash material invalida a coleta), então manter o
+  // orçamento em SIGNED depois da edição seria a tela afirmando que existem
+  // assinaturas válidas para um preço que ninguém viu.
+  TASK_QUOTE_STATUS.SIGNED,
+  // Vencido e reformulado é a razão de o estado existir: o comercial abre o
+  // orçamento para rever o valor, e o ato de rever já o devolve à fila de
+  // emissão. Sem isto ele ficaria "Aguardando Reanálise" depois de reanalisado.
+  TASK_QUOTE_STATUS.EXPIRED,
 ];
 
 /** Fields that remain editable after the quote is locked (non-financial metadata). */

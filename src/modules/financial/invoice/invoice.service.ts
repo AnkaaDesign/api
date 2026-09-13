@@ -149,6 +149,15 @@ export class InvoiceService {
   }
 
   /**
+   * As faturas de TODOS os veículos de um orçamento. Ver o controller: com
+   * `PER_TASK` há uma fatura por caminhão, e a rota por tarefa devolve só a do
+   * veículo por onde a tela entrou.
+   */
+  async findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]> {
+    return this.invoiceRepository.findByQuoteId(quoteId, include);
+  }
+
+  /**
    * Find all invoices for a given customer.
    */
   async findByCustomerId(customerId: string, include?: InvoiceInclude): Promise<Invoice[]> {

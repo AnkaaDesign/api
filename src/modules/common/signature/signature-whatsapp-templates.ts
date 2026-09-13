@@ -41,6 +41,28 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
   OTP: 'orcamento_codigo',
   /** Coleta encerrada por mudança no documento. `{{1}}` nome · `{{2}}` orçamento. */
   VOIDED: 'orcamento_assinatura_cancelada',
+  /**
+   * Lembrete periódico. Mesma forma do convite — `{{1}}` nome · `{{2}}` orçamento
+   * · `{{3}}` prazo + botão de URL —, texto diferente: o convite anuncia, o
+   * lembrete cobra.
+   *
+   * É um template PRÓPRIO, e não o convite reenviado, por um motivo que só
+   * aparece na conta do fim do mês: a Meta mede qualidade POR TEMPLATE. Um
+   * lembrete que alguns clientes vão bloquear derruba a nota DELE — e o convite,
+   * que é a mensagem sem a qual nenhum orçamento é assinado, continua de pé.
+   * Fundidos num só, o bloqueio do lembrete levaria o convite junto.
+   */
+  REMINDER: 'orcamento_aguardando_assinatura',
+  /**
+   * A validade venceu sem todas as assinaturas. `{{1}}` nome · `{{2}}` orçamento.
+   *
+   * SEM BOTÃO DE LINK, de propósito: o link não assina mais nada, e um botão que
+   * leva a uma página dizendo "expirado" é pior do que botão nenhum. O que o
+   * template carrega é um botão de TELEFONE ("Falar com o comercial"), estático:
+   * a Meta o resolve no aparelho, ele não consome parâmetro de envio, e por isso
+   * `expiredTemplate` continua mandando só as duas variáveis do corpo.
+   */
+  EXPIRED: 'orcamento_vencido',
 } as const;
 
 /**
@@ -95,6 +117,42 @@ export function otpTemplate(data: { code: string }): SignatureWhatsAppTemplate {
     // distintos para a Meta, com o mesmo valor.
     bodyParams: [cleanParam(data.code)],
     otpButtonParam: cleanParam(data.code),
+  };
+}
+
+/**
+ * Lembrete de que a assinatura segue pendente.
+ *
+ * A cadência que decide QUANDO isto sai mora em `SignatureReminderScheduler`;
+ * aqui só se monta a mensagem.
+ */
+export function reminderTemplate(data: {
+  signerName: string;
+  budgetNumber: string | number;
+  deadlineDate: string;
+  accessToken: string;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.REMINDER,
+    language: LANGUAGE,
+    bodyParams: [
+      cleanParam(firstName(data.signerName)),
+      cleanParam(data.budgetNumber),
+      cleanParam(data.deadlineDate),
+    ],
+    urlButtonParam: cleanParam(data.accessToken),
+  };
+}
+
+/** Validade vencida sem todas as assinaturas — o comercial vai reanalisar. */
+export function expiredTemplate(data: {
+  signerName: string;
+  budgetNumber: string | number;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.EXPIRED,
+    language: LANGUAGE,
+    bodyParams: [cleanParam(firstName(data.signerName)), cleanParam(data.budgetNumber)],
   };
 }
 

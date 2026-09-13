@@ -7995,6 +7995,82 @@ const CONFIGS: ConfigDef[] = [
     },
   },
   {
+    key: "task_quote.expired",
+    name: "Orçamento Vencido — Reanalisar",
+    notificationType: "GENERAL",
+    eventType: "task_quote.expired",
+    description: "Cron horária: a validade do orçamento venceu sem todas as assinaturas do cliente e o valor volta para reanálise comercial.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Orçamento Vencido — Reanalisar",
+        body: "A validade do orçamento {{quoteLabel}} venceu em {{expiredOn}} sem todas as assinaturas. Revise o valor e reemita a proposta.",
+      },
+      push: {
+        title: "Orçamento Vencido",
+        body: "Orçamento {{quoteLabel}} venceu em {{expiredOn}} — revise o valor",
+      },
+      whatsapp: {
+        body: "A validade do orçamento {{quoteLabel}} venceu em {{expiredOn}} sem todas as assinaturas. Revise o valor e reemita a proposta.",
+      },
+    },
+    metadata: {
+      trigger: "SignatureExpiryScheduler → TaskQuoteService.markExpiredBySignature",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "task_quote.signed",
+    name: "Orçamento Assinado pelo Cliente",
+    notificationType: "GENERAL",
+    eventType: "task_quote.signed",
+    description: "Todos os responsáveis do cliente assinaram; o orçamento aguarda a contra-assinatura da Ankaa.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Orçamento Assinado pelo Cliente",
+        body: "O orçamento {{quoteLabel}} foi assinado por todos os responsáveis do cliente e aguarda a contra-assinatura da Ankaa.",
+      },
+      push: {
+        title: "Assinado pelo Cliente",
+        body: "Orçamento {{quoteLabel}} aguarda a contra-assinatura da Ankaa",
+      },
+      whatsapp: {
+        body: "O orçamento {{quoteLabel}} foi assinado por todos os responsáveis do cliente e aguarda a contra-assinatura da Ankaa.",
+      },
+    },
+    metadata: {
+      trigger: "SignatureEnvelopeService.advanceEnvelope → TaskQuoteService.markSigned",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
     key: "task_quote.billing_approved",
     name: "Faturamento Aprovado",
     notificationType: "GENERAL",

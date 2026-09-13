@@ -33,6 +33,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 import { TaskQuoteService } from '../modules/production/task-quote/task-quote.service';
+import { orderNumberLabel } from '../utils/quote-tasks';
 
 const QUOTE_ID = 'c9a7e245-5270-4c8d-ba76-017c63d6ac0e';
 const TASK_ID = '455200bc-57b8-4796-a5eb-98b363feede3';
@@ -110,16 +111,24 @@ async function main() {
     // ── Pré-condições ────────────────────────────────────────────────────────
     const config = await prisma.taskQuoteCustomerConfig.findFirst({
       where: { quoteId: QUOTE_ID },
-      select: { id: true, orderNumber: true, generateInvoice: true, generateBankSlip: true },
+      select: { id: true, generateInvoice: true, generateBankSlip: true },
     });
 
-    if (!config?.orderNumber?.trim()) {
+    // O número do pedido mora na TAREFA desde que um orçamento passou a cobrir N
+    // veículos (`Task.customerOrderNumber`). Este orçamento tem um caminhão só.
+    const quoteTasksForOrder = await prisma.task.findMany({
+      where: { quoteId: QUOTE_ID },
+      select: { customerOrderNumber: true },
+    });
+    const orderNumber = orderNumberLabel(quoteTasksForOrder);
+
+    if (!orderNumber?.trim()) {
       throw new Error(
         'ABORTADO: o número do pedido está VAZIO na configuração do cliente. Reemitir agora ' +
           'produziria uma nota com o mesmo defeito da 3199. Preencha o pedido antes.',
       );
     }
-    console.log(`✓ Número do pedido presente: "${config.orderNumber}" — a nota nova o levará.`);
+    console.log(`✓ Número do pedido presente: "${orderNumber}" — a nota nova o levará.`);
     console.log(
       `✓ generateInvoice=${config.generateInvoice}, generateBankSlip=${config.generateBankSlip}`,
     );
@@ -143,7 +152,7 @@ async function main() {
           'O que aconteceria:\n' +
           '  1. Reverter o faturamento (a NF 3199 CONTINUA viva e vinculada à tarefa)\n' +
           '  2. Aprovar o faturamento novamente → emite NF nova COM "Pedido: ' +
-          `${config.orderNumber}"\n` +
+          `${orderNumber}"\n` +
           '  3. Registrar os 3 boletos no Sicredi contra a NF nova\n' +
           `  4. Pedir o cancelamento da NF ${OLD_NFSE_NUMBER} citando a nova como substituta`,
       );

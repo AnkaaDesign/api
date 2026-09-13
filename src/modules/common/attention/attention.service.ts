@@ -303,7 +303,16 @@ const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL]
  * post-invoice status through, so quotes whose nota was issued and paid months ago kept matching.
  */
 const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
-  status: { in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.BUDGET_APPROVED] },
+  // SIGNED entra: o cliente assinou, a nota vem a seguir, e é exatamente a
+  // janela em que faltar o número do pedido ainda trava alguma coisa.
+  //
+  // EXPIRED fica de FORA. Ali o que segura a nota é o PREÇO, que voltou para a
+  // mesa do comercial — cobrar o número do pedido de compra de um orçamento que
+  // vai ser reformulado é pedir um dado que talvez nem se use. Ele volta a esta
+  // lista sozinho quando a reformulação o devolve a PENDING.
+  status: {
+    in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.SIGNED, TaskQuoteStatus.BUDGET_APPROVED],
+  },
 };
 
 /**
@@ -329,17 +338,23 @@ function missingRequiredText(field: keyof Prisma.CustomerWhereInput): Prisma.Cus
 }
 
 /**
- * Ibiporã bills against a purchase order, so its `orderNumber` is mandatory rather than optional.
- * `generateInvoice` gates it: with no nota there is nowhere to print the pedido de compra.
+ * Ibiporã fatura contra pedido de compra, então o número do pedido é obrigatório
+ * para ela. `generateInvoice` limita a regra: sem nota não há onde imprimi-lo.
  *
- * The `OR` MUST stay inside `some`: lifted out, it would match a quote where Ibiporã's own config
- * is filled but a DIFFERENT customer's config on the same quote is empty — and multi-customer
- * quotes are exactly the normal case here.
+ * A fatia de faturamento diz DE QUEM é a cobrança; o número do pedido mora na
+ * TAREFA (`Task.customerOrderNumber`) desde que um orçamento passou a cobrir N
+ * caminhões — o pedido é por ENTREGA. Por isso a regra virou duas condições
+ * irmãs no mesmo `where` do orçamento: existe fatia da Ibiporã que emite nota, E
+ * existe veículo sem número de pedido. Bastaria um veículo em branco entre os
+ * sessenta para a nota daquele sair sem o pedido que o cliente exige.
  */
-const IBIPORA_MISSING_ORDER_NUMBER: Prisma.TaskQuoteCustomerConfigWhereInput = {
+const IBIPORA_BILLED_CONFIG: Prisma.TaskQuoteCustomerConfigWhereInput = {
   customerId: PINNED_CUSTOMERS.IBIPORA,
   generateInvoice: true,
-  OR: [{ orderNumber: null }, { orderNumber: '' }],
+};
+
+const TASK_MISSING_ORDER_NUMBER: Prisma.TaskWhereInput = {
+  OR: [{ customerOrderNumber: null }, { customerOrderNumber: '' }],
 };
 
 /**
@@ -503,11 +518,23 @@ export const RULE_QUERIES: RuleQuery[] = [
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
     where: (): Prisma.TaskQuoteWhereInput => ({
-      // Task.quoteId is @unique, so this is a to-one relation filter; it also implicitly requires
-      // the task to exist, which is what we want (a quote with no task bills nothing).
-      task: { status: TaskStatus.COMPLETED },
+      // `Task.quoteId` DEIXOU DE SER @unique: um orçamento cobre N veículos, e o
+      // filtro passou de to-one para `some`. A semântica muda de propósito —
+      // "algum veículo já está pronto" é o gatilho certo: num orçamento de
+      // sessenta caminhões o dinheiro já está parado quando o primeiro sai, e
+      // esperar os sessenta esconderia o problema por meses. `some` também
+      // continua exigindo que exista tarefa, que é o que se quer (orçamento sem
+      // tarefa não fatura nada).
+      tasks: {
+        some: { status: TaskStatus.COMPLETED },
+      },
       ...NOT_YET_INVOICED,
-      customerConfigs: { some: IBIPORA_MISSING_ORDER_NUMBER },
+      customerConfigs: { some: IBIPORA_BILLED_CONFIG },
+      // Um `some` SEPARADO do de cima: as duas perguntas são sobre veículos
+      // diferentes ("algum já ficou pronto" e "algum está sem pedido") e juntá-las
+      // num `some` só exigiria que fosse o MESMO veículo — o que deixaria passar
+      // o caso comum de o caminhão pronto ter pedido e o seguinte não.
+      AND: [{ tasks: { some: TASK_MISSING_ORDER_NUMBER } }],
     }),
   },
   {
@@ -519,7 +546,7 @@ export const RULE_QUERIES: RuleQuery[] = [
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
     where: (): Prisma.TaskQuoteWhereInput => ({
-      task: { status: TaskStatus.COMPLETED },
+      tasks: { some: { status: TaskStatus.COMPLETED } },
       status: TaskQuoteStatus.BUDGET_APPROVED,
       customerConfigs: {
         some: { generateInvoice: true, customer: CUSTOMER_MISSING_BILLING_DATA },

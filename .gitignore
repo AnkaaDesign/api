@@ -106,3 +106,9 @@ studio-assets/
 painting-engine-v4/.venv/
 painting-engine-v4/saida/
 painting-engine-v4/.pytest_cache/
+
+# Diretório de trabalho dos testes que sobem a aplicação inteira: o
+# `BackupService` cria a árvore de backup no bootstrap, e `/mnt/backup` (o padrão
+# de produção) não existe na máquina de desenvolvimento — sem um caminho
+# gravável o `AppModule` não sobe e o e2e morre antes da primeira verificação.
+.tmp/

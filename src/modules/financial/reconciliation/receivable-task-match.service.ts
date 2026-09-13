@@ -17,6 +17,7 @@ import {
   OPEN_INSTALLMENT_STATUSES,
 } from './task-match-allocation';
 import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
+import { QUOTE_TASKS_ORDER_BY, sliceAnchorTaskId } from '@utils/quote-tasks';
 import type {
   TaskBillingState,
   TaskMatchAllocationInput,
@@ -704,6 +705,13 @@ export class ReceivableTaskMatchService {
               select: {
                 id: true,
                 customerId: true,
+                // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                //
+                // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                // `coveredTaskIds()` de `@utils/quote-tasks`.
+                coveredTasks: { select: { taskId: true } },
                 subtotal: true,
                 total: true,
                 paymentCondition: true,
@@ -962,8 +970,10 @@ export class ReceivableTaskMatchService {
 
     const configId = quote.customerConfigs[0].id;
 
-    // `Task.quoteId` is @unique 1:1 and this branch only runs when it is null,
-    // so no existing quote can be orphaned here.
+    // Este ramo só roda com `task.quoteId` NULO, então não há orçamento anterior
+    // para ficar órfão. (A justificativa antiga era o `@unique` de
+    // `Task.quoteId`, que caiu com o orçamento multitarefa; a conclusão continua
+    // valendo pela condição de entrada, não pela unicidade.)
     await db.task.update({ where: { id: input.taskId }, data: { quoteId: quote.id } });
 
     const invoice = await db.invoice.create({
@@ -1017,7 +1027,15 @@ export class ReceivableTaskMatchService {
     subtype: string | null,
     userId: string,
   ): Promise<void> {
-    const task = await db.task.findFirst({ where: { quoteId: quote.id }, select: { id: true } });
+    // A tarefa ÂNCORA do orçamento, só como reserva para a fatia `JOINT` (que
+    // não tem tarefa própria). `orderBy` explícito porque um `findFirst` sem
+    // ordem devolve o que o plano do Postgres entregar primeiro: em duas
+    // execuções o mesmo orçamento apontaria a fatura para caminhões diferentes.
+    const anchorTask = await db.task.findFirst({
+      where: { quoteId: quote.id },
+      orderBy: QUOTE_TASKS_ORDER_BY,
+      select: { id: true },
+    });
 
     for (const config of quote.customerConfigs) {
       const total = Number(config.total);
@@ -1031,7 +1049,11 @@ export class ReceivableTaskMatchService {
         const invoice = await db.invoice.create({
           data: {
             customerConfigId: config.id,
-            taskId: task?.id ?? null,
+            // O veículo DESTA fatura quando ela é de um só; a âncora do
+            // orçamento como reserva para a fatia sem cobertura. Usar a âncora
+            // para todas faria as sessenta faturas apontarem para o caminhão 1;
+            // usá-la numa fatura de lote afirmaria que os vinte são um.
+            taskId: sliceAnchorTaskId(config as any) ?? anchorTask?.id ?? null,
             customerId: config.customerId,
             totalAmount: new Decimal(total),
             paidAmount: 0,
@@ -1114,6 +1136,11 @@ export class ReceivableTaskMatchService {
       config = {
         id: created.id,
         customerId: created.customerId,
+        // Cobertura VAZIA: esta fatia de reparo nasce sem veículo escolhido, e
+        // quem a completa é a reconciliação de faturamento (que a estende para o
+        // orçamento inteiro no modo `JOINT`). Amarrá-la aqui a um caminhão faria
+        // a fatura nascer recortada num veículo que ninguém escolheu.
+        coveredTasks: [],
         subtotal: created.subtotal,
         total: created.total,
         paymentCondition: null,
@@ -1546,6 +1573,8 @@ type QuoteWithConfigs = {
   customerConfigs: {
     id: string;
     customerId: string;
+    /** A COBERTURA — os veículos que esta fatura cobra. Ver `QuoteBillingTask`. */
+    coveredTasks: { taskId: string }[];
     subtotal: Prisma.Decimal | number;
     total: Prisma.Decimal | number;
     paymentCondition: string | null;

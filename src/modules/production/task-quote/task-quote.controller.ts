@@ -228,6 +228,33 @@ export class TaskQuoteController {
   }
 
   /**
+   * PUT /task-quotes/:id/internal-approve/:taskId
+   * Aprova o faturamento de UM VEÍCULO de um orçamento que cobra veículo a
+   * veículo (`billingSplit = PER_TASK`).
+   *
+   * POR QUE UMA ROTA SEPARADA e não um parâmetro opcional na de cima: são
+   * privilégios idênticos mas atos diferentes, e a distinção precisa aparecer na
+   * trilha de acesso. "Faturei o orçamento inteiro" e "faturei o caminhão 37"
+   * não podem chegar ao log como a mesma linha.
+   *
+   * Os sessenta caminhões do Marquespan não terminam no mesmo dia: cada
+   * aprovação emite a fatura, a NFS-e e os boletos daquele veículo com o
+   * vencimento contado dali. O orçamento só grava `billingApprovedAt` quando a
+   * última fatia fecha.
+   *
+   * Access: FINANCIAL, ADMIN
+   */
+  @Put(':id/internal-approve/:taskId')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async internalApproveSlice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @UserId() userId: string,
+  ) {
+    return this.taskQuoteService.internalApprove(id, userId, taskId);
+  }
+
+  /**
    * PUT /task-quotes/:id/revert-billing
    * Revert billing approval back to BUDGET_APPROVED — requires all bank slips and NFS-e cancelled.
    *
@@ -295,12 +322,22 @@ export class TaskQuoteController {
   @HttpCode(HttpStatus.OK)
   async updateCustomerConfigOrderNumber(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { customerId: string; orderNumber: string | null },
+    @Body() body: { customerId?: string; taskId?: string; orderNumber: string | null },
   ) {
-    if (!body.customerId) {
-      throw new BadRequestException('customerId é obrigatório.');
+    // `customerId` deixou de ser obrigatório e `taskId` entrou: o número do
+    // pedido é do VEÍCULO desde a migração `20260909170000`, e num orçamento de
+    // sessenta caminhões escrever nos sessenta a cada edição é o defeito que a
+    // mudança de dono existe para acabar. Sem `taskId` o comportamento antigo
+    // (todos) é mantido — é o que o app instalado pede.
+    if (!body.customerId && !body.taskId) {
+      throw new BadRequestException('Informe o veículo (taskId) ou o cliente (customerId).');
     }
-    return this.taskQuoteService.updateCustomerConfigOrderNumber(id, body.customerId, body.orderNumber ?? null);
+    return this.taskQuoteService.updateCustomerConfigOrderNumber(
+      id,
+      body.customerId ?? null,
+      body.orderNumber ?? null,
+      body.taskId ?? null,
+    );
   }
 
   /**
@@ -350,7 +387,10 @@ export class TaskQuoteController {
   // Belt-and-suspenders cache busting — public dossier/budget data must always be
   // 100% fresh because customers see it through long-lived shareable links and
   // any intermediate proxy/CDN must NEVER cache the body.
-  @Header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate, private')
+  @Header(
+    'Cache-Control',
+    'no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate, private',
+  )
   @Header('Pragma', 'no-cache')
   @Header('Expires', '0')
   @Header('Surrogate-Control', 'no-store')

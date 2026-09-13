@@ -46,6 +46,21 @@ import {
 } from './quote-snapshot.service';
 import { type QuoteChange } from './quote-diff';
 import { QuoteRendererService, RenderInput } from '../document/quote-renderer.service';
+import {
+  buildLateValueMap,
+  coverageSummary,
+  coveredTaskCount,
+  coveredTaskIds,
+  lateSlotKey,
+  parseLateSlotKey,
+  primaryTask,
+  quoteTasks,
+  sortQuoteTasks,
+  taskCount as countQuoteTasks,
+  orderNumberLabel,
+} from '@utils/quote-tasks';
+import { computeQuoteMoney } from '@utils/quote-money';
+import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import {
   canonicalSections,
@@ -78,6 +93,7 @@ import {
 } from '../signature.constants';
 import {
   formatCnpj,
+  formatCpf,
   formatVerificationCode,
   maskCpf,
   isCpfWellFormed,
@@ -94,12 +110,16 @@ import {
   generateSignatureOtpEmail,
   generateAnkaaCountersignEmail,
   generateEnvelopeVoidedEmail,
+  generateSignatureReminderEmail,
+  generateSignatureExpiredEmail,
 } from '../../../../templates/signature-emails';
 import {
   generateSignatureInvitationWhatsApp,
   generateSignatureOtpWhatsApp,
   generateAnkaaCountersignWhatsApp,
   generateEnvelopeVoidedWhatsApp,
+  generateSignatureReminderWhatsApp,
+  generateSignatureExpiredWhatsApp,
 } from '../../../../templates/signature-whatsapp';
 import {
   auditChannelOf,
@@ -116,13 +136,18 @@ import {
 import { sha256Hex } from '../utils/canonical';
 import { describeSignatureSecretProblems, inspectSignatureSecrets } from '../utils/secrets';
 import {
+  formatBillingLocalityLine,
+  formatBillingStreetLine,
   formatCurrencyBRL,
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
+import { isReminderDue, spDayDiff } from '../signature-reminder-cadence';
 import {
+  expiredTemplate,
   invitationTemplate,
   otpTemplate,
+  reminderTemplate,
   resendTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
@@ -253,6 +278,18 @@ export interface SignatureDeliveryResult {
    * reapertar o botão contra uma parede que só cai amanhã.
    */
   code?: string | null;
+}
+
+/** Deduplica responsáveis por id, preservando a primeira ocorrência. */
+function dedupeResponsibles<T extends { id: string }>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
 }
 
 @Injectable()
@@ -432,6 +469,14 @@ export class SignatureEnvelopeService {
      * ele não descreve mais uma porta que se fecha.
      */
     vehicle: { plate: string | null; chassisNumber: string | null; missing: string[] } | null;
+    /** Um por veículo do orçamento, na ordem do documento. */
+    vehicles: Array<{
+      taskId: string;
+      serialNumber: string | null;
+      plate: string | null;
+      chassisNumber: string | null;
+      missing: string[];
+    }>;
   }> {
     const settings = this.getDeliverySettings();
 
@@ -441,8 +486,12 @@ export class SignatureEnvelopeService {
         id: true,
         expiresAt: true,
         commercialUserId: true,
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
             responsibles: {
               // `roles` entra porque é delas que sai o recorte padrão de cada
               // contato — o preflight existe justamente para mostrar isso ANTES
@@ -473,12 +522,24 @@ export class SignatureEnvelopeService {
 
     if (quote.expiresAt.getTime() <= Date.now()) {
       blockers.push(
-        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
           'Atualize a data de validade antes de enviar para assinatura.',
       );
     }
 
-    const responsibles = quote.task?.responsibles ?? [];
+    // União dos responsáveis de TODAS as tarefas, deduplicada — mesma regra do
+    // snapshot. Ler só a primeira esconderia do preflight um contato
+    // acrescentado a outra tarefa do mesmo orçamento, e ele apareceria como
+    // signatário surpresa na emissão.
+    const quoteTaskRows = sortQuoteTasks(quote.tasks ?? []);
+    const seenResponsibleIds = new Set<string>();
+    const responsibles = quoteTaskRows
+      .flatMap(t => t.responsibles ?? [])
+      .filter(r => {
+        if (seenResponsibleIds.has(r.id)) return false;
+        seenResponsibleIds.add(r.id);
+        return true;
+      });
     if (responsibles.length === 0) {
       blockers.push(
         'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
@@ -557,10 +618,25 @@ export class SignatureEnvelopeService {
       };
     };
 
-    const truck = quote.task?.truck ?? null;
-    const missingVehicle: string[] = [];
-    if (!truck?.plate?.trim()) missingVehicle.push('placa');
-    if (!truck?.chassisNumber?.trim()) missingVehicle.push('chassi');
+    // UM POR VEÍCULO. O que a tela faz com isto é avisar que a placa e o chassi
+    // vão congelar como "a registrar" — e num orçamento de sessenta caminhões
+    // essa lacuna existe em graus diferentes por caminhão: alguns já chegaram
+    // emplacados, outros não. Reportar só o primeiro diria "falta a placa" num
+    // orçamento em que faltam cinquenta e nove, ou nada num em que falta uma.
+    const vehicleRows = quoteTaskRows.map(t => {
+      const missing: string[] = [];
+      if (!t.truck?.plate?.trim()) missing.push('placa');
+      if (!t.truck?.chassisNumber?.trim()) missing.push('chassi');
+      return {
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassisNumber: t.truck?.chassisNumber ?? null,
+        missing,
+      };
+    });
+    const truck = quoteTaskRows[0]?.truck ?? null;
+    const missingVehicle = vehicleRows[0]?.missing ?? [];
 
     return {
       ...settings,
@@ -579,6 +655,14 @@ export class SignatureEnvelopeService {
         WHATSAPP: statusFor('WHATSAPP'),
         EMAIL: statusFor('EMAIL'),
       },
+      vehicles: vehicleRows,
+      // ⚠️ MANTIDO DE PROPÓSITO, apontando para o PRIMEIRO veículo.
+      //
+      // O app Flutter está instalado nos aparelhos e não é atualizado no mesmo
+      // instante que a API. Uma versão anterior a esta feature lê `vehicle` e
+      // quebraria a tela de envio se o campo sumisse. Ele é redundante com
+      // `vehicles[0]` e deve sair quando não houver mais cliente antigo em
+      // circulação.
       vehicle: {
         plate: truck?.plate ?? null,
         chassisNumber: truck?.chassisNumber ?? null,
@@ -599,6 +683,45 @@ export class SignatureEnvelopeService {
     cb: (quoteId: string, envelopeId: string, actorUserId: string | null) => Promise<void>,
   ): void {
     this.onCompleted = cb;
+  }
+
+  /**
+   * Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
+   * Ankaa. Mesma inversão de dependência do `onCompleted`: a cerimônia sabe que
+   * o grupo 0 fechou, e só o dono do orçamento sabe que isso significa SIGNED.
+   *
+   * Por que é um gancho SEPARADO e não um parâmetro do `onCompleted`: os dois
+   * momentos são distintos e podem estar a dias de distância — o cliente assina
+   * na sexta, a Ankaa contra-assina na segunda. Entre um e outro há um estado
+   * em que a lista precisa dizer que a bola está do nosso lado.
+   */
+  private onCustomerSideSigned: ((quoteId: string, envelopeId: string) => Promise<void>) | null =
+    null;
+  setOnCustomerSideSigned(cb: (quoteId: string, envelopeId: string) => Promise<void>): void {
+    this.onCustomerSideSigned = cb;
+  }
+
+  /** A validade venceu com assinatura de cliente faltando. Ver `SignatureExpiryScheduler`. */
+  private onEnvelopeExpired: ((quoteId: string, envelopeId: string) => Promise<void>) | null = null;
+  setOnEnvelopeExpired(cb: (quoteId: string, envelopeId: string) => Promise<void>): void {
+    this.onEnvelopeExpired = cb;
+  }
+
+  /**
+   * Dispara o gancho de vencimento. Existe como método público para que a
+   * varredura não precise alcançar o campo privado — e para que a ausência do
+   * gancho (API subindo sem o módulo de orçamento, o que acontece em teste) seja
+   * um log e não um `undefined is not a function` dentro do cron.
+   */
+  async notifyQuoteExpired(quoteId: string, envelopeId: string): Promise<void> {
+    if (!this.onEnvelopeExpired) {
+      this.logger.warn(
+        `Envelope ${envelopeId} venceu, mas nenhum ouvinte de vencimento está registrado — ` +
+          'o orçamento NÃO foi movido para "Aguardando Reanálise".',
+      );
+      return;
+    }
+    await this.onEnvelopeExpired(quoteId, envelopeId);
   }
 
   // ===========================================================================
@@ -686,12 +809,19 @@ export class SignatureEnvelopeService {
     // com "esta coleta não está mais ativa" e o operador não entendia por quê.
     if (quote.expiresAt.getTime() <= Date.now()) {
       throw new BadRequestException(
-        `A validade deste orçamento venceu em ${quote.expiresAt.toLocaleDateString('pt-BR')}. ` +
+        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
           'Atualize a data de validade antes de enviar para assinatura.',
       );
     }
 
-    const responsibles = quote.task?.responsibles ?? [];
+    // UNIÃO dos responsáveis das N tarefas, deduplicada por `Responsible.id` —
+    // a mesma regra do snapshot, e tem de ser a mesma: o elenco impresso no
+    // documento e o elenco que entra no hash material precisam ser o mesmo
+    // conjunto, senão a coleta nasce com um signatário que o recorte material
+    // não protege.
+    const responsibles = dedupeResponsibles(
+      sortQuoteTasks(quote.tasks ?? []).flatMap(t => t.responsibles ?? []),
+    );
     if (responsibles.length === 0) {
       throw new BadRequestException(
         'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
@@ -823,7 +953,7 @@ export class SignatureEnvelopeService {
     };
 
     const customerCompany =
-      quote.task?.customer?.corporateName ?? quote.task?.customer?.fantasyName ?? '';
+      primaryTask(quote)?.customer?.corporateName ?? primaryTask(quote)?.customer?.fantasyName ?? '';
 
     interface VariantPlan {
       sections: QuoteSection[];
@@ -978,6 +1108,19 @@ export class SignatureEnvelopeService {
         });
         supersededIds.push(...supersedable);
       }
+
+      // NOVA COLETA, NOVO DIREITO A UM AVISO DE VENCIMENTO.
+      //
+      // `TaskQuote.expiryNoticeSentAt` impede que a varredura horária avise duas
+      // vezes pelo MESMO vencimento. Mas um orçamento reformulado — preço
+      // revisto, validade nova — que vença outra vez é outra proposta, e o
+      // cliente precisa saber dela também. Sem esta limpeza, o segundo
+      // vencimento passaria em silêncio: o carimbo do primeiro continuaria lá, a
+      // varredura leria "já avisei" e ninguém receberia nada.
+      await tx.taskQuote.update({
+        where: { id: args.quoteId },
+        data: { expiryNoticeSentAt: null },
+      });
 
       const created = await tx.signatureEnvelope.create({
         data: {
@@ -1218,7 +1361,14 @@ export class SignatureEnvelopeService {
   private pendingLateSlots(env: {
     lateSlots?: unknown;
     documents?: Array<{ lateSlots?: unknown }>;
-    quote: { task?: { serialNumber?: string | null; truck?: { plate?: string | null; chassisNumber?: string | null } | null } | null };
+    quote: {
+      tasks?: Array<{
+        id: string;
+        createdAt?: Date | null;
+        serialNumber?: string | null;
+        truck?: { plate?: string | null; chassisNumber?: string | null } | null;
+      }> | null;
+    };
   }): Array<{ key: string; label: string }> {
     const reserved = new Set<string>();
     const collect = (raw: unknown) => {
@@ -1226,16 +1376,46 @@ export class SignatureEnvelopeService {
     };
     collect(env.lateSlots);
     for (const doc of env.documents ?? []) collect(doc.lateSlots);
+    if (reserved.size === 0) return [];
 
-    const registry: Record<string, string | null | undefined> = {
-      serialNumber: env.quote.task?.serialNumber,
-      plate: env.quote.task?.truck?.plate,
-      chassis: env.quote.task?.truck?.chassisNumber,
-    };
+    const tasks = sortQuoteTasks(env.quote.tasks ?? []);
+    const multi = tasks.length > 1;
+
+    // O registro responde às DUAS formas de chave — `plate#<taskId>` (envelopes
+    // desta feature em diante) e `plate` cru (os anteriores, que têm uma tarefa
+    // só). Ver `buildLateValueMap`, que produz o mesmo par pelo mesmo motivo:
+    // um envelope congelado não pode ser reescrito, então quem o lê é que se
+    // adapta.
+    const registry: Record<string, string | null | undefined> = {};
+    const labelSuffix: Record<string, string> = {};
+    tasks.forEach((t, index) => {
+      const values: Record<string, string | null | undefined> = {
+        serialNumber: t.serialNumber,
+        plate: t.truck?.plate,
+        chassis: t.truck?.chassisNumber,
+      };
+      const suffix = multi
+        ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.truck?.plate ?? t.id.slice(0, 8))}`
+        : '';
+      for (const [field, value] of Object.entries(values)) {
+        registry[lateSlotKey(field, t.id)] = value;
+        labelSuffix[lateSlotKey(field, t.id)] = suffix;
+        if (index === 0) {
+          registry[field] = value;
+          labelSuffix[field] = '';
+        }
+      }
+    });
 
     return [...reserved]
       .filter(key => !(registry[key] ?? '').trim())
-      .map(key => ({ key, label: LATE_SLOT_LABELS[key] ?? key }))
+      .map(key => {
+        const { field } = parseLateSlotKey(key);
+        return {
+          key,
+          label: `${LATE_SLOT_LABELS[field] ?? field}${labelSuffix[key] ?? ''}`,
+        };
+      })
       // Ordem estável para a mensagem e para a tela.
       .sort((a, b) => a.key.localeCompare(b.key));
   }
@@ -1360,6 +1540,25 @@ export class SignatureEnvelopeService {
     // pedido quando há recorte, senão a primeira (a regra de sempre).
     const config = segment ?? firstConfig;
 
+    // ── AS FATIAS QUE ESTE DOCUMENTO DESCREVE ────────────────────────────────
+    //
+    // O recorte do documento é por CLIENTE. Com lotes, um cliente tem K
+    // faturamentos no MESMO orçamento — "os vinte primeiros no pedido 8842, os
+    // quarenta no 9013" —, cada um com a sua cobertura, o seu total e o seu
+    // plano de parcelas. Enquanto isto era `config` sozinho, o documento
+    // descrevia o PRIMEIRO lote e calava sobre os outros: o cliente assinava um
+    // instrumento que prometia quatro parcelas sobre vinte caminhões e nada
+    // sobre os quarenta restantes.
+    //
+    // A lista vem na ordem de `createdAt` (a do include compartilhado), que é a
+    // mesma ordem em que a tela compôs os lotes.
+    const billingCustomerId = config?.customerId ?? null;
+    const slices = billingCustomerId
+      ? quote.customerConfigs.filter(c => c.customerId === billingCustomerId)
+      : config
+        ? [config]
+        : [];
+
     // Quais serviços são deste cliente.
     //
     // O corte é `invoiceToCustomerId`, mas há um faturamento de dois clientes em
@@ -1379,20 +1578,176 @@ export class SignatureEnvelopeService {
           quote.services.filter(s => s.invoiceToCustomerId === segment.customerId)
         : quote.services;
 
-    const total = Number(segment ? segment.total : quote.total);
-    const subtotal = Number(segment ? segment.subtotal : quote.subtotal);
-
+    // ── DINHEIRO ──────────────────────────────────────────────────────────────
+    //
+    // O documento imprime o preço POR VEÍCULO e multiplica; `config.total` é o
+    // que a FATURA cobra, que em `JOINT` já vem multiplicado. Ler `config.total`
+    // aqui faria a lista de serviços (unitária) não fechar com o total logo
+    // abaixo dela — num orçamento de sessenta caminhões, por um fator de
+    // sessenta.
+    //
+    // Por isso a conta é refeita a partir dos serviços, com a MESMA fórmula que
+    // `recalcQuoteTotals` usa para gravar `config.total`: é o que garante que o
+    // documento assinado e o boleto fechem no centavo.
+    const vehicleTasks = sortQuoteTasks(quote.tasks ?? []);
+    // OS VEÍCULOS DESTA FATURA — subconjunto de `vehicleTasks`.
+    //
+    // A tabela de identificação lista o orçamento INTEIRO: o documento é o
+    // contrato, e o contrato é dos sessenta. O quadro do tomador é outra coisa —
+    // ali entra o nº do pedido de compra, e o pedido é do veículo. Numa fatia de
+    // um caminhão o quadro cita o pedido DELE; num lote, os do lote.
+    //
+    // Era `config.taskId`, coluna removida em `20260913120000_billing_coverage`.
+    // A leitura passava por `as any`, então o `tsc` não viu, e a condição virou
+    // sempre-falsa: todo documento recortado passou a citar os pedidos dos
+    // sessenta.
+    //
+    // É a união das fatias do cliente, não a da primeira: o quadro é um só para
+    // o documento inteiro, e num cliente com dois lotes citar só os pedidos do
+    // primeiro deixaria de fora metade dos caminhões que ele está comprando.
+    const coveredIds = new Set(slices.flatMap(c => coveredTaskIds(c as any)));
+    const coveredVehicleTasks =
+      coveredIds.size > 0 ? vehicleTasks.filter(t => coveredIds.has(t.id)) : [];
+    // Acervo sem linha de cobertura (ou fatia ainda sem veículo): o orçamento
+    // inteiro, que é o que este trecho fazia antes de existir cobertura.
+    const billedVehicleTasks =
+      coveredVehicleTasks.length > 0 ? coveredVehicleTasks : vehicleTasks;
     const discountValue = config?.discountValue != null ? Number(config.discountValue) : null;
     const discountType = config?.discountType ?? 'NONE';
-    let discountAmount = 0;
+    const money = computeQuoteMoney({
+      serviceAmounts: services.map(sv => Number(sv.amount)),
+      discountType,
+      discountValue,
+      taskCount: vehicleTasks.length,
+      // A COBERTURA DESTA FATURA. Os três números lidos logo abaixo são por
+      // VEÍCULO e não dependem dela, mas `configTotal` — que a cláusula de
+      // pagamento imprime — depende: é `por veículo × cobertos`.
+      coveredTaskCount: coveredTaskCount(config as any) || undefined,
+    });
+    const subtotal = money.perVehicleSubtotal;
+    const total = money.perVehicleTotal;
+    const discountAmount = money.perVehicleDiscount;
+
     let discountLabel: string | null = null;
     if (discountType === 'PERCENTAGE' && discountValue) {
-      discountAmount = Math.round(subtotal * discountValue) / 100;
       discountLabel = `${discountValue}%`;
     } else if (discountType === 'FIXED_VALUE' && discountValue) {
-      discountAmount = Math.min(discountValue, subtotal);
       discountLabel = config?.discountReference ?? null;
     }
+
+    // ── A CLÁUSULA DE PAGAMENTO ──────────────────────────────────────────────
+    //
+    // Uma frase por PLANO, não por fatura e não por documento.
+    //
+    // Por que não por fatura: `PER_TASK` com sessenta caminhões são SESSENTA
+    // faturas do mesmo cliente, todas com os mesmos termos. Sessenta parágrafos
+    // rotulados diriam sessenta vezes a mesma coisa; a frase única — "em 4
+    // parcelas de R$ 3.042,60, para cada um dos 60 veículos" — diz tudo numa
+    // linha, e é o que o documento sempre disse.
+    //
+    // Por que não por documento: com LOTES DESIGUAIS — vinte no pedido 8842 e
+    // quarenta no 9013 — não existe uma frase só que seja verdadeira. Enquanto
+    // havia, o documento descrevia o PRIMEIRO lote e calava sobre o resto: o
+    // cliente assinava um instrumento que prometia parcelas sobre vinte
+    // caminhões e nada sobre os outros quarenta.
+    //
+    // Então: agrupa as fatias por TERMOS + TAMANHO DA COBERTURA. Um grupo só —
+    // o acervo inteiro, todo `JOINT`, todo `PER_TASK` e os lotes IGUAIS — produz
+    // exatamente a frase de antes, sem rótulo, e o documento sai byte a byte o
+    // mesmo. Mais de um grupo produz uma frase por grupo, cada uma dizendo de
+    // quais caminhões fala.
+    type QuoteSlice = (typeof quote.customerConfigs)[number];
+    const sliceKey = (c: QuoteSlice): string =>
+      JSON.stringify([
+        c.discountType ?? 'NONE',
+        c.discountValue != null ? Number(c.discountValue) : null,
+        c.paymentCondition ?? null,
+        c.customPaymentText ?? null,
+        // O vencimento da 1ª parcela fica DE FORA de propósito: em `PER_TASK` o
+        // financeiro aprova veículo a veículo e cada fatia ganha a sua data, o
+        // que quebraria a frase única em sessenta por uma diferença que a
+        // cláusula já resolve citando a data da primeira.
+        (c.paymentConfig as unknown) ?? null,
+        coveredTaskCount(c as any),
+      ]);
+
+    const clauseGroups: QuoteSlice[][] = [];
+    const groupByKey = new Map<string, QuoteSlice[]>();
+    for (const c of slices) {
+      const key = sliceKey(c);
+      let group = groupByKey.get(key);
+      if (!group) {
+        group = [];
+        groupByKey.set(key, group);
+        clauseGroups.push(group);
+      }
+      group.push(c);
+    }
+
+    const clauseForGroup = (group: QuoteSlice[], alone: boolean): string => {
+      const head = group[0];
+      const groupMoney = computeQuoteMoney({
+        serviceAmounts: services.map(sv => Number(sv.amount)),
+        discountType: head.discountType ?? 'NONE',
+        discountValue: head.discountValue != null ? Number(head.discountValue) : null,
+        taskCount: vehicleTasks.length,
+        // A COBERTURA DE UMA FATURA DESTE GRUPO — todas têm o mesmo tamanho, é o
+        // que define o grupo. É ela que multiplica: `por veículo × cobertos`.
+        coveredTaskCount: coveredTaskCount(head as any) || undefined,
+      });
+      return generatePaymentText({
+        customPaymentText: head.customPaymentText ?? null,
+        paymentConfig: (head.paymentConfig as any) ?? null,
+        paymentCondition: head.paymentCondition ?? null,
+        // `configTotal`, não o unitário: a cláusula descreve o que a FATURA
+        // cobra — o total geral em `JOINT`, o de um veículo em `PER_TASK`, o do
+        // lote num lote —, enquanto o `total` da lista de serviços é sempre por
+        // veículo. Confundir os dois faz a frase prometer parcelas de
+        // R$ 3.042,60 num boleto de R$ 182.556,00.
+        total: groupMoney.configTotal,
+        // SOBRE QUANTOS VEÍCULOS ESTA FRASE FALA. Grupo único: o orçamento
+        // inteiro, e a frase diz "para cada um dos 60". Um grupo entre vários: só
+        // os veículos DELE — senão a frase do lote de vinte anunciaria cobranças
+        // dos quarenta que estão na outra.
+        vehicleCount: alone
+          ? groupMoney.vehicleCount
+          : Math.max(
+              1,
+              group.reduce((sum, c) => sum + coveredTaskCount(c as any), 0),
+            ),
+        // QUANTOS VEÍCULOS CADA FATURA DESTE GRUPO COBRE — o que decide se a
+        // frase diz "R$ 730.224,00", "para cada um dos 60 veículos" ou "para cada
+        // grupo de 20". Sai da cobertura, não do modo: com lotes o modo não sabe
+        // o tamanho, e era o tamanho que a frase precisava.
+        coveredVehicleCount: groupMoney.coveredVehicleCount,
+        // Quando o faturamento já emitiu as parcelas, a cláusula cita o
+        // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
+        // Antes da assinatura não há parcela e cai no `specificDate`.
+        firstDueDate:
+          head.installments?.find(i => i.number === 1)?.dueDate ??
+          head.installments?.[0]?.dueDate ??
+          null,
+      });
+    };
+
+    const paymentText = clauseGroups
+      .map(group => {
+        const text = clauseForGroup(group, clauseGroups.length === 1);
+        if (!text) return null;
+        if (clauseGroups.length === 1) return text;
+        // O rótulo é a união dos veículos do GRUPO — as vinte séries do lote,
+        // não a fatia que calhou de vir primeiro.
+        const label = coverageSummary(
+          { coveredTasks: group.flatMap(c => (c as any).coveredTasks ?? []) } as any,
+          vehicleTasks.length,
+          vehicleTasks as any,
+        );
+        return `${label}: ${text}`;
+      })
+      .filter((v): v is string => Boolean(v))
+      // O builder quebra em um parágrafo por linha. Com uma linha só, o HTML é
+      // idêntico ao de antes desta mudança.
+      .join('\n');
 
     const layoutImages = quote.layoutFiles
       .map(f => this.renderer.resolveLayoutImageDataUri(f))
@@ -1401,7 +1756,7 @@ export class SignatureEnvelopeService {
     // Quem o documento identifica como cliente: no recorte é o cliente da
     // configuração, e não o da tarefa — são diferentes justamente no faturamento
     // dividido, que é o único caso em que isto roda.
-    const customer = segment?.customer ?? quote.task?.customer ?? null;
+    const customer = segment?.customer ?? primaryTask(quote)?.customer ?? null;
 
     return {
       sections,
@@ -1428,13 +1783,26 @@ export class SignatureEnvelopeService {
       contactName:
         segment?.responsible?.name ??
         formatContactList(signers.filter(x => x.side === 'CUSTOMER').map(x => x.name)) ??
-        pickPrimaryResponsible(quote.task?.responsibles ?? [])?.name ??
+        pickPrimaryResponsible(
+          // O responsável PRINCIPAL sai da união das tarefas, não da primeira:
+          // é o mesmo conjunto que assina o documento.
+          dedupeResponsibles(vehicleTasks.flatMap(t => t.responsibles ?? [])),
+        )?.name ??
         null,
-      serialNumber: quote.task?.serialNumber ?? null,
-      plate: quote.task?.truck?.plate ?? null,
-      chassisNumber: quote.task?.truck?.chassisNumber ?? null,
-      truckCategoryLabel: quote.task?.truck?.category ?? null,
-      truckImplementLabel: quote.task?.truck?.implementType ?? null,
+      // A TABELA DE IDENTIFICAÇÃO. Uma linha por tarefa, na ordem canônica — a
+      // mesma ordem que entra no hash do snapshot.
+      vehicles: vehicleTasks.map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassisNumber: t.truck?.chassisNumber ?? null,
+        categoryLabel: t.truck?.category ?? null,
+        implementLabel: t.truck?.implementType ?? null,
+        // O pedido de compra DESTE veículo — vira coluna da tabela. Era linha do
+        // quadro do tomador, onde só cabia um número: quatro caminhões comprados
+        // em pedidos diferentes não cabiam ali.
+        orderNumber: (t as { customerOrderNumber?: string | null }).customerOrderNumber ?? null,
+      })),
       services: services.map(s => ({
         description: s.description,
         amount: Number(s.amount),
@@ -1451,19 +1819,30 @@ export class SignatureEnvelopeService {
       discountAmount,
       deliveryDays: quote.customForecastDays ?? null,
       simultaneousTasks: quote.simultaneousTasks ?? null,
-      paymentText: generatePaymentText({
-        customPaymentText: config?.customPaymentText ?? null,
-        paymentConfig: (config?.paymentConfig as any) ?? null,
-        paymentCondition: config?.paymentCondition ?? null,
-        total,
-        // Quando o faturamento já emitiu as parcelas, a cláusula cita o
-        // vencimento da 1ª parcela — a MESMA data do boleto anexado ao dossiê.
-        // Antes da assinatura não há parcela e cai no `specificDate`.
-        firstDueDate:
-          config?.installments?.find(i => i.number === 1)?.dueDate ??
-          config?.installments?.[0]?.dueDate ??
-          null,
-      }),
+      paymentText,
+      // O QUADRO DO TOMADOR — o cadastro que a prefeitura vai exigir na NFS-e,
+      // posto no documento para o cliente conferir na aprovação. Sai do cliente
+      // do RECORTE (a configuração), não do cliente da tarefa: no faturamento
+      // dividido eles são diferentes, e é a nota do cliente da configuração que
+      // será emitida.
+      billing: customer
+        ? {
+            corporateName: customer.corporateName ?? customer.fantasyName ?? null,
+            documentFormatted: customer.cnpj
+              ? formatCnpj(customer.cnpj)
+              : customer.cpf
+                ? formatCpf(customer.cpf)
+                : null,
+            stateRegistration: (customer as any).stateRegistration ?? null,
+            municipalRegistration: (customer as any).municipalRegistration ?? null,
+            addressLine: formatBillingStreetLine(customer as any),
+            addressLocality: formatBillingLocalityLine(customer as any),
+            // O pedido é do VEÍCULO. Numa fatia conjunta o documento cita os
+            // números dos veículos que ela cobre; numa fatia de um caminhão, o
+            // dele. Ver `orderNumberLabel`.
+            orderNumber: orderNumberLabel(billedVehicleTasks),
+          }
+        : null,
       guaranteeText: generateGuaranteeText({
         customGuaranteeText: quote.customGuaranteeText ?? null,
         guaranteeYears: quote.guaranteeYears ?? null,
@@ -1498,7 +1877,7 @@ export class SignatureEnvelopeService {
       // Canal do SIGNATÁRIO, não da configuração: ver `channelForAuthMethod`.
       const channel = channelForAuthMethod(signer.authMethod);
       const signingUrl = this.signingUrl(signer.accessToken);
-      const deadlineDate = envelope.deadlineAt.toLocaleDateString('pt-BR');
+      const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
 
       const delivery = await this.deliverToSigner({
         signer,
@@ -1550,6 +1929,254 @@ export class SignatureEnvelopeService {
         },
       });
     }
+  }
+
+  // ===========================================================================
+  // LEMBRETES E AVISO DE VENCIMENTO
+  // ===========================================================================
+
+  /**
+   * A data de validade como o CLIENTE a lê.
+   *
+   * ⚠️ O `timeZone` não é preciosismo. `TaskQuote.expiresAt` é gravado às
+   * 23:59:59.999 de São Paulo — que em UTC já é 02:59 do DIA SEGUINTE. Num
+   * servidor que roda em UTC (o normal em Linux, e o caso de produção), um
+   * `toLocaleDateString('pt-BR')` sem fuso imprimia o dia seguinte: o convite
+   * prometia um dia a mais do que o documento, e o link morria na véspera do que
+   * a mensagem dizia. Como a máquina de desenvolvimento roda em
+   * America/Sao_Paulo, a diferença é invisível localmente.
+   */
+  private deadlineLabel(date: Date): string {
+    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  }
+
+  /**
+   * Varre os envelopes vivos e manda o lembrete de quem está na hora.
+   *
+   * Roda pelo `SignatureReminderScheduler`. Devolve a contagem para o log — o
+   * agendador não decide nada, só chama.
+   *
+   * SÓ O GRUPO 0. O signatário da Ankaa não recebe lembrete por este caminho:
+   * ele não assina por link, e a cobrança interna de contra-assinatura é uma
+   * notificação do sistema, não um WhatsApp para o celular de quem já está
+   * sentado na frente da tela. Ver `TaskQuoteService.markSigned`.
+   */
+  async dispatchDueReminders(now: Date = new Date()): Promise<{ sent: number; failed: number }> {
+    const envelopes = await this.prisma.signatureEnvelope.findMany({
+      where: {
+        status: EnvelopeStatus.RUNNING,
+        // Vencido não se lembra: quem passou do prazo recebe o aviso de
+        // vencimento, que é outra mensagem e sai da varredura de expiração.
+        deadlineAt: { gt: now },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        deadlineAt: true,
+        quote: { select: { budgetNumber: true } },
+        signers: {
+          where: {
+            orderGroup: 0,
+            // Quem já assinou, recusou, foi anulado ou perdeu o prazo não é
+            // cobrado. Escrito como exclusão e não como `status: PENDING`: um
+            // estado intermediário novo no enum deve continuar recebendo
+            // lembrete, que é a direção segura para uma cobrança.
+            status: {
+              notIn: [
+                EnvelopeSignerStatus.SIGNED,
+                EnvelopeSignerStatus.REFUSED,
+                EnvelopeSignerStatus.VOIDED,
+                EnvelopeSignerStatus.EXPIRED,
+              ],
+            },
+          },
+          select: {
+            id: true,
+            declaredName: true,
+            declaredEmail: true,
+            declaredPhone: true,
+            accessToken: true,
+            authMethod: true,
+            lastReminderAt: true,
+            reminderCount: true,
+          },
+        },
+      },
+    });
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const envelope of envelopes) {
+      for (const signer of envelope.signers) {
+        const due = isReminderDue(
+          {
+            lastReminderAt: signer.lastReminderAt,
+            reminderCount: signer.reminderCount,
+            // O convite sai de dentro de `createEnvelope`, então a emissão É a
+            // data do convite. Não há coluna `invitedAt` — e uma seria um
+            // segundo lugar para a mesma verdade divergir.
+            invitedAt: envelope.createdAt,
+          },
+          now,
+        );
+        if (!due) continue;
+
+        const channel = channelForAuthMethod(signer.authMethod);
+        const signingUrl = this.signingUrl(signer.accessToken);
+        const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
+        // Nunca negativo: o `deadlineAt > now` da consulta garante pelo menos o
+        // dia corrente, e `Math.max` protege o texto de um fuso na virada.
+        const daysLeft = Math.max(0, spDayDiff(now, envelope.deadlineAt));
+
+        const payload = {
+          signerName: signer.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+          signingUrl,
+          deadlineDate,
+          daysLeft,
+        };
+
+        const delivery = await this.deliverToSigner({
+          signer,
+          channel,
+          email: generateSignatureReminderEmail(payload),
+          whatsapp: generateSignatureReminderWhatsApp(payload),
+          whatsappPreview: this.signingLinkPreview(
+            envelope.quote.budgetNumber,
+            signingUrl,
+            'invite',
+          ),
+          whatsappTemplate: reminderTemplate({
+            signerName: signer.declaredName,
+            budgetNumber: envelope.quote.budgetNumber,
+            deadlineDate,
+            accessToken: signer.accessToken,
+          }),
+          kind: 'SIGNATURE_REMINDER',
+        });
+
+        // O CARIMBO É GRAVADO MESMO QUANDO A ENTREGA FALHA.
+        //
+        // Sem isto, um signatário com telefone errado no cadastro voltaria à
+        // fila todo dia útil até o orçamento vencer: trinta tentativas, trinta
+        // recusas da guarda de saída, trinta linhas de erro no journal — e
+        // nenhuma delas conserta o número. Falhou entra na cadência como se
+        // tivesse saído; o que registra o problema é a trilha, abaixo.
+        await this.prisma.envelopeSigner.update({
+          where: { id: signer.id },
+          data: { lastReminderAt: now, reminderCount: { increment: 1 } },
+        });
+
+        await this.audit.recordBestEffort(envelope.id, {
+          eventType: delivery.ok ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+          actorType: 'SYSTEM',
+          actorId: signer.id,
+          actorLabel: signer.declaredName,
+          payload: {
+            channel: auditChannelOf(channel),
+            destination: this.maskContactFor(signer, channel),
+            reminderNumber: signer.reminderCount + 1,
+            daysLeft,
+            ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+            ...(delivery.code ? { failureCode: delivery.code } : {}),
+          },
+        });
+
+        if (delivery.ok) sent++;
+        else failed++;
+      }
+    }
+
+    return { sent, failed };
+  }
+
+  /**
+   * Avisa os responsáveis de que a validade venceu e o valor será reanalisado.
+   *
+   * VAI PARA TODOS DO GRUPO 0, inclusive quem já assinou (decisão dele,
+   * 11/09/2026). Quem assinou e vê a coleta simplesmente sumir conclui que
+   * perdemos a assinatura dele; a mensagem diz, em uma frase, que o ato ficou
+   * registrado e que o que venceu foi o prazo.
+   *
+   * O signatário da Ankaa fica de fora: o aviso interno é a notificação de
+   * sistema que o comercial recebe, com link para a tela.
+   *
+   * Devolve quantos foram efetivamente avisados — o chamador decide se carimba
+   * o orçamento como avisado.
+   */
+  async notifyExpiry(envelopeId: string): Promise<{ notified: number; failed: number }> {
+    const envelope = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: {
+        id: true,
+        deadlineAt: true,
+        quote: { select: { budgetNumber: true } },
+        signers: {
+          where: { orderGroup: 0 },
+          select: {
+            id: true,
+            declaredName: true,
+            declaredEmail: true,
+            declaredPhone: true,
+            authMethod: true,
+            signedAt: true,
+          },
+        },
+      },
+    });
+    if (!envelope) return { notified: 0, failed: 0 };
+
+    const expiredOn = this.deadlineLabel(envelope.deadlineAt);
+
+    let notified = 0;
+    let failed = 0;
+
+    for (const signer of envelope.signers) {
+      const channel = channelForAuthMethod(signer.authMethod);
+      const payload = {
+        signerName: signer.declaredName,
+        budgetNumber: envelope.quote.budgetNumber,
+        hadSigned: signer.signedAt !== null,
+        expiredOn,
+      };
+
+      const delivery = await this.deliverToSigner({
+        signer,
+        channel,
+        email: generateSignatureExpiredEmail(payload),
+        whatsapp: generateSignatureExpiredWhatsApp(payload),
+        // SEM cartão de prévia: a mensagem não carrega link nenhum. O link de
+        // assinatura não vale mais, e mandar um cartão sem destino é convite a
+        // tocar em algo que vai dar erro.
+        whatsappPreview: null,
+        whatsappTemplate: expiredTemplate({
+          signerName: signer.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+        }),
+        kind: 'SIGNATURE_EXPIRED',
+      });
+
+      await this.audit.recordBestEffort(envelope.id, {
+        eventType: 'EXPIRY_NOTICE_SENT',
+        actorType: 'SYSTEM',
+        actorId: signer.id,
+        actorLabel: signer.declaredName,
+        payload: {
+          channel: auditChannelOf(channel),
+          destination: this.maskContactFor(signer, channel),
+          delivered: delivery.ok,
+          hadSigned: payload.hadSigned,
+          ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+          ...(delivery.code ? { failureCode: delivery.code } : {}),
+        },
+      });
+
+      if (delivery.ok) notified++;
+      else failed++;
+    }
+
+    return { notified, failed };
   }
 
   /**
@@ -1777,7 +2404,7 @@ export class SignatureEnvelopeService {
         user: {
           select: { position: { select: { name: true } }, sector: { select: { name: true } } },
         },
-        envelope: { include: { quote: { include: { task: { include: { customer: true } } } } } },
+        envelope: { include: { quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } } } },
       },
     });
     if (!signer) throw new NotFoundException('Link de assinatura inválido.');
@@ -1802,7 +2429,7 @@ export class SignatureEnvelopeService {
     if (!expiresAt) return;
     if (expiresAt.getTime() >= Date.now()) return;
     throw new ForbiddenException(
-      `Este link de assinatura expirou em ${expiresAt.toLocaleDateString('pt-BR')}. ` +
+      `Este link de assinatura expirou em ${this.deadlineLabel(expiresAt)}. ` +
         'Solicite um novo link à Ankaa.',
     );
   }
@@ -1839,7 +2466,7 @@ export class SignatureEnvelopeService {
       documentHash: env.originalSha256,
     });
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const sections = this.sectionsOf(signer.document);
     const kind = this.ceremonyKindOf(signer.authMethod);
     const showsTotal = hasSection(sections, 'PRICING');
@@ -2376,7 +3003,7 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
     });
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const signerSections = this.sectionsOf(signer.document);
     // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
     // aquela pessoa leu, e o template pode mudar entre versões — e agora também
@@ -2677,7 +3304,7 @@ export class SignatureEnvelopeService {
             lateSlots: true,
           },
         },
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
@@ -2788,7 +3415,7 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const sections = this.sectionsOf(ankaa.document);
     const declarations = this.renderDeclarationsFor({
       kind: 'INTERNAL',
@@ -3027,6 +3654,28 @@ export class SignatureEnvelopeService {
     // assinou do outro lado).
     const group0Pending = pending.filter(s => s.orderGroup === 0);
     if (group0Pending.length === 0) {
+      // O ORÇAMENTO PASSA A "ASSINADO".
+      //
+      // Este ramo só é alcançado com `pending.length > 0` — ou seja, sempre há
+      // alguém do grupo 1 faltando. Quando NÃO há signatário da Ankaa, o bloco
+      // acima já finalizou e o orçamento vai direto a BUDGET_APPROVED, que é o
+      // certo: SIGNED quer dizer "espera por nós", e sem contraparte nossa não
+      // há espera nenhuma.
+      //
+      // SEM `await`, e best-effort, pela mesma razão do aviso à Ankaa logo
+      // abaixo: isto roda dentro do POST do CLIENTE, que está com a tela do
+      // celular aberta. A assinatura dele já está persistida; o rótulo da nossa
+      // lista interna não é motivo para segurar a resposta.
+      if (this.onCustomerSideSigned) {
+        void this.onCustomerSideSigned(env.quoteId, env.id).catch(error =>
+          this.logger.error(
+            `Falha ao marcar o orçamento ${env.quoteId} como assinado: ${
+              error instanceof Error ? error.message : error
+            }`,
+          ),
+        );
+      }
+
       const ankaa = pending.find(s => s.orderGroup === 1);
       // A guarda é `!signedAt`, e NÃO `!firstViewedAt`.
       //
@@ -3227,7 +3876,7 @@ export class SignatureEnvelopeService {
       include: {
         envelope: {
           include: {
-            quote: { include: { task: { select: { id: true } } } },
+            quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true } } } },
             signers: { select: { orderGroup: true, authMethod: true, status: true } },
           },
         },
@@ -3237,7 +3886,7 @@ export class SignatureEnvelopeService {
     // O canal da COLETA, lido do lado do cliente: o `authMethod` da Ankaa virou
     // `INTERNAL_SESSION` e não descreve canal nenhum. Ver `noticeChannelOf`.
     const channel = this.noticeChannelOf(signer.envelope.signers);
-    const quoteUrl = this.internalQuoteUrl(signer.envelope.quote.task?.id ?? null);
+    const quoteUrl = this.internalQuoteUrl(primaryTask(signer.envelope.quote)?.id ?? null);
     const signedCount = signer.envelope.signers.filter(
       s => s.orderGroup === 0 && s.status === EnvelopeSignerStatus.SIGNED,
     ).length;
@@ -3302,7 +3951,7 @@ export class SignatureEnvelopeService {
         // de modelo inteiro — é o que a guarda de reentrância abaixo lê.)
         // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
         // que se pergunta ao cadastro o que já chegou desde a emissão.
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
         originalFile: true,
       },
     });
@@ -3425,7 +4074,7 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
     const verificationUrl = this.verificationUrl(env.verificationCode);
 
@@ -3438,11 +4087,17 @@ export class SignatureEnvelopeService {
     const events = await this.audit.getTrail(envelopeId);
     const chainTip = await this.audit.getChainTip(envelopeId);
 
-    const lateValues = {
-      serialNumber: env.quote.task?.serialNumber ?? null,
-      plate: env.quote.task?.truck?.plate ?? null,
-      chassis: env.quote.task?.truck?.chassisNumber ?? null,
-    };
+    // Os valores que carimbam as lacunas, veículo a veículo — nas duas formas de
+    // chave, para que envelopes anteriores a esta feature continuem sendo
+    // carimbados. Ver `buildLateValueMap`.
+    const lateValues = buildLateValueMap(
+      sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassis: t.truck?.chassisNumber ?? null,
+      })),
+    );
 
     const sealed: Array<{
       documentId: string | null;
@@ -4263,7 +4918,7 @@ export class SignatureEnvelopeService {
         // `truck`: a remontagem ao vivo também carimba a identidade que chegou
         // depois — o cliente que abre o link durante a coleta vê o cadastro de
         // hoje, não o de quando o documento foi congelado.
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
         originalFile: true,
         finalFile: true,
       },
@@ -4307,7 +4962,7 @@ export class SignatureEnvelopeService {
 
     const docSections = this.sectionsOf(doc);
     const filename = budgetPdfFilename(
-      env.quote.task?.customer,
+      primaryTask(env.quote)?.customer,
       env.quote.budgetNumber,
       // Sufixo só quando há mais de um recorte: o documento único da coleta comum
       // continua chegando com o nome que sempre teve.
@@ -4321,15 +4976,21 @@ export class SignatureEnvelopeService {
     }
 
     const originalPdf = readFileSync(doc.originalFile.path);
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const companyLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
     const anchors = (doc.anchors ?? {}) as Record<string, unknown>;
 
-    const lateValues: Record<string, string | null> = {
-      serialNumber: env.quote.task?.serialNumber ?? null,
-      plate: env.quote.task?.truck?.plate ?? null,
-      chassis: env.quote.task?.truck?.chassisNumber ?? null,
-    };
+    // Os valores que carimbam as lacunas, veículo a veículo — nas duas formas de
+    // chave, para que envelopes anteriores a esta feature continuem sendo
+    // carimbados. Ver `buildLateValueMap`.
+    const lateValues = buildLateValueMap(
+      sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
+        taskId: t.id,
+        serialNumber: t.serialNumber ?? null,
+        plate: t.truck?.plate ?? null,
+        chassis: t.truck?.chassisNumber ?? null,
+      })),
+    );
 
     // Só quem tem âncora NESTE pdf — a mesma regra do `finalize`, pelo mesmo
     // motivo: carimbar o selo de alguém numa folha em que ele não tem linha de
@@ -4421,7 +5082,7 @@ export class SignatureEnvelopeService {
           orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
           include: { finalFile: true },
         },
-        quote: { include: { task: { include: { customer: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Envelope não encontrado.');
@@ -4471,7 +5132,7 @@ export class SignatureEnvelopeService {
       // recorte muda a chave, e o navegador não serve a versão de antes.
       etag: `"${sha256Hex(etagParts.join('|')).slice(0, 32)}"`,
       filename: budgetPdfFilename(
-        env.quote.task?.customer,
+        primaryTask(env.quote)?.customer,
         env.quote.budgetNumber,
         '-todos-os-recortes',
       ),
@@ -4511,38 +5172,110 @@ export class SignatureEnvelopeService {
       include: {
         documents: { select: { lateSlots: true } },
         signers: { orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }] },
-        quote: { include: { task: { include: { customer: true, truck: true } } } },
+        quote: {
+          include: {
+            tasks: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              include: { customer: true, truck: true },
+            },
+          },
+        },
       },
     });
     if (!envelope) return null;
     if (envelope.addendumFileId) return null;
 
-    const reserved = new Set<string>();
-    const collect = (raw: unknown) => {
-      if (raw && typeof raw === 'object') for (const key of Object.keys(raw)) reserved.add(key);
-    };
-    collect(envelope.lateSlots);
-    for (const doc of envelope.documents) collect(doc.lateSlots);
-    if (reserved.size === 0) return null;
+    // ═════════════════════════════════════════════════════════════════════════
+    // O QUE ADITAR SAI DO SNAPSHOT CONGELADO, NÃO DAS LACUNAS RESERVADAS
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    // Antes a lista vinha de `lateSlots` — as lacunas que o renderizador
+    // conseguiu MEDIR. Isso funcionava porque o documento tinha um veículo e a
+    // frase dele abria a primeira folha, então toda lacuna era medível.
+    //
+    // Com sessenta veículos deixa de funcionar, e falha do lado errado:
+    // `resolveLateSlots` descarta tudo que cai fora da primeira folha, e a
+    // tabela de sessenta caminhões ocupa quase três. Da linha ~35 em diante não
+    // há lacuna registrada — e o aditivo, guiado por elas, simplesmente NÃO
+    // declararia o chassi daqueles vinte e cinco caminhões. O dado existiria no
+    // cadastro, o cliente teria assinado um documento que diz "a registrar", e
+    // nada no artefato fecharia a lacuna.
+    //
+    // A pergunta certa não é "esta lacuna foi medida?" e sim "este campo estava
+    // EM BRANCO quando o cliente assinou, e está preenchido agora?". Quem
+    // responde é o snapshot congelado — que é, por definição, o que o
+    // signatário viu.
+    const frozen = envelope.quoteSnapshot as unknown as QuoteSnapshot;
+    const frozenByTask = new Map(snapshotVehicles(frozen).map(v => [v.taskId, v]));
+    const currentVehicles = sortQuoteTasks(envelope.quote.tasks ?? []);
+    const multiVehicle = currentVehicles.length > 1;
 
-    const registry: Record<string, string | null | undefined> = {
-      serialNumber: envelope.quote.task?.serialNumber,
-      plate: envelope.quote.task?.truck?.plate,
-      chassis: envelope.quote.task?.truck?.chassisNumber,
-    };
+    interface AddendumField {
+      key: string;
+      label: string;
+      value: string;
+      taskId: string;
+      truckId: string | null;
+    }
+    const pending: AddendumField[] = [];
+    for (const task of currentVehicles) {
+      const was = frozenByTask.get(task.id);
+      // Veículo que NÃO estava no documento assinado não se adita: ele é uma
+      // alteração material do orçamento, e alteração material invalida a coleta
+      // (ou marca o assinado como alterado). Aditar seria fingir que o
+      // documento sempre falou dele.
+      if (!was) continue;
+      const now: Record<string, string | null> = {
+        serialNumber: task.serialNumber ?? null,
+        plate: task.truck?.plate ?? null,
+        chassis: task.truck?.chassisNumber ?? null,
+      };
+      const before: Record<string, string | null> = {
+        serialNumber: was.serialNumber ?? null,
+        plate: was.plate ?? null,
+        chassis: was.chassisNumber ?? null,
+      };
+      for (const field of ['serialNumber', 'plate', 'chassis'] as const) {
+        const value = (now[field] ?? '').trim();
+        // Só o que estava em branco E chegou depois. Um campo que já constava do
+        // assinado não é cadastro tardio; um que continua vazio não tem o que
+        // declarar — uma folha selada dizendo "chassi: não registrado" não
+        // acrescenta nada a um documento que já diz "a registrar".
+        if (!value) continue;
+        if ((before[field] ?? '').trim()) continue;
+        pending.push({
+          key: lateSlotKey(field, task.id),
+          // Com um veículo o rótulo é o de sempre ("Chassi"); com sessenta ele
+          // precisa dizer DE QUAL — senão a folha lista vinte e cinco linhas
+          // chamadas "Chassi" e nenhuma diz a que caminhão pertence.
+          label: multiVehicle
+            ? `${LATE_SLOT_LABELS[field] ?? field} — ${
+                task.serialNumber ? `nº ${task.serialNumber}` : (task.truck?.plate ?? task.id.slice(0, 8))
+              }`
+            : (LATE_SLOT_LABELS[field] ?? field),
+          value,
+          taskId: task.id,
+          truckId: task.truck?.id ?? null,
+        });
+      }
+    }
+    if (pending.length === 0) return null;
 
-    // Só vale a pena aditar o que de fato chegou. Uma folha selada dizendo
-    // "chassi: não registrado" não acrescenta nada a um documento que já diz
-    // "a registrar" — seria cerimônia sobre uma ausência.
-    const filled = [...reserved].filter(key => (registry[key] ?? '').trim());
-    if (filled.length === 0) return null;
+    const filled = pending.map(f => f.key);
 
-    const registeredAt = await this.lateSlotRegistrationDates(
-      envelope.quote.task?.id ?? null,
-      envelope.quote.task?.truck?.id ?? null,
-    );
+    // As datas de registro saem do changelog, veículo a veículo: `updatedAt` do
+    // caminhão se move a cada toque na linha (uma troca de vaga no pátio) e
+    // dataria o chassi pelo último desses toques.
+    const registeredAtByTask = new Map<string, Record<string, Date | null>>();
+    for (const task of currentVehicles) {
+      if (!pending.some(f => f.taskId === task.id)) continue;
+      registeredAtByTask.set(
+        task.id,
+        await this.lateSlotRegistrationDates(task.id, task.truck?.id ?? null),
+      );
+    }
 
-    const customer = envelope.quote.task?.customer ?? null;
+    const customer = currentVehicles[0]?.customer ?? null;
     const addendumPdf = await this.assembler.buildVehicleAddendum({
       budgetNumber: envelope.quote.budgetNumber,
       verificationCode: envelope.verificationCode,
@@ -4557,13 +5290,15 @@ export class SignatureEnvelopeService {
           cargo: sig.informedCargo,
           signedAt: sig.signedAt,
         })),
-      fields: [...reserved]
-        .sort()
-        .map(key => ({
-          label: LATE_SLOT_LABELS[key] ?? key,
-          value: (registry[key] ?? '').trim() || null,
-          registeredAt: registeredAt[key] ?? null,
-        })),
+      // Na ordem dos VEÍCULOS (a do documento), e dentro de cada um na ordem
+      // série → placa → chassi. Ordenar por chave alfabética espalharia os três
+      // campos do mesmo caminhão por toda a folha.
+      fields: pending.map(f => ({
+        label: f.label,
+        value: f.value,
+        registeredAt:
+          registeredAtByTask.get(f.taskId)?.[parseLateSlotKey(f.key).field] ?? null,
+      })),
     });
 
     // ---- Selo PAdES ----
@@ -4643,7 +5378,7 @@ export class SignatureEnvelopeService {
         quote: {
           select: {
             budgetNumber: true,
-            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
           },
         },
       },
@@ -4658,7 +5393,7 @@ export class SignatureEnvelopeService {
     return {
       pdf: readFileSync(env.addendumFile.path),
       filename: budgetPdfFilename(
-        env.quote.task?.customer,
+        primaryTask(env.quote)?.customer,
         env.quote.budgetNumber,
         '-aditivo',
       ),
@@ -4747,7 +5482,7 @@ export class SignatureEnvelopeService {
             sealedAt: true,
           },
         },
-        quote: { include: { task: { include: { customer: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Código de verificação não encontrado.');
@@ -4760,7 +5495,7 @@ export class SignatureEnvelopeService {
     });
 
     const chain = await this.audit.verifyChain(env.id);
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
 
     return {
       verificationCode: env.verificationCode,
@@ -4875,7 +5610,7 @@ export class SignatureEnvelopeService {
         },
         quote: {
           select: {
-            task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
           },
         },
       },
@@ -4884,7 +5619,7 @@ export class SignatureEnvelopeService {
 
     // A linha "empresa" do selo: razão social do cliente do lado CUSTOMER, a
     // Ankaa do lado ANKAA. Idêntico ao que `renderServedDocument` monta.
-    const customer = env.quote.task?.customer ?? null;
+    const customer = primaryTask(env.quote)?.customer ?? null;
     const customerLabel = customer?.corporateName ?? customer?.fantasyName ?? null;
 
     const changes = (await this.changesSinceFrozen(quoteId, [env])).get(env.id) ?? [];
@@ -5001,7 +5736,7 @@ export class SignatureEnvelopeService {
         where: { id: quoteId },
         select: {
           budgetNumber: true,
-          task: { select: { customer: { select: { corporateName: true, fantasyName: true } } } },
+          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true, customer: { select: { corporateName: true, fantasyName: true } } } },
         },
       });
       // ETag sobre os bytes servidos: a renderização é feita a partir dos dados
@@ -5009,7 +5744,7 @@ export class SignatureEnvelopeService {
       return {
         pdf,
         etag: `"${sha256Hex(pdf).slice(0, 32)}"`,
-        filename: budgetPdfFilename(quote?.task?.customer, quote?.budgetNumber),
+        filename: budgetPdfFilename(primaryTask(quote)?.customer, quote?.budgetNumber),
       };
     }
     return this.renderServedDocument(env.id);
@@ -5047,8 +5782,8 @@ export class SignatureEnvelopeService {
     // fatia. Manter o cliente da tarefa poria o nome do outro pagador embaixo da
     // assinatura de um documento que não é dele.
     const signatureSubtitle =
-      (segment?.customer ?? quote.task?.customer)?.corporateName ??
-      (segment?.customer ?? quote.task?.customer)?.fantasyName ??
+      (segment?.customer ?? primaryTask(quote)?.customer)?.corporateName ??
+      (segment?.customer ?? primaryTask(quote)?.customer)?.fantasyName ??
       '';
 
     // No recorte, quem assina pelo cliente é o contato DAQUELA configuração —
@@ -5057,7 +5792,9 @@ export class SignatureEnvelopeService {
     // um responsável só, o do cliente principal). Sem contato na configuração,
     // segue a regra de sempre.
     const responsibles =
-      segment?.responsible != null ? [segment.responsible] : (quote.task?.responsibles ?? []);
+      segment?.responsible != null
+        ? [segment.responsible]
+        : dedupeResponsibles(quoteTasks(quote as any).flatMap((t: any) => t.responsibles ?? []));
     const seeds: Array<{
       id: string;
       name: string;
@@ -5136,8 +5873,11 @@ export class SignatureEnvelopeService {
     const vehicle = await this.prisma.taskQuote.findUnique({
       where: { id: quoteId },
       select: {
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
+            id: true,
+            createdAt: true,
             serialNumber: true,
             truck: { select: { plate: true, chassisNumber: true } },
           },
@@ -5362,7 +6102,7 @@ export class SignatureEnvelopeService {
       include: {
         envelope: {
           include: {
-            quote: { include: { task: { select: { id: true } } } },
+            quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true } } } },
             signers: { select: { orderGroup: true, authMethod: true, status: true } },
           },
         },
@@ -5401,7 +6141,7 @@ export class SignatureEnvelopeService {
       signerName: signer.declaredName,
       budgetNumber: signer.envelope.quote.budgetNumber,
       signingUrl: this.signingUrl(signer.accessToken),
-      deadlineDate: signer.envelope.deadlineAt.toLocaleDateString('pt-BR'),
+      deadlineDate: this.deadlineLabel(signer.envelope.deadlineAt),
       isResend: true,
     };
 
@@ -5504,7 +6244,14 @@ export class SignatureEnvelopeService {
    * descartado e nunca pode ser recomputado.
    */
   private async persistPdf(
-    quote: { budgetNumber: number; task?: { customer?: { fantasyName?: string } | null } | null },
+    quote: {
+      budgetNumber: number;
+      tasks?: Array<{
+        id: string;
+        createdAt?: Date | null;
+        customer?: { fantasyName?: string } | null;
+      }> | null;
+    },
     pdf: Buffer,
     /**
      * Rótulo do arquivo no disco. Aceita sufixo de RECORTE
@@ -5528,7 +6275,7 @@ export class SignatureEnvelopeService {
     // diretório com a permissão certa e devolve caminho ABSOLUTO — `FILES_ROOT` é
     // `./files` em dev, e um caminho relativo ao cwd estourava ENOENT em qualquer
     // processo iniciado de outro diretório (cron, script, worker).
-    const customerName = quote.task?.customer?.fantasyName ?? 'Sem Cliente';
+    const customerName = primaryTask(quote)?.customer?.fantasyName ?? 'Sem Cliente';
     const baseName =
       kind === 'dossie'
         ? `dossie_${quote.budgetNumber}_${verificationCode}.pdf`

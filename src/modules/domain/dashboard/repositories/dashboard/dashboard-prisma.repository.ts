@@ -48,6 +48,7 @@ import {
   TRUCK_MANUFACTURER_LABELS,
 } from '../../../../../constants/enum-labels';
 import { determineStockLevel } from '../../../../../utils/stock-level';
+import { perVehicleAmount } from '../../../../../utils/quote-tasks';
 
 @Injectable()
 export class DashboardPrismaRepository implements DashboardRepository {
@@ -2562,6 +2563,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
           quote: {
             select: {
               total: true,
+              // O divisor: `total` é o contrato (`por veículo × N`) e cada linha
+              // aqui é UM veículo. Ver `perVehicleAmount`.
+              vehicleCount: true,
               customerConfigs: {
                 select: {
                   total: true,
@@ -2590,15 +2594,20 @@ export class DashboardPrismaRepository implements DashboardRepository {
         select: {
           id: true,
           status: true,
-          quote: { select: { total: true } },
+          quote: { select: { total: true, vehicleCount: true } },
         },
       }),
     ]);
 
     // EXPECTED REVENUE: Sum of ALL non-cancelled task quotes (pipeline value)
     let expectedRevenue = 0;
+    // A FATIA DESTA TAREFA, não o contrato inteiro: desde o orçamento
+    // multitarefa N tarefas dividem um orçamento cujo `total` é `por veículo × N`.
+    // Somar o total em cada linha fazia o Marquespan de sessenta caminhões
+    // aparecer como R$ 43,8 milhões de receita esperada em vez de R$ 730 mil.
+    // A soma das N fatias reconstrói o contrato.
     for (const task of allQuotedTasks) {
-      expectedRevenue += task.quote?.total ? Number(task.quote.total) : 0;
+      expectedRevenue += perVehicleAmount(task.quote?.total, task.quote?.vehicleCount);
     }
 
     // INVOICED REVENUE (Faturamento): Sum of completed task quote totals
@@ -2606,7 +2615,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     let invoicedRevenue = 0;
     const tasksWithRevenue: typeof completedTasks = [];
     for (const task of completedTasks) {
-      const quoteTotal = task.quote?.total ? Number(task.quote.total) : 0;
+      const quoteTotal = perVehicleAmount(task.quote?.total, task.quote?.vehicleCount);
       if (quoteTotal > 0) {
         invoicedRevenue += quoteTotal;
         tasksWithRevenue.push(task);
@@ -2636,7 +2645,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     for (const task of tasksWithRevenue) {
       if (task.finishedAt) {
         const monthKey = `${task.finishedAt.getFullYear()}-${String(task.finishedAt.getMonth() + 1).padStart(2, '0')}`;
-        monthGroups[monthKey] = (monthGroups[monthKey] || 0) + Number(task.quote?.total || 0);
+        monthGroups[monthKey] =
+          (monthGroups[monthKey] || 0) +
+          perVehicleAmount(task.quote?.total, task.quote?.vehicleCount);
       }
     }
 
@@ -2652,7 +2663,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const sectorGroups: Record<string, number> = {};
     for (const task of tasksWithRevenue) {
       const sectorName = task.sector?.name || 'Sem Setor';
-      sectorGroups[sectorName] = (sectorGroups[sectorName] || 0) + Number(task.quote?.total || 0);
+      sectorGroups[sectorName] =
+        (sectorGroups[sectorName] || 0) +
+        perVehicleAmount(task.quote?.total, task.quote?.vehicleCount);
     }
 
     const sortedSectors = Object.entries(sectorGroups).sort(([, a], [, b]) => b - a);
@@ -2670,7 +2683,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     let physicalPersonRevenue = 0;
     let legalEntityRevenue = 0;
     for (const task of tasksWithRevenue) {
-      const quoteTotal = Number(task.quote?.total || 0);
+      const quoteTotal = perVehicleAmount(task.quote?.total, task.quote?.vehicleCount);
       if (task.customer?.cnpj) {
         legalEntityRevenue += quoteTotal;
       } else {
@@ -3143,7 +3156,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const positionGroups = await this.prisma.user.groupBy({
       by: ['positionId'],
-      where: this.sanitizeWhereForGroupBy({ currentContractStatus: { not: CONTRACT_STATUS.TERMINATED } }),
+      where: this.sanitizeWhereForGroupBy({
+        currentContractStatus: { not: CONTRACT_STATUS.TERMINATED },
+      }),
       _count: { id: true },
     });
 
@@ -3593,7 +3608,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
         truck: { select: { plate: true } },
-        quote: { select: { total: true, budgetNumber: true } },
+        quote: { select: { total: true, vehicleCount: true, budgetNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -3609,7 +3624,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
       forecastDate: t.forecastDate,
       customerName: t.customer?.fantasyName || null,
       sectorName: t.sector?.name || null,
-      quoteTotal: t.quote ? Number(t.quote.total) : null,
+      // O valor DESTE veículo: a linha é uma tarefa, e `total` é o contrato.
+      quoteTotal: t.quote ? perVehicleAmount(t.quote.total, t.quote.vehicleCount) : null,
       quoteBudgetNumber: t.quote?.budgetNumber || null,
     }));
   }
@@ -3617,7 +3633,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksAwaitingBudgetApproval(limit = 50): Promise<HomeDashboardTask[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
-        quote: { status: 'PENDING' as any },
+        // SIGNED entra: é o orçamento em que o cliente já assinou e o que falta
+        // é a contra-assinatura da Ankaa — o caso mais urgente de "aguardando
+        // aprovação" que existe, e o único em que a demora é nossa. EXPIRED fica
+        // de fora: ele não espera aprovação, espera REANÁLISE do valor.
+        quote: { status: { in: ['PENDING', 'SIGNED'] as any } },
       },
       select: {
         id: true,
@@ -3629,7 +3649,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
         truck: { select: { plate: true } },
-        quote: { select: { total: true, expiresAt: true, budgetNumber: true } },
+        quote: { select: { total: true, vehicleCount: true, expiresAt: true, budgetNumber: true } },
       },
       orderBy: { quote: { expiresAt: 'asc' } },
       take: limit,
@@ -3645,7 +3665,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
       forecastDate: t.forecastDate,
       customerName: t.customer?.fantasyName || null,
       sectorName: t.sector?.name || null,
-      quoteTotal: t.quote ? Number(t.quote.total) : null,
+      // O valor DESTE veículo: a linha é uma tarefa, e `total` é o contrato.
+      quoteTotal: t.quote ? perVehicleAmount(t.quote.total, t.quote.vehicleCount) : null,
       quoteExpiresAt: t.quote?.expiresAt || null,
       quoteBudgetNumber: t.quote?.budgetNumber || null,
     }));
@@ -3849,8 +3870,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
       total += group._count.id;
     }
 
+    // ⚠️ `total` conta TODOS os grupos, e o gráfico só desenha as chaves desta
+    // tabela. Um status ausente aqui some do gráfico e continua inflando o
+    // total — as barras deixam de somar o número exibido ao lado delas.
     const statusLabels: Record<string, string> = {
       PENDING: 'Pendente',
+      SIGNED: 'Assinado',
+      EXPIRED: 'Aguardando Reanálise',
       BUDGET_APPROVED: 'Aprovado',
       BILLING_APPROVED: 'Fat. Aprovado',
       UPCOMING: 'A Vencer',
@@ -3862,9 +3888,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return {
       totalQuotes: total,
       pendingQuotes: statusMap['PENDING'] || 0,
-      approvedQuotes:
-        (statusMap['BUDGET_APPROVED'] || 0) +
-        (statusMap['BILLING_APPROVED'] || 0),
+      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
       settledQuotes: statusMap['SETTLED'] || 0,
       byStatus: {
         labels: Object.values(statusLabels),
@@ -4072,7 +4096,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
           orderBy: { updatedAt: 'desc' },
           take: perType,
           include: {
-            task: {
+            tasks: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
               include: { customer: { select: { corporateName: true, fantasyName: true } } },
             },
           },
@@ -4143,7 +4168,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       })),
       ...recentQuotes.map(q => ({
         id: q.id,
-        title: customerName(q.task?.customer),
+        title: customerName(q.tasks?.[0]?.customer),
         description: `${quoteStatusLabels[q.status] || q.status} · R$ ${Number(q.total).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         type: 'quote' as const,
         timestamp: q.updatedAt,

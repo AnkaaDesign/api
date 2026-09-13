@@ -1,4 +1,5 @@
 import { FiscalDocumentOperation, Prisma } from '@prisma/client';
+import { sliceTask } from '../../../utils/quote-tasks';
 
 /**
  * What actually backs a bank transaction, and whether anything is still owed to
@@ -76,8 +77,22 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
     select: {
       id: true,
       total: true,
+      // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+      //
+      // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+      // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+      // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+      // `coveredTaskIds()` de `@utils/quote-tasks`.
+      coveredTasks: { select: { taskId: true } },
       customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
-      quote: { select: { task: { select: { id: true, name: true, serialNumber: true } } } },
+      quote: {
+        select: {
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, name: true, serialNumber: true },
+          },
+        },
+      },
       _count: { select: { installments: true } },
     },
   },
@@ -122,7 +137,10 @@ export const SETTLEMENT_ANCHOR_INCLUDE = {
               fiscalDocument: {
                 select: {
                   ...SETTLEMENT_FD_SELECT,
-                  matches: { where: { reversedAt: null }, select: { id: true, transactionId: true } },
+                  matches: {
+                    where: { reversedAt: null },
+                    select: { id: true, transactionId: true },
+                  },
                 },
               },
             },
@@ -275,7 +293,15 @@ interface ReceivableInstallmentLike {
   } | null;
   customerConfig?: {
     customer?: { fantasyName?: string | null; corporateName?: string | null } | null;
-    quote?: { task?: { id: string; name?: string | null; serialNumber?: string | null } | null } | null;
+    quote?: {
+      /**
+       * As tarefas do orçamento. Um orçamento cobre N veículos desde o
+       * orçamento multitarefa, e aqui basta a PRIMEIRA: o rótulo do Extrato
+       * nomeia uma tarefa para o operador se localizar e clicar, não descreve o
+       * contrato.
+       */
+      tasks?: Array<{ id: string; name?: string | null; serialNumber?: string | null }> | null;
+    } | null;
     _count?: { installments: number } | null;
   } | null;
 }
@@ -301,7 +327,10 @@ interface MatchLike {
       supplier?: { fantasyName?: string | null } | null;
       installments?: { id: string; amount: number }[];
       fiscalDocuments?: Record<string, unknown>[];
-      fiscalDocumentOrderCodes?: { code: string; fiscalDocument?: Record<string, unknown> | null }[];
+      fiscalDocumentOrderCodes?: {
+        code: string;
+        fiscalDocument?: Record<string, unknown> | null;
+      }[];
     } | null;
   } | null;
   recurrentOccurrence?: {
@@ -317,7 +346,12 @@ interface MatchLike {
     price?: number | null;
     task?: { id: string; name?: string | null; serialNumber?: string | null } | null;
   } | null;
-  payrollMonthSettlement?: { id: string; year: number; month: number; amount?: Prisma.Decimal | number | null } | null;
+  payrollMonthSettlement?: {
+    id: string;
+    year: number;
+    month: number;
+    amount?: Prisma.Decimal | number | null;
+  } | null;
 }
 
 interface TransactionLike {
@@ -423,7 +457,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     allocated,
     overAllocated,
     acknowledged,
-    acknowledgedNote: acknowledged ? tx.settlementAckNote ?? null : null,
+    acknowledgedNote: acknowledged ? (tx.settlementAckNote ?? null) : null,
   };
 
   if (tx.reconciliationStatus === 'IGNORED') return { ...empty, state: 'IGNORED' };
@@ -510,7 +544,9 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // Prefer a note whose total matches the payment — with several notes on one
     // order that is the one this specific debit paid.
     const suggested =
-      reachable.find(n => n.totalValue != null && agrees(bank, n.totalValue)) ?? reachable[0] ?? null;
+      reachable.find(n => n.totalValue != null && agrees(bank, n.totalValue)) ??
+      reachable[0] ??
+      null;
 
     const orderCode = order?.fiscalDocumentOrderCodes?.[0]?.code ?? null;
     const parcelCount = order?.installments?.length ?? 0;
@@ -560,7 +596,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // The parcela reached either directly or through its boleto. Both carry the
     // same task-quote context; prefer whichever this match actually anchored.
     const inst = instMatch?.installment ?? slip?.installment ?? null;
-    const task = inst?.invoice?.task ?? inst?.customerConfig?.quote?.task ?? null;
+    const task = inst?.invoice?.task ?? sliceTask(inst?.customerConfig) ?? null;
     const customer = inst?.invoice?.customer ?? inst?.customerConfig?.customer;
     const customerName = customer?.fantasyName ?? customer?.corporateName ?? null;
     const parcelCount =
@@ -580,8 +616,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
         slip?.nossoNumero && !task ? `Boleto ${slip.nossoNumero}` : null,
       ]
         .filter(Boolean)
-        .join(' · ') ||
-      (slip?.nossoNumero ? `Boleto ${slip.nossoNumero}` : 'Parcela a receber');
+        .join(' · ') || (slip?.nossoNumero ? `Boleto ${slip.nossoNumero}` : 'Parcela a receber');
 
     return {
       ...empty,
@@ -610,7 +645,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
       anchor: 'RECURRENT_OCCURRENCE',
       label: [
         payable?.name ?? 'Conta recorrente',
-        installation ? installation.label ?? installation.code : null,
+        installation ? (installation.label ?? installation.code) : null,
         monthLabel(occ.competence),
       ]
         .filter(Boolean)

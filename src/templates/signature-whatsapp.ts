@@ -54,7 +54,7 @@ export interface WhatsAppInvitationData extends SignatureWhatsAppBase {
  * toques. O que ficou é o que a pessoa precisa decidir: o que é, até quando
  * vale, e onde tocar.
  *
- * Espelha o template `orcamento_pronto_assinatura` da Cloud API — os dois textos
+ * Espelha o template `orcamento_para_assinar` da Cloud API — os dois textos
  * têm de dizer a mesma coisa, porque o mesmo cliente pode receber um hoje e o
  * outro amanhã, se o canal oficial cair.
  */
@@ -99,6 +99,86 @@ export function generateSignatureOtpWhatsApp(data: WhatsAppOtpData): string {
     `*${data.code}* é o seu código de assinatura. Expira em ${data.expiryMinutes} minutos.`,
     '',
     `A ${COMPANY.name} nunca pede este código de volta. Se alguém pedir, é golpe.`,
+  ].join('\n');
+}
+
+export interface WhatsAppReminderData extends SignatureWhatsAppBase {
+  signingUrl: string;
+  deadlineDate: string;
+  /** Dias inteiros que faltam para a validade vencer. Negativo nunca chega aqui. */
+  daysLeft: number;
+}
+
+/**
+ * Lembrete de que a assinatura segue pendente.
+ *
+ * NÃO REPETE O CONVITE. Quem recebe isto já recebeu o convite — reabrir com "o
+ * orçamento está pronto para sua assinatura" faz a pessoa achar que é a mesma
+ * mensagem duplicada e ensina a ignorar as próximas. A informação nova é UMA: o
+ * tempo que resta.
+ *
+ * O prazo é dito em DIAS e também em data. "Vence em 22/09" exige que a pessoa
+ * saiba que dia é hoje; "faltam 3 dias" é a frase que faz alguém parar o que
+ * está fazendo. As duas juntas custam meia linha.
+ *
+ * Espelha o template `orcamento_aguardando_assinatura` da Cloud API.
+ */
+export function generateSignatureReminderWhatsApp(data: WhatsAppReminderData): string {
+  const prazo =
+    data.daysLeft <= 0
+      ? '*hoje é o último dia*'
+      : data.daysLeft === 1
+        ? '*vence amanhã*'
+        : `faltam *${data.daysLeft} dias*`;
+
+  return [
+    `Olá, ${firstName(data.signerName)}. O orçamento nº *${data.budgetNumber}* ainda aguarda sua assinatura — ${prazo} (validade até ${data.deadlineDate}).`,
+    '',
+    'Seu link continua o mesmo:',
+    '',
+    data.signingUrl,
+  ].join('\n');
+}
+
+export interface WhatsAppExpiredData extends SignatureWhatsAppBase {
+  /** Verdadeiro para quem chegou a assinar antes de a validade vencer. */
+  hadSigned: boolean;
+}
+
+/**
+ * A validade venceu sem todas as assinaturas.
+ *
+ * O TOM É NOSSO, NÃO DELE. O cliente não descumpriu nada: um orçamento tem
+ * validade porque PREÇO tem validade, e a nossa é que venceu. Escrever "você não
+ * assinou a tempo" seria cobrar de quem estava decidindo — e é o mesmo cliente
+ * que vai receber a proposta reformulada na semana que vem.
+ *
+ * DIZ O QUE ACONTECE AGORA, e não só o que deixou de valer. "Vamos rever o valor
+ * e enviar uma nova proposta" é a frase que impede a pergunta "e agora?" — que,
+ * sem ela, chega por telefone ao comercial, um cliente de cada vez.
+ *
+ * VAI PARA QUEM JÁ ASSINOU TAMBÉM (decisão de 11/09): quem assinou e vê a coleta
+ * cair sem explicação nenhuma conclui que a assinatura dele se perdeu por
+ * descuido nosso. A frase do `hadSigned` existe para dizer que o ato dele foi
+ * registrado e que o que venceu foi o prazo, não a assinatura.
+ *
+ * O CONTATO É NOMEADO, e não "responda esta mensagem" — que era o que estava
+ * escrito aqui até 13/09. No canal oficial aquilo virou um beco: a resposta do
+ * cliente chega pelo webhook, vira uma linha de log e não abre conversa com
+ * ninguém. Dizer COM QUEM falar, e por qual número, é o que transforma o aviso
+ * de vencimento na próxima proposta em vez de numa mensagem sem saída.
+ *
+ * Espelha o template `orcamento_vencido` da Cloud API.
+ */
+export function generateSignatureExpiredWhatsApp(data: WhatsAppExpiredData): string {
+  return [
+    `Olá, ${firstName(data.signerName)}. A validade do orçamento nº *${data.budgetNumber}* venceu, e a coleta de assinaturas foi encerrada.`,
+    '',
+    data.hadSigned
+      ? 'Sua assinatura ficou registrada — o que venceu foi o prazo do orçamento, não ela.'
+      : 'O link que você recebeu não vale mais.',
+    '',
+    `A ${COMPANY.name} vai revisar os valores e enviar uma proposta atualizada. Se preferir adiantar, fale com ${COMPANY.directorName}, ${COMPANY.directorTitle}: ${COMPANY.phone}.`,
   ].join('\n');
 }
 

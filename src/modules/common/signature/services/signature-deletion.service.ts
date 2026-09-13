@@ -138,15 +138,26 @@ export class SignatureDeletionService {
     if (!taskIds.length) return [];
     const envelopes = await client.signatureEnvelope.findMany({
       where: {
-        quote: { task: { id: { in: taskIds } } },
+        quote: { tasks: { some: { id: { in: taskIds } } } },
         OR: [{ status: 'COMPLETED' }, { signers: { some: { status: 'SIGNED' } } }],
       },
-      select: { quote: { select: { task: { select: { id: true } } } } },
+      select: {
+        quote: {
+          select: {
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+          },
+        },
+      },
     });
     return [
       ...new Set(
+        // TODAS as tarefas do orçamento, não a primeira: a pergunta é "quais das
+        // tarefas que me pediram têm assinatura colhida?", e num orçamento de
+        // sessenta caminhões a coleta protege os sessenta. Devolver só o primeiro
+        // deixaria os outros cinquenta e nove passarem por uma guarda de exclusão
+        // que existe justamente para não apagar tarefa com assinatura viva.
         envelopes
-          .map(e => e.quote?.task?.id)
+          .flatMap(e => (e.quote?.tasks ?? []).map(t => t.id))
           .filter((id): id is string => Boolean(id))
           .filter(id => taskIds.includes(id)),
       ),
@@ -163,10 +174,23 @@ export class SignatureDeletionService {
     return this.purge(tx, { quoteId: { in: quoteIds } });
   }
 
-  /** Purga os envelopes dos orçamentos ligados às tarefas indicadas. */
+  /**
+   * Purga os envelopes dos orçamentos ligados às tarefas indicadas.
+   *
+   * `tasks: { some }` e não o filtro to-one: `Task.quoteId` deixou de ser
+   * `@unique` (orçamento multitarefa), e `quote.task` não existe mais no
+   * `TaskQuoteWhereInput` — a forma antiga passava pelo `tsc` porque `purge`
+   * recebe `Record<string, unknown>`, e estourava no Prisma em runtime, no meio
+   * da transação de exclusão de tarefa.
+   *
+   * A semântica é deliberada: o envelope cobre o ORÇAMENTO inteiro, e tirar um
+   * veículo dele muda o documento (ver `diffVehicles` — acrescentar ou retirar
+   * veículo é material). Um envelope que continuasse de pé descreveria uma
+   * frota que não existe mais.
+   */
   async purgeForTasks(tx: PrismaTransaction, taskIds: string[]): Promise<SignaturePurgeResult> {
     if (!taskIds.length) return EMPTY_PURGE;
-    return this.purge(tx, { quote: { task: { id: { in: taskIds } } } });
+    return this.purge(tx, { quote: { tasks: { some: { id: { in: taskIds } } } } });
   }
 
   /** Purga envelopes por id — usado pela limpeza operacional de envelopes órfãos. */

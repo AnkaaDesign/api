@@ -6,6 +6,14 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { TaskQuoteRepository } from './task-quote.repository';
+import {
+  QUOTE_TASKS_ORDER_BY,
+  QUOTE_COVERAGE_INCLUDE,
+  withCoverageInclude,
+} from '@utils/quote-tasks';
+
+/** A ordem canônica das tarefas de um orçamento — ver `QUOTE_TASKS_ORDER_BY`. */
+const TASK_ORDER = QUOTE_TASKS_ORDER_BY;
 import type {
   TaskQuote,
   TaskQuoteInclude,
@@ -23,6 +31,113 @@ import { TaskQuote as PrismaTaskQuote, Prisma } from '@prisma/client';
 /**
  * Prisma implementation of TaskQuoteRepository
  */
+/**
+ * Traduz o filtro to-one `task` — a forma anterior ao orçamento multitarefa —
+ * para a relação de LISTA `tasks`.
+ *
+ * POR QUE EXISTE. `Task.quoteId` deixou de ser `@unique`, então
+ * `TaskQuoteWhereInput.task` não existe mais: mandá-lo ao Prisma derruba a
+ * consulta inteira com "Unknown argument `task`". E o `where` chega aqui como
+ * `Record<string, unknown>` — o `tsc` não vê nada. Quem ainda manda a chave
+ * antiga é o app instalado nos aparelhos, que não se atualiza no mesmo instante
+ * que a API; recusar a consulta deixaria a lista de Orçamentos vazia em campo.
+ *
+ * A tradução é `some`: "existe uma tarefa do orçamento que casa". Com um veículo
+ * é exatamente a consulta de antes; com sessenta, é a única leitura útil —
+ * procurar pela série de qualquer um dos caminhões tem de achar o orçamento.
+ *
+ * Recorre por `AND`/`OR`/`NOT` porque é lá que os filtros compostos da lista
+ * montam suas condições, e uma chave `task` escondida dentro de um `OR` estoura
+ * do mesmo jeito que no topo.
+ *
+ * O IRMÃO ESQUECIDO: `taskId`. A COLUNA também se foi — a FK mudou de lado e
+ * hoje mora em `Task.quoteId` —, e o zod continuava declarando `taskId` no
+ * `where` sem nada que o traduzisse. Declarado e não traduzido é o pior dos dois
+ * mundos: o `.strict()` deixa passar, o Prisma recusa, e a lista devolve 500
+ * ("Unknown argument `taskId`"). Basta um filtro salvo ou um link antigo com
+ * `?taskId=` para derrubar a tela. Aqui ele vira `tasks: { some: { id } }` — o
+ * valor pode ser o id cru ou um filtro (`{ in: [...] }`), e os dois passam para
+ * `id` sem interpretação.
+ */
+export function translateLegacyTaskFilter(where: any): any {
+  if (!where || typeof where !== 'object') return where;
+  if (Array.isArray(where)) return where.map(translateLegacyTaskFilter);
+
+  const out: any = {};
+  for (const [key, value] of Object.entries(where)) {
+    if (key === 'AND' || key === 'OR' || key === 'NOT') {
+      out[key] = translateLegacyTaskFilter(value);
+      continue;
+    }
+    if (key === 'taskId') {
+      // `task` é MAIS EXPRESSIVO que `taskId` (casa por qualquer campo da
+      // tarefa, não só pelo id), e `tasks` é a forma corrente: qualquer uma das
+      // duas presente descarta esta. Sem essa precedência, um cliente que manda
+      // as duas formas teria o filtro decidido pela ordem das chaves do JSON.
+      if ('tasks' in where || 'task' in where) continue;
+      if (value === null || value === undefined) continue;
+      out.tasks = { some: { id: value } };
+      continue;
+    }
+    if (key !== 'task') {
+      out[key] = value;
+      continue;
+    }
+    // Cliente que manda as DUAS formas: a corrente vence. Mesclar dois `some`
+    // seria adivinhar (um `AND` ou um `OR`?), e sobrescrever com a legada
+    // desfaria o filtro que o cliente novo quis.
+    if ('tasks' in where) continue;
+
+    // `task: null` — "orçamento SEM tarefa". No to-many é `none: {}`.
+    if (value === null || value === undefined) {
+      out.tasks = { none: {} };
+      continue;
+    }
+    if (typeof value !== 'object') continue;
+
+    const v = value as Record<string, unknown>;
+    if ('is' in v || 'isNot' in v) {
+      // `isNot: null` era "tem tarefa" ⇒ `some: {}`. `is: null` era "não tem"
+      // ⇒ `none: {}`. Com um objeto, `is` vira `some` e `isNot` vira `none`.
+      if ('is' in v) out.tasks = v.is === null ? { none: {} } : { some: v.is as object };
+      if ('isNot' in v) {
+        const asNone = v.isNot === null ? { some: {} } : { none: v.isNot as object };
+        out.tasks = { ...(out.tasks as object), ...asNone };
+      }
+      continue;
+    }
+    // Nested where direto (ex.: `{ id }`, `{ status }`).
+    out.tasks = { some: v };
+  }
+  return out;
+}
+
+/**
+ * Remove as entradas de ordenação por campo da TAREFA.
+ *
+ * O Prisma não ordena um pai por campo de relação de lista, e não existe
+ * resposta certa a inventar: num orçamento de sessenta caminhões, qual dos
+ * sessenta prazos ordenaria a linha? O app instalado manda
+ * `[{statusOrder:'asc'},{task:{term:'asc'}}]`; descartar a segunda entrada
+ * degrada a ordenação, mandá-la ao banco derruba a tela. Ordenações por campo
+ * do próprio orçamento (`budgetNumber`, `createdAt`, `expiresAt`) passam
+ * intactas, e é para elas que os clientes novos apontam.
+ */
+export function stripUnorderableTaskEntries(orderBy: any): any {
+  const clean = (entry: any): any | null => {
+    if (!entry || typeof entry !== 'object') return entry;
+    // `taskId` sai junto: a coluna não existe mais em `TaskQuote` (a FK está em
+    // `Task.quoteId`), então ordenar por ela é o mesmo 500 de `task`.
+    const { task: _dropped, taskId: _droppedId, ...rest } = entry as Record<string, unknown>;
+    return Object.keys(rest).length > 0 ? rest : null;
+  };
+  if (Array.isArray(orderBy)) {
+    const kept = orderBy.map(clean).filter((e): e is object => e !== null);
+    return kept.length > 0 ? kept : undefined;
+  }
+  return clean(orderBy) ?? undefined;
+}
+
 @Injectable()
 export class TaskQuotePrismaRepository
   extends BaseStringPrismaRepository<
@@ -202,17 +317,26 @@ export class TaskQuotePrismaRepository
             }
           : include.services;
     }
-    if ((include as any).task !== undefined) {
-      if (typeof (include as any).task === 'boolean') {
-        mappedInclude.task = (include as any).task;
-      } else {
-        mappedInclude.task = { include: (include as any).task.include as any };
-      }
+    // `include: { task: … }` do cliente é traduzido para a relação de LISTA.
+    //
+    // A chave `task` continua aceita de propósito: ela vem do app Flutter
+    // instalado nos aparelhos e do `kTaskQuoteDetailInclude` gravado em cache, e
+    // recusá-la faria a tela de detalhe do orçamento voltar sem tarefa nenhuma.
+    // A ordem canônica é imposta aqui, não pelo cliente.
+    const requestedTaskInclude = (include as any).tasks ?? (include as any).task;
+    if (requestedTaskInclude !== undefined) {
+      mappedInclude.tasks =
+        typeof requestedTaskInclude === 'boolean'
+          ? { orderBy: TASK_ORDER }
+          : { orderBy: TASK_ORDER, include: requestedTaskInclude.include as any };
     }
     if ((include as any).layoutFiles !== undefined)
       mappedInclude.layoutFiles = (include as any).layoutFiles;
     if ((include as any).customerConfigs !== undefined) {
-      mappedInclude.customerConfigs =
+      // A COBERTURA ENTRA SEMPRE, seja qual for a forma que o chamador pediu.
+      // Ver `withCoverageInclude`: uma fatura que chega à tela sem a cobertura é
+      // uma fatura sem resposta para "de quais veículos é isto?".
+      mappedInclude.customerConfigs = withCoverageInclude(
         (include as any).customerConfigs === true
           ? {
               include: {
@@ -239,7 +363,8 @@ export class TaskQuotePrismaRepository
                 },
               },
             }
-          : (include as any).customerConfigs;
+          : (include as any).customerConfigs,
+      ) as any;
     }
 
     return mappedInclude;
@@ -249,14 +374,14 @@ export class TaskQuotePrismaRepository
     orderBy?: TaskQuoteOrderBy,
   ): Prisma.TaskQuoteOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
-    return orderBy as any;
+    return stripUnorderableTaskEntries(orderBy) as any;
   }
 
   protected mapWhereToDatabaseWhere(
     where?: TaskQuoteWhere,
   ): Prisma.TaskQuoteWhereInput | undefined {
     if (!where) return undefined;
-    return where as any;
+    return translateLegacyTaskFilter(where) as any;
   }
 
   protected getDefaultInclude(): Prisma.TaskQuoteInclude | undefined {
@@ -271,6 +396,7 @@ export class TaskQuotePrismaRepository
       },
       customerConfigs: {
         include: {
+          coveredTasks: QUOTE_COVERAGE_INCLUDE,
           customer: {
             select: { id: true, fantasyName: true, cnpj: true },
           },
@@ -428,8 +554,44 @@ export class TaskQuotePrismaRepository
    */
   async findByTaskId(taskId: string): Promise<TaskQuote | null> {
     const quote = await this.prisma.taskQuote.findFirst({
-      where: { task: { id: taskId } },
+      where: { tasks: { some: { id: taskId } } },
       include: {
+        // TODAS as tarefas do orçamento, não só aquela por onde se entrou.
+        //
+        // A tela de Orçamento é aberta pelo `taskId` de UM veículo, mas o que
+        // ela edita é o orçamento — e o orçamento cobre N. Sem esta lista a tela
+        // não tem como saber que são sessenta: o seletor "junto ou separado"
+        // some (a contagem daria 1) e não há como trocar `JOINT` por `PER_TASK`
+        // depois que o erro aparece no faturamento.
+        tasks: {
+          orderBy: TASK_ORDER,
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            createdAt: true,
+            term: true,
+            forecastDate: true,
+            // O pedido de compra é do VEÍCULO. Fora deste `select` a tela de
+            // Orçamento abriria o campo em branco e o gravaria por cima do que o
+            // cliente já tinha informado.
+            customerOrderNumber: true,
+            // Categoria e implemento junto: a relação de veículos do Resumo tem
+            // as MESMAS colunas do documento e da página pública, e sem estes
+            // dois campos ela sairia com duas colunas a menos que o PDF que o
+            // cliente vai receber — a conferência deixaria de ser a mesma.
+            truck: {
+              select: {
+                id: true,
+                plate: true,
+                chassisNumber: true,
+                category: true,
+                implementType: true,
+              },
+            },
+          },
+        },
         layoutFiles: { orderBy: { createdAt: 'asc' } },
         services: {
           orderBy: { position: 'asc' },
@@ -441,6 +603,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: {
                 id: true,
@@ -488,9 +651,10 @@ export class TaskQuotePrismaRepository
             },
           },
         },
-        task: true,
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -531,9 +695,10 @@ export class TaskQuotePrismaRepository
             },
           },
         },
-        task: true,
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -554,7 +719,7 @@ export class TaskQuotePrismaRepository
   async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
     const quote = await this.prisma.taskQuote.findFirst({
       where: {
-        task: { id: taskId },
+        tasks: { some: { id: taskId } },
         status: {
           in: [
             TASK_QUOTE_STATUS.BILLING_APPROVED,
@@ -576,6 +741,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
+            coveredTasks: QUOTE_COVERAGE_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -618,7 +784,8 @@ export class TaskQuotePrismaRepository
           },
         },
       },
-      task: {
+      tasks: {
+        orderBy: TASK_ORDER,
         select: { id: true, name: true, createdAt: true },
       },
     };
@@ -626,10 +793,7 @@ export class TaskQuotePrismaRepository
     // 1. Try exact match (case-insensitive)
     let quote = await this.prisma.taskQuote.findFirst({
       where: {
-        task: {
-          ...baseWhere,
-          name: { equals: params.name, mode: 'insensitive' },
-        },
+        tasks: { some: { ...baseWhere, name: { equals: params.name, mode: 'insensitive' } } },
       },
       include: includeClause,
       orderBy: { createdAt: 'desc' },
@@ -639,10 +803,7 @@ export class TaskQuotePrismaRepository
     if (!quote) {
       quote = await this.prisma.taskQuote.findFirst({
         where: {
-          task: {
-            ...baseWhere,
-            name: { startsWith: params.name, mode: 'insensitive' },
-          },
+          tasks: { some: { ...baseWhere, name: { startsWith: params.name, mode: 'insensitive' } } },
         },
         include: includeClause,
         orderBy: { createdAt: 'desc' },
@@ -654,7 +815,7 @@ export class TaskQuotePrismaRepository
     const mapped = this.mapDatabaseEntityToEntity(quote);
     return {
       ...mapped,
-      taskCreatedAt: quote.task?.createdAt || quote.createdAt,
+      taskCreatedAt: quote.tasks?.[0]?.createdAt || quote.createdAt,
     };
   }
 }

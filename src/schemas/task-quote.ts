@@ -22,8 +22,15 @@ import {
 // TaskQuote Status Schema
 // =====================
 
+// ⚠️ ESTA LISTA É ESCRITA À MÃO e o `tsc` não a confere contra o enum: um
+// estado que exista no banco e falte aqui não vira erro de tipo — o zod o APAGA
+// do filtro, e a lista volta sem ele em silêncio. Ver
+// `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
+// também, sempre.
 export const taskQuoteStatusSchema = z.enum([
   TASK_QUOTE_STATUS.PENDING,
+  TASK_QUOTE_STATUS.SIGNED,
+  TASK_QUOTE_STATUS.EXPIRED,
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
   TASK_QUOTE_STATUS.BILLING_APPROVED,
   TASK_QUOTE_STATUS.UPCOMING,
@@ -73,45 +80,67 @@ export const guaranteeYearsSchema = z
 // TaskQuote Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
+/**
+ * Como se pede as TAREFAS do orçamento — a mesma forma nas duas chaves.
+ *
+ * `z.object()` do zod DESCARTA chave desconhecida em silêncio (não é `strict`
+ * aqui). Enquanto só `task` estava declarada, o `include: { tasks: … }` que o
+ * app manda desde o orçamento multitarefa era removido antes de chegar ao
+ * repositório, e o orçamento voltava sem veículo nenhum: a lista ficava sem
+ * LOGOMARCA e sem IDENTIFICADOR, e a tela de detalhe sem tarefa. Silencioso,
+ * porque um `include` descartado não é erro — é só um campo que não veio.
+ */
+const quoteTasksIncludeSchema = z
+  .union([
+    z.boolean(),
+    z.object({
+      include: z
+        .object({
+          sector: z.boolean().optional(),
+          customer: z.boolean().optional(),
+          budgets: z.boolean().optional(),
+          invoices: z.boolean().optional(),
+          receipts: z.boolean().optional(),
+          observation: z.boolean().optional(),
+          generalPainting: z.boolean().optional(),
+          createdBy: z.boolean().optional(),
+          // `layouts` (renamed Artwork relation) carries a File. The mobile
+          // budget/quote detail sends `layouts: { include: { file: true } }`
+          // to render the layout thumbnail, so accept the nested form as well
+          // as the plain boolean — a bare boolean here broke the whole `task`
+          // union with invalid_union.
+          layouts: z
+            .union([
+              z.boolean(),
+              z.object({
+                include: z.object({ file: z.boolean().optional() }).optional(),
+              }),
+            ])
+            .optional(),
+          logoPaints: z.boolean().optional(),
+          serviceOrders: z.boolean().optional(),
+          truck: z.boolean().optional(),
+          airbrushing: z.boolean().optional(),
+          quote: z.boolean().optional(),
+        })
+        .optional(),
+    }),
+  ])
+  .optional();
+
 export const taskQuoteIncludeSchema = z
   .object({
-    task: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              sector: z.boolean().optional(),
-              customer: z.boolean().optional(),
-              budgets: z.boolean().optional(),
-              invoices: z.boolean().optional(),
-              receipts: z.boolean().optional(),
-              observation: z.boolean().optional(),
-              generalPainting: z.boolean().optional(),
-              createdBy: z.boolean().optional(),
-              // `layouts` (renamed Artwork relation) carries a File. The mobile
-              // budget/quote detail sends `layouts: { include: { file: true } }`
-              // to render the layout thumbnail, so accept the nested form as well
-              // as the plain boolean — a bare boolean here broke the whole `task`
-              // union with invalid_union.
-              layouts: z
-                .union([
-                  z.boolean(),
-                  z.object({
-                    include: z.object({ file: z.boolean().optional() }).optional(),
-                  }),
-                ])
-                .optional(),
-              logoPaints: z.boolean().optional(),
-              serviceOrders: z.boolean().optional(),
-              truck: z.boolean().optional(),
-              airbrushing: z.boolean().optional(),
-              quote: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
+    /** As tarefas do orçamento — uma por veículo. A forma corrente. */
+    tasks: quoteTasksIncludeSchema,
+    /**
+     * @deprecated Forma anterior ao orçamento multitarefa.
+     *
+     * Continua aceita porque o app Flutter instalado nos aparelhos e o
+     * `kTaskQuoteDetailInclude` já gravado em cache mandam esta chave, e
+     * recusá-la devolveria a tela de detalhe sem tarefa nenhuma.
+     * `mapIncludeToDatabaseInclude` traduz as duas para a relação de LISTA.
+     */
+    task: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
     layoutFiles: z.boolean().optional(),
     customerConfigs: z
@@ -166,9 +195,20 @@ export const taskQuoteOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
+        budgetNumber: orderByDirectionSchema.optional(),
         simultaneousTasks: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
+        /**
+         * @deprecated Ordenação por campo da tarefa, anterior ao multitarefa.
+         *
+         * O Prisma NÃO ordena um pai por campo de uma relação de LISTA — e
+         * `tasks` virou lista. Não há resposta certa possível: qual dos sessenta
+         * prazos ordenaria o orçamento? Continua aceito porque o app instalado
+         * manda `{'task.term': 'asc'}` no `baseOrderBy`, e recusar derrubaria a
+         * lista inteira; `mapOrderByToDatabaseOrderBy` DESCARTA a entrada antes
+         * do banco. Ordene por `budgetNumber`, `createdAt` ou `expiresAt`.
+         */
         task: z
           .object({
             id: orderByDirectionSchema.optional(),
@@ -195,13 +235,14 @@ export const taskQuoteOrderBySchema = z
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
+          budgetNumber: orderByDirectionSchema.optional(),
           simultaneousTasks: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
-          // Nested task orderBy — mirrors the single-object branch above. Without
-          // it, zod silently STRIPS `task` from array entries (e.g. the mobile
-          // budget list's [{statusOrder:'asc'},{task:{term:'asc'}}]), degrading
-          // the sort instead of applying it.
+          // Aceito e DESCARTADO pelo repositório — ver a nota do ramo acima.
+          // Continua declarado de propósito: `z.object` não-strict apagaria a
+          // entrada em silêncio, e o repositório precisa VER a chave para poder
+          // descartá-la de forma consciente.
           task: z
             .object({
               id: orderByDirectionSchema.optional(),
@@ -292,12 +333,6 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      // Relation filter for the parent Task (to-one, nullable). The mobile budget
-      // list sends `task: { isNot: null }` to fetch only quotes that still have a
-      // task — the same shape the internal `hasTask` transform produces. Without
-      // this the strict() where rejected it with unrecognized_keys: 'task'. Nested
-      // Task fields are passed through (Prisma validates them) to avoid a circular
-      // import with taskWhereSchema.
       simultaneousTasks: z
         .union([
           z.number(),
@@ -337,9 +372,26 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      // To-one relation filter for the linked Task. Accepts Prisma's
-      // is/isNot form (e.g. { isNot: null } to require a linked task, as the
-      // budget list sends) as well as a direct nested where (e.g. { id }).
+      // Filtro da relação de LISTA `tasks` — a forma corrente, na gramática do
+      // Prisma para to-many. A lista de Orçamentos manda `{ some: {} }` ("tem
+      // ao menos um veículo"), que é a pergunta que o antigo `{ isNot: null }`
+      // respondia. Sem esta chave declarada, o `.strict()` recusava a consulta
+      // inteira com unrecognized_keys: 'tasks'.
+      tasks: z
+        .object({
+          some: z.record(z.any()).optional(),
+          every: z.record(z.any()).optional(),
+          none: z.record(z.any()).optional(),
+        })
+        .optional(),
+      /**
+       * @deprecated Filtro to-one, anterior ao orçamento multitarefa.
+       *
+       * `Task.quoteId` deixou de ser `@unique` e `TaskQuoteWhereInput.task` não
+       * existe mais; mandá-lo ao Prisma estoura a consulta. Continua ACEITO aqui
+       * porque o app instalado ainda o envia, e `mapWhereToDatabaseWhere` o
+       * traduz para `tasks: { some: … }` antes do banco.
+       */
       task: z
         .union([
           z.object({
@@ -384,13 +436,20 @@ const taskQuoteTransform = (data: any) => {
     const rawTerm = data.searchingFor.trim();
     const term = normalizeSearchTerm(rawTerm);
     const searchConditions: any[] = [
-      // Logomarca + série (direct task fields)
-      { task: { nameNormalized: { contains: term } } },
-      { task: { serialNumberNormalized: { contains: term } } },
-      { task: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } } },
+      // Logomarca + série — campos das TAREFAS do orçamento. `some` e não o
+      // filtro to-one: um orçamento cobre N veículos, e achar o orçamento pela
+      // série de QUALQUER um deles é justamente o que o operador quer quando
+      // digita o número que está lendo no caminhão à frente dele.
+      { tasks: { some: { nameNormalized: { contains: term } } } },
+      { tasks: { some: { serialNumberNormalized: { contains: term } } } },
+      {
+        tasks: {
+          some: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } },
+        },
+      },
       // Cliente — task's own customer and each billing customer config
-      { task: { customer: { fantasyNameNormalized: { contains: term } } } },
-      { task: { customer: { corporateNameNormalized: { contains: term } } } },
+      { tasks: { some: { customer: { fantasyNameNormalized: { contains: term } } } } },
+      { tasks: { some: { customer: { corporateNameNormalized: { contains: term } } } } },
       {
         customerConfigs: {
           some: { customer: { fantasyNameNormalized: { contains: term } } },
@@ -408,12 +467,11 @@ const taskQuoteTransform = (data: any) => {
     // stripped digits ("13.636" and "13636" both hit)
     const searchDigits = rawTerm.replace(/\D/g, '');
     if (searchDigits.length > 0) {
-      const documentTerms =
-        searchDigits === term ? [searchDigits] : [term, searchDigits];
+      const documentTerms = searchDigits === term ? [searchDigits] : [term, searchDigits];
       for (const documentTerm of documentTerms) {
         searchConditions.push(
-          { task: { customer: { cnpjNormalized: { contains: documentTerm } } } },
-          { task: { customer: { cpfNormalized: { contains: documentTerm } } } },
+          { tasks: { some: { customer: { cnpjNormalized: { contains: documentTerm } } } } },
+          { tasks: { some: { customer: { cpfNormalized: { contains: documentTerm } } } } },
           {
             customerConfigs: {
               some: { customer: { cnpjNormalized: { contains: documentTerm } } },
@@ -435,19 +493,23 @@ const taskQuoteTransform = (data: any) => {
   }
 
   // Handle taskId filter (FK lives on Task, not TaskQuote)
+  // `some`: "o orçamento que cobre esta tarefa". Com um veículo é a mesma
+  // consulta de sempre; com sessenta, é a única que responde.
   if (data.taskId) {
     transformed.where = {
       ...transformed.where,
-      task: { id: data.taskId },
+      tasks: { some: { id: data.taskId } },
     };
     delete transformed.taskId;
   }
 
   // Handle hasTask filter
+  // `some: {}` / `none: {}` é a forma to-many de "tem tarefa" / "não tem": o
+  // `isNot: null` / `null` do to-one não existe mais no `TaskQuoteWhereInput`.
   if (data.hasTask !== undefined) {
     transformed.where = {
       ...transformed.where,
-      task: data.hasTask ? { isNot: null } : null,
+      tasks: data.hasTask ? { some: {} } : { none: {} },
     };
     delete transformed.hasTask;
   }
@@ -530,55 +592,105 @@ export const paymentConfigSchema = z.object({
   installmentCount: z.number().int().min(2).max(6).optional(),
   installmentStep: z.number().int().min(1).max(365).optional(),
   entryDays: z.number().int().min(1).max(365).optional(),
-  specificDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  specificDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
-export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
-  customerId: z.string().uuid('ID de cliente invalido'),
-  // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
-  // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
-  // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
-  // silently defeats the "absence = preserve" contract that
-  // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
-  // orderings are one token apart with opposite semantics and no type-level signal,
-  // so keep them all in this form. Real columns already carry @default in Prisma.
-  subtotal: moneySchema.default(0).optional(),
-  total: moneySchema.default(0).optional(),
-  // Global customer discount
-  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
-  discountValue: moneySchema.nullable().optional(),
-  discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
-  // Payment condition — legacy string enum (deprecated, use paymentConfig instead)
-  paymentCondition: paymentConditionSchema.optional().nullable(),
-  // Structured payment config (replaces paymentCondition for new billing flow)
-  paymentConfig: paymentConfigSchema.optional().nullable(),
-  customPaymentText: z.string().max(2000).optional().nullable(),
-  // Must stay `.default().optional()` — see the ordering note above. With the
-  // reverse order an update that omits these silently reset BOTH to true,
-  // re-enabling NFS-e emission and boleto registration for a customer configured
-  // not to receive them.
-  generateInvoice: z.boolean().default(true).optional(),
-  generateBankSlip: z.boolean().default(true).optional(),
-  orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
-  responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
-  // Direct installments (alternative to paymentCondition-based generation)
-  installments: z.array(installmentInputSchema).optional(),
-}).superRefine((data, ctx) => {
-  // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
-  // silently clamps the computed total to 0 (a free quote). FIXED_VALUE keeps its
-  // own non-negative bound from moneySchema and has no upper limit.
-  if (
-    data.discountType === DISCOUNT_TYPE.PERCENTAGE &&
-    data.discountValue != null &&
-    (data.discountValue < 0 || data.discountValue > 100)
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['discountValue'],
-      message: 'Desconto em porcentagem deve estar entre 0 e 100.',
-    });
-  }
-});
+export const taskQuoteCustomerConfigCreateNestedSchema = z
+  .object({
+    /**
+     * O ID DESTA FATIA, quando a tela edita uma que já existe.
+     *
+     * ⚠️ NÃO É DECORATIVO, e a ausência dele foi um defeito real. O objeto não é
+     * `.strict()`: enquanto a chave não existiu aqui, o zod APAGOU em silêncio o
+     * `id` que os assistentes já mandavam, a reconciliação ficou sem identidade
+     * para casar as fatias e quatro faturamentos do mesmo cliente chegavam
+     * indistinguíveis — a última gravação vencia sobre as outras três, levando
+     * junto desconto, condição de pagamento e "gerar NF/boleto" de cada uma.
+     */
+    id: z.string().uuid('ID de faturamento invalido').optional(),
+    customerId: z.string().uuid('ID de cliente invalido'),
+    /**
+     * A COBERTURA — os VEÍCULOS que esta fatura cobra.
+     *
+     * Ausente = "decida pelo modo" (`billingSplit` + as tarefas do orçamento),
+     * que é o que as telas mandam quando não estão compondo lotes: não precisam
+     * montar sessenta objetos idênticos a cada gravação. Presente = a tela está
+     * dizendo exatamente quem cobra quem, e o modo não sobrescreve.
+     *
+     * Um veículo só pode estar na cobertura de UM faturamento por cliente — é
+     * índice único no banco (`QuoteBillingTask`), não convenção.
+     */
+    taskIds: z
+      .array(z.string().uuid('Tarefa invalida'))
+      .max(200, 'Maximo de 200 tarefas por faturamento')
+      .optional(),
+    /**
+     * @deprecated Forma anterior à cobertura explícita: UMA tarefa, `null` para
+     * "todas". Equivale a `taskIds: [taskId]`; `null` equivale a ausência.
+     *
+     * ⚠️ NÃO remova a chave achando que "o campo não existe mais" — ver a nota
+     * sobre `.strict()` em `id` e em `orderNumber`.
+     */
+    taskId: z.string().uuid('Tarefa invalida').optional().nullable(),
+    // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
+    // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
+    // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
+    // silently defeats the "absence = preserve" contract that
+    // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
+    // orderings are one token apart with opposite semantics and no type-level signal,
+    // so keep them all in this form. Real columns already carry @default in Prisma.
+    subtotal: moneySchema.default(0).optional(),
+    total: moneySchema.default(0).optional(),
+    // Global customer discount
+    discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
+    discountValue: moneySchema.nullable().optional(),
+    discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
+    // Payment condition — legacy string enum (deprecated, use paymentConfig instead)
+    paymentCondition: paymentConditionSchema.optional().nullable(),
+    // Structured payment config (replaces paymentCondition for new billing flow)
+    paymentConfig: paymentConfigSchema.optional().nullable(),
+    customPaymentText: z.string().max(2000).optional().nullable(),
+    // Must stay `.default().optional()` — see the ordering note above. With the
+    // reverse order an update that omits these silently reset BOTH to true,
+    // re-enabling NFS-e emission and boleto registration for a customer configured
+    // not to receive them.
+    generateInvoice: z.boolean().default(true).optional(),
+    generateBankSlip: z.boolean().default(true).optional(),
+    /**
+     * @deprecated O número do pedido de compra é do VEÍCULO
+     * (`Task.customerOrderNumber`): um orçamento cobre N caminhões e o pedido é
+     * por entrega. Continua ACEITO porque o app instalado o envia, e o serviço o
+     * grava em todas as tarefas do orçamento — o mesmo efeito que ele tinha.
+     *
+     * ⚠️ NÃO remova a chave do schema achando que "o campo não existe mais". O
+     * objeto não é `.strict()`: sem ela o zod APAGA o valor em silêncio, a
+     * tradução para as tarefas nunca acontece, e o pedido de compra que o
+     * aparelho mandou some entre o botão e o banco.
+     */
+    orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
+    responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
+    // Direct installments (alternative to paymentCondition-based generation)
+    installments: z.array(installmentInputSchema).optional(),
+  })
+  .superRefine((data, ctx) => {
+    // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
+    // silently clamps the computed total to 0 (a free quote). FIXED_VALUE keeps its
+    // own non-negative bound from moneySchema and has no upper limit.
+    if (
+      data.discountType === DISCOUNT_TYPE.PERCENTAGE &&
+      data.discountValue != null &&
+      (data.discountValue < 0 || data.discountValue > 100)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['discountValue'],
+        message: 'Desconto em porcentagem deve estar entre 0 e 100.',
+      });
+    }
+  });
 
 // Simultaneous tasks schema
 export const simultaneousTasksSchema = z
@@ -645,15 +757,57 @@ export const taskQuoteCreateNestedSchema = z.object({
 });
 
 // =====================
+// Junto ou separado
+// =====================
+
+/**
+ * Como o cliente paga um orçamento que cobre mais de um veículo.
+ *
+ * `JOINT` (padrão) é o comportamento de sempre: um faturamento por cliente, uma
+ * fatura, um plano de parcelas, uma NFS-e. Num orçamento de uma tarefa só,
+ * indistinguível do que existia antes desta feature.
+ *
+ * `PER_TASK` fatia por veículo: um faturamento por (cliente × tarefa), e o
+ * financeiro aprova veículo a veículo.
+ *
+ * `CUSTOM` são lotes livres — "1 a 20 no pedido 8842, 21 a 60 no 9013". Aqui o
+ * modo não DERIVA a cobertura: ela vem em `customerConfigs[].taskIds`, e o
+ * servidor só sameia (descarta veículo que não é do orçamento) e isola o que
+ * nenhum lote reivindicou.
+ */
+export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK', 'CUSTOM']);
+
+// =====================
 // CRUD Schemas - TaskQuote
 // =====================
 
-export const taskQuoteCreateSchema = z.object({
+export const taskQuoteCreateBaseSchema = z.object({
   subtotal: moneySchema,
   total: moneySchema,
   expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
   status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
-  taskId: z.string().uuid('Tarefa invalida'),
+  /**
+   * A TAREFA do orçamento — forma antiga, de UMA tarefa.
+   *
+   * Mantida e ainda aceita: o app Flutter instalado nos aparelhos envia este
+   * campo, e ele não é atualizado no mesmo instante que a API. Quando `taskIds`
+   * vem, ele é ignorado; quando não vem, `taskIds = [taskId]`.
+   */
+  taskId: z.string().uuid('Tarefa invalida').optional(),
+  /**
+   * AS TAREFAS do orçamento — uma por veículo.
+   *
+   * A tela de criação já produzia N tarefas do produto cartesiano de placas ×
+   * números de série; o que mudou é que agora elas compartilham UM orçamento em
+   * vez de gerar um por tarefa. Dois números de série ⇒ um orçamento para os
+   * dois; um número de série ⇒ uma tarefa, como sempre.
+   */
+  taskIds: z
+    .array(z.string().uuid('Tarefa invalida'))
+    .min(1, 'Pelo menos uma tarefa e obrigatoria')
+    .max(200, 'Maximo de 200 tarefas por orcamento')
+    .optional(),
+  billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
   services: z
     .array(taskQuoteServiceCreateNestedSchema)
     .min(1, 'Pelo menos um servico e obrigatorio')
@@ -675,6 +829,41 @@ export const taskQuoteCreateSchema = z.object({
     .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
+export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema.superRefine((data, ctx) => {
+  // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
+  // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
+  // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
+  if (!data.taskIds?.length && !data.taskId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['taskIds'],
+      message: 'Informe ao menos uma tarefa para o orçamento.',
+    });
+  }
+  // Duplicata no array cria duas linhas de veículo idênticas no documento e
+  // dobra o total. Vem de retentativa de envio, não de intenção.
+  if (data.taskIds && new Set(data.taskIds).size !== data.taskIds.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['taskIds'],
+      message: 'A mesma tarefa foi informada mais de uma vez.',
+    });
+  }
+});
+
+/**
+ * O orçamento de uma criação ATÔMICA de tarefas + orçamento.
+ *
+ * É o mesmo corpo, sem `taskId`/`taskIds`: as tarefas ainda não existem quando o
+ * pedido chega — elas nascem na MESMA transação, e é o servidor que liga uma
+ * coisa na outra. Exigir os ids aqui obrigaria a tela a criar as tarefas antes,
+ * que é exatamente o que deixava N tarefas órfãs quando o orçamento falhava.
+ */
+export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit({
+  taskId: true,
+  taskIds: true,
+});
+
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
@@ -683,6 +872,20 @@ export const taskQuoteUpdateSchema = z.object({
     .optional(),
   status: taskQuoteStatusSchema.optional(),
   taskId: z.string().uuid('Tarefa invalida').optional(),
+  /**
+   * O CONJUNTO de tarefas do orçamento. Ausente = não mexe; presente =
+   * reconcilia (vincula as novas, desvincula as que saíram).
+   *
+   * Acrescentar ou retirar um veículo é alteração MATERIAL: muda o total e muda
+   * o objeto do contrato. A detecção de mudança material derruba a coleta de
+   * assinaturas em andamento, e é isso que se quer.
+   */
+  taskIds: z
+    .array(z.string().uuid('Tarefa invalida'))
+    .min(1, 'Pelo menos uma tarefa e obrigatoria')
+    .max(200, 'Maximo de 200 tarefas por orcamento')
+    .optional(),
+  billingSplit: quoteBillingSplitSchema.optional(),
   services: z.array(taskQuoteServiceCreateNestedSchema).optional(),
 
   // Guarantee Terms

@@ -30,7 +30,7 @@ import {
 import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
-import { taskQuoteCreateNestedSchema } from './task-quote';
+import { taskQuoteCreateNestedSchema, taskQuoteCreateNestedInBatchSchema } from './task-quote';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
 
 // E-mail dos responsáveis criados inline (newResponsibles). A regra é a mesma
@@ -434,6 +434,11 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 statusOrder: z.boolean().optional(),
                 expiresAt: z.boolean().optional(),
                 budgetNumber: z.boolean().optional(),
+                // QUANTOS VEÍCULOS o orçamento cobre. Sem esta chave a lista de
+                // tarefas recebe `total` (o contrato, `por veículo × N`) sem o
+                // divisor, e mostra o valor dos sessenta em cada linha. O objeto
+                // não é `.strict()`: a chave ausente sairia em SILÊNCIO.
+                vehicleCount: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
                 services: z.boolean().optional(),
@@ -1155,6 +1160,7 @@ const taskOrderByFieldsSchema = z.object({
   status: orderByDirectionSchema.optional(),
   statusOrder: orderByDirectionSchema.optional(),
   serialNumber: orderByWithNullsSchema.optional(),
+  customerOrderNumber: orderByWithNullsSchema.optional(),
   bonificationOrder: orderByDirectionSchema.optional(),
   entryDate: orderByDirectionSchema.optional(),
   term: orderByDirectionSchema.optional(),
@@ -1241,6 +1247,20 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
         .optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
+      // Pedido de compra do cliente, por veículo — o filtro "sem pedido" da lista
+      // de Faturamento pergunta por ele.
+      customerOrderNumber: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            contains: z.string().optional(),
+            equals: z.string().nullable().optional(),
+            not: z.union([z.string(), z.null()]).optional(),
+            in: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       bonification: z
         .union([
@@ -1709,7 +1729,12 @@ const taskTransform = (data: any): any => {
       AND: [
         taskStatusFilter,
         { quote: { isNot: null } },
-        { quote: { status: { notIn: ['PENDING'] } } },
+        // SIGNED e EXPIRED entram junto de PENDING: os três são ANTERIORES à
+        // aprovação comercial, e a tela do financeiro é para aprovar
+        // faturamento. Um orçamento vencido, à espera de reanálise do valor,
+        // aparecendo na fila de faturar é pedir para alguém faturar um preço
+        // que o comercial acabou de decidir rever.
+        { quote: { status: { notIn: ['PENDING', 'SIGNED', 'EXPIRED'] } } },
       ],
     });
     delete data.shouldDisplayForFinancial;
@@ -2537,6 +2562,20 @@ export const taskCreateSchema = z
       .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
+    /**
+     * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo.
+     *
+     * Livre e não único: os sessenta caminhões de um orçamento podem vir num
+     * pedido só, em pedidos diferentes ou em blocos. Morava na configuração de
+     * faturamento (por cliente), o que obrigava os N veículos a citarem o mesmo
+     * número na nota e no boleto.
+     */
+    customerOrderNumber: z
+      .string()
+      .max(100, 'Máximo de 100 caracteres')
+      .optional()
+      .nullable()
+      .transform(val => (val === '' ? null : val)),
     serialNumberFrom: z
       .number({
         invalid_type_error: 'Número de série inicial deve ser um número',
@@ -2806,6 +2845,16 @@ export const taskUpdateSchema = z
       .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
+    /**
+     * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo. Ver o schema de
+     * criação: o pedido é por ENTREGA, e a tela edita veículo a veículo.
+     */
+    customerOrderNumber: z
+      .string()
+      .max(100, 'Máximo de 100 caracteres')
+      .optional()
+      .nullable()
+      .transform(val => (val === '' ? null : val)),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),
@@ -3035,6 +3084,25 @@ export const taskUpdateSchema = z
 export const taskBatchCreateSchema = z.object({
   tasks: z.array(taskCreateSchema).min(1, 'Pelo menos uma tarefa deve ser fornecida'),
 });
+
+/**
+ * `POST /tasks/batch-with-quote` — as N tarefas e o ORÇAMENTO que as cobre, num
+ * commit só.
+ *
+ * As tarefas passam pelo MESMO `taskCreateSchema` da criação avulsa: o corpo é o
+ * mesmo, só o momento da gravação muda. O orçamento vem sem `taskId`/`taskIds`
+ * (as tarefas ainda não existem quando o pedido chega — quem as liga é o
+ * servidor, dentro da transação).
+ */
+export const taskBatchCreateWithQuoteSchema = z.object({
+  tasks: z
+    .array(taskCreateSchema)
+    .min(1, 'Pelo menos uma tarefa deve ser fornecida')
+    .max(200, 'Maximo de 200 tarefas por orcamento'),
+  quote: taskQuoteCreateNestedInBatchSchema,
+});
+
+export type TaskBatchCreateWithQuoteFormData = z.infer<typeof taskBatchCreateWithQuoteSchema>;
 
 export const taskBatchUpdateSchema = z.object({
   tasks: z

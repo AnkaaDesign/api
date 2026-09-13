@@ -15,10 +15,8 @@ import {
   businessPeriodEnd,
   getPeriodForDate,
 } from '../../../utils/business-period';
-import {
-  TASK_QUOTE_STATUS_LABELS,
-  NFSE_STATUS_LABELS,
-} from '../../../constants/enum-labels';
+import { TASK_QUOTE_STATUS_LABELS, NFSE_STATUS_LABELS } from '../../../constants/enum-labels';
+import { perVehicleAmount } from '../../../utils/quote-tasks';
 import type {
   CollectionAnalyticsData,
   CollectionItem,
@@ -284,9 +282,7 @@ export class InvoiceAnalyticsService {
       const { key } = getPeriodForDate(inst.paidAt);
       return selectedKeys.has(key);
     });
-    const daysToPayment = periodPaidInstallments.map(inst =>
-      diffDays(inst.dueDate, inst.paidAt!),
-    );
+    const daysToPayment = periodPaidInstallments.map(inst => diffDays(inst.dueDate, inst.paidAt!));
     const avgDaysToPayment =
       daysToPayment.length > 0
         ? Math.round((daysToPayment.reduce((a, b) => a + b, 0) / daysToPayment.length) * 10) / 10
@@ -614,7 +610,20 @@ export class InvoiceAnalyticsService {
   //      everything past internal approval: UPCOMING/DUE/PARTIAL/SETTLED)
   //
   // Quotes never abandoned still progress; cancelled quotes are excluded
-  // upstream. statusOrder is the monotone index used to derive "passed".
+  // upstream.
+  //
+  // ⚠️ NÃO USE `TaskQuote.statusOrder` AQUI. Foi o que este código fazia, e
+  // estava errado desde sempre: aquela coluna é uma ordem de PRIORIDADE para a
+  // lista do operador (`DUE` primeiro, porque é dinheiro atrasado), não uma
+  // progressão do funil. Com ela, `PENDING` valia 8 e passava por todos os
+  // limiares — todo orçamento criado contava como faturado, e o funil desenhava
+  // 100% de conversão em qualquer recorte. O índice do funil é o mapa local
+  // abaixo, e só ele.
+  //
+  // Onde os dois estados novos entram: `SIGNED` é o degrau entre a criação e a
+  // aprovação comercial — o cliente aceitou, falta a contra-assinatura. E
+  // `EXPIRED` NÃO é degrau nenhum: é abandono. Ele fica no estágio 1, que é o
+  // que o funil tem a dizer sobre ele (entrou e não converteu).
 
   async getQuoteFunnelAnalytics(
     filters: QuoteFunnelAnalyticsFilters,
@@ -623,16 +632,24 @@ export class InvoiceAnalyticsService {
     const dateRange = this.resolveDateRange(filters);
     const keyFn = groupBy === 'week' ? weekKey : monthKey;
 
-    // Status order positions (matches TASK_QUOTE_STATUS_ORDER in domain)
+    // Progressão do funil. Deliberadamente PRÓPRIA — ver a nota acima sobre por
+    // que `statusOrder` não serve.
     const STATUS_ORDER: Record<string, number> = {
       [TASK_QUOTE_STATUS.PENDING]: 1,
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 3,
-      [TASK_QUOTE_STATUS.UPCOMING]: 4,
-      [TASK_QUOTE_STATUS.DUE]: 5,
-      [TASK_QUOTE_STATUS.PARTIAL]: 6,
-      [TASK_QUOTE_STATUS.SETTLED]: 7,
+      // Vencido sem assinatura não avança: entrou no funil e parou aqui.
+      [TASK_QUOTE_STATUS.EXPIRED]: 1,
+      // Assinado pelo cliente, à espera da contra-assinatura da Ankaa. Ainda
+      // não é aprovação comercial, mas já não é um orçamento que ninguém olhou.
+      [TASK_QUOTE_STATUS.SIGNED]: 2,
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 3,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
+      [TASK_QUOTE_STATUS.UPCOMING]: 5,
+      [TASK_QUOTE_STATUS.DUE]: 6,
+      [TASK_QUOTE_STATUS.PARTIAL]: 7,
+      [TASK_QUOTE_STATUS.SETTLED]: 8,
     };
+    /** Degrau do funil de um orçamento. Nunca a coluna persistida. */
+    const stageOf = (quote: { status: string }): number => STATUS_ORDER[quote.status] ?? 1;
 
     // Build where clause for quotes (joining to Task for sector/customer filters)
     const where: any = {
@@ -656,7 +673,8 @@ export class InvoiceAnalyticsService {
         statusOrder: true,
         createdAt: true,
         billingApprovedAt: true,
-        task: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             customerId: true,
@@ -671,14 +689,15 @@ export class InvoiceAnalyticsService {
     // ---------- Funnel stages ----------
     const stageDefs: Array<{ stage: string; orderThreshold: number }> = [
       { stage: TASK_QUOTE_STATUS.PENDING, orderThreshold: 1 },
-      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 2 },
-      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 3 },
+      { stage: TASK_QUOTE_STATUS.SIGNED, orderThreshold: 2 },
+      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 3 },
+      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 4 },
     ];
 
     const totalEntries = quotes.length;
     const funnel: QuoteFunnelStage[] = stageDefs.map((def, idx) => {
       const reached = quotes.filter(
-        q => (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >= def.orderThreshold,
+        q => stageOf(q) >= def.orderThreshold,
       );
       const count = reached.length;
       const totalValue = reached.reduce((s, q) => s + Number(q.total), 0);
@@ -689,8 +708,7 @@ export class InvoiceAnalyticsService {
           ? totalEntries
           : quotes.filter(
               q =>
-                (q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) >=
-                stageDefs[idx - 1].orderThreshold,
+                stageOf(q) >= stageDefs[idx - 1].orderThreshold,
             ).length;
 
       const conversionFromPrevious =
@@ -701,12 +719,15 @@ export class InvoiceAnalyticsService {
       // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, billingApprovedAt for billing-approved)
       const ages = reached
         .map(q => {
-          if (def.orderThreshold >= 3 && q.billingApprovedAt) {
+          // Só o degrau de FATURAMENTO tem carimbo de data real
+          // (`billingApprovedAt`). Era `>= 3` porque BILLING_APPROVED valia 3
+          // no mapa antigo; com SIGNED no meio ele vale 4.
+          if (def.orderThreshold >= 4 && q.billingApprovedAt) {
             return diffDays(q.createdAt, q.billingApprovedAt);
           }
           // for upstream stages we don't have stage-transition timestamps,
           // so we use current age as a proxy (only meaningful for current-stage quotes)
-          if ((q.statusOrder ?? STATUS_ORDER[q.status] ?? 1) === def.orderThreshold) {
+          if (stageOf(q) === def.orderThreshold) {
             return diffDays(q.createdAt, new Date());
           }
           return null;
@@ -755,10 +776,13 @@ export class InvoiceAnalyticsService {
         });
       }
       const bucket = periodMap.get(key)!;
-      const sOrder = q.statusOrder ?? STATUS_ORDER[q.status] ?? 1;
+      const sOrder = stageOf(q);
       bucket.newQuotes++;
       bucket.totalValue += Number(q.total);
-      if (sOrder >= 2) bucket.approvedQuotes++;
+      // "Aprovado" é aprovação COMERCIAL (3). Era `>= 2`, que no mapa novo é
+      // SIGNED — contaria como aprovado o orçamento que o cliente assinou e nós
+      // ainda não contra-assinamos.
+      if (sOrder >= 3) bucket.approvedQuotes++;
       if (sOrder >= 4) bucket.billedQuotes++;
       if (q.status === TASK_QUOTE_STATUS.SETTLED) {
         bucket.settledQuotes++;
@@ -786,17 +810,31 @@ export class InvoiceAnalyticsService {
       string,
       { id: string; name: string; count: number; total: number; settled: number }
     >();
+    // POR VEÍCULO, não pelo primeiro. Um orçamento multitarefa pode cobrir
+    // sessenta caminhões, e creditar o contrato inteiro ao cliente do primeiro
+    // some com os demais quando eles diferem. O valor de cada veículo é a fatia
+    // (`total ÷ N`), e a soma das fatias reconstrói o contrato. A CONTAGEM de
+    // orçamentos é por orçamento, não por veículo: sessenta caminhões de um
+    // cliente são um orçamento dele, e contá-los sessenta vezes inflaria o
+    // "quoteCount" que a tela chama de "orçamentos".
     for (const q of quotes) {
-      const c = q.task?.customer;
-      if (!c) continue;
-      if (!customerMap.has(c.id)) {
-        customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
-      }
-      const entry = customerMap.get(c.id)!;
-      entry.count++;
-      entry.total += Number(q.total);
-      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
-        entry.settled += Number(q.total);
+      const share = perVehicleAmount(q.total, q.tasks?.length);
+      const countedCustomers = new Set<string>();
+      for (const task of q.tasks ?? []) {
+        const c = task.customer;
+        if (!c) continue;
+        if (!customerMap.has(c.id)) {
+          customerMap.set(c.id, { id: c.id, name: c.fantasyName, count: 0, total: 0, settled: 0 });
+        }
+        const entry = customerMap.get(c.id)!;
+        if (!countedCustomers.has(c.id)) {
+          entry.count++;
+          countedCustomers.add(c.id);
+        }
+        entry.total += share;
+        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+          entry.settled += share;
+        }
       }
     }
     const topCustomers: QuoteTopCustomer[] = Array.from(customerMap.values())
@@ -816,17 +854,26 @@ export class InvoiceAnalyticsService {
       string,
       { id: string; name: string; count: number; total: number; settled: number }
     >();
+    // Mesma distribuição do bloco de clientes: os sessenta caminhões podem estar
+    // repartidos entre setores, e o setor do primeiro não responde pelos outros.
     for (const q of quotes) {
-      const s = q.task?.sector;
-      if (!s) continue;
-      if (!sectorMap.has(s.id)) {
-        sectorMap.set(s.id, { id: s.id, name: s.name, count: 0, total: 0, settled: 0 });
-      }
-      const entry = sectorMap.get(s.id)!;
-      entry.count++;
-      entry.total += Number(q.total);
-      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
-        entry.settled += Number(q.total);
+      const share = perVehicleAmount(q.total, q.tasks?.length);
+      const countedSectors = new Set<string>();
+      for (const task of q.tasks ?? []) {
+        const sec = task.sector;
+        if (!sec) continue;
+        if (!sectorMap.has(sec.id)) {
+          sectorMap.set(sec.id, { id: sec.id, name: sec.name, count: 0, total: 0, settled: 0 });
+        }
+        const entry = sectorMap.get(sec.id)!;
+        if (!countedSectors.has(sec.id)) {
+          entry.count++;
+          countedSectors.add(sec.id);
+        }
+        entry.total += share;
+        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+          entry.settled += share;
+        }
       }
     }
     const topSectors: QuoteTopSector[] = Array.from(sectorMap.values())
@@ -889,12 +936,7 @@ export class InvoiceAnalyticsService {
   async getReceivablesAnalytics(
     filters: ReceivablesAnalyticsFilters & { status?: string[] },
   ): Promise<ReceivablesAnalyticsData> {
-    const {
-      customerIds,
-      status,
-      forecastPeriodType = 'month',
-      forecastPeriodCount = 4,
-    } = filters;
+    const { customerIds, status, forecastPeriodType = 'month', forecastPeriodCount = 4 } = filters;
     void filters.limit; // retained in schema for compat; not used now
     const now = new Date();
     const dateRange = this.resolveDateRange(filters);
@@ -988,20 +1030,21 @@ export class InvoiceAnalyticsService {
     // Period windows are STRICTLY in the future — they don't include the
     // in-progress period (that has its own CURRENT bucket below). This keeps
     // the forecast cards self-evidently forward-looking.
-    const currentPeriod = forecastPeriodType === 'year'
-      ? {
-          start: businessPeriodStart(now.getFullYear(), 1),
-          end: businessPeriodEnd(now.getFullYear(), 12),
-          label: now.getFullYear().toString(),
-        }
-      : (() => {
-          const { year, month } = getPeriodForDate(now);
-          return {
-            start: businessPeriodStart(year, month),
-            end: businessPeriodEnd(year, month),
-            label: `${MONTH_NAMES_PT[month - 1]} ${year}`,
-          };
-        })();
+    const currentPeriod =
+      forecastPeriodType === 'year'
+        ? {
+            start: businessPeriodStart(now.getFullYear(), 1),
+            end: businessPeriodEnd(now.getFullYear(), 12),
+            label: now.getFullYear().toString(),
+          }
+        : (() => {
+            const { year, month } = getPeriodForDate(now);
+            return {
+              start: businessPeriodStart(year, month),
+              end: businessPeriodEnd(year, month),
+              label: `${MONTH_NAMES_PT[month - 1]} ${year}`,
+            };
+          })();
 
     const computePeriods = (): PeriodWindow[] => {
       const wins: PeriodWindow[] = [];
@@ -1020,7 +1063,10 @@ export class InvoiceAnalyticsService {
         let { year: y, month: m } = getPeriodForDate(now);
         for (let i = 1; i <= periodCount; i++) {
           m += 1;
-          if (m > 12) { m = 1; y += 1; }
+          if (m > 12) {
+            m = 1;
+            y += 1;
+          }
           wins.push({
             key: `P${i}`,
             label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
@@ -1040,12 +1086,32 @@ export class InvoiceAnalyticsService {
     // includes implicitly — it's exposed so the synthetic "all open" union
     // can drill into it, but it isn't rendered as its own card (the Próximo
     // card and the period-scoped KPIs already cover that visual).
-    const bucketDefs: Array<{ bucket: string; bucketLabel: string; start: Date | null; end: Date | null }> = [
+    const bucketDefs: Array<{
+      bucket: string;
+      bucketLabel: string;
+      start: Date | null;
+      end: Date | null;
+    }> = [
       { bucket: 'OVERDUE', bucketLabel: 'Vencidas', start: null, end: null },
-      { bucket: 'CURRENT', bucketLabel: `${currentPeriod.label} (em curso)`, start: currentPeriod.start, end: currentPeriod.end },
-      ...periodWindows.map(p => ({ bucket: p.key, bucketLabel: p.label, start: p.start, end: p.end })),
+      {
+        bucket: 'CURRENT',
+        bucketLabel: `${currentPeriod.label} (em curso)`,
+        start: currentPeriod.start,
+        end: currentPeriod.end,
+      },
+      ...periodWindows.map(p => ({
+        bucket: p.key,
+        bucketLabel: p.label,
+        start: p.start,
+        end: p.end,
+      })),
       { bucket: 'BEYOND', bucketLabel: 'Além do horizonte', start: null, end: null },
-      { bucket: 'PAID', bucketLabel: 'Recebido no período', start: dateRange.start, end: dateRange.end },
+      {
+        bucket: 'PAID',
+        bucketLabel: 'Recebido no período',
+        start: dateRange.start,
+        end: dateRange.end,
+      },
     ];
 
     const BUCKET_CAP = 100;
@@ -1054,7 +1120,9 @@ export class InvoiceAnalyticsService {
       {
         dueAmount: number;
         installmentCount: number;
-        instances: Array<typeof installments[number] & { _daysFromNow: number; _isPaid: boolean }>;
+        instances: Array<
+          (typeof installments)[number] & { _daysFromNow: number; _isPaid: boolean }
+        >;
       }
     > = {};
     bucketDefs.forEach(b => {
@@ -1094,9 +1162,7 @@ export class InvoiceAnalyticsService {
       } else if (inst.dueDate > forecastHorizonEnd) {
         bucketKey = 'BEYOND';
       } else {
-        const found = periodWindows.find(
-          p => inst.dueDate >= p.start && inst.dueDate <= p.end,
-        );
+        const found = periodWindows.find(p => inst.dueDate >= p.start && inst.dueDate <= p.end);
         bucketKey = found ? found.key : 'BEYOND';
       }
 
@@ -1372,9 +1438,7 @@ export class InvoiceAnalyticsService {
 
     // ---------- Summary ----------
     const totalEvents = events.length;
-    const totalProcessed = events.filter(
-      e => e.status === WEBHOOK_EVENT_STATUS.PROCESSED,
-    ).length;
+    const totalProcessed = events.filter(e => e.status === WEBHOOK_EVENT_STATUS.PROCESSED).length;
     const totalFailed = events.filter(e => e.status === WEBHOOK_EVENT_STATUS.FAILED).length;
     const totalLiquidation = events.reduce((s, e) => s + Number(e.valorLiquidacao || 0), 0);
     const totalDiscountGiven = events.reduce((s, e) => s + Number(e.valorDesconto || 0), 0);
@@ -1535,7 +1599,8 @@ export class InvoiceAnalyticsService {
     const grossServiceRevenue = docs
       .filter(d => d.status === NFSE_STATUS.AUTHORIZED)
       .reduce((s, d) => s + Number(d.invoice?.totalAmount ?? 0), 0);
-    const estimatedIssAmount = Math.round((grossServiceRevenue * issRatePercent) / 100 * 100) / 100;
+    const estimatedIssAmount =
+      Math.round(((grossServiceRevenue * issRatePercent) / 100) * 100) / 100;
     const netServiceRevenue = Math.round((grossServiceRevenue - estimatedIssAmount) * 100) / 100;
     const pendingGrossRevenue = docs
       .filter(d => d.status === NFSE_STATUS.PENDING || d.status === NFSE_STATUS.PROCESSING)

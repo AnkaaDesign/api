@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { isDueDateOverdue } from '@utils/due-date.util';
+import { sliceTask } from '@utils/quote-tasks';
 import {
   ReceivableRow,
   ReceivableSource,
@@ -132,9 +139,7 @@ export class ReceivablesService {
 
     return {
       success: true,
-      message: cleared
-        ? 'Parcela marcada como conciliada.'
-        : 'Conciliação manual removida.',
+      message: cleared ? 'Parcela marcada como conciliada.' : 'Conciliação manual removida.',
     };
   }
 
@@ -145,9 +150,7 @@ export class ReceivablesService {
       // With a period, receipts come from THAT period (see `paidWindowFor`);
       // without one, the caller gets the recent-receipts default it always got.
       const paidWindow =
-        period && period.months.length > 0
-          ? paidWindowFor(period)
-          : { gte: receivedSince };
+        period && period.months.length > 0 ? paidWindowFor(period) : { gte: receivedSince };
 
       const installments = await this.prisma.installment.findMany({
         where: {
@@ -186,10 +189,23 @@ export class ReceivablesService {
             },
           },
           customerConfig: {
-            select: {
-              orderNumber: true,
+            select:  {
+              // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+              //
+              // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+              // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+              // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+              // `coveredTaskIds()` de `@utils/quote-tasks`.
+              coveredTasks: { select: { taskId: true } },
               customer: { select: { id: true, fantasyName: true } },
-              quote: { select: { task: { select: { id: true, name: true } } } },
+              quote: {
+                select: {
+                  tasks: {
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                    select: { id: true, name: true },
+                  },
+                },
+              },
               _count: { select: { installments: true } },
             },
           },
@@ -229,19 +245,16 @@ export class ReceivablesService {
         else if (paidAmount > 0 && paidAmount < amount) state = 'PARTIALLY_RECEIVED';
         else state = 'AWAITING_RECEIPT';
 
-        const label =
-          customer?.fantasyName ??
-          inst.customerConfig?.orderNumber ??
-          'Cliente';
+        // O pedido de compra é do VEÍCULO agora; como rótulo de linha ele só
+        // servia de último recurso, e a tarefa (nomeada logo abaixo) responde
+        // melhor. Sem cliente, "Cliente" continua sendo o que sobra.
+        const label = customer?.fantasyName ?? 'Cliente';
 
         // Primary row label is the task (faturamento) name; non-task receivables
         // (external ops / standalone invoices) fall back to the customer / parcela.
         const taskName =
-          inst.invoice?.task?.name ??
-          inst.customerConfig?.quote?.task?.name ??
-          null;
-        const description =
-          taskName ?? customer?.fantasyName ?? `Parcela ${inst.number}`;
+          inst.invoice?.task?.name ?? sliceTask(inst.customerConfig)?.name ?? null;
+        const description = taskName ?? customer?.fantasyName ?? `Parcela ${inst.number}`;
         const totalInstallments =
           inst.invoice?._count?.installments ??
           inst.customerConfig?._count?.installments ??
@@ -251,7 +264,10 @@ export class ReceivablesService {
         // Axis B — derive clearance from the (non-reversed) match + amount drift.
         // Matches land on installmentId (PIX/TED direct) OR bankSlipId (boleto) —
         // merge both anchors so boleto-cleared parcelas count as reconciled too.
-        const allMatches = [...inst.reconciliationMatches, ...(inst.bankSlip?.reconciliationMatches ?? [])];
+        const allMatches = [
+          ...inst.reconciliationMatches,
+          ...(inst.bankSlip?.reconciliationMatches ?? []),
+        ];
         const match = allMatches[0] ?? null;
         // Conciliação declarada à mão vale como CLEARED: o dinheiro entrou numa
         // conta de sócio, então a linha de extrato que confirmaria isto não existe
@@ -273,7 +289,7 @@ export class ReceivablesService {
           id: inst.id,
           invoiceId: inst.invoiceId,
           // Task-quote (faturamento) the receipt belongs to — the row's nav target.
-          taskId: inst.invoice?.taskId ?? inst.customerConfig?.quote?.task?.id ?? null,
+          taskId: inst.invoice?.taskId ?? sliceTask(inst.customerConfig)?.id ?? null,
           customerId: customer?.id ?? null,
           customerName: label,
           description,
@@ -321,7 +337,9 @@ export class ReceivablesService {
       };
     } catch (error) {
       this.logger.error('Erro ao carregar contas a receber:', error as Error);
-      throw new InternalServerErrorException('Erro ao carregar contas a receber. Por favor, tente novamente.');
+      throw new InternalServerErrorException(
+        'Erro ao carregar contas a receber. Por favor, tente novamente.',
+      );
     }
   }
 }

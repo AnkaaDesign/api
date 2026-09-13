@@ -43,6 +43,13 @@ export class InvoicePrismaRepository implements InvoiceRepository {
           serialNumber: true,
         },
       },
+      // A COBERTURA no include PADRÃO. É ela que responde "de quais veículos é
+      // esta fatura?", e quem chama a rota por ORÇAMENTO precisa dela para
+      // filtrar as faturas do caminhão que está na tela — `Invoice.taskId` só
+      // existe quando a fatura é de um veículo só.
+      customerConfig: {
+        include: { coveredTasks: { select: { taskId: true } } },
+      },
     };
   }
 
@@ -94,7 +101,13 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     }
 
     if (include.customerConfig) {
-      prismaInclude.customerConfig = true;
+      // A COBERTURA vai junto, sempre. É ela que responde "de quais veículos é
+      // esta fatura?" — e sem ela a tela de um caminhão não tem como filtrar as
+      // faturas do orçamento para as que o cobram: mostraria a cobrança do lote
+      // inteiro na tela de cada um dos vinte.
+      prismaInclude.customerConfig = {
+        include: { coveredTasks: { select: { taskId: true } } },
+      };
     }
 
     return Object.keys(prismaInclude).length > 0 ? prismaInclude : this.getDefaultInclude();
@@ -228,6 +241,29 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       where: { taskId },
       include: this.buildInclude(include),
       orderBy: { createdAt: 'desc' },
+    });
+
+    return entities.map(entity => this.mapToEntity(entity));
+  }
+
+  /**
+   * As faturas de TODOS os veículos de um orçamento.
+   *
+   * ⚠️ O caminho é o FATURAMENTO (`customerConfig.quoteId`), nunca a tarefa.
+   * `Invoice.taskId` só existe quando a fatura é de UM veículo: numa fatura
+   * conjunta — o caso exato para o qual esta rota foi criada — ele é nulo, e
+   * `where: { task: { quoteId } }` devolvia LISTA VAZIA. A fatura sempre tem
+   * `customerConfigId`, e a fatia sempre tem `quoteId`.
+   *
+   * A ordenação é por `task.createdAt` — a MESMA de `QUOTE_TASKS_ORDER_BY` —,
+   * para que a tela liste as sessenta faturas na ordem em que lista os sessenta
+   * caminhões; a fatura conjunta, sem tarefa, ordena por `createdAt` próprio.
+   */
+  async findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]> {
+    const entities = await this.prisma.invoice.findMany({
+      where: { customerConfig: { is: { quoteId } } },
+      include: this.buildInclude(include),
+      orderBy: [{ task: { createdAt: 'asc' } }, { createdAt: 'asc' }],
     });
 
     return entities.map(entity => this.mapToEntity(entity));

@@ -91,8 +91,12 @@ const LATE_SLOT_WIDTH_CH: Record<LateSlotKey, number> = {
  * branco e não estranha que apareça uma assinatura nela depois. Um espaço mudo
  * que um dia ganhasse conteúdo faria o documento afirmar algo que ninguém leu.
  */
-function lateSlotHtml(key: LateSlotKey): string {
-  return `<span class="late-slot" data-late-slot="${key}" style="min-width:${LATE_SLOT_WIDTH_CH[key]}ch">a registrar</span>`;
+function lateSlotHtml(key: LateSlotKey, taskId: string): string {
+  // A chave leva a TAREFA junto. Sem isso, num orçamento de sessenta caminhões as
+  // sessenta lacunas de chassi teriam a mesma chave `chassis`, o mapa de âncoras
+  // guardaria só a última medida e o chassi do caminhão 3 seria carimbado no
+  // espaço reservado do caminhão 60. Ver `lateSlotKey()` em `utils/quote-tasks`.
+  return `<span class="late-slot" data-late-slot="${escapeHtml(key)}#${escapeHtml(taskId)}" style="min-width:${LATE_SLOT_WIDTH_CH[key]}ch">a registrar</span>`;
 }
 
 /**
@@ -106,6 +110,60 @@ function lateSlotHtml(key: LateSlotKey): string {
  */
 function vehicleValueHtml(value: string): string {
   return `<span class="vehicle-value">${escapeHtml(value)}</span>`;
+}
+
+/** Um veículo do orçamento — uma linha da tabela de identificação. */
+export interface QuoteHtmlVehicle {
+  /** `Task.id`. É o que compõe a chave da lacuna de cadastro tardio. */
+  taskId: string;
+  serialNumber: string | null;
+  plate: string | null;
+  chassisNumber: string | null;
+  /**
+   * Aceita o valor CRU do enum (`SEMI_TRAILER_2_AXLES`) ou o rótulo já
+   * resolvido. O builder mapeia com `@constants/enum-labels` — ver
+   * `truckCategoryLabel()`. Até esta correção o enum cru ia direto para o
+   * documento assinado.
+   */
+  categoryLabel: string | null;
+  implementLabel: string | null;
+  /**
+   * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo
+   * (`Task.customerOrderNumber`).
+   *
+   * Sai como COLUNA da tabela, e não como linha do quadro do tomador: o pedido
+   * identifica a ENTREGA, como a série e a placa, e um orçamento de quatro
+   * caminhões comprados em pedidos diferentes não cabe numa linha só.
+   */
+  orderNumber: string | null;
+}
+
+/**
+ * O cadastro do tomador como a prefeitura o exige.
+ *
+ * Todo campo é opcional porque o cadastro real tem buracos, e um quadro que se
+ * recusasse a sair por falta da inscrição municipal esconderia justamente o
+ * buraco que ele existe para expor. Campo vazio sai como "—".
+ */
+export interface QuoteHtmlBilling {
+  corporateName: string | null;
+  /** Já formatado (`13.902.480/0001-28`). O builder não conhece máscara. */
+  documentFormatted: string | null;
+  stateRegistration: string | null;
+  municipalRegistration: string | null;
+  /** Linha 1: tipo de logradouro + rua, número e complemento. */
+  addressLine: string | null;
+  /** Linha 2: bairro, cidade/UF e CEP. */
+  addressLocality: string | null;
+  /**
+   * @deprecated O número do pedido virou COLUNA da tabela de veículos
+   * (`QuoteHtmlVehicle.orderNumber`): ele identifica a ENTREGA, e um orçamento
+   * de quatro caminhões pode ter quatro pedidos, que numa linha só não cabem.
+   *
+   * Segue no tipo porque os envelopes CONGELADOS antes desta mudança guardam o
+   * campo no snapshot, e o material que os re-renderiza tem de aceitá-lo.
+   */
+  orderNumber: string | null;
 }
 
 export interface QuoteHtmlSignerSlot {
@@ -127,19 +185,28 @@ export interface QuoteHtmlInput {
   customerDocumentFormatted: string | null;
   contactName: string | null;
 
-  serialNumber: string | null;
-  plate: string | null;
-  chassisNumber: string | null;
   /**
-   * Aceita o valor CRU do enum (`SEMI_TRAILER_2_AXLES`) ou o rótulo já
-   * resolvido. O builder mapeia com `@constants/enum-labels` — ver
-   * `truckCategoryLabel()`. Até esta correção o enum cru ia direto para o
-   * documento assinado.
+   * OS VEÍCULOS do orçamento, na ordem canônica — um por tarefa.
+   *
+   * Era um veículo só, escrito em prosa dentro do parágrafo de abertura
+   * ("…no veículo nº série: 39239, placa: a registrar, chassi: 953677…"). Virou
+   * lista por duas razões que se somam: a prosa não escala para sessenta
+   * caminhões, e mesmo com um só ela alinhava mal — as lacunas "a registrar"
+   * apareciam no meio da frase, em posições diferentes a cada orçamento, quando
+   * o que o leitor faz com elas é CONFERIR campo a campo.
    */
-  truckCategoryLabel: string | null;
-  truckImplementLabel: string | null;
+  vehicles: QuoteHtmlVehicle[];
 
   services: Array<{ description: string; amount: number; observation: string | null }>;
+  /**
+   * Subtotal, desconto e total são SEMPRE POR VEÍCULO.
+   *
+   * Num orçamento de um veículo — que é a esmagadora maioria — isto é
+   * exatamente o que sempre foi, e o documento sai idêntico. Com N veículos o
+   * builder é quem multiplica: exibe o valor unitário, a linha "× N" e o total
+   * geral. Passar o total já multiplicado faria a lista de serviços (unitária)
+   * não fechar com o total logo abaixo dela.
+   */
   subtotal: number;
   total: number;
   /**
@@ -157,6 +224,21 @@ export interface QuoteHtmlInput {
   deliveryDays: number | null;
   simultaneousTasks: number | null;
   paymentText: string;
+  /**
+   * O QUADRO DO TOMADOR, conferível linha a linha.
+   *
+   * A seção que era "Condições de pagamento" passou a se chamar "Faturamento" e
+   * abre com este quadro; a frase das parcelas continua logo abaixo dele. O
+   * motivo é operacional e caro: a NFS-e é emitida na Elotech com a razão
+   * social, o CNPJ, as inscrições e o endereço EXATOS do cadastro, e um dado
+   * errado só aparece depois da nota autorizada — quando corrigir custa cancelar
+   * e substituir, com a prefeitura no meio. Pôr o cadastro no documento que o
+   * cliente assina transforma a conferência em parte da aprovação.
+   *
+   * Nulo quando não há cliente de faturamento resolvido; a seção então cai para
+   * só a frase das parcelas, como antes.
+   */
+  billing: QuoteHtmlBilling | null;
   guaranteeText: string;
 
   /** data:image/... das imagens de layout já resolvidas em disco. */
@@ -240,6 +322,10 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   const showGuarantee = hasSection(sections, 'GUARANTEE');
   const showLayout = hasSection(sections, 'LAYOUT');
 
+  // Quantos veículos este orçamento cobre. É o "× N" do bloco de totais e o que
+  // decide entre "no veículo" e "nos veículos" na frase de abertura.
+  const vehicleCount = (data.vehicles ?? []).length;
+
   // Numeração 1., 2., 3.… e descrição em Title Case com a observação na mesma
   // linha — as três coisas do gerador de referência
   // (`web/src/utils/budget-pdf-generator.ts:530-551`) que faltavam aqui. Sem o
@@ -270,6 +356,27 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     legacy: data.discountLabel,
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TOTAIS — o valor unitário, o "× N" e o total geral
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // `data.subtotal`, `data.discountAmount` e `data.total` são POR VEÍCULO, e a
+  // lista de serviços acima também. Num orçamento de um veículo — a esmagadora
+  // maioria — nada disso aparece: os rótulos continuam "Subtotal" e "Total", não
+  // há linha de multiplicação e o documento sai byte a byte como saía.
+  //
+  // A partir de dois, os rótulos ganham "por veículo" e o bloco fecha com a
+  // multiplicação explícita. A alternativa — só o total geral — obrigaria o
+  // cliente a dividir R$ 730.224,00 por sessenta para conferir se o preço
+  // combinado por caminhão é o que ele aceitou, que é a única conta que ele de
+  // fato quer fazer.
+  //
+  // O total geral é `total × N` e NÃO um desconto recalculado sobre a soma: é
+  // essa a conta que a fatura e o boleto fazem (`recalcQuoteTotals`), e um
+  // documento que arredondasse diferente divergiria da cobrança em centavos.
+  const multi = vehicleCount > 1;
+  const grandTotal = Math.round(data.total * vehicleCount * 100) / 100;
+
   const totalsHtml = !showPricing
     ? ''
     : `
@@ -277,7 +384,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
       ${
         data.discountAmount > 0
           ? `<div class="total-row">
-               <span class="total-label">Subtotal</span>
+               <span class="total-label">Subtotal${multi ? ' por veículo' : ''}</span>
                <span class="total-value">${formatCurrencyBRL(data.subtotal)}</span>
              </div>
              <div class="total-row total-row-discount">
@@ -286,54 +393,144 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
              </div>`
           : ''
       }
-      <div class="total-row total-row-final">
-        <span class="total-label">Total</span>
+      <div class="total-row${multi ? ' total-row-unit' : ' total-row-final'}">
+        <span class="total-label">Total${multi ? ' por veículo' : ''}</span>
         <span class="total-value">${formatCurrencyBRL(data.total)}</span>
       </div>
+      ${
+        multi
+          ? `<div class="total-row total-row-multiplier">
+               <span class="total-label">Veículos</span>
+               <span class="total-value">&times; ${vehicleCount}</span>
+             </div>
+             <div class="total-row total-row-final">
+               <span class="total-label">Total geral</span>
+               <span class="total-value">${formatCurrencyBRL(grandTotal)}</span>
+             </div>`
+          : ''
+      }
     </div>`;
 
-  // Rótulo humano, não o enum cru. Ver `truckCategoryLabel()` em quote-text.ts.
-  const categoryLabel = truckCategoryLabel(data.truckCategoryLabel);
-  const implementLabel = implementTypeLabel(data.truckImplementLabel);
-
-  const identity: Array<{ key: LateSlotKey; label: string; value: string | null }> = [
-    { key: 'serialNumber', label: 'nº série', value: data.serialNumber },
-    { key: 'plate', label: 'placa', value: data.plate },
-    { key: 'chassis', label: 'chassi', value: data.chassisNumber },
-  ];
+  // ═══════════════════════════════════════════════════════════════════════════
+  // IDENTIFICAÇÃO DO VEÍCULO — tabela, não prosa
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // A frase de abertura terminava enumerando o veículo dentro dela mesma:
+  // "…para execução dos serviços abaixo descriminados no veículo nº série:
+  // 39239, placa: a registrar, chassi: 953677TGXTR031467, categoria: Truck,
+  // implemento: Refrigerado."
+  //
+  // Isso deixou de funcionar por dois motivos, e o segundo já valia antes do
+  // primeiro:
+  //
+  //   1. Um orçamento pode cobrir SESSENTA veículos. A prosa viraria um
+  //      parágrafo de vinte linhas em que ninguém acha nada.
+  //   2. Mesmo com um veículo só, o que o leitor FAZ com esses campos é
+  //      conferi-los um a um contra o documento do caminhão. Em prosa, as
+  //      lacunas "a registrar" caem em posições diferentes a cada orçamento e o
+  //      olho precisa varrer a frase para achar o chassi. Em coluna, ele desce.
+  //
+  // A frase agora termina em "nos veículos:" e a tabela responde.
+  const vehicles = data.vehicles ?? [];
+  const anyCategory = vehicles.some(v => !!truckCategoryLabel(v.categoryLabel));
+  const anyImplement = vehicles.some(v => !!implementTypeLabel(v.implementLabel));
 
   // Só se fala do veículo quando existe veículo. Sem isto, um orçamento sem
-  // caminhão nenhum ganharia três lacunas a preencher e uma frase sobre um
-  // objeto que não existe.
+  // caminhão nenhum ganharia uma tabela de lacunas a preencher e uma frase sobre
+  // um objeto que não existe.
   //
-  // A frase do veículo NÃO é recortável: ela é o endereço do serviço, e um
-  // documento que não diz de que trabalho fala não significa nada para quem o
-  // recebe — foi o que aconteceu com o primeiro recorte de marketing, que chegou
-  // com a arte e sem a série. Por isso ela sai sempre que existe veículo, em
-  // qualquer recorte, e por isso as LACUNAS de cadastro tardio são medidas em
-  // todos: a placa que chega depois pode ser carimbada em qualquer um deles.
-  const hasVehicle = identity.some(f => !!f.value) || !!categoryLabel || !!implementLabel;
+  // A tabela NÃO é recortável: ela é o endereço do serviço, e um documento que
+  // não diz de que trabalho fala não significa nada para quem o recebe — foi o
+  // que aconteceu com o primeiro recorte de marketing, que chegou com a arte e
+  // sem a série. Por isso ela sai em qualquer recorte, e por isso as LACUNAS de
+  // cadastro tardio são medidas em todos: a placa que chega depois pode ser
+  // carimbada em qualquer um deles.
+  const hasVehicle = vehicles.length > 0;
 
-  const vehicleParts: string[] = [];
-  if (hasVehicle) {
-    // Série, placa e chassi saem SEMPRE — com valor, ou com o espaço reservado
-    // para ele. Ver `.late-slot` no CSS: é o que permite carimbar o dado que
-    // chega semanas depois sem re-renderizar o documento congelado.
-    for (const field of identity) {
-      vehicleParts.push(
-        field.value
-          ? ` ${field.label}: ${vehicleValueHtml(field.value)}`
-          : ` ${field.label}: ${lateSlotHtml(field.key)}`,
-      );
+  // Série, placa e chassi saem SEMPRE — com valor, ou com o espaço reservado
+  // para ele. Ver `.late-slot` no CSS: é o que permite carimbar o dado que chega
+  // semanas depois sem re-renderizar o documento congelado.
+  //
+  // Categoria e implemento só ganham coluna se ALGUM veículo os tiver: são
+  // classificação, não identidade, e uma coluna inteira de travessões não
+  // informa nada. Também não ganham lacuna, porque já estão preenchidos na
+  // emissão — o que chega depois é identidade, não classificação.
+  //
+  // O PEDIDO DE COMPRA segue a mesma regra da categoria: só ganha coluna se
+  // ALGUM veículo o tiver. Ele identifica a entrega — dois caminhões do mesmo
+  // orçamento podem ter vindo em pedidos diferentes —, e é por isso que deixou
+  // de ser uma linha do quadro do tomador, onde só cabia um número.
+  const anyOrderNumber = vehicles.some(v => !!(v.orderNumber ?? '').trim());
+  const vehicleColumns: Array<{ key: string; label: string }> = [
+    { key: 'serialNumber', label: 'Nº de série' },
+    { key: 'plate', label: 'Placa' },
+    { key: 'chassis', label: 'Chassi' },
+    ...(anyOrderNumber ? [{ key: 'orderNumber', label: 'Nº do pedido' }] : []),
+    ...(anyCategory ? [{ key: 'category', label: 'Categoria' }] : []),
+    ...(anyImplement ? [{ key: 'implement', label: 'Implemento' }] : []),
+  ];
+
+  const vehicleCell = (v: QuoteHtmlVehicle, column: string): string => {
+    switch (column) {
+      case 'serialNumber':
+        return v.serialNumber
+          ? vehicleValueHtml(v.serialNumber)
+          : lateSlotHtml('serialNumber', v.taskId);
+      case 'plate':
+        return v.plate ? vehicleValueHtml(v.plate) : lateSlotHtml('plate', v.taskId);
+      case 'chassis':
+        return v.chassisNumber
+          ? vehicleValueHtml(v.chassisNumber)
+          : lateSlotHtml('chassis', v.taskId);
+      case 'orderNumber':
+        return (v.orderNumber ?? '').trim()
+          ? vehicleValueHtml(v.orderNumber!.trim())
+          : '<span class="vehicle-empty">&mdash;</span>';
+      case 'category':
+        return truckCategoryLabel(v.categoryLabel)
+          ? vehicleValueHtml(truckCategoryLabel(v.categoryLabel)!)
+          : '<span class="vehicle-empty">&mdash;</span>';
+      case 'implement':
+        return implementTypeLabel(v.implementLabel)
+          ? vehicleValueHtml(implementTypeLabel(v.implementLabel)!)
+          : '<span class="vehicle-empty">&mdash;</span>';
+      default:
+        return '';
     }
-    // Categoria e implemento não ganham lacuna: são classificação, não
-    // identidade, e já estão preenchidos na emissão. Ausentes, simplesmente não
-    // aparecem, como antes. Levam o mesmo traço dos demais só para a frase ler
-    // como um bloco só.
-    if (categoryLabel) vehicleParts.push(` categoria: ${vehicleValueHtml(categoryLabel)}`);
-    if (implementLabel) vehicleParts.push(` implemento: ${vehicleValueHtml(implementLabel)}`);
-  }
-  const vehicleText = vehicleParts.length ? ` no veículo${vehicleParts.join(',')}` : '';
+  };
+
+  // A coluna "#" só aparece a partir de dois veículos. Com um só ela numeraria
+  // uma linha, o que é ruído; com sessenta ela é o que permite dizer "o veículo
+  // 37" ao telefone.
+  const showVehicleIndex = vehicles.length > 1;
+
+  const vehicleTableHtml = !hasVehicle
+    ? ''
+    : `<table class="vehicle-table">
+         <thead>
+           <tr>
+             ${showVehicleIndex ? '<th class="vehicle-idx">#</th>' : ''}
+             ${vehicleColumns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
+           </tr>
+         </thead>
+         <tbody>
+           ${vehicles
+             .map(
+               (v, i) => `<tr>
+             ${showVehicleIndex ? `<td class="vehicle-idx">${i + 1}</td>` : ''}
+             ${vehicleColumns.map(c => `<td>${vehicleCell(v, c.key)}</td>`).join('')}
+           </tr>`,
+             )
+             .join('')}
+         </tbody>
+       </table>`;
+
+  // A frase de abertura só ANUNCIA a tabela; quem identifica é ela.
+  const vehicleText = hasVehicle
+    ? vehicles.length > 1
+      ? ' nos veículos abaixo relacionados'
+      : ' no veículo abaixo identificado'
+    : '';
 
   const companyIntro =
     data.corporateName && data.corporateName !== 'Cliente'
@@ -341,6 +538,69 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
           data.customerDocumentFormatted ? ` (${escapeHtml(data.customerDocumentFormatted)})` : ''
         },`
       : '';
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // O QUADRO DO TOMADOR
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // A seção "Condições de pagamento" passou a se chamar "Faturamento" e abre com
+  // este quadro. A frase das parcelas NÃO saiu — ela é o acordo de pagamento, e
+  // um instrumento que o cliente assina sem ela deixa de dizer quanto e quando
+  // se paga. O que mudou é o que vem ANTES dela.
+  //
+  // Por que o cadastro entra num documento de assinatura: a NFS-e é emitida na
+  // Elotech com a razão social, o CNPJ, as inscrições e o endereço exatos do
+  // cadastro, e um dado errado só se descobre depois da nota autorizada — quando
+  // consertar significa cancelar e substituir, com o fiscal da prefeitura no
+  // meio (ver `supersedePreviousNfses`). O cliente é quem sabe o próprio
+  // cadastro. Pôr o quadro aqui faz a conferência acontecer na aprovação, que é
+  // o único momento em que ela é barata.
+  //
+  // Campo vazio sai como travessão em vez de sumir: a linha ausente esconderia
+  // exatamente o buraco que o quadro existe para expor.
+  //
+  // CADA LINHA PODE TER DOIS PARES. Razão social, endereço e município são
+  // longos e ocupam a largura; as duas inscrições são curtas e ficavam com
+  // dois terços da folha em branco à direita de cada uma — duas linhas onde
+  // cabia uma, num documento que agora pode ter quatro seções e sessenta
+  // veículos disputando a mesma folha.
+  //
+  // O NÚMERO DO PEDIDO saiu daqui: virou coluna da tabela de veículos, porque
+  // ele identifica a ENTREGA e um orçamento de quatro caminhões pode ter quatro
+  // pedidos diferentes — que numa linha só não cabem.
+  const joinBillingAddress = (a: string | null, b: string | null): string | null => {
+    const parts = [a, b].map(p => (p ?? '').trim()).filter(Boolean);
+    return parts.length > 0 ? parts.join(' — ') : null;
+  };
+  const billingRows: Array<Array<[string, string | null]>> = data.billing
+    ? [
+        [['Razão social', data.billing.corporateName]],
+        [['CNPJ / CPF', data.billing.documentFormatted]],
+        [
+          ['Inscrição estadual', data.billing.stateRegistration],
+          ['Inscrição municipal', data.billing.municipalRegistration],
+        ],
+        // ENDEREÇO NUMA LINHA SÓ. Eram duas — logradouro e depois "Município"
+        // com bairro, cidade/UF e CEP —, e nenhuma das duas enchia a largura: o
+        // quadro gastava dois renques para dizer um endereço.
+        [['Endereço', joinBillingAddress(data.billing.addressLine, data.billing.addressLocality)]],
+      ]
+    : [];
+
+  const billingCellHtml = ([label, value]: [string, string | null], span: number): string =>
+    `<th>${escapeHtml(label)}</th>
+     <td${span > 1 ? ` colspan="${span}"` : ''}>${
+       value ? escapeHtml(value) : '<span class="billing-empty">&mdash;</span>'
+     }</td>`;
+
+  const billingRowsHtml = billingRows
+    .map(
+      pairs =>
+        `<tr>${pairs
+          .map(pair => billingCellHtml(pair, pairs.length === 1 ? 3 : 1))
+          .join('')}</tr>`,
+    )
+    .join('');
 
   const headerBlock = `
     <header class="header">
@@ -611,12 +871,87 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     font-size: 1em;
   }
 
+  /* ── TABELA DE IDENTIFICACAO DOS VEICULOS ─────────────────────────────────
+     Levemente menor que o corpo (8.5pt contra 9pt): a tabela e referencia, nao
+     leitura corrida, e com sessenta linhas cada decimo de ponto e uma folha.
+     border-collapse para que as reguas horizontais sejam UMA linha e nao duas
+     encostadas. */
+  .vehicle-table {
+    width: 100%; border-collapse: collapse; margin-top: 2.5mm;
+    font-size: 8.5pt; line-height: 1.35;
+  }
+  .vehicle-table th, .vehicle-table td {
+    text-align: left; padding: 1.1mm 2mm 1.1mm 0; vertical-align: baseline;
+  }
+  /* Cabecalho em verde e caixa alta pequena: distingue do dado sem pesar como
+     um titulo de secao, que ele nao e. */
+  .vehicle-table thead th {
+    font-size: 7pt; font-weight: 700; color: var(--green);
+    text-transform: uppercase; letter-spacing: .04em;
+    border-bottom: 1px solid var(--green); padding-bottom: 1mm;
+  }
+  .vehicle-table tbody tr { border-bottom: .5px dotted #ccc; }
+  .vehicle-table tbody tr:last-child { border-bottom: none; }
+  /* A coluna do indice e estreita e nao compete com o dado. tabular-nums para
+     que 9 e 10 nao desalinhem a coluna seguinte num orcamento de sessenta. */
+  .vehicle-table .vehicle-idx {
+    width: 7mm; color: var(--gray); font-variant-numeric: tabular-nums;
+    padding-right: 1mm;
+  }
+  .vehicle-empty { color: var(--gray); }
+  /* Uma linha de veiculo nunca se parte entre folhas: metade do chassi no pe de
+     uma pagina e metade no topo da outra e ilegivel justamente no campo que o
+     leitor esta conferindo caractere a caractere. E o cabecalho se repete em
+     toda folha, senao a partir da segunda a tabela vira uma grade de numeros sem
+     nome de coluna. */
+  .vehicle-table tr { break-inside: avoid; }
+  .vehicle-table thead { display: table-header-group; }
+  /* A frase "nos veiculos abaixo relacionados:" e a tabela que ela anuncia nao
+     se separam: a promessa numa folha e a lista na seguinte deixa o leitor
+     procurando o que ja passou. */
+  .intro-text { break-after: avoid; }
+  /* Com poucos veiculos o bloco inteiro fica junto; com muitos ele PAGINA (e o
+     cabecalho da tabela se repete, via table-header-group), porque prende-lo
+     custaria uma folha em branco.
+     SEM CRASE neste comentario: ele vive dentro de um template literal. */
+  .customer-section { break-inside: auto; }
+
+  /* ── QUADRO DO TOMADOR (secao Faturamento) ────────────────────────────────
+     Rotulo a esquerda em largura fixa para que os valores alinhem numa coluna
+     so — e o alinhamento que torna o quadro conferivel de relance. */
+  .billing-table {
+    width: 100%; border-collapse: collapse; font-size: 8.5pt; line-height: 1.4;
+    margin-bottom: 2.5mm;
+  }
+  .billing-table th {
+    text-align: left; font-weight: 600; color: var(--gray);
+    width: 32mm; padding: .8mm 3mm .8mm 0; vertical-align: baseline;
+    white-space: nowrap;
+  }
+  /* O SEGUNDO par de uma linha ganha respiro à esquerda: sem ele o valor da
+     inscricao estadual encosta no rotulo da municipal e os dois leem como um
+     texto so. */
+  .billing-table th + td + th { padding-left: 6mm; }
+  .billing-table td { padding: .8mm 0; vertical-align: baseline; }
+  .billing-empty { color: var(--gray); }
+  /* Um filete separa o quadro da frase das parcelas: sao duas coisas de natureza
+     diferente na mesma secao — cadastro a conferir e acordo a cumprir. */
+  .terms-content-after-table {
+    border-top: .5px solid #ddd; padding-top: 2mm;
+  }
+
   /* Sem regua sob o titulo: a unica divisoria horizontal do documento e a do
      cabecalho (e a do rodape, que a espelha). Titulos de secao se distinguem
      pelo peso e pela cor. */
+  /* Titulo NUNCA fica sozinho no pe de uma folha: "Servicos" no fim de uma
+     pagina com a lista comecando na seguinte e um defeito de leitura que so
+     aparece quando o orcamento cresce — e ele cresceu (sessenta veiculos
+     ocupam quatro folhas). O break-after abaixo prende o titulo ao que ele
+     anuncia. */
   .section-title-green {
     font-size: 11pt; font-weight: 700; color: var(--green);
     margin-bottom: 2.5mm;
+    break-after: avoid;
   }
 
   .service-row {
@@ -652,6 +987,20 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     border-top: 1.5px solid var(--green); margin-top: 1mm; padding-top: 1.5mm;
     font-size: 11.5pt; font-weight: 700; color: var(--green);
   }
+  /* Com mais de um veiculo o "Total por veiculo" e um degrau, nao o desfecho:
+     leva um filete cinza fino e peso 600, contra o verde grosso e 700 do total
+     geral. Sem essa hierarquia os dois numeros liam como concorrentes e o
+     cliente conferia o errado. */
+  .total-row-unit {
+    border-top: .8px solid #bbb; margin-top: 1mm; padding-top: 1.5mm;
+    font-weight: 600;
+  }
+  /* O multiplicador nao e dinheiro e nao deve parecer dinheiro: cinza, sem
+     destaque. tabular-nums porque ele fica na mesma coluna dos valores. */
+  .total-row-multiplier .total-value {
+    color: var(--gray); font-variant-numeric: tabular-nums;
+  }
+  .total-row-multiplier .total-label { color: var(--gray); }
 
   /* Sem coluna de valor, a descricao ocupa a largura toda. Ver servicesHtml. */
   .service-desc-full { flex: 1 1 100%; padding-right: 0; }
@@ -660,8 +1009,21 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      de uma folha, com o texto na seguinte, e um defeito de leitura num
      documento contratual. */
   .terms-section { break-inside: avoid; }
-  .terms-title { font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm; }
-  .terms-content { font-size: 9pt; line-height: 1.5; text-align: justify; }
+  .terms-title {
+    font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm;
+    break-after: avoid;
+  }
+  /* Duas linhas minimas de cada lado de uma quebra: uma linha solta no pe ou no
+     topo de uma folha e o que faz um paragrafo contratual parecer truncado. */
+  .terms-content {
+    font-size: 9pt; line-height: 1.5; text-align: justify;
+    orphans: 2; widows: 2;
+  }
+
+  /* Duas cláusulas de pagamento só existem quando o cliente paga em LOTES (uma
+     frase por fatura). O seletor irmão garante que o documento de uma fatura
+     só — o acervo inteiro — não muda um pixel. */
+  .terms-content + .terms-content { margin-top: 2mm; }
 
   .acceptance-clause {
     margin-top: 6mm; font-size: 7pt; line-height: 1.45; color: var(--gray);
@@ -800,7 +1162,8 @@ ${part === 'content' || part === 'fused' ? `
 
     <div class="customer-section">
       ${data.contactName ? `<div class="customer-name">À ${escapeHtml(data.contactName)}</div>` : ''}
-      <p class="intro-text">Conforme solicitado, apresentamos nossa proposta de preço${companyIntro} para execução dos serviços abaixo descriminados${vehicleText}.</p>
+      <p class="intro-text">Conforme solicitado, apresentamos nossa proposta de preço${companyIntro} para execução dos serviços abaixo descriminados${vehicleText}${hasVehicle ? ':' : '.'}</p>
+      ${vehicleTableHtml}
     </div>
 
     <div class="page-content-gap"></div>
@@ -839,21 +1202,46 @@ ${part === 'content' || part === 'fused' ? `
     }
 
     ${
-      showPayment && data.paymentText
-        ? `<div class="page-content-gap"></div>
-           <section class="terms-section">
-             <h2 class="terms-title">Condições de pagamento</h2>
-             <p class="terms-content">${escapeHtml(data.paymentText)}</p>
-           </section>`
-        : ''
-    }
-
-    ${
       showGuarantee && data.guaranteeText
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
              <h2 class="terms-title">Garantias</h2>
              <p class="terms-content">${formatGuaranteeHtml(data.guaranteeText)}</p>
+           </section>`
+        : ''
+    }
+
+    ${
+      showPayment && (data.paymentText || billingRowsHtml)
+        ? `<div class="page-content-gap"></div>
+           <section class="terms-section">
+             <h2 class="terms-title">Faturamento</h2>
+             ${
+               billingRowsHtml
+                 ? `<table class="billing-table">${billingRowsHtml}</table>`
+                 : ''
+             }
+             ${
+               data.paymentText
+                 ? // UMA CLÁUSULA POR FATURA. O texto chega com uma linha por
+                   // faturamento — é o cliente que paga em LOTES, com K planos de
+                   // parcelas no mesmo orçamento, e enfiá-los num parágrafo só os
+                   // faria correr emendados na justificação. Com uma linha (o
+                   // acervo inteiro, `JOINT` e `PER_TASK`) o HTML é exatamente o
+                   // de antes: um `<p>`, as mesmas classes.
+                   data.paymentText
+                     .split('\n')
+                     .map(line => line.trim())
+                     .filter(Boolean)
+                     .map(
+                       (line, i) =>
+                         `<p class="terms-content${
+                           billingRowsHtml && i === 0 ? ' terms-content-after-table' : ''
+                         }">${escapeHtml(line)}</p>`,
+                     )
+                     .join('')
+                 : ''
+             }
            </section>`
         : ''
     }

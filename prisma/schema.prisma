@@ -1883,18 +1883,24 @@ model ServiceOrder {
 }
 
 model TaskQuote {
-  id                  String          @id @default(uuid())
-  subtotal            Decimal         @db.Decimal(10, 2)
-  total               Decimal         @db.Decimal(10, 2)
-  expiresAt           DateTime
-  status              TaskQuoteStatus @default(PENDING)
-  statusOrder         Int             @default(1)
+  id          String          @id @default(uuid())
+  subtotal    Decimal         @db.Decimal(10, 2)
+  total       Decimal         @db.Decimal(10, 2)
+  expiresAt   DateTime
+  status      TaskQuoteStatus @default(PENDING)
+  statusOrder Int             @default(1)
+
+  /// Quando o cliente foi avisado de que a validade venceu sem todas as
+  /// assinaturas. Existe para que a varredura horária avise UMA vez: sem ele,
+  /// uma falha parcial no meio do laço faria a rodada seguinte remandar o aviso
+  /// a quem já o recebeu.
+  expiryNoticeSentAt  DateTime?
   guaranteeYears      Int?
   customGuaranteeText String?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
   billingApprovedAt   DateTime?
-  budgetNumber        Int             @unique
+  budgetNumber        Int       @unique
   customForecastDays  Int?
   simultaneousTasks   Int?
 
@@ -1903,12 +1909,52 @@ model TaskQuote {
   /// the configured director. There is no other User relation on TaskQuote.
   commercialUserId String? @map("commercialUserId")
 
-  task               Task?                     @relation("TASK_QUOTE")
+  /// As TAREFAS deste orçamento — uma por veículo.
+  ///
+  /// Era 1:1 (`Task.quoteId @unique`). Passou a 1:N porque a criação já produzia
+  /// N tarefas do produto cartesiano placas × números de série e emitia UM
+  /// orçamento para cada uma: o Marquespan de 02/09 saiu como os orçamentos 642
+  /// a 701 — sessenta números, sessenta PDFs, sessenta cerimônias de assinatura,
+  /// todos com a mesma lista (Logomarca Laterais, Logomarca Traseira, Aerografia
+  /// Parcial) e o mesmo valor. Agora é um orçamento só, e o "×60" do documento
+  /// sai daqui.
+  ///
+  /// A lista de serviços é UMA, compartilhada por todas as tarefas: o preço de
+  /// `TaskQuoteService.amount` é POR VEÍCULO. Veículo que precisa de outra lista
+  /// é outro orçamento.
+  tasks Task[] @relation("TASK_QUOTE")
+
+  /// QUANTOS VEÍCULOS este orçamento cobre — `tasks.length`, desnormalizado.
+  ///
+  /// Existe porque `total` é o valor do CONTRATO (`por veículo × N`) e quase
+  /// toda tela lê o orçamento pelo lado da TAREFA: a lista de Orçamentos, a de
+  /// Faturamento, a Preparação, o Histórico, o painel de receita. Sem este
+  /// número ali, cada linha de veículo mostra o total dos sessenta — e o painel,
+  /// que soma linha a linha, mostra sessenta vezes o contrato.
+  ///
+  /// Coluna e não `_count`: um `select` de orçamento existente ganha o campo com
+  /// uma linha, ordena como qualquer escalar e nenhum cliente pode esquecer de
+  /// pedi-lo. Quem escreve é `recalcQuoteTotals`, na MESMA função e a partir da
+  /// MESMA contagem que multiplica os totais — se um dia divergir, os totais já
+  /// terão divergido antes.
+  vehicleCount Int @default(1)
+
+  /// COMO os N veículos são cobrados — junto, um a um, ou em lotes.
+  ///
+  /// É a INTENÇÃO declarada, não a cobertura: quem diz de quais veículos cada
+  /// fatura é são as linhas de `QuoteBillingTask`. O modo serve para a máquina
+  /// saber refatiar sozinha quando um veículo entra ou sai do orçamento —
+  /// `JOINT` estende o faturamento existente, `PER_TASK` cria um novo, `CUSTOM`
+  /// isola o recém-chegado em vez de chutar um lote.
+  ///
+  /// Ver `QuoteBillingSplit` e `QuoteBillingTask`.
+  billingSplit       QuoteBillingSplit         @default(JOINT)
   layoutFiles        File[]                    @relation("QUOTE_LAYOUT")
   services           TaskQuoteService[]        @relation("QUOTE_SERVICES")
   customerConfigs    TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
   commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
   signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
+  nfseDocuments      NfseDocument[]            @relation("QuoteNfseDocuments")
 
   @@index([status])
   @@index([statusOrder])
@@ -1936,9 +1982,19 @@ model TaskQuoteService {
 }
 
 model TaskQuoteCustomerConfig {
-  id                  String        @id @default(uuid())
-  quoteId             String
-  customerId          String
+  id         String @id @default(uuid())
+  quoteId    String
+  customerId String
+
+  /// Quando ESTA fatia teve o faturamento aprovado.
+  ///
+  /// Existe porque, com `PER_TASK`, os sessenta caminhões não terminam no mesmo
+  /// dia: o financeiro aprova os que já saíram, e cada aprovação gera a fatura,
+  /// a NFS-e e os boletos daquele veículo com o vencimento contado dali.
+  /// `TaskQuote.billingApprovedAt` continua sendo a data em que a ÚLTIMA fatia
+  /// fechou — é ela que faz o orçamento inteiro estar faturado.
+  billingApprovedAt DateTime?
+
   subtotal            Decimal       @default(0) @db.Decimal(10, 2)
   total               Decimal       @default(0) @db.Decimal(10, 2)
   discountType        DiscountType  @default(NONE)
@@ -1947,7 +2003,6 @@ model TaskQuoteCustomerConfig {
   customPaymentText   String?
   generateInvoice     Boolean       @default(true)
   generateBankSlip    Boolean       @default(true)
-  orderNumber         String?
   responsibleId       String?
   paymentCondition    String?
   paymentConfig       Json?
@@ -1961,11 +2016,62 @@ model TaskQuoteCustomerConfig {
   invoice             Invoice?      @relation("InvoiceCustomerConfig")
   installments        Installment[] @relation("CustomerConfigInstallments")
 
-  @@unique([quoteId, customerId])
+  /// OS VEÍCULOS QUE ESTE FATURAMENTO COBRE — a cobertura, como DADO.
+  ///
+  /// Era a coluna `taskId`, nula querendo dizer "todos". Isso fazia a resposta a
+  /// "de quais veículos é esta fatura?" ser uma REGRA avaliada na hora da
+  /// leitura, e não um registro: uma fatura já emitida passava a cobrir um
+  /// caminhão acrescentado ao orçamento depois, sem deixar rastro. E não
+  /// permitia lote — "1 a 20 num pedido, 21 a 60 noutro" não era representável.
+  ///
+  /// Ver `QuoteBillingTask`. Quem responde a pergunta é `coveredTaskIds()`.
+  coveredTasks QuoteBillingTask[] @relation("BillingCoverage")
+
+  // Não há `@@unique` do faturamento em si: com lote, o mesmo cliente tem K
+  // faturamentos no mesmo orçamento e K é livre. A unicidade que importa mudou
+  // de lugar e ficou MAIS forte — `QuoteBillingTask.@@unique([taskId, customerId])`
+  // diz que um veículo é cobrado por exatamente UM faturamento daquele cliente,
+  // e isso o banco garante nos três modos.
   @@index([quoteId])
   @@index([customerId])
   @@index([responsibleId])
   @@index([customerSignatureId])
+}
+
+/// A COBERTURA DE UM FATURAMENTO — quais veículos ele cobra.
+///
+/// É a linha que separa o ORÇAMENTO (o que foi vendido e assinado: preço,
+/// garantia, os N veículos) do FATURAMENTO (como se cobra: quantas faturas,
+/// quantas notas, quantos planos de parcelas). O orçamento continua um só, com
+/// uma assinatura só; o faturamento passa a ser um particionamento explícito dos
+/// veículos dele.
+///
+/// Os três modos de `TaskQuote.billingSplit` são a MESMA forma, com coberturas
+/// diferentes — não três caminhos de código:
+///
+///   JOINT     1 faturamento × N veículos          (o padrão, e o de sempre)
+///   PER_TASK  N faturamentos × 1 veículo cada
+///   CUSTOM    K faturamentos, lotes livres        (1–20 | 21–60)
+///
+/// `customerId` é desnormalizado de propósito: é ele que permite ao BANCO
+/// garantir a regra que realmente importa — um veículo é cobrado por exatamente
+/// um faturamento daquele cliente. Sem ele a unicidade só existiria em código, e
+/// o modo de falha seria cobrar o mesmo caminhão duas vezes. É seguro
+/// desnormalizar porque o cliente de um faturamento nunca muda no lugar: a
+/// reconciliação casa por cliente e troca de cliente é criação + remoção.
+model QuoteBillingTask {
+  configId   String
+  taskId     String
+  customerId String
+  createdAt  DateTime @default(now())
+
+  config TaskQuoteCustomerConfig @relation("BillingCoverage", fields: [configId], references: [id], onDelete: Cascade)
+  task   Task                    @relation("TaskBillingCoverage", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([configId, taskId])
+  @@unique([taskId, customerId])
+  @@index([taskId])
+  @@index([customerId])
 }
 
 model Supplier {
@@ -2013,11 +2119,24 @@ model Supplier {
 }
 
 model Task {
-  id                    String                @id @default(uuid())
-  name                  String?               @default("Tarefa Sem Nome")
-  status                TaskStatus            @default(PREPARATION)
-  statusOrder           Int                   @default(1)
-  serialNumber          String?               @unique
+  id           String     @id @default(uuid())
+  name         String?    @default("Tarefa Sem Nome")
+  status       TaskStatus @default(PREPARATION)
+  statusOrder  Int        @default(1)
+  serialNumber String?    @unique
+
+  /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
+  ///
+  /// Morava em `TaskQuoteCustomerConfig.orderNumber`, uma linha por cliente do
+  /// orçamento. Com um orçamento cobrindo N caminhões isso obrigava os sessenta a
+  /// citarem o MESMO pedido na nota e no boleto, e o pedido é por ENTREGA: às
+  /// vezes é o mesmo para todos, às vezes muda a cada veículo, às vezes vem em
+  /// blocos (1–20 num pedido, 21–60 noutro).
+  ///
+  /// Livre e NÃO único de propósito: repetir o mesmo número em vários veículos é
+  /// caso legítimo, não erro. A nota conjunta cita o número quando é um só e
+  /// lista por veículo quando difere.
+  customerOrderNumber   String?
   details               String?
   entryDate             DateTime?
   term                  DateTime?
@@ -2034,7 +2153,9 @@ model Task {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   bonusDiscountId       String?
-  quoteId               String?               @unique
+  /// Sem `@unique` desde o orçamento multitarefa: N tarefas apontam para o
+  /// MESMO orçamento. Ver `TaskQuote.tasks`.
+  quoteId               String?
   airbrushings          Airbrushing[]         @relation("AIRBRUSHING")
   cuts                  Cut[]                 @relation("CUT_TASK")
   observation           Observation?          @relation("OBSERVATION_TO_TASK")
@@ -2067,6 +2188,14 @@ model Task {
   invoiceEntities       Invoice[]             @relation("TaskInvoiceEntities")
   nfseDocuments         NfseDocument[]        @relation("TaskNfseDocuments")
   forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
+  /// O FATURAMENTO que cobra ESTE veículo — uma linha por cliente do orçamento.
+  ///
+  /// Em `JOINT` a linha aponta para o faturamento conjunto, que os N veículos
+  /// compartilham; em `PER_TASK`, para o faturamento só deste; em `CUSTOM`, para
+  /// o do lote a que ele pertence. Nos três casos a pergunta "quem cobra este
+  /// caminhão?" tem resposta direta, e o banco garante que ela é única por
+  /// cliente. Ver `QuoteBillingTask`.
+  billingCoverage       QuoteBillingTask[]    @relation("TaskBillingCoverage")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -2080,6 +2209,7 @@ model Task {
   @@index([createdAt])
   @@index([customerId])
   @@index([createdById])
+  @@index([quoteId])
 }
 
 model TaskFieldChangeLog {
@@ -4223,8 +4353,46 @@ enum BonificationStatus {
   SUSPENDED_BONIFICATION
 }
 
+/**
+ * Como o cliente paga um orçamento que cobre mais de um veículo.
+ * `JOINT` é o padrão e é o comportamento de sempre: UMA configuração de
+ * faturamento por cliente, uma fatura, um plano de parcelas, uma NFS-e — e, num
+ * orçamento de uma tarefa só, é indistinguível do que existia antes desta
+ * feature.
+ * `PER_TASK` fatia por veículo: uma configuração por (cliente × tarefa). O
+ * financeiro aprova veículo a veículo, e cada aprovação emite a fatura, a NFS-e
+ * e os boletos daquele caminhão com o vencimento contado do momento em que foi
+ * aprovado — que é o que os sessenta caminhões do Marquespan pedem, já que não
+ * terminam no mesmo dia.
+ */
+enum QuoteBillingSplit {
+  JOINT
+  PER_TASK
+
+  /// LOTES LIVRES. A cobertura não é derivável do modo: ela vem das linhas de
+  /// `QuoteBillingTask` que a tela montou — "1 a 20 no pedido 8842, 21 a 60 no
+  /// 9013". É o caso que `JOINT`/`PER_TASK` não cobrem, e é também por que a
+  /// cobertura deixou de ser calculada e passou a ser gravada.
+  ///
+  /// Um veículo acrescentado depois a um orçamento `CUSTOM` NÃO entra em lote
+  /// nenhum por adivinhação: ganha o próprio faturamento, e a tela mostra que
+  /// ele está sozinho.
+  CUSTOM
+}
+
 enum TaskQuoteStatus {
   PENDING
+
+  /// Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
+  /// Ankaa. Sem este estado o momento era indistinguível de PENDING, e quem
+  /// precisa saber o que depende de NÓS não tinha como ver numa lista.
+  SIGNED
+
+  /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
+  /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" — `DUE` já
+  /// ocupa a palavra "Vencido", e lá ela quer dizer parcela em atraso.
+  EXPIRED
+
   BUDGET_APPROVED
   BILLING_APPROVED
   UPCOMING
@@ -4606,7 +4774,16 @@ model NfseDocument {
   invoiceId     String?
   // Durable link to the task so the full NFS-e history (incl. cancelled/rejected/orphan
   // notes re-linked from Elotech) is always visible on the task quote page.
+  //
+  // NULO quando a nota cobre o orçamento inteiro (`billingSplit = JOINT` com mais
+  // de uma tarefa): ali ela não é de UMA tarefa, e escolher uma das sessenta
+  // faria as outras cinquenta e nove exibirem "sem nota" tendo sido faturadas.
+  // Nesses casos quem liga é `quoteId`.
   taskId        String?
+  /// Link durável ao ORÇAMENTO. Preenchido sempre — inclusive quando `taskId`
+  /// está — porque é ele que sustenta a guarda de "nunca emitir uma segunda nota
+  /// viva no mesmo ciclo" agora que um ciclo pode ter N tarefas.
+  quoteId       String?
   elotechNfseId Int?
   nfseNumber    Int?
   status        NfseStatus @default(PENDING)
@@ -4646,6 +4823,7 @@ model NfseDocument {
 
   invoice        Invoice?        @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
   task           Task?           @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  quote          TaskQuote?      @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
   supersededBy   NfseDocument?   @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
   supersedes     NfseDocument[]  @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
@@ -4655,6 +4833,7 @@ model NfseDocument {
 
   @@index([invoiceId])
   @@index([taskId])
+  @@index([quoteId])
   @@index([elotechNfseId])
   @@index([status])
   @@index([supersededByNfseDocumentId])
@@ -7929,6 +8108,12 @@ model EnvelopeSigner {
   timesViewed    Int       @default(0)
   maxPageReached Int?
 
+  /// Agendamento do lembrete de assinatura pendente. A cadência (3 primeiros
+  /// dias úteis, depois de 5 em 5) é ancorada no ÚLTIMO envio e não na data da
+  /// emissão: um dia de API fora do ar não vira dois lembretes no dia seguinte.
+  lastReminderAt DateTime?
+  reminderCount  Int       @default(0)
+
   /// signedAt = relógio do SERVIDOR (é o que vale). clientSignedAt = relógio do
   /// dispositivo, guardado só como evidência de skew.
   signedAt       DateTime?
@@ -8109,6 +8294,14 @@ enum SignatureEventType {
   /// Aditivo de identificação do veículo emitido e selado. Ver
   /// `SignatureEnvelope.addendumFileId`.
   ADDENDUM_ISSUED
+
+  /// Lembrete periódico de que a assinatura segue pendente.
+  REMINDER_SENT
+  REMINDER_FAILED
+
+  /// Aviso ao signatário de que a validade do orçamento venceu e o comercial
+  /// vai reanalisar o valor.
+  EXPIRY_NOTICE_SENT
 }
 
 // ============================================================================

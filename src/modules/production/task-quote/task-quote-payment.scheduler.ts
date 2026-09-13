@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
+import { sliceTask } from '@utils/quote-tasks';
 
 /**
  * Scheduler for task quote payment reminders.
@@ -66,16 +67,21 @@ export class TaskQuotePaymentScheduler {
           customerConfig: {
             quote: {
               status: { in: ['UPCOMING', 'DUE', 'PARTIAL'] },
-              task: { status: { not: 'CANCELLED' } },
+              tasks: { some: { status: { not: 'CANCELLED' } } },
             },
           },
         },
         include: {
           customerConfig: {
             include: {
+              // A COBERTURA — o aviso de vencimento cita o veículo desta fatura,
+              // e sem ela a âncora cairia sempre no primeiro caminhão do
+              // orçamento, inclusive numa parcela que é de outro.
+              coveredTasks: { select: { taskId: true } },
               quote: {
                 include: {
-                  task: {
+                  tasks: {
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                     select: {
                       id: true,
                       name: true,
@@ -102,8 +108,13 @@ export class TaskQuotePaymentScheduler {
 
       for (const installment of dueInstallments) {
         const config = installment.customerConfig;
+        if (!config) continue;
         const quote = config.quote;
-        const task = quote.task;
+        // A tarefa ÂNCORA da fatura — o primeiro veículo que ela cobre. O aviso
+        // de vencimento cita uma tarefa para o operador se localizar, e qualquer
+        // uma da cobertura serve para isso; o que não serve é citar um veículo
+        // que esta fatura NÃO cobra.
+        const task = sliceTask(config as any) ?? quote.tasks?.[0] ?? null;
 
         if (!task) continue;
 
@@ -119,6 +130,15 @@ export class TaskQuotePaymentScheduler {
             ? 'Parcela única'
             : `Parcela ${installment.number}/${totalInstallments}`;
 
+        // O VALOR DA PARCELA, não o do orçamento.
+        //
+        // O aviso é sobre esta parcela vencida, e mandava `quote.total` — o valor
+        // do CONTRATO. Com o orçamento multitarefa isso passou a ser
+        // `por veículo × N`: numa cobrança veículo a veículo o aviso de uma
+        // parcela do caminhão 12 anunciava o valor dos sessenta. O que o
+        // financeiro precisa ler é o que venceu.
+        const dueAmount = Number(installment.amount ?? 0).toFixed(2);
+
         const dueDate = installment.dueDate.toLocaleDateString('pt-BR', {
           timeZone: 'America/Sao_Paulo',
         });
@@ -133,7 +153,7 @@ export class TaskQuotePaymentScheduler {
             customerName: config.customer.fantasyName || 'N/A',
             installmentLabel,
             dueDate,
-            amount: quote.total.toString(),
+            amount: dueAmount,
             budgetNumber: quote.budgetNumber,
           },
           overrides: {
@@ -164,7 +184,7 @@ export class TaskQuotePaymentScheduler {
                 customerName,
                 installmentLabel,
                 dueDate,
-                amount: quote.total.toString(),
+                amount: dueAmount,
                 budgetNumber: quote.budgetNumber,
               },
               overrides: {

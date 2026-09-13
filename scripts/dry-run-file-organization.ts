@@ -81,9 +81,19 @@ async function referencesOf(fileId: string, quoteLayoutId: string | null): Promi
   if (quoteLayoutId) {
     const q = await prisma.taskQuote.findUnique({
       where: { id: quoteLayoutId },
-      select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+      // `tasks` (lista) desde o orçamento multitarefa: `TaskQuote.task` não
+      // existe mais e mandá-lo ao Prisma estoura a consulta. O nome de pasta sai
+      // do PRIMEIRO veículo — qualquer um serve para nomear o diretório do
+      // cliente, e nos sessenta é o mesmo cliente.
+      select: {
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: 1,
+          select: { customer: { select: { fantasyName: true } } },
+        },
+      },
     });
-    push('File.quoteLayoutId', 'quote-layouts', q?.task?.customer?.fantasyName ?? null);
+    push('File.quoteLayoutId', 'quote-layouts', q?.tasks?.[0]?.customer?.fantasyName ?? null);
   }
 
   const layout = await prisma.layout.findFirst({
@@ -136,10 +146,25 @@ async function referencesOf(fileId: string, quoteLayoutId: string | null): Promi
     where: {
       OR: [{ originalFileId: fileId }, { finalFileId: fileId }, { dossierFileId: fileId }],
     },
-    select: { quote: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } } },
+    // Mesma razão do bloco acima: a relação é de LISTA.
+    select: {
+      quote: {
+        select: {
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: 1,
+            select: { customer: { select: { fantasyName: true } } },
+          },
+        },
+      },
+    },
   });
   if (env) {
-    push('SignatureEnvelope', 'budgetSignatures', env.quote?.task?.customer?.fantasyName ?? null);
+    push(
+      'SignatureEnvelope',
+      'budgetSignatures',
+      env.quote?.tasks?.[0]?.customer?.fantasyName ?? null,
+    );
   }
 
   return out;

@@ -205,6 +205,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     actualHours: 'Horas Reais',
     serialNumber: 'Número de Série',
     plate: 'Placa',
+    // O número do pedido de compra do cliente, POR VEÍCULO (era da configuração
+    // de faturamento, por cliente).
+    customerOrderNumber: 'N° do Pedido',
     details: 'Detalhes',
     entryDate: 'Data de Entrada',
     term: 'Prazo',
@@ -771,6 +774,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     paymentCondition: 'Condição de Pagamento',
     paymentConfig: 'Configuração de Pagamento',
     customPaymentText: 'Texto Personalizado de Pagamento',
+    /** @deprecated Histórico anterior à mudança para `Task.customerOrderNumber`. */
     orderNumber: 'N° do Pedido',
     guaranteeYears: 'Anos de Garantia',
     customGuaranteeText: 'Texto Personalizado de Garantia',
@@ -780,6 +784,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     customForecastDays: 'Dias de Previsão Personalizados',
     simultaneousTasks: 'Tarefas Simultâneas',
     discountReference: 'Referência do Desconto',
+    billingSplit: 'Forma de Faturamento',
+    billingCoverage: 'Veículos por Fatura',
+    vehicleCount: 'Quantidade de Veículos',
     // Nested relationship fields
     'services.length': 'Quantidade de Serviços',
     services_snapshot: 'Serviços do Orçamento',

@@ -17,6 +17,7 @@ import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 import { ElotechOxyAuthService } from '../modules/integrations/nfse/elotech-oxy-auth.service';
 import { ElotechOxyNfseService } from '../modules/integrations/nfse/elotech-oxy-nfse.service';
+import { orderNumberLabel } from '../utils/quote-tasks';
 
 const RANGE_START = 2850;
 const RANGE_END = 3140;
@@ -53,7 +54,20 @@ async function main(): Promise<void> {
         totalAmount: true,
         createdAt: true,
         customer: { select: { cnpj: true, cpf: true, fantasyName: true } },
-        customerConfig: { select: { orderNumber: true } },
+        // O pedido é do VEÍCULO (`Task.customerOrderNumber`) desde o orçamento
+        // multitarefa.
+        customerConfig: {
+          select: {
+            // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+            //
+            // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+            // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+            // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+            // `coveredTaskIds()` de `@utils/quote-tasks`.
+            coveredTasks: { select: { taskId: true } },
+            quote: { select: { tasks: { select: { id: true, customerOrderNumber: true } } } },
+          },
+        },
         task: {
           select: {
             id: true,
@@ -114,7 +128,14 @@ async function main(): Promise<void> {
     for (const inv of invoices) {
       const t = inv.task!;
       const custDocs = [digits(inv.customer?.cnpj), digits(inv.customer?.cpf)].filter(Boolean);
-      const order = digits(inv.customerConfig?.orderNumber);
+      const cfgOrder = inv.customerConfig as any;
+      const order = digits(
+        orderNumberLabel(
+          cfgOrder?.taskId
+            ? (cfgOrder?.quote?.tasks ?? []).filter((t: any) => t.id === cfgOrder.taskId)
+            : (cfgOrder?.quote?.tasks ?? []),
+        ),
+      );
       const services = t.quote?.services ?? [];
       const gross = round2(
         services

@@ -50,6 +50,7 @@ import {
 } from './settlement-summary';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
+import { sliceTask } from '../../../utils/quote-tasks';
 
 // Categories included on every transaction list/detail response.
 const CATEGORY_INCLUDE = {
@@ -118,7 +119,10 @@ function normalizeInstallmentInvoice(inst: InstallmentReceivable) {
         totalAmount: customerConfig.total,
         status: rest.status,
         customer: customerConfig.customer,
-        task: customerConfig.quote?.task ?? null,
+        // A tarefa DESTA fatia (ver `sliceTask`): com `PER_TASK` a fatura é de
+        // um veículo, e nomear o primeiro do orçamento manda o conferente para o
+        // caminhão errado.
+        task: sliceTask(customerConfig),
         installmentsCount: customerConfig._count.installments,
       },
     };

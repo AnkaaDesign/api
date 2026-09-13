@@ -46,7 +46,11 @@ export class SignatureAddendumScheduler {
         where: {
           finalFileId: { not: null },
           addendumFileId: null,
-          quote: { task: { status: 'COMPLETED' } },
+          // `some`, não `every`: o aditivo declara o que o cadastro tardio
+          // trouxe, e o primeiro caminhão entregue já trouxe o dele. Esperar os
+          // sessenta ficarem COMPLETED atrasaria o aditivo por meses — e ele é
+          // idempotente por envelope, então rodar cedo não custa nada.
+          quote: { tasks: { some: { status: 'COMPLETED' } } },
           // `Prisma.DbNull`, e não `null`: num campo Json anulável o Prisma
           // distingue o NULL do banco do `null` de JSON, e `{ not: null }` ali
           // é um no-op silencioso. Sem este filtro os envelopes SEM lacuna
@@ -62,7 +66,7 @@ export class SignatureAddendumScheduler {
         take: 25,
         select: { quoteId: true, quote: { select: { budgetNumber: true } } },
       });
-      candidates = rows.map(r => ({ quoteId: r.quoteId, budgetNumber: r.quote.budgetNumber }));
+      candidates = rows.map(r => ({ quoteId: r.quoteId, budgetNumber: r.quote!.budgetNumber }));
     } catch (error) {
       this.logger.error(
         `Falha ao procurar orçamentos para aditivo: ${

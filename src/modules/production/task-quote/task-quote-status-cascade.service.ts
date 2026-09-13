@@ -203,8 +203,7 @@ export class TaskQuoteStatusCascadeService {
         where: { id: externalOperationId, status: EXTERNAL_OPERATION_STATUS.CHARGED as any },
         data: {
           status: EXTERNAL_OPERATION_STATUS.LIQUIDATED as any,
-          statusOrder:
-            EXTERNAL_OPERATION_STATUS_ORDER[EXTERNAL_OPERATION_STATUS.LIQUIDATED] || 1,
+          statusOrder: EXTERNAL_OPERATION_STATUS_ORDER[EXTERNAL_OPERATION_STATUS.LIQUIDATED] || 1,
         },
       });
 
@@ -374,8 +373,41 @@ export class TaskQuoteStatusCascadeService {
         return;
       }
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // LIQUIDADO EXIGE QUE TUDO ESTEJA FATURADO
+      // ═══════════════════════════════════════════════════════════════════════
+      //
+      // ⚠️ Sem esta guarda, o faturamento veículo a veículo produz o pior erro
+      // possível nesta tela. Cenário medido no orçamento do Marquespan (sessenta
+      // caminhões, R$ 730.224,00, `PER_TASK`):
+      //
+      //   · o caminhão 1 é entregue e faturado → 4 parcelas de R$ 3.042,60;
+      //   · o cliente paga as quatro;
+      //   · os caminhões 2 a 60 ainda não foram faturados, então não têm parcela;
+      //   · `paidCount (4) === activeInstallments.length (4)`  ⇒  **SETTLED**.
+      //
+      // O orçamento se declararia LIQUIDADO com R$ 718.053,60 ainda a faturar, o
+      // aviso de "Pagamento Liquidado" iria para o comercial e o financeiro, e o
+      // registro sairia de toda tela de cobrança. Uma fatia paga não é um
+      // contrato quitado.
+      //
+      // A pergunta que decide é: TODAS as fatias já foram faturadas? Em `JOINT`
+      // existe uma fatia só e a resposta é sim desde a primeira aprovação, então
+      // nada muda para os orçamentos de sempre.
+      const configsList = quote.customerConfigs ?? [];
+      const everySliceBilled =
+        configsList.length > 0 && configsList.every(c => !!(c as any).billingApprovedAt);
+      // COMPATIBILIDADE: orçamento anterior a esta feature tem
+      // `billingApprovedAt` nulo em TODA configuração — a coluna acabou de
+      // nascer. Sem este ramo, todo orçamento já liquidado voltaria de SETTLED
+      // para PARTIAL na primeira cascata que rodasse depois do deploy. O marcador
+      // que aqueles têm é o do ORÇAMENTO.
+      const noSliceMarkers = configsList.every(c => !(c as any).billingApprovedAt);
+      const fullyBilled =
+        everySliceBilled || (noSliceMarkers && !!(quote as any).billingApprovedAt);
+
       let newStatus: TASK_QUOTE_STATUS;
-      if (paidCount === activeInstallments.length) {
+      if (paidCount === activeInstallments.length && fullyBilled) {
         newStatus = TASK_QUOTE_STATUS.SETTLED;
       } else if (overdueCount > 0) {
         newStatus = TASK_QUOTE_STATUS.DUE;
@@ -398,12 +430,16 @@ export class TaskQuoteStatusCascadeService {
 
         // Reconcile Em Negociação. Cascades stay within ≥ BUDGET_APPROVED so this
         // is normally a no-op, but kept for symmetry with other status paths.
-        const task = await this.prisma.task.findFirst({
+        // Reconcilia "Em Negociação" em TODAS as tarefas do orçamento: a O.S. é
+        // por tarefa, e num orçamento de sessenta caminhões reconciliar só a
+        // primeira deixaria as outras cinquenta e nove com a O.S. de negociação
+        // aberta depois de o contrato estar fechado.
+        const quoteTaskRows = await this.prisma.task.findMany({
           where: { quoteId },
           select: { id: true },
         });
-        if (task) {
-          await syncEmNegociacaoForTask(this.prisma, task.id);
+        for (const t of quoteTaskRows) {
+          await syncEmNegociacaoForTask(this.prisma, t.id);
         }
 
         // Notify when the quote becomes fully settled via cascade (webhook/reconciliation

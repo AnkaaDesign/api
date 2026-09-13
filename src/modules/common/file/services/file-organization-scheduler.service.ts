@@ -320,13 +320,21 @@ export class FileOrganizationSchedulerService {
         select: {
           quoteLayout: {
             select: {
-              task: { select: { customer: { select: { fantasyName: true } } } },
+              tasks: {
+                orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+                take: 1,
+                select: { customer: { select: { fantasyName: true } } },
+              },
             },
           },
         },
       });
-      if (quoteLayoutFile?.quoteLayout?.task?.customer?.fantasyName) {
-        return quoteLayoutFile.quoteLayout.task.customer.fantasyName;
+      // A pasta do arquivo é por CLIENTE, e as N tarefas de um orçamento são do
+      // mesmo cliente por construção (a criação parte de um cliente só). A
+      // primeira responde, e `take: 1` evita carregar sessenta linhas para ler
+      // um nome.
+      if (quoteLayoutFile?.quoteLayout?.tasks?.[0]?.customer?.fantasyName) {
+        return quoteLayoutFile.quoteLayout.tasks[0].customer.fantasyName;
       }
 
       // Boleto (BankSlip.pdfFileId -> installment -> customerConfig -> customer).
@@ -348,11 +356,18 @@ export class FileOrganizationSchedulerService {
           OR: [{ originalFileId: fileId }, { finalFileId: fileId }, { dossierFileId: fileId }],
         },
         select: {
-          quote: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } },
+          quote: {
+            select: {
+              tasks: {
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                select: { customer: { select: { fantasyName: true } } },
+              },
+            },
+          },
         },
       });
-      if (envelope?.quote?.task?.customer?.fantasyName) {
-        return envelope.quote.task.customer.fantasyName;
+      if (envelope?.quote?.tasks?.[0]?.customer?.fantasyName) {
+        return envelope.quote.tasks[0].customer.fantasyName;
       }
 
       // RECORTE do orçamento assinado. A coleta congela um PDF por conjunto de
@@ -365,14 +380,19 @@ export class FileOrganizationSchedulerService {
           envelope: {
             select: {
               quote: {
-                select: { task: { select: { customer: { select: { fantasyName: true } } } } },
+                select: {
+                  tasks: {
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                    select: { customer: { select: { fantasyName: true } } },
+                  },
+                },
               },
             },
           },
         },
       });
-      if (envelopeDocument?.envelope?.quote?.task?.customer?.fantasyName) {
-        return envelopeDocument.envelope.quote.task.customer.fantasyName;
+      if (envelopeDocument?.envelope?.quote?.tasks?.[0]?.customer?.fantasyName) {
+        return envelopeDocument.envelope.quote.tasks[0].customer.fantasyName;
       }
 
       // Comprovante de parcela (Installment.receiptFiles -> customerConfig -> customer).

@@ -59,11 +59,53 @@ const SIGNER_NAMES = [
   'Fernanda Alcântara',
 ];
 
+/**
+ * Quantas folhas levam o carimbo "Página N de M".
+ *
+ * Duas camadas entre o texto e o arquivo, e o teste tem de atravessar as duas:
+ *
+ *   1. o content stream da página é gravado COMPRIMIDO (Flate) — procurar no
+ *      arquivo cru acha zero com o carimbo funcionando;
+ *   2. dentro do stream o pdf-lib escreve o texto como STRING HEXADECIMAL
+ *      (`<50E167696E61> Tj`), não como literal — procurar "Página" ali também
+ *      acha zero.
+ *
+ * Então: infla, decodifica os hexadecimais (WinAnsi ≈ latin1 para este texto) e
+ * conta. Escrever esta função foi o que provou que o carimbo estava correto e o
+ * detector é que não estava.
+ */
+function countPageStamps(pdf: Buffer | Uint8Array): number {
+  const zlib = require('zlib') as typeof import('zlib');
+  const raw = Buffer.from(pdf);
+  const flat = raw.toString('latin1');
+  let count = 0;
+  const re = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(flat)) !== null) {
+    const start = m.index + m[0].length;
+    const end = flat.indexOf('endstream', start);
+    if (end < 0) continue;
+    let text: string;
+    try {
+      text = zlib.inflateSync(raw.subarray(start, end)).toString('latin1');
+    } catch {
+      continue; // fluxo não-Flate (imagem, fonte): não é onde o carimbo mora
+    }
+    const decoded = (text.match(/<([0-9A-Fa-f]+)>/g) ?? [])
+      .map(h => Buffer.from(h.slice(1, -1), 'hex').toString('latin1'))
+      .join(' ');
+    count += (decoded.match(/gina \d+ de \d+/g) ?? []).length;
+  }
+  return count;
+}
+
 function inputFor(opts: {
   sections: readonly QuoteSection[];
   services: number;
   layouts: number;
   signers: number;
+  /** Quantos veículos o orçamento cobre. Ausente = 1, o caso de sempre. */
+  vehicles?: number;
 }): RenderInput {
   return {
     sections: opts.sections,
@@ -73,11 +115,28 @@ function inputFor(opts: {
     corporateName: 'TRANSPORTES SANTA HELENA LTDA',
     customerDocumentFormatted: '12.345.678/0001-99',
     contactName: 'Ana Paula Rodrigues',
-    serialNumber: '4821',
-    plate: null,
-    chassisNumber: null,
-    truckCategoryLabel: 'SEMI_TRAILER_2_AXLES',
-    truckImplementLabel: 'BAU',
+    vehicles: Array.from({ length: opts.vehicles ?? 1 }, (_, i) => ({
+      taskId: `task-${i + 1}`,
+      serialNumber: String(4821 + i),
+      // Placa e chassi VAZIOS de propósito: é o caso do implemento 0 km, e é o
+      // que faz a lacuna de cadastro tardio existir para ser medida.
+      plate: null,
+      chassisNumber: null,
+      // O pedido de compra do veículo — vira COLUNA da tabela. Alternado para
+      // que a coluna exista e para exercitar o travessão do que não tem.
+      orderNumber: i % 2 === 0 ? `PED-${1000 + i}` : null,
+      categoryLabel: 'SEMI_TRAILER_2_AXLES',
+      implementLabel: 'BAU',
+    })),
+    billing: {
+      corporateName: 'TRANSPORTES SANTA HELENA LTDA',
+      documentFormatted: '12.345.678/0001-99',
+      stateRegistration: '123.456.789.000',
+      municipalRegistration: '98765',
+      addressLine: 'Rodovia BR-369, 1200, Galpão B',
+      addressLocality: 'Distrito Industrial — Ibiporã/PR — CEP 86200-000',
+      orderNumber: '4500123456',
+    },
     services: Array.from({ length: opts.services }, (_, i) => ({
       description: `Pintura completa do implemento — etapa ${i + 1} com preparação de superfície`,
       amount: 4850 + i * 137,
@@ -125,6 +184,22 @@ const GRID = [
   { services: 12, layouts: 1, signers: 2 },
   { services: 12, layouts: 0, signers: 6 },
   { services: 24, layouts: 1, signers: 4 },
+  // ── ORÇAMENTO MULTITAREFA ────────────────────────────────────────────────
+  //
+  // Três configurações que só existem desde que um orçamento passou a cobrir N
+  // veículos. A tabela de identificação cresce uma linha por veículo, e é ela
+  // que decide se a lacuna de cadastro tardio ainda cai na primeira folha (onde
+  // é carimbável) — ver `resolveLateSlots`.
+  //
+  //  ·  3 veículos: o caso comum de um lote pequeno; tudo na folha 1.
+  //  · 12 veículos: a tabela já empurra os serviços para a segunda folha.
+  //  · 60 veículos: o Marquespan real. Aqui a tabela ocupa quase três folhas e
+  //    as lacunas das últimas linhas DEIXAM de ser carimbáveis — o que o
+  //    aditivo cobre, e é por isso que ele é montado a partir dos veículos e não
+  //    das lacunas medidas.
+  { services: 3, layouts: 1, signers: 2, vehicles: 3 },
+  { services: 3, layouts: 1, signers: 2, vehicles: 12 },
+  { services: 3, layouts: 0, signers: 2, vehicles: 60 },
   // O caso que quebrou em produção: VÁRIAS artes na folha de assinaturas. Cada
   // uma recebia a altura inteira da grade (max-height:100% numa coluna flex), as
   // três somavam três folhas de altura, a folha transbordava — e o envio morria
@@ -154,7 +229,7 @@ async function main() {
       const pages = doc.getPageCount();
       pagesOf.set(cut.label, pages);
 
-      const scenario = `${grid.services} serviços, ${grid.layouts} arte(s), ${grid.signers} signatários · ${cut.label}`;
+      const scenario = `${(grid as any).vehicles ?? 1} veíc., ${grid.services} serviços, ${grid.layouts} arte(s), ${grid.signers} signatários · ${cut.label}`;
 
       // 1. Nenhum signatário pode ser clipado. É a única falha desta lista que
       //    apaga uma pessoa do documento sem deixar rastro.
@@ -168,12 +243,36 @@ async function main() {
         Object.keys(r.anchors).length === expected,
       );
 
-      // 3. A frase do veículo é obrigatória, então a lacuna de cadastro tardio
-      //    tem de ser medida em TODO recorte: a placa que chega depois precisa
-      //    de um retângulo onde ser carimbada, seja qual for o recorte.
+      // 3. A tabela de identificação do veículo é obrigatória, então a lacuna de
+      //    cadastro tardio tem de ser medida em TODO recorte: a placa que chega
+      //    depois precisa de um retângulo onde ser carimbada, seja qual for o
+      //    recorte.
+      //
+      //    ⚠️ COM MUITOS VEÍCULOS ISSO DEIXA DE VALER, e o teto é a primeira
+      //    folha (`resolveLateSlots`): a tabela de sessenta caminhões ocupa quase
+      //    três, e da linha ~35 em diante nenhuma lacuna é carimbável. Não é
+      //    perda de informação — o ADITIVO declara esses campos e é montado a
+      //    partir dos veículos, não das lacunas medidas —, então o que se exige
+      //    aqui é que as PRIMEIRAS linhas continuem carimbáveis, que é o que
+      //    prova que a medição segue funcionando.
+      const vehiclesInGrid = (grid as any).vehicles ?? 1;
       check(
         `[${scenario}] reservou as lacunas de cadastro tardio`,
         Object.keys(r.lateSlots).length > 0,
+      );
+      // Duas por veículo (placa e chassi; a série vem preenchida), até o teto da
+      // primeira folha. Com um veículo o número é exato.
+      if (vehiclesInGrid === 1) {
+        check(
+          `[${scenario}] reservou as 2 lacunas do único veículo`,
+          Object.keys(r.lateSlots).length === 2,
+        );
+      }
+      // Toda chave reservada leva a TAREFA junto: sem isso o chassi do caminhão
+      // 3 seria carimbado no espaço do caminhão 1.
+      check(
+        `[${scenario}] as lacunas são chaveadas por veículo`,
+        Object.keys(r.lateSlots).every(k => k.includes('#')),
       );
 
       // 4. Nada de folha em branco no fim.
@@ -245,7 +344,48 @@ async function main() {
     console.log(`  completo com 24 serviços e 2 artes: ${pages} folhas`);
   }
 
-  // 9. NÃO HÁ TETO DE SIGNATÁRIOS. O bloco se parte em quantas folhas precisar, e
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 9. TODA FOLHA SE IDENTIFICA
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // O cabeçalho e o rodapé do documento são elementos EM FLUXO: saem uma vez no
+  // topo e uma vez no fim. Enquanto o orçamento coube numa folha isso bastou; um
+  // de sessenta veículos ocupa quatro, e as folhas do MEIO saíam anônimas — sem
+  // número de orçamento, sem empresa, sem contagem. Uma folha solta que não diz
+  // de que contrato é não prova nada, e a falta de uma folha do meio é
+  // indetectável.
+  //
+  // O carimbo é feito com pdf-lib depois da união (é só ali que se sabe o TOTAL),
+  // e ANTES do hash: a numeração é parte do documento que se assina.
+  {
+    const [longo] = await renderer.renderAll([
+      inputFor({ sections: [...FULL_SECTIONS], services: 3, layouts: 0, signers: 2, vehicles: 60 }),
+    ]);
+    const doc = await PDFDocument.load(longo.pdf, { updateMetadata: false });
+    const pages = doc.getPageCount();
+    check(`sessenta veículos paginam (obtido ${pages})`, pages >= 3);
+
+    const stamped = countPageStamps(longo.pdf);
+    check(
+      `toda folha leva "Página N de ${pages}" (encontradas ${stamped} de ${pages})`,
+      stamped >= pages,
+    );
+
+    // eslint-disable-next-line no-console
+    console.log(`  60 veículos: ${pages} folhas, ${stamped} carimbo(s) de página`);
+  }
+
+  // 10. E o contrário: um documento de UMA folha não leva numeração. "Página 1
+  //     de 1" é ruído, e uma folha só não tem como se perder no meio.
+  {
+    const [curto] = await renderer.renderAll([
+      inputFor({ sections: sectionsForRoles(['MARKETING']), services: 2, layouts: 1, signers: 2 }),
+    ]);
+    const pages = (await PDFDocument.load(curto.pdf, { updateMetadata: false })).getPageCount();
+    check('documento de uma folha NÃO leva numeração', pages > 1 || countPageStamps(curto.pdf) === 0);
+  }
+
+  // 11. NÃO HÁ TETO DE SIGNATÁRIOS. O bloco se parte em quantas folhas precisar, e
   //    cada âncora aponta para a folha em que foi medida — um selo com a página
   //    errada carimbaria o rosto de alguém no meio do orçamento.
   for (const signers of [5, 12, 30]) {

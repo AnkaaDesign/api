@@ -9,6 +9,7 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { orderNumberLabel } from '../../../utils/quote-tasks';
 import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
@@ -317,10 +318,23 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               customerConfig: {
                 select: {
                   generateInvoice: true,
-                  orderNumber: true,
                   customerId: true,
+                  // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
+                  //
+                  // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
+                  // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
+                  // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
+                  // `coveredTaskIds()` de `@utils/quote-tasks`.
+                  coveredTasks: { select: { taskId: true } },
                   quote: {
                     select: {
+                      // O NÚMERO DO PEDIDO é do VEÍCULO desde o orçamento
+                      // multitarefa — o boleto cita o dos caminhões que ele
+                      // cobra. Ver `orderNumberLabel`.
+                      tasks: {
+                        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                        select: { id: true, customerOrderNumber: true },
+                      },
                       services: {
                         select: { description: true, invoiceToCustomerId: true },
                         orderBy: { position: 'asc' },
@@ -817,7 +831,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       return parts.length > 0 ? parts : undefined;
     }
 
-    const orderNumber = installment.invoice?.customerConfig?.orderNumber;
+    const cfgForOrder = installment.invoice?.customerConfig as any;
+    const orderNumber = orderNumberLabel(
+      cfgForOrder?.taskId
+        ? (cfgForOrder?.quote?.tasks ?? []).filter((t: any) => t.id === cfgForOrder.taskId)
+        : (cfgForOrder?.quote?.tasks ?? []),
+      80,
+    );
     const task = installment.invoice?.task;
     const truck = task?.truck;
     const customerId = installment.invoice?.customerConfig?.customerId;

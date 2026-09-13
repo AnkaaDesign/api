@@ -2104,6 +2104,10 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
 
 export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
   [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
+  [TASK_QUOTE_STATUS.SIGNED]: 'Assinado',
+  // NÃO é "Vencido": esse rótulo é do DUE, logo abaixo, e lá quer dizer parcela
+  // em atraso. Este diz o que o comercial tem de FAZER com o orçamento.
+  [TASK_QUOTE_STATUS.EXPIRED]: 'Aguardando Reanálise',
   [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
   [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'Faturamento Aprovado',
   [TASK_QUOTE_STATUS.UPCOMING]: 'A Vencer',

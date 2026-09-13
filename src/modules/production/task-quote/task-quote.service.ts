@@ -8,6 +8,7 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
@@ -70,9 +71,23 @@ import {
   syncTaskLayoutsFromQuote,
   reproveNonSelectedTaskLayoutsFromQuote,
 } from '../../../utils/sync-quote-task-layouts';
+import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { computeQuoteMoney, planCoverage, round2 } from '@utils/quote-money';
+import {
+  describePrismaFailure,
+  distinctCustomerIds,
+  hasMultipleCustomers,
+  isSingleCustomerQuote,
+  primaryTask,
+  quoteTasks,
+  sortQuoteTasks,
+} from '@utils/quote-tasks';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
-import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
+import {
+  reconcileQuoteCustomerConfigs,
+  resliceQuoteCoverage,
+} from '../../../utils/task-quote-customer-config-sync';
 import {
   QUOTE_STATUS_LOCKED,
   QUOTE_VALUE_REVERTABLE_STATUSES,
@@ -118,6 +133,11 @@ export class TaskQuoteService {
     private readonly signatureEnvelopes: SignatureEnvelopeService,
     @Inject(forwardRef(() => SignatureDeletionService))
     private readonly signatureDeletion: SignatureDeletionService,
+    // A cascata recalcula o status a partir das PARCELAS. Necessária desde o
+    // faturamento por fatia: da segunda aprovação em diante não há transição de
+    // status a forçar, e é ela que decide entre UPCOMING, DUE e PARTIAL.
+    @Inject(forwardRef(() => TaskQuoteStatusCascadeService))
+    private readonly statusCascadeService: TaskQuoteStatusCascadeService,
   ) {}
 
   /**
@@ -200,25 +220,118 @@ export class TaskQuoteService {
 
   /**
    * Create new quote
+   *
+   * `externalTx` existe para a criação ATÔMICA de tarefas + orçamento
+   * (`TaskService.batchCreateWithQuote`). A tela de criação produzia N tarefas
+   * numa requisição cada e o orçamento numa última: quando a última falhava, as
+   * N tarefas ficavam órfãs e o operador recebia N avisos de sucesso seguidos de
+   * um de erro — com a instrução de "criar o orçamento por uma das tarefas", que
+   * deixaria os outros N-1 veículos de fora. Recebendo a transação de fora, o
+   * orçamento nasce ou não nasce JUNTO com as tarefas.
    */
-  async create(data: TaskQuoteCreateFormData, userId: string): Promise<TaskQuoteCreateResponse> {
+  async create(
+    data: TaskQuoteCreateFormData,
+    userId: string,
+    externalTx?: PrismaTransaction,
+  ): Promise<TaskQuoteCreateResponse> {
     try {
-      // Validate task exists; load responsibles so we can default the budget responsible
-      const task = await this.prisma.task.findUnique({
-        where: { id: data.taskId },
-        include: { responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } } },
+      // Toda leitura de validação usa a transação quando ela existe: fora dela,
+      // as tarefas recém-criadas pelo mesmo `$transaction` ainda não estão
+      // visíveis, e a validação de existência recusaria o próprio lote.
+      const db = externalTx ?? this.prisma;
+      // ═══════════════════════════════════════════════════════════════════════
+      // AS TAREFAS DO ORÇAMENTO
+      // ═══════════════════════════════════════════════════════════════════════
+      //
+      // `taskIds` é a forma nova; `taskId` continua aceito porque o app Flutter
+      // instalado nos aparelhos manda o singular e não é atualizado no mesmo
+      // instante que a API.
+      //
+      // A tela de criação já produzia N tarefas do produto cartesiano de placas
+      // × números de série. O que mudou é que elas passam a compartilhar UM
+      // orçamento: o Marquespan de 02/09 saiu como sessenta orçamentos (642 a
+      // 701), sessenta PDFs e sessenta cerimônias de assinatura para o mesmo
+      // trabalho repetido sessenta vezes.
+      const taskIds =
+        data.taskIds && data.taskIds.length > 0
+          ? [...new Set(data.taskIds)]
+          : (data as any).taskId
+            ? [(data as any).taskId as string]
+            : [];
+      if (taskIds.length === 0) {
+        throw new BadRequestException('Informe ao menos uma tarefa para o orçamento.');
+      }
+      const billingSplit: 'JOINT' | 'PER_TASK' | 'CUSTOM' =
+        (data as any).billingSplit === 'PER_TASK'
+          ? 'PER_TASK'
+          : (data as any).billingSplit === 'CUSTOM'
+            ? 'CUSTOM'
+            : 'JOINT';
+
+      // Carrega TODAS as tarefas: existência, vínculo prévio e o elenco de
+      // responsáveis (que é a união das tarefas, não a da primeira).
+      const tasks = await db.task.findMany({
+        where: { id: { in: taskIds } },
+        include: {
+          responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } },
+          quote: { select: { budgetNumber: true } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
 
-      if (!task) {
-        throw new BadRequestException('Tarefa não encontrada.');
+      if (tasks.length !== taskIds.length) {
+        const found = new Set(tasks.map(t => t.id));
+        const missing = taskIds.filter(id => !found.has(id));
+        throw new BadRequestException(
+          missing.length === taskIds.length
+            ? 'Tarefa não encontrada.'
+            : `${missing.length} tarefa(s) informada(s) não foram encontradas.`,
+        );
       }
+
+      // Tarefa que JÁ tem orçamento não é revinculada em silêncio.
+      //
+      // Antes isto era um `task.update({ quoteId })` que sobrescrevia o vínculo,
+      // e o orçamento anterior ficava sem tarefa nenhuma — um registro com
+      // número, valor e talvez uma coleta de assinaturas, invisível em toda tela
+      // que lista por tarefa. Com N tarefas o estrago se multiplica, então a
+      // resposta passa a ser explícita: quem quer trocar apaga o antigo primeiro.
+      const alreadyQuoted = tasks.filter(t => t.quoteId);
+      if (alreadyQuoted.length > 0) {
+        const labels = alreadyQuoted
+          .slice(0, 5)
+          .map(t => {
+            const num = (t as any).quote?.budgetNumber;
+            const who = t.serialNumber ? `#${t.serialNumber}` : (t.name ?? t.id.slice(0, 8));
+            return num ? `${who} (orçamento nº ${num})` : who;
+          })
+          .join(', ');
+        throw new BadRequestException(
+          alreadyQuoted.length === 1
+            ? `A tarefa ${labels} já possui orçamento. Exclua o orçamento existente antes de criar outro.`
+            : `${alreadyQuoted.length} tarefas já possuem orçamento (${labels}${
+                alreadyQuoted.length > 5 ? ', …' : ''
+              }). Exclua os orçamentos existentes antes de criar outro.`,
+        );
+      }
+
+      const task = tasks[0];
 
       // Default each customerConfig's responsibleId to the best task responsible if missing.
       // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt. The old
       // criterion was `roles.includes('OWNER')`, and that role no longer exists —
       // the successor rule lives in one place and is shared with task.service and
       // with the public budget page.
-      const taskResponsibles = (task as any).responsibles ?? [];
+      // União dos responsáveis das N tarefas, deduplicada — o mesmo conjunto que
+      // vira signatário do documento assinado.
+      const seenRespIds = new Set<string>();
+      const taskResponsibles = tasks
+        .flatMap(t => (t as any).responsibles ?? [])
+        .filter((r: any) => {
+          if (seenRespIds.has(r.id)) return false;
+          seenRespIds.add(r.id);
+          return true;
+        });
       const defaultResponsibleId =
         pickPrimaryResponsible<{ id: string; roles?: string[] }>(taskResponsibles)?.id || null;
       if (defaultResponsibleId) {
@@ -229,9 +342,16 @@ export class TaskQuoteService {
         }
       }
 
-      // Validate customerConfigs customer IDs
-      const customerIds = data.customerConfigs.map(c => c.customerId);
-      const customers = await this.prisma.customer.findMany({
+      // Validate customerConfigs customer IDs.
+      //
+      // ⚠️ CLIENTES DISTINTOS, não fatias. Com lote — e com `PER_TASK` — o mesmo
+      // cliente aparece K vezes em `customerConfigs`, e comparar o tamanho da
+      // lista COM REPETIÇÃO contra as linhas encontradas no banco recusava o
+      // orçamento inteiro com "cliente não encontrado" — sobre um cliente que
+      // existe. É a mesma confusão de `configs.length` com nº de clientes que já
+      // recusara a aprovação de faturamento em cinco telas.
+      const customerIds = distinctCustomerIds(data.customerConfigs);
+      const customers = await db.customer.findMany({
         where: { id: { in: customerIds } },
         select: { id: true },
       });
@@ -250,41 +370,91 @@ export class TaskQuoteService {
         throw new BadRequestException('Pelo menos um serviço é obrigatório.');
       }
 
-      // Compute per-customer totals from global customer discount
-      const isSingleConfig = data.customerConfigs.length === 1;
+      // ═══════════════════════════════════════════════════════════════════════
+      // DINHEIRO
+      // ═══════════════════════════════════════════════════════════════════════
+      //
+      // `TaskQuoteService.amount` é o preço de UM veículo. A conta de cada
+      // configuração de faturamento é `computeQuoteMoney`, a mesma que
+      // `recalcQuoteTotals` usa depois e a mesma que o documento imprime — é
+      // isso que faz o PDF assinado e o boleto fecharem no centavo.
+      //
+      // `configTotal` já vem no escopo certo, porque a conta é `por veículo ×
+      // veículos COBERTOS`: o total geral quando a fatura cobre os sessenta, o de
+      // um caminhão quando cobre um, o do lote quando cobre vinte.
+      //
+      // ⚠️ UM CLIENTE, não UMA FATURA. Um orçamento cobrado veículo a veículo tem
+      // uma fatura por VEÍCULO: quatro caminhões do mesmo cliente são quatro
+      // faturas, e contá-las fazia o filtro abaixo rodar — deixando as quatro com
+      // ZERO serviços, porque num orçamento de um cliente só ninguém preenche
+      // `invoiceToCustomerId`. Ver a nota em `utils/quote-tasks.ts`.
+      const isSingleConfig = isSingleCustomerQuote(data.customerConfigs);
+
+      // ─── O PLANO DE FATURAMENTO ──────────────────────────────────────────
+      //
+      // Uma entrada por FATURA a criar: o cliente, os veículos que ela cobra e o
+      // dinheiro dela. `planCoverage` reparte os veículos conforme o modo; num
+      // orçamento em lotes, conforme o que a tela declarou em `taskIds`.
+      const plannedConfigs: Array<{
+        config: (typeof data.customerConfigs)[number];
+        coverage: string[];
+        money: ReturnType<typeof computeQuoteMoney>;
+      }> = [];
+
       for (const config of data.customerConfigs) {
-        // In single-config, all services belong to the one customer regardless of invoiceToCustomerId.
-        // This handles customer replacements where services may still carry the old customer's ID.
+        // Com um cliente só, TODO serviço é dele, independentemente de um
+        // `invoiceToCustomerId` remanescente de quando o orçamento teve dois.
+        // Filtrar ali derrubaria serviços do subtotal em silêncio.
         const assignedServices = isSingleConfig
-          ? (data.services || [])
+          ? data.services || []
           : (data.services || []).filter(s => s.invoiceToCustomerId === config.customerId);
-        const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
-        const discount = computeConfigDiscount(
-          subtotal,
-          (config as any).discountType,
-          (config as any).discountValue,
+        const declared = Array.isArray((config as any).taskIds)
+          ? [(config as any).taskIds as string[]]
+          : (config as any).taskId
+            ? [[(config as any).taskId as string]]
+            : null;
+        const groups = planCoverage(
+          declared ? 'CUSTOM' : billingSplit,
+          taskIds,
+          declared,
         );
-        const total = Math.max(0, subtotal - discount);
-        config.subtotal = Math.round(subtotal * 100) / 100;
-        config.total = Math.round(total * 100) / 100;
+        for (const coverage of groups) {
+          const money = computeQuoteMoney({
+            serviceAmounts: assignedServices.map(sv => sv.amount || 0),
+            discountType: (config as any).discountType,
+            discountValue: (config as any).discountValue,
+            taskCount: taskIds.length,
+            coveredTaskCount: coverage.length || undefined,
+          });
+          plannedConfigs.push({ config, coverage, money });
+        }
       }
 
-      // Compute aggregate subtotal/total from customerConfigs. In multi-config,
-      // services not assigned to any customer belong to no config above, so fold
-      // their amounts into the aggregate (no discount) — mirrors recalcQuoteTotals.
-      let aggregateSubtotal = data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0), 0);
-      let aggregateTotal = data.customerConfigs.reduce((sum, c) => sum + (c.total || 0), 0);
+      // O agregado do orçamento é SEMPRE o valor do contrato inteiro. Somar as
+      // faturas dá esse número nos três modos, porque as coberturas PARTICIONAM
+      // os veículos — uma fatura de sessenta, sessenta de um, ou três de vinte.
+      let aggregateSubtotal = round2(
+        plannedConfigs.reduce((sum, p) => sum + p.money.configSubtotal, 0),
+      );
+      let aggregateTotal = round2(plannedConfigs.reduce((sum, p) => sum + p.money.configTotal, 0));
       if (!isSingleConfig) {
+        // Serviço sem cliente atribuído não entra em nenhuma configuração acima,
+        // então o valor dele sairia do agregado. Ele entra sem desconto e
+        // multiplicado pelos veículos, porque é serviço prestado em cada um. A
+        // guarda de aprovação de faturamento continua barrando a aprovação
+        // enquanto houver serviço sem cliente, então isto nunca chega a uma
+        // fatura — é só para o rascunho não mentir na tela.
         const unassignedSum = (data.services || [])
           .filter(s => !s.invoiceToCustomerId)
           .reduce((sum, s) => sum + (s.amount || 0), 0);
-        const unassignedRounded = Math.round(unassignedSum * 100) / 100;
-        aggregateSubtotal = Math.round((aggregateSubtotal + unassignedRounded) * 100) / 100;
-        aggregateTotal = Math.round((aggregateTotal + unassignedRounded) * 100) / 100;
+        const unassignedRounded = round2(unassignedSum * taskIds.length);
+        aggregateSubtotal = round2(aggregateSubtotal + unassignedRounded);
+        aggregateTotal = round2(aggregateTotal + unassignedRounded);
       }
 
-      // Create quote with items in transaction
-      const quote = await this.prisma.$transaction(async tx => {
+      // Create quote with items in transaction (ou DENTRO da transação de quem
+      // chamou, no caminho atômico de tarefas + orçamento).
+      const createInTransaction = async (tx: PrismaTransaction) => {
         // Get next budget number (auto-increment, advisory-locked against concurrent minters)
         const nextBudgetNumber = await allocateBudgetNumber(tx);
 
@@ -317,27 +487,57 @@ export class TaskQuoteService {
             }),
             simultaneousTasks: data.simultaneousTasks || null,
             customForecastDays: data.customForecastDays || null,
-            // Customer Configs (per-customer billing) — always at least 1
+            billingSplit,
+            // O divisor dos totais acima: `aggregateTotal` é `por veículo × N`, e
+            // é este N que devolve o valor de UM veículo às telas que listam
+            // tarefas. Gravado aqui, na mesma linha do total que ele divide.
+            vehicleCount: taskIds.length,
+            // ─── OS FATURAMENTOS ──────────────────────────────────────────
+            //
+            // Um por (cliente × grupo de cobertura), com a cobertura GRAVADA:
+            // `JOINT` cria um cobrindo os N veículos, `PER_TASK` cria N de um, e
+            // um orçamento em lotes cria os lotes que a tela declarou.
+            //
+            // Quem reparte é o SERVIDOR (`planCoverage`), não a tela, quando o
+            // modo basta: sessenta objetos idênticos viajando em cada gravação
+            // seria payload inútil e uma segunda fonte de verdade. A tela só fala
+            // quando o modo NÃO basta — que é exatamente o caso do lote.
             customerConfigs: {
-              create: data.customerConfigs.map(config => ({
-                customer: { connect: { id: config.customerId } },
-                subtotal: config.subtotal || 0,
-                total: config.total || 0,
-                discountType: (config as any).discountType || 'NONE',
-                discountValue: (config as any).discountValue ?? null,
-                discountReference: (config as any).discountReference || null,
-                customPaymentText: config.customPaymentText || null,
-                generateInvoice:
-                  config.generateInvoice !== undefined ? config.generateInvoice : true,
-                generateBankSlip:
-                  config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                orderNumber: (config as any).orderNumber || null,
-                ...(config.responsibleId && {
-                  responsible: { connect: { id: config.responsibleId } },
-                }),
-                paymentCondition: config.paymentCondition || null,
-                paymentConfig: (config as any).paymentConfig ?? null,
-              })),
+              create: plannedConfigs.map(({ config, coverage, money }) => ({
+                  customer: { connect: { id: config.customerId } },
+                  // A COBERTURA. Escrita junto da fatura, na mesma transação:
+                  // uma fatura sem cobertura é uma fatura sem resposta para "de
+                  // quais veículos é isto?", e o multiplicador do valor dela
+                  // cairia no orçamento inteiro.
+                  coveredTasks: {
+                    create: coverage.map(coveredTaskId => ({
+                      task: { connect: { id: coveredTaskId } },
+                      customerId: config.customerId,
+                    })),
+                  },
+                  subtotal: money.configSubtotal,
+                  total: money.configTotal,
+                  discountType: (config as any).discountType || 'NONE',
+                  discountValue: (config as any).discountValue ?? null,
+                  discountReference: (config as any).discountReference || null,
+                  customPaymentText: config.customPaymentText || null,
+                  generateInvoice:
+                    config.generateInvoice !== undefined ? config.generateInvoice : true,
+                  generateBankSlip:
+                    config.generateBankSlip !== undefined ? config.generateBankSlip : true,
+                  // ⚠️ `orderNumber` NÃO entra aqui. A coluna saiu do modelo na
+                  // migração `20260909170000` — o pedido de compra é do VEÍCULO
+                  // (`Task.customerOrderNumber`) — e `x || null` emitia a chave
+                  // SEMPRE, mesmo quando o cliente não a mandava: o Prisma
+                  // respondia "Unknown argument `orderNumber`" e TODA criação de
+                  // orçamento morria em 500. O valor legado é traduzido para as
+                  // tarefas mais abaixo (`legacyOrderNumber`).
+                  ...(config.responsibleId && {
+                    responsible: { connect: { id: config.responsibleId } },
+                  }),
+                  paymentCondition: config.paymentCondition || null,
+                  paymentConfig: (config as any).paymentConfig ?? null,
+                })),
             },
             services: {
               create: data.services.map((service, index) => ({
@@ -360,7 +560,7 @@ export class TaskQuoteService {
                 },
               },
             },
-            task: true,
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
             layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
@@ -374,11 +574,30 @@ export class TaskQuoteService {
 
         // Installments are now created at BILLING_APPROVED time, not at quote creation
 
-        // Connect the task to this quote (one-to-one via Task.quoteId FK)
-        await tx.task.update({
-          where: { id: data.taskId },
+        // Vincula TODAS as tarefas a este orçamento (FK `Task.quoteId`, agora 1:N).
+        await tx.task.updateMany({
+          where: { id: { in: taskIds } },
           data: { quoteId: newQuote.id },
         });
+
+        // COMPATIBILIDADE: `customerConfigs[].orderNumber`.
+        //
+        // O número do pedido de compra virou campo do VEÍCULO
+        // (`Task.customerOrderNumber`) — o pedido é por entrega, e um orçamento
+        // cobre N caminhões. O app instalado nos aparelhos ainda o manda na
+        // configuração de faturamento; aplicá-lo a todas as tarefas é exatamente
+        // o efeito que ele tinha antes. Só valor preenchido conta: um `null` de
+        // um cliente que não lê mais o campo não pode apagar o que a tela nova
+        // gravou por veículo.
+        const legacyOrderNumber = (data.customerConfigs as any[])
+          .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+          .find(v => v.length > 0);
+        if (legacyOrderNumber) {
+          await tx.task.updateMany({
+            where: { id: { in: taskIds } },
+            data: { customerOrderNumber: legacyOrderNumber },
+          });
+        }
 
         // Any layout file added straight onto the quote must also exist as an
         // APPROVED task layout (now that the task↔quote link is set). The Step-2
@@ -414,61 +633,73 @@ export class TaskQuoteService {
         });
 
         // =====================================================================
-        // SYNC: Task Quote Services → Production Service Orders
-        // When quote services are created, automatically create corresponding
-        // PRODUCTION service orders for each service that doesn't already exist
+        // SERVIÇOS DO ORÇAMENTO → ORDENS DE SERVIÇO DE PRODUÇÃO
+        //
+        // A lista de serviços é UMA e vale para todos os veículos, então cada
+        // veículo recebe o SEU conjunto de ordens de serviço. É literalmente o
+        // trabalho a executar: os três serviços do Marquespan (Logomarca
+        // Laterais, Logomarca Traseira, Aerografia Parcial) viram três O.S. em
+        // cada um dos sessenta caminhões — cento e oitenta ordens, que é o
+        // número de coisas que a produção de fato vai fazer.
+        //
+        // O laço é por TAREFA e o conjunto de O.S. existentes é lido por tarefa:
+        // um único `existingSOs` compartilhado faria o segundo caminhão "já ter"
+        // a O.S. que acabou de ser criada no primeiro, e cinquenta e nove
+        // caminhões ficariam sem ordem nenhuma.
         // =====================================================================
         try {
-          const existingServiceOrders = await tx.serviceOrder.findMany({
-            where: { taskId: data.taskId },
-            select: { id: true, description: true, observation: true, type: true },
-          });
+          for (const targetTaskId of taskIds) {
+            const existingServiceOrders = await tx.serviceOrder.findMany({
+              where: { taskId: targetTaskId },
+              select: { id: true, description: true, observation: true, type: true },
+            });
 
-          const existingSOs: SyncServiceOrder[] = existingServiceOrders.map((so: any) => ({
-            id: so.id,
-            description: so.description,
-            observation: so.observation,
-            type: so.type,
-          }));
+            const existingSOs: SyncServiceOrder[] = existingServiceOrders.map((so: any) => ({
+              id: so.id,
+              description: so.description,
+              observation: so.observation,
+              type: so.type,
+            }));
 
-          for (let i = 0; i < data.services.length; i++) {
-            const service = data.services[i];
-            if (!service.description) continue;
+            for (let i = 0; i < data.services.length; i++) {
+              const service = data.services[i];
+              if (!service.description) continue;
 
-            const syncResult = getQuoteItemToServiceOrderSync(
-              { description: service.description, observation: service.observation || null },
-              existingSOs,
-            );
-
-            if (syncResult.shouldCreateServiceOrder) {
-              this.logger.log(
-                `[QUOTE→SO SYNC] Creating PRODUCTION service order: "${syncResult.serviceOrderDescription}" for quote service`,
+              const syncResult = getQuoteItemToServiceOrderSync(
+                { description: service.description, observation: service.observation || null },
+                existingSOs,
               );
 
-              await tx.serviceOrder.create({
-                data: {
+              if (syncResult.shouldCreateServiceOrder) {
+                await tx.serviceOrder.create({
+                  data: {
+                    description: syncResult.serviceOrderDescription,
+                    observation: syncResult.serviceOrderObservation,
+                    status: SERVICE_ORDER_STATUS.PENDING as any,
+                    statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                    type: SERVICE_ORDER_TYPE.PRODUCTION as any,
+                    position: i,
+                    task: { connect: { id: targetTaskId } },
+                    createdBy: { connect: { id: userId } },
+                  },
+                });
+
+                // Evita duplicata dentro do mesmo lote desta tarefa.
+                existingSOs.push({
                   description: syncResult.serviceOrderDescription,
                   observation: syncResult.serviceOrderObservation,
-                  status: SERVICE_ORDER_STATUS.PENDING as any,
-                  statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
-                  type: SERVICE_ORDER_TYPE.PRODUCTION as any,
-                  position: i,
-                  task: { connect: { id: data.taskId } },
-                  createdBy: { connect: { id: userId } },
-                },
-              });
-
-              // Add to existing SOs to prevent duplicates within the same batch
-              existingSOs.push({
-                description: syncResult.serviceOrderDescription,
-                observation: syncResult.serviceOrderObservation,
-                type: SERVICE_ORDER_TYPE.PRODUCTION,
-              });
+                  type: SERVICE_ORDER_TYPE.PRODUCTION,
+                });
+              }
             }
           }
+          this.logger.log(
+            `[QUOTE→SO SYNC] Orçamento ${newQuote.budgetNumber}: ordens de serviço sincronizadas ` +
+              `para ${taskIds.length} tarefa(s).`,
+          );
         } catch (syncError) {
           this.logger.error('[QUOTE→SO SYNC] Error during sync:', syncError);
-          // Don't throw - sync errors shouldn't block quote creation
+          // Não lança: falha de sincronia não pode desfazer a criação do orçamento.
         }
 
         return tx.taskQuote.findUnique({
@@ -482,7 +713,7 @@ export class TaskQuoteService {
                 },
               },
             },
-            task: true,
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
             layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
@@ -496,7 +727,11 @@ export class TaskQuoteService {
             },
           },
         });
-      });
+      };
+
+      const quote = externalTx
+        ? await createInTransaction(externalTx)
+        : await this.prisma.$transaction(createInTransaction);
 
       return {
         success: true,
@@ -505,8 +740,20 @@ export class TaskQuoteService {
       };
     } catch (error: unknown) {
       this.logger.error('Error creating task quote:', error);
-      if (error instanceof BadRequestException) throw error;
-      throw new InternalServerErrorException('Erro ao criar orçamento.');
+      if (error instanceof HttpException) throw error;
+      // A CAUSA CHEGA À TELA quando é traduzível.
+      //
+      // "Erro ao criar orçamento." é tudo o que o operador via — e, num
+      // orçamento multitarefa, ele recebia junto a instrução de criar o
+      // orçamento por UMA das tarefas, que deixaria os outros N-1 veículos de
+      // fora. Quem está com as tarefas criadas e o orçamento não precisa saber
+      // se o problema é dele (registro duplicado, cliente que sumiu) ou do
+      // servidor (migração pendente), porque a ação seguinte é outra em cada
+      // caso. Ver `describePrismaFailure`.
+      const detail = describePrismaFailure(error);
+      throw new InternalServerErrorException(
+        detail ? `Erro ao criar orçamento: ${detail}` : 'Erro ao criar orçamento.',
+      );
     }
   }
 
@@ -528,14 +775,17 @@ export class TaskQuoteService {
       subtotal: Number(config.subtotal ?? 0).toFixed(2),
       total: Number(config.total ?? 0).toFixed(2),
       discountType: config.discountType ?? 'NONE',
-      discountValue:
-        config.discountValue != null ? Number(config.discountValue).toFixed(2) : null,
+      discountValue: config.discountValue != null ? Number(config.discountValue).toFixed(2) : null,
       discountReference: config.discountReference ?? null,
       paymentCondition: config.paymentCondition ?? null,
       customPaymentText: config.customPaymentText ?? null,
       generateInvoice: config.generateInvoice !== false,
       generateBankSlip: config.generateBankSlip !== false,
-      orderNumber: config.orderNumber ?? null,
+      // `orderNumber` fora da canonicalização: a coluna não existe mais na fatia
+      // (o pedido é do VEÍCULO). O registro gravado NUNCA a tem, então um app
+      // antigo que ainda a manda faria todo salvamento parecer MATERIALMENTE
+      // alterado — disparando o delete+recreate destrutivo das configurações e,
+      // em `BILLING_APPROVED`+, batendo na trava de status.
       responsibleId: config.responsibleId ?? null,
       paymentConfig: config.paymentConfig ?? null,
     });
@@ -617,10 +867,7 @@ export class TaskQuoteService {
    * fields. Used to drive auto-revert-to-PENDING when value changes happen
    * after BUDGET_APPROVED.
    */
-  private hasValueAffectingChange(
-    existing: any,
-    data: TaskQuoteUpdateFormData,
-  ): boolean {
+  private hasValueAffectingChange(existing: any, data: TaskQuoteUpdateFormData): boolean {
     if (data.services !== undefined) return true;
     if (Array.isArray(data.customerConfigs)) {
       const existingByCustomer = new Map(
@@ -631,20 +878,11 @@ export class TaskQuoteService {
         if (!prev) return true; // new customer added → value change
         if (this.isScalarChanged(prev.subtotal, incoming.subtotal)) return true;
         if (this.isScalarChanged(prev.total, incoming.total)) return true;
-        if (this.isScalarChanged(prev.discountType, incoming.discountType ?? 'NONE'))
-          return true;
-        if (
-          this.isScalarChanged(
-            prev.discountValue,
-            incoming.discountValue ?? null,
-          )
-        )
-          return true;
+        if (this.isScalarChanged(prev.discountType, incoming.discountType ?? 'NONE')) return true;
+        if (this.isScalarChanged(prev.discountValue, incoming.discountValue ?? null)) return true;
       }
       // Customer was removed?
-      const incomingIds = new Set(
-        (data.customerConfigs as any[]).map(c => c.customerId),
-      );
+      const incomingIds = new Set((data.customerConfigs as any[]).map(c => c.customerId));
       for (const prev of existing.customerConfigs || []) {
         if (!incomingIds.has(prev.customerId)) return true;
       }
@@ -674,6 +912,17 @@ export class TaskQuoteService {
         include: {
           services: { orderBy: { position: 'asc' } },
           customerConfigs: true,
+          // ⚠️ OS VEÍCULOS. Sem esta linha `existingTaskIds` sai VAZIO e leva
+          // junto tudo o que depende de quantos veículos o orçamento cobre:
+          // `updateVehicleCount` cai para 1 (e `computeQuoteMoney` calcula o
+          // contrato como se fosse um caminhão só), `nextTaskIds` fica vazio e a
+          // reconciliação de fatias, com `PER_TASK`, produz UMA fatia conjunta
+          // em vez de uma por veículo — o que faz a aprovação "veículo a
+          // veículo" faturar os sessenta de uma vez.
+          //
+          // A gravação só manda `taskIds` quando MUDA o conjunto de veículos;
+          // em toda outra gravação o conjunto é o que está no banco.
+          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
           // Captured BEFORE the write so an UNSELECTED reference (dropped from
           // layoutFiles) can be reproved on the task layout afterwards.
           layoutFiles: true,
@@ -792,7 +1041,9 @@ export class TaskQuoteService {
 
       // Validate customerConfigs customer IDs if provided
       if (data.customerConfigs && data.customerConfigs.length > 0) {
-        const customerIds = data.customerConfigs.map(c => c.customerId);
+        // Distintos — ver a nota em `create`. Numa gravação de lotes esta linha
+        // é a diferença entre gravar e recusar.
+        const customerIds = distinctCustomerIds(data.customerConfigs);
         const customers = await this.prisma.customer.findMany({
           where: { id: { in: customerIds } },
           select: { id: true },
@@ -810,7 +1061,9 @@ export class TaskQuoteService {
         // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
         const taskWithResp = await this.prisma.task.findFirst({
           where: { quoteId: id },
-          include: { responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } } },
+          include: {
+            responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } },
+          },
         });
         const taskWithRespList = (taskWithResp as any)?.responsibles ?? [];
         const defaultResponsibleId =
@@ -824,27 +1077,63 @@ export class TaskQuoteService {
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // AS TAREFAS E O MODO DE FATURAMENTO DEPOIS DESTA GRAVAÇÃO
+      // ═══════════════════════════════════════════════════════════════════════
+      //
+      // Os totais e a reconciliação de configurações dependem de QUANTOS veículos
+      // o orçamento cobre e de COMO ele é faturado — e a mesma gravação pode
+      // mudar as duas coisas. Resolver o estado FINAL aqui, antes de qualquer
+      // conta, é o que evita calcular o total pelo número de veículos de antes.
+      const existingTaskIds = ((existing as any).tasks ?? []).map((t: any) => t.id) as string[];
+      const nextTaskIds =
+        data.taskIds && data.taskIds.length > 0 ? [...new Set(data.taskIds)] : existingTaskIds;
+      const updateVehicleCount = Math.max(1, nextTaskIds.length);
+      const updateBillingSplit: 'JOINT' | 'PER_TASK' | 'CUSTOM' =
+        (data as any).billingSplit === 'PER_TASK'
+          ? 'PER_TASK'
+          : (data as any).billingSplit === 'JOINT'
+            ? 'JOINT'
+            : (data as any).billingSplit === 'CUSTOM'
+              ? 'CUSTOM'
+              : ((existing as any).billingSplit ?? 'JOINT');
+
       // Compute per-customer totals from global customer discount
       if (data.customerConfigs && data.customerConfigs.length > 0) {
         // When services weren't edited (stripped by filterToMaterialChanges), fall back to the
         // existing DB services so totals are recomputed against the new customer/discount.
         const servicesToUse = data.services ?? (existing as any).services ?? [];
-        const isSingleConfig = data.customerConfigs.length === 1;
+        // ⚠️ UM CLIENTE, não UMA FATIA — gêmea da guarda em `create`.
+        const isSingleConfig = isSingleCustomerQuote(data.customerConfigs);
         for (const config of data.customerConfigs) {
           // In single-config, all services belong to the one customer regardless of invoiceToCustomerId.
           // This handles customer replacements where services may still carry the old customer's ID.
           const assignedServices = isSingleConfig
             ? servicesToUse
             : servicesToUse.filter((s: any) => s.invoiceToCustomerId === config.customerId);
-          const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
-          const discount = computeConfigDiscount(
-            subtotal,
-            (config as any).discountType,
-            (config as any).discountValue,
-          );
-          const total = Math.max(0, subtotal - discount);
-          config.subtotal = Math.round(subtotal * 100) / 100;
-          config.total = Math.round(total * 100) / 100;
+          // Quantos veículos ESTA fatura cobre. Quando a tela declarou a
+          // cobertura (lote), é o tamanho dela; quando não, o modo decide, e
+          // `planCoverage` devolve o primeiro grupo — que é o único em `JOINT` e
+          // tem tamanho 1 em `PER_TASK`.
+          //
+          // Este valor é provisório de propósito: `recalcQuoteTotals`, no fim da
+          // MESMA transação, reescreve subtotal e total de cada fatura a partir
+          // da cobertura JÁ GRAVADA. Ele existe para o agregado abaixo e para que
+          // a fatia nasça com um número plausível, nunca como fonte de verdade.
+          const declaredCoverage = Array.isArray((config as any).taskIds)
+            ? ((config as any).taskIds as string[]).length
+            : (config as any).taskId
+              ? 1
+              : (planCoverage(updateBillingSplit, nextTaskIds)[0]?.length ?? undefined);
+          const money = computeQuoteMoney({
+            serviceAmounts: assignedServices.map((sv: any) => sv.amount || 0),
+            discountType: (config as any).discountType,
+            discountValue: (config as any).discountValue,
+            taskCount: updateVehicleCount,
+            coveredTaskCount: declaredCoverage,
+          });
+          config.subtotal = money.configSubtotal;
+          config.total = money.configTotal;
         }
       }
 
@@ -853,30 +1142,106 @@ export class TaskQuoteService {
       // into the aggregate so it matches recalcQuoteTotals. servicesToUse is the
       // same source the per-config loop summed above (data.services ?? existing).
       const computeAggregates = data.customerConfigs && data.customerConfigs.length > 0;
+      // Quantas FATURAS cada configuração enviada vira. Em `PER_TASK` são N (uma
+      // por veículo) e o agregado — que é o valor do contrato — multiplica por
+      // elas; em `JOINT` é uma, que já carrega o total geral. Com lotes o
+      // agregado provisório não fecha exatamente, e não precisa:
+      // `recalcQuoteTotals` reescreve o total do orçamento a partir da cobertura
+      // gravada antes de a transação fechar.
+      const updateConfigCount = updateBillingSplit === 'PER_TASK' ? updateVehicleCount : 1;
       let aggregateSubtotal = computeAggregates
-        ? data.customerConfigs!.reduce((sum, c) => sum + (c.subtotal || 0), 0)
+        ? round2(
+            data.customerConfigs!.reduce(
+              (sum, c) => sum + (c.subtotal || 0) * updateConfigCount,
+              0,
+            ),
+          )
         : undefined;
       let aggregateTotal = computeAggregates
-        ? data.customerConfigs!.reduce((sum, c) => sum + (c.total || 0), 0)
+        ? round2(
+            data.customerConfigs!.reduce((sum, c) => sum + (c.total || 0) * updateConfigCount, 0),
+          )
         : undefined;
       if (computeAggregates && data.customerConfigs!.length >= 2) {
         const servicesForAggregate = data.services ?? (existing as any).services ?? [];
         const unassignedSum = servicesForAggregate
           .filter((s: any) => !s.invoiceToCustomerId)
           .reduce((sum: number, s: any) => sum + (s.amount || 0), 0);
-        const unassignedRounded = Math.round(unassignedSum * 100) / 100;
-        aggregateSubtotal = Math.round(((aggregateSubtotal || 0) + unassignedRounded) * 100) / 100;
-        aggregateTotal = Math.round(((aggregateTotal || 0) + unassignedRounded) * 100) / 100;
+        // Vezes os veículos: é serviço prestado em cada um.
+        const unassignedRounded = round2(round2(unassignedSum) * updateVehicleCount);
+        aggregateSubtotal = round2((aggregateSubtotal || 0) + unassignedRounded);
+        aggregateTotal = round2((aggregateTotal || 0) + unassignedRounded);
       }
 
       // Update quote with items in transaction
       const updated = await this.prisma.$transaction(async tx => {
+        // ─── O CONJUNTO DE VEÍCULOS ──────────────────────────────────────────
+        //
+        // Reconciliação, não substituição: vincula as tarefas que entraram e
+        // desvincula as que saíram. Acrescentar ou retirar um veículo é alteração
+        // MATERIAL — muda o total e muda o objeto do contrato —, e a detecção de
+        // mudança material derruba a coleta de assinaturas em andamento, que é
+        // exatamente o comportamento correto.
+        //
+        // ⚠️ Feito ANTES de `reconcileQuoteCustomerConfigs` e de
+        // `recalcQuoteTotals`: os dois contam as tarefas do banco.
+        if (data.taskIds && data.taskIds.length > 0) {
+          const removedTaskIds = existingTaskIds.filter(t => !nextTaskIds.includes(t));
+          const addedTaskIds = nextTaskIds.filter(t => !existingTaskIds.includes(t));
+
+          if (addedTaskIds.length > 0) {
+            // Tarefa que já pertence a OUTRO orçamento não é roubada em silêncio.
+            const conflicting = await tx.task.findMany({
+              where: { id: { in: addedTaskIds }, quoteId: { not: null, notIn: [id] } },
+              select: { id: true, serialNumber: true, quote: { select: { budgetNumber: true } } },
+            });
+            if (conflicting.length > 0) {
+              const labels = conflicting
+                .slice(0, 5)
+                .map(t =>
+                  t.quote?.budgetNumber
+                    ? `${t.serialNumber ?? t.id.slice(0, 8)} (orçamento nº ${t.quote.budgetNumber})`
+                    : (t.serialNumber ?? t.id.slice(0, 8)),
+                )
+                .join(', ');
+              throw new BadRequestException(
+                `Já existe orçamento para: ${labels}${conflicting.length > 5 ? ', …' : ''}.`,
+              );
+            }
+            await tx.task.updateMany({
+              where: { id: { in: addedTaskIds } },
+              data: { quoteId: id },
+            });
+          }
+
+          if (removedTaskIds.length > 0) {
+            // As configurações de faturamento da tarefa retirada saem por
+            // cascata (`TaskQuoteCustomerConfig.taskId` é `onDelete: Cascade` na
+            // TAREFA, não no vínculo) — então a reconciliação abaixo é quem as
+            // apaga, com as guardas de boleto ativo e parcela paga.
+            await tx.task.updateMany({
+              where: { id: { in: removedTaskIds }, quoteId: id },
+              data: { quoteId: null },
+            });
+            this.logger.log(
+              `[QUOTE UPDATE] Orçamento ${id}: ${removedTaskIds.length} tarefa(s) desvinculada(s), ` +
+                `${addedTaskIds.length} vinculada(s).`,
+            );
+          }
+        }
+
         const updatedQuote = await tx.taskQuote.update({
           where: { id },
           data: {
             ...(aggregateSubtotal !== undefined && { subtotal: aggregateSubtotal }),
             ...(aggregateTotal !== undefined && { total: aggregateTotal }),
             ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt }),
+            // Junto ou separado. Gravado ANTES da reconciliação de configurações
+            // (que lê este valor do banco para saber quantas fatias criar) e
+            // ANTES de `recalcQuoteTotals`.
+            ...((data as any).billingSplit !== undefined && {
+              billingSplit: updateBillingSplit as any,
+            }),
             ...(data.status !== undefined && {
               status: data.status,
               statusOrder: this.getStatusOrder(data.status as TASK_QUOTE_STATUS),
@@ -931,7 +1296,7 @@ export class TaskQuoteService {
                 },
               },
             },
-            task: true,
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
             layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
@@ -993,6 +1358,80 @@ export class TaskQuoteService {
           await reproveNonSelectedTaskLayoutsFromQuote(tx, id, userId);
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // TROCAR "JUNTO OU SEPARADO" SOZINHO TAMBÉM REFATIA
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // A reconciliação abaixo só roda quando a gravação traz
+        // `customerConfigs` — e a tela de orçamento traz sempre, porque
+        // reenvia o formulário inteiro. Mas `billingSplit` é editável sozinho
+        // (o seletor "Faturamento dos N veículos"), e um corpo com só ele
+        // deixava o orçamento afirmando `PER_TASK` com UMA fatia conjunta.
+        //
+        // O estrago não é cosmético: `internalApprove` por veículo procura a
+        // fatia daquele caminhão, acha a conjunta — que cobre todos — e aprova
+        // o faturamento dos sessenta de uma vez, emitindo sessenta notas com
+        // vencimento contado de hoje. Exatamente o que a escolha "separado"
+        // existe para impedir.
+        //
+        // Aqui as configurações de ENTRADA são as que já estão no banco, uma
+        // por cliente: o que muda é o fatiamento, não os termos.
+        const billingSplitChanged =
+          (data as any).billingSplit !== undefined &&
+          updateBillingSplit !== ((existing as any).billingSplit ?? 'JOINT');
+
+        // ─── TROCAR O MODO DEPOIS DE FATURAR NÃO É POSSÍVEL ──────────────────
+        //
+        // A cobertura de uma fatura já aprovada é congelada — ela sustenta uma
+        // nota fiscal autorizada e boletos registrados, e mudá-la
+        // retroativamente alteraria de quais caminhões é um documento fiscal que
+        // já saiu. A reconciliação respeita isso sozinha, mas em silêncio: o
+        // pedido "separe os sessenta" numa `JOINT` já faturada não teria efeito
+        // nenhum e a tela mostraria "separado" sobre uma fatura única. Recusar é
+        // a resposta honesta, e diz o que fazer.
+        if (billingSplitChanged) {
+          const approved = await tx.taskQuoteCustomerConfig.count({
+            where: { quoteId: id, billingApprovedAt: { not: null } },
+          });
+          if (approved > 0) {
+            throw new BadRequestException(
+              'Não é possível mudar a forma de faturamento: já existe faturamento aprovado neste orçamento. ' +
+                'Reverta o faturamento antes de refatiar.',
+            );
+          }
+        }
+        if (data.customerConfigs === undefined && billingSplitChanged) {
+          const storedConfigs = await tx.taskQuoteCustomerConfig.findMany({
+            where: { quoteId: id },
+            orderBy: { createdAt: 'asc' },
+          });
+          const byCustomer = new Map<string, (typeof storedConfigs)[number]>();
+          for (const c of storedConfigs) {
+            if (!byCustomer.has(c.customerId)) byCustomer.set(c.customerId, c);
+          }
+          if (byCustomer.size > 0) {
+            await reconcileQuoteCustomerConfigs(
+              tx,
+              id,
+              [...byCustomer.values()].map(c => ({
+                customerId: c.customerId,
+                subtotal: Number(c.subtotal),
+                total: Number(c.total),
+                discountType: c.discountType,
+                discountValue: c.discountValue != null ? Number(c.discountValue) : null,
+                discountReference: c.discountReference,
+                customPaymentText: c.customPaymentText,
+                generateInvoice: c.generateInvoice,
+                generateBankSlip: c.generateBankSlip,
+                responsibleId: c.responsibleId,
+                paymentCondition: c.paymentCondition,
+                paymentConfig: c.paymentConfig,
+              })),
+              { billingSplit: updateBillingSplit, taskIds: nextTaskIds },
+            );
+          }
+        }
+
         // Handle customerConfigs changes
         if (data.customerConfigs !== undefined) {
           // Reconcile by (quoteId, customerId) WITHOUT destroy-and-recreate:
@@ -1007,7 +1446,26 @@ export class TaskQuoteService {
             tx,
             id,
             data.customerConfigs as any,
+            // O estado FINAL, não o do banco: a mesma gravação pode ter acabado
+            // de trocar o modo de faturamento ou o conjunto de veículos, e ler do
+            // banco aqui criaria as fatias erradas.
+            { billingSplit: updateBillingSplit, taskIds: nextTaskIds },
           );
+
+          // COMPATIBILIDADE: `customerConfigs[].orderNumber` (ver a mesma nota em
+          // `create`). O pedido é do VEÍCULO; o app instalado ainda o manda na
+          // fatia, e ali ele vale para todas as tarefas do orçamento. Um `null`
+          // NÃO apaga — a tela nova escreve por veículo, e um cliente antigo que
+          // não lê mais o campo mandaria nulo em toda gravação.
+          const legacyOrderNumber = (data.customerConfigs as any[])
+            .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+            .find(v => v.length > 0);
+          if (legacyOrderNumber) {
+            await tx.task.updateMany({
+              where: { quoteId: id },
+              data: { customerOrderNumber: legacyOrderNumber },
+            });
+          }
 
           // Audit the per-customer billing terms. The discount lives on the config
           // row, so when it moved off TaskQuote (migration 20260408000003) it left
@@ -1057,7 +1515,11 @@ export class TaskQuoteService {
                 oldValue: entry.oldValue ?? null,
                 newValue: entry.newValue ?? null,
                 reason,
-                metadata: { customerId: entry.customerId, customerName: who, inherited: !!entry.inherited },
+                metadata: {
+                  customerId: entry.customerId,
+                  customerName: who,
+                  inherited: !!entry.inherited,
+                },
                 userId: userId || '',
                 triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                 triggeredById: userId,
@@ -1211,12 +1673,12 @@ export class TaskQuoteService {
             const updatedWithTask = await tx.taskQuote.findUnique({
               where: { id },
               include: {
-                task: { select: { id: true } },
+                tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
                 services: { orderBy: { position: 'asc' } },
               },
             });
 
-            const taskRef = updatedWithTask?.task;
+            const taskRef = updatedWithTask?.tasks?.[0];
             if (taskRef) {
               const quoteIdLog = await tx.changeLog.findFirst({
                 where: { entityType: 'TASK', entityId: taskRef.id, field: 'quoteId' },
@@ -1277,9 +1739,15 @@ export class TaskQuoteService {
             // Get the task ID for this quote
             const quoteWithTask = await tx.taskQuote.findUnique({
               where: { id },
-              select: { task: { select: { id: true } } },
+              select: {
+                tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+              },
             });
-            const taskId = quoteWithTask?.task?.id;
+            // TODAS as tarefas: a O.S. é por veículo, e num orçamento de
+            // sessenta caminhões mexer só na primeira deixaria cinquenta e nove
+            // com a lista de serviços antiga.
+            const syncTaskIds = (quoteWithTask?.tasks ?? []).map(t => t.id);
+            const taskId = syncTaskIds[0];
 
             if (taskId) {
               // Find matching PRODUCTION service orders
@@ -1311,13 +1779,16 @@ export class TaskQuoteService {
           try {
             const quoteWithTask = await tx.taskQuote.findUnique({
               where: { id },
-              select: { task: { select: { id: true } } },
+              select: {
+                tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+              },
             });
-            const taskId = quoteWithTask?.task?.id;
+            const syncTaskIds = (quoteWithTask?.tasks ?? []).map(t => t.id);
+            const taskId = syncTaskIds[0];
 
             if (taskId) {
               const existingServiceOrders = await tx.serviceOrder.findMany({
-                where: { taskId },
+                where: { taskId: { in: syncTaskIds } },
                 select: { id: true, description: true, observation: true, type: true },
               });
 
@@ -1377,7 +1848,35 @@ export class TaskQuoteService {
         // truth — runs whenever services OR configs changed, so a services-only
         // edit (configs stripped by filterToMaterialChanges) never leaves
         // subtotal/total stale (the "detail ≠ wizard" + mis-billed-invoice bug).
-        if (data.services !== undefined || data.customerConfigs !== undefined) {
+        //
+        // `taskIds` entra na condição junto: mudar o CONJUNTO de veículos muda o
+        // multiplicador de todo total (`por veículo × N`) e a contagem
+        // desnormalizada, e uma edição que só acrescenta ou retira caminhão não
+        // manda serviços nem configurações. Sem esta chave, tirar um veículo de
+        // sessenta deixava o contrato afirmando sessenta.
+        //
+        // ⚠️ `billingSplit` ENTRA NA CONDIÇÃO. Trocar "junto" por "separado" é
+        // uma gravação que normalmente não traz serviço nem configuração
+        // nenhuma — e ela refatia o faturamento logo acima. Sem esta chave, as
+        // sessenta faturas novas nasciam copiando o `total` da conjunta: o valor
+        // do CONTRATO inteiro em cada uma, sessenta vezes, congelado em
+        // `Invoice.totalAmount` na aprovação seguinte.
+        if (
+          data.services !== undefined ||
+          data.customerConfigs !== undefined ||
+          data.taskIds !== undefined ||
+          (data as any).billingSplit !== undefined
+        ) {
+          // A COBERTURA antes do total. Uma gravação que só mexe em `taskIds`
+          // não passa pela reconciliação acima (ela só roda com
+          // `customerConfigs` ou com troca de modo), e sem refatiar aqui o
+          // caminhão acrescentado ficaria fora de toda fatura — ou o retirado
+          // continuaria dentro de uma. Não toca em nenhum termo: ver
+          // `resliceQuoteCoverage`.
+          await resliceQuoteCoverage(tx, id, {
+            billingSplit: updateBillingSplit,
+            taskIds: nextTaskIds,
+          });
           await recalcQuoteTotals(tx, id);
         }
 
@@ -1392,7 +1891,7 @@ export class TaskQuoteService {
                 },
               },
             },
-            task: true,
+            tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
             layoutFiles: { orderBy: { createdAt: 'asc' } },
             customerConfigs: {
               include: {
@@ -1475,7 +1974,7 @@ export class TaskQuoteService {
         where: { id },
         include: {
           services: { orderBy: { position: 'asc' } },
-          task: { select: { id: true } },
+          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
           customerConfigs: { select: { id: true, customerId: true } },
           layoutFiles: { select: { id: true } },
         },
@@ -1523,7 +2022,7 @@ export class TaskQuoteService {
         customerConfigIds: existing.customerConfigs.map(c => c.customerId),
       };
 
-      const taskId = existing.task?.id;
+      const taskId = existing.tasks?.[0]?.id;
 
       // Assinatura eletrônica: um orçamento com assinatura coletada ou envelope
       // selado não pode ser apagado (o documento assinado é a prova da
@@ -1553,26 +2052,38 @@ export class TaskQuoteService {
         // do delete, abrindo a válvula da migration só dentro desta transação.
         const result = await this.signatureDeletion.purgeForQuotes(tx, [id]);
 
-        // Nullify quoteId on the associated task before deleting
-        if (taskId) {
-          await tx.task.update({
-            where: { id: taskId },
+        // Desvincula TODAS as tarefas antes de apagar.
+        //
+        // Era uma. Num orçamento de sessenta caminhões, desvincular só a
+        // primeira deixaria cinquenta e nove com `quoteId` apontando para uma
+        // linha apagada — e como a FK é `SetNull` sem `onDelete` declarado no
+        // lado da tarefa, o `delete` abaixo falharia ou zeraria em silêncio, sem
+        // registro no histórico de nenhuma delas. O `changeLog` por tarefa é o
+        // que permite reconstruir depois de qual orçamento cada uma saiu.
+        const unlinkTaskIds = ((existing as any).tasks ?? [])
+          .map((t: any) => t.id as string)
+          .filter(Boolean);
+        if (unlinkTaskIds.length > 0) {
+          await tx.task.updateMany({
+            where: { id: { in: unlinkTaskIds } },
             data: { quoteId: null },
           });
 
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.TASK,
-            entityId: taskId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'quoteId',
-            oldValue: quoteSnapshot,
-            newValue: null,
-            userId,
-            reason: 'Orçamento removido (exclusão do orçamento)',
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-            triggeredById: id,
-            transaction: tx,
-          });
+          for (const unlinkedTaskId of unlinkTaskIds) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: unlinkedTaskId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'quoteId',
+              oldValue: quoteSnapshot,
+              newValue: null,
+              userId,
+              reason: 'Orçamento removido (exclusão do orçamento)',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              transaction: tx,
+            });
+          }
         }
 
         await tx.taskQuote.delete({ where: { id } });
@@ -1981,27 +2492,23 @@ export class TaskQuoteService {
       // (the separate commercial double-check step was removed).
       const nextStep = 'aprovação de faturamento';
 
-      await this.dispatchService.dispatchByConfiguration(
-        'task_quote.approval_pending',
-        userId,
-        {
-          entityType: 'TaskQuote',
-          entityId: taskId ?? quoteId,
-          action: 'approval_pending',
-          data: { quoteLabel, nextStep },
-          overrides: {
-            title: 'Aprovação Pendente',
-            body: `O orçamento ${quoteLabel} aguarda ${nextStep}.`,
-            relatedEntityType: 'TASK_QUOTE',
-            ...(taskId
-              ? {
-                  webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
-                  mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
-                }
-              : {}),
-          },
+      await this.dispatchService.dispatchByConfiguration('task_quote.approval_pending', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'approval_pending',
+        data: { quoteLabel, nextStep },
+        overrides: {
+          title: 'Aprovação Pendente',
+          body: `O orçamento ${quoteLabel} aguarda ${nextStep}.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
         },
-      );
+      });
     } catch (error) {
       this.logger.error(
         'Falha ao notificar aprovação pendente (task_quote.approval_pending):',
@@ -2035,10 +2542,151 @@ export class TaskQuoteService {
         },
       });
     } catch (error) {
-      this.logger.error(
-        'Falha ao notificar liquidação de orçamento (task_quote.settled):',
-        error,
+      this.logger.error('Falha ao notificar liquidação de orçamento (task_quote.settled):', error);
+    }
+  }
+
+  /**
+   * TODOS OS RESPONSÁVEIS DO CLIENTE ASSINARAM. Falta a contra-assinatura da Ankaa.
+   *
+   * Chamado pela cerimônia (`setOnCustomerSideSigned`), nunca por rota. Escreve
+   * `SIGNED`, que é o estado que a lista de Orçamentos usa para responder à
+   * pergunta "o que está parado esperando a gente?".
+   *
+   * POR QUE O ESTADO PRECISAVA EXISTIR
+   *   Entre a assinatura do cliente e a nossa podem passar dias — o cliente
+   *   assina na sexta à noite, quem contra-assina volta na segunda. Nesse
+   *   intervalo o orçamento era `PENDING`, exatamente igual a um criado naquela
+   *   manhã e ainda não enviado. Quem abria a lista para achar o que travou não
+   *   tinha como distinguir "o cliente nem viu" de "só falta a nossa caneta".
+   *
+   * NÃO USA `updateStatus`: a máquina de transição é um catálogo de mudanças
+   * MANUAIS, e esta não é uma. Vai pelo `update(..., _internal: true)`, como o
+   * cascateamento de parcelas.
+   */
+  async markSigned(quoteId: string, userId: string = 'system'): Promise<void> {
+    const existing = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: { status: true },
+    });
+    if (!existing) return;
+
+    // SÓ DE PENDING.
+    //
+    // Um orçamento já aprovado, faturado ou cancelado não volta para "assinado"
+    // porque uma assinatura atrasada chegou: `BUDGET_APPROVED` é posterior a
+    // este estado, e regredir apagaria a aprovação. Cancelado, então, é pior —
+    // reviveria na lista de quem vende um negócio que morreu.
+    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
+      this.logger.log(
+        `Orçamento ${quoteId} não foi marcado como assinado: está em ${existing.status}.`,
       );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.SIGNED }, userId, true);
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId },
+      select: { id: true },
+    });
+    if (task) {
+      await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+    }
+
+    // O aviso de contra-assinatura para QUEM ASSINA pela Ankaa sai da própria
+    // cerimônia (`notifyAnkaaSigner`, com link). Este é o aviso de SETOR: o
+    // comercial e a administração precisam ver na lista de notificações que há
+    // um orçamento fechado do lado do cliente esperando a nossa assinatura.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      await this.dispatchService.dispatchByConfiguration('task_quote.signed', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'signed',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Assinado pelo Cliente',
+          body: `O orçamento ${quoteLabel} foi assinado por todos os responsáveis do cliente e aguarda a contra-assinatura da Ankaa.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar orçamento assinado (task_quote.signed):', error);
+    }
+  }
+
+  /**
+   * A VALIDADE VENCEU SEM TODAS AS ASSINATURAS.
+   *
+   * Chamado pela varredura de expiração (`setOnEnvelopeExpired`). O orçamento
+   * vai para `EXPIRED` — rotulado "Aguardando Reanálise" — e o comercial é
+   * avisado de que há um valor para rever.
+   *
+   * O DEFEITO QUE ISTO FECHA
+   *   `SignatureEnvelope` expirava de hora em hora desde sempre; o ORÇAMENTO
+   *   nunca. Ele ficava PENDING para sempre, misturado aos recém-criados em toda
+   *   lista, filtro e relatório, e ninguém era avisado. Na prática a validade era
+   *   um texto no PDF: impedia assinar (`assertSignable`) e não movia mais nada.
+   *
+   * SÓ DE PENDING, pelas mesmas razões de `markSigned` — com uma a mais: um
+   * orçamento em `SIGNED` não chega aqui porque a varredura o exclui de
+   * propósito (o cliente aceitou dentro do prazo; o que falta é nosso).
+   */
+  async markExpiredBySignature(quoteId: string, userId: string = 'system'): Promise<void> {
+    const existing = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: { status: true, expiresAt: true },
+    });
+    if (!existing) return;
+
+    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
+      this.logger.log(
+        `Orçamento ${quoteId} não foi marcado como vencido: está em ${existing.status}.`,
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.EXPIRED }, userId, true);
+
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId },
+      select: { id: true },
+    });
+    if (task) {
+      await syncEmNegociacaoForTask(this.prisma, task.id, userId);
+    }
+
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      const expiredOn = existing.expiresAt.toLocaleDateString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+      });
+      await this.dispatchService.dispatchByConfiguration('task_quote.expired', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'expired',
+        data: { quoteLabel, expiredOn },
+        overrides: {
+          title: 'Orçamento Vencido — Reanalisar',
+          body: `A validade do orçamento ${quoteLabel} venceu em ${expiredOn} sem todas as assinaturas. Revise o valor e reemita a proposta.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar orçamento vencido (task_quote.expired):', error);
     }
   }
 
@@ -2061,9 +2709,7 @@ export class TaskQuoteService {
       select: { layoutFiles: { select: { id: true } } },
     });
     if (!quoteForGate || (quoteForGate.layoutFiles || []).length === 0) {
-      throw new BadRequestException(
-        'Selecione um layout aprovado antes de aprovar o orçamento.',
-      );
+      throw new BadRequestException('Selecione um layout aprovado antes de aprovar o orçamento.');
     }
 
     const result = await this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
@@ -2089,7 +2735,10 @@ export class TaskQuoteService {
         },
       });
     } catch (error) {
-      this.logger.error('Falha ao notificar aprovação de orçamento (task_quote.budget_approved):', error);
+      this.logger.error(
+        'Falha ao notificar aprovação de orçamento (task_quote.budget_approved):',
+        error,
+      );
     }
 
     return result;
@@ -2098,7 +2747,9 @@ export class TaskQuoteService {
   /** Best-effort human label for a quote — uses the linked task serial/name when
    *  available, falling back to the short quote id. Also returns the linked task
    *  id so notification deep links (keyed by taskId) can be built. Never throws. */
-  private async buildQuoteLabel(quoteId: string): Promise<{ label: string; taskId: string | null }> {
+  private async buildQuoteLabel(
+    quoteId: string,
+  ): Promise<{ label: string; taskId: string | null }> {
     try {
       const task = await this.prisma.task.findFirst({
         where: { quoteId },
@@ -2124,10 +2775,7 @@ export class TaskQuoteService {
    * before the sync logic existed (or before a bug fix). This endpoint replays
    * the reconciliation without requiring a status transition.
    */
-  async syncEmNegociacao(
-    id: string,
-    userId: string,
-  ): Promise<{ success: true; message: string }> {
+  async syncEmNegociacao(id: string, userId: string): Promise<{ success: true; message: string }> {
     const task = await this.prisma.task.findFirst({
       where: { quoteId: id },
       select: { id: true },
@@ -2142,9 +2790,33 @@ export class TaskQuoteService {
   /**
    * Commercial/admin final approval — triggers invoice + NFS-e generation
    */
-  async internalApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+  /**
+   * Aprovação do faturamento — a que emite fatura, NFS-e e boletos.
+   *
+   * @param sliceTaskId  A FATIA a faturar, quando o orçamento cobra veículo a
+   *   veículo (`billingSplit = PER_TASK`). Omitido fatura TUDO o que ainda não
+   *   foi faturado, que é o comportamento de `JOINT` — onde existe uma fatia só —
+   *   e é também o "faturar os sessenta de uma vez".
+   *
+   * COMO O STATUS SE MOVE COM FATIAS
+   *   Os sessenta caminhões do Marquespan não terminam no mesmo dia, então o
+   *   orçamento passa meses parcialmente faturado. O status não tenta descrever
+   *   isso com um valor novo: a PRIMEIRA fatia aprovada já leva o orçamento a
+   *   BILLING_APPROVED, e dali em diante a cascata o move por
+   *   UPCOMING/DUE/PARTIAL/SETTLED a partir das parcelas que existem.
+   *
+   *   `TaskQuote.billingApprovedAt` só é gravado quando a ÚLTIMA fatia fecha —
+   *   é ele que significa "este orçamento está inteiramente faturado", e
+   *   `TaskQuoteCustomerConfig.billingApprovedAt` responde fatia a fatia.
+   */
+  async internalApprove(
+    id: string,
+    userId: string,
+    sliceTaskId?: string | null,
+  ): Promise<TaskQuoteUpdateResponse> {
     this.logger.log(
-      `[INTERNAL_APPROVE] Starting internal approval for quote ${id} by user ${userId}`,
+      `[INTERNAL_APPROVE] Starting internal approval for quote ${id} by user ${userId}` +
+        (sliceTaskId ? ` (fatia da tarefa ${sliceTaskId})` : ''),
     );
 
     // 1. Validate the quote exists and prerequisites are met
@@ -2152,54 +2824,149 @@ export class TaskQuoteService {
     if (!existing) {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
-    this.validateStatusTransition(
-      existing.status as TASK_QUOTE_STATUS,
-      TASK_QUOTE_STATUS.BILLING_APPROVED,
-    );
-    await this.validateStatusPrerequisites(
-      id,
-      existing.status as TASK_QUOTE_STATUS,
-      TASK_QUOTE_STATUS.BILLING_APPROVED,
-    );
+
+    // ── OS FATURAMENTOS DESTE ORÇAMENTO ───────────────────────────────────────
+    const quoteSlices = await this.prisma.taskQuote.findUnique({
+      where: { id },
+      select: {
+        billingSplit: true,
+        customerConfigs: {
+          select: {
+            id: true,
+            billingApprovedAt: true,
+            coveredTasks: { select: { taskId: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    const allConfigs = (quoteSlices?.customerConfigs ?? []) as Array<{
+      id: string;
+      billingApprovedAt: Date | null;
+      coveredTasks: Array<{ taskId: string }>;
+    }>;
+
+    // Alvo desta aprovação: os faturamentos que COBREM o veículo pedido, ou
+    // todos os pendentes quando nenhum veículo foi pedido.
+    //
+    // A pergunta é de cobertura, não de igualdade: aprovar o caminhão 37 fecha a
+    // fatura do lote 21–60, porque é ela que cobra o 37 — e fecha os quarenta de
+    // uma vez, que é o que o lote significa. Num orçamento conjunto de dois
+    // clientes, cobre as duas faturas, como sempre foi.
+    const targetConfigs = allConfigs.filter(c => {
+      if (c.billingApprovedAt) return false;
+      if (!sliceTaskId) return true;
+      // Fatura sem cobertura é o orçamento que nasceu antes do vínculo: não há o
+      // que restringir, e recusá-la deixaria a aprovação sem fatura nenhuma.
+      if (c.coveredTasks.length === 0) return true;
+      return c.coveredTasks.some(row => row.taskId === sliceTaskId);
+    });
+
+    if (targetConfigs.length === 0) {
+      throw new BadRequestException(
+        sliceTaskId
+          ? 'Este veículo já teve o faturamento aprovado.'
+          : 'Todas as fatias deste orçamento já tiveram o faturamento aprovado.',
+      );
+    }
+
+    // ── A GUARDA DE STATUS ────────────────────────────────────────────────────
+    //
+    // Na PRIMEIRA aprovação a transição é BUDGET_APPROVED → BILLING_APPROVED, e
+    // vale a validação de sempre. Nas seguintes o orçamento já está no ciclo de
+    // recebíveis (UPCOMING, DUE, PARTIAL) e a transição não existe — exigi-la
+    // faria a segunda fatia ser recusada com "o orçamento não está mais no
+    // status Orçamento Aprovado", que é verdade e é irrelevante.
+    const isFirstApproval = allConfigs.every(c => !c.billingApprovedAt);
+    if (isFirstApproval) {
+      this.validateStatusTransition(
+        existing.status as TASK_QUOTE_STATUS,
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+      );
+      await this.validateStatusPrerequisites(
+        id,
+        existing.status as TASK_QUOTE_STATUS,
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+      );
+    } else if (
+      ![
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+        TASK_QUOTE_STATUS.UPCOMING,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.PARTIAL,
+      ].includes(existing.status as TASK_QUOTE_STATUS)
+    ) {
+      throw new BadRequestException(
+        `Não é possível faturar outra fatia com o orçamento em "${this.getStatusLabel(
+          existing.status as TASK_QUOTE_STATUS,
+        )}".`,
+      );
+    }
 
     // Capture billing approval time now — used as the base date for installment due date calculation.
     // "First payment in N days" counts from this moment, not from task.finishedAt.
     const approvalDate = new Date();
 
-    // 2. Atomically claim the status transition (prevents concurrent approvals)
-    // Only one request can win: the one that finds status=BUDGET_APPROVED and sets it to BILLING_APPROVED.
-    // (The separate COMMERCIAL_APPROVED double-check step was removed — billing is approved directly
-    //  from the budget-approved state, regardless of whether the task is finished.)
-    const claimed = await this.prisma.taskQuote.updateMany({
-      where: { id, status: TASK_QUOTE_STATUS.BUDGET_APPROVED },
-      data: {
-        status: TASK_QUOTE_STATUS.BILLING_APPROVED,
-        statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
-        // billingApprovedAt exists in schema.prisma but the generated Prisma client is stale;
-        // cast to satisfy the type checker until `prisma generate` is rerun.
-        billingApprovedAt: approvalDate,
-      } as any,
-    });
-    if (claimed.count === 0) {
-      throw new BadRequestException(
-        'O orçamento não está mais no status Orçamento Aprovado. Pode ter sido aprovado por outra requisição simultânea.',
-      );
-    }
+    // O orçamento estará INTEIRAMENTE faturado ao fim desta aprovação?
+    const closesQuote =
+      targetConfigs.length === allConfigs.filter(c => !c.billingApprovedAt).length;
 
-    this.logger.log(
-      `[INTERNAL_APPROVE] Status atomically claimed to BILLING_APPROVED for quote ${id}`,
-    );
+    // 2. Claim ATÔMICO da transição — só na primeira aprovação.
+    //
+    // Só um pedido ganha: o que encontra BUDGET_APPROVED e grava
+    // BILLING_APPROVED. `billingApprovedAt` do ORÇAMENTO só é gravado quando esta
+    // aprovação fecha a última fatia; do contrário ele afirmaria que os sessenta
+    // caminhões estão faturados no dia em que o primeiro foi.
+    if (isFirstApproval) {
+      const claimed = await this.prisma.taskQuote.updateMany({
+        where: { id, status: TASK_QUOTE_STATUS.BUDGET_APPROVED },
+        data: {
+          status: TASK_QUOTE_STATUS.BILLING_APPROVED,
+          statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
+          ...(closesQuote ? { billingApprovedAt: approvalDate } : {}),
+        } as any,
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException(
+          'O orçamento não está mais no status Orçamento Aprovado. Pode ter sido aprovado por outra requisição simultânea.',
+        );
+      }
+      this.logger.log(
+        `[INTERNAL_APPROVE] Status atomically claimed to BILLING_APPROVED for quote ${id}`,
+      );
+    } else {
+      // Claim da FATIA: `billingApprovedAt IS NULL` é a condição de corrida aqui,
+      // e `updateMany` a resolve sem transação explícita — duas aprovações
+      // simultâneas do mesmo caminhão, e só uma escreve.
+      const claimedSlices = await this.prisma.taskQuoteCustomerConfig.updateMany({
+        where: { id: { in: targetConfigs.map(c => c.id) }, billingApprovedAt: null },
+        data: { billingApprovedAt: approvalDate } as any,
+      });
+      if (claimedSlices.count === 0) {
+        throw new BadRequestException(
+          'Esta fatia já teve o faturamento aprovado por outra requisição simultânea.',
+        );
+      }
+    }
 
     // Trigger invoice generation and auto-transition to UPCOMING
     // If anything fails, revert status back to BUDGET_APPROVED so the user can retry
     try {
-      const task = await this.prisma.task.findFirst({
+      // A tarefa de ENTRADA da geração: a fatia pedida quando há uma, senão a
+      // primeira do orçamento. Ela serve de contexto (data de conclusão de
+      // fallback, `supersedePreviousNfses`); quais configurações faturar é
+      // decidido por `onlyTaskIds`, não por ela.
+      const quoteTaskRows = await this.prisma.task.findMany({
         where: { quoteId: id },
         select: { id: true, name: true, serialNumber: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
+      const task = sliceTaskId
+        ? (quoteTaskRows.find(t => t.id === sliceTaskId) ?? quoteTaskRows[0])
+        : quoteTaskRows[0];
 
       this.logger.log(
-        `[INTERNAL_APPROVE] Task lookup result: ${task ? `found task ${task.id} (${task.name} #${task.serialNumber})` : 'NO TASK FOUND'}`,
+        `[INTERNAL_APPROVE] Task lookup result: ${task ? `found task ${task.id} (${task.name} #${task.serialNumber}) de ${quoteTaskRows.length} tarefa(s)` : 'NO TASK FOUND'}`,
       );
 
       if (!task) {
@@ -2213,6 +2980,17 @@ export class TaskQuoteService {
         task.id,
         userId,
         approvalDate,
+        // O VEÍCULO PEDIDO. Sem isto, aprovar o caminhão 1 de um orçamento
+        // cobrado veículo a veículo emitiria as sessenta faturas, as sessenta
+        // notas fiscais e os duzentos e quarenta boletos de uma vez — exatamente
+        // o que "veículo a veículo" existe para não fazer.
+        //
+        // Passado SEMPRE que um veículo foi pedido, sem olhar o modo: a geração
+        // filtra por COBERTURA, e num orçamento conjunto a fatura que cobre esse
+        // veículo é a que cobre todos — o filtro não exclui nada, e o resultado é
+        // idêntico ao de não filtrar. Condicionar ao modo era o que fazia um
+        // orçamento em lotes emitir os três lotes ao aprovar um caminhão.
+        sliceTaskId ? { onlyTaskIds: [sliceTaskId] } : undefined,
       );
       this.logger.log(
         `[INTERNAL_APPROVE] Invoice generation complete: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}]`,
@@ -2276,10 +3054,7 @@ export class TaskQuoteService {
         }),
       ]);
       const readyForBoleto = [
-        ...new Set([
-          ...authorizedNfse.map(n => n.invoiceId),
-          ...noNfseRequired.map(i => i.id),
-        ]),
+        ...new Set([...authorizedNfse.map(n => n.invoiceId), ...noNfseRequired.map(i => i.id)]),
       ];
       const blockedCount = invoiceIds.length - readyForBoleto.length;
       if (blockedCount > 0) {
@@ -2302,10 +3077,39 @@ export class TaskQuoteService {
         }
       }
 
-      // Auto-transition to UPCOMING after successful invoice generation
-      this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning quote ${id} to UPCOMING...`);
-      await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId, true);
-      this.logger.log(`[INTERNAL_APPROVE] Quote ${id} transitioned to UPCOMING successfully`);
+      // Marca as fatias faturadas. Na primeira aprovação o claim mexeu no STATUS
+      // do orçamento, não nas fatias — é aqui, depois de as faturas existirem,
+      // que cada uma passa a se declarar faturada. Antes disso uma falha na
+      // geração deixaria fatias marcadas sem fatura nenhuma.
+      await this.prisma.taskQuoteCustomerConfig.updateMany({
+        where: { id: { in: targetConfigs.map(c => c.id) }, billingApprovedAt: null },
+        data: { billingApprovedAt: approvalDate } as any,
+      });
+
+      // `TaskQuote.billingApprovedAt` significa "INTEIRAMENTE faturado", e só
+      // isso: num orçamento de sessenta caminhões aprovado veículo a veículo, ele
+      // é gravado quando o sexagésimo fecha.
+      if (!isFirstApproval && closesQuote) {
+        await this.prisma.taskQuote.update({
+          where: { id },
+          data: { billingApprovedAt: approvalDate } as any,
+        });
+      }
+
+      // Auto-transition to UPCOMING after successful invoice generation.
+      //
+      // Só na PRIMEIRA aprovação: a partir da segunda o orçamento já está no
+      // ciclo de recebíveis, e forçá-lo de volta a UPCOMING apagaria um DUE
+      // legítimo (parcela do caminhão 1 vencida) porque o caminhão 2 acabou de
+      // ser faturado. A cascata logo abaixo recalcula o status a partir das
+      // parcelas, que é a única fonte que sabe a resposta.
+      if (isFirstApproval) {
+        this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning quote ${id} to UPCOMING...`);
+        await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId, true);
+        this.logger.log(`[INTERNAL_APPROVE] Quote ${id} transitioned to UPCOMING successfully`);
+      } else {
+        await this.statusCascadeService.cascadeFromQuote(id);
+      }
     } catch (error) {
       this.logger.error(
         `[INTERNAL_APPROVE] Failed during invoice generation/transition for quote ${id}: ${error}`,
@@ -2372,7 +3176,10 @@ export class TaskQuoteService {
         },
       });
     } catch (error) {
-      this.logger.error('Falha ao notificar faturamento aprovado (task_quote.billing_approved):', error);
+      this.logger.error(
+        'Falha ao notificar faturamento aprovado (task_quote.billing_approved):',
+        error,
+      );
     }
 
     return {
@@ -2620,7 +3427,9 @@ export class TaskQuoteService {
           `Não foi possível confirmar a ${label(nfse)} na Elotech (${detail}). ` +
             `Sem essa confirmação não é seguro ${action}.`,
         );
-      } else if (String(outcome.value?.notaSituacao ?? 'DESCONHECIDA').toUpperCase() === 'DESCONHECIDA') {
+      } else if (
+        String(outcome.value?.notaSituacao ?? 'DESCONHECIDA').toUpperCase() === 'DESCONHECIDA'
+      ) {
         blockers.push(
           `A Elotech não informou a situação da ${label(nfse)}. ` +
             `Sem essa confirmação não é seguro ${action}.`,
@@ -3092,29 +3901,69 @@ export class TaskQuoteService {
   }
 
   /**
-   * Update only the orderNumber field on a CustomerConfig.
-   * Bypasses the financial obligation guard — orderNumber is metadata only
-   * and does not affect invoices, installments, or bank slips.
+   * @deprecated O número do pedido é do VEÍCULO (`Task.customerOrderNumber`).
+   *
+   * Continua aqui porque o app instalado nos aparelhos ainda chama esta rota, e
+   * recusá-la deixaria o campo sem escrita em campo. O que ela faz mudou: grava
+   * o mesmo número em TODAS as tarefas do orçamento — que é o comportamento que
+   * ela sempre teve na prática, agora dito com todas as letras. Para escrever o
+   * pedido de UM caminhão, use `PUT /tasks/:id` com `customerOrderNumber`.
+   *
+   * O `customerId` deixou de ter efeito: o pedido não é mais por cliente. Ele
+   * segue no corpo (o app o manda) e serve só para verificar que o cliente
+   * pertence mesmo a este orçamento.
    */
   async updateCustomerConfigOrderNumber(
     quoteId: string,
-    customerId: string,
+    customerId: string | null,
     orderNumber: string | null,
-  ): Promise<{ message: string }> {
-    const config = await this.prisma.taskQuoteCustomerConfig.findUnique({
-      where: { quoteId_customerId: { quoteId, customerId } },
-    });
-
-    if (!config) {
-      throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
+    taskId?: string | null,
+  ): Promise<{ success: true; message: string }> {
+    // O cliente ainda é aceito (o app instalado o manda) e serve de guarda: o
+    // número pertence ao orçamento daquele cliente, não a um orçamento qualquer.
+    if (customerId) {
+      const configs = await this.prisma.taskQuoteCustomerConfig.count({
+        where: { quoteId, customerId },
+      });
+      if (configs === 0) {
+        throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
+      }
     }
 
-    await this.prisma.taskQuoteCustomerConfig.update({
-      where: { id: config.id },
-      data: { orderNumber: orderNumber || null },
+    // ─── UM VEÍCULO, OU TODOS ────────────────────────────────────────────────
+    //
+    // O pedido de compra é da ENTREGA: às vezes é o mesmo para os sessenta
+    // caminhões, às vezes muda a cada um. Com `taskId` a escrita é do veículo
+    // pedido — e a guarda garante que ele é DESTE orçamento, senão o app poderia
+    // carimbar o pedido no caminhão de outro contrato.
+    //
+    // Sem `taskId` a escrita é em todos, que é o comportamento do app instalado
+    // (ele mandava só o cliente) e continua sendo a leitura certa do que ele
+    // pede: "o pedido deste orçamento".
+    if (taskId) {
+      const belongs = await this.prisma.task.count({ where: { id: taskId, quoteId } });
+      if (belongs === 0) {
+        throw new BadRequestException('A tarefa informada não pertence a este orçamento.');
+      }
+      await this.prisma.task.update({
+        where: { id: taskId },
+        data: { customerOrderNumber: orderNumber || null },
+      });
+      return { success: true, message: 'Número do pedido atualizado com sucesso.' };
+    }
+
+    const updated = await this.prisma.task.updateMany({
+      where: { quoteId },
+      data: { customerOrderNumber: orderNumber || null },
     });
 
-    return { message: 'Número do pedido atualizado com sucesso.' };
+    return {
+      success: true,
+      message:
+        updated.count > 1
+          ? `Número do pedido aplicado aos ${updated.count} veículos do orçamento.`
+          : 'Número do pedido atualizado com sucesso.',
+    };
   }
 
   /**
@@ -3202,6 +4051,16 @@ export class TaskQuoteService {
           customForecastDays: true,
           simultaneousTasks: true,
           budgetNumber: true,
+          // JUNTO OU SEPARADO — a página pública LÊ este campo.
+          //
+          // Sem ele a página assume `JOINT` (o padrão do cliente) e um orçamento
+          // `PER_TASK` é exibido errado nos dois pontos que mais importam: a
+          // frase das parcelas fala do total quando deveria falar de cada
+          // veículo, e `computeQuoteMoney` devolve o total geral onde deveria
+          // devolver o unitário. É a página em que o cliente APROVA — aprovar
+          // uma coisa e receber outra é a classe de defeito que este campo
+          // existe para impedir.
+          billingSplit: true,
           createdAt: true,
           updatedAt: true,
           layoutFiles: {
@@ -3234,6 +4093,14 @@ export class TaskQuoteService {
               // nothing ever matches and every per-customer link renders
               // Completo.
               customerId: true,
+              // A COBERTURA — de quais veículos esta fatura é. A página pública é
+              // onde o cliente CONFERE antes de assinar: num orçamento em lotes,
+              // sem isto ele leria "3 faturas" sem saber qual caminhão está em
+              // qual, que é justamente o que o lote resolve.
+              coveredTasks: {
+                select: { taskId: true },
+                orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+              },
               subtotal: true,
               total: true,
               discountType: true,
@@ -3242,14 +4109,39 @@ export class TaskQuoteService {
               customPaymentText: true,
               generateInvoice: true,
               generateBankSlip: true,
-              orderNumber: true,
               paymentCondition: true,
               paymentConfig: true,
               responsible: {
                 select: { id: true, name: true, roles: true },
               },
               customer: {
-                select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
+                // O QUADRO DO TOMADOR. Não é só nome e documento: a seção
+                // "Faturamento" imprime inscrição estadual, municipal e o
+                // endereço completo — é o cadastro que a prefeitura exige na
+                // NFS-e, posto no documento para o cliente CONFERIR antes de
+                // aprovar. Sem estes campos no `select` a página mostrava "—"
+                // em todas as linhas de um cliente que tem tudo preenchido, e
+                // nada acusava: ausência não é erro de tipo.
+                //
+                // Não são dados sensíveis — são os do próprio cliente, que ele
+                // já conhece e está ali para verificar.
+                select: {
+                  id: true,
+                  corporateName: true,
+                  fantasyName: true,
+                  cnpj: true,
+                  cpf: true,
+                  stateRegistration: true,
+                  municipalRegistration: true,
+                  streetType: true,
+                  address: true,
+                  addressNumber: true,
+                  addressComplement: true,
+                  neighborhood: true,
+                  city: true,
+                  state: true,
+                  zipCode: true,
+                },
               },
               customerSignature: {
                 select: { id: true, filename: true, originalName: true, mimetype: true },
@@ -3292,7 +4184,8 @@ export class TaskQuoteService {
               },
             },
           },
-          task: {
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             select: {
               id: true,
               name: true,
@@ -3300,6 +4193,12 @@ export class TaskQuoteService {
               status: true,
               startedAt: true,
               finishedAt: true,
+              // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. A página pública e o
+              // relatório de serviço o imprimem no quadro do tomador — é o número
+              // pelo qual o cliente reconhece a compra. Ele lia
+              // `customerConfigs[].orderNumber`, uma coluna que já não existe, e
+              // o quadro saía sem a linha. Não é dado sensível: veio do cliente.
+              customerOrderNumber: true,
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
@@ -3308,7 +4207,13 @@ export class TaskQuoteService {
                 orderBy: { createdAt: 'asc' },
               },
               truck: {
-                select: { id: true, plate: true, chassisNumber: true, category: true, implementType: true },
+                select: {
+                  id: true,
+                  plate: true,
+                  chassisNumber: true,
+                  category: true,
+                  implementType: true,
+                },
               },
               serviceOrders: {
                 orderBy: { position: 'asc' },
@@ -3398,9 +4303,7 @@ export class TaskQuoteService {
         TASK_QUOTE_STATUS.BUDGET_APPROVED,
       ];
       if (!signatureAllowedStatuses.includes(quote.status as TASK_QUOTE_STATUS)) {
-        throw new BadRequestException(
-          'Este orçamento não está aguardando assinatura do cliente.',
-        );
+        throw new BadRequestException('Este orçamento não está aguardando assinatura do cliente.');
       }
 
       // Find the target customer config
@@ -3455,7 +4358,8 @@ export class TaskQuoteService {
               responsible: true,
             },
           },
-          task: {
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             include: {
               customer: true,
             },
@@ -3531,25 +4435,62 @@ export class TaskQuoteService {
     // them without generating invoices/boletos. settleManually has no installments
     // to clean up in that case, so it's safe.
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
-      [TASK_QUOTE_STATUS.PENDING]:             [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.CANCELLED],
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]:     [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.CANCELLED],
+      [TASK_QUOTE_STATUS.PENDING]: [TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.CANCELLED],
+      // SIGNED é escrito pela CERIMÔNIA (grupo do cliente completo), nunca à
+      // mão — por isso não é destino de ninguém aqui. O que esta linha declara
+      // é como se SAI dele: aprovar (a contra-assinatura aconteceu, ou o
+      // operador aprova à mão porque ela travou), voltar para PENDING (o
+      // cliente desistiu, ou o valor foi editado e as assinaturas caíram) e
+      // cancelar. EXPIRED não está na lista de propósito: uma vez que o cliente
+      // aceitou dentro do prazo, o relógio deixa de correr contra ele — o que
+      // falta é nosso. Ver `SignatureExpiryScheduler`.
+      [TASK_QUOTE_STATUS.SIGNED]: [
+        TASK_QUOTE_STATUS.BUDGET_APPROVED,
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
+      // Vencido sem todas as assinaturas. O comercial reanalisa o valor: ou
+      // reformula (o que já devolve o orçamento a PENDING pelo auto-revert de
+      // edição de valor), ou estende a validade, ou cancela. Não vai direto
+      // para BUDGET_APPROVED — aprovar sem assinatura é exatamente o que a
+      // cerimônia existe para impedir.
+      [TASK_QUOTE_STATUS.EXPIRED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.CANCELLED],
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: [
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+        TASK_QUOTE_STATUS.SETTLED,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
       // BILLING_APPROVED → SETTLED covers prepayment edge cases (customer pays
       // before installments are tracked) and lets operators settle quotes that
       // got stuck at BILLING_APPROVED when internalApprove's auto-transition to
       // UPCOMING failed mid-flow. settleManually marks any existing installments
       // PAID and cancels open boletos, so the cleanup is safe regardless of
       // entry status.
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]:    [TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.SETTLED],
-      [TASK_QUOTE_STATUS.UPCOMING]:            [TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.SETTLED],
-      [TASK_QUOTE_STATUS.DUE]:                 [TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.UPCOMING],
-      [TASK_QUOTE_STATUS.PARTIAL]:             [TASK_QUOTE_STATUS.SETTLED, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.UPCOMING],
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: [TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.SETTLED],
+      [TASK_QUOTE_STATUS.UPCOMING]: [
+        TASK_QUOTE_STATUS.PARTIAL,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.BILLING_APPROVED,
+        TASK_QUOTE_STATUS.SETTLED,
+      ],
+      [TASK_QUOTE_STATUS.DUE]: [
+        TASK_QUOTE_STATUS.PARTIAL,
+        TASK_QUOTE_STATUS.SETTLED,
+        TASK_QUOTE_STATUS.UPCOMING,
+      ],
+      [TASK_QUOTE_STATUS.PARTIAL]: [
+        TASK_QUOTE_STATUS.SETTLED,
+        TASK_QUOTE_STATUS.DUE,
+        TASK_QUOTE_STATUS.UPCOMING,
+      ],
       // SETTLED → PARTIAL handles chargeback/estorno (payment reversed after a
       // previously settled invoice). Mirrors the web comment at
       // quote-permissions.ts:73-76.
-      [TASK_QUOTE_STATUS.SETTLED]:             [TASK_QUOTE_STATUS.PARTIAL],
+      [TASK_QUOTE_STATUS.SETTLED]: [TASK_QUOTE_STATUS.PARTIAL],
       // Terminal — a quote is cancelled when its task is cancelled. Re-quoting
       // creates a new quote rather than transitioning out of CANCELLED.
-      [TASK_QUOTE_STATUS.CANCELLED]:           [],
+      [TASK_QUOTE_STATUS.CANCELLED]: [],
     };
 
     const allowed = ALLOWED[currentStatus] ?? [];
@@ -3647,7 +4588,11 @@ export class TaskQuoteService {
         }
 
         // Multi-customer: all services must have invoiceToCustomerId
-        if (configs.length >= 2) {
+        //
+        // ⚠️ Contando FATIAS, esta guarda recusava o orçamento `PER_TASK`
+        // inteiro — e o erro era impossível de obedecer: "Faturar Para" só
+        // aparece com mais de um CLIENTE, então não havia onde atribuir nada.
+        if (hasMultipleCustomers(configs)) {
           const unassigned = services.filter(s => !s.invoiceToCustomerId);
           if (unassigned.length > 0) {
             throw new BadRequestException(
@@ -3786,6 +4731,8 @@ export class TaskQuoteService {
   private getStatusLabel(status: TASK_QUOTE_STATUS): string {
     const labels: Record<string, string> = {
       [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
+      [TASK_QUOTE_STATUS.SIGNED]: 'assinado pelo cliente',
+      [TASK_QUOTE_STATUS.EXPIRED]: 'marcado para reanálise',
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado',
       [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'faturamento aprovado',
       [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',

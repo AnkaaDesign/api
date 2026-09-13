@@ -75,7 +75,7 @@ export const QUOTE_SECTION_LABELS: Record<QuoteSection, string> = {
   SERVICES: 'Lista de serviços',
   PRICING: 'Valores e desconto',
   DELIVERY: 'Prazo de entrega',
-  PAYMENT: 'Condições de pagamento',
+  PAYMENT: 'Faturamento',
   GUARANTEE: 'Garantias',
   LAYOUT: 'Layout',
 };
@@ -92,7 +92,7 @@ export const QUOTE_SECTION_DESCRIPTIONS: Record<QuoteSection, string> = {
   SERVICES: 'A relação numerada dos serviços, com as observações de cada um.',
   PRICING: 'Valor de cada serviço, subtotal, desconto e total.',
   DELIVERY: 'Prazo em dias úteis e quantas tarefas correm simultaneamente.',
-  PAYMENT: 'Forma de pagamento, parcelas e vencimentos.',
+  PAYMENT: 'Dados do tomador para a nota fiscal, forma de pagamento, parcelas e vencimentos.',
   GUARANTEE: 'Prazo e termos da garantia.',
   LAYOUT: 'As imagens do layout aprovado.',
 };
