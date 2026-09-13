@@ -433,6 +433,16 @@ export class AuthService {
       sessionToken: null,
     });
 
+    // Fecha a carência de token vencido (AuthGuard.assertGraceAllowed): sair da
+    // conta precisa encerrar a sessão de verdade, e não deixar o access token já
+    // vencido deste aparelho ser aceito pela carência até o fim do prazo. Os
+    // outros aparelhos da conta seguem normalmente — eles têm refresh token e
+    // renovam sozinhos, sem depender da carência.
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { accessGraceCutoffAt: new Date() },
+    });
+
     // Track sessionToken removal
     if (oldSessionToken) {
       await this.changeLogService.logChange({
