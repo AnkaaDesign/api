@@ -270,6 +270,70 @@ export function matchFaces(
 }
 
 /**
+ * Segunda chance pelo TAMANHO REAL, não pela fração da página.
+ *
+ * O piso de "pelo menos 15% da largura da página" em `findPanelRects` existe
+ * pra separar face de logo — mas falha quando a face de verdade é pequena. A
+ * traseira de um frigorífico mede ~241 × 229 cm ao lado de laterais de 15 m
+ * (MINERVA FOODS, Estância 92): nessa régua ela nunca passa de 5% da página,
+ * por maior que seja o cuidado do projetista, e o arquivo abria com as duas
+ * laterais reconhecidas e a traseira de fora — que é justamente onde está a
+ * arte.
+ *
+ * A escala já medida nas faces confiantes (motorista/sapo, grandes e sem
+ * ambiguidade de proporção) é a prova que falta pras que sobraram: convertido
+ * por ela, um retângulo pequeno que reproduz A LARGURA E A ALTURA cadastradas
+ * do painel — não só a proporção, as DUAS medidas ao mesmo tempo — tem a
+ * mesma chance de ser coincidência que um logo nascer do tamanho exato de um
+ * painel de verdade. Não tem: por isso não precisa de piso de tamanho aqui,
+ * só da doutrina de sempre (mesma caneta, retângulo com eixos, sem estar
+ * dentro de outra face).
+ */
+function matchRemainingBySize(
+  geometry: PageGeometry,
+  ptPerCm: number,
+  remainingPanels: Panel[],
+  usedRects: Rect[],
+  tolerance = 0.05,
+): { rect: Rect; panel: Panel }[] {
+  const alreadyUsed = (r: Rect) =>
+    usedRects.some(
+      (u) =>
+        Math.abs(u.x0 - r.x0) < 6 &&
+        Math.abs(u.x1 - r.x1) < 6 &&
+        Math.abs(u.y0 - r.y0) < 6 &&
+        Math.abs(u.y1 - r.y1) < 6,
+    );
+  const candidates = findPanelRects(geometry, 0).filter((r) => !alreadyUsed(r));
+
+  const remaining = [...remainingPanels];
+  const out: { rect: Rect; panel: Panel }[] = [];
+  for (const rect of candidates) {
+    const widthCm = rectWidth(rect) / ptPerCm;
+    const heightCm = rectHeight(rect) / ptPerCm;
+    let bestIndex = -1;
+    let bestError = Infinity;
+    remaining.forEach((p, i) => {
+      const targetWidthCm = panelWidthCm(p);
+      const targetHeightCm = p.heightCm;
+      const error = Math.max(
+        Math.abs(widthCm - targetWidthCm) / targetWidthCm,
+        Math.abs(heightCm - targetHeightCm) / targetHeightCm,
+      );
+      if (error < bestError) {
+        bestError = error;
+        bestIndex = i;
+      }
+    });
+    if (bestIndex < 0 || bestError > tolerance) continue;
+    out.push({ rect, panel: remaining[bestIndex] });
+    remaining.splice(bestIndex, 1);
+    if (!remaining.length) break;
+  }
+  return out;
+}
+
+/**
  * Lê a página inteira e devolve as faces cotadas, os itens clicáveis e as cotas.
  *
  * `panels` são as medidas do caminhão, uma por lado. A ordem importa: é ela que
@@ -292,7 +356,26 @@ export async function buildLayoutFaces(
   const detectedScale = detectScaleFrom(geometry, text.items);
 
   const usable = panels.filter((p) => panelWidthCm(p) > 0 && p.heightCm > 0);
-  const matches = matchFaces(findPanelRects(geometry), usable);
+  let matches = matchFaces(findPanelRects(geometry), usable);
+
+  const matchedPanels = new Set(matches.map((m) => m.panel));
+  const remainingPanels = usable.filter((p) => !matchedPanels.has(p));
+  if (remainingPanels.length) {
+    const ptPerCm = matches.length
+      ? matches.reduce((sum, m) => sum + rectWidth(m.rect) / panelWidthCm(m.panel), 0) / matches.length
+      : detectedScale.ptPerCm;
+    const extra = matchRemainingBySize(
+      geometry,
+      ptPerCm,
+      remainingPanels,
+      matches.map((m) => m.rect),
+    );
+    if (extra.length) {
+      matches = [...matches, ...extra].sort(
+        (a, b) => a.rect.y0 - b.rect.y0 || a.rect.x0 - b.rect.x0,
+      );
+    }
+  }
 
   const faces: LayoutFaceResult[] = [];
   const items: LayoutItem[] = [];
