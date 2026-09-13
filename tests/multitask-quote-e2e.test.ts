@@ -23,6 +23,13 @@
  *
  *   npm run test:multitask-quote
  *
+ * O script exporta `BACKUP_PATH` para um diretório local: o `BackupService` cria
+ * a árvore de backup no bootstrap e `/mnt/backup` — o padrão de produção — não
+ * existe na máquina de desenvolvimento. Sem isso o `AppModule` não sobe, e este
+ * arquivo passou semanas marcado como "não roda no ambiente local" por causa de
+ * um `mkdir` sem permissão. Roda sob `ts-node`, não `ts-node-dev`: o watcher
+ * REINICIA o teste a cada arquivo salvo, e o relatório final some no meio.
+ *
  * ⚠️ Escreve no banco apontado por `DATABASE_URL` e APAGA o que criou no fim
  * (`finally`), inclusive quando uma verificação falha. Use contra o dev.
  */
@@ -33,10 +40,11 @@ import { NestFactory } from '@nestjs/core';
 // (EventEmitter, Config, Jwt, …) — e um grafo de DI diferente do de produção não
 // prova o que este arquivo existe para provar.
 //
-// Roda sob `ts-node-dev`, o mesmo runner do `npm run dev`: sob `tsx` o baileys
-// (WhatsApp) não resolve `exports`.
+// Roda sob `ts-node` (não `tsx`: ali o baileys, do WhatsApp, não resolve
+// `exports`; e não `ts-node-dev`: o watcher reinicia o teste a cada save).
 import { AppModule } from '../src/app.module';
 import { taskBatchCreateWithQuoteSchema } from '../src/schemas/task';
+import { taskQuoteUpdateSchema } from '../src/schemas/task-quote';
 import { PrismaService } from '../src/modules/common/prisma/prisma.service';
 import { TaskService } from '../src/modules/production/task/task.service';
 import { TaskQuoteService } from '../src/modules/production/task-quote/task-quote.service';
@@ -64,6 +72,23 @@ function parseBody(body: unknown): any {
   const parsed = taskBatchCreateWithQuoteSchema.safeParse(body);
   if (!parsed.success) {
     throw new Error(`o zod recusou o corpo: ${JSON.stringify(parsed.error.issues)}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * O portão de `PUT /task-quotes/:id` — `ZodValidationPipe(taskQuoteUpdateSchema)`.
+ *
+ * Existe pela mesma razão que `parseBody`: é aqui que a cobertura (`taskIds` de
+ * cada fatia) e o `id` da fatia atravessam — ou não — o contrato. Foi assim que
+ * o `id` se perdeu antes: o objeto não é `.strict()`, então uma chave que falte
+ * no schema não é RECUSADA, é APAGADA, e o servidor recebe quatro faturamentos
+ * do mesmo cliente sem nada que os distinga.
+ */
+function parseQuoteUpdate(body: unknown): any {
+  const parsed = taskQuoteUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(`o zod recusou a atualização: ${JSON.stringify(parsed.error.issues)}`);
   }
   return parsed.data;
 }
@@ -169,7 +194,13 @@ async function main() {
         billingSplit: true,
         total: true,
         tasks: { select: { id: true, customerOrderNumber: true } },
-        customerConfigs: { select: { id: true, taskId: true, billingApprovedAt: true } },
+        customerConfigs: {
+          select: {
+            id: true,
+            billingApprovedAt: true,
+            coveredTasks: { select: { taskId: true } },
+          },
+        },
       },
     });
 
@@ -193,10 +224,21 @@ async function main() {
       (quote?.tasks ?? []).every(t => t.customerOrderNumber === '4888888'),
       JSON.stringify((quote?.tasks ?? []).map(t => t.customerOrderNumber)),
     );
+    // `JOINT` = UMA fatia que COBRE OS QUATRO. A cobertura é linha em
+    // `QuoteBillingTask`, não mais a coluna `taskId` nula querendo dizer
+    // "todos": a pergunta "de quais veículos é esta fatura?" passou a ter
+    // resposta gravada, e é isso que o lote precisava.
     check(
-      '`JOINT` produz UMA fatia, com `taskId` nulo',
-      quote?.customerConfigs.length === 1 && quote?.customerConfigs[0].taskId === null,
+      '`JOINT` produz UMA fatia, cobrindo os QUATRO veículos',
+      quote?.customerConfigs.length === 1 &&
+        quote.customerConfigs[0].coveredTasks.length === 4,
       JSON.stringify(quote?.customerConfigs),
+    );
+    check(
+      'a cobertura do `JOINT` é exatamente o conjunto de veículos do orçamento',
+      new Set((quote?.customerConfigs[0]?.coveredTasks ?? []).map(r => r.taskId)).size === 4 &&
+        (quote?.customerConfigs[0]?.coveredTasks ?? []).every(r => taskIds.includes(r.taskId)),
+      JSON.stringify(quote?.customerConfigs[0]?.coveredTasks),
     );
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -245,7 +287,9 @@ async function main() {
       select: {
         billingSplit: true,
         vehicleCount: true,
-        customerConfigs: { select: { taskId: true } },
+        customerConfigs: {
+          select: { id: true, total: true, coveredTasks: { select: { taskId: true } } },
+        },
       },
     });
     check(
@@ -254,11 +298,252 @@ async function main() {
       String(perTask?.billingSplit),
     );
     check(
-      'quatro fatias, uma por veículo (o índice parcial não recusou nenhuma)',
+      'quatro fatias, cada uma cobrindo UM veículo',
       perTask?.customerConfigs.length === 4 &&
-        perTask.customerConfigs.every(c => c.taskId !== null),
+        perTask.customerConfigs.every(c => c.coveredTasks.length === 1),
       JSON.stringify(perTask?.customerConfigs),
     );
+    // A PARTIÇÃO — a propriedade que o índice único `(taskId, customerId)`
+    // garante e que a aritmética da fatura depende: todo veículo coberto uma
+    // vez, e uma só.
+    check(
+      'os quatro veículos, cada um em exatamente uma fatia',
+      (() => {
+        const covered = (perTask?.customerConfigs ?? []).flatMap(c =>
+          c.coveredTasks.map(r => r.taskId),
+        );
+        return covered.length === 4 && new Set(covered).size === 4;
+      })(),
+      JSON.stringify((perTask?.customerConfigs ?? []).map(c => c.coveredTasks)),
+    );
+    // `total da fatia = por veículo × cobertos`. Trocar só o modo tem de
+    // RECALCULAR: enquanto `billingSplit` não estava na condição de
+    // `recalcQuoteTotals`, as fatias novas nasciam com o total do CONTRATO
+    // INTEIRO cada uma — sessenta boletos de R$ 730.224,00.
+    check(
+      'cada fatia de um veículo cobra 100, não os 400 do contrato',
+      (perTask?.customerConfigs ?? []).every(c => Number(c.total) === 100),
+      JSON.stringify((perTask?.customerConfigs ?? []).map(c => String(c.total))),
+    );
+
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('\nLOTES: dois caminhões num pedido, dois noutro');
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // O caso que derrubou o modelo anterior. "Os vinte primeiros no pedido 8842
+    // e os quarenta restantes no 9013" — que é como o cliente de sessenta
+    // caminhões paga — não é `JOINT` nem `PER_TASK`, e não havia coluna capaz de
+    // dizê-lo: `taskId` guarda UMA tarefa, e o nulo dele significava "todas".
+    //
+    // Aqui, na escala do teste: 2 + 2.
+    const lotA = [taskIds[0], taskIds[1]];
+    const lotB = [taskIds[2], taskIds[3]];
+
+    await quotes.update(
+      quoteId,
+      parseQuoteUpdate({
+        status: 'PENDING',
+        billingSplit: 'CUSTOM',
+        customerConfigs: [
+          { customerId: customer.id, taskIds: lotA },
+          { customerId: customer.id, taskIds: lotB },
+        ],
+      }),
+      user.id,
+    );
+
+    const readLots = async () =>
+      (
+        await prisma.taskQuoteCustomerConfig.findMany({
+          where: { quoteId },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            total: true,
+            coveredTasks: { select: { taskId: true }, orderBy: { createdAt: 'asc' } },
+          },
+        })
+      ).map(c => ({
+        id: c.id,
+        total: Number(c.total),
+        covered: c.coveredTasks.map(r => r.taskId),
+      }));
+
+    const lots = await readLots();
+    check('dois faturamentos — um por lote', lots.length === 2, JSON.stringify(lots));
+    check(
+      'cada lote cobre exatamente os SEUS dois veículos',
+      lots.length === 2 &&
+        lots.every(l => l.covered.length === 2) &&
+        lots.some(l => l.covered.slice().sort().join() === lotA.slice().sort().join()) &&
+        lots.some(l => l.covered.slice().sort().join() === lotB.slice().sort().join()),
+      JSON.stringify(lots.map(l => l.covered)),
+    );
+    // A ARITMÉTICA PERDEU O "SE": total da fatura = por veículo × COBERTOS. Não
+    // é mais uma escolha entre o contrato inteiro e um caminhão — é uma conta,
+    // e a soma das faturas reconstrói o contrato nos três modos.
+    check(
+      'cada lote cobra 200 = 100 por veículo × 2 cobertos',
+      lots.every(l => l.total === 200),
+      JSON.stringify(lots.map(l => l.total)),
+    );
+    check(
+      'a soma dos lotes reconstrói o contrato (400)',
+      lots.reduce((s, l) => s + l.total, 0) === 400,
+      String(lots.reduce((s, l) => s + l.total, 0)),
+    );
+
+    // ── O BANCO é quem garante a partição ────────────────────────────────────
+    //
+    // `@@unique([taskId, customerId])`. Não é convenção nem guarda de serviço: é
+    // o índice que torna IMPOSSÍVEL o mesmo caminhão ser cobrado por duas notas
+    // do mesmo cliente — o erro que ninguém percebe até o cliente receber duas.
+    const otherLotId = lots.find(l => !l.covered.includes(taskIds[0]))!.id;
+    let refused = false;
+    try {
+      await prisma.quoteBillingTask.create({
+        data: { configId: otherLotId, taskId: taskIds[0], customerId: customer.id },
+      });
+    } catch {
+      refused = true;
+    }
+    if (!refused) {
+      await prisma.quoteBillingTask
+        .delete({ where: { configId_taskId: { configId: otherLotId, taskId: taskIds[0] } } })
+        .catch(() => {});
+    }
+    check('o banco RECUSA cobrar o mesmo veículo em duas faturas do cliente', refused);
+
+    // ── Regravar os MESMOS lotes não recria nada ─────────────────────────────
+    //
+    // A fatia é o pai `onDelete: Cascade` da fatura e das parcelas: recriá-la a
+    // cada save levava junto a fatura emitida e a assinatura do cliente. Os ids
+    // têm de sobreviver — é o casamento por identidade em ação.
+    const idsBefore = lots.map(l => l.id).sort();
+    await quotes.update(
+      quoteId,
+      parseQuoteUpdate({
+        status: 'PENDING',
+        billingSplit: 'CUSTOM',
+        customerConfigs: lots.map(l => ({
+          id: l.id,
+          customerId: customer.id,
+          taskIds: l.covered,
+        })),
+      }),
+      user.id,
+    );
+    const resaved = await readLots();
+    check(
+      'regravar os mesmos lotes PRESERVA as fatias (id a id)',
+      JSON.stringify(resaved.map(l => l.id).sort()) === JSON.stringify(idsBefore),
+      `${JSON.stringify(idsBefore)} → ${JSON.stringify(resaved.map(l => l.id).sort())}`,
+    );
+
+    // ── Redividir um lote mantém a fatia viva ────────────────────────────────
+    //
+    // Os vinte viram dez e dez: o faturamento dos vinte segue sendo o dos dez
+    // primeiros (maior sobreposição) em vez de ser apagado e recriado. Aqui: o
+    // lote A de dois vira dois de um.
+    const lotAId = resaved.find(l => l.covered.includes(taskIds[0]))!.id;
+    await quotes.update(
+      quoteId,
+      parseQuoteUpdate({
+        status: 'PENDING',
+        billingSplit: 'CUSTOM',
+        customerConfigs: [
+          { customerId: customer.id, taskIds: [taskIds[0]] },
+          { customerId: customer.id, taskIds: [taskIds[1]] },
+          { customerId: customer.id, taskIds: lotB },
+        ],
+      }),
+      user.id,
+    );
+    const split = await readLots();
+    check('redividir 2 em 1+1 produz TRÊS faturamentos', split.length === 3, JSON.stringify(split));
+    check(
+      'a fatia do lote redividido SOBREVIVE (o mesmo id cobre o primeiro veículo)',
+      split.find(l => l.covered.join() === taskIds[0])?.id === lotAId,
+      `${lotAId} → ${JSON.stringify(split.map(l => ({ id: l.id, cov: l.covered })))}`,
+    );
+    check(
+      'e os veículos continuam repartidos sem sobra nem repetição',
+      (() => {
+        const all = split.flatMap(l => l.covered);
+        return all.length === 4 && new Set(all).size === 4;
+      })(),
+      JSON.stringify(split.map(l => l.covered)),
+    );
+
+    // ── COBERTURA CONGELADA ──────────────────────────────────────────────────
+    //
+    // Uma fatia já APROVADA não muda de cobertura, em nenhum modo. Sem isto,
+    // trocar o fatiamento depois de faturar mudaria, retroativamente, de quais
+    // caminhões é uma NFS-e que já foi autorizada.
+    const frozenId = split.find(l => l.covered.join() === taskIds[0])!.id;
+    await prisma.taskQuoteCustomerConfig.update({
+      where: { id: frozenId },
+      data: { billingApprovedAt: new Date() },
+    });
+
+    // Trocar o MODO com faturamento aprovado é RECUSADO — e a recusa é a
+    // resposta honesta: a reconciliação respeitaria o congelamento em silêncio,
+    // e a tela mostraria "separado" sobre uma fatura única já emitida.
+    let modeRefused = false;
+    try {
+      await quotes.update(
+        quoteId,
+        parseQuoteUpdate({ status: 'PENDING', billingSplit: 'JOINT' }),
+        user.id,
+      );
+    } catch (err) {
+      modeRefused = /faturamento aprovado/i.test((err as Error)?.message ?? '');
+    }
+    check('trocar o fatiamento depois de faturar é RECUSADO', modeRefused);
+
+    // O que NÃO é recusado: refatiar o resto. A fatia aprovada não se mexe, e os
+    // veículos dela saem do bolo que os outros repartem — é isso que impede uma
+    // regravação de mudar, retroativamente, de quais caminhões é uma NFS-e que
+    // já foi autorizada.
+    await quotes.update(
+      quoteId,
+      parseQuoteUpdate({
+        status: 'PENDING',
+        billingSplit: 'CUSTOM',
+        customerConfigs: [
+          { customerId: customer.id, taskIds: [taskIds[1], taskIds[2], taskIds[3]] },
+        ],
+      }),
+      user.id,
+    );
+    const afterFreeze = await readLots();
+    const frozen = afterFreeze.find(l => l.id === frozenId);
+    check(
+      'a fatia aprovada continua de pé, cobrindo o MESMO veículo',
+      !!frozen && frozen.covered.join() === taskIds[0],
+      JSON.stringify(afterFreeze.map(l => ({ id: l.id, cov: l.covered }))),
+    );
+    check(
+      'o lote novo reparte só os TRÊS que sobraram — o aprovado não entra',
+      (() => {
+        const rest = afterFreeze.filter(l => l.id !== frozenId);
+        const covered = rest.flatMap(l => l.covered);
+        return rest.length === 1 && covered.length === 3 && !covered.includes(taskIds[0]);
+      })(),
+      JSON.stringify(afterFreeze.map(l => ({ id: l.id, cov: l.covered }))),
+    );
+    check(
+      'a soma das faturas continua sendo o contrato: 100 + 300',
+      afterFreeze.reduce((s, l) => s + l.total, 0) === 400,
+      JSON.stringify(afterFreeze.map(l => l.total)),
+    );
+
+    // A aprovação sai do caminho para não travar as verificações seguintes nem
+    // a limpeza (uma fatia congelada é, de propósito, difícil de mexer).
+    await prisma.taskQuoteCustomerConfig.update({
+      where: { id: frozenId },
+      data: { billingApprovedAt: null },
+    });
 
     // ═══════════════════════════════════════════════════════════════════════
     console.log('\nO app antigo ainda pode mandar `orderNumber` na fatia');

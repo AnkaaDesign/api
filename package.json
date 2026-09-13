@@ -91,7 +91,7 @@
     "test:task-order-number": "tsx tests/task-order-number.test.ts",
     "test:signature-reminders": "tsx tests/signature-reminders.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
-    "test:multitask-quote": "ts-node-dev -r tsconfig-paths/register --transpile-only --no-notify --no-deps --respawn=false tests/multitask-quote-e2e.test.ts"
+    "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
