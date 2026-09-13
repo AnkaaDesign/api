@@ -95,6 +95,23 @@ export interface ElotechCancellationState {
   };
 }
 
+/**
+ * Estado do compartilhamento da nota com o Ambiente de Dados Nacional (ADN).
+ *
+ * Autorizar na prefeitura e existir no ADN são DUAS coisas: o Elotech autoriza a nota
+ * localmente e depois faz um POST para `adn.nfse.gov.br/dfe`. Quando esse POST falha
+ * (timeout, ADN fora), a nota fica válida no município mas ausente do ambiente nacional
+ * — e o DANFSe do próprio Elotech sai com marca d'água de erro de comunicação.
+ */
+export interface ElotechAdnState {
+  /** Mensagem de erro do último envio ao ADN. Vazia/nula = compartilhada com sucesso. */
+  errorMessage: string | null;
+  /** O Elotech aceita reenviar esta nota ao ADN. */
+  canResend: boolean;
+  /** Derivado: há erro de comunicação pendente com o ADN. */
+  hasError: boolean;
+}
+
 /** Outcome of a cancellation request, reflecting the REAL post-submit state at the prefeitura. */
 export interface CancelNfseResult {
   /** note is confirmed CANCELADA at the prefeitura */
@@ -790,6 +807,18 @@ export class ElotechOxyNfseService {
           `[MUNICIPAL] Full cancel error response: ${JSON.stringify(errResponse).slice(0, 2000)}`,
         );
       }
+
+      // E1831: o ADN recusa o evento porque não conhece a nota — ela ficou só no
+      // município quando o compartilhamento inicial falhou. A mensagem crua não diz o
+      // que fazer, e o que fazer é reenviar ao ADN ANTES de cancelar.
+      if (/E1831|NotaFiscalInvalidaAdn/i.test(errorMsg)) {
+        throw new BadRequestException(
+          'A NFS-e ainda não foi compartilhada com o Ambiente de Dados Nacional (ADN), ' +
+            'então o ADN recusa qualquer evento sobre ela (código E1831). ' +
+            'Reenvie a nota ao ADN primeiro e depois solicite o cancelamento novamente.',
+        );
+      }
+
       throw error;
     }
   }
@@ -1106,6 +1135,65 @@ export class ElotechOxyNfseService {
     });
 
     return res.data;
+  }
+
+  /**
+   * Estado do compartilhamento da nota com o ADN, lido do resumo do Elotech.
+   *
+   * `mensagemErroAdn` só é preenchida enquanto o envio ao ambiente nacional está
+   * pendurado; assim que o reenvio passa, ela some e `podeReenviarAdn` vira false.
+   */
+  async getAdnState(elotechNfseId: number): Promise<ElotechAdnState> {
+    const detail = await this.getNfseDetail(elotechNfseId);
+    const errorMessage = (detail?.mensagemErroAdn ?? '').trim() || null;
+
+    return {
+      errorMessage,
+      canResend: detail?.podeReenviarAdn === true,
+      hasError: Boolean(errorMessage),
+    };
+  }
+
+  /**
+   * Reenvia a nota ao ADN — POST /emissao-nfse/reenviar-adn?idNotaFiscal={id}.
+   *
+   * É a mesma ação do botão do portal, e é reparadora, não destrutiva: repete um
+   * compartilhamento que já deveria ter acontecido na emissão. Sem isto a nota fica
+   * num limbo em que NENHUM evento posterior funciona — o cancelamento, em especial,
+   * é recusado com E1831 ("a NFS-e indicada não existe no Ambiente de Dados Nacional"),
+   * porque um evento só pode referenciar uma nota que o ADN conhece.
+   *
+   * Devolve o estado APÓS o reenvio, relido do Elotech: o POST responde 200 com corpo
+   * vazio tanto quando compartilhou quanto quando falhou de novo, então acreditar no
+   * status HTTP diria que deu certo mesmo quando o ADN continua fora.
+   */
+  async resendToAdn(elotechNfseId: number): Promise<ElotechAdnState> {
+    if (!this.authService.isConfigured()) {
+      throw new BadRequestException('Credenciais do Elotech não configuradas.');
+    }
+
+    await this.authService.getToken();
+    const headers = {
+      ...this.authService.getAuthHeaders(),
+      empresa: this.authService.getEmpresaId(),
+    };
+
+    this.logger.log(`[MUNICIPAL] Resending NFS-e ${elotechNfseId} to ADN`);
+
+    await axios.post(
+      `${this.authService.baseUrl}/emissao-nfse/reenviar-adn`,
+      null,
+      { headers, params: { idNotaFiscal: elotechNfseId }, timeout: 60000 },
+    );
+
+    const state = await this.getAdnState(elotechNfseId);
+    this.logger.log(
+      `[MUNICIPAL] NFS-e ${elotechNfseId} ADN resend outcome: ${
+        state.hasError ? `still failing — ${state.errorMessage?.slice(0, 200)}` : 'shared successfully'
+      }`,
+    );
+
+    return state;
   }
 
   /**

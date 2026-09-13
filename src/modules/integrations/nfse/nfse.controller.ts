@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Put,
   Body,
   Param,
@@ -322,6 +323,49 @@ export class NfseController {
         (error instanceof Error ? error.message : String(error));
       this.logger.error(`Failed to cancel NFS-e document ${nfseDocumentId}: ${errMsg}`);
       throw new BadRequestException(`Falha ao solicitar cancelamento da NFS-e: ${errMsg}`);
+    }
+  }
+
+  /**
+   * POST /nfse/document/:nfseDocumentId/reenviar-adn
+   * Reenvia ao Ambiente de Dados Nacional uma nota que ficou só no município.
+   *
+   * Autorizar na prefeitura e existir no ADN são etapas separadas, e a segunda falha
+   * sozinha (timeout no `adn.nfse.gov.br/dfe`). Quando isso acontece a nota é válida e
+   * ativa, mas o DANFSe do Elotech sai com marca d'água de erro de comunicação e nenhum
+   * evento posterior é aceito — o cancelamento volta com E1831. Este endpoint refaz o
+   * compartilhamento; é reparador, não altera a nota nem emite nada novo.
+   */
+  @Post('document/:nfseDocumentId/reenviar-adn')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ACCOUNTING)
+  async resendToAdn(@Param('nfseDocumentId', ParseUUIDPipe) nfseDocumentId: string) {
+    this.ensureConfigured();
+
+    const doc = await this.prisma.nfseDocument.findUnique({ where: { id: nfseDocumentId } });
+    if (!doc) throw new NotFoundException('NFS-e não encontrada.');
+    if (!doc.elotechNfseId) {
+      throw new BadRequestException('NFS-e ainda não foi emitida na prefeitura.');
+    }
+
+    try {
+      const state = await this.elotechService.resendToAdn(doc.elotechNfseId);
+
+      return {
+        nfseDocumentId,
+        elotechNfseId: doc.elotechNfseId,
+        nfseNumber: doc.nfseNumber,
+        ...state,
+        message: state.hasError
+          ? `O ADN continua indisponível: ${state.errorMessage}. A nota segue válida na prefeitura; tente o reenvio novamente mais tarde.`
+          : 'NFS-e compartilhada com o Ambiente de Dados Nacional. A marca d\'água de erro sai do DANFSe e os eventos (cancelamento) voltam a ser aceitos.',
+      };
+    } catch (error) {
+      const errMsg =
+        (error as any)?.response?.data?.message ||
+        (error instanceof Error ? error.message : String(error));
+      this.logger.error(`Failed to resend NFS-e ${nfseDocumentId} to ADN: ${errMsg}`);
+      throw new BadRequestException(`Falha ao reenviar a NFS-e ao ADN: ${errMsg}`);
     }
   }
 

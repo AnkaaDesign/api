@@ -41,6 +41,7 @@ export class RecurrentPayableScheduler {
     reaped?: number;
     settled?: number;
     linked?: number;
+    shifted?: number;
   }> {
     const now = new Date();
     const fireFloor = new Date(now.getTime() - RecurrentPayableScheduler.MIN_FIRE_INTERVAL_MS);
@@ -112,23 +113,30 @@ export class RecurrentPayableScheduler {
     //   3. Settle occurrences whose category got a tagged bank debit (manual/auto).
     //   4. Link inbound NFs for expectsNf payables.
     //   5. Age past-due open occurrences to OVERDUE.
+    //   6. AUDIT (dry-run) for settlements anchored to the wrong occurrence. It
+    //      never repairs on its own — re-anchoring money is a decision — but a
+    //      drift now shows up in the log the next morning instead of surviving
+    //      three weeks of payments the way "Diária - Limpeza" did.
     let reaped = 0;
     let settled = 0;
     let linked = 0;
     let overdue = 0;
+    let shifted = 0;
     try {
       reaped = (await this.service.reapOffScheduleOccurrences()).cancelled;
       await this.service.categorizeFromPayeeCnpj();
       settled = await this.service.reconcilePendingFromBank();
       linked = await this.service.linkPendingNfs();
       overdue = await this.service.markOverdueOccurrences();
+      shifted = (await this.service.auditShiftedSettlements({ dryRun: true })).shifted;
     } catch (err) {
       this.logger.error(`Recurrent-payable sweep failed: ${err instanceof Error ? err.message : err}`);
     }
 
     this.logger.log(
-      `Recurrent-payable run done: ${materialized} materialized, ${reaped} reaped, ${settled} settled, ${linked} NF linked, ${overdue} overdue, ${failed} failed`,
+      `Recurrent-payable run done: ${materialized} materialized, ${reaped} reaped, ${settled} settled, ` +
+        `${linked} NF linked, ${overdue} overdue, ${shifted} shifted settlement(s) detected, ${failed} failed`,
     );
-    return { materialized, failed, reaped, settled, linked };
+    return { materialized, failed, reaped, settled, linked, shifted };
   }
 }

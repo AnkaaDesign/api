@@ -2470,6 +2470,9 @@ model User {
   sectorId                       String?
   requirePasswordChange          Boolean                      @default(false)
   lastLoginAt                    DateTime?
+  /// Piso para o aceite de access token VENCIDO (ver AuthGuard). Um logout
+  /// carimba `now()` aqui: nenhum token emitido antes disso volta a ser aceito.
+  accessGraceCutoffAt            DateTime?
   verificationCode               String?
   verificationExpiresAt          DateTime?
   verificationType               VerificationType?

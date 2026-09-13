@@ -456,14 +456,17 @@ export class SignatureEnvelopeService {
     /**
      * Identificação do veículo NO MOMENTO do envio.
      *
-     * Não impede nada — é aviso. O documento é congelado com o que existe agora,
-     * e placa e chassi preenchidos depois NÃO entram nele (nem podem: o
-     * documento é o que foi assinado). É o caso comum do implemento 0 km, que é
-     * orçado antes de emplacar. O orçamento nº 945 saiu assim, e a placa
-     * ABB8468 chegou minutos depois — para sempre fora do corpo do documento.
+     * Não impede nada — é aviso, e desde as lacunas de cadastro tardio ele deixou
+     * de ser um aviso de perda. O caso comum é o implemento 0 km, orçado antes de
+     * emplacar: o documento reserva o retângulo, imprime "a registrar", e o dado
+     * é CARIMBADO na lacuna quando chega, sem tocar num byte do que foi assinado
+     * (ver `LateSlotKey` no builder e `stampLateValues` no montador). Na
+     * conclusão da tarefa, `SignatureAddendumScheduler` emite ainda o aditivo de
+     * identificação, selado com o mesmo certificado.
      *
-     * Preencher antes de enviar é a única forma de o dado constar do documento;
-     * depois disso ele só existe como linha da trilha de auditoria.
+     * O que se ganha preenchendo antes é a frase inteira no corpo do documento,
+     * sem carimbo e sem folha extra. Por isso o aviso continua existindo — mas
+     * ele não descreve mais uma porta que se fecha.
      */
     vehicle: { plate: string | null; chassisNumber: string | null; missing: string[] } | null;
     /** Um por veículo do orçamento, na ordem do documento. */
@@ -1044,12 +1047,20 @@ export class SignatureEnvelopeService {
       ),
     );
 
+    // Não há mais teto de signatários: o bloco de assinaturas se parte em quantas
+    // folhas precisar (`renderSignatureSheets`), e a arte que não caberia
+    // conferível migra para o corpo do orçamento. Esta guarda deixou de ser a
+    // regra "gente demais" e virou o que sempre deveria ter sido — a última
+    // verificação de que nada foi clipado antes de congelar os bytes. Se ela
+    // disparar, o defeito é do documento, não da coleta, e mandar o operador
+    // tirar responsáveis seria pedir que ele pagasse por um bug.
     const overflowedPlan = plans.find((_, i) => rendered[i].overflowed);
     if (overflowedPlan) {
       throw new BadRequestException(
-        'A página de assinaturas não comporta todos os signatários selecionados ' +
-          `(recorte "${describeSections(overflowedPlan.sections)}"). ` +
-          'Reduza o número de responsáveis ou fale com o suporte.',
+        'Não foi possível montar a folha de assinaturas deste orçamento ' +
+          `(recorte "${describeSections(overflowedPlan.sections)}") — o documento não foi ` +
+          'congelado e nada foi enviado. Fale com o suporte: é uma falha na geração do ' +
+          'documento, não na sua seleção de responsáveis.',
       );
     }
 

@@ -33,6 +33,14 @@ export type RenderInput = Omit<QuoteHtmlInput, 'fontDataUri' | 'logoDataUri'>;
 export interface SignatureAnchor {
   /** Índice da página (0-based) contando os elementos `.page`. */
   page: number;
+  /**
+   * Em qual FOLHA DE ASSINATURAS o slot foi medido (0-based), quando o bloco se
+   * parte em mais de uma. Existe só entre a medição e a resolução de `page`:
+   * `renderOn` soma o número de folhas de conteúdo e APAGA este campo, para que
+   * nada além do renderizador precise conhecê-lo — e para que o JSON gravado em
+   * `SignatureEnvelope.anchors` continue com a forma de sempre.
+   */
+  sheet?: number;
   /** Offsets em px CSS relativos à origem (topo-esquerda) da página. */
   x: number;
   y: number;
@@ -124,6 +132,45 @@ const MM_TO_PT = 72 / 25.4;
 const FUSED_MIN_LAYOUT_TOTAL_MM = 90;
 const FUSED_MIN_LAYOUT_EACH_MM = 40;
 
+/**
+ * Piso de legibilidade da arte NA FOLHA DE ASSINATURAS, em mm.
+ *
+ * Um pouco acima do piso da folha fundida (40mm) de propósito: lá, aceitar a
+ * miniatura poupa uma folha inteira do documento; aqui, a alternativa é mandar a
+ * arte para o corpo, que já vai paginar de qualquer jeito. O preço de recusar é
+ * menor, então o critério é mais exigente. 45mm é o número que o
+ * `verify-signature-layout` já usava como "conferível".
+ */
+const SIG_MIN_LAYOUT_EACH_MM = 45;
+
+/** Parte uma lista em blocos de até `size`. `size < 1` degenera num bloco só. */
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  if (size < 1) return [[...items]];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out.length ? out : [[]];
+}
+
+/**
+ * Mede a altura IMPRESSA da menor arte da folha de assinaturas, em mm.
+ *
+ * `--layout-max-h` deixou de responder por essa folha quando as artes passaram a
+ * repartir a sobra por flex (ver `.signatures-content.has-layout .layout-image`).
+ * Ler a variável ali daria sempre 105mm — o valor que ninguém usa — e o piso de
+ * legibilidade ficaria cego justamente no caso que o motivou: várias artes
+ * dividindo a mesma folha.
+ */
+const JS_SIG_LAYOUT_HEIGHT = `(() => {
+  const imgs = document.querySelectorAll('.signatures-content.has-layout .layout-image');
+  if (!imgs.length) return null;
+  let min = Infinity;
+  imgs.forEach(el => {
+    const h = el.getBoundingClientRect().height;
+    if (h < min) min = h;
+  });
+  return isFinite(min) ? min / (96 / 25.4) : null;
+})()`;
+
 /** Lê a altura corrente reservada à arte, em mm. */
 const JS_LAYOUT_HEIGHT = `(() => {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--layout-max-h').trim();
@@ -149,8 +196,15 @@ const JS_LAYOUT_HEIGHT = `(() => {
  * contrário, é livre para paginar.
  */
 const JS_SIGNATURES_OVERFLOW = `(() => {
-  const el = document.getElementById('signatures-content');
-  return el ? el.scrollHeight > el.clientHeight + 1 : false;
+  // TODAS as folhas de assinatura, nao a primeira. Quando o bloco se parte em
+  // varias folhas, medir so a de id 'signatures-content' deixaria as demais sem
+  // vigilancia — e clipar um signatario da folha 2 e tao invisivel quanto clipar
+  // um da folha 1.
+  const all = document.querySelectorAll('.signatures-content');
+  for (const el of all) {
+    if (el.scrollHeight > el.clientHeight + 1) return true;
+  }
+  return false;
 })()`;
 
 /**
@@ -224,16 +278,24 @@ const JS_SET_SHEET_FILL = (mm) =>
 
 const JS_MEASURE_ANCHORS = `(() => {
   const out = {};
+  // Ordem do documento = ordem das folhas no PDF. E o indice aqui que vira o
+  // numero da pagina la em cima: com o bloco partido, cada ancora precisa saber
+  // em QUAL folha de assinaturas foi medida, senao todos os selos iriam parar na
+  // primeira.
+  const sheets = Array.prototype.slice.call(document.querySelectorAll('.page-signatures'));
   document.querySelectorAll('[data-signature-slot]').forEach(el => {
     const id = el.getAttribute('data-signature-slot');
     if (!id) return;
-    // Todos os slots vivem na pagina de assinaturas, que e a ultima do PDF.
+    // Os slots vivem nas paginas de assinatura, que sao as ultimas do PDF — ou,
+    // na folha fundida, na propria pagina de conteudo.
     const pageEl = el.closest('.page-signatures') || el.closest('.page');
     if (!pageEl) return;
+    const sheet = sheets.indexOf(pageEl);
     const r = el.getBoundingClientRect();
     const pr = pageEl.getBoundingClientRect();
     out[id] = {
       page: -1,
+      sheet: sheet < 0 ? 0 : sheet,
       x: r.left - pr.left,
       y: r.top - pr.top,
       width: r.width,
@@ -351,11 +413,7 @@ export class QuoteRendererService {
       fontDataUri: this.getFontDataUri(),
       logoDataUri: this.getLogoDataUri(),
     };
-    const html = {
-      fused: buildQuoteHtml(htmlInput, 'fused'),
-      content: buildQuoteHtml(htmlInput, 'content'),
-      signatures: buildQuoteHtml(htmlInput, 'signatures'),
-    };
+    const fusedHtml = buildQuoteHtml(htmlInput, 'fused');
     // O recorte pode não trazer o layout — `layoutImages` sozinho não responde
     // mais a pergunta, porque é o builder que decide se a arte sai impressa.
     const hasLayout =
@@ -389,19 +447,29 @@ export class QuoteRendererService {
       // — o mesmo arranjo de sempre.
       const fusedAttempt = await this.tryFusedRender(
         browser,
-        html.fused,
+        fusedHtml,
         hasLayout ? htmlInput.layoutImages.length : 0,
       );
       if (fusedAttempt) {
         return fusedAttempt;
       }
 
-      // ---- Parte 1: conteúdo do orçamento (1..N folhas) ----
+      // ---- Parte 1: as folhas de assinatura ----
+      //
+      // Vêm ANTES do conteúdo, e a ordem importa: é a medida delas que decide se
+      // a arte fica ali ou vai para o corpo do orçamento — e essa decisão muda o
+      // HTML do conteúdo. Ver `renderSignatureSheets`.
+      const sig = await this.renderSignatureSheets(browser, htmlInput, hasLayout);
+
+      // ---- Parte 2: conteúdo do orçamento (1..N folhas) ----
       const contentPage = await browser.newPage();
       // O template é 100% self-contained (fonte, logo e layouts em data-URI),
       // então nada é buscado na rede — `load` basta e não há flakiness de
       // networkidle.
-      await contentPage.setContent(html.content, { waitUntil: 'load' });
+      await contentPage.setContent(
+        buildQuoteHtml({ ...htmlInput, layoutInContent: sig.layoutInContent }, 'content'),
+        { waitUntil: 'load' },
+      );
       await contentPage.emulateMedia({ media: 'print' });
       // Garante que a @font-face embutida foi decodificada antes de medir: medir
       // com fonte fallback produziria âncoras erradas.
@@ -417,45 +485,145 @@ export class QuoteRendererService {
       );
       await contentPage.close();
 
-      // ---- Parte 2: página de assinaturas (exatamente 1 folha) ----
-      const sigPage = await browser.newPage();
-      await sigPage.setContent(html.signatures, { waitUntil: 'load' });
-      await sigPage.emulateMedia({ media: 'print' });
-      await sigPage.evaluate(JS_FONTS_READY);
-      const { iterations, overflowed } = await this.fitSignaturePage(sigPage);
-      const sigLayoutMm = hasLayout ? ((await sigPage.evaluate(JS_LAYOUT_HEIGHT)) as number) : null;
-      const anchors = await this.measureAnchors(sigPage);
-      const sigPdf = Buffer.from(
-        await sigPage.pdf({ printBackground: true, preferCSSPageSize: true }),
-      );
-      await sigPage.close();
-
-      if (overflowed) {
-        this.logger.error(
-          'A página de assinaturas ainda transborda após o ajuste máximo — signatários demais para uma folha. ' +
-            'O envelope não deve ser congelado neste estado.',
-        );
-      }
-
       // ---- União: conteúdo + assinaturas ----
-      const { pdf, contentPages } = await this.mergeParts(contentPdf, sigPdf, input.budgetNumber);
+      // `sig.pdf`: as folhas de assinatura agora são várias (o bloco se parte).
+      // `budgetNumber`: é ele que vira o carimbo "Página N de M" na união.
+      const { pdf, contentPages } = await this.mergeParts(contentPdf, sig.pdf, input.budgetNumber);
 
-      // A página de assinaturas é, por construção, a última do documento.
+      // As folhas de assinatura são, por construção, as últimas do documento —
+      // e cada âncora sabe em qual delas foi medida.
       const resolved: SignatureAnchorMap = {};
-      for (const [id, a] of Object.entries(anchors)) {
-        resolved[id] = { ...a, page: contentPages };
+      for (const [id, a] of Object.entries(sig.anchors)) {
+        const { sheet, ...rest } = a;
+        resolved[id] = { ...rest, page: contentPages + (sheet ?? 0) };
       }
 
       return {
         pdf,
         anchors: resolved,
         lateSlots: this.resolveLateSlots(lateSlotsRaw),
-        fitIterations: iterations,
-        overflowed,
+        fitIterations: sig.iterations,
+        overflowed: sig.overflowed,
         contentPages,
-        layoutMm: sigLayoutMm,
+        layoutMm: sig.layoutMm,
       };
     }
+  }
+
+  /**
+   * As folhas de assinatura do caminho de duas partes.
+   *
+   * Duas decisões vivem aqui, e as duas são MEDIDAS, não regras sobre contagem:
+   *
+   *  1. QUANTOS SIGNATÁRIOS POR FOLHA. A folha tem altura fixa — é dela que saem
+   *     as âncoras dos selos — e transbordar clipa uma linha de assinatura sem
+   *     sinal nenhum. Antes disso a única saída era recusar o envio pedindo ao
+   *     operador que tirasse responsáveis da coleta, o que é o mundo ao
+   *     contrário: quem assina é decisão do cliente. Agora o bloco SE PARTE —
+   *     mede, tira um por folha e repete até caber. Não há limite de
+   *     signatários; há folhas.
+   *
+   *  2. ONDE FICA A ARTE. O padrão é esta folha, onde a arte usa a sobra que
+   *     sobraria vazia. Mas a sobra é UMA e as artes podem ser várias: medida a
+   *     altura impressa da menor delas, abaixo de `SIG_MIN_LAYOUT_EACH_MM` a
+   *     arte deixa de ser conferível, e então ela migra para o corpo do
+   *     orçamento, que pagina livremente. Uma folha a mais custa menos que uma
+   *     arte que o cliente não consegue conferir — a mesma régra de
+   *     `FUSED_MIN_LAYOUT_*`, aplicada à outra folha.
+   */
+  private async renderSignatureSheets(
+    browser: Browser,
+    htmlInput: QuoteHtmlInput,
+    hasLayout: boolean,
+  ): Promise<{
+    pdf: Buffer;
+    anchors: SignatureAnchorMap;
+    iterations: number;
+    overflowed: boolean;
+    layoutMm: number | null;
+    /** True quando a arte foi rebaixada para o corpo do orçamento. */
+    layoutInContent: boolean;
+  }> {
+    const total = htmlInput.signers.length;
+    let layoutInContent = false;
+    let perSheet = total;
+    let demoted = false;
+
+    // Teto de tentativas: cada uma custa um render. `total` cobre o pior caso da
+    // partição (um a menos por vez até 1 por folha), +2 para a migração da arte.
+    for (let attempt = 0; attempt < total + 2; attempt++) {
+      const sheets = chunk(htmlInput.signers, perSheet);
+      const page = await browser.newPage();
+      try {
+        await page.setContent(
+          buildQuoteHtml({ ...htmlInput, signerPages: sheets, layoutInContent }, 'signatures'),
+          { waitUntil: 'load' },
+        );
+        await page.emulateMedia({ media: 'print' });
+        await page.evaluate(JS_FONTS_READY);
+        const { iterations, overflowed } = await this.fitSignaturePage(page);
+
+        if (overflowed && perSheet > 1) {
+          // Um a menos por folha, não metade: a partição mais barata é a que
+          // gasta o mínimo de folhas, e cair pela metade abriria uma folha nova
+          // para tirar um signatário que sobrava por dois milímetros.
+          perSheet -= 1;
+          continue;
+        }
+
+        const layoutMm =
+          hasLayout && !layoutInContent
+            ? ((await page.evaluate(JS_SIG_LAYOUT_HEIGHT)) as number | null)
+            : null;
+
+        // A arte só é rebaixada UMA vez: já no corpo, `layoutMm` é null e a
+        // condição não volta a valer — mas `demoted` torna isso explícito em vez
+        // de depender disso.
+        if (
+          !demoted &&
+          !overflowed &&
+          layoutMm !== null &&
+          layoutMm < SIG_MIN_LAYOUT_EACH_MM
+        ) {
+          this.logger.log(
+            `Arte rebaixada para o corpo do orçamento: ${htmlInput.layoutImages.length} arte(s) ` +
+              `mediriam ${layoutMm.toFixed(0)}mm na folha de assinaturas ` +
+              `(mínimo ${SIG_MIN_LAYOUT_EACH_MM}mm).`,
+          );
+          layoutInContent = true;
+          demoted = true;
+          // A folha volta a ter a sobra inteira: pode ser que agora caibam
+          // todos de novo.
+          perSheet = total;
+          continue;
+        }
+
+        if (overflowed) {
+          this.logger.error(
+            'A folha de assinaturas transborda mesmo com UM signatário por folha — ' +
+              'o bloco de assinatura não cabe numa folha A4. O envelope não deve ser ' +
+              'congelado neste estado.',
+          );
+        } else if (sheets.length > 1) {
+          this.logger.log(
+            `Bloco de assinaturas partido em ${sheets.length} folhas ` +
+              `(${total} signatários, até ${perSheet} por folha).`,
+          );
+        }
+
+        const anchors = await this.measureAnchors(page);
+        const pdf = Buffer.from(
+          await page.pdf({ printBackground: true, preferCSSPageSize: true }),
+        );
+        return { pdf, anchors, iterations, overflowed, layoutMm, layoutInContent };
+      } finally {
+        await page.close().catch(() => undefined);
+      }
+    }
+
+    // Inalcançável: o laço só continua quando reduziu `perSheet` ou rebaixou a
+    // arte, e ambos são monotônicos e limitados. Existe para o compilador.
+    throw new Error('Não foi possível ajustar as folhas de assinatura.');
   }
 
   /**
