@@ -94,7 +94,13 @@ export class InvoicePrismaRepository implements InvoiceRepository {
     }
 
     if (include.customerConfig) {
-      prismaInclude.customerConfig = true;
+      // A COBERTURA vai junto, sempre. É ela que responde "de quais veículos é
+      // esta fatura?" — e sem ela a tela de um caminhão não tem como filtrar as
+      // faturas do orçamento para as que o cobram: mostraria a cobrança do lote
+      // inteiro na tela de cada um dos vinte.
+      prismaInclude.customerConfig = {
+        include: { coveredTasks: { select: { taskId: true } } },
+      };
     }
 
     return Object.keys(prismaInclude).length > 0 ? prismaInclude : this.getDefaultInclude();
