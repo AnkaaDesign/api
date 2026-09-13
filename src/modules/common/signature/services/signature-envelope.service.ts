@@ -49,6 +49,7 @@ import { QuoteRendererService, RenderInput } from '../document/quote-renderer.se
 import {
   buildLateValueMap,
   coveredTaskCount,
+  coveredTaskIds,
   lateSlotKey,
   parseLateSlotKey,
   primaryTask,
@@ -1558,6 +1559,24 @@ export class SignatureEnvelopeService {
     // `recalcQuoteTotals` usa para gravar `config.total`: é o que garante que o
     // documento assinado e o boleto fechem no centavo.
     const vehicleTasks = sortQuoteTasks(quote.tasks ?? []);
+    // OS VEÍCULOS DESTA FATURA — subconjunto de `vehicleTasks`.
+    //
+    // A tabela de identificação lista o orçamento INTEIRO: o documento é o
+    // contrato, e o contrato é dos sessenta. O quadro do tomador é outra coisa —
+    // ali entra o nº do pedido de compra, e o pedido é do veículo. Numa fatia de
+    // um caminhão o quadro cita o pedido DELE; num lote, os do lote.
+    //
+    // Era `config.taskId`, coluna removida em `20260913120000_billing_coverage`.
+    // A leitura passava por `as any`, então o `tsc` não viu, e a condição virou
+    // sempre-falsa: todo documento recortado passou a citar os pedidos dos
+    // sessenta.
+    const coveredIds = new Set(coveredTaskIds(config as any));
+    const coveredVehicleTasks =
+      coveredIds.size > 0 ? vehicleTasks.filter(t => coveredIds.has(t.id)) : [];
+    // Acervo sem linha de cobertura (ou fatia ainda sem veículo): o orçamento
+    // inteiro, que é o que este trecho fazia antes de existir cobertura.
+    const billedVehicleTasks =
+      coveredVehicleTasks.length > 0 ? coveredVehicleTasks : vehicleTasks;
     const discountValue = config?.discountValue != null ? Number(config.discountValue) : null;
     const discountType = config?.discountType ?? 'NONE';
     const money = computeQuoteMoney({
@@ -1695,11 +1714,7 @@ export class SignatureEnvelopeService {
             // O pedido é do VEÍCULO. Numa fatia conjunta o documento cita os
             // números dos veículos que ela cobre; numa fatia de um caminhão, o
             // dele. Ver `orderNumberLabel`.
-            orderNumber: orderNumberLabel(
-              (config as any)?.taskId
-                ? ((quote as any).tasks ?? []).filter((t: any) => t.id === (config as any).taskId)
-                : ((quote as any).tasks ?? []),
-            ),
+            orderNumber: orderNumberLabel(billedVehicleTasks),
           }
         : null,
       guaranteeText: generateGuaranteeText({

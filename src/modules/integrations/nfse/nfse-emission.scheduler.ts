@@ -7,7 +7,7 @@ import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
-import { orderNumberLabel } from '../../../utils/quote-tasks';
+import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
 
 /**
  * Scheduler for automatic NFS-e emission.
@@ -57,6 +57,34 @@ const resolveGlobalDiscount = (
   // discount) leaves whatever was declared in charge.
   if (gap <= 0.005) return declared;
   return { type: 'FIXED_VALUE', value: gap };
+};
+
+/**
+ * OS VEÍCULOS QUE ESTA NOTA COBRE, na ordem canônica do orçamento.
+ *
+ * Era `customerConfig.taskId` — preenchido querendo dizer "um veículo", nulo
+ * querendo dizer "todos". A coluna SAIU em `20260913120000_billing_coverage` e a
+ * leitura antiga continuou compilando porque passava por `as any`: a condição
+ * era sempre falsa, e toda nota que não tivesse `Invoice.taskId` caía no ramo
+ * "os veículos do orçamento". Para a nota de um LOTE — vinte dos sessenta — isso
+ * é declarar à prefeitura quarenta caminhões que ela não cobra.
+ *
+ * A resposta é a COBERTURA (`QuoteBillingTask`), e é a cobertura inteira: a
+ * âncora (`sliceTask`) seria uma afirmação falsa sobre os outros dezenove.
+ *
+ * O recuo para `Invoice.task` — e, na falta dele, para o orçamento todo — é o
+ * que sustenta o acervo: fatura antiga, emitida antes da migração, sem linha de
+ * cobertura nenhuma.
+ */
+const coveredVehicleRows = (
+  customerConfig: unknown,
+  quoteTaskRows: Array<{ id: string }>,
+  fallbackTask: { id: string } | null | undefined,
+): Array<any> => {
+  const covered = new Set(coveredTaskIds(customerConfig as any));
+  const own = covered.size > 0 ? quoteTaskRows.filter(t => covered.has(t.id)) : [];
+  if (own.length > 0) return own as Array<any>;
+  return (fallbackTask ? [fallbackTask] : quoteTaskRows) as Array<any>;
 };
 
 @Injectable()
@@ -524,11 +552,20 @@ export class NfseEmissionScheduler {
                 ? Number(customerConfig.discountValue)
                 : undefined;
 
-            // A tarefa da FATIA quando existe; a primeira do orçamento quando a
-            // fatura é conjunta. Serve de contexto (rótulo de fallback); quais
-            // veículos a nota cobre é `emitVehicles`, abaixo.
+            // OS VEÍCULOS QUE ESTA NOTA COBRE — lidos da cobertura, uma vez, e
+            // usados por tudo o que fala deles: a discriminação, o nº do pedido
+            // e a âncora do rótulo.
             const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
-            const sliceTask = (task as any) ?? quoteTaskRows[0] ?? null;
+            const coveredRows = coveredVehicleRows(
+              (invoice as any).customerConfig,
+              quoteTaskRows,
+              task as any,
+            );
+            // A tarefa da FATIA: a PRIMEIRA que esta nota cobre. Serve de
+            // contexto (rótulo de fallback, placa do cabeçalho); quais veículos a
+            // nota cobre é `emitVehicles`, abaixo. Era `quoteTaskRows[0]` — o
+            // primeiro do ORÇAMENTO —, que num lote é um caminhão de outra nota.
+            const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
             const truck = sliceTask?.truck;
             emitTask = {
               id: sliceTask?.id ?? invoice.id,
@@ -544,18 +581,11 @@ export class NfseEmissionScheduler {
                 }
               : undefined;
 
-            // OS VEÍCULOS QUE ESTA NOTA COBRE.
-            //
-            // Fatia com tarefa ⇒ um veículo (e a discriminação sai idêntica à de
-            // sempre). Fatura conjunta ⇒ os N veículos do orçamento, e a
-            // discriminação declara a contagem e a faixa de séries.
-            emitVehicles = (
-              (invoice as any).customerConfig?.taskId
-                ? quoteTaskRows.filter(t => t.id === (invoice as any).customerConfig.taskId)
-                : task
-                  ? [task as any]
-                  : quoteTaskRows
-            ).map((t: any) => ({
+            // A DISCRIMINAÇÃO. Cobertura de um veículo ⇒ sai idêntica à de
+            // sempre; de N ⇒ declara a contagem e a faixa de séries dos N que
+            // esta nota cobra — nunca dos que estão noutra nota do mesmo
+            // orçamento.
+            emitVehicles = coveredRows.map((t: any) => ({
               serialNumber: t.serialNumber ?? null,
               plate: t.truck?.plate ?? null,
               chassisNumber: t.truck?.chassisNumber ?? null,
@@ -564,16 +594,11 @@ export class NfseEmissionScheduler {
             }));
             emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
 
-            // O pedido dos VEÍCULOS desta fatura (o do caminhão quando a
-            // cobrança é veículo a veículo; os do orçamento quando é conjunta).
-            orderNumber =
-              orderNumberLabel(
-                (invoice as any).customerConfig?.taskId
-                  ? (nfseQuote?.tasks ?? []).filter(
-                      (t: any) => t.id === (invoice as any).customerConfig?.taskId,
-                    )
-                  : (nfseQuote?.tasks ?? []),
-              ) ?? undefined;
+            // O pedido de compra dos VEÍCULOS DESTA fatura — o do caminhão
+            // quando ela cobra um; os do lote quando cobra vinte. É o campo em
+            // que a Elotech procura o empenho, e citar o pedido de um caminhão
+            // que está noutra nota é errar de nota.
+            orderNumber = orderNumberLabel(coveredRows) ?? undefined;
             globalDiscount = resolveGlobalDiscount(
               services,
               Number(invoice.totalAmount),
@@ -857,7 +882,10 @@ export class NfseEmissionScheduler {
               : undefined;
 
           const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
-          const sliceTask = (task as any) ?? quoteTaskRows[0] ?? null;
+          // Mesma leitura do caminho agendado: a cobertura, uma vez. A âncora é
+          // o primeiro veículo DESTA nota, não o primeiro do orçamento.
+          const coveredRows = coveredVehicleRows(customerConfig, quoteTaskRows, task as any);
+          const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
           const truck = sliceTask?.truck;
           emitTask = {
             id: sliceTask?.id ?? invoice.id,
@@ -872,13 +900,7 @@ export class NfseEmissionScheduler {
                 implementType: truck.implementType || undefined,
               }
             : undefined;
-          emitVehicles = (
-            customerConfig?.taskId
-              ? quoteTaskRows.filter(t => t.id === customerConfig.taskId)
-              : task
-                ? [task as any]
-                : quoteTaskRows
-          ).map((t: any) => ({
+          emitVehicles = coveredRows.map((t: any) => ({
             serialNumber: t.serialNumber ?? null,
             plate: t.truck?.plate ?? null,
             chassisNumber: t.truck?.chassisNumber ?? null,
@@ -886,14 +908,7 @@ export class NfseEmissionScheduler {
             implementType: t.truck?.implementType ?? null,
           }));
           emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
-          orderNumber =
-            orderNumberLabel(
-              customerConfig?.taskId
-                ? ((customerConfig as any)?.quote?.tasks ?? []).filter(
-                    (t: any) => t.id === customerConfig?.taskId,
-                  )
-                : ((customerConfig as any)?.quote?.tasks ?? []),
-            ) ?? undefined;
+          orderNumber = orderNumberLabel(coveredRows) ?? undefined;
           globalDiscount = resolveGlobalDiscount(
             services,
             Number(invoice.totalAmount),
