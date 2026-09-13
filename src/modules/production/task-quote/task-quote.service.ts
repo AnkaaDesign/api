@@ -83,7 +83,10 @@ import {
   sortQuoteTasks,
 } from '@utils/quote-tasks';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
-import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
+import {
+  reconcileQuoteCustomerConfigs,
+  resliceQuoteCoverage,
+} from '../../../utils/task-quote-customer-config-sync';
 import {
   QUOTE_STATUS_LOCKED,
   QUOTE_VALUE_REVERTABLE_STATUSES,
@@ -1366,6 +1369,27 @@ export class TaskQuoteService {
         const billingSplitChanged =
           (data as any).billingSplit !== undefined &&
           updateBillingSplit !== ((existing as any).billingSplit ?? 'JOINT');
+
+        // ─── TROCAR O MODO DEPOIS DE FATURAR NÃO É POSSÍVEL ──────────────────
+        //
+        // A cobertura de uma fatura já aprovada é congelada — ela sustenta uma
+        // nota fiscal autorizada e boletos registrados, e mudá-la
+        // retroativamente alteraria de quais caminhões é um documento fiscal que
+        // já saiu. A reconciliação respeita isso sozinha, mas em silêncio: o
+        // pedido "separe os sessenta" numa `JOINT` já faturada não teria efeito
+        // nenhum e a tela mostraria "separado" sobre uma fatura única. Recusar é
+        // a resposta honesta, e diz o que fazer.
+        if (billingSplitChanged) {
+          const approved = await tx.taskQuoteCustomerConfig.count({
+            where: { quoteId: id, billingApprovedAt: { not: null } },
+          });
+          if (approved > 0) {
+            throw new BadRequestException(
+              'Não é possível mudar a forma de faturamento: já existe faturamento aprovado neste orçamento. ' +
+                'Reverta o faturamento antes de refatiar.',
+            );
+          }
+        }
         if (data.customerConfigs === undefined && billingSplitChanged) {
           const storedConfigs = await tx.taskQuoteCustomerConfig.findMany({
             where: { quoteId: id },
@@ -1833,6 +1857,16 @@ export class TaskQuoteService {
           data.taskIds !== undefined ||
           (data as any).billingSplit !== undefined
         ) {
+          // A COBERTURA antes do total. Uma gravação que só mexe em `taskIds`
+          // não passa pela reconciliação acima (ela só roda com
+          // `customerConfigs` ou com troca de modo), e sem refatiar aqui o
+          // caminhão acrescentado ficaria fora de toda fatura — ou o retirado
+          // continuaria dentro de uma. Não toca em nenhum termo: ver
+          // `resliceQuoteCoverage`.
+          await resliceQuoteCoverage(tx, id, {
+            billingSplit: updateBillingSplit,
+            taskIds: nextTaskIds,
+          });
           await recalcQuoteTotals(tx, id);
         }
 
@@ -4022,6 +4056,14 @@ export class TaskQuoteService {
               // nothing ever matches and every per-customer link renders
               // Completo.
               customerId: true,
+              // A COBERTURA — de quais veículos esta fatura é. A página pública é
+              // onde o cliente CONFERE antes de assinar: num orçamento em lotes,
+              // sem isto ele leria "3 faturas" sem saber qual caminhão está em
+              // qual, que é justamente o que o lote resolve.
+              coveredTasks: {
+                select: { taskId: true },
+                orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+              },
               subtotal: true,
               total: true,
               discountType: true,

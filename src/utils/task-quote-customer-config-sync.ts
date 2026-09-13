@@ -596,3 +596,46 @@ async function syncCoverage(
     });
   }
 }
+
+/**
+ * REFATIA a cobertura de um orçamento SEM tocar em nenhum termo.
+ *
+ * Existe porque a cobertura é derivada de duas coisas que mudam por caminhos que
+ * não trazem `customerConfigs` no corpo:
+ *
+ *   · o CONJUNTO DE VEÍCULOS — acrescentar ou retirar um caminhão, criar a
+ *     tarefa depois do orçamento (a criação aninhada por `POST /tasks` faz
+ *     exatamente isso: o orçamento nasce primeiro, a tarefa depois), mover uma
+ *     tarefa de um orçamento para outro;
+ *   · o MODO (`billingSplit`), editável sozinho pelo seletor da tela.
+ *
+ * Sem esta chamada, o primeiro caso deixa a fatura sem o veículo novo (ou com
+ * linha de cobertura apontando para um caminhão que saiu) e o segundo deixa o
+ * orçamento afirmando um modo que a cobertura contradiz.
+ *
+ * ⚠️ NÃO PASSA NENHUM TERMO. Os objetos de entrada levam só `customerId`, e
+ * `buildConfigWriteData` de um objeto assim devolve `{}` — nenhuma coluna é
+ * escrita. É deliberado: um refatiamento que carregasse os termos do PRIMEIRO
+ * faturamento de cada cliente os aplicaria a todos os outros, que é exatamente o
+ * defeito que o casamento por identidade existe para acabar.
+ */
+export async function resliceQuoteCoverage(
+  tx: PrismaTransaction,
+  quoteId: string,
+  options?: { billingSplit?: string | null; taskIds?: readonly string[] | null },
+): Promise<void> {
+  const stored = await tx.taskQuoteCustomerConfig.findMany({
+    where: { quoteId },
+    select: { customerId: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const customerIds = [...new Set(stored.map(c => c.customerId))];
+  if (customerIds.length === 0) return;
+
+  await reconcileQuoteCustomerConfigs(
+    tx,
+    quoteId,
+    customerIds.map(customerId => ({ customerId })),
+    options,
+  );
+}

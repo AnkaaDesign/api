@@ -30,7 +30,10 @@ import {
   transformPaintColorPreview,
 } from '../../../../utils';
 import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
-import { reconcileQuoteCustomerConfigs } from '../../../../utils/task-quote-customer-config-sync';
+import {
+  reconcileQuoteCustomerConfigs,
+  resliceQuoteCoverage,
+} from '../../../../utils/task-quote-customer-config-sync';
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
@@ -1811,6 +1814,7 @@ export class TaskPrismaRepository
 
       const quoteData = (data as any).quote;
       let createdPricingId: string | null = null;
+      let legacyOrderNumber: string | null = null;
 
       if (
         quoteData &&
@@ -1879,10 +1883,14 @@ export class TaskPrismaRepository
                       config.generateInvoice !== undefined ? config.generateInvoice : true,
                     generateBankSlip:
                       config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                    // Mirror the updateWithTransaction create branch — orderNumber
-                    // (and customerSignatureId) were silently dropped on task
-                    // CREATE, so a quote born with a pre-set order number lost it.
-                    orderNumber: config.orderNumber ?? null,
+                    // ⚠️ `orderNumber` NÃO entra aqui. A coluna saiu do modelo na
+                    // migração `20260909170000` — o pedido de compra é do VEÍCULO
+                    // (`Task.customerOrderNumber`) — e `x ?? null` emitia a chave
+                    // SEMPRE, mesmo quando o cliente não a mandava: o Prisma
+                    // respondia "Unknown argument `orderNumber`" e TODA criação de
+                    // tarefa com orçamento aninhado morria em 500. É o caminho que
+                    // o app instalado usa. O valor legado desce para a tarefa
+                    // (`legacyOrderNumber`, mais abaixo).
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
                     paymentConfig: (config as any).paymentConfig ?? null,
@@ -1904,14 +1912,17 @@ export class TaskPrismaRepository
         });
 
         createdPricingId = newQuote.id;
+        // O pedido de compra que o app instalado ainda manda na FATIA. A coluna
+        // não existe mais; o destino é a tarefa, e ela só existe logo abaixo.
+        legacyOrderNumber =
+          (quoteData.customerConfigs ?? [])
+            .map((c: any) => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+            .find((v: string) => v.length > 0) || null;
 
-        // Authoritative discount-aware recompute of BOTH money layers (aggregate
-        // TaskQuote.subtotal/total + per-config subtotal/total), mirroring the
-        // update path (recalcQuoteTotals at the new-quote branch below). Without
-        // this, a quote created with a per-config discount persisted the
-        // discount-unaware total straight from the payload (money drift / the
-        // detail≠wizard class of bug at creation time).
-        await recalcQuoteTotals(transaction, newQuote.id);
+        // Os totais ficam para DEPOIS do vínculo com a tarefa: `recalcQuoteTotals`
+        // conta os veículos do orçamento, e neste instante ele ainda não tem
+        // nenhum — a tarefa nasce a seguir. Recalcular aqui gravaria
+        // `vehicleCount: 1` e o total de um orçamento sem veículo.
       }
 
       if (createdPricingId) {
@@ -1924,6 +1935,30 @@ export class TaskPrismaRepository
         data: createInput,
         include: includeInput,
       });
+
+      if (createdPricingId) {
+        // ─── A COBERTURA, agora que o veículo existe ─────────────────────────
+        //
+        // O orçamento nasce ANTES da tarefa neste caminho (o id dele é o
+        // `connect` da tarefa), então as faturas nasceram sem cobertura. Sem esta
+        // chamada elas ficariam sem resposta para "de qual veículo é isto?" — e a
+        // aritmética, que multiplica pelo que a fatura cobre, cairia no padrão.
+        await resliceQuoteCoverage(transaction, createdPricingId);
+
+        // O pedido de compra legado da fatia desce para o VEÍCULO, que é onde ele
+        // mora desde a migração `20260909170000`. Só quando a tarefa não trouxe o
+        // seu: o campo novo é o que manda.
+        if (legacyOrderNumber && !(createInput as any).customerOrderNumber) {
+          await transaction.task.update({
+            where: { id: result.id },
+            data: { customerOrderNumber: legacyOrderNumber },
+          });
+        }
+
+        // Só agora os totais: `recalcQuoteTotals` conta os veículos e multiplica
+        // por eles, e o veículo passou a existir nesta linha.
+        await recalcQuoteTotals(transaction, createdPricingId);
+      }
 
       // Task↔quote link now exists: materialize any quote layout file as an
       // APPROVED task layout.
@@ -2320,7 +2355,8 @@ export class TaskPrismaRepository
                           config.generateInvoice !== undefined ? config.generateInvoice : true,
                         generateBankSlip:
                           config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                        orderNumber: config.orderNumber ?? null,
+                        // Ver a nota gêmea no caminho de criação: a coluna não
+                        // existe mais, e emiti-la matava a gravação em 500.
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
                         paymentConfig: (config as any).paymentConfig ?? null,
@@ -2343,6 +2379,12 @@ export class TaskPrismaRepository
             });
 
             // Recompute discount-aware totals from the freshly-created rows.
+            // A COBERTURA vem antes: o vínculo com esta tarefa é gravado no
+            // `task.update` logo abaixo, mas a tarefa JÁ EXISTE (estamos
+            // atualizando), então basta declará-la aqui para que as faturas
+            // nasçam cobrindo-a e os totais saiam certos de primeira.
+            await transaction.task.update({ where: { id }, data: { quoteId: newQuote.id } });
+            await resliceQuoteCoverage(transaction, newQuote.id);
             await recalcQuoteTotals(transaction, newQuote.id);
 
             if (hasImplementMeasure) quoteIdForLayoutSync = newQuote.id;
@@ -2383,7 +2425,16 @@ export class TaskPrismaRepository
           // O orçamento pode ter sido apagado na mesma transação (relação
           // `SET NULL`): recalcular linha inexistente derrubaria a transação.
           const stillThere = await transaction.taskQuote.count({ where: { id: quoteId } });
-          if (stillThere > 0) await recalcQuoteTotals(transaction, quoteId);
+          if (stillThere === 0) continue;
+          // A COBERTURA antes do total, e nos DOIS orçamentos.
+          //
+          // Mover uma tarefa não apaga a linha de cobertura dela: o `onDelete:
+          // Cascade` de `QuoteBillingTask` dispara quando a TAREFA morre, não
+          // quando ela troca de orçamento. Sem refatiar, a fatura do orçamento de
+          // origem continuaria cobrando um caminhão que não é mais dela — e a do
+          // destino não cobraria o que recebeu.
+          await resliceQuoteCoverage(transaction, quoteId);
+          await recalcQuoteTotals(transaction, quoteId);
         }
       }
 
@@ -2445,6 +2496,11 @@ export class TaskPrismaRepository
           where: { id: before.quoteId },
         });
         if (quoteStillThere > 0) {
+          // A cobertura da tarefa apagada some por cascata; o que sobra é o
+          // orçamento com uma fatura a menos de veículo. Refatiar antes do total
+          // é o que faz `JOINT` voltar a cobrir os que restaram em vez de manter
+          // um grupo de N num orçamento de N−1.
+          await resliceQuoteCoverage(transaction, before.quoteId);
           await recalcQuoteTotals(transaction, before.quoteId);
         }
       }
