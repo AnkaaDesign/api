@@ -16,6 +16,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_ACTION, CHANGE_TRIGGERED_BY, ENTITY_TYPE } from '@constants';
 import { deriveTransactionState } from '../reconciliation/transaction-status';
+import { RECON_ADVISORY_LOCK_KEY } from '../reconciliation/reconciliation-matcher.service';
 import { nameSimilarity } from '../reconciliation/text-normalization';
 import {
   CreateOneOffPayableDto,
@@ -979,12 +980,130 @@ export class RecurrentPayableService {
     return dueDateForCompetence(competence, payable.dueDayOfMonth ?? 1).getTime() === dueDate.getTime();
   }
 
-  async remove(id: string) {
+  /**
+   * Delete a recurring bill — or, when it already carries settled history,
+   * DEACTIVATE it instead.
+   *
+   * Occurrences cascade-delete with the parent, but a settled occurrence is
+   * pinned from the other side: `ReconciliationMatch.recurrentOccurrenceId` is
+   * ON DELETE RESTRICT, exactly like the installation FK, so that a bill removed
+   * from the list can never orphan a bank transaction's allocation. The cascade
+   * therefore reached Postgres and bounced back as P2003, surfaced to the user as
+   * the opaque "Referência inválida. Verifique os dados relacionados." — the
+   * delete was impossible, and the screen could not say why. (Real case: a bill
+   * with 7 PAID/matched occurrences out of 11.)
+   *
+   * So the delete degrades to deactivation, the same contract installations
+   * already follow: the bill stops generating charges, its future open slots are
+   * cancelled, and its paid history stays on record and auditable.
+   */
+  async remove(id: string, userId?: string) {
     const existing = await this.prisma.recurrentPayable.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Conta recorrente não encontrada.');
-    // Occurrences cascade-delete with the parent.
-    await this.prisma.recurrentPayable.delete({ where: { id } });
+
+    // "Settled" is deliberately broader than status=PAID: a reconciliation match
+    // (even a REVERSED one — the row still holds the FK), a bank leg or a linked
+    // NF are each enough to make the row history rather than a plan.
+    const settled = await this.prisma.recurrentPayableOccurrence.count({
+      where: {
+        recurrentPayableId: id,
+        OR: [
+          { status: 'PAID' },
+          { paidAt: { not: null } },
+          { bankTransactionId: { not: null } },
+          { fiscalDocumentId: { not: null } },
+          { reconciliationMatches: { some: {} } },
+        ],
+      },
+    });
+
+    if (settled > 0) {
+      const cancelled = await this.deactivateWithHistory(existing, settled, userId);
+      return {
+        success: true,
+        message:
+          `"${existing.name}" possui ${settled} ocorrência(s) já paga(s) ou conciliada(s) e não ` +
+          `pode ser excluída sem apagar esse histórico. A conta foi DESATIVADA: não gera mais ` +
+          `cobranças` +
+          (cancelled > 0 ? ` e ${cancelled} cobrança(s) futura(s) em aberto foram canceladas` : '') +
+          `, e o histórico pago continua disponível.`,
+        data: { deactivated: true, settledOccurrences: settled, cancelledOccurrences: cancelled },
+      };
+    }
+
+    // No history: safe to delete for real. Children go first and in order —
+    // occurrences and installations BOTH cascade from the parent, but
+    // occurrence→installation is RESTRICT and Postgres does not order sibling
+    // cascades, so letting the single parent delete do it can fail on a bill that
+    // has installations.
+    await this.prisma.$transaction(async db => {
+      await db.recurrentPayableOccurrence.deleteMany({ where: { recurrentPayableId: id } });
+      await db.recurrentPayableInstallation.deleteMany({ where: { recurrentPayableId: id } });
+      await db.recurrentPayable.delete({ where: { id } });
+    });
+
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+      entityId: id,
+      action: CHANGE_ACTION.DELETE,
+      oldValue: { name: existing.name, categoryId: existing.categoryId },
+      newValue: null,
+      reason: `Conta recorrente "${existing.name}" excluída (sem histórico pago ou conciliado).`,
+      userId,
+    });
+
     return { success: true, message: 'Conta recorrente removida.' };
+  }
+
+  /** Retire a bill that cannot be deleted: stop the cron, drop the future open
+   *  slots, keep everything that represents money. Mirrors what a cadence edit
+   *  does to occurrences it is allowed to touch — never a PAID/linked row. */
+  private async deactivateWithHistory(
+    payable: RecurrentPayable,
+    settled: number,
+    userId?: string,
+  ): Promise<number> {
+    const horizonStart = startOfTomorrowSaoPaulo(new Date());
+    const cancelled = await this.prisma.$transaction(async db => {
+      await db.recurrentPayable.update({
+        where: { id: payable.id },
+        data: { isActive: false, nextRun: null },
+      });
+      const { count } = await db.recurrentPayableOccurrence.updateMany({
+        where: {
+          recurrentPayableId: payable.id,
+          dueDate: { gte: horizonStart },
+          status: 'PENDING',
+          paidAt: null,
+          bankTransactionId: null,
+          fiscalDocumentId: null,
+          reconciliationMatches: { none: {} },
+        },
+        data: { status: 'CANCELLED' },
+      });
+      return count;
+    });
+
+    this.logger.warn(
+      `RecurrentPayable ${payable.name} (${payable.id}): delete refused — ${settled} settled ` +
+        `occurrence(s). Deactivated instead; ${cancelled} future open occurrence(s) cancelled.`,
+    );
+
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+      entityId: payable.id,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'isActive',
+      oldValue: payable.isActive,
+      newValue: false,
+      reason:
+        `Exclusão solicitada, mas a conta possui ${settled} ocorrência(s) paga(s)/conciliada(s). ` +
+        `Desativada no lugar da exclusão; ${cancelled} cobrança(s) futura(s) em aberto canceladas.`,
+      userId,
+      metadata: { requestedAction: 'DELETE', settledOccurrences: settled, cancelledOccurrences: cancelled },
+    });
+
+    return cancelled;
   }
 
   private async assertCategory(categoryId: string): Promise<void> {
@@ -1017,6 +1136,52 @@ export class RecurrentPayableService {
    *  occurrence by due date. Wide enough for a monthly bill, tight enough that a
    *  weekly debit binds to the right visit. */
   private static readonly MATCH_WINDOW_DAYS = 35;
+
+  /**
+   * How far a bank debit may reach, in days, to find the obligation it paid.
+   *
+   * A flat ±35 days for every cadence is what made "Diária - Limpeza" drift a
+   * whole visit ahead, week after week, until setembro showed up PAID in agosto.
+   * The bill is WEEKLY, so 35 days is FIVE cycles: on 12/08 the occurrence of
+   * 12/08 had been ignored by hand, the debit of 12/08 found the next OPEN
+   * Wednesday — 19/08, seven days into the FUTURE — and settled that instead.
+   * From then on every payment closed the following week's visit, and the error
+   * carried forward on its own. The same forward half of the window is what
+   * settled setembro from an agosto debit on the monthly bills in 08/2026.
+   *
+   * A window has two very different sides, and they are not the same size:
+   *
+   *   BACKWARD (debit AFTER the due date) is a LATE PAYMENT — ordinary, and it
+   *   may legitimately stretch to a whole cycle.
+   *
+   *   FORWARD (debit BEFORE the due date) is a PREPAYMENT — real (a boleto paid
+   *   early) but small. Anything approaching a full cycle ahead is not an early
+   *   payment at all: it is this bug, binding a payment to an obligation that has
+   *   not happened yet.
+   *
+   * So: late = one cycle, early = a third of a cycle (min 2 days), both capped by
+   * MATCH_WINDOW_DAYS. Weekly bills get -7/+3 — the Friday debit for a Monday
+   * visit still lands, 19/08 is out of reach of a debit posted on 12/08 — while
+   * monthly bills keep -30/+10 and still absorb the boleto paid a week and a half
+   * early.
+   *
+   * A ONCE payable has no cadence to reason about: its single date IS the
+   * schedule, so it keeps the flat window on both sides.
+   */
+  private settlementWindow(payable: { frequency: string; frequencyCount: number }): {
+    lateDays: number;
+    earlyDays: number;
+  } {
+    const cap = RecurrentPayableService.MATCH_WINDOW_DAYS;
+    if (isOneOffFrequency(payable.frequency)) return { lateDays: cap, earlyDays: cap };
+    const cycleDays = isWeeklyFrequency(payable.frequency)
+      ? 7 * weeksPerCycle(payable.frequency, payable.frequencyCount)
+      : 30 * monthsForFrequency(payable.frequency, payable.frequencyCount);
+    return {
+      lateDays: Math.min(cap, cycleDays),
+      earlyDays: Math.min(cap, Math.max(2, Math.ceil(cycleDays / 3))),
+    };
+  }
 
   /** The active installations a bill is materialized against, or `[null]` when it
    *  has none — the single-obligation-per-period shape every bill had before
@@ -1655,7 +1820,9 @@ export class RecurrentPayableService {
     const payable = occ.recurrentPayable;
     const payeeCnpj = payable.payeeCnpj ?? null;
 
-    const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
+    // Mirror of the sweep's window, seen from the occurrence: the debit that paid
+    // this due date sits from `earlyDays` before it to `lateDays` after it.
+    const { lateDays, earlyDays } = this.settlementWindow(payable);
     const identityOr: Prisma.BankTransactionWhereInput[] = [
       { categories: { some: { categoryId: payable.categoryId } } },
     ];
@@ -1664,7 +1831,10 @@ export class RecurrentPayableService {
     const txs = await this.prisma.bankTransaction.findMany({
       where: {
         type: 'DEBIT',
-        postedAt: { gte: addDays(occ.dueDate, -w), lte: addDays(occ.dueDate, w) },
+        postedAt: {
+          gte: addDays(occ.dueDate, -earlyDays),
+          lte: addDays(occ.dueDate, lateDays),
+        },
         // Debits are negative: [-(asserted+tol), -(asserted-tol)].
         amount: {
           gte: new Prisma.Decimal(-(asserted + tolerance)),
@@ -1734,6 +1904,137 @@ export class RecurrentPayableService {
       `Occurrence ${occ.competence} of ${payable.name} confirmed at baixa time from tx ${chosen.id} (R$${debitAbs.toFixed(2)})`,
     );
     return chosen.id;
+  }
+
+  /**
+   * Estorno: take a PAID occurrence back to an open obligation.
+   *
+   * `ignoreOccurrence` already tells the user to "estorne o pagamento primeiro",
+   * but there was no lever anywhere to do it — a baixa was one-way, and a wrong
+   * one could only be fixed in the database.
+   *
+   * The payment is TWO facts, not one, and both have to come undone together:
+   * the occurrence's own settlement fields, and — when the baixa was cleared
+   * against the extrato — the ReconciliationMatch that spends a slice of a bank
+   * line's budget. Undoing only the first would leave the debit allocated to an
+   * obligation that no longer claims it: money accounted for twice, and the exact
+   * over-allocation shape `writeOccurrenceMatch` exists to prevent. So the match
+   * is REVERSED (never deleted — the reversal is the audit trail) and every
+   * transaction it touched is recomputed from the matches that survive.
+   *
+   * The NF link is deliberately kept: `linkPendingNfs` files a note by CNPJ +
+   * competence regardless of payment, so the note documents the obligation, not
+   * the baixa.
+   */
+  async unmarkOccurrencePaid(
+    occurrenceId: string,
+    opts: { userId?: string } = {},
+  ): Promise<{ success: boolean; message: string; data: RecurrentPayableOccurrence }> {
+    const occ = await this.prisma.recurrentPayableOccurrence.findUnique({
+      where: { id: occurrenceId },
+      include: { recurrentPayable: true },
+    });
+    if (!occ) throw new NotFoundException('Ocorrência não encontrada.');
+    if (occ.status !== 'PAID') {
+      throw new BadRequestException('Esta conta não está marcada como paga.');
+    }
+
+    const paidAmount = Number(occ.paidAmount ?? 0);
+    // An overdue bill must come back OVERDUE, not PENDING: markOverdueOccurrences
+    // only ever promotes rows whose due date has passed, so a reopened row that
+    // lied about being merely pending would keep lying until the next sweep.
+    const reopenedStatus =
+      occ.dueDate < startOfTomorrowSaoPaulo(new Date()) ? 'OVERDUE' : 'PENDING';
+
+    const { data, reversedMatches, affectedTx } = await this.prisma.$transaction(async db => {
+      // Same lock the reconciliation paths take: the per-transaction recompute
+      // below is a read-then-write over the surviving matches, and the 05:15
+      // sweep writes into exactly that set.
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+
+      const live = await db.reconciliationMatch.findMany({
+        where: { recurrentOccurrenceId: occurrenceId, reversedAt: null },
+        select: { id: true, transactionId: true },
+      });
+      const txIds = [...new Set(live.map(m => m.transactionId))];
+
+      if (live.length > 0) {
+        await db.reconciliationMatch.updateMany({
+          where: { recurrentOccurrenceId: occurrenceId, reversedAt: null },
+          data: { reversedAt: new Date(), reversedById: opts.userId ?? null },
+        });
+      }
+
+      const updated = await db.recurrentPayableOccurrence.update({
+        where: { id: occurrenceId },
+        data: {
+          status: reopenedStatus,
+          paidAmount: null,
+          paidAt: null,
+          paidById: null,
+          bankTransactionId: null,
+          reconciledAt: null,
+        },
+      });
+
+      // Recompute each bank line from what still claims it: fully covered →
+      // RECONCILED, partly → PARTIAL, nothing → PENDING (and no source).
+      for (const txId of txIds) {
+        const state = await deriveTransactionState(db, txId);
+        await db.bankTransaction.update({
+          where: { id: txId },
+          data: {
+            reconciliationStatus: state.status,
+            expectsFiscalDocument: state.expectsFiscalDocument,
+            ...(state.status === ReconciliationStatus.PENDING
+              ? { reconciliationSource: null }
+              : {}),
+          },
+        });
+      }
+
+      return { data: updated, reversedMatches: live.length, affectedTx: txIds };
+    });
+
+    this.logger.log(
+      `RecurrentPayable ${occ.recurrentPayable.name} ${occ.competence} payment reverted ` +
+        `(R$${paidAmount.toFixed(2)}); ${reversedMatches} match(es) reversed on ` +
+        `${affectedTx.length} transaction(s).`,
+    );
+
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE_OCCURRENCE,
+      entityId: occurrenceId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'status',
+      oldValue: 'PAID',
+      newValue: reopenedStatus,
+      reason:
+        `Pagamento de "${occ.recurrentPayable.name}" (venc. ` +
+        `${occ.dueDate.toISOString().slice(0, 10)}) estornado — R$ ${paidAmount.toFixed(2)} ` +
+        `devolvidos a em aberto. ` +
+        (reversedMatches > 0
+          ? `${reversedMatches} conciliação(ões) bancária(s) revertida(s); o débito volta ao extrato como não conciliado.`
+          : 'A baixa não tinha conciliação bancária.'),
+      userId: opts.userId,
+      metadata: {
+        recurrentPayableId: occ.recurrentPayableId,
+        competence: occ.competence,
+        revertedAmount: paidAmount,
+        reversedMatches,
+        affectedTransactionIds: affectedTx,
+        previousBankTransactionId: occ.bankTransactionId,
+      },
+    });
+
+    return {
+      success: true,
+      message:
+        reversedMatches > 0
+          ? 'Pagamento estornado. A conciliação bancária foi revertida e o débito voltou ao extrato como não conciliado.'
+          : 'Pagamento estornado. A conta voltou para em aberto.',
+      data,
+    };
   }
 
   /** Ignore a single occurrence for its month (e.g. the diarista faltou, so the
@@ -2258,6 +2559,224 @@ export class RecurrentPayableService {
     return settled;
   }
 
+  /**
+   * Audit — and, on request, repair — settlements anchored to the WRONG
+   * occurrence of the right bill.
+   *
+   * The tightened `settlementWindow` stops this from happening again, but it
+   * cannot un-happen what a flat ±35-day window already wrote, and the drift is
+   * self-sustaining: once week N is closed by week N-1's debit, week N's debit
+   * finds week N+1 open and closes that, forever. "Diária - Limpeza" walked from
+   * 12/08 to 02/09 that way in three payments, which is how a September charge
+   * came to read PAID in August with no way to correct it from the screen.
+   *
+   * A settlement is SHIFTED when the debit behind it sits outside the window its
+   * own occurrence would accept — in practice, a debit posted a whole cycle or
+   * more BEFORE the due date it closed.
+   *
+   * The repair is two phases, and the order is the whole point:
+   *
+   *   1. ESTORNAR every shifted settlement first (`unmarkOccurrencePaid`), which
+   *      also reverses its ReconciliationMatch and hands the debit its budget
+   *      back. Doing this for all of them before re-settling any is what breaks
+   *      the chain: 19/08 has to be open before 26/08's debit can be offered it.
+   *   2. Re-run `applyBankSettlement` for each freed debit. With the new window
+   *      it binds to the occurrence it actually paid — and the reversed match
+   *      from phase 1 is exactly what stops it walking back to the wrong one.
+   *
+   * A debit whose correct occurrence is CANCELLED (someone ignored that month) or
+   * missing finds nothing and is REPORTED, not forced: it goes back to the
+   * Extrato as unlinked, where a person can decide. That is the Laide case for
+   * 12/08 — the visit was ignored by hand and the money left anyway, and only
+   * Kennedy knows which of the two is true.
+   */
+  async auditShiftedSettlements(
+    opts: { dryRun?: boolean; userId?: string } = {},
+  ): Promise<{
+    scanned: number;
+    shifted: number;
+    reverted: number;
+    resettled: number;
+    stranded: number;
+    dryRun: boolean;
+    details: Array<{
+      payableName: string;
+      occurrenceId: string;
+      dueDate: string;
+      paidAmount: number;
+      transactionId: string | null;
+      postedAt: string | null;
+      driftDays: number;
+      suggestedDueDate: string | null;
+      suggestedStatus: 'OPEN' | 'CANCELLED' | 'PAID' | 'NONE';
+    }>;
+  }> {
+    const dryRun = opts.dryRun !== false;
+    const payables = await this.prisma.recurrentPayable.findMany({ where: { isActive: true } });
+    const details: Array<{
+      payableName: string;
+      occurrenceId: string;
+      dueDate: string;
+      paidAmount: number;
+      transactionId: string | null;
+      postedAt: string | null;
+      driftDays: number;
+      suggestedDueDate: string | null;
+      suggestedStatus: 'OPEN' | 'CANCELLED' | 'PAID' | 'NONE';
+    }> = [];
+    const shiftedByPayable = new Map<string, { payable: RecurrentPayable; occIds: string[]; txIds: string[] }>();
+    let scanned = 0;
+
+    for (const payable of payables) {
+      // A one-off has a single date and no cadence — nothing to drift along.
+      if (isOneOffFrequency(payable.frequency)) continue;
+      const { lateDays, earlyDays } = this.settlementWindow(payable);
+
+      const paid = await this.prisma.recurrentPayableOccurrence.findMany({
+        where: { recurrentPayableId: payable.id, status: 'PAID', bankTransactionId: { not: null } },
+        orderBy: { dueDate: 'asc' },
+      });
+
+      for (const occ of paid) {
+        scanned++;
+        if (!occ.bankTransactionId) continue;
+        const tx = await this.prisma.bankTransaction.findUnique({
+          where: { id: occ.bankTransactionId },
+          select: { id: true, postedAt: true, amount: true, memo: true, counterpartyName: true },
+        });
+        if (!tx) continue;
+
+        // Positive drift = the debit posted BEFORE the due date it closed, i.e.
+        // it reached FORWARD. That is the direction this bug walks.
+        const driftMs = occ.dueDate.getTime() - tx.postedAt.getTime();
+        const driftDays = Math.round(driftMs / DAY_MS);
+        const withinWindow = driftDays <= earlyDays && driftDays >= -lateDays;
+        if (withinWindow) continue;
+
+        // Where should this debit have landed? The occurrence NEAREST the debit
+        // inside the correct window and in the same installation slot — the same
+        // choice `applyBankSettlement` makes, so the report says what the repair
+        // will actually do. Nearest, not first: for the 12/08 debit the window
+        // also contains 05/08 (already paid) and the ignored Monday of 10/08, and
+        // only the distance ranking picks out 12/08 itself.
+        const inWindow = await this.prisma.recurrentPayableOccurrence.findMany({
+          where: {
+            recurrentPayableId: payable.id,
+            installationKey: occ.installationKey,
+            dueDate: {
+              gte: addDays(tx.postedAt, -lateDays),
+              lte: addDays(tx.postedAt, earlyDays),
+            },
+            id: { not: occ.id },
+          },
+        });
+        const target = inWindow.reduce<(typeof inWindow)[number] | null>((best, c) => {
+          if (!best) return c;
+          const dc = Math.abs(c.dueDate.getTime() - tx.postedAt.getTime());
+          const db = Math.abs(best.dueDate.getTime() - tx.postedAt.getTime());
+          return dc < db ? c : best;
+        }, null);
+
+        details.push({
+          payableName: payable.name,
+          occurrenceId: occ.id,
+          dueDate: occ.dueDate.toISOString().slice(0, 10),
+          paidAmount: Number(occ.paidAmount ?? 0),
+          transactionId: tx.id,
+          postedAt: tx.postedAt.toISOString().slice(0, 10),
+          driftDays,
+          suggestedDueDate: target ? target.dueDate.toISOString().slice(0, 10) : null,
+          suggestedStatus: !target
+            ? 'NONE'
+            : target.status === 'CANCELLED'
+              ? 'CANCELLED'
+              : target.status === 'PAID'
+                ? 'PAID'
+                : 'OPEN',
+        });
+
+        const bucket = shiftedByPayable.get(payable.id) ?? { payable, occIds: [], txIds: [] };
+        bucket.occIds.push(occ.id);
+        if (!bucket.txIds.includes(tx.id)) bucket.txIds.push(tx.id);
+        shiftedByPayable.set(payable.id, bucket);
+      }
+    }
+
+    const shifted = details.length;
+    if (shifted > 0) {
+      this.logger.warn(
+        `Shifted recurrent settlements detected (${shifted}): ` +
+          details
+            .map(d => `${d.payableName} venc.${d.dueDate} ← débito ${d.postedAt} (${d.driftDays}d)`)
+            .join('; '),
+      );
+    }
+
+    if (dryRun || shifted === 0) {
+      return { scanned, shifted, reverted: 0, resettled: 0, stranded: 0, dryRun: true, details };
+    }
+
+    // --- Phase 1: free every shifted row (and its debit) before re-settling any.
+    let reverted = 0;
+    for (const bucket of shiftedByPayable.values()) {
+      for (const occId of bucket.occIds) {
+        try {
+          await this.unmarkOccurrencePaid(occId, { userId: opts.userId });
+          reverted++;
+        } catch (err) {
+          this.logger.warn(`Shift repair: could not revert occurrence ${occId}: ${err}`);
+        }
+      }
+    }
+
+    // --- Phase 2: hand each freed debit back to the sweep, now correctly bounded.
+    let resettled = 0;
+    let stranded = 0;
+    for (const bucket of shiftedByPayable.values()) {
+      for (const txId of bucket.txIds) {
+        const tx = await this.prisma.bankTransaction.findUnique({
+          where: { id: txId },
+          select: { id: true, postedAt: true, amount: true, memo: true, counterpartyName: true },
+        });
+        if (!tx) continue;
+        try {
+          const result = await this.applyBankSettlement(bucket.payable, tx);
+          if (result === 'none') {
+            stranded++;
+            this.logger.warn(
+              `Shift repair: debit ${txId} of ${bucket.payable.name} (${tx.postedAt
+                .toISOString()
+                .slice(0, 10)}) found no open occurrence in window — left unlinked on the extrato.`,
+            );
+          } else {
+            resettled++;
+          }
+        } catch (err) {
+          stranded++;
+          this.logger.warn(`Shift repair: re-settle of debit ${txId} failed: ${err}`);
+        }
+      }
+    }
+
+    await this.log({
+      entityType: ENTITY_TYPE.RECURRENT_PAYABLE,
+      entityId: [...shiftedByPayable.keys()][0] ?? 'audit',
+      action: CHANGE_ACTION.UPDATE,
+      field: 'settlements.realigned',
+      oldValue: shifted,
+      newValue: resettled,
+      reason:
+        `Auditoria de conciliação deslocada: ${shifted} baixa(s) estavam ancoradas na ocorrência ` +
+        `errada. ${reverted} estornada(s), ${resettled} reconciliada(s) na ocorrência correta, ` +
+        `${stranded} débito(s) devolvido(s) ao extrato sem vínculo para decisão manual.`,
+      userId: opts.userId,
+      triggeredBy: opts.userId ? CHANGE_TRIGGERED_BY.USER_ACTION : CHANGE_TRIGGERED_BY.SYSTEM,
+      metadata: { details },
+    });
+
+    return { scanned, shifted, reverted, resettled, stranded, dryRun: false, details };
+  }
+
   /** Sweep: link inbound (ENTRADA) NFs to occurrences of expectsNf payables by
    *  supplier CNPJ + competence. Returns how many NFs were linked. */
   async linkPendingNfs(monthsBack = 3): Promise<number> {
@@ -2343,9 +2862,12 @@ export class RecurrentPayableService {
     const slotFilter: Prisma.RecurrentPayableOccurrenceWhereInput =
       routing.kind === 'installation' ? { installationKey: routing.installation.id } : {};
 
-    const w = RecurrentPayableService.MATCH_WINDOW_DAYS;
-    const lo = addDays(tx.postedAt, -w);
-    const hi = addDays(tx.postedAt, w);
+    // Which due dates this debit can be paying: everything from one cycle before
+    // it (a late payment) up to a fraction of a cycle after it (a prepayment).
+    // Asymmetric on purpose — see `settlementWindow`.
+    const { lateDays, earlyDays } = this.settlementWindow(payable);
+    const lo = addDays(tx.postedAt, -lateDays);
+    const hi = addDays(tx.postedAt, earlyDays);
 
     // Two pools compete for this debit: occurrences still OPEN (which it should
     // SETTLE) and occurrences already marked PAID by hand but with no bank line
@@ -2367,6 +2889,21 @@ export class RecurrentPayableService {
     // uma conta semanal continua batendo a baixa solta da semana passada (7 dias).
     // Empate vai para a linha já PAGA — anexar prova ao que uma pessoa declarou é
     // estritamente mais seguro do que inventar um pagamento que ninguém afirmou.
+    // A REVERSED match between this debit and an occurrence is a person saying,
+    // in writing, that these two do not go together — `unmarkOccurrencePaid` is
+    // the only thing that writes one on this anchor. Without this the sweep would
+    // simply re-settle the row on its next 05:15 run and the estorno would look
+    // like it had never happened.
+    const undone = await this.prisma.reconciliationMatch.findMany({
+      where: { transactionId: tx.id, recurrentOccurrenceId: { not: null }, reversedAt: { not: null } },
+      select: { recurrentOccurrenceId: true },
+    });
+    const undoneIds = undone
+      .map(m => m.recurrentOccurrenceId)
+      .filter((id): id is string => Boolean(id));
+    const notUndone: Prisma.RecurrentPayableOccurrenceWhereInput =
+      undoneIds.length > 0 ? { id: { notIn: undoneIds } } : {};
+
     const [open, paidUnlinked] = await Promise.all([
       this.prisma.recurrentPayableOccurrence.findMany({
         where: {
@@ -2374,6 +2911,7 @@ export class RecurrentPayableService {
           status: { in: ['PENDING', 'OVERDUE'] },
           dueDate: { gte: lo, lte: hi },
           ...slotFilter,
+          ...notUndone,
         },
         orderBy: { dueDate: 'asc' },
       }),
@@ -2384,6 +2922,7 @@ export class RecurrentPayableService {
           bankTransactionId: null,
           dueDate: { gte: lo, lte: hi },
           ...slotFilter,
+          ...notUndone,
         },
         orderBy: { dueDate: 'asc' },
       }),

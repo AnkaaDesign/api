@@ -85,9 +85,11 @@ export class RecurrentPayableController {
     return this.service.update(id, dto, userId);
   }
 
+  /** Deletes the bill, or — when it already has paid/reconciled occurrences —
+   *  deactivates it and says so in the message. See `RecurrentPayableService.remove`. */
   @Delete(':id')
-  async remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  async remove(@Param('id') id: string, @UserId() userId: string) {
+    return this.service.remove(id, userId);
   }
 
   /** Mark a materialized occurrence paid. VARIABLE bills require `paidAmount`. */
@@ -103,6 +105,17 @@ export class RecurrentPayableController {
       paymentMethod: dto.paymentMethod,
       userId,
     });
+  }
+
+  /** Estorno: take a paid occurrence back to an open obligation, reversing the
+   *  bank reconciliation it had. See `RecurrentPayableService.unmarkOccurrencePaid`. */
+  @Post('occurrences/:occurrenceId/unpay')
+  @HttpCode(HttpStatus.OK)
+  async unpayOccurrence(
+    @Param('occurrenceId') occurrenceId: string,
+    @UserId() userId: string,
+  ) {
+    return this.service.unmarkOccurrencePaid(occurrenceId, { userId });
   }
 
   /** Ignore an occurrence for its month (won't be paid — e.g. diarista faltou).
@@ -124,6 +137,30 @@ export class RecurrentPayableController {
     @UserId() userId: string,
   ) {
     return this.service.unignoreOccurrence(occurrenceId, { userId });
+  }
+
+  /**
+   * Find (and optionally repair) baixas anchored to the wrong occurrence of the
+   * right bill — the drift that made "Diária - Limpeza" show setembro as pago in
+   * agosto. Defaults to a DRY RUN: pass `?apply=true` to actually re-anchor.
+   * See `RecurrentPayableService.auditShiftedSettlements`.
+   */
+  @Post('audit-settlements')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async auditSettlements(@Query('apply') apply: string | undefined, @UserId() userId: string) {
+    const result = await this.service.auditShiftedSettlements({
+      dryRun: apply !== 'true',
+      userId,
+    });
+    return {
+      success: true,
+      message: result.dryRun
+        ? `${result.shifted} baixa(s) deslocada(s) encontrada(s) em ${result.scanned} verificada(s). Nada foi alterado.`
+        : `${result.shifted} baixa(s) deslocada(s): ${result.resettled} reconciliada(s) na ocorrência correta, ` +
+          `${result.stranded} débito(s) devolvido(s) ao extrato sem vínculo.`,
+      data: result,
+    };
   }
 
   /** Admin/manual trigger to materialize due occurrences now (mirrors the cron). */
