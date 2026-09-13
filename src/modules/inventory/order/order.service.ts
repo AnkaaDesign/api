@@ -3502,12 +3502,19 @@ export class OrderService {
   }
 
   /**
-   * PIX and CREDIT_CARD orders are paid on demand (no due-date field in the UI at
-   * all): the "vencimento" is only meaningful once the payment is actually
+   * Every non-boleto order (PIX, CREDIT_CARD, or no paymentMethod set at all —
+   * e.g. schedule-generated orders, which carry no paymentMethod field) is paid
+   * on demand: the "vencimento" is only meaningful once the payment is actually
    * requested. So when one of these orders transitions PENDING → AWAITING_PAYMENT
    * we (re-)anchor its single parcela's dueDate to the request moment + 1 day
    * (D+1), re-anchoring on every fresh request. Boleto keeps its user-picked
    * schedule and is a no-op here, as is any cancelled / already-settled order.
+   * Mirrors the `isBankSlip` branch in `create()`, which already treats a null
+   * paymentMethod the same as PIX/CREDIT_CARD for the creation-time placeholder —
+   * this used to only match PIX/CREDIT_CARD explicitly, so a null-paymentMethod
+   * order (e.g. an OrderSchedule-generated Farben order) got its placeholder at
+   * creation but was never re-anchored on request, leaving it stuck on
+   * createdAt+1 and showing up as falsely OVERDUE in Contas a Pagar.
    */
   private async anchorPayOnRequestDueDate(
     tx: PrismaTransaction,
@@ -3527,12 +3534,7 @@ export class OrderService {
         installments: { select: { status: true, paidAmount: true } },
       },
     });
-    if (
-      !order ||
-      (order.paymentMethod !== PAYMENT_METHOD.PIX &&
-        order.paymentMethod !== PAYMENT_METHOD.CREDIT_CARD)
-    )
-      return;
+    if (!order || order.paymentMethod === PAYMENT_METHOD.BANK_SLIP) return;
     if (order.status === ORDER_STATUS.CANCELLED) return;
 
     // Never move a schedule that already has money against it.
@@ -3793,6 +3795,10 @@ export class OrderService {
    * is untouched. OVERDUE is treated as "open" by every downstream path (payables show
    * it, reconciliation/markPaid can still settle it, the rollup never counts it as paid),
    * so the flip is safe and purely informational/filterable. Cancelled orders excluded.
+   * Scoped to BANK_SLIP only: non-boleto orders carry a createdAt+1 placeholder
+   * dueDate (see anchorPayOnRequestDueDate) that isn't a real commitment until
+   * payment is requested, and a still-PENDING (unrequested) order's placeholder
+   * would otherwise get swept OVERDUE before the order is even payable.
    */
   async markOverdueInstallments(asOf?: Date): Promise<number> {
     const now = asOf ?? new Date();
@@ -3800,7 +3806,7 @@ export class OrderService {
       where: {
         dueDate: { not: null, lt: now },
         status: ORDER_INSTALLMENT_STATUS.PENDING,
-        order: { status: { not: ORDER_STATUS.CANCELLED } },
+        order: { status: { not: ORDER_STATUS.CANCELLED }, paymentMethod: PAYMENT_METHOD.BANK_SLIP },
       },
       data: { status: ORDER_INSTALLMENT_STATUS.OVERDUE },
     });
