@@ -31,6 +31,7 @@ import { CacheService } from '../cache/cache.service';
 import { BaileysAuthStateStore } from './baileys-auth-state.store';
 import { NotificationGatewayService } from '../notification/notification-gateway.service';
 import { WhatsAppOutboundGuard, type OutboundPriority } from './whatsapp-outbound-guard';
+import { normalizeBrazilianPhone } from '@utils/formatters';
 
 /**
  * WhatsApp connection status tracking
@@ -514,7 +515,14 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
             j?.endsWith('@s.whatsapp.net'),
           );
           if (phoneJid) {
-            void this.guard.markInbound(phoneJid.split('@')[0].split(':')[0]);
+            // O JID traz o número em E.164 (`554384283228`), e todas as chaves
+            // do guard — teto, dedup, quente/frio — são o número LOCAL de 11
+            // dígitos, que é como o cadastro guarda e como o envio consulta.
+            // Marcar o contato como quente sob a forma internacional gravava uma
+            // chave que `hasOpenConversation` nunca ia ler: quem respondia
+            // seguia contando como primeiro contato, pagando o intervalo longo e
+            // consumindo vaga do teto frio.
+            void this.guard.markInbound(this.localPhoneKey(phoneJid));
           }
         }
       }
@@ -1060,8 +1068,34 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
     const cached = await this.guard.cachedJid(cleanPhone);
     if (cached) return cached;
 
-    this.logger.log(`Resolving JID for phone ${this.maskPhone(cleanPhone)}`);
-    const [result] = await this.sock!.onWhatsApp(cleanPhone);
+    // O NÚMERO VAI PARA A CONSULTA EM E.164, COM O 55 NA FRENTE.
+    //
+    // O cadastro guarda telefone brasileiro como DDD + número (11 dígitos, sem
+    // código de país — ver `normalizeBrazilianPhone`), e era ASSIM que ele
+    // chegava aqui. O `onWhatsApp` do Baileys prefixa um "+" no que recebe
+    // (`+${jid}`, em Socket/socket.js) e manda para a USync: `51991969683`
+    // virava `+51991969683`, que o servidor lê como PERU (+51) seguido de um
+    // celular de 9 dígitos — formato perfeitamente válido lá. A consulta então
+    // respondia, corretamente, que aquele número peruano não existe, e a
+    // cerimônia gravava INVITATION_FAILED para um cliente cujo WhatsApp está
+    // ativo (caso real: tarefa 39437, DDD 51).
+    //
+    // Nem todo DDD caía nessa: `+43984283228` (Áustria) e `+16988248213` (NANP)
+    // não formam número válido no país do prefixo, e aí o servidor voltava a
+    // interpretar como brasileiro e acertava. Só quebravam os DDDs que POR
+    // COINCIDÊNCIA são código de país onde o resto dos dígitos também fecha:
+    // 51 (Peru), 34 (Espanha), 62 (Indonésia) — os três aparecem na trilha de
+    // convites falhados. Depender dessa coincidência é o bug; mandar o país
+    // explícito é o conserto.
+    //
+    // As CHAVES do guard (JID em cache, tetos, dedup, quente/frio) continuam no
+    // formato local de 11 dígitos: são as mesmas que `markInbound` e
+    // `recordSent` já usam, e mudá-las aqui zeraria contador e estado de
+    // conversa de todo mundo.
+    const e164 = `55${normalizeBrazilianPhone(cleanPhone) || cleanPhone}`;
+
+    this.logger.log(`Resolving JID for phone ${this.maskPhone(cleanPhone)} (consulta ${e164})`);
+    const [result] = await this.sock!.onWhatsApp(e164);
 
     if (!result || !result.exists) {
       throw new Error(`Phone number ${this.maskPhone(cleanPhone)} is not registered on WhatsApp`);
@@ -1387,6 +1421,21 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
   /**
    * Mask phone number for privacy
    */
+  /**
+   * A forma CANÔNICA de um telefone dentro do guard: DDD + número, sem o 55.
+   *
+   * É o formato do cadastro (`normalizeBrazilianPhone`) e o que `sendMessage`
+   * recebe, então é ele que tem de chavear cache de JID, tetos e quente/frio.
+   * Aceita JID (`554384283228@s.whatsapp.net`) ou dígitos soltos; devolve o que
+   * entrou quando não é número brasileiro reconhecível, para nunca colapsar dois
+   * contatos distintos na mesma chave.
+   */
+  private localPhoneKey(phoneOrJid: string): string {
+    const digits = (phoneOrJid.split('@')[0].split(':')[0] ?? '').replace(/\D/g, '');
+    if (!digits.startsWith('55')) return digits;
+    return normalizeBrazilianPhone(digits) || digits;
+  }
+
   private maskPhone(phone: string): string {
     if (process.env.NODE_ENV === 'development') {
       return phone;
