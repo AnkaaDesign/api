@@ -754,7 +754,9 @@ export class TaskService {
         if (quoteData[key] === undefined) continue;
         if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
           throw new BadRequestException(
-            'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+            'Após a aprovação do faturamento os valores deste orçamento não podem mais ser ' +
+              'alterados: a fatura, os boletos e a nota fiscal saíram sobre o preço atual. ' +
+              'Para mudar, use "Reverter Faturamento" na tela de Faturamento e grave de novo.',
           );
         }
         if (key === 'status') {

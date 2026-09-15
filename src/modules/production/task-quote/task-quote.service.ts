@@ -1027,7 +1027,9 @@ export class TaskQuoteService {
           if ((data as any)[key] === undefined) continue;
           if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
             throw new BadRequestException(
-              'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+              'Após a aprovação do faturamento os valores deste orçamento não podem mais ser ' +
+                'alterados: a fatura, os boletos e a nota fiscal saíram sobre o preço atual. ' +
+                'Para mudar, use "Reverter Faturamento" na tela de Faturamento e grave de novo.',
             );
           }
           // Status changes on locked quotes must come through updateStatus() — never external PUT.
@@ -3018,7 +3020,7 @@ export class TaskQuoteService {
       // must never block the boletos below. Coupling a fiscal cancellation to the billing
       // pipeline is what produced the original deadlock, and it is not repeated.
       try {
-        await this.supersedePreviousNfses(task.id, invoiceIds);
+        await this.supersedePreviousNfses(id, invoiceIds);
       } catch (supersedeError) {
         this.logger.warn(
           `[INTERNAL_APPROVE] Falha ao substituir NFS-e anterior(es): ${supersedeError}`,
@@ -3221,10 +3223,18 @@ export class TaskQuoteService {
    * retried by the `nfse-cancellation-reconcile` cron, which keys off the `superseded*`
    * columns written BEFORE the Elotech call precisely so a crash mid-flight is resumable.
    *
-   * @param taskId    Task whose previous-cycle notes should be superseded
+   * ⚠️ O VÍNCULO É O ORÇAMENTO, NÃO A TAREFA. `NfseDocument.taskId` é NULO numa
+   * nota conjunta ou de lote (ela não é de nenhum dos sessenta caminhões), e a
+   * reversão ainda zera o `invoiceId` — a nota de um ciclo revertido ficava sem
+   * os dois, invisível para esta busca. Resultado: depois de reverter e faturar
+   * de novo, a prefeitura ficava com DUAS notas AUTORIZADAS do mesmo serviço, e
+   * a antiga sem nem pedido de cancelamento. `quoteId` é o único elo preenchido
+   * SEMPRE (ver o modelo em `schema.prisma`).
+   *
+   * @param quoteId    Orçamento cujas notas de ciclos anteriores serão substituídas
    * @param invoiceIds Invoices created by the approval that just ran
    */
-  private async supersedePreviousNfses(taskId: string, invoiceIds: string[]): Promise<void> {
+  private async supersedePreviousNfses(quoteId: string, invoiceIds: string[]): Promise<void> {
     // The substituta: a note authorized in THIS round, with a real number. Without one there
     // is nothing to cite, and cancelling without a substitute is the exact request the fiscal
     // already refused — so we do nothing rather than burn another rejection.
@@ -3245,7 +3255,7 @@ export class TaskQuoteService {
     // the latest is the only one the fiscal recognizes as current.
     const previous = await this.prisma.nfseDocument.findMany({
       where: {
-        taskId,
+        quoteId,
         id: { not: replacement.id },
         invoiceId: null,
         status: { in: [...NFSE_LIVE_STATUSES] },
@@ -3256,7 +3266,7 @@ export class TaskQuoteService {
     if (previous.length === 0) return;
 
     this.logger.log(
-      `[SUPERSEDE] Tarefa ${taskId}: NFS-e nº ${previous
+      `[SUPERSEDE] Orçamento ${quoteId}: NFS-e nº ${previous
         .map(p => p.nfseNumber ?? '?')
         .join(', ')} será(ão) substituída(s) pela NFS-e nº ${replacement.nfseNumber}.`,
     );
@@ -3304,12 +3314,30 @@ export class TaskQuoteService {
     }
   }
 
-  private async assertBillingArtifactsConfirmed(taskId: string, action: string): Promise<void> {
+  /**
+   * TODA FATURA DESTE ORÇAMENTO — pela COBERTURA, nunca por `Invoice.taskId`.
+   *
+   * `Invoice.taskId` só é preenchido quando a fatura cobre UM veículo
+   * (`sliceAnchorTaskId`): numa fatura conjunta ou de lote ele é NULO de
+   * propósito, porque a fatura não é de nenhum dos sessenta caminhões em
+   * particular. Escopar a desmontagem por ele — como toda a reversão fazia —
+   * significa que num orçamento conjunto NADA é encontrado: o `deleteMany`
+   * apaga zero linhas, a guarda de parcela paga não vê a parcela paga, e a baixa
+   * no Sicredi não baixa nada. A tela dizia "faturamento revertido" enquanto a
+   * fatura, as parcelas e os boletos registrados continuavam vivos.
+   *
+   * O ramo por `task` fica para o acervo: fatura antiga sem `customerConfigId`.
+   */
+  private invoicesOfQuote(quoteId: string) {
+    return { OR: [{ customerConfig: { quoteId } }, { task: { quoteId } }] } as any;
+  }
+
+  private async assertBillingArtifactsConfirmed(quoteId: string, action: string): Promise<void> {
     const blockers: string[] = [];
 
     // ─── Boletos ───────────────────────────────────────────────────────────
     const slips = await this.prisma.bankSlip.findMany({
-      where: { installment: { invoice: { taskId } } },
+      where: { installment: { invoice: this.invoicesOfQuote(quoteId) } },
       select: {
         nossoNumero: true,
         status: true,
@@ -3388,7 +3416,18 @@ export class TaskQuoteService {
 
     // ─── NFS-e ─────────────────────────────────────────────────────────────
     const nfses = await this.prisma.nfseDocument.findMany({
-      where: { invoice: { taskId } },
+      where: {
+        // TRÊS elos, porque nenhum sozinho alcança todas. A nota de um ciclo
+        // revertido perde a FATURA (`invoiceId` vira nulo) e, se for conjunta,
+        // nunca teve TAREFA — sobra só o ORÇAMENTO, que é o elo preenchido
+        // sempre. Sem ele, uma nota viva de um faturamento já revertido não era
+        // conferida na prefeitura antes de desmontar o faturamento seguinte.
+        OR: [
+          { quoteId },
+          { invoice: this.invoicesOfQuote(quoteId) },
+          { task: { quoteId } },
+        ],
+      },
       select: { id: true, status: true, nfseNumber: true, elotechNfseId: true },
     });
     const label = (n: (typeof nfses)[number]) => `NFS-e ${n.nfseNumber ?? '(sem número)'}`;
@@ -3439,7 +3478,7 @@ export class TaskQuoteService {
 
     if (blockers.length > 0) {
       this.logger.warn(
-        `[BILLING_TEARDOWN] Bloqueado para a tarefa ${taskId}: ${blockers.join(' | ')}`,
+        `[BILLING_TEARDOWN] Bloqueado para o orçamento ${quoteId}: ${blockers.join(' | ')}`,
       );
       throw new BadRequestException(blockers.join(' '));
     }
@@ -3456,11 +3495,11 @@ export class TaskQuoteService {
    * confirmed — the caller must NOT delete those rows.
    */
   private async baixarBoletosAndConfirm(
-    taskId: string,
+    quoteId: string,
   ): Promise<Array<{ nossoNumero: string; detail: string }>> {
     const activeSlips = await this.prisma.bankSlip.findMany({
       where: {
-        installment: { invoice: { taskId } },
+        installment: { invoice: this.invoicesOfQuote(quoteId) },
         status: { notIn: [BANK_SLIP_STATUS.CANCELLED, BANK_SLIP_STATUS.PAID] },
       },
       select: { id: true, nossoNumero: true, status: true },
@@ -3601,23 +3640,34 @@ export class TaskQuoteService {
       );
     }
 
+    // A tarefa ÂNCORA — a primeira na ordem canônica. Serve só de contexto para
+    // `syncEmNegociacaoForTask`; o que se desmonta é escopado pelo ORÇAMENTO
+    // (ver `invoicesOfQuote`). Sem `orderBy` a escolha mudava entre duas
+    // leituras, e âncora que anda é como o mesmo orçamento passa a apontar para
+    // caminhões diferentes.
     const task = await this.prisma.task.findFirst({
       where: { quoteId: id },
       select: { id: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     if (!task) throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
 
     // Nothing may be torn down until every boleto is registered at Sicredi and every NFS-e is
     // emitted at Elotech — an artifact still in flight would go live AFTER we deleted the row
     // that points at it. This also subsumes the old PROCESSING/PENDING NFS-e check.
-    await this.assertBillingArtifactsConfirmed(task.id, 'reverter o faturamento');
+    await this.assertBillingArtifactsConfirmed(id, 'reverter o faturamento');
 
-    // Notes still LIVE at the prefeitura, for the record kept below. Anchored on taskId, not
-    // on the invoice: a note orphaned by an EARLIER revert has invoiceId = null, so the old
-    // `invoice: { taskId }` join silently missed exactly the notes that matter most.
+    // Notes still LIVE at the prefeitura, for the record kept below. Lidas pelos
+    // DOIS lados: uma nota órfã de um ciclo anterior tem `invoiceId` nulo e só
+    // responde pela TAREFA; uma nota conjunta tem `taskId` nulo e só responde
+    // pela FATURA. Ler um lado só perde exatamente a que mais importa.
     const authorizedNfses = await this.prisma.nfseDocument.findMany({
       where: {
-        taskId: task.id,
+        // TODAS as notas deste orçamento. Era `taskId: task.id` — uma tarefa só,
+        // e por `findFirst` sem ordem. Numa nota CONJUNTA `NfseDocument.taskId` é
+        // nulo (a nota não é de nenhum dos caminhões), então a leitura antiga
+        // perdia exatamente a nota que mais importa.
+        OR: [{ quoteId: id }, { task: { quoteId: id } }, { invoice: this.invoicesOfQuote(id) }],
         status: { in: [...NFSE_LIVE_STATUSES] },
         elotechNfseId: { not: null },
       },
@@ -3627,7 +3677,7 @@ export class TaskQuoteService {
     // Verify no installment has been paid
     const paidInstallments = await this.prisma.installment.findMany({
       where: {
-        invoice: { taskId: task.id },
+        invoice: this.invoicesOfQuote(id),
         status: { in: ['PAID'] },
       },
       select: { id: true },
@@ -3644,7 +3694,7 @@ export class TaskQuoteService {
     // instead; the slips already confirmed are marked CANCELLED, so a retry only chases what is
     // left. This runs first precisely so an abort here cannot leave a cancelled NF sitting on an
     // otherwise intact faturamento.
-    const unconfirmedSlips = await this.baixarBoletosAndConfirm(task.id);
+    const unconfirmedSlips = await this.baixarBoletosAndConfirm(id);
     if (unconfirmedSlips.length > 0) {
       throw new BadRequestException(
         `Não foi possível confirmar a baixa no Sicredi de ${unconfirmedSlips.length} boleto(s): ` +
@@ -3678,12 +3728,25 @@ export class TaskQuoteService {
 
     await this.prisma.$transaction(async tx => {
       // Delete installments (cascades bank slips via FK)
-      await tx.installment.deleteMany({ where: { invoice: { taskId: task.id } } });
+      await tx.installment.deleteMany({ where: { invoice: this.invoicesOfQuote(id) } });
       // Delete invoices. NfseDocuments are NOT cascaded — their invoiceId is set null (FK
       // SetNull) and they remain linked to the task as permanent NFS-e history. Only notes
       // confirmed CANCELLED at the prefeitura reach this point (the guard above blocks revert
       // while any note is still active), so no active fiscal document is ever stranded.
-      await tx.invoice.deleteMany({ where: { taskId: task.id } });
+      await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
+      // ── O CARIMBO DE CADA FATIA VOLTA A ZERO ────────────────────────────
+      //
+      // `TaskQuoteCustomerConfig.billingApprovedAt` é o que responde "esta fatia
+      // já foi faturada?", e é por ele que `internalApprove` decide se a
+      // aprovação é a PRIMEIRA. Deixá-lo de pé depois de reverter tornava o
+      // orçamento IMPOSSÍVEL de refaturar: a aprovação seguinte encontrava todas
+      // as fatias carimbadas, não sobrava alvo, e a resposta era "Todas as
+      // fatias deste orçamento já tiveram o faturamento aprovado" sobre um
+      // orçamento que acabou de voltar para Orçamento Aprovado.
+      await tx.taskQuoteCustomerConfig.updateMany({
+        where: { quoteId: id },
+        data: { billingApprovedAt: null } as any,
+      });
       // Revert quote status. Clear billingApprovedAt too — leaving the timestamp set
       // while the status drops below BILLING_APPROVED desyncs status/timestamp and
       // skews avgSalesCycleDays. (billingApprovedAt exists in schema.prisma but the
@@ -3768,11 +3831,13 @@ export class TaskQuoteService {
       // Every boleto must be registered at Sicredi and every NFS-e emitted at Elotech before
       // anything is torn down — an artifact still in flight would go live after we delete the
       // row that points at it. Subsumes the old PROCESSING/PENDING NFS-e check.
-      await this.assertBillingArtifactsConfirmed(taskId, 'cancelar o orçamento');
+      await this.assertBillingArtifactsConfirmed(id, 'cancelar o orçamento');
 
       // Real money received → cannot silently cancel; needs manual estorno.
+      // Pela COBERTURA: numa fatura conjunta `Invoice.taskId` é nulo, e a guarda
+      // por tarefa deixava passar um orçamento com parcela PAGA.
       const paidInstallments = await this.prisma.installment.findMany({
-        where: { invoice: { taskId }, status: { in: ['PAID'] } },
+        where: { invoice: this.invoicesOfQuote(id), status: { in: ['PAID'] } },
         select: { id: true },
       });
       if (paidInstallments.length > 0) {
@@ -3785,7 +3850,7 @@ export class TaskQuoteService {
       // Baixa the active boletos and confirm each one BEFORE touching the NFS-e. An unconfirmed
       // baixa aborts the cancellation rather than deleting the row of a title still payable at
       // the bank — and running it first keeps an abort from leaving a cancelled NF behind.
-      const unconfirmedSlips = await this.baixarBoletosAndConfirm(taskId);
+      const unconfirmedSlips = await this.baixarBoletosAndConfirm(id);
       if (unconfirmedSlips.length > 0) {
         throw new BadRequestException(
           `Não foi possível confirmar a baixa no Sicredi de ${unconfirmedSlips.length} boleto(s): ` +
@@ -3800,7 +3865,7 @@ export class TaskQuoteService {
       // stays linked to the task (invoiceId→null) — never lost.
       const authorizedNfses = await this.prisma.nfseDocument.findMany({
         where: {
-          invoice: { taskId },
+          OR: [{ quoteId: id }, { invoice: this.invoicesOfQuote(id) }, { task: { quoteId: id } }],
           status: { in: ['AUTHORIZED', 'CANCEL_REJECTED'] },
           elotechNfseId: { not: null },
         },
@@ -3831,10 +3896,15 @@ export class TaskQuoteService {
       if (taskId) {
         // Delete installments (cascades bank slips) + invoices. NfseDocuments are
         // NOT cascaded — invoiceId is SetNull and they remain linked to the task
-        // as permanent fiscal history.
-        await tx.installment.deleteMany({ where: { invoice: { taskId } } });
-        await tx.invoice.deleteMany({ where: { taskId } });
+        // as permanent fiscal history. Escopo pela COBERTURA: ver `invoicesOfQuote`.
+        await tx.installment.deleteMany({ where: { invoice: this.invoicesOfQuote(id) } });
+        await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
       }
+      // O carimbo de cada fatia volta a zero — mesma razão da reversão.
+      await tx.taskQuoteCustomerConfig.updateMany({
+        where: { quoteId: id },
+        data: { billingApprovedAt: null } as any,
+      });
       await tx.taskQuote.update({
         where: { id },
         data: {
