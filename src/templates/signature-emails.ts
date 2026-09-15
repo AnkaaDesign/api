@@ -230,6 +230,76 @@ export function generateAnkaaCountersignEmail(data: AnkaaNoticeEmailData): {
   };
 }
 
+export interface RefusalNoticeEmailData extends SignatureEmailBase {
+  /** Quem RECUSOU. `signerName` é quem RECEBE o aviso. */
+  refusedByName: string;
+  reason: string;
+  quoteUrl: string;
+}
+
+/**
+ * O aviso de recusa para o comercial.
+ *
+ * O motivo vai num bloco DESTACADO e entre aspas: é a frase de outra pessoa, e
+ * misturá-la ao texto do sistema faria parecer que a Ankaa está afirmando
+ * aquilo. É também a única informação da mensagem que não se deduz do resto.
+ */
+export function generateRefusalNoticeEmail(data: RefusalNoticeEmailData): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `Orçamento nº ${data.budgetNumber} — assinatura recusada pelo cliente`,
+    html: shell({
+      title: 'Assinatura recusada',
+      subtitle: `Orçamento nº ${data.budgetNumber}`,
+      preheader: `${data.refusedByName} recusou a assinatura.`,
+      footerNote: 'E-mail automático da cerimônia de assinatura.',
+      body: `
+<p>Olá, ${esc(data.signerName)}.</p>
+<p><strong>${esc(data.refusedByName)}</strong> recusou a assinatura do orçamento nº <strong>${esc(data.budgetNumber)}</strong>.</p>
+<p>Motivo informado:</p>
+<p class="linkbox">&ldquo;${esc(data.reason)}&rdquo;</p>
+<p>A coleta <strong>não foi encerrada</strong>: as assinaturas já colhidas continuam valendo, e quem ainda não assinou ainda pode. O que ela não pode é se concluir enquanto este responsável estiver de fora.</p>
+<p>Para retomar, use <strong>Pedir novamente</strong> na tela do orçamento — ou ajuste a proposta, lembrando que o reajuste invalida as assinaturas já colhidas e exige uma coleta nova.</p>
+<p style="text-align:center;margin:26px 0;">
+  <a href="${data.quoteUrl}" class="button">Abrir o orçamento</a>
+</p>
+<p class="linkbox">${esc(data.quoteUrl)}</p>`,
+    }),
+  };
+}
+
+export interface CollectionPausedEmailData extends SignatureEmailBase {
+  refusedByName: string;
+}
+
+/**
+ * Aviso aos DEMAIS responsáveis. Ver a nota do gerador de WhatsApp: o MOTIVO da
+ * recusa não entra aqui — ele é posição interna do cliente e vai só para o nosso
+ * comercial.
+ */
+export function generateCollectionPausedEmail(data: CollectionPausedEmailData): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: `Orçamento nº ${data.budgetNumber} — coleta de assinaturas pausada`,
+    html: shell({
+      title: 'Coleta pausada',
+      subtitle: `Orçamento nº ${data.budgetNumber}`,
+      preheader: 'As assinaturas já registradas continuam valendo.',
+      footerNote: 'E-mail automático da cerimônia de assinatura.',
+      body: `
+<p>Olá, ${esc(data.signerName)}.</p>
+<p>A coleta de assinaturas do orçamento nº <strong>${esc(data.budgetNumber)}</strong> foi pausada:
+<strong>${esc(data.refusedByName)}</strong> não aprovou a proposta.</p>
+<p><strong>As assinaturas já registradas continuam valendo</strong> — nada do que você assinou foi perdido.</p>
+<p>Vamos retomar o contato. Se o orçamento for alterado, você recebe um novo link para revisar e assinar.</p>`,
+    }),
+  };
+}
+
 export interface VoidedEmailData extends SignatureEmailBase {
   reason: string;
   hadSigned: boolean;

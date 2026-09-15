@@ -25,6 +25,7 @@ import {
   expiredTemplate,
   invitationTemplate,
   otpTemplate,
+  refusedTemplate,
   reminderTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
@@ -111,6 +112,14 @@ async function main(): Promise<void> {
     {
       rotulo: 'orçamento vencido',
       descritor: expiredTemplate({ signerName: 'Sérgio Rodrigues', budgetNumber: 1459 }),
+    },
+    {
+      rotulo: 'recusa do cliente',
+      descritor: refusedTemplate({
+        refusedByName: 'Kennedy de Campos Teixeira',
+        budgetNumber: 1459,
+        reason: 'O preço ficou acima do aprovado internamente.',
+      }),
     },
   ];
 
