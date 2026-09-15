@@ -12,6 +12,7 @@ import {
   moneySchema,
   normalizeSearchTerm,
   normalizeVehicleSearchTerm,
+  documentSearchDigits,
   cpfSchema,
   plateSchema,
   chassisNumberSchema,
@@ -1403,9 +1404,11 @@ const taskTransform = (data: any): any => {
       { quote: { customerConfigs: { some: { customer: { cnpjNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
     ];
     // CNPJ/CPF are stored digits-only, so a formatted term ("13.636.972")
-    // must also be matched by its stripped digits
-    const searchDigits = searchTerm.replace(/\D/g, '');
-    if (searchDigits.length > 0 && searchDigits !== searchTerm) {
+    // must also be matched by its stripped digits. `documentSearchDigits`
+    // devolve `null` quando o termo não é um documento — sem isso, "QA 4V"
+    // virava os dígitos "4" e casava com quase todo CNPJ do cadastro.
+    const searchDigits = documentSearchDigits(searchTerm);
+    if (searchDigits) {
       searchConditions.push({ customer: { cnpjNormalized: { contains: searchDigits } } });
       searchConditions.push({ customer: { cpfNormalized: { contains: searchDigits } } });
       searchConditions.push({ quote: { customerConfigs: { some: { customer: { cnpjNormalized: { contains: searchDigits } } } } } });

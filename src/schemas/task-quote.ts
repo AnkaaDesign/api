@@ -9,6 +9,7 @@ import {
   moneySchema,
   normalizeSearchTerm,
   normalizeVehicleSearchTerm,
+  documentSearchDigits,
 } from './common';
 import type { TaskQuote } from '@types';
 import {
@@ -465,8 +466,11 @@ const taskQuoteTransform = (data: any) => {
     ];
     // CNPJ/CPF — stored digits-only, so match both the term as typed and its
     // stripped digits ("13.636" and "13636" both hit)
-    const searchDigits = rawTerm.replace(/\D/g, '');
-    if (searchDigits.length > 0) {
+    // `documentSearchDigits` devolve `null` quando o termo não é um documento:
+    // um `replace(/\D/g,'')` cru transformava "QA 4V" nos dígitos "4" e o
+    // `contains` resultante casava com quase todo CNPJ do cadastro.
+    const searchDigits = documentSearchDigits(rawTerm);
+    if (searchDigits) {
       const documentTerms = searchDigits === term ? [searchDigits] : [term, searchDigits];
       for (const documentTerm of documentTerms) {
         searchConditions.push(
