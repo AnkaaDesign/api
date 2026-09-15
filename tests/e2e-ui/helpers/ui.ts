@@ -241,8 +241,18 @@ export async function createQuote(page: Page, s: QuoteSpec): Promise<CreateResul
   }
   if (s.discount) {
     await pickCombo(page, /^Nenhum$/, null, s.discount.type);
-    await page.getByPlaceholder(/R\$ 0,00/).last().fill(s.discount.value);
-    await pause(page, 500);
+    await pause(page, 600);
+    // O campo do desconto é o que fica ao lado do seletor, e a PORCENTAGEM usa
+    // placeholder "%" — não "R$ 0,00". Um `.last()` sobre o placeholder de moeda
+    // pegava o PREÇO DO ÚLTIMO SERVIÇO e escrevia o desconto ali: o orçamento
+    // saía com serviço de R$ 0,12 e o teste acusava um defeito que era dele.
+    const campo = page.locator('input[placeholder="%"], input[placeholder="R$ 0,00"]').last();
+    const pct = page.locator('input[placeholder="%"]');
+    const alvo = (await pct.count()) > 0 ? pct.first() : campo;
+    await alvo.scrollIntoViewIfNeeded();
+    await alvo.fill(s.discount.value);
+    await alvo.blur();
+    await pause(page, 700);
   }
   const servicesText = await blockText(page, 'TOTAL', 900);
   await next(page);
@@ -262,7 +272,14 @@ export async function createQuote(page: Page, s: QuoteSpec): Promise<CreateResul
     if ((await page.getByText(/Faturamento e Pagamento/i).count()) === 0) {
       throw new Error(`esperava o passo do cliente ${i + 1} e não achei "Faturamento e Pagamento"`);
     }
-    if (s.billing?.[i] === 'PER_TASK') {
+    // ⚠️ O RECORTE É DO ORÇAMENTO, E SÓ APARECE NO PRIMEIRO CLIENTE.
+    //
+    // "Junto, separado ou em lotes" é uma escolha do orçamento inteiro — um lote
+    // é uma unidade de cobrança, não um negócio diferente —, então o controle só
+    // renderiza no passo do Cliente 1. Procurá-lo no passo do Cliente 2 espera
+    // trinta segundos por um combobox que não existe, e o erro sai como se a
+    // tela tivesse quebrado.
+    if (i === 0 && (s.billing ?? []).includes('PER_TASK')) {
       await pickCombo(page, /Fatura .nica para os/, null, /Uma fatura por ve.culo/i);
     }
     if (s.paymentCondition) await setPaymentCondition(page, s.paymentCondition);
@@ -467,13 +484,34 @@ export async function setPaymentCondition(page: Page, option: RegExp) {
   // é como um orçamento sem condição de pagamento chegou até a aprovação.
   const rotulo = page.getByText(/^Condição de Pagamento\s*\*?$/).first();
   await rotulo.waitFor({ state: 'attached', timeout: 20000 });
+  // MARCA o combobox que vai ser aberto. A conferência depois lê ESSE elemento,
+  // e não o bloco em volta: o bloco do cliente tem outros seletores que também
+  // dizem "Selecione..." (a Situação Cadastral é o clássico), e conferir o bloco
+  // acusava "não gravou" sobre uma condição que estava gravada.
   const abriu = await page.evaluate(() => {
-    const rot = [...document.querySelectorAll('label,span,div,p')].find(
-      e => (e.textContent || '').trim().replace(/\s+/g, ' ').replace(/\s*\*$/, '') === 'Condição de Pagamento',
-    );
+    document.querySelectorAll('[data-qa-cond]').forEach(e => e.removeAttribute('data-qa-cond'));
+    // ⚠️ SÓ O PASSO VISÍVEL. Com dois clientes de faturamento, o assistente
+    // mantém o passo do Cliente 1 MONTADO enquanto mostra o do Cliente 2: o
+    // primeiro rótulo "Condição de Pagamento" do documento é o do Cliente 1, e
+    // pegar o seletor "logo depois dele" fazia o teste preencher a condição do
+    // cliente ERRADO — a do Cliente 2 ficava vazia e a aprovação seguia barrada
+    // sem dizer por quê.
+    // ⚠️ SEM `const` NOMEADO AQUI DENTRO. O `tsx` transpila com `keepNames`, e
+    // esbuild embrulha toda função nomeada em `__name(...)` — um auxiliar que
+    // NÃO existe no contexto do navegador. O erro sai como
+    // "ReferenceError: __name is not defined", longe de onde foi escrito.
+    const rot = [...document.querySelectorAll('label,span,div,p')]
+      .filter(e => (e as HTMLElement).getClientRects().length > 0)
+      .find(
+        e => (e.textContent || '').trim().replace(/\s+/g, ' ').replace(/\s*\*$/, '') === 'Condição de Pagamento',
+      );
     if (!rot) return false;
-    for (const c of [...document.querySelectorAll('[role="combobox"]')]) {
+    const combos = [...document.querySelectorAll('[role="combobox"]')].filter(
+      e => (e as HTMLElement).getClientRects().length > 0,
+    );
+    for (const c of combos) {
       if (rot.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        c.setAttribute('data-qa-cond', '1');
         (c as HTMLElement).scrollIntoView({ block: 'center' });
         (c as HTMLElement).click();
         return true;
@@ -497,15 +535,175 @@ export async function setPaymentCondition(page: Page, option: RegExp) {
   }
   await opt.click();
   await pause(page, 1200);
-  const conferido = await page.evaluate(() => {
-    const rot = [...document.querySelectorAll('label,span,div,p')].find(
-      e => (e.textContent || '').trim().replace(/\s+/g, ' ').replace(/\s*\*$/, '') === 'Condição de Pagamento',
-    );
-    const bloco = rot?.parentElement?.parentElement as HTMLElement | undefined;
-    return (bloco?.innerText ?? '').replace(/\s+/g, ' ');
-  });
-  if (/Selecione\.\.\./.test(conferido)) {
-    throw new Error(`a condição não ficou gravada na tela: "${conferido.slice(0, 120)}"`);
+  // ESPERA a escolha aparecer no gatilho antes de desistir. Com quatro
+  // navegadores contra a mesma api, o `setValue` do formulário chega depois do
+  // clique com folga maior do que uma pausa fixa — e o erro saía como "a
+  // condição não ficou gravada", que descreve o sintoma de um teste apressado.
+  let conferido = '';
+  for (let i = 0; i < 12; i++) {
+    conferido = await page.evaluate(() => {
+      const c = document.querySelector('[data-qa-cond]') as HTMLElement | null;
+      return (c?.innerText ?? c?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    if (conferido && !/Selecione/i.test(conferido)) return true;
+    await pause(page, 700);
   }
-  return true;
+  throw new Error(`a condição não ficou gravada no seletor: "${conferido.slice(0, 120)}"`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AÇÕES QUE SÓ EXISTEM DEPOIS DE FATURADO
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * REVERTER O FATURAMENTO pela tela.
+ *
+ * A opção mora DENTRO do seletor de status (é sintética, como a de aprovar a
+ * fatia), e o diálogo que ela abre é o único caminho — não há botão solto.
+ */
+export async function revertBilling(page: Page) {
+  const combo = page.locator('[role="combobox"]').filter({
+    hasText: /Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+  }).first();
+  await combo.scrollIntoViewIfNeeded();
+  await combo.click();
+  await pause(page, 800);
+  const opt = page.getByRole('option', { name: /Reverter Faturamento/i }).first();
+  if (!(await opt.count())) {
+    const opts = await comboOptions(page);
+    await page.keyboard.press('Escape');
+    throw new Error(`"Reverter Faturamento" indisponível; havia ${JSON.stringify(opts)}`);
+  }
+  await opt.click();
+  await pause(page, 1200);
+  const dlg = page.locator('[role="dialog"], [role="alertdialog"]');
+  const ok = dlg.getByRole('button', { name: /Reverter|Confirmar|Sim/i }).last();
+  if (!(await ok.count())) throw new Error('o diálogo de reversão não ofereceu confirmação');
+  await ok.click();
+  // A reversão baixa boleto e confere nota antes de apagar — é a ação mais
+  // demorada da tela, e ela RECARREGA a página ao terminar.
+  await pause(page, 15000);
+}
+
+/**
+ * APROVAR O FATURAMENTO DO VEÍCULO ABERTO, seja qual for o status do orçamento.
+ *
+ * Antes da primeira fatia isso é a transição BUDGET_APPROVED → "Aprovar
+ * Faturamento"; depois dela é a ação sintética "(este veículo)", que não mexe no
+ * status. As duas saem do MESMO seletor e abrem a MESMA confirmação, então o
+ * teste percorre o caminho do operador sem saber qual das duas é.
+ */
+export async function approveBillingForOpenVehicle(page: Page) {
+  const combo = page.locator('[role="combobox"]').filter({
+    hasText: /Pendente|Assinado|Or.amento Aprovado|Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+  }).first();
+  await combo.scrollIntoViewIfNeeded();
+  await combo.click();
+  await pause(page, 800);
+  const opt = page.getByRole('option', { name: /Aprovar Faturamento/i }).first();
+  if (!(await opt.count())) {
+    const opts = await comboOptions(page);
+    await page.keyboard.press('Escape');
+    throw new Error(`"Aprovar Faturamento" indisponível; havia ${JSON.stringify(opts)}`);
+  }
+  await opt.click();
+  await pause(page, 1500);
+  // Caminho da TRANSIÇÃO: a escolha só marca o formulário; quem abre a
+  // confirmação é o "Salvar". Caminho da AÇÃO: a confirmação já está aberta.
+  const dlgAberto = await page.locator('[role="alertdialog"]').count();
+  if (!dlgAberto) {
+    const salvar = page.getByRole('button', { name: /^Salvar$/ });
+    if (await salvar.count()) {
+      await salvar.first().click();
+      await pause(page, 3000);
+    }
+  }
+  const dlg = page.locator('[role="dialog"], [role="alertdialog"]');
+  if (await dlg.count()) {
+    const ok = dlg.getByRole('button', { name: /Confirmar Faturamento/i }).last();
+    if (await ok.count()) { await ok.click(); await pause(page, 12000); return; }
+    const alt = dlg.getByRole('button', { name: /Confirmar|Aprovar|Sim/i }).last();
+    if (await alt.count()) { await alt.click(); await pause(page, 12000); return; }
+  }
+  throw new Error('a confirmação de faturamento não apareceu');
+}
+
+/** O texto do diálogo de confirmação — para conferir a PRÉVIA antes de aprovar. */
+export async function readApprovalDialog(page: Page): Promise<string> {
+  const combo = page.locator('[role="combobox"]').filter({
+    hasText: /Pendente|Or.amento Aprovado|Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+  }).first();
+  await combo.scrollIntoViewIfNeeded();
+  await combo.click();
+  await pause(page, 800);
+  const opt = page.getByRole('option', { name: /Aprovar Faturamento/i }).first();
+  if (!(await opt.count())) { await page.keyboard.press('Escape'); return ''; }
+  await opt.click();
+  await pause(page, 1500);
+  if (!(await page.locator('[role="alertdialog"]').count())) {
+    const salvar = page.getByRole('button', { name: /^Salvar$/ });
+    if (await salvar.count()) { await salvar.first().click(); await pause(page, 3000); }
+  }
+  const texto = await page.evaluate(() => {
+    const d = document.querySelector('[role="alertdialog"], [role="dialog"]') as HTMLElement | null;
+    return (d?.innerText ?? '').replace(/\n{2,}/g, '\n');
+  });
+  const cancelar = page.locator('[role="alertdialog"], [role="dialog"]').getByRole('button', { name: /^Cancelar$/ }).last();
+  if (await cancelar.count()) { await cancelar.click(); await pause(page, 900); }
+  return texto;
+}
+
+/** Texto inteiro do `main` — para afirmar sobre o que a tela mostra. */
+export async function screenText(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    ((document.querySelector('main') as HTMLElement)?.innerText ?? '').replace(/\n{2,}/g, '\n'),
+  );
+}
+
+/**
+ * Acrescenta um veículo ao orçamento pela tela do DETALHE.
+ *
+ * É o caso operacional de "o cliente mandou mais um caminhão": o orçamento já
+ * existe, uma fatia já pode estar faturada, e o veículo novo tem de nascer com
+ * fatura própria sem encostar na que já saiu.
+ */
+export async function addVehicleSerial(page: Page, serial: string) {
+  const campo = page.getByPlaceholder(/Digite um n.mero/i).first();
+  await campo.scrollIntoViewIfNeeded();
+  await campo.fill(serial);
+  await campo.press('Enter');
+  await pause(page, 1200);
+  const presente = await page.evaluate(
+    (sn: string) => ((document.querySelector('main') as HTMLElement)?.innerText ?? '').includes(sn),
+    serial,
+  );
+  if (!presente) throw new Error(`a série ${serial} não entrou na lista de veículos`);
+}
+
+/** O último aviso (toast) que a tela mostrou — é por ele que uma recusa chega. */
+export async function lastToast(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const nodes = [...document.querySelectorAll('[data-sonner-toast], [role="status"], [role="alert"]')];
+    return nodes.map(n => (n as HTMLElement).innerText || '').join(' | ').replace(/\s+/g, ' ').trim();
+  });
+}
+
+/** Muda o preço do primeiro serviço no assistente aberto. */
+export async function setFirstServiceAmount(page: Page, amount: string) {
+  const campo = page.getByPlaceholder('R$ 0,00').first();
+  await campo.scrollIntoViewIfNeeded();
+  await campo.fill(amount);
+  await campo.blur();
+  await pause(page, 800);
+}
+
+/** Vai para um passo do assistente pelo rótulo do stepper. */
+export async function gotoStep(page: Page, label: RegExp) {
+  const botao = page.getByRole('button', { name: label }).first();
+  if (!(await botao.count())) {
+    const passos = await stepTitles(page);
+    throw new Error(`passo ${label} não achado; havia ${JSON.stringify(passos)}`);
+  }
+  await botao.click();
+  await pause(page, 2500);
 }

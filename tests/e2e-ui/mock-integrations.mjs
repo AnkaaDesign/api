@@ -66,6 +66,8 @@ const CIDADES = [
 let nfseSeq = 9000;
 let boletoSeq = 70000;
 const emittedNotes = [];
+/** Boletos que já receberam a instrução de baixa — a consulta seguinte confirma. */
+const baixados = new Set();
 
 const server = http.createServer((req, res) => {
   const chunks = [];
@@ -78,7 +80,7 @@ const server = http.createServer((req, res) => {
 
     // ── controle do próprio recorder ──────────────────────────────────────
     if (url === '/__recorder/all') return json(res, 200, calls);
-    if (url === '/__recorder/reset') { calls.length = 0; emittedNotes.length = 0; try { fs.unlinkSync(LOG); } catch {} return json(res, 200, { ok: true }); }
+    if (url === '/__recorder/reset') { calls.length = 0; emittedNotes.length = 0; baixados.clear(); try { fs.unlinkSync(LOG); } catch {} return json(res, 200, { ok: true }); }
     if (url === '/__recorder/health') return json(res, 200, { ok: true, calls: calls.length });
 
     // ── ELOTECH OXY (NFS-e municipal) ─────────────────────────────────────
@@ -112,8 +114,63 @@ const server = http.createServer((req, res) => {
           valorServico: n.valorLiquidoNota, situacao: 'NORMAL',
         })), totalElements: emittedNotes.length });
       if (p === '/emissao-nfse/iss-retido') return json(res, 200, { issRetido: false });
+      // ── CANCELAMENTO ────────────────────────────────────────────────────
+      //
+      // A REVERSÃO do faturamento não apaga nada sem antes CONFIRMAR, na
+      // prefeitura, a situação de cada nota viva. Sem esta rota a sentinela
+      // devolvia 599 e a reversão era recusada com "Não foi possível confirmar
+      // a NFS-e na Elotech" — um bloqueio correto do sistema que, no teste,
+      // impedia de provar o caminho inteiro.
+      if (p.startsWith('/solicitacoes-cancelamento/nota-fiscal/')) {
+        const id = Number(p.split('/').pop());
+        const nota = emittedNotes.find(n => n.elotechNfseId === id);
+        return json(res, 200, {
+          // `id` e `idCadastroGeralPrestador` são o que o serviço copia para o
+          // pedido de cancelamento — devolvê-los em branco faz o POST seguinte
+          // sair sem a nota que ele cancela.
+          id,
+          idCadastroGeralPrestador: 1234,
+          situacao: nota?.cancelada ? 'CANCELADA' : 'NORMAL',
+          numeroNotaFiscal: nota?.numeroNfse ?? id,
+          solicitacaoCancelamento: nota?.cancelada
+            ? { id: 1, ultimoStatus: 'AUTORIZADO', motivo: nota.motivoCancelamento ?? null, historicos: [] }
+            : null,
+        });
+      }
+      if (p === '/solicitacoes-cancelamento/salvar' && req.method === 'POST') {
+        const id = Number(body?.idNotaFiscal ?? 0);
+        const nota = emittedNotes.find(n => n.elotechNfseId === id);
+        if (nota) { nota.cancelada = true; nota.motivoCancelamento = body?.motivo ?? null; }
+        return json(res, 200, { id: 1, ultimoStatus: 'AUTORIZADO', motivo: body?.motivo ?? null });
+      }
+      if (p === '/emissao-nfse/reenviar-adn') return json(res, 200, {});
       if (p === '/consultar-documentos-fiscais/totais-consulta') {
-        return json(res, 200, { totalElements: emittedNotes.length, valorTotal: 0 });
+        // `totalDocumentos` é o campo que o serviço lê para inverter a paginação;
+        // devolver só `totalElements` fazia a contagem sair zero e a consulta
+        // pedir uma página negativa.
+        return json(res, 200, {
+          totalDocumentos: emittedNotes.length,
+          totalElements: emittedNotes.length,
+          valorTotal: 0,
+        });
+      }
+      if (p === '/consultar-documentos-fiscais/consultar') {
+        // A CONSULTA DE NOTAS EMITIDAS — é dela que sai o "próximo número de
+        // NFS-e" que a prévia do diálogo de aprovação mostra. Sem ela a prévia
+        // exibe "‹nº NFS-e›" e o teste não consegue conferir o número que o
+        // boleto vai citar em `seuNumero`.
+        const first = Number(body?.firstResult ?? 0);
+        const max = Number(body?.maxResult ?? 20);
+        const page = emittedNotes.slice(first, first + max).map(n => ({
+          id: n.elotechNfseId,
+          numeroNfse: n.numeroNfse,
+          numero: n.numeroNfse,
+          valorLiquidoNota: n.valorLiquidoNota,
+          valorServico: n.valorLiquidoNota,
+          situacao: 'NORMAL',
+          dataEmissao: new Date().toISOString().slice(0, 10),
+        }));
+        return json(res, 200, { data: page, totalDocumentos: emittedNotes.length });
       }
       if (p === '/localidades/cidades-uf') {
         // O serviço resolve a cidade do TOMADOR por esta lista e faz
@@ -149,6 +206,25 @@ const server = http.createServer((req, res) => {
         return res.end(TINY_PDF);
       }
       if (p === '/cobranca/boleto/v1/boletos/liquidados/dia') return json(res, 200, { items: [] });
+      // ── CONSULTA E BAIXA ────────────────────────────────────────────────
+      //
+      // A reversão do faturamento BAIXA cada boleto e reconsulta até o banco
+      // confirmar. O antigo catch-all `{}` deixava `situacao` indefinida, e a
+      // guarda — corretamente — recusava a reversão: "O Sicredi não informou a
+      // situação do boleto". A sentinela precisa responder como o banco.
+      if (p === '/cobranca/boleto/v1/boletos' && req.method === 'GET') {
+        const nn = (req.url.split('nossoNumero=')[1] ?? '').split('&')[0];
+        return json(res, 200, {
+          nossoNumero: nn,
+          situacao: baixados.has(nn) ? 'BAIXADO POR SOLICITACAO' : 'EM CARTEIRA',
+          valor: 0,
+        });
+      }
+      const baixa = p.match(/^\/cobranca\/boleto\/v1\/boletos\/([^/]+)\/baixa$/);
+      if (baixa && req.method === 'PATCH') {
+        baixados.add(baixa[1]);
+        return json(res, 202, { situacao: 'MOVIMENTO_ENVIADO' });
+      }
       return json(res, 200, {});
     }
 

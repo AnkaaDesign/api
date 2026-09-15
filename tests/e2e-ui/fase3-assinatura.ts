@@ -15,7 +15,11 @@ import { prisma, mailPurge, mailFor, mailBody, waitMail, sentinelaCalls, sentine
 import { check, phase, scenario, report, info, money, near, shoot } from './helpers/harness';
 import { login, createQuote, BASE, pause } from './helpers/ui';
 
-const SERIAL = 94000 + Math.floor((Date.now() / 1000) % 5000);
+/**
+ * A faixa de séries desta corrida. `QA_SERIAL_BASE` a fixa — é o que permite
+ * rodar esta fase ao lado das outras sem disputar número de série.
+ */
+const SERIAL = Number(process.env.QA_SERIAL_BASE ?? 94000 + Math.floor((Date.now() / 1000) % 5000));
 const PRECO_VEICULO = 2500;
 
 interface Contato {
@@ -64,10 +68,14 @@ async function main() {
   });
 
   phase(`FASE 3 — assinatura e recortes (séries ${SERIAL}/${SERIAL + 1})`);
-  await mailPurge();
-  // Zera o gravador: sem isto a fase herda as chamadas da fase anterior e a
-  // asserção "nada foi emitido aqui" acusa o que outra fase emitiu.
-  await sentinelaReset();
+  // ⚠️ SÓ LIMPA QUANDO RODA SOZINHA. Zerar o gravador é o certo em série (sem
+  // isto a fase herda as chamadas da anterior e a asserção "nada foi emitido
+  // aqui" acusa o que outra fase emitiu) e é destrutivo em PARALELO: apagaria as
+  // chamadas que os outros workers ainda vão conferir.
+  if (!process.env.QA_SHARD) {
+    await mailPurge();
+    await sentinelaReset();
+  }
   await login(page, 'qa.admin@ankaa.test');
 
   let quoteId = '';
@@ -328,9 +336,18 @@ async function main() {
     const escapes = calls.filter(c => c.integration === 'ESCAPE');
     check('S6: nenhuma chamada a caminho não mapeado (vazamento)', escapes.length === 0,
       JSON.stringify(escapes.slice(0, 5).map(e => e.path)));
-    check('S6: nenhuma NFS-e ou boleto foi emitido nesta fase',
-      calls.filter(c => c.integration === 'elotech' || c.integration === 'sicredi').length === 0,
-      `${calls.length} chamadas: ${JSON.stringify([...new Set(calls.map(c => c.integration))])}`);
+    // ⚠️ SOBRE ESTE ORÇAMENTO, não sobre a sentinela inteira. Ela é UMA para
+    // todos os workers: em paralelo, "nada foi emitido aqui" acusaria o que o
+    // vizinho emitiu. A série do veículo é a âncora que atravessa processos —
+    // ela aparece na discriminação da nota e no informativo do boleto.
+    const meus = calls.filter(c => {
+      if (c.integration !== 'elotech' && c.integration !== 'sicredi') return false;
+      const texto = JSON.stringify(c.body ?? {});
+      return texto.includes(String(SERIAL)) || texto.includes(String(SERIAL + 1));
+    });
+    check('S6: nenhuma NFS-e ou boleto foi emitido para os veículos desta fase',
+      meus.length === 0,
+      `${meus.length} de ${calls.length}: ${JSON.stringify(meus.slice(0, 3).map(c => c.path))}`);
   });
 
   console.log(`\nORÇAMENTO DA FASE 3: nº ${budgetNumber} (taskId ${taskId})`);

@@ -37,8 +37,19 @@ export function info(msg: string) {
   console.log(`  \x1b[2m·\x1b[0m ${msg}`);
 }
 
+/**
+ * O SUFIXO DESTE WORKER — `QA_SHARD=c3`.
+ *
+ * Quatro corridas simultâneas gravando `findings.json` e `shot-*.png` com o
+ * mesmo nome é uma sobrescrevendo a outra: o relatório final seria o do último
+ * a terminar, e as fotos de falha das outras três sumiriam. Vazio = nome de
+ * sempre, que é como a fase roda sozinha.
+ */
+const SHARD = (process.env.QA_SHARD ?? '').replace(/[^\w-]/g, '');
+const sufixo = SHARD ? `-${SHARD}` : '';
+
 export async function shoot(page: Page, tag: string): Promise<string> {
-  const file = path.join(ART, `shot-${tag}.png`);
+  const file = path.join(ART, `shot${sufixo}-${tag}.png`);
   try {
     await page.screenshot({ path: file, fullPage: true });
   } catch {
@@ -86,7 +97,7 @@ export function report(): number {
       if (f.shot) console.log(`     foto: ${f.shot}`);
     });
   }
-  fs.writeFileSync(path.join(ART, 'findings.json'), JSON.stringify(findings, null, 2));
+  fs.writeFileSync(path.join(ART, `findings${sufixo}.json`), JSON.stringify(findings, null, 2));
   return bad.length;
 }
 

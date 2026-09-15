@@ -14,7 +14,12 @@ const TAG = `QA${Date.now().toString().slice(-6)}`;
 // Série é ÚNICA no sistema: uma faixa nova por corrida, senão o save é barrado
 // por um toast e a tela fica parada no resumo (foi assim que a bateria "falhou"
 // inteira numa segunda execução).
-const S = 90000 + Math.floor((Date.now() / 1000) % 9000);
+/**
+ * A faixa de séries desta corrida. `QA_SERIAL_BASE` a fixa — é o que permite
+ * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
+ * no sistema, e repetir um faz o save ser barrado por um toast).
+ */
+const S = Number(process.env.QA_SERIAL_BASE ?? (90000 + Math.floor((Date.now() / 1000) % 9000)));
 
 interface Expect {
   vehicles: number;

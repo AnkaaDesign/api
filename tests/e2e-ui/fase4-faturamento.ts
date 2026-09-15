@@ -17,7 +17,12 @@ import {
   openBillingDetail, setPaymentCondition, setLots, saveDetail, BASE, pause,
 } from './helpers/ui';
 
-const S = 95000 + Math.floor((Date.now() / 1000) % 4000);
+/**
+ * A faixa de séries desta corrida. `QA_SERIAL_BASE` a fixa — é o que permite
+ * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
+ * no sistema, e repetir um faz o save ser barrado por um toast).
+ */
+const S = Number(process.env.QA_SERIAL_BASE ?? 95000 + Math.floor((Date.now() / 1000) % 4000));
 const PRECO = 1200; // por veículo
 
 interface Cenario {
@@ -49,8 +54,12 @@ async function main() {
   });
 
   phase(`FASE 4/5 — faturamento, NFS-e e boleto (séries a partir de ${S})`);
-  await sentinelaReset();
-  await mailPurge();
+  // ⚠️ SÓ LIMPA A SENTINELA QUANDO RODA SOZINHA — em paralelo, apagar o registro
+  // levaria junto as chamadas que os outros workers ainda vão conferir.
+  if (!process.env.QA_SHARD) {
+    await sentinelaReset();
+    await mailPurge();
+  }
   await login(page, 'qa.admin@ankaa.test');
 
   for (const c of CENARIOS) {
@@ -63,7 +72,7 @@ async function main() {
         name: `QA Fat ${c.tag} ${S}`,
         customer: /QA Alfa/, customerSearch: 'QA Alfa', category: /^Truck$/,
         serials: c.serials,
-        orderNumber: `PED${c.tag}`,
+        orderNumber: `PED${c.tag}${S}`,
         services: [{ search: 'Logomarca', option: /./, amount: String(PRECO * 100) }],
         billing: c.billing,
         paymentCondition: c.condicao,
@@ -178,7 +187,16 @@ async function main() {
       // A aprovação do faturamento JÁ dispara a emissão e o registro — não há
       // botão a apertar depois. O que o teste faz aqui é ler o que a sentinela
       // gravou e comparar com a fatura que o banco tem.
-      const chamadas = (await sentinelaCalls()).filter(x => x.seq > marcador);
+      // RECORTE POR CONTEÚDO, não por marcador: a sentinela é comum aos workers
+      // que rodam ao mesmo tempo, e contar "tudo desde o marcador" contaria as
+      // chamadas do vizinho. A série aparece na discriminação da nota; o número
+      // do pedido (único por corrida) aparece no informativo do boleto.
+      const pedido = `PED${c.tag}${S}`;
+      const meu = (x: { body: unknown }) => {
+        const texto = JSON.stringify(x.body ?? {});
+        return texto.includes(pedido) || tasks.some(t => t.serialNumber && texto.includes(t.serialNumber));
+      };
+      const chamadas = (await sentinelaCalls()).filter(x => x.seq > marcador && meu(x));
       const notas = chamadas.filter(x => x.integration === 'elotech' && x.path.includes('salvar-nota-fiscal'));
       const boletos = chamadas.filter(x => x.integration === 'sicredi' && x.method === 'POST' && x.path.endsWith('/boletos'));
 
@@ -220,7 +238,7 @@ async function main() {
         for (const sn of outros) {
           check(`${c.tag}: a discriminação NÃO cita ${sn} (está noutra nota)`, !disc.includes(sn), disc.slice(0, 160));
         }
-        check(`${c.tag}: o número do pedido vai na nota`, /Pedido:\s*PED/i.test(disc), disc.slice(0, 120));
+        check(`${c.tag}: o número do pedido vai na nota`, new RegExp(`Pedido:\\s*PED${c.tag}${S}`, 'i').test(disc), disc.slice(0, 120));
 
         // ── BOLETO ──────────────────────────────────────────────────────────
         const usados = new Set<number>();

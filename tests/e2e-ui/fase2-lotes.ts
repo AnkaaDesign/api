@@ -14,7 +14,12 @@ import { login, createQuote, openQuoteDetail, gotoCustomerStep, setLots, readLot
 
 // A fase cria o próprio orçamento: depender de um número fixo amarra a bateria
 // ao estado deixado por outra corrida.
-const S = 91000 + Math.floor((Date.now() / 1000) % 8000);
+/**
+ * A faixa de séries desta corrida. `QA_SERIAL_BASE` a fixa — é o que permite
+ * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
+ * no sistema, e repetir um faz o save ser barrado por um toast).
+ */
+const S = Number(process.env.QA_SERIAL_BASE ?? (91000 + Math.floor((Date.now() / 1000) % 8000)));
 
 async function coverage(quoteId: string) {
   const q = await prisma.taskQuote.findUnique({
