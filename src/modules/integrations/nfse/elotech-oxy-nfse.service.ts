@@ -66,6 +66,19 @@ export interface MunicipalEmitNfseInput {
     description: string;
     amount: number;
   }>;
+  /**
+   * QUANTOS VEÍCULOS ESTA NOTA COBRA — a quantidade de cada linha de serviço.
+   *
+   * `TaskQuoteService.amount` é o preço de UM veículo (ver `utils/quote-money.ts`).
+   * Uma fatura que cobre dois caminhões vale `por veículo × 2`, e a nota tem de
+   * declarar os dois: `quantidade = 2`, `valorUnitario` = o preço do caminhão.
+   * Sem isto a nota saía pelo preço de UM enquanto o boleto cobrava os dois —
+   * R$ 12.170,40 declarados contra R$ 730.224,00 cobrados no caso de sessenta —,
+   * com o ISS subdeclarado na mesma proporção.
+   *
+   * Omitido = 1, que é toda nota de um veículo e toda Operação Externa.
+   */
+  serviceQuantity?: number;
   /** Global customer discount — distributed proportionally across services for NFSe line items */
   globalDiscount?: {
     type: string; // 'PERCENTAGE' | 'FIXED_VALUE'
@@ -1466,13 +1479,27 @@ export class ElotechOxyNfseService {
     let discriminacaoServico: string;
     let totalDescontosIncondicionados = 0;
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // A QUANTIDADE DE CADA LINHA É O NÚMERO DE VEÍCULOS QUE A NOTA COBRE
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    // `svc.amount` é o preço de UM veículo — a regra central de
+    // `utils/quote-money.ts`, da qual sai também o `Invoice.totalAmount` que o
+    // boleto cobra (`por veículo × cobertos`). A nota tem de fazer a MESMA
+    // multiplicação, senão declara à prefeitura o serviço de um caminhão e
+    // cobra o de sessenta.
+    const serviceQuantity = Math.max(1, Math.trunc(Number(invoice.serviceQuantity ?? 1)) || 1);
+    const scaleLine = (unitAmount: number) =>
+      Math.round(unitAmount * serviceQuantity * 100) / 100;
+
     // Compute the effective discount percentage from globalDiscount
     // For PERCENTAGE: use the value directly
     // For FIXED_VALUE: calculate the equivalent percentage from the PRE-DISCOUNT subtotal
-    // (sum of service amounts), NOT from totalAmount (which is post-discount config.total)
+    // (sum of service LINE TOTALS — unitário × quantidade), NOT from totalAmount
+    // (which is post-discount config.total)
     const servicesSubtotal =
       services && services.length > 0
-        ? services.reduce((sum, svc) => sum + svc.amount, 0)
+        ? Math.round(services.reduce((sum, svc) => sum + scaleLine(svc.amount), 0) * 100) / 100
         : totalAmount;
 
     // I45: distribute the global discount across line items with LARGEST-REMAINDER so the
@@ -1484,8 +1511,10 @@ export class ElotechOxyNfseService {
     //   PERCENTAGE  → round(subtotal * pct) (the natural rounded total of a percentage discount)
     // The line amounts feeding the distribution are the service amounts (or the single
     // fallback line). buildItem then reads its line's precomputed discount by index.
+    // Os totais de LINHA (unitário × quantidade) — é sobre eles que o desconto
+    // se reparte, porque é o que a nota soma.
     const lineAmounts: number[] =
-      services && services.length > 0 ? services.map(svc => svc.amount) : [totalAmount];
+      services && services.length > 0 ? services.map(svc => scaleLine(svc.amount)) : [totalAmount];
     const lineDiscounts: number[] = new Array(lineAmounts.length).fill(0);
 
     if (invoice.globalDiscount && servicesSubtotal > 0) {
@@ -1524,21 +1553,33 @@ export class ElotechOxyNfseService {
       }
     }
 
-    const buildItem = (description: string, amount: number, index: number) => {
+    /**
+     * Uma linha da nota. `unitAmount` é o preço de UM veículo e `quantity`
+     * quantos a nota cobre — `valorTotal` é o produto, e é ele que entra no
+     * `totalNfse` e na base do ISS. A linha de recuo (sem serviços) usa
+     * quantidade 1 sobre o total da fatura, que já é o valor cheio.
+     */
+    const buildItem = (
+      description: string,
+      unitAmount: number,
+      index: number,
+      quantity: number,
+    ) => {
       // I45: use the precomputed largest-remainder discount for this line so the per-line
       // sum equals the target to the centavo (no independent rounding drift).
       const valorDesconto = lineDiscounts[index] ?? 0;
-      const valorLiquido = Math.max(0, Math.round((amount - valorDesconto) * 100) / 100);
+      const valorTotal = Math.round(unitAmount * quantity * 100) / 100;
+      const valorLiquido = Math.max(0, Math.round((valorTotal - valorDesconto) * 100) / 100);
       totalDescontosIncondicionados += valorDesconto;
 
       return {
         showPainelDeducao: false,
         item: description,
-        quantidade: 1,
-        valorUnitario: amount,
+        quantidade: quantity,
+        valorUnitario: unitAmount,
         valorDesconto,
         valorDescontoCondicionado: 0,
-        valorTotal: amount,
+        valorTotal,
         valorLiquido,
         isDeducao: false,
         unidadeMedida: null,
@@ -1557,7 +1598,9 @@ export class ElotechOxyNfseService {
     const cleanOrderNumber = invoice.orderNumber?.replace(/^PEDIDO\s+NR\s+/i, '').trim() ?? '';
 
     if (services && services.length > 0) {
-      formItensNFSe = services.map((svc, i) => buildItem(svc.description, svc.amount, i));
+      formItensNFSe = services.map((svc, i) =>
+        buildItem(svc.description, svc.amount, i, serviceQuantity),
+      );
 
       const DISCRIMINACAO_MAX_LINES = 11;
       const headerLines: string[] = [];
@@ -1582,7 +1625,7 @@ export class ElotechOxyNfseService {
       const fallbackDesc = invoice.description
         ? `${header}${invoice.description}`
         : `${header}Serviço ref. OS ${serialNumber}`;
-      formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
+      formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0, 1)];
       discriminacaoServico = fallbackDesc;
     }
 
@@ -1602,6 +1645,35 @@ export class ElotechOxyNfseService {
     const totalNfse = servicesSubtotal;
     const baseCalculoIss = Math.max(0, totalNfse - totalDescontosIncondicionados);
     const valorIss = Math.round(baseCalculoIss * this.servicoLCAliquota) / 100;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // A TRAVA: O LÍQUIDO DA NOTA É O QUE O BOLETO COBRA
+    // ═════════════════════════════════════════════════════════════════════════
+    //
+    // `baseCalculoIss` é o que a nota declara depois do desconto, e
+    // `invoice.totalAmount` é o que o cliente deve e o boleto cobra. Os dois têm
+    // de ser o MESMO número — foi a divergência entre eles que mandou à
+    // prefeitura uma nota de um caminhão contra um boleto de dois.
+    //
+    // Emitir abaixo do cobrado é subdeclarar receita e ISS, e desfazer isso
+    // custa cancelamento e substituição (NF 3199 → 3215). Parar aqui deixa o
+    // documento em ERROR, que é recuperável: o operador corrige e reemite.
+    // Acima do cobrado o desconto global já absorve a diferença, então só o lado
+    // de baixo precisa de trava.
+    const netCents = Math.round(baseCalculoIss * 100);
+    const owedCents = Math.round(totalAmount * 100);
+    if (netCents < owedCents - 1) {
+      // Em reais, como o operador lê na tela — `toFixed` devolvia "1200.00",
+      // que numa mensagem sobre dinheiro brasileiro lê como outro valor.
+      const emReais = (v: number) =>
+        v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      throw new BadRequestException(
+        `A NFS-e sairia por ${emReais(baseCalculoIss)} enquanto a fatura cobra ` +
+          `${emReais(totalAmount)}. Emitir assim subdeclara receita e ISS. ` +
+          `Confira o valor dos serviços, o desconto e quantos veículos esta fatura cobre ` +
+          `(${serviceQuantity}).`,
+      );
+    }
     // Format date in São Paulo timezone to avoid UTC offset causing wrong day.
     // Elotech expects ISO-like format but with the correct Brazil date.
     const nowDate = new Date();
