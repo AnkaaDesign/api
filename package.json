@@ -93,7 +93,10 @@
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
     "whatsapp:submit-template": "tsx scripts/submit-signature-whatsapp-template.ts",
-    "test:signature-refusal": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/signature-refusal.test.ts"
+    "test:signature-refusal": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/signature-refusal.test.ts",
+    "test:nfse-line-scale": "tsx tests/nfse-line-scale.test.ts",
+    "test:billing-coverage": "tsx tests/billing-coverage.test.ts",
+    "test:boleto-informativo": "tsx tests/boleto-informativo-cobertura.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
