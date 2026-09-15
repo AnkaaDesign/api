@@ -270,6 +270,7 @@ export const EVENT_DESCRIPTIONS: Record<string, string> = {
   DECLARATIONS_ACCEPTED: 'Declarações aceitas',
   SIGNATURE_APPLIED: 'Assinatura aplicada',
   SIGNATURE_REFUSED: 'Assinatura recusada',
+  SIGNER_REOPENED: 'Assinatura pedida novamente após recusa',
   SIGNER_VOIDED: 'Assinatura invalidada por alteração do orçamento',
   CONTACT_CHANGED: 'Contato do signatário alterado pela Ankaa',
   SNAPSHOT_DRIFTED: 'Cadastro alterado após o congelamento (sem efeito nas condições)',

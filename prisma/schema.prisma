@@ -8273,6 +8273,12 @@ enum SignatureEventType {
   DECLARATIONS_ACCEPTED
   SIGNATURE_APPLIED
   SIGNATURE_REFUSED
+
+  /// O operador pediu de novo a quem havia recusado, devolvendo a vez dele.
+  /// A recusa CONTINUA na trilha e em `EnvelopeSigner.refusalReason` — isto não
+  /// a apaga, registra que houve uma segunda pergunta.
+  SIGNER_REOPENED
+
   SIGNER_VOIDED
   CONTACT_CHANGED
   /// Algo que o documento exibe mudou SEM mexer nas condições comerciais

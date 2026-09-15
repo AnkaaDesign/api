@@ -109,6 +109,8 @@ import {
   generateSignatureInvitationEmail,
   generateSignatureOtpEmail,
   generateAnkaaCountersignEmail,
+  generateCollectionPausedEmail,
+  generateRefusalNoticeEmail,
   generateEnvelopeVoidedEmail,
   generateSignatureReminderEmail,
   generateSignatureExpiredEmail,
@@ -117,6 +119,8 @@ import {
   generateSignatureInvitationWhatsApp,
   generateSignatureOtpWhatsApp,
   generateAnkaaCountersignWhatsApp,
+  generateCollectionPausedWhatsApp,
+  generateRefusalNoticeWhatsApp,
   generateEnvelopeVoidedWhatsApp,
   generateSignatureReminderWhatsApp,
   generateSignatureExpiredWhatsApp,
@@ -146,6 +150,7 @@ import { isReminderDue, spDayDiff } from '../signature-reminder-cadence';
 import {
   expiredTemplate,
   invitationTemplate,
+  refusedTemplate,
   otpTemplate,
   reminderTemplate,
   resendTemplate,
@@ -262,6 +267,7 @@ const LATE_SLOT_LABELS: Record<string, string> = {
   serialNumber: 'número de série',
   plate: 'placa',
   chassis: 'chassi',
+  orderNumber: 'nº do pedido',
 };
 
 /** Resultado de um envio da cerimônia, com o motivo quando não saiu. */
@@ -1366,6 +1372,7 @@ export class SignatureEnvelopeService {
         id: string;
         createdAt?: Date | null;
         serialNumber?: string | null;
+        customerOrderNumber?: string | null;
         truck?: { plate?: string | null; chassisNumber?: string | null } | null;
       }> | null;
     };
@@ -1393,6 +1400,7 @@ export class SignatureEnvelopeService {
         serialNumber: t.serialNumber,
         plate: t.truck?.plate,
         chassis: t.truck?.chassisNumber,
+        orderNumber: t.customerOrderNumber,
       };
       const suffix = multi
         ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.truck?.plate ?? t.id.slice(0, 8))}`
@@ -1968,6 +1976,13 @@ export class SignatureEnvelopeService {
         // Vencido não se lembra: quem passou do prazo recebe o aviso de
         // vencimento, que é outra mensagem e sai da varredura de expiração.
         deadlineAt: { gt: now },
+        // COLETA TRAVADA POR RECUSA também não se lembra. Depois que a recusa
+        // deixou de matar o envelope, ele continua `RUNNING` — e cobrar os
+        // outros responsáveis para assinarem algo que não pode ser concluído
+        // enquanto o comercial não resolve é pedir um ato inútil, por uma
+        // mensagem que a Meta mede. Reabrir o recusante (`resendInvitation`)
+        // devolve o envelope à cobrança sozinho.
+        signers: { none: { status: EnvelopeSignerStatus.REFUSED } },
       },
       select: {
         id: true,
@@ -3225,6 +3240,30 @@ export class SignatureEnvelopeService {
       },
     });
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // A RECUSA É DE QUEM RECUSOU — E SÓ
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Até aqui uma recusa derrubava o envelope inteiro, e com ele TODA assinatura
+    // já colhida: as outras continuavam `SIGNED` no banco, mas o envelope nunca
+    // mais chegava a `COMPLETED`, nenhum recorte era selado e nenhum dos atos
+    // produzia documento. Na prática, quem assinou de manhã perdia a assinatura
+    // porque um colega recusou à tarde.
+    //
+    // O QUE DE FATO INVALIDA UMA ASSINATURA é uma MUDANÇA MATERIAL no documento
+    // — e para isso já existe máquina inteira (`checkMaterialChange`, o hash do
+    // recorte material, `INVALIDATED` + signatários `VOIDED`). Recusar não muda
+    // byte nenhum do que os outros assinaram: o PDF congelado deles continua
+    // idêntico, e a declaração que leram continua verdadeira.
+    //
+    // Se a recusa levar a um reajuste — e é o caso comum: recusou porque o preço
+    // estava alto, o comercial reajusta —, é o REAJUSTE que invalida, pelo
+    // caminho que já existe. A recusa em si só informa e trava a conclusão.
+    //
+    // O envelope só morre quando não sobra NINGUÉM do lado do cliente para
+    // assinar: aí não há mais o que esperar, e mantê-lo vivo seria mentir na
+    // lista do comercial.
+    let envelopeRefused = false;
     await this.prisma.$transaction(async tx => {
       await tx.envelopeSigner.update({
         where: { id: signer.id },
@@ -3236,16 +3275,226 @@ export class SignatureEnvelopeService {
           userAgent: args.ctx.userAgent,
         },
       });
-      // Reivindicação condicionada ao estado atual, como em `advanceEnvelope`:
-      // duas recusas simultâneas (ou uma recusa concorrente com a conclusão) não
-      // podem sobrescrever um envelope que já saiu de RUNNING.
-      await tx.signatureEnvelope.updateMany({
-        where: { id: env.id, status: EnvelopeStatus.RUNNING },
-        data: { status: EnvelopeStatus.REFUSED },
+
+      // Escrito como EXCLUSÃO e não como `status: PENDING`, pela mesma razão do
+      // filtro dos lembretes: um estado intermediário novo no enum tem de contar
+      // como "ainda pode assinar", que é a direção segura aqui — a errada mata
+      // uma coleta viva.
+      const aindaPodemAssinar = await tx.envelopeSigner.count({
+        where: {
+          envelopeId: env.id,
+          orderGroup: 0,
+          status: {
+            notIn: [
+              EnvelopeSignerStatus.REFUSED,
+              EnvelopeSignerStatus.VOIDED,
+              EnvelopeSignerStatus.EXPIRED,
+            ],
+          },
+        },
       });
+
+      if (aindaPodemAssinar === 0) {
+        envelopeRefused = true;
+        // Reivindicação condicionada ao estado atual, como em `advanceEnvelope`:
+        // duas recusas simultâneas (ou uma recusa concorrente com a conclusão)
+        // não podem sobrescrever um envelope que já saiu de RUNNING.
+        await tx.signatureEnvelope.updateMany({
+          where: { id: env.id, status: EnvelopeStatus.RUNNING },
+          data: { status: EnvelopeStatus.REFUSED },
+        });
+      }
     });
 
-    await this.challenges.supersedeAllForEnvelope(env.id);
+    // Só os desafios de QUEM RECUSOU. Anular os do envelope inteiro derrubaria o
+    // código que outro responsável tem na mão neste exato momento — ele pediu,
+    // recebeu, e a mensagem deixaria de funcionar sem explicação.
+    if (envelopeRefused) {
+      await this.challenges.supersedeAllForEnvelope(env.id);
+    } else {
+      await this.challenges.supersedeAllForSigner(signer.id);
+    }
+
+    // O AVISO AO COMERCIAL — fora da transação e sem `await` que derrube o ato.
+    //
+    // A recusa é do CLIENTE e já está gravada; se o WhatsApp estiver fora do ar
+    // ou a Meta recusar o template, a recusa continua tendo acontecido. Deixar o
+    // envio dentro da transação faria uma falha de mensageria desfazer o
+    // registro de um ato jurídico — exatamente ao contrário do que interessa.
+    void this.notifyRefusalToAnkaa(env.id, signer.id, reason).catch(error =>
+      this.logger.error(
+        `Falha ao avisar o comercial da recusa no envelope ${env.id}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      ),
+    );
+
+    // E OS COLEGAS DELE. Sem isto, os outros responsáveis ficam com um link que
+    // ainda abre, numa coleta que ninguém vai concluir, e sem saber por quê — é
+    // a mesma cortesia que o caminho de alteração material já faz há tempo.
+    void this.notifyRefusalToPeers(env.id, signer.id).catch(error =>
+      this.logger.error(
+        `Falha ao avisar os demais responsáveis da recusa no envelope ${env.id}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      ),
+    );
+  }
+
+  /**
+   * Avisa os DEMAIS responsáveis do cliente de que um colega recusou.
+   *
+   * Só quem ainda pode agir e quem já agiu — pendentes e quem já assinou. Quem
+   * já assinou precisa saber MAIS do que os pendentes, não menos: ele deu um ato
+   * e tem direito a saber que ele não vai virar contrato agora, e que continua
+   * valendo (é essa a parte que a versão anterior desta cerimônia destruía).
+   *
+   * Fora: o próprio recusante, o lado da Ankaa (que recebe o aviso COM o motivo,
+   * por `notifyRefusalToAnkaa`) e quem foi anulado ou perdeu o prazo.
+   */
+  private async notifyRefusalToPeers(envelopeId: string, refusedBySignerId: string): Promise<void> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: { quote: { select: { budgetNumber: true } }, signers: true },
+    });
+    if (!env) return;
+
+    const refusedBy = env.signers.find(s => s.id === refusedBySignerId);
+    const peers = env.signers.filter(
+      s =>
+        s.id !== refusedBySignerId &&
+        s.orderGroup === 0 &&
+        (s.status === EnvelopeSignerStatus.SIGNED ||
+          !(
+            [
+              EnvelopeSignerStatus.REFUSED,
+              EnvelopeSignerStatus.VOIDED,
+              EnvelopeSignerStatus.EXPIRED,
+            ] as EnvelopeSignerStatus[]
+          ).includes(s.status)),
+    );
+    if (peers.length === 0) return;
+
+    const payload = {
+      budgetNumber: env.quote.budgetNumber,
+      refusedByName: refusedBy?.declaredName ?? 'Um responsável',
+    };
+
+    for (const peer of peers) {
+      // O canal de CADA UM, do `authMethod` dele — não o da coleta. Num envelope
+      // misto, ler o canal da coleta mandaria e-mail para quem entrou por
+      // WhatsApp e gravaria o canal errado na trilha.
+      const channel = channelForAuthMethod(peer.authMethod);
+      const delivery = await this.deliverToSigner({
+        signer: peer,
+        channel,
+        email: generateCollectionPausedEmail({ ...payload, signerName: peer.declaredName }),
+        whatsapp: generateCollectionPausedWhatsApp({ ...payload, signerName: peer.declaredName }),
+        // Sem template do canal oficial: `sendWhatsApp` cai no texto livre do
+        // Baileys. Ver a nota no runbook — este aviso ainda não tem template
+        // aprovado, e inventar um nome aqui faria a Cloud API recusar o envio.
+        whatsappTemplate: null,
+        kind: 'SIGNATURE_COLLECTION_PAUSED',
+      });
+
+      await this.audit.recordBestEffort(envelopeId, {
+        eventType: delivery.ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+        actorType: 'SYSTEM',
+        actorId: peer.id,
+        actorLabel: peer.declaredName,
+        payload: {
+          stage: 'customer',
+          kind: 'collection_paused_notice',
+          channel: auditChannelOf(channel),
+          destination: this.maskContactFor(peer, channel),
+          ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+        },
+      });
+    }
+  }
+
+  /**
+   * Avisa o comercial da Ankaa de que o cliente RECUSOU, e por quê.
+   *
+   * POR QUE O DESTINATÁRIO É O SIGNATÁRIO DA ANKAA
+   *   Ele já está no envelope, com nome, telefone e e-mail congelados no momento
+   *   da emissão, e é a pessoa que o documento nomeia como representante do
+   *   negócio. Buscar "o comercial" por setor devolveria uma lista e obrigaria a
+   *   escolher — e quem responde por ESTE orçamento é quem ia contra-assiná-lo.
+   *
+   *   Consequência: uma coleta antiga, emitida antes de a contra-assinatura
+   *   existir, pode não ter esse signatário. Nesse caso não há a quem avisar por
+   *   este caminho, e o método sai em silêncio em vez de inventar um
+   *   destinatário.
+   *
+   * O CANAL é o da COLETA (`noticeChannelOf`), o mesmo do aviso de
+   * contra-assinatura: um orçamento conduzido por e-mail não deve produzir um
+   * WhatsApp inesperado, e vice-versa.
+   */
+  private async notifyRefusalToAnkaa(
+    envelopeId: string,
+    refusedBySignerId: string,
+    reason: string,
+  ): Promise<void> {
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      include: {
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, createdAt: true } } } },
+        signers: true,
+      },
+    });
+    if (!env) return;
+
+    const ankaa = env.signers.find(
+      s => s.authMethod === SignatureAuthMethod.INTERNAL_SESSION || s.orderGroup === 1,
+    );
+    if (!ankaa) {
+      this.logger.warn(
+        `Envelope ${envelopeId} recusado, mas sem signatário da Ankaa a quem avisar.`,
+      );
+      return;
+    }
+
+    const refusedBy = env.signers.find(s => s.id === refusedBySignerId);
+    const payload = {
+      signerName: ankaa.declaredName,
+      refusedByName: refusedBy?.declaredName ?? 'Um responsável do cliente',
+      budgetNumber: env.quote.budgetNumber,
+      reason,
+      quoteUrl: this.internalQuoteUrl(primaryTask(env.quote)?.id ?? null),
+    };
+
+    const channel = this.noticeChannelOf(env.signers);
+    const delivery = await this.deliverToSigner({
+      signer: ankaa,
+      channel,
+      email: generateRefusalNoticeEmail(payload),
+      whatsapp: generateRefusalNoticeWhatsApp(payload),
+      // O template sai pelo número OFICIAL quando a Cloud API está ligada; sem
+      // ela, `sendWhatsApp` cai no texto livre acima, pelo Baileys.
+      whatsappTemplate: refusedTemplate({
+        refusedByName: payload.refusedByName,
+        budgetNumber: payload.budgetNumber,
+        reason,
+      }),
+      kind: 'SIGNATURE_REFUSAL_NOTICE',
+    });
+
+    await this.audit.recordBestEffort(envelopeId, {
+      eventType: delivery.ok ? 'INVITATION_SENT' : 'INVITATION_FAILED',
+      actorType: 'SYSTEM',
+      actorId: ankaa.id,
+      actorLabel: ankaa.declaredName,
+      payload: {
+        stage: 'ankaa',
+        // Como no aviso de contra-assinatura: isto NÃO é um convite de
+        // assinatura, e a trilha precisa dizê-lo para não ser lida como tal.
+        kind: 'refusal_notice',
+        channel: auditChannelOf(channel),
+        destination: this.maskContactFor(ankaa, channel),
+        ...(delivery.reason ? { failureReason: delivery.reason } : {}),
+      },
+    });
   }
 
   /**
@@ -5229,13 +5478,25 @@ export class SignatureEnvelopeService {
         serialNumber: task.serialNumber ?? null,
         plate: task.truck?.plate ?? null,
         chassis: task.truck?.chassisNumber ?? null,
+        orderNumber: task.customerOrderNumber ?? null,
       };
       const before: Record<string, string | null> = {
         serialNumber: was.serialNumber ?? null,
         plate: was.plate ?? null,
         chassis: was.chassisNumber ?? null,
+        orderNumber: was.orderNumber ?? null,
       };
-      for (const field of ['serialNumber', 'plate', 'chassis'] as const) {
+      // O PEDIDO só se o congelado o REGISTRA. Snapshot anterior a esta feature
+      // não tem a chave — e o documento dele sequer trazia a coluna, que só saía
+      // quando algum veículo já tinha número. Aditar ali declararia uma lacuna
+      // que a folha assinada nunca mostrou, que é o oposto do que o aditivo faz.
+      const fields = [
+        'serialNumber',
+        'plate',
+        'chassis',
+        ...(was && 'orderNumber' in was ? (['orderNumber'] as const) : []),
+      ] as const;
+      for (const field of fields) {
         const value = (now[field] ?? '').trim();
         // Só o que estava em branco E chegou depois. Um campo que já constava do
         // assinado não é cadastro tardio; um que continua vazio não tem o que
@@ -5420,13 +5681,16 @@ export class SignatureEnvelopeService {
       plate: 'plate',
       chassis: 'chassisNumber',
       serialNumber: 'serialNumber',
+      orderNumber: 'customerOrderNumber',
     };
     try {
       const rows = await this.prisma.changeLog.findMany({
         where: {
           OR: [
             ...(truckId ? [{ entityId: truckId, field: { in: ['plate', 'chassisNumber'] } }] : []),
-            ...(taskId ? [{ entityId: taskId, field: 'serialNumber' }] : []),
+            ...(taskId
+              ? [{ entityId: taskId, field: { in: ['serialNumber', 'customerOrderNumber'] } }]
+              : []),
           ],
         },
         orderBy: { createdAt: 'desc' },
@@ -5824,9 +6088,13 @@ export class SignatureEnvelopeService {
     // Código vazio: sem envelope não há o que verificar, e imprimir um código
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
     const rendered = await this.renderQuoteDocument(quote, seeds, '', customerId);
-    // A faixa de rodapé com número do orçamento e paginação — a parte da faixa
-    // do documento assinado que existe sem coleta. Ver `stampPlainFooter`.
-    return this.assembler.stampPlainFooter(rendered.pdf, quote.budgetNumber);
+    // SEM faixa de rodapé. Ela existia para dar número de página ao orçamento
+    // entregue solto, mas o documento já termina no rodapé da Ankaa (endereço,
+    // telefone, site) — e uma linha de paginação DEPOIS dele fazia o último
+    // elemento da folha ser um número, não a assinatura visual da empresa.
+    // Sem coleta também não há envelope nem hash, que é o que dava à faixa do
+    // assinado a sua razão de ser. Ver `stampSeals`, onde ela continua.
+    return rendered.pdf;
   }
 
   /**
@@ -5879,6 +6147,7 @@ export class SignatureEnvelopeService {
             id: true,
             createdAt: true,
             serialNumber: true,
+            customerOrderNumber: true,
             truck: { select: { plate: true, chassisNumber: true } },
           },
         },
@@ -5931,11 +6200,42 @@ export class SignatureEnvelopeService {
         eventType: { in: ['INVITATION_SENT', 'INVITATION_FAILED'] },
       },
       orderBy: { sequence: 'asc' },
-      select: { envelopeId: true, eventType: true, actorId: true },
+      select: { envelopeId: true, eventType: true, actorId: true, payload: true },
     });
     const inviteBySigner = new Map<string, string>();
     for (const ev of inviteEvents) {
-      if (ev.actorId) inviteBySigner.set(ev.actorId, ev.eventType);
+      if (!ev.actorId) continue;
+      // ─── SÓ CONVITE DE VERDADE ────────────────────────────────────────────
+      //
+      // `INVITATION_SENT` é o tipo de evento que registra TODO envio da
+      // cerimônia, inclusive os que não são convite nenhum: o aviso de recusa ao
+      // comercial, o de coleta pausada aos demais, o de contra-assinatura. Eles
+      // se distinguem pelo `kind` do payload — que é justamente por isso que ele
+      // existe —, e aqui ninguém o lia.
+      //
+      // Como o mapa guarda o ÚLTIMO evento de cada signatário, um aviso
+      // posterior sobrescrevia o convite verdadeiro. O caso que dói é o
+      // contrário do cosmético: um `INVITATION_FAILED` real — o painel dizendo
+      // "Convite não entregue, envie o link manualmente" — era apagado pelo
+      // aviso de pausa que saiu logo depois e que, esse sim, foi entregue. O
+      // operador parava de ser avisado de que o link nunca chegou.
+      //
+      // E do lado da Ankaa era pior: o contra-assinante não assina por link e
+      // nunca recebe convite, mas passava a exibir "Convite enviado · ainda não
+      // abriu" assim que o aviso de recusa lhe era mandado.
+      // Um convite de verdade não carrega `kind` (são os 27 do acervo); os
+      // avisos carregam, e todos terminam em `_notice`. A regra é o SUFIXO mais
+      // a lista explícita, para que um aviso novo que siga a convenção já entre
+      // aqui sem ninguém lembrar de vir atualizar esta linha.
+      const kind = (ev.payload as { kind?: unknown } | null)?.kind;
+      const isNotice =
+        typeof kind === 'string' &&
+        (kind.endsWith('_notice') ||
+          kind === 'collection_paused_notice' ||
+          kind === 'refusal_notice' ||
+          kind === 'countersign_notice');
+      if (isNotice) continue;
+      inviteBySigner.set(ev.actorId, ev.eventType);
     }
 
     const changesByEnvelope = await this.changesSinceFrozen(quoteId, envelopes);
@@ -6137,6 +6437,46 @@ export class SignatureEnvelopeService {
     // mandaria o link para um contato diferente daquele que o hash material
     // congelou, e a próxima conferência derrubaria o envelope.
     const channel = channelForAuthMethod(signer.authMethod);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // REENVIAR A QUEM RECUSOU É PEDIR DE NOVO — e reabre a vez dele
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // `assertSignable` barra signatário `REFUSED` ("este link não está mais
+    // válido"), então sem esta reabertura o reenvio entregaria um link morto: o
+    // contato receberia a mensagem, clicaria e bateria num erro.
+    //
+    // É deliberado que o gesto do operador seja o MESMO de reenviar. Recusar não
+    // é um estado que a Ankaa desfaz por conta própria — é o cliente que muda de
+    // ideia. O que o reenvio faz é devolver a ele a possibilidade de decidir,
+    // depois de uma conversa que aconteceu fora do sistema.
+    //
+    // `refusedAt` e `refusalReason` FICAM. Eles são o registro de um ato que
+    // aconteceu, a trilha de auditoria já o gravou, e apagá-los faria o painel
+    // esquecer por que a coleta parou. A tela lê os dois como histórico e o
+    // `status` como estado — que é a distinção certa.
+    if (signer.status === EnvelopeSignerStatus.REFUSED) {
+      await this.prisma.envelopeSigner.update({
+        where: { id: signer.id },
+        data: { status: EnvelopeSignerStatus.PENDING },
+      });
+      await this.audit.recordBestEffort(signer.envelopeId, {
+        eventType: 'SIGNER_REOPENED',
+        actorType: 'OPERATOR',
+        actorId: actorUserId,
+        actorLabel: signer.declaredName,
+        payload: {
+          kind: 'refusal_reopened',
+          // O motivo entra na trilha de novo, aqui: quem auditar a reabertura
+          // precisa ver CONTRA O QUÊ ela foi feita sem ter de cruzar eventos.
+          previousRefusalReason: signer.refusalReason ?? null,
+        },
+      });
+      this.logger.log(
+        `Signatário ${signer.id} reaberto após recusa — envelope ${signer.envelopeId}.`,
+      );
+    }
+
     const invitation = {
       signerName: signer.declaredName,
       budgetNumber: signer.envelope.quote.budgetNumber,
