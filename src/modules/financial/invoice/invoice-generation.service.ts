@@ -830,7 +830,22 @@ export class InvoiceGenerationService {
                     // antigo (por cliente) fazia. Ver `orderNumberLabel`.
                     tasks: {
                       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                      select: { id: true, customerOrderNumber: true },
+                      select: {
+                        id: true,
+                        customerOrderNumber: true,
+                        // SÉRIE E CAMINHÃO — numa fatura conjunta `Invoice.task`
+                        // é nulo, e sem eles o informativo do boleto não citava
+                        // veículo nenhum.
+                        serialNumber: true,
+                        truck: {
+                          select: {
+                            plate: true,
+                            chassisNumber: true,
+                            category: true,
+                            implementType: true,
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -1084,20 +1099,31 @@ export class InvoiceGenerationService {
       return parts.length > 0 ? parts : undefined;
     }
 
-    // O pedido dos veículos que ESTA fatura cobre — exatamente eles, nem mais
-    // nem menos. Um só quando a cobrança é veículo a veículo; os do lote quando
-    // é um lote; os do orçamento inteiro quando é conjunta. Citar um pedido que
-    // não é da entrega cobrada faz o cliente receber um boleto que não bate com
-    // nenhum pedido dele. `80` é o que sobra da linha do boleto informativo.
+    // ── OS VEÍCULOS QUE ESTE BOLETO COBRA — uma leitura só ──────────────────
+    //
+    // O pedido de compra e a descrição do veículo têm de falar dos MESMOS
+    // caminhões. Eram duas leituras com recuos diferentes: sem linha de
+    // cobertura (fatura do acervo, anterior à migração), o pedido recuava para o
+    // ORÇAMENTO INTEIRO e a descrição para a tarefa da fatura — o boleto saía
+    // citando os quatro pedidos e nomeando um caminhão só.
+    //
+    // Agora é uma lista: a cobertura; na falta dela, a tarefa da fatura; na
+    // falta das duas, o orçamento inteiro (fatura conjunta antiga, que de fato
+    // cobra todos). `80` é o que sobra da linha do boleto informativo.
     const cfgForOrder = installment.invoice?.customerConfig;
     const coveredForOrder = new Set(coveredTaskIds(cfgForOrder as any));
-    const orderNumber = orderNumberLabel(
+    const quoteTaskRows: any[] = (cfgForOrder?.quote?.tasks ?? []) as any[];
+    const coveredRows: any[] =
       coveredForOrder.size > 0
-        ? (cfgForOrder?.quote?.tasks ?? []).filter(t => coveredForOrder.has(t.id))
-        : (cfgForOrder?.quote?.tasks ?? []),
-      80,
-    );
-    const task = installment.invoice?.task;
+        ? quoteTaskRows.filter(t => coveredForOrder.has(t.id))
+        : installment.invoice?.task
+          ? [installment.invoice.task]
+          : quoteTaskRows;
+    const orderNumber = orderNumberLabel(coveredRows, 80);
+    // A tarefa de CONTEXTO: a da fatura quando ela é de um veículo, senão o
+    // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
+    // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
+    const task: any = installment.invoice?.task ?? coveredRows[0] ?? null;
     const truck = task?.truck;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
@@ -1126,7 +1152,22 @@ export class InvoiceGenerationService {
     if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
-    if (vehicleType || idStr) {
+    if (coveredRows.length > 1) {
+      // MAIS DE UM VEÍCULO: contagem e faixa de séries, como a discriminação da
+      // nota. Cinco linhas de 80 caracteres não cabem sessenta por extenso.
+      const series = coveredRows
+        .map((t: any) => t.serialNumber)
+        .filter((n: any): n is string => Boolean(n))
+        .sort();
+      parts.push(
+        `Referente aos servicos em ${coveredRows.length} veiculos${
+          vehicleType ? ` ${vehicleType}` : ''
+        }`.trimEnd().substring(0, 80),
+      );
+      if (series.length > 1) {
+        parts.push(`Series: ${series[0]} a ${series[series.length - 1]}`.substring(0, 80));
+      }
+    } else if (vehicleType || idStr) {
       parts.push(`Referente aos servicos no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
       if (idStr) parts.push(idStr.substring(0, 80));
     }
