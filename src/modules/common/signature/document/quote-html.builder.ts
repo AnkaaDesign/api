@@ -66,7 +66,7 @@ export function mmToPt(mm: number): number {
  * e o dado é carimbado nele quando chega — a mesma mecânica do selo de
  * assinatura, que também é medido aqui e desenhado depois.
  */
-export type LateSlotKey = 'serialNumber' | 'plate' | 'chassis';
+export type LateSlotKey = 'serialNumber' | 'plate' | 'chassis' | 'orderNumber';
 
 /**
  * Largura reservada, em `ch`, por campo.
@@ -76,11 +76,16 @@ export type LateSlotKey = 'serialNumber' | 'plate' | 'chassis';
  * teria de ser espremido a 60% do corpo do texto para caber depois. Chassi tem
  * 17 caracteres por norma; placa tem 7 (Mercosul) ou 8 (padrão antigo com
  * hífen); o maior número de série em uso tem 5 dígitos, e 8 dá folga.
+ *
+ * O PEDIDO DE COMPRA é texto livre do cliente e não tem norma: 12 cobre o que
+ * está em uso com folga. `min-width` e não `width`, aqui como nos outros — um
+ * valor maior ainda cabe, só ocupa mais linha do que o reservado.
  */
 const LATE_SLOT_WIDTH_CH: Record<LateSlotKey, number> = {
   serialNumber: 8,
   plate: 8,
   chassis: 17,
+  orderNumber: 12,
 };
 
 /**
@@ -416,7 +421,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // ═══════════════════════════════════════════════════════════════════════════
   //
   // A frase de abertura terminava enumerando o veículo dentro dela mesma:
-  // "…para execução dos serviços abaixo descriminados no veículo nº série:
+  // "…para execução dos serviços abaixo discriminados no veículo nº série:
   // 39239, placa: a registrar, chassi: 953677TGXTR031467, categoria: Truck,
   // implemento: Refrigerado."
   //
@@ -456,16 +461,18 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // informa nada. Também não ganham lacuna, porque já estão preenchidos na
   // emissão — o que chega depois é identidade, não classificação.
   //
-  // O PEDIDO DE COMPRA segue a mesma regra da categoria: só ganha coluna se
-  // ALGUM veículo o tiver. Ele identifica a entrega — dois caminhões do mesmo
-  // orçamento podem ter vindo em pedidos diferentes —, e é por isso que deixou
-  // de ser uma linha do quadro do tomador, onde só cabia um número.
-  const anyOrderNumber = vehicles.some(v => !!(v.orderNumber ?? '').trim());
+  // O PEDIDO DE COMPRA sai SEMPRE, com os de identidade, e não com a
+  // classificação. Ele é por VEÍCULO — dois caminhões do mesmo orçamento podem
+  // ter vindo em pedidos diferentes —, e é por isso que deixou de ser uma linha
+  // do quadro do tomador, onde só cabia um número. Sair só quando já está
+  // preenchido escondia justamente a coluna que o cliente precisa conferir: o
+  // número costuma chegar DEPOIS da emissão, e uma coluna que aparece e
+  // desaparece entre duas leituras do mesmo orçamento não se confere.
   const vehicleColumns: Array<{ key: string; label: string }> = [
     { key: 'serialNumber', label: 'Nº de série' },
     { key: 'plate', label: 'Placa' },
     { key: 'chassis', label: 'Chassi' },
-    ...(anyOrderNumber ? [{ key: 'orderNumber', label: 'Nº do pedido' }] : []),
+    { key: 'orderNumber', label: 'Nº do pedido' },
     ...(anyCategory ? [{ key: 'category', label: 'Categoria' }] : []),
     ...(anyImplement ? [{ key: 'implement', label: 'Implemento' }] : []),
   ];
@@ -483,9 +490,14 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
           ? vehicleValueHtml(v.chassisNumber)
           : lateSlotHtml('chassis', v.taskId);
       case 'orderNumber':
+        // LACUNA, e não travessão: o número do pedido é identidade do veículo e
+        // quase sempre chega DEPOIS da emissão — é o caso do chassi, com outro
+        // campo. O travessão dizia "não há"; "a registrar" diz "ainda não
+        // chegou", que é a verdade, e reserva o espaço para carimbá-lo sem
+        // re-renderizar o documento congelado.
         return (v.orderNumber ?? '').trim()
           ? vehicleValueHtml(v.orderNumber!.trim())
-          : '<span class="vehicle-empty">&mdash;</span>';
+          : lateSlotHtml('orderNumber', v.taskId);
       case 'category':
         return truckCategoryLabel(v.categoryLabel)
           ? vehicleValueHtml(truckCategoryLabel(v.categoryLabel)!)
@@ -1162,7 +1174,7 @@ ${part === 'content' || part === 'fused' ? `
 
     <div class="customer-section">
       ${data.contactName ? `<div class="customer-name">À ${escapeHtml(data.contactName)}</div>` : ''}
-      <p class="intro-text">Conforme solicitado, apresentamos nossa proposta de preço${companyIntro} para execução dos serviços abaixo descriminados${vehicleText}${hasVehicle ? ':' : '.'}</p>
+      <p class="intro-text">Conforme solicitado, apresentamos nossa proposta de preço${companyIntro} para execução dos serviços abaixo discriminados${vehicleText}${hasVehicle ? ':' : '.'}</p>
       ${vehicleTableHtml}
     </div>
 

@@ -101,6 +101,19 @@ export interface QuoteSnapshotVehicle {
   chassisNumber: string | null;
   category: string | null;
   implementType: string | null;
+  /**
+   * O PEDIDO DE COMPRA do cliente, por veículo.
+   *
+   * Entrou depois das outras: envelope congelado antes desta feature NÃO tem a
+   * chave, e é essa ausência que o aditivo lê para não declarar uma lacuna que
+   * a folha assinada nunca mostrou. Opcional de propósito — não a preencha ao
+   * reler um snapshot antigo.
+   *
+   * Fora do recorte material (`materialProjection` leva só a placa de cada
+   * veículo) e fora do diff: o número chega semanas depois da assinatura, e
+   * tratá-lo como material faria esse preenchimento derrubar a coleta.
+   */
+  orderNumber?: string | null;
 }
 
 /**
@@ -449,6 +462,7 @@ export class QuoteSnapshotService {
         chassisNumber: t.truck?.chassisNumber ?? null,
         category: t.truck?.category ?? null,
         implementType: t.truck?.implementType ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
       billingSplit: (quote as any).billingSplit ?? 'JOINT',
       // OS LOTES, na ordem do documento. A ordem dos veículos dentro de cada
