@@ -1292,8 +1292,8 @@ export enum TRUCK_CATEGORY {
   TRUCK = 'TRUCK', // Standard truck
   SEMI_TRAILER = 'SEMI_TRAILER', // Carreta - Semi-trailer truck
   SEMI_TRAILER_2_AXLES = 'SEMI_TRAILER_2_AXLES', // Semirreboque 2 Eixos
-  B_DOUBLE_FRONT = 'B_DOUBLE_FRONT', // Bitrem Compartimento Frontal - front compartment of B-Double trailer
-  B_DOUBLE_REAR = 'B_DOUBLE_REAR', // Bitrem Compartimento Traseiro - rear compartment of B-Double trailer
+  B_DOUBLE_FRONT = 'B_DOUBLE_FRONT', // Bitrem Composição Dianteira - front compartment of B-Double trailer
+  B_DOUBLE_REAR = 'B_DOUBLE_REAR', // Bitrem Composição Traseira - rear compartment of B-Double trailer
   BITRUCK = 'BITRUCK', // Bitruck - Rigid truck with dual steering axle
 }
 
