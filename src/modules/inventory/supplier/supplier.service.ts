@@ -372,6 +372,11 @@ export class SupplierService {
     userId?: string,
     logoFile?: Express.Multer.File,
   ): Promise<SupplierUpdateResponse> {
+    // `fs.rename` não faz rollback junto com o Prisma. Se a transação abaixo
+    // abortar DEPOIS do rename da pasta, o banco volta ao nome antigo sozinho e
+    // os bytes ficam no nome novo — pasta inteira órfã, recolhida pelo coletor
+    // em 7 dias. Guardamos a compensação aqui fora para rodá-la no catch.
+    let rollbackFolderMove: (() => Promise<void>) | null = null;
     try {
       const updatedSupplier = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar fornecedor existente
@@ -396,6 +401,7 @@ export class SupplierService {
               data.fantasyName,
               tx,
             );
+            rollbackFolderMove = renameResult.rollbackDisk;
 
             this.logger.log(
               `Folder rename complete for supplier "${existingSupplier.fantasyName}": ` +
@@ -475,12 +481,19 @@ export class SupplierService {
         return updatedSupplier;
       });
 
+      // Commit: a pasta ficou onde o banco diz, não há o que devolver.
+      rollbackFolderMove = null;
+
       return {
         success: true,
         message: 'Fornecedor atualizado com sucesso',
         data: updatedSupplier,
       };
     } catch (error: unknown) {
+      if (rollbackFolderMove) {
+        await (rollbackFolderMove as () => Promise<void>)();
+      }
+
       // Clean up uploaded file on error
       if (logoFile && existsSync(logoFile.path)) {
         try {

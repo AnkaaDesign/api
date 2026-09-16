@@ -3,7 +3,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { promises as fs, existsSync } from 'fs';
-import { join, resolve, sep } from 'path';
+import { basename, join, resolve, sep } from 'path';
 import { UPLOAD_CONFIG } from '../config/upload.config';
 
 interface OrphanedFile {
@@ -127,8 +127,26 @@ export class FileCleanupSchedulerService {
         }
       }
 
+      // 2b. CRUZAR AS DUAS LISTAS antes de apagar qualquer coisa.
+      //
+      // As duas varreduras acima sempre existiram, mas olhavam para lados
+      // opostos sem nunca se falarem — e é justamente no cruzamento que mora o
+      // acidente mais caro: um arquivo DESLOCADO aparece nas duas. Os bytes
+      // estão num lugar que o banco não conhece (logo, "órfão em disco") e a
+      // linha do banco aponta para um lugar vazio (logo, "sumido do disco").
+      // Sozinha, cada lista conta meia verdade; juntas, dizem exatamente o que
+      // houve. Em 16/09/2026 um rename de cliente deslocou 22 arquivos assim, e
+      // o cron os teria apagado 7 dias depois tratando-os como lixo.
+      //
+      // O nome do arquivo gravado carrega carimbo de tempo e sufixo aleatório
+      // (`..._2026-09-14T18-27-08_107dbfd7.jpg`), então bater por nome é
+      // seguro — mas só quando o nome é único DOS DOIS LADOS. Havendo qualquer
+      // ambiguidade, não se adivinha: protege-se e avisa-se.
+      const reclaimed = await this.reclaimDisplacedFiles(orphanedOnDisk, missingOnDisk);
+
       // 3. Delete orphaned files on disk (older than threshold)
       for (const orphanedFile of orphanedOnDisk) {
+        if (reclaimed.has(orphanedFile.path)) continue;
         if (orphanedFile.age >= this.orphanedFileAgeThresholdDays) {
           try {
             await fs.unlink(orphanedFile.path);
@@ -155,6 +173,85 @@ export class FileCleanupSchedulerService {
       stats.errors.push(error.message);
       return stats;
     }
+  }
+
+  /**
+   * Reaproxima arquivo DESLOCADO da sua linha no banco, e o tira da fila de
+   * exclusão.
+   *
+   * Deslocado = os bytes estão num caminho que o banco não conhece E existe
+   * exatamente uma linha órfã com o MESMO nome de arquivo. Como o nome gravado
+   * traz carimbo de tempo e sufixo aleatório, esse casamento 1-para-1 é o mesmo
+   * arquivo, e repontar a linha é a correção — não um palpite.
+   *
+   * Nome repetido de algum dos lados NÃO é repontado: o arquivo só é poupado da
+   * exclusão e o caso vai para o log, para alguém olhar. Apagar byte por engano
+   * não tem desfazer; deixar um arquivo a mais no disco tem.
+   *
+   * Devolve os caminhos em disco que NÃO devem ser apagados nesta rodada.
+   */
+  private async reclaimDisplacedFiles(
+    orphanedOnDisk: OrphanedFile[],
+    missingOnDisk: Array<{ id: string; path: string }>,
+  ): Promise<Set<string>> {
+    const protectedPaths = new Set<string>();
+    if (orphanedOnDisk.length === 0 || missingOnDisk.length === 0) return protectedPaths;
+
+    const byName = <T extends { path: string }>(items: T[]): Map<string, T | null> => {
+      const index = new Map<string, T | null>();
+      for (const item of items) {
+        const name = basename(item.path);
+        // `null` marca nome ambíguo — visto mais de uma vez.
+        index.set(name, index.has(name) ? null : item);
+      }
+      return index;
+    };
+
+    const orphansByName = byName(orphanedOnDisk);
+    const missingByName = byName(missingOnDisk);
+    const ambiguous: string[] = [];
+
+    for (const [name, orphan] of orphansByName) {
+      const missing = missingByName.get(name);
+      if (missing === undefined) continue; // nome não bate com nenhuma linha órfã
+
+      if (orphan === null || missing === null) {
+        ambiguous.push(name);
+        for (const candidate of orphanedOnDisk) {
+          if (basename(candidate.path) === name) protectedPaths.add(candidate.path);
+        }
+        continue;
+      }
+
+      try {
+        await this.prisma.file.update({
+          where: { id: missing.id },
+          data: { path: orphan.path },
+        });
+        protectedPaths.add(orphan.path);
+        this.logger.warn(
+          `[Cleanup] Arquivo deslocado reaproximado: File ${missing.id} apontava para ` +
+            `${missing.path} (vazio) e os bytes estavam em ${orphan.path}. Banco corrigido.`,
+        );
+      } catch (error: any) {
+        // Não conseguiu corrigir? Então NÃO apaga.
+        protectedPaths.add(orphan.path);
+        this.logger.error(
+          `[Cleanup] Falha ao reaproximar File ${missing.id} de ${orphan.path}: ${error.message}. ` +
+            `Arquivo preservado.`,
+        );
+      }
+    }
+
+    if (ambiguous.length > 0) {
+      this.logger.warn(
+        `[Cleanup] ${ambiguous.length} nome(s) de arquivo aparecem mais de uma vez nas duas ` +
+          `listas e não foram reaproximados automaticamente; os bytes ficam preservados para ` +
+          `conferência manual: ${ambiguous.slice(0, 20).join(', ')}`,
+      );
+    }
+
+    return protectedPaths;
   }
 
   /**

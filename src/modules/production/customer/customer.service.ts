@@ -444,6 +444,11 @@ export class CustomerService {
     userId?: string,
     logoFile?: Express.Multer.File,
   ): Promise<CustomerUpdateResponse> {
+    // `fs.rename` não faz rollback junto com o Prisma. Se a transação abaixo
+    // abortar DEPOIS do rename da pasta, o banco volta ao nome antigo sozinho e
+    // os bytes ficam no nome novo — pasta inteira órfã, recolhida pelo coletor
+    // em 7 dias. Guardamos a compensação aqui fora para rodá-la no catch.
+    let rollbackFolderMove: (() => Promise<void>) | null = null;
     try {
       const updatedCustomer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar cliente existente
@@ -468,6 +473,7 @@ export class CustomerService {
               data.fantasyName,
               tx,
             );
+            rollbackFolderMove = renameResult.rollbackDisk;
 
             this.logger.log(
               `Folder rename complete for customer "${existingCustomer.fantasyName}": ` +
@@ -538,12 +544,19 @@ export class CustomerService {
         return updatedCustomer;
       });
 
+      // Commit: a pasta ficou onde o banco diz, não há o que devolver.
+      rollbackFolderMove = null;
+
       return {
         success: true,
         message: 'Cliente atualizado com sucesso.',
         data: updatedCustomer,
       };
     } catch (error: unknown) {
+      if (rollbackFolderMove) {
+        await (rollbackFolderMove as () => Promise<void>)();
+      }
+
       // Clean up uploaded file on error
       if (logoFile && existsSync(logoFile.path)) {
         try {
@@ -900,6 +913,8 @@ export class CustomerService {
     include?: CustomerInclude,
     userId?: string,
   ): Promise<CustomerMergeResponse> {
+    // Ver a nota em `update`: o disco não volta atrás com o Prisma.
+    let rollbackFolderMove: (() => Promise<void>) | null = null;
     try {
       const mergedCustomer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // 1. Fetch target customer and source customers
@@ -957,6 +972,7 @@ export class CustomerService {
               `File folder merge had ${mergeResult.errors.length} errors: ${mergeResult.errors.slice(0, 3).join('; ')}`,
             );
           }
+          rollbackFolderMove = mergeResult.rollbackDisk;
           this.logger.log(
             `Merged ${mergeResult.totalFilesMoved} files from ${sourceNames.join(', ')} into ${targetCustomer.fantasyName}`,
           );
@@ -1023,12 +1039,19 @@ export class CustomerService {
         return mergedCustomer;
       });
 
+      // Commit: os arquivos ficaram onde o banco diz.
+      rollbackFolderMove = null;
+
       return {
         success: true,
         message: `${data.sourceCustomerIds.length + 1} clientes mesclados com sucesso.`,
         data: mergedCustomer,
       };
     } catch (error: unknown) {
+      if (rollbackFolderMove) {
+        await (rollbackFolderMove as () => Promise<void>)();
+      }
+
       this.logger.error('Erro ao mesclar clientes:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;

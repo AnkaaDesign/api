@@ -1,8 +1,38 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { promises as fs, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, relative } from 'path';
+import { join, dirname, relative, sep } from 'path';
+import { FilesStorageService } from './files-storage.service';
 import type { PrismaTransaction } from '../repositories/file.repository';
+
+/**
+ * Desfazer um movimento de bytes já feito em disco: o arquivo (ou a pasta) está
+ * hoje em `at` e volta para `restoreTo`.
+ */
+interface DiskMove {
+  at: string;
+  restoreTo: string;
+  isFolder: boolean;
+}
+
+export interface EntityFolderRenameResult {
+  totalFoldersRenamed: number;
+  totalFilesUpdated: number;
+  /**
+   * Desfaz em disco o que este rename moveu. Idempotente. O chamador DEVE
+   * chamá-la se a transação em que passou `tx` abortar depois — ver
+   * `renameEntityFolders`.
+   */
+  rollbackDisk: () => Promise<void>;
+}
+
+export interface EntityFolderMergeResult {
+  totalFilesMoved: number;
+  totalFilesUpdated: number;
+  errors: string[];
+  /** Mesmo contrato do rename: chame no catch da transação. Idempotente. */
+  rollbackDisk: () => Promise<void>;
+}
 
 /**
  * Service to handle folder renaming when customer/supplier/user names change
@@ -13,97 +43,275 @@ export class FolderRenameService {
   private readonly logger = new Logger(FolderRenameService.name);
   private readonly filesRoot = process.env.FILES_ROOT || './files';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly filesStorageService: FilesStorageService,
+  ) {}
 
   /**
-   * Sanitize folder name for safe filesystem usage
+   * Nome da pasta da entidade.
+   *
+   * DELEGA de propósito para o mesmo sanitizador que o UPLOAD usa. Havia uma
+   * cópia local aqui, e as duas já tinham divergido: `sanitizeFileName` troca
+   * as barras por "_" (razão social com "S/A" é corriqueira) e esta não trocava.
+   * Resultado: para todo cliente com barra no nome, o upload gravava em
+   * `Clientes/Frix Logistica S_A/` e o rename ia procurar `Clientes/Frix
+   * Logistica S/A/` — pasta que não existe —, não achava nada e saía calado,
+   * deixando o banco apontando para o nome velho. Um sanitizador só, sem cópia,
+   * é a única forma de isso não voltar a divergir.
    */
   private sanitizeFolderName(name: string): string {
-    return name
-      .replace(/[<>:"|?*\x00-\x1f]/g, '_') // Replace invalid chars
-      .replace(/\.\./g, '_') // Remove directory traversal
-      .replace(/\s+/g, ' ') // Normalize multiple spaces to single space
-      .trim() // Remove leading/trailing spaces
-      .substring(0, 100); // Limit length
+    return this.filesStorageService.sanitizeFileName(name);
+  }
+
+  /** Prefixo de pasta com a barra final — ver o comentário em `updatePathsUnder`. */
+  private folderPrefix(folderPath: string): string {
+    return folderPath.endsWith(sep) ? folderPath : folderPath + sep;
+  }
+
+  /** Devolve os bytes já movidos aos lugares de origem. Idempotente. */
+  private async undoDiskMoves(moves: DiskMove[]): Promise<void> {
+    while (moves.length > 0) {
+      const move = moves.pop() as DiskMove;
+      try {
+        if (move.isFolder) {
+          await fs.rename(move.at, move.restoreTo);
+        } else {
+          await this.filesStorageService.moveWithinStorage(move.at, move.restoreTo);
+        }
+      } catch (error: any) {
+        // Estado divergente e sem conserto automático: grita alto com os dois
+        // caminhos, porque agora só uma pessoa resolve — e os bytes NÃO podem
+        // ser recolhidos como órfãos enquanto isso.
+        this.logger.error(
+          `[FolderRename] INCONSISTÊNCIA: bytes em ${move.at} deveriam ter voltado para ` +
+            `${move.restoreTo} e a devolução falhou (${error.message}). ` +
+            `Corrija manualmente antes da próxima limpeza de órfãos.`,
+        );
+      }
+    }
   }
 
   /**
-   * Rename a single folder and update all file paths in database
+   * Leva a pasta da entidade para o nome novo e deixa o banco apontando para
+   * onde os bytes REALMENTE ficaram.
+   *
+   * A ordem importa: primeiro os bytes, depois o banco, e cada linha do banco só
+   * é reescrita depois de confirmar que existe arquivo no destino. Nenhum caminho
+   * de saída daqui pode terminar com o banco apontando para um lugar vazio — foi
+   * exatamente isso que aconteceu quando o cliente "Mascarenhas" foi renomeado e
+   * as fotos de check-in/check-out de "Mascarenhas & Chaves LTDA" sumiram de
+   * todas as telas.
+   *
+   * Devolve também `diskMoves`: o que já foi mexido em disco, para o chamador
+   * desfazer se a transação dele abortar depois (`fs.rename` não faz rollback).
    */
   private async renameFolderAndUpdatePaths(
     oldFolderPath: string,
     newFolderPath: string,
     tx: PrismaTransaction,
+    diskMoves: DiskMove[],
   ): Promise<{ foldersRenamed: number; filesUpdated: number }> {
     let foldersRenamed = 0;
-    let filesUpdated = 0;
 
-    // Check if old folder exists
     if (!existsSync(oldFolderPath)) {
-      this.logger.warn(`Folder does not exist, skipping: ${oldFolderPath}`);
-      return { foldersRenamed, filesUpdated };
-    }
-
-    // Check if new folder already exists
-    if (existsSync(newFolderPath)) {
-      this.logger.warn(`Target folder already exists: ${newFolderPath}`);
-      // In this case, we might want to merge or skip
-      // For now, we'll skip the rename but still update database paths
-    } else {
+      // NÃO devolve aqui. A pasta antiga pode não existir e ainda assim haver
+      // linhas no banco presas ao nome velho — é o caso de quem já foi renomeado
+      // uma vez sem o banco acompanhar. A varredura abaixo cura essas linhas.
+      this.logger.warn(
+        `Pasta de origem não existe: ${oldFolderPath}. ` +
+          `Seguindo só com a reconciliação do banco.`,
+      );
+    } else if (!existsSync(newFolderPath)) {
+      // Caminho feliz: a pasta inteira vai junto, num rename só.
+      const parentDir = dirname(newFolderPath);
+      if (!existsSync(parentDir)) {
+        await fs.mkdir(parentDir, { recursive: true });
+      }
       try {
-        // Ensure parent directory exists
-        const parentDir = dirname(newFolderPath);
-        if (!existsSync(parentDir)) {
-          await fs.mkdir(parentDir, { recursive: true });
-        }
-
-        // Rename the folder
         await fs.rename(oldFolderPath, newFolderPath);
-        foldersRenamed++;
-        this.logger.log(`Renamed folder: ${oldFolderPath} → ${newFolderPath}`);
-
-        // Set proper permissions
-        try {
-          await fs.chmod(newFolderPath, 0o2775); // rwxrwsr-x
-        } catch (chmodError: any) {
-          this.logger.warn(`Could not set permissions for ${newFolderPath}: ${chmodError.message}`);
-        }
       } catch (error: any) {
         this.logger.error(`Failed to rename folder ${oldFolderPath} → ${newFolderPath}:`, error);
         throw new InternalServerErrorException(`Failed to rename folder: ${error.message}`);
       }
+      diskMoves.push({ at: newFolderPath, restoreTo: oldFolderPath, isFolder: true });
+      foldersRenamed++;
+      this.logger.log(`Renamed folder: ${oldFolderPath} → ${newFolderPath}`);
+      await fs.chmod(newFolderPath, 0o2775).catch((chmodError: any) => {
+        this.logger.warn(`Could not set permissions for ${newFolderPath}: ${chmodError.message}`);
+      });
+    } else {
+      // Destino ocupado — dois clientes que passam a dividir o mesmo nome de
+      // pasta, ou um nome reciclado. A versão anterior "pulava o rename e
+      // atualizava o banco assim mesmo": os bytes ficavam na pasta velha e o
+      // banco passava a apontar para a nova. É a MESMA falha do prefixo, por
+      // outra porta. Aqui a pasta vai junto de verdade, arquivo por arquivo.
+      this.logger.log(
+        `Pasta de destino já existe (${newFolderPath}); mesclando ${oldFolderPath} nela.`,
+      );
+      for (const sourcePath of this.getAllFilesRecursively(oldFolderPath)) {
+        const targetPath = join(newFolderPath, relative(oldFolderPath, sourcePath));
+        if (existsSync(targetPath)) {
+          // Nunca sobrescrever: o byte fica onde está e a linha do banco
+          // continua apontando para ele (a varredura abaixo respeita isso).
+          this.logger.warn(`Destino já ocupado, mantendo na origem: ${targetPath}`);
+          continue;
+        }
+        await this.filesStorageService.moveWithinStorage(sourcePath, targetPath);
+        diskMoves.push({ at: targetPath, restoreTo: sourcePath, isFolder: false });
+      }
+      foldersRenamed++;
+      await this.removeEmptyDirectories(oldFolderPath).catch((error: any) => {
+        this.logger.warn(`Could not clean up ${oldFolderPath}: ${error.message}`);
+      });
     }
 
-    // Update all file paths in database
+    const filesUpdated = await this.updatePathsUnder(oldFolderPath, newFolderPath, tx);
+    return { foldersRenamed, filesUpdated };
+  }
+
+  /**
+   * Reescreve o prefixo das linhas de File presas à pasta antiga.
+   *
+   * A FRONTEIRA DE DIRETÓRIO NÃO É DETALHE. Sem a barra final, `startsWith` casa
+   * QUALQUER pasta que comece com o nome antigo: renomear o cliente "Mascarenhas"
+   * arrastava junto os arquivos de "Mascarenhas & Chaves LTDA", que viraram
+   * "<nome novo> & Chaves LTDA" — pasta que não existe em disco. Os bytes ficavam
+   * no lugar certo, o banco apontava para o nada, as imagens sumiam de toda tela
+   * (só a miniatura, já gerada, sobrevivia) e em 7 dias o coletor de órfãos
+   * apagava os arquivos.
+   *
+   * A segunda trava é o `existsSync` por linha: o banco só anda quando há byte no
+   * destino. Linha sem byte em lugar nenhum já estava quebrada ANTES deste rename
+   * — é registrada e deixada onde está, porque falhar aqui travaria para sempre o
+   * rename de um cliente por causa de um arquivo perdido meses atrás.
+   */
+  private async updatePathsUnder(
+    oldFolderPath: string,
+    newFolderPath: string,
+    tx: PrismaTransaction,
+  ): Promise<number> {
+    const oldPrefix = this.folderPrefix(oldFolderPath);
+    const newPrefix = this.folderPrefix(newFolderPath);
+    let filesUpdated = 0;
+    const keptInPlace: string[] = [];
+    const alreadyBroken: string[] = [];
+
     try {
-      // Find all files that reference the old folder path
       const filesToUpdate = await tx.file.findMany({
-        where: {
-          path: {
-            startsWith: oldFolderPath,
-          },
-        },
+        where: { path: { startsWith: oldPrefix } },
+        select: { id: true, path: true },
       });
 
       this.logger.log(`Found ${filesToUpdate.length} files to update in ${oldFolderPath}`);
 
-      // Update each file's path
       for (const file of filesToUpdate) {
-        const newPath = file.path.replace(oldFolderPath, newFolderPath);
-        await tx.file.update({
-          where: { id: file.id },
-          data: { path: newPath },
-        });
+        // Só o PREFIXO é reescrito — `replace` solto trocaria também uma
+        // ocorrência do nome antigo no meio do caminho ou no nome do arquivo.
+        const newPath = newPrefix + file.path.slice(oldPrefix.length);
+
+        // A ORDEM DESTES DOIS IFS É A REGRA. Perguntar só "existe algo no
+        // destino?" não serve: na mescla, o arquivo que NÃO foi movido por
+        // colisão de nome tem um homônimo — de outro cliente — esperando lá.
+        // Reescrever a linha aí faria o banco apontar para os bytes ERRADOS, o
+        // que é pior que apontar para o vazio, porque a tela abre e mostra a
+        // foto de outra pessoa. O byte ainda na origem manda: o arquivo não
+        // saiu do lugar, então a linha também não sai.
+        if (existsSync(file.path)) {
+          keptInPlace.push(file.path);
+          continue;
+        }
+        if (!existsSync(newPath)) {
+          alreadyBroken.push(file.path);
+          continue;
+        }
+
+        await tx.file.update({ where: { id: file.id }, data: { path: newPath } });
         filesUpdated++;
       }
 
       this.logger.log(`Updated ${filesUpdated} file paths in database`);
+      if (keptInPlace.length > 0) {
+        this.logger.warn(
+          `[FolderRename] ${keptInPlace.length} arquivo(s) permaneceram na pasta antiga ` +
+            `(destino já ocupado); o banco segue apontando para eles: ${keptInPlace.join(', ')}`,
+        );
+      }
+      if (alreadyBroken.length > 0) {
+        this.logger.error(
+          `[FolderRename] ${alreadyBroken.length} arquivo(s) já estavam sem bytes ANTES deste ` +
+            `rename e foram deixados como estavam: ${alreadyBroken.join(', ')}`,
+        );
+      }
     } catch (error: any) {
       this.logger.error(`Failed to update file paths in database:`, error);
       throw new InternalServerErrorException(`Failed to update file paths: ${error.message}`);
     }
 
-    return { foldersRenamed, filesUpdated };
+    return filesUpdated;
+  }
+
+
+  /**
+   * Leva a pasta de uma entidade para o nome novo, junto com o cliente/fornecedor/
+   * colaborador que foi renomeado.
+   *
+   * `rollbackDisk` é a parte que o chamador NÃO pode esquecer: `fs.rename` não
+   * participa da transação do Prisma. Se a transação que envolve este rename
+   * abortar mais adiante — outra validação, um índice único, qualquer coisa —, o
+   * banco volta sozinho para o nome antigo e os bytes ficam no nome novo. Aí a
+   * pasta inteira fica sem dono no banco e o coletor de órfãos a recolhe em 7
+   * dias. Chame `rollbackDisk()` no catch da transação; ela é idempotente.
+   */
+  private async renameEntityFolders(
+    entityRoot: 'Clientes' | 'Fornecedores' | 'Colaboradores',
+    label: string,
+    oldName: string,
+    newName: string,
+    tx: PrismaTransaction,
+  ): Promise<EntityFolderRenameResult> {
+    this.logger.log(`Renaming ${label} folders: "${oldName}" → "${newName}"`);
+
+    const oldSanitized = this.sanitizeFolderName(oldName);
+    const newSanitized = this.sanitizeFolderName(newName);
+
+    // Nomes diferentes que caem na MESMA pasta (a sanitização troca barras e
+    // corta em 100 caracteres) não têm rename a fazer — e tentar mesclar a pasta
+    // consigo mesma só faria estrago.
+    if (oldSanitized === newSanitized) {
+      this.logger.log('Folder names are identical after sanitization, skipping rename');
+      return { totalFoldersRenamed: 0, totalFilesUpdated: 0, rollbackDisk: async () => {} };
+    }
+
+    // Entity-first layout: um rename de {entityRoot}/{nome}
+    const oldPath = join(this.filesRoot, entityRoot, oldSanitized);
+    const newPath = join(this.filesRoot, entityRoot, newSanitized);
+
+    const diskMoves: DiskMove[] = [];
+    let result: { foldersRenamed: number; filesUpdated: number };
+    try {
+      result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx, diskMoves);
+    } catch (error) {
+      await this.undoDiskMoves(diskMoves);
+      throw error;
+    }
+
+    this.logger.log(
+      `${label} folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
+    );
+
+    return {
+      totalFoldersRenamed: result.foldersRenamed,
+      totalFilesUpdated: result.filesUpdated,
+      rollbackDisk: async () => {
+        if (diskMoves.length === 0) return;
+        this.logger.warn(
+          `[FolderRename] Transação abortada após o rename de ${label} ` +
+            `"${oldName}" → "${newName}"; devolvendo os bytes a ${oldPath}.`,
+        );
+        await this.undoDiskMoves(diskMoves);
+      },
+    };
   }
 
   /**
@@ -113,29 +321,8 @@ export class FolderRenameService {
     oldFantasyName: string,
     newFantasyName: string,
     tx: PrismaTransaction,
-  ): Promise<{ totalFoldersRenamed: number; totalFilesUpdated: number }> {
-    this.logger.log(`Renaming customer folders: "${oldFantasyName}" → "${newFantasyName}"`);
-
-    const oldSanitized = this.sanitizeFolderName(oldFantasyName);
-    const newSanitized = this.sanitizeFolderName(newFantasyName);
-
-    // Skip if names are the same after sanitization
-    if (oldSanitized === newSanitized) {
-      this.logger.log('Folder names are identical after sanitization, skipping rename');
-      return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
-    }
-
-    // Entity-first layout: single rename of Clientes/{customerName}
-    const oldPath = join(this.filesRoot, 'Clientes', oldSanitized);
-    const newPath = join(this.filesRoot, 'Clientes', newSanitized);
-
-    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-
-    this.logger.log(
-      `Customer folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
-    );
-
-    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
+  ): Promise<EntityFolderRenameResult> {
+    return this.renameEntityFolders('Clientes', 'Customer', oldFantasyName, newFantasyName, tx);
   }
 
   /**
@@ -145,29 +332,8 @@ export class FolderRenameService {
     oldFantasyName: string,
     newFantasyName: string,
     tx: PrismaTransaction,
-  ): Promise<{ totalFoldersRenamed: number; totalFilesUpdated: number }> {
-    this.logger.log(`Renaming supplier folders: "${oldFantasyName}" → "${newFantasyName}"`);
-
-    const oldSanitized = this.sanitizeFolderName(oldFantasyName);
-    const newSanitized = this.sanitizeFolderName(newFantasyName);
-
-    // Skip if names are the same after sanitization
-    if (oldSanitized === newSanitized) {
-      this.logger.log('Folder names are identical after sanitization, skipping rename');
-      return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
-    }
-
-    // Entity-first layout: single rename of Fornecedores/{supplierName}
-    const oldPath = join(this.filesRoot, 'Fornecedores', oldSanitized);
-    const newPath = join(this.filesRoot, 'Fornecedores', newSanitized);
-
-    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-
-    this.logger.log(
-      `Supplier folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
-    );
-
-    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
+  ): Promise<EntityFolderRenameResult> {
+    return this.renameEntityFolders('Fornecedores', 'Supplier', oldFantasyName, newFantasyName, tx);
   }
 
   /**
@@ -177,29 +343,8 @@ export class FolderRenameService {
     oldName: string,
     newName: string,
     tx: PrismaTransaction,
-  ): Promise<{ totalFoldersRenamed: number; totalFilesUpdated: number }> {
-    this.logger.log(`Renaming user folders: "${oldName}" → "${newName}"`);
-
-    const oldSanitized = this.sanitizeFolderName(oldName);
-    const newSanitized = this.sanitizeFolderName(newName);
-
-    // Skip if names are the same after sanitization
-    if (oldSanitized === newSanitized) {
-      this.logger.log('Folder names are identical after sanitization, skipping rename');
-      return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
-    }
-
-    // Entity-first layout: single rename of Colaboradores/{userName}
-    const oldPath = join(this.filesRoot, 'Colaboradores', oldSanitized);
-    const newPath = join(this.filesRoot, 'Colaboradores', newSanitized);
-
-    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-
-    this.logger.log(
-      `User folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
-    );
-
-    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
+  ): Promise<EntityFolderRenameResult> {
+    return this.renameEntityFolders('Colaboradores', 'User', oldName, newName, tx);
   }
 
   /**
@@ -212,10 +357,15 @@ export class FolderRenameService {
     sourceNames: string[],
     targetName: string,
     tx: PrismaTransaction,
-  ): Promise<{ totalFilesMoved: number; totalFilesUpdated: number; errors: string[] }> {
+  ): Promise<EntityFolderMergeResult> {
     let totalFilesMoved = 0;
     let totalFilesUpdated = 0;
     const errors: string[] = [];
+    // Mesma exposição do rename: `fs.rename` não volta atrás com o Prisma. Se a
+    // transação da fusão abortar depois daqui, os bytes ficam na pasta do
+    // destino e o banco volta a apontar para a pasta de origem — órfãos, prazo
+    // de 7 dias. Ver `renameEntityFolders`.
+    const diskMoves: DiskMove[] = [];
 
     const targetSanitized = this.sanitizeFolderName(targetName);
     const targetFolder = join(this.filesRoot, entityRoot, targetSanitized);
@@ -268,6 +418,7 @@ export class FolderRenameService {
           }
 
           await fs.chmod(targetPath, 0o664).catch(() => {});
+          diskMoves.push({ at: targetPath, restoreTo: filePath, isFolder: false });
           totalFilesMoved++;
         } catch (error: any) {
           const msg = `Failed to move ${filePath} → ${targetPath}: ${error.message}`;
@@ -303,7 +454,19 @@ export class FolderRenameService {
       `Entity folder merge complete: ${totalFilesMoved} files moved, ${totalFilesUpdated} DB paths updated, ${errors.length} errors`,
     );
 
-    return { totalFilesMoved, totalFilesUpdated, errors };
+    return {
+      totalFilesMoved,
+      totalFilesUpdated,
+      errors,
+      rollbackDisk: async () => {
+        if (diskMoves.length === 0) return;
+        this.logger.warn(
+          `[FolderRename] Transação abortada após a fusão em ${targetFolder}; ` +
+            `devolvendo ${diskMoves.length} arquivo(s) às pastas de origem.`,
+        );
+        await this.undoDiskMoves(diskMoves);
+      },
+    };
   }
 
   /**

@@ -1115,6 +1115,11 @@ export class UserService {
     let positionIdBeforeUpdate: string | null = null;
     let performanceLevelBeforeUpdate: number | null = null;
 
+    // `fs.rename` não faz rollback junto com o Prisma. Se a transação abaixo
+    // abortar DEPOIS do rename da pasta, o banco volta ao nome antigo sozinho e
+    // os bytes ficam no nome novo — pasta inteira órfã, recolhida pelo coletor
+    // em 7 dias. Guardamos a compensação aqui fora para rodá-la no catch.
+    let rollbackFolderMove: (() => Promise<void>) | null = null;
     try {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar usuário existente com relações para o tracking
@@ -1268,6 +1273,7 @@ export class UserService {
               data.name,
               tx,
             );
+            rollbackFolderMove = renameResult.rollbackDisk;
 
             this.logger.log(
               `Folder rename complete for user "${existingUser.name}": ` +
@@ -1758,6 +1764,9 @@ export class UserService {
         }
       }
 
+      // Commit: a pasta ficou onde o banco diz, não há o que devolver.
+      rollbackFolderMove = null;
+
       // Remove password from response
       const { password, ...userWithoutPassword } = updatedUser;
       const response: UserUpdateResponse = {
@@ -1771,6 +1780,10 @@ export class UserService {
       }
       return response;
     } catch (error: any) {
+      if (rollbackFolderMove) {
+        await (rollbackFolderMove as () => Promise<void>)();
+      }
+
       this.logger.error('Erro ao atualizar usuário:', error);
       if (
         error instanceof BadRequestException ||
@@ -2103,6 +2116,8 @@ export class UserService {
     include?: UserInclude,
     userId?: string,
   ): Promise<UserMergeResponse> {
+    // Ver a nota em `update`: o disco não volta atrás com o Prisma.
+    let rollbackFolderMove: (() => Promise<void>) | null = null;
     try {
       const mergedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // 1. Fetch target user and source users
@@ -2210,6 +2225,7 @@ export class UserService {
               `User file folder merge had ${mergeResult.errors.length} errors: ${mergeResult.errors.slice(0, 3).join('; ')}`,
             );
           }
+          rollbackFolderMove = mergeResult.rollbackDisk;
           this.logger.log(
             `Merged ${mergeResult.totalFilesMoved} files from ${sourceUserNames.join(', ')} into ${targetUser.name}`,
           );
@@ -2298,6 +2314,9 @@ export class UserService {
         return mergedUser;
       });
 
+      // Commit: os arquivos ficaram onde o banco diz.
+      rollbackFolderMove = null;
+
       const { password, ...userWithoutPassword } = mergedUser;
       return {
         success: true,
@@ -2305,6 +2324,10 @@ export class UserService {
         data: userWithoutPassword as User,
       };
     } catch (error: unknown) {
+      if (rollbackFolderMove) {
+        await (rollbackFolderMove as () => Promise<void>)();
+      }
+
       this.logger.error('Erro ao mesclar usuários:', error);
       if (
         error instanceof BadRequestException ||
