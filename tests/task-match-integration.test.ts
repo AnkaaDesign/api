@@ -166,12 +166,32 @@ async function mkBilledQuote(taskId: string, customerId: string, total: number, 
       subtotal: total, total, expiresAt: D('2026-12-31'),
       status: 'BILLING_APPROVED' as any, statusOrder: 4, billingApprovedAt: new Date(),
       services: { create: [{ description: 'Serviço comercial', amount: total, position: 0 }] },
-      customerConfigs: { create: [{ customerId, subtotal: total, total }] },
+    },
+  });
+  await prisma.task.update({ where: { id: taskId }, data: { quoteId: quote.id } });
+  // O FATURAMENTO, e o pagador dentro dele. Statement separado: o pagador tem FK
+  // obrigatória para o ORÇAMENTO além da do faturamento, e o id do orçamento só
+  // existe depois de ele ser gravado. (Aninhado até compila — a união de tipos do
+  // Prisma é grande demais para o `tsc` conferir a fundo — e estoura em runtime.)
+  const billing = await prisma.billing.create({
+    data: {
+      quote: { connect: { id: quote.id } },
+      approvedAt: new Date(),
+      tasks: { create: [{ task: { connect: { id: taskId } } }] },
+      customerConfigs: {
+        create: [
+          {
+            quote: { connect: { id: quote.id } },
+            customer: { connect: { id: customerId } },
+            subtotal: total,
+            total,
+          },
+        ],
+      },
     },
     include: { customerConfigs: true },
   });
-  await prisma.task.update({ where: { id: taskId }, data: { quoteId: quote.id } });
-  const configId = quote.customerConfigs[0].id;
+  const configId = billing.customerConfigs[0].id;
   const invoice = await prisma.invoice.create({
     data: { customerConfigId: configId, taskId, customerId, totalAmount: total, status: 'ACTIVE' as any },
   });
@@ -203,7 +223,7 @@ async function mkUnbilledQuote(taskId: string, customerId: string, total: number
 async function quoteOf(taskId: string) {
   const t = await prisma.task.findUniqueOrThrow({
     where: { id: taskId },
-    select: { quoteId: true, quote: { select: { id: true, status: true, total: true, subtotal: true, budgetNumber: true, services: true, customerConfigs: { select: { id: true, total: true, subtotal: true, installments: true, invoice: true } } } } },
+    select: { quoteId: true, quote: { select: { id: true, status: true, total: true, subtotal: true, budgetNumber: true, services: true, customerConfigs: { select: { id: true, total: true, subtotal: true, installments: true, invoices: true } } } } },
   });
   return t.quote;
 }
@@ -236,7 +256,7 @@ async function main() {
     check('tem 1 serviço', q!.services.length === 1);
     check('valor do serviço confere', money(q!.services[0].amount) === 5000);
     check('config de faturamento criada', q!.customerConfigs.length === 1);
-    check('fatura criada', !!q!.customerConfigs[0].invoice);
+    check('fatura criada', (q!.customerConfigs[0] as any).invoices?.some((i: any) => i.status !== 'CANCELLED'));
     check('1 parcela criada', q!.customerConfigs[0].installments.length === 1);
     check('parcela quitada', q!.customerConfigs[0].installments[0].status === 'PAID');
 

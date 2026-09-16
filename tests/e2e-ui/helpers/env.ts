@@ -27,6 +27,28 @@ export const SENTINELA = process.env.QA_SENTINELA ?? 'http://127.0.0.1:9988';
 
 export const prisma = new PrismaClient({ datasources: { db: { url: QA_DB } } });
 
+/**
+ * A FAIXA DE SÉRIES DE UMA CORRIDA — e por que ela precisou de uma regra.
+ *
+ * O número de série é ÚNICO no sistema inteiro, e cada fase inventa os seus. A
+ * regra antiga era `90000 + (epoch % 9000)`: uma banda de nove mil números que
+ * o relógio percorre em DUAS HORAS E MEIA. Duas corridas separadas por 2h30 —
+ * ou por um dia, ou por uma semana — caíam exatamente na mesma faixa, e a
+ * criação morria com "Número de série já está em uso" no meio de um cenário que
+ * não tem nada a ver com séries. O sintoma aparecia como `page.waitForURL:
+ * Timeout`, que é a pior forma possível de ler um conflito de dados.
+ *
+ * Agora cada fase tem a sua BANDA (um milhão de números só dela) e o instante da
+ * corrida escolhe a faixa dentro dela, com ciclo de dez dias. `QA_SERIAL_BASE`
+ * continua fixando tudo, que é o que permite repetir uma corrida exata.
+ */
+export function serialBase(banda: number): number {
+  const fixo = process.env.QA_SERIAL_BASE;
+  if (fixo) return Number(fixo);
+  return banda * 1_000_000 + (Math.floor(Date.now() / 1000) % 900_000);
+}
+
+
 // ── Mailpit ────────────────────────────────────────────────────────────────
 export interface Mail {
   ID: string;

@@ -429,6 +429,13 @@ export async function saveDetail(page: Page): Promise<string> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function goToLastStep(page: Page) {
+  // Mesma razão de `openBillingDetail`: se a tela ainda está resolvendo, não há
+  // "Próximo" para clicar e o laço termina na primeira volta sem sair do lugar.
+  await page
+    .getByRole('button', { name: /^(Pr.ximo|Salvar)$/ })
+    .first()
+    .waitFor({ timeout: 30000 })
+    .catch(() => {});
   for (let i = 0; i < 8; i++) {
     const n = page.getByRole('button', { name: /^Pr.ximo$/ });
     if (!(await n.count())) return;
@@ -469,7 +476,19 @@ export async function setQuoteStatus(page: Page, option: RegExp) {
 
 export async function openBillingDetail(page: Page, taskId: string) {
   await page.goto(`${BASE}/financeiro/faturamento/detalhes/${taskId}`, { waitUntil: 'networkidle' });
-  await pause(page, 4000);
+  // ── ESPERA O ASSISTENTE, NÃO UM TEMPO ────────────────────────────────────
+  //
+  // A rota aceita o id do FATURAMENTO e o de um VEÍCULO, e resolve qual é
+  // perguntando ao servidor. Enquanto não sabe, a tela mostra só um spinner — e
+  // um `goToLastStep` disparado nessa janela não acha botão nenhum, volta na
+  // hora e deixa o teste no passo 1, onde o seletor de status não existe. O
+  // sintoma aparecia longe daqui: `locator.scrollIntoViewIfNeeded: Timeout`.
+  await page
+    .getByText(/Revis.o final/i)
+    .first()
+    .waitFor({ timeout: 30000 })
+    .catch(() => {});
+  await pause(page, 2500);
 }
 
 /** Define a condição de pagamento no passo do cliente (é o último "Selecione..."). */

@@ -10,7 +10,7 @@
  * que teria ido para a prefeitura e para o banco.
  */
 import { chromium, Browser, Page } from 'playwright';
-import { prisma, sentinelaReset, sentinelaCalls, waitCall, mailPurge } from './helpers/env';
+import { prisma, sentinelaReset, sentinelaCalls, waitCall, mailPurge, serialBase } from './helpers/env';
 import { check, phase, scenario, report, info, money, near } from './helpers/harness';
 import {
   login, createQuote, openQuoteDetail, gotoCustomerStep, goToLastStep, setQuoteStatus,
@@ -22,7 +22,7 @@ import {
  * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
  * no sistema, e repetir um faz o save ser barrado por um toast).
  */
-const S = Number(process.env.QA_SERIAL_BASE ?? 95000 + Math.floor((Date.now() / 1000) % 4000));
+const S = serialBase(4);
 const PRECO = 1200; // por veículo
 
 interface Cenario {
@@ -113,10 +113,10 @@ async function main() {
       // deveria funcionar.
       const cfgs = await prisma.taskQuoteCustomerConfig.findMany({
         where: { quoteId },
-        select: { id: true, coveredTasks: { select: { taskId: true } } },
+        select: { id: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
       });
       const alvos = cfgs.length > 1
-        ? cfgs.map(cfg => tasks.find(t => cfg.coveredTasks.some(r => r.taskId === t.id))!).filter(Boolean)
+        ? cfgs.map(cfg => tasks.find(t => (cfg.billing?.tasks ?? []).some(r => r.taskId === t.id))!).filter(Boolean)
         : [tasks[0]];
       for (const alvo of alvos) {
         await openBillingDetail(page, alvo.id);
@@ -146,8 +146,8 @@ async function main() {
           status: true,
           customerConfigs: {
             select: {
-              id: true, total: true, billingApprovedAt: true,
-              coveredTasks: { select: { task: { select: { serialNumber: true } } } },
+              id: true, total: true,
+              billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
             },
           },
         },
@@ -155,12 +155,12 @@ async function main() {
       // Depois de aprovado o orçamento anda sozinho na esteira (BILLING_APPROVED
       // → UPCOMING quando a tarefa entra na fila), então o que se afirma é o
       // CARIMBO da aprovação, não um estado instantâneo.
-      check(`${c.tag}: todas as fatias ficaram com billingApprovedAt`,
-        (q?.customerConfigs ?? []).every(x => !!x.billingApprovedAt),
-        JSON.stringify((q?.customerConfigs ?? []).map(x => !!x.billingApprovedAt)));
+      check(`${c.tag}: todos os faturamentos ficaram aprovados`,
+        (q?.customerConfigs ?? []).every(x => !!x.billing?.approvedAt),
+        JSON.stringify((q?.customerConfigs ?? []).map(x => !!x.billing?.approvedAt)));
       check(`${c.tag}: o orçamento saiu de BUDGET_APPROVED`,
         ['BILLING_APPROVED', 'UPCOMING', 'DUE', 'PARTIAL', 'SETTLED'].includes(q?.status ?? ''), `status=${q?.status}`);
-      const tamanhos = (q?.customerConfigs ?? []).map(x => x.coveredTasks.length).sort();
+      const tamanhos = (q?.customerConfigs ?? []).map(x => (x.billing?.tasks ?? []).length).sort();
       check(`${c.tag}: cobertura ${JSON.stringify(c.coberturaEsperada)}`,
         JSON.stringify(tamanhos) === JSON.stringify([...c.coberturaEsperada].sort()), JSON.stringify(tamanhos));
 
@@ -172,7 +172,7 @@ async function main() {
 
       for (const inv of invoices) {
         const cfg = (q?.customerConfigs ?? []).find(x => x.id === inv.customerConfigId)!;
-        const n = cfg.coveredTasks.length;
+        const n = (cfg.billing?.tasks ?? []).length;
         const esperado = PRECO * n;
         check(`${c.tag}: fatura de ${n} veículo(s) = ${money(esperado)}`, near(Number(inv.totalAmount), esperado), money(Number(inv.totalAmount)));
         check(`${c.tag}: ${c.parcelasPorFatura} parcela(s) na fatura de ${n} veículo(s)`,
@@ -205,14 +205,14 @@ async function main() {
         select: {
           id: true, totalAmount: true,
           installments: { select: { amount: true, dueDate: true, number: true }, orderBy: { number: 'asc' } },
-          customerConfig: { select: { coveredTasks: { select: { task: { select: { serialNumber: true } } } } } },
+          customerConfig: { select: { billing: { select: { tasks: { select: { task: { select: { serialNumber: true } } } } } } } },
         },
       });
       check(`${c.tag}: saiu UMA NFS-e por fatura`, notas.length === invoices.length,
         `notas=${notas.length} faturas=${invoices.length}`);
 
       for (const inv of invoices) {
-        const cobertos = inv.customerConfig!.coveredTasks.map(r => r.task?.serialNumber).filter(Boolean) as string[];
+        const cobertos = (inv.customerConfig!.billing?.tasks ?? []).map(r => r.task?.serialNumber).filter(Boolean) as string[];
         const nota = notas.find(n => {
           const d = JSON.stringify(n.body ?? {});
           return cobertos.every(sn => d.includes(sn));

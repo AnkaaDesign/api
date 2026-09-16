@@ -6,7 +6,7 @@
  * BANCO gravou, e a cobertura particiona os veículos?
  */
 import { chromium, Browser, Page } from 'playwright';
-import { prisma } from './helpers/env';
+import { prisma, serialBase } from './helpers/env';
 import { check, phase, scenario, report, brl, money, near, info, shoot } from './helpers/harness';
 import { login, createQuote, BASE, QuoteSpec } from './helpers/ui';
 
@@ -19,7 +19,7 @@ const TAG = `QA${Date.now().toString().slice(-6)}`;
  * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
  * no sistema, e repetir um faz o save ser barrado por um toast).
  */
-const S = Number(process.env.QA_SERIAL_BASE ?? (90000 + Math.floor((Date.now() / 1000) % 9000)));
+const S = serialBase(1);
 
 interface Expect {
   vehicles: number;
@@ -46,7 +46,7 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
       customerConfigs: {
         select: {
           id: true, customerId: true, total: true, subtotal: true,
-          coveredTasks: { select: { taskId: true } },
+          billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
         },
       },
     },
@@ -65,14 +65,14 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
   );
 
   // A PARTIÇÃO: todo veículo coberto uma vez, e uma só.
-  const covered = quote.customerConfigs.flatMap(c => c.coveredTasks.map(r => r.taskId));
+  const covered = quote.customerConfigs.flatMap(c => (c.billing?.tasks ?? []).map(r => r.taskId));
   check(
     `${label}: a cobertura particiona os ${e.vehicles} veículos (sem sobra, sem repetição)`,
     covered.length === e.vehicles && new Set(covered).size === e.vehicles,
     `cobertos=${covered.length} distintos=${new Set(covered).size}`,
   );
 
-  const sizes = quote.customerConfigs.map(c => c.coveredTasks.length).sort((a, b) => a - b);
+  const sizes = quote.customerConfigs.map(c => (c.billing?.tasks ?? []).length).sort((a, b) => a - b);
   const want = [...e.coverage].sort((a, b) => a - b);
   check(
     `${label}: tamanhos de cobertura ${JSON.stringify(want)}`,
@@ -81,7 +81,7 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
   );
 
   for (const c of quote.customerConfigs) {
-    const n = c.coveredTasks.length || e.vehicles;
+    const n = (c.billing?.tasks ?? []).length || e.vehicles;
     const esperado = e.perVehicleTotal * n;
     check(
       `${label}: fatia de ${n} veículo(s) cobra ${money(esperado)}`,
@@ -158,21 +158,21 @@ async function main() {
       select: {
         total: true, vehicleCount: true,
         customerConfigs: {
-          select: { customerId: true, total: true, coveredTasks: { select: { taskId: true } },
+          select: { customerId: true, total: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                     customer: { select: { fantasyName: true } } },
         },
       },
     });
     const clientes = [...new Set((q?.customerConfigs ?? []).map(c => c.customer?.fantasyName))];
-    info(`faturas: ${(q?.customerConfigs ?? []).map(c => `${c.customer?.fantasyName}=${money(Number(c.total))}/${c.coveredTasks.length}v`).join(' · ')}`);
+    info(`faturas: ${(q?.customerConfigs ?? []).map(c => `${c.customer?.fantasyName}=${money(Number(c.total))}/${(c.billing?.tasks ?? []).length}v`).join(' · ')}`);
     check('C4: nasceu uma fatura para CADA cliente', (q?.customerConfigs ?? []).length === 2, `${q?.customerConfigs.length}`);
     check('C4: os dois clientes são distintos', clientes.length === 2, JSON.stringify(clientes));
     // Cada cliente cobra os 4 veículos: a cobertura é por cliente, e o índice
     // único é (taskId, customerId) — o mesmo caminhão pode estar na fatura de
     // dois clientes diferentes, o que não é sobreposição.
     check('C4: cada fatura cobre os 4 veículos',
-      (q?.customerConfigs ?? []).every(c => c.coveredTasks.length === 4),
-      JSON.stringify((q?.customerConfigs ?? []).map(c => c.coveredTasks.length)));
+      (q?.customerConfigs ?? []).every(c => (c.billing?.tasks ?? []).length === 4),
+      JSON.stringify((q?.customerConfigs ?? []).map(c => (c.billing?.tasks ?? []).length)));
     // Cada cliente paga SÓ o serviço dele, vezes os veículos.
     const alfa = (q?.customerConfigs ?? []).find(c => /ALFA/i.test(c.customer?.fantasyName ?? ''));
     const beta = (q?.customerConfigs ?? []).find(c => /BETA/i.test(c.customer?.fantasyName ?? ''));

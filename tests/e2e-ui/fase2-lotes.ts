@@ -8,7 +8,7 @@
  * redireciona, e o banco continua 4×1.
  */
 import { chromium } from 'playwright';
-import { prisma } from './helpers/env';
+import { prisma, serialBase } from './helpers/env';
 import { check, phase, scenario, report, money, near, info } from './helpers/harness';
 import { login, createQuote, openQuoteDetail, gotoCustomerStep, setLots, readLots, saveDetail } from './helpers/ui';
 
@@ -19,7 +19,7 @@ import { login, createQuote, openQuoteDetail, gotoCustomerStep, setLots, readLot
  * rodar esta fase ao lado das outras sem disputar número de série (ele é ÚNICO
  * no sistema, e repetir um faz o save ser barrado por um toast).
  */
-const S = Number(process.env.QA_SERIAL_BASE ?? (91000 + Math.floor((Date.now() / 1000) % 8000)));
+const S = serialBase(2);
 
 async function coverage(quoteId: string) {
   const q = await prisma.taskQuote.findUnique({
@@ -27,14 +27,14 @@ async function coverage(quoteId: string) {
     select: {
       billingSplit: true, total: true, vehicleCount: true,
       customerConfigs: {
-        select: { id: true, total: true, coveredTasks: { select: { task: { select: { serialNumber: true } } } } },
+        select: { id: true, total: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } } },
       },
     },
   });
   const grupos = (q?.customerConfigs ?? [])
     .map(c => ({
       total: Number(c.total),
-      seriais: c.coveredTasks.map(r => r.task?.serialNumber ?? '?').sort(),
+      seriais: (c.billing?.tasks ?? []).map(r => r.task?.serialNumber ?? '?').sort(),
     }))
     .sort((a, b) => (a.seriais[0] ?? '').localeCompare(b.seriais[0] ?? ''));
   return { split: q?.billingSplit, total: Number(q?.total ?? 0), grupos };

@@ -5,7 +5,7 @@ set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR/../.."
 falhas=0
-for fase in fase1-criacao fase2-lotes fase3-assinatura fase4-faturamento; do
+for fase in fase1-criacao fase2-lotes fase3-assinatura fase4-faturamento fase6-troca-de-modo; do
   echo
   echo "════════════════════════════════════════════════════════════"
   echo "  $fase"

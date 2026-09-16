@@ -11,7 +11,7 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright';
 import { execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { prisma, mailPurge, mailFor, mailBody, waitMail, sentinelaCalls, sentinelaReset } from './helpers/env';
+import { prisma, mailPurge, mailFor, mailBody, waitMail, sentinelaCalls, sentinelaReset, serialBase } from './helpers/env';
 import { check, phase, scenario, report, info, money, near, shoot } from './helpers/harness';
 import { login, createQuote, BASE, pause } from './helpers/ui';
 
@@ -19,7 +19,7 @@ import { login, createQuote, BASE, pause } from './helpers/ui';
  * A faixa de séries desta corrida. `QA_SERIAL_BASE` a fixa — é o que permite
  * rodar esta fase ao lado das outras sem disputar número de série.
  */
-const SERIAL = Number(process.env.QA_SERIAL_BASE ?? 94000 + Math.floor((Date.now() / 1000) % 5000));
+const SERIAL = serialBase(3);
 const PRECO_VEICULO = 2500;
 
 interface Contato {

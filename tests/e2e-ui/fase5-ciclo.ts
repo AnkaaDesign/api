@@ -41,7 +41,7 @@
  * GRAVA o corpo, e é sobre o corpo gravado que o teste afirma.
  */
 import { chromium, Browser, Page } from 'playwright';
-import { prisma, sentinelaReset, sentinelaCalls, mailPurge } from './helpers/env';
+import { prisma, sentinelaReset, sentinelaCalls, mailPurge, serialBase } from './helpers/env';
 import { check, phase, scenario, report, info, money, near } from './helpers/harness';
 import {
   login, createQuote, openQuoteDetail, gotoCustomerStep, goToLastStep, setQuoteStatus,
@@ -58,7 +58,7 @@ import {
  * lê como "botão não encontrado" e esconde a causa. `QA_SERIAL_BASE` é como as
  * fases rodam em paralelo sem se encostarem.
  */
-const S = Number(process.env.QA_SERIAL_BASE ?? 96000);
+const S = serialBase(5);
 const PRECO = 1250.5; // por veículo — com centavos de propósito: arredondamento aparece
 
 /**
@@ -127,9 +127,9 @@ async function conferirDinheiro(
       total: true, subtotal: true, vehicleCount: true,
       customerConfigs: {
         select: {
-          id: true, total: true, billingApprovedAt: true, generateInvoice: true, generateBankSlip: true,
+          id: true, total: true, generateInvoice: true, generateBankSlip: true,
           customer: { select: { fantasyName: true, corporateName: true } },
-          coveredTasks: { select: { task: { select: { serialNumber: true } } } },
+          billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
         },
       },
     },
@@ -180,7 +180,7 @@ async function conferirDinheiro(
   // veículo deste orçamento aparece na discriminação da nota e no informativo do
   // boleto —, que é a única âncora que atravessa processos.
   const seriesDoOrcamento = configs
-    .flatMap(c => c.coveredTasks.map(r => r.task?.serialNumber))
+    .flatMap(c => (c.billing?.tasks ?? []).map(r => r.task?.serialNumber))
     .filter(Boolean) as string[];
   const meu = (x: { body: unknown }) => {
     const texto = JSON.stringify(x.body ?? {});
@@ -199,7 +199,7 @@ async function conferirDinheiro(
   for (const inv of invoices) {
     const cfg = configs.find(c => c.id === inv.customerConfigId)!;
     const nomeCliente = `${cfg.customer?.corporateName ?? ''} ${cfg.customer?.fantasyName ?? ''}`.trim();
-    const cobertos = cfg.coveredTasks.map(r => r.task?.serialNumber).filter(Boolean) as string[];
+    const cobertos = (cfg.billing?.tasks ?? []).map(r => r.task?.serialNumber).filter(Boolean) as string[];
     const n = Math.max(1, cobertos.length);
     const esperadoFatura = Math.round(precoDe(nomeCliente) * n * 100) / 100;
     check(`${tag}: fatura de ${n} veículo(s) de ${nomeCliente.slice(0, 18)} = ${money(esperadoFatura)}`,
@@ -433,7 +433,7 @@ async function main() {
       where: { id: quoteId },
       select: {
         status: true, billingApprovedAt: true,
-        customerConfigs: { select: { id: true, billingApprovedAt: true } },
+        customerConfigs: { select: { id: true, billing: { select: { approvedAt: true } } } },
       },
     });
     const faturasVivas = await prisma.invoice.count({
@@ -446,8 +446,8 @@ async function main() {
     check('C2: a FATURA do ciclo anterior foi apagada', faturasVivas === 0, `${faturasVivas} fatura(s) de pé`);
     check('C2: as PARCELAS do ciclo anterior foram apagadas', parcelasVivas === 0, `${parcelasVivas} parcela(s) de pé`);
     check('C2: o carimbo de aprovação de cada fatia foi limpo',
-      (depois?.customerConfigs ?? []).every(c => !c.billingApprovedAt),
-      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billingApprovedAt)));
+      (depois?.customerConfigs ?? []).every(c => !c.billing?.approvedAt),
+      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billing?.approvedAt)));
 
     // ── REAPROVAR ─────────────────────────────────────────────────────────
     const marcador2 = await seq();
@@ -515,11 +515,11 @@ async function main() {
     await saveDetail(page);
 
     const cobertura = await prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId }, select: { coveredTasks: { select: { taskId: true } } },
+      where: { quoteId }, select: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
     check('C3: o lote gravou duas faturas de 2 veículos',
-      JSON.stringify(cobertura.map(c => c.coveredTasks.length).sort()) === '[2,2]',
-      JSON.stringify(cobertura.map(c => c.coveredTasks.length)));
+      JSON.stringify(cobertura.map(c => (c.billing?.tasks ?? []).length).sort()) === '[2,2]',
+      JSON.stringify(cobertura.map(c => (c.billing?.tasks ?? []).length)));
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
@@ -531,11 +531,11 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 6000);
     const meio = await prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId }, select: { billingApprovedAt: true },
+      where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('C3: só UMA fatia foi aprovada com o primeiro lote',
-      meio.filter(c => c.billingApprovedAt).length === 1,
-      JSON.stringify(meio.map(c => !!c.billingApprovedAt)));
+      meio.filter(c => c.billing?.approvedAt).length === 1,
+      JSON.stringify(meio.map(c => !!c.billing?.approvedAt)));
 
     // ── A DIVISÃO CONGELA ─────────────────────────────────────────────────
     await openQuoteDetail(page, vs[0].id);
@@ -552,10 +552,10 @@ async function main() {
     await pause(page, 6000);
 
     const fim = await prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId }, select: { billingApprovedAt: true },
+      where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('C3: as DUAS fatias ficaram aprovadas',
-      fim.every(c => !!c.billingApprovedAt), JSON.stringify(fim.map(c => !!c.billingApprovedAt)));
+      fim.every(c => !!c.billing?.approvedAt), JSON.stringify(fim.map(c => !!c.billing?.approvedAt)));
 
     await conferirDinheiro('C3', quoteId, {
       totalPorVeiculo: porVeiculo(PRECO),
@@ -627,8 +627,10 @@ async function main() {
       select: {
         id: true, total: true,
         customer: { select: { fantasyName: true, corporateName: true } },
-        coveredTasks: { select: { taskId: true } },
-        invoice: { select: { id: true, totalAmount: true } },
+        billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
+        // `invoices` (plural): a relação é 1:N no banco desde sempre (a viva mais
+        // as canceladas dos ciclos anteriores). O filtro isola a viva.
+        invoices: { where: { status: { not: 'CANCELLED' } }, select: { id: true, totalAmount: true } },
       },
     });
     check('C4: nasceram 2 faturamentos (um por cliente)', cfgs.length === 2, `${cfgs.length}`);
@@ -638,7 +640,7 @@ async function main() {
     check('C4: a fatura do Alfa é 1.000 × 2 veículos', near(Number(alfa?.total ?? 0), 2000), money(Number(alfa?.total ?? 0)));
     check('C4: a fatura do Beta é 500 × 2 veículos', near(Number(beta?.total ?? 0), 1000), money(Number(beta?.total ?? 0)));
     check('C4: as duas faturas cobrem os 2 veículos',
-      cfgs.every(c => c.coveredTasks.length === 2), JSON.stringify(cfgs.map(c => c.coveredTasks.length)));
+      cfgs.every(c => (c.billing?.tasks ?? []).length === 2), JSON.stringify(cfgs.map(c => (c.billing?.tasks ?? []).length)));
 
     const notas = (await sentinelaCalls()).filter(
       x => x.seq > marcador && x.path.includes('salvar-nota-fiscal') &&
@@ -764,7 +766,7 @@ async function main() {
 
     const antes = await prisma.taskQuote.findUnique({
       where: { id: quoteId },
-      select: { total: true, customerConfigs: { select: { id: true, total: true, billingApprovedAt: true } } },
+      select: { total: true, customerConfigs: { select: { id: true, total: true, billing: { select: { approvedAt: true } } } } },
     });
     const faturaEmitida = await prisma.invoice.findFirst({
       where: { customerConfig: { quoteId } }, select: { id: true, totalAmount: true },
@@ -802,7 +804,7 @@ async function main() {
       select: {
         total: true, vehicleCount: true,
         customerConfigs: {
-          select: { id: true, total: true, billingApprovedAt: true, coveredTasks: { select: { taskId: true } } },
+          select: { id: true, total: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
         },
       },
     });
@@ -814,13 +816,13 @@ async function main() {
       (depois?.customerConfigs ?? []).length === 3, `${(depois?.customerConfigs ?? []).length}`);
 
     // A FATIA JÁ FATURADA NÃO SE MEXE — nem no valor, nem na cobertura.
-    const aprovada = (depois?.customerConfigs ?? []).find(c => c.billingApprovedAt);
-    const antesAprovada = (antes?.customerConfigs ?? []).find(c => c.billingApprovedAt);
+    const aprovada = (depois?.customerConfigs ?? []).find(c => c.billing?.approvedAt);
+    const antesAprovada = (antes?.customerConfigs ?? []).find(c => c.billing?.approvedAt);
     check('C6: a fatia já faturada manteve o valor',
       !!aprovada && near(Number(aprovada.total), Number(antesAprovada?.total ?? -1)),
       `antes=${antesAprovada?.total} depois=${aprovada?.total}`);
     check('C6: a fatia já faturada continua cobrindo 1 veículo',
-      (aprovada?.coveredTasks ?? []).length === 1, `${(aprovada?.coveredTasks ?? []).length}`);
+      (aprovada?.billing?.tasks ?? []).length === 1, `${(aprovada?.billing?.tasks ?? []).length}`);
     const faturaDepois = await prisma.invoice.findUnique({
       where: { id: faturaEmitida!.id }, select: { totalAmount: true },
     });
@@ -828,8 +830,8 @@ async function main() {
       near(Number(faturaDepois?.totalAmount ?? 0), Number(faturaEmitida!.totalAmount)),
       money(Number(faturaDepois?.totalAmount ?? 0)));
     check('C6: o caminhão novo ainda NÃO tem fatura',
-      (depois?.customerConfigs ?? []).filter(c => !c.billingApprovedAt).length === 2,
-      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billingApprovedAt)));
+      (depois?.customerConfigs ?? []).filter(c => !c.billing?.approvedAt).length === 2,
+      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billing?.approvedAt)));
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -916,12 +918,12 @@ async function main() {
     const vs = await veiculosDo(quoteId);
 
     const cfgs0 = await prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId }, select: { customerId: true, coveredTasks: { select: { taskId: true } } },
+      where: { quoteId }, select: { customerId: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
     check('C8: nasceram 4 fatias (2 clientes × 2 veículos)', cfgs0.length === 4, `${cfgs0.length}`);
     check('C8: cada fatia cobre UM veículo',
-      cfgs0.every(c => c.coveredTasks.length === 1),
-      JSON.stringify(cfgs0.map(c => c.coveredTasks.length)));
+      cfgs0.every(c => (c.billing?.tasks ?? []).length === 1),
+      JSON.stringify(cfgs0.map(c => (c.billing?.tasks ?? []).length)));
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
@@ -939,13 +941,13 @@ async function main() {
 
     const meio = await prisma.taskQuoteCustomerConfig.findMany({
       where: { quoteId },
-      select: { billingApprovedAt: true, coveredTasks: { select: { taskId: true } } },
+      select: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
     const aprovadasDoPrimeiro = meio.filter(
-      c => c.billingApprovedAt && c.coveredTasks.some(r => r.taskId === vs[0].id),
+      c => c.billing?.approvedAt && (c.billing?.tasks ?? []).some(r => r.taskId === vs[0].id),
     ).length;
     const aprovadasDoSegundo = meio.filter(
-      c => c.billingApprovedAt && c.coveredTasks.some(r => r.taskId === vs[1].id),
+      c => c.billing?.approvedAt && (c.billing?.tasks ?? []).some(r => r.taskId === vs[1].id),
     ).length;
     check('C8: as DUAS faturas do primeiro caminhão foram aprovadas', aprovadasDoPrimeiro === 2,
       `${aprovadasDoPrimeiro}`);
@@ -1019,11 +1021,11 @@ async function main() {
     await pause(page, 6000);
 
     const meio = await prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId }, select: { billingApprovedAt: true },
+      where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('CA: só UMA fatia está aprovada antes de reverter',
-      meio.filter(c => c.billingApprovedAt).length === 1,
-      JSON.stringify(meio.map(c => !!c.billingApprovedAt)));
+      meio.filter(c => c.billing?.approvedAt).length === 1,
+      JSON.stringify(meio.map(c => !!c.billing?.approvedAt)));
 
     // ── REVERTER COM O ORÇAMENTO PELA METADE ──────────────────────────────
     await openBillingDetail(page, vs[0].id);
@@ -1032,7 +1034,7 @@ async function main() {
 
     const depois = await prisma.taskQuote.findUnique({
       where: { id: quoteId },
-      select: { status: true, customerConfigs: { select: { billingApprovedAt: true } } },
+      select: { status: true, customerConfigs: { select: { billing: { select: { approvedAt: true } } } } },
     });
     const faturas = await prisma.invoice.count({
       where: { OR: [{ customerConfig: { quoteId } }, { task: { quoteId } }] },
@@ -1041,8 +1043,8 @@ async function main() {
       `status=${depois?.status}`);
     check('CA: não sobrou fatura nenhuma', faturas === 0, `${faturas}`);
     check('CA: nenhuma fatia ficou carimbada',
-      (depois?.customerConfigs ?? []).every(c => !c.billingApprovedAt),
-      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billingApprovedAt)));
+      (depois?.customerConfigs ?? []).every(c => !c.billing?.approvedAt),
+      JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billing?.approvedAt)));
     check('CA: as DUAS fatias continuam existindo — a divisão não se desfaz',
       (depois?.customerConfigs ?? []).length === 2,
       `${(depois?.customerConfigs ?? []).length}`);

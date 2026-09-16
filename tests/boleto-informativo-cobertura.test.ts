@@ -74,7 +74,8 @@ function parcela(opts: { cobertos: typeof FROTA; taskDaFatura: (typeof FROTA)[nu
       nfseDocuments: [{ nfseNumber: 9001 }],
       customerConfig: {
         customerId: 'cust-1',
-        coveredTasks: opts.cobertos.map(t => ({ taskId: t.id })),
+        // A forma REAL que o Prisma devolve: a cobertura é do FATURAMENTO.
+        billing: { tasks: opts.cobertos.map(t => ({ taskId: t.id })) },
         quote: {
           tasks: FROTA,
           services: [{ description: 'logomarca frente', invoiceToCustomerId: null }],
