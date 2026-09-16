@@ -8,7 +8,7 @@ import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { TaskQuoteRepository } from './task-quote.repository';
 import {
   QUOTE_TASKS_ORDER_BY,
-  QUOTE_COVERAGE_INCLUDE,
+  QUOTE_BILLING_INCLUDE,
   withCoverageInclude,
 } from '@utils/quote-tasks';
 
@@ -396,7 +396,7 @@ export class TaskQuotePrismaRepository
       },
       customerConfigs: {
         include: {
-          coveredTasks: QUOTE_COVERAGE_INCLUDE,
+          billing: QUOTE_BILLING_INCLUDE,
           customer: {
             select: { id: true, fantasyName: true, cnpj: true },
           },
@@ -409,7 +409,11 @@ export class TaskQuotePrismaRepository
             },
             orderBy: { number: 'asc' },
           },
-          invoice: {
+          // `invoices` (plural) porque o banco sempre permitiu a viva MAIS as
+          // canceladas dos ciclos anteriores. Sem filtro aqui de propósito: a tela
+          // de faturamento precisa mostrar o ciclo anterior ao lado do vigente.
+          invoices: {
+            orderBy: { createdAt: 'asc' },
             include: {
               nfseDocuments: true,
             },
@@ -603,7 +607,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
-            coveredTasks: QUOTE_COVERAGE_INCLUDE,
+            billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: {
                 id: true,
@@ -654,7 +658,7 @@ export class TaskQuotePrismaRepository
         tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
-            coveredTasks: QUOTE_COVERAGE_INCLUDE,
+            billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -698,7 +702,7 @@ export class TaskQuotePrismaRepository
         tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
         customerConfigs: {
           include: {
-            coveredTasks: QUOTE_COVERAGE_INCLUDE,
+            billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
@@ -741,7 +745,7 @@ export class TaskQuotePrismaRepository
         },
         customerConfigs: {
           include: {
-            coveredTasks: QUOTE_COVERAGE_INCLUDE,
+            billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },

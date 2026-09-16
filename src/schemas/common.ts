@@ -812,6 +812,38 @@ export const normalizeSearchTerm = (value: string): string =>
 export const normalizeVehicleSearchTerm = (value: string): string =>
   normalizeSearchTerm(value).replace(/[^a-z0-9]/g, '');
 
+/**
+ * OS DÍGITOS DE UM TERMO — só quando o termo É um documento.
+ *
+ * CNPJ e CPF são gravados sem pontuação, então quem digita "13.636.972" precisa
+ * que a busca também procure por "13636972". A tradução era feita com um
+ * `replace(/\D/g, '')` cru sobre QUALQUER termo, e o resultado entrava num
+ * `contains` contra as colunas de documento.
+ *
+ * O estrago aparece assim que o termo tem letra e número juntos. "QA 4V" virava
+ * os dígitos "4", e `cnpjNormalized contains '4'` casa com quase todo cliente do
+ * cadastro — um CNPJ tem catorze dígitos. A busca por um nome devolvia 107
+ * linhas que não tinham nada a ver com ele, sem nenhum sinal de que o filtro
+ * estava ligado, na tela em que se decide o que faturar.
+ *
+ * Duas condições, as duas necessárias:
+ *  · o termo tem de ser SÓ documento — dígitos e a pontuação que formata um
+ *    documento (`. - /` e espaço). Havendo letra, o usuário está procurando
+ *    nome, e não existe leitura em que os dígitos soltos ajudem.
+ *  · e ter dígitos que bastem. Abaixo de quatro, `contains` num campo de catorze
+ *    dígitos é ruído, não filtro.
+ *
+ * Devolve `null` quando não se aplica — quem chama simplesmente não acrescenta a
+ * condição.
+ */
+export const documentSearchDigits = (value: string): string | null => {
+  const term = (value ?? '').trim();
+  if (!term) return null;
+  if (!/^[\d.\-/\s]+$/.test(term)) return null;
+  const digits = term.replace(/\D/g, '');
+  return digits.length >= 4 ? digits : null;
+};
+
 // Create search OR conditions
 export const createSearchTransform = (searchingFor: string, fields: string[]) => {
   if (!searchingFor?.trim()) return null;

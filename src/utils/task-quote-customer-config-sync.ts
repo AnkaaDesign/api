@@ -50,6 +50,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { planCoverage } from './quote-money';
 import { PrismaTransaction } from '../modules/common/base/base.repository';
+import { hasLiveInvoice } from './billing-invoice';
+import { deleteInstallmentsWithSlips } from './billing-teardown';
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger('BillingSync');
 
 export interface IncomingCustomerConfig {
   /**
@@ -184,11 +189,16 @@ function coverageKey(taskIds: readonly string[]): string {
 type ExistingConfig = {
   id: string;
   customerId: string;
+  /** O FATURAMENTO a que este pagador pertence. `NOT NULL` no banco. */
+  billingId: string;
+  /** A aprovação do FATURAMENTO — lida de `billing.approvedAt`, não do pagador. */
   billingApprovedAt: Date | null;
   discountType: string | null;
   discountValue: unknown;
   discountReference: string | null;
   coverage: string[];
+  /** A cobertura como está no banco, SEM sanear contra os veículos atuais. */
+  rawCoverage: string[];
   frozen: boolean;
 };
 
@@ -227,8 +237,14 @@ export async function reconcileQuoteCustomerConfigs(
     where: { quoteId },
     orderBy: { createdAt: 'asc' },
     include: {
-      coveredTasks: { select: { taskId: true } },
-      invoice: { select: { id: true, status: true } },
+      // O FATURAMENTO, não o pagador: é dele a cobertura e é dele o estado.
+      billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
+      // `invoices` (plural) e SEM filtro: o critério de congelamento precisa ver
+      // todas para decidir, e `liveInvoiceOf` escolhe a viva. Antes isto era
+      // `invoice` to-one sobre uma relação que o banco sempre deixou ser 1:N — e
+      // receber a CANCELADA de um ciclo anterior respondia "não congelada" sobre
+      // um faturamento VIVO, liberando a reescrita da cobertura dele.
+      invoices: { select: { id: true, status: true } },
     },
   });
 
@@ -236,20 +252,24 @@ export async function reconcileQuoteCustomerConfigs(
   const existing: ExistingConfig[] = storedConfigs.map(c => ({
     id: c.id,
     customerId: c.customerId,
-    billingApprovedAt: (c as any).billingApprovedAt ?? null,
+    billingId: (c as any).billingId as string,
+    billingApprovedAt: (c as any).billing?.approvedAt ?? null,
     discountType: c.discountType as any,
     discountValue: c.discountValue,
     discountReference: c.discountReference,
     // Cobertura saneada: um veículo retirado do orçamento nesta mesma gravação
     // ainda tem linha de cobertura (a exclusão em cascata acontece depois), e
     // mantê-lo aqui faria o plano reservá-lo para uma fatia que vai perdê-lo.
-    coverage: ((c as any).coveredTasks ?? [])
+    coverage: ((c as any).billing?.tasks ?? [])
       .map((r: { taskId: string }) => r.taskId)
       .filter((id: string) => validTaskIds.has(id)),
+    // A COBERTURA COMO ESTÁ GRAVADA, sem sanear. Serve para perceber que um
+    // veículo COBERTO por uma fatia congelada foi retirado do orçamento: na
+    // saneada ele simplesmente some, a fatia parece descoberta e seria APAGADA
+    // junto com a fatura. É o que a guarda `orphanedFrozen` recusa com nome.
+    rawCoverage: ((c as any).billing?.tasks ?? []).map((r: { taskId: string }) => r.taskId),
     // CONGELADO: já faturado, ou com fatura viva. Cobertura imutável.
-    frozen:
-      !!(c as any).billingApprovedAt ||
-      (!!(c as any).invoice && (c as any).invoice.status !== 'CANCELLED'),
+    frozen: !!(c as any).billing?.approvedAt || hasLiveInvoice(c as any),
   }));
 
   const existingByCustomer = new Map<string, ExistingConfig[]>();
@@ -293,6 +313,21 @@ export async function reconcileQuoteCustomerConfigs(
 
   const matchedExistingIds = new Set<string>();
 
+  /**
+   * O PLANO DE COBERTURA — `configId` → os veículos que ele passará a cobrar.
+   *
+   * A cobertura deixou de ser escrita aqui, fatia a fatia, e passou a ser
+   * ENTREGUE a `reconcileBillingsForQuote`, que a aplica de uma vez com o quadro
+   * inteiro na mão. O motivo é a regra nova: `BillingTask.@@unique([taskId])` é
+   * GLOBAL — um veículo, um faturamento. Escrevendo fatia a fatia, mover um
+   * caminhão de um recorte para outro colide com a própria linha antiga, e a
+   * versão anterior precisava de um `deleteMany` defensivo por cliente antes de
+   * cada insert só para não ser descartada em silêncio por `skipDuplicates`.
+   * Com o plano, a ordem "apaga tudo que muda, depois insere" é possível porque
+   * quem escreve conhece o destino de todos os veículos ao mesmo tempo.
+   */
+  const coveragePlan = new Map<string, string[]>();
+
   for (const customerId of incomingCustomerIds) {
     const incomingC = incomingByCustomer.get(customerId)!;
     const existingC = existingByCustomer.get(customerId) ?? [];
@@ -301,11 +336,64 @@ export async function reconcileQuoteCustomerConfigs(
     //
     // O que já foi faturado entra primeiro e sai do bolo: os veículos de uma
     // fatia congelada não são repartidos por ninguém, em nenhum modo.
+    // ── (d) UM VEÍCULO JÁ FATURADO NÃO SAI DO ORÇAMENTO PELA PORTA DOS FUNDOS ─
+    //
+    // O teste usa a cobertura CRUA de propósito. Retirar do orçamento o único
+    // veículo de uma fatia congelada fazia a cobertura SANEADA dela ficar vazia;
+    // com `coverage.length === 0` ela não entrava em `frozenC`, não era casada
+    // (as três tentativas exigem `!c.frozen`), caía em `toRemove` — e ali, sem
+    // boleto ativo nem nota viva, a fatura era CANCELADA e a fatia APAGADA. Uma
+    // fatia com `billingApprovedAt` preenchido, destruída em silêncio.
+    const rawFrozen = existingC.filter(c => c.frozen && c.rawCoverage.length > 0);
+    const orphanedFrozen = rawFrozen
+      .flatMap(c => c.rawCoverage)
+      .filter(id => !validTaskIds.has(id));
+    if (orphanedFrozen.length > 0) {
+      throw new BadRequestException(
+        `Não é possível retirar do orçamento ${orphanedFrozen.length === 1 ? 'o veículo' : 'os veículos'} ` +
+          'cujo faturamento já foi aprovado ou já tem fatura emitida. ' +
+          'Reverta o faturamento dessa fatia antes de mexer na frota.',
+      );
+    }
+
     const frozenC = existingC.filter(c => c.frozen && c.coverage.length > 0);
     const frozenTaskIds = new Set(frozenC.flatMap(c => c.coverage));
     const freeTaskIds = taskIds.filter(id => !frozenTaskIds.has(id));
 
     const declared = incomingC.map(explicitCoverage).filter((g): g is string[] => g !== null);
+
+    // ── (b) RECOMPOSIÇÃO QUE MEXE NUMA FATIA CONGELADA É RECUSADA, NÃO FILTRADA ─
+    //
+    // A tela pode redividir lotes mandando `customerConfigs[].taskIds` SEM tocar
+    // em `billingSplit` — e aí a guarda de troca de modo (que olha só
+    // `billingSplit`) nem roda. O que acontecia depois: os lotes declarados eram
+    // FILTRADOS contra `frozenTaskIds` logo abaixo, a fatia congelada era pulada,
+    // e a gravação terminava com sucesso num arranjo diferente do pedido. Zero
+    // erro, zero aviso, resultado errado.
+    //
+    // Agora, pedir para mover um veículo que uma fatia congelada cobre é um erro
+    // com nome. Quem declara exatamente a cobertura que já existe não é afetado —
+    // é o caso idempotente que a tela manda a cada save.
+    if (declared.length > 0 && frozenTaskIds.size > 0) {
+      const declaredFrozenMoved: string[] = [];
+      for (const group of declared) {
+        const groupSet = new Set(group);
+        for (const frozenSlice of frozenC) {
+          const covers = frozenSlice.coverage.filter(id => groupSet.has(id));
+          if (covers.length === 0) continue;
+          // O grupo toca esta fatia congelada: só é legítimo se for EXATAMENTE ela.
+          const identical =
+            covers.length === frozenSlice.coverage.length && group.length === covers.length;
+          if (!identical) declaredFrozenMoved.push(...covers);
+        }
+      }
+      if (declaredFrozenMoved.length > 0) {
+        throw new BadRequestException(
+          'Não é possível recompor os lotes: a mudança pedida move veículo que já está num ' +
+            'faturamento aprovado ou com fatura emitida. Reverta o faturamento dessa fatia antes de refatiar.',
+        );
+      }
+    }
 
     let freeGroups: string[][];
     if (freeTaskIds.length === 0) {
@@ -421,8 +509,12 @@ export async function reconcileQuoteCustomerConfigs(
         if (Object.keys(writeData).length > 0) {
           await tx.taskQuoteCustomerConfig.update({ where: { id: prev.id }, data: writeData });
         }
-        // A cobertura de uma fatia congelada NUNCA é reescrita.
-        if (!prev.frozen) {
+        // A cobertura de uma fatia CONGELADA nunca é reescrita: ela entra no
+        // plano exatamente como está, para que a reconciliação dos faturamentos
+        // a reconheça em vez de tratá-la como recorte que acabou.
+        if (prev.frozen) {
+          coveragePlan.set(prev.id, prev.coverage);
+        } else {
           // Reagrupar muda o VALOR da fatura sem tocar em nenhum outro campo —
           // vinte veículos viram dez e o boleto cai pela metade. Sem esta linha,
           // a única prova da mudança seria o total, e o total sozinho não diz
@@ -436,7 +528,7 @@ export async function reconcileQuoteCustomerConfigs(
               newValue: `${planned.coverage.length} veículo(s)`,
             });
           }
-          await syncCoverage(tx, prev.id, customerId, prev.coverage, planned.coverage);
+          coveragePlan.set(prev.id, planned.coverage);
         }
         continue;
       }
@@ -491,10 +583,16 @@ export async function reconcileQuoteCustomerConfigs(
         inherited,
       });
 
+      // O FATURAMENTO PRIMEIRO. `billingId` é `NOT NULL`, e é de propósito: um
+      // pagador sem faturamento é um registro que não responde "cobrando o quê?".
+      // Achar-ou-criar pela COBERTURA é o que faz dois pagadores do mesmo recorte
+      // caírem no mesmo `Billing` já na criação, em vez de nascerem em dois e
+      // serem fundidos depois.
+      const billingId = await ensureBillingForCoverage(tx, quoteId, planned.coverage);
       const created = await tx.taskQuoteCustomerConfig.create({
-        data: { quoteId, customerId, ...writeData },
+        data: { quoteId, billingId, customerId, ...writeData },
       });
-      await syncCoverage(tx, created.id, customerId, [], planned.coverage);
+      coveragePlan.set(created.id, planned.coverage);
     }
   }
 
@@ -508,6 +606,29 @@ export async function reconcileQuoteCustomerConfigs(
   let cancelledInvoices = false;
   if (toRemove.length > 0) {
     const removeIds = toRemove.map(c => c.id);
+
+    // ── A OBRIGAÇÃO PAGA NÃO DEPENDE DO STATUS DA FATURA ──────────────────────
+    //
+    // A guarda abaixo só olhava faturas `status <> 'CANCELLED'`. Uma parcela PAGA
+    // pendurada numa fatura CANCELADA — o que sobra de um ciclo revertido — não
+    // era vista por ninguém, e o `deleteMany` da fatia a levava junto, com o
+    // boleto e o `ReconciliationMatch`. Dinheiro recebido sumia do sistema.
+    //
+    // (O `onDelete` dessas relações virou `Restrict` na mesma leva, então hoje o
+    // banco também recusaria. Esta guarda existe para recusar com uma frase que
+    // diga o que fazer, em vez de um erro de integridade referencial.)
+    const paidOutsideLiveInvoice = await tx.installment.findFirst({
+      where: { customerConfigId: { in: removeIds }, status: 'PAID' },
+      select: { id: true, number: true, customerConfigId: true },
+    });
+    if (paidOutsideLiveInvoice) {
+      throw new BadRequestException(
+        'Não é possível remover este faturamento: existe parcela PAGA vinculada a ele ' +
+          `(parcela ${paidOutsideLiveInvoice.number}), inclusive de ciclos já cancelados. ` +
+          'Dinheiro recebido não é apagado por recomposição de cobertura.',
+      );
+    }
+
     const blockingInvoices = await tx.invoice.findMany({
       where: { customerConfigId: { in: removeIds }, status: { not: 'CANCELLED' } },
       include: {
@@ -555,66 +676,31 @@ export async function reconcileQuoteCustomerConfigs(
       });
     }
 
+    // ── DESMONTAGEM EXPLÍCITA ────────────────────────────────────────────────
+    //
+    // As FKs de `Invoice`/`Installment`/`BankSlip` deixaram de ser `Cascade`: o
+    // banco não apaga mais dinheiro por efeito colateral de um `deleteMany` de
+    // fatia. Quem remove diz o que acontece com cada peça, nesta ordem, e só
+    // chega aqui o que a guarda acima já declarou descartável — nenhuma parcela
+    // paga, nenhum boleto ativo, nenhuma nota viva.
+    await deleteInstallmentsWithSlips(tx, { customerConfigId: { in: removeIds } });
+    // A NOTA FISCAL NÃO É APAGADA. `NfseDocument.invoiceId` é `SetNull` de
+    // propósito: nota emitida sobrevive à fatura e continua sendo o histórico
+    // fiscal do orçamento. Só as canceladas/ERROR chegam até aqui.
+    await tx.invoice.deleteMany({ where: { customerConfigId: { in: removeIds } } });
     await tx.taskQuoteCustomerConfig.deleteMany({ where: { id: { in: removeIds } } });
   }
 
+  // ── 6. E OS FATURAMENTOS ──────────────────────────────────────────────────
+  //
+  // Último passo de propósito: os pagadores já estão certos, e é deles que sai a
+  // única pergunta que o `Billing` responde — quais veículos são cobrados juntos.
+  // Passar por aqui é o que faz a troca de modo criar e destruir ENTIDADES em vez
+  // de mudar um campo. `reconcileQuoteCustomerConfigs` é o funil único de toda
+  // recomposição, então nenhum caminho de escrita escapa.
+  await reconcileBillingsForQuote(tx, quoteId, coveragePlan);
+
   return { cancelledInvoices, customerIds: [...incomingCustomerIdSet], diff };
-}
-
-/**
- * Escreve a cobertura de uma fatia — só o delta.
- *
- * Apagar tudo e recriar funcionaria e seria mais curto, mas `QuoteBillingTask`
- * carrega `createdAt`, e é por ele que a ordem de um lote se mantém estável
- * entre duas leituras. Um lote que muda de ordem a cada save muda a âncora, e a
- * âncora batiza arquivo e link.
- */
-async function syncCoverage(
-  tx: PrismaTransaction,
-  configId: string,
-  customerId: string,
-  before: readonly string[],
-  after: readonly string[],
-): Promise<void> {
-  const beforeSet = new Set(before);
-  const afterSet = new Set(after);
-
-  const toDelete = before.filter(id => !afterSet.has(id));
-  if (toDelete.length > 0) {
-    await tx.quoteBillingTask.deleteMany({ where: { configId, taskId: { in: toDelete } } });
-  }
-
-  const toCreate = after.filter(id => !beforeSet.has(id));
-  if (toCreate.length > 0) {
-    // ── O VEÍCULO SAI DA OUTRA FATIA ANTES DE ENTRAR NESTA ──────────────────
-    //
-    // Um veículo é cobrado por UMA fatia daquele cliente — índice único
-    // `(taskId, customerId)`. Quando o plano MOVE um caminhão de uma fatia para
-    // outra (compor um lote a partir do faturamento por veículo, redividir um
-    // lote, remover uma fatia), a linha antiga ainda está de pé neste ponto: as
-    // fatias que saíram só são apagadas no fim da reconciliação, e a que perdeu
-    // o veículo pode ser processada DEPOIS desta.
-    //
-    // O insert então esbarrava no índice e `skipDuplicates` o descartava EM
-    // SILÊNCIO — o veículo terminava a transação em fatura NENHUMA. Era assim
-    // que compor "dois no pedido 8842, dois no 9013" a partir de quatro fatias
-    // por veículo devolvia quatro fatias por veículo de novo, sem erro nenhum.
-    //
-    // Escopo: o mesmo cliente, e nunca esta fatia. Uma fatia CONGELADA não perde
-    // veículo aqui porque o plano jamais entrega a outro grupo um veículo que
-    // ela cobre — a cobertura dela é semeada antes de tudo e sai do bolo.
-    await tx.quoteBillingTask.deleteMany({
-      where: { customerId, taskId: { in: toCreate }, configId: { not: configId } },
-    });
-    // `skipDuplicates` cobre a corrida entre duas gravações do mesmo orçamento;
-    // o índice único continua sendo quem garante que o veículo não acaba em duas
-    // faturas do mesmo cliente — aqui ele só não derruba a transação por uma
-    // repetição idêntica.
-    await tx.quoteBillingTask.createMany({
-      data: toCreate.map(taskId => ({ configId, taskId, customerId })),
-      skipDuplicates: true,
-    });
-  }
 }
 
 /**
@@ -658,4 +744,185 @@ export async function resliceQuoteCoverage(
     customerIds.map(customerId => ({ customerId })),
     options,
   );
+}
+
+/**
+ * Acha — ou cria — o `Billing` deste orçamento que cobre EXATAMENTE estes veículos.
+ *
+ * Existe porque um pagador não pode nascer sem faturamento (`billingId` é
+ * `NOT NULL`), e a criação do pagador acontece antes de a reconciliação final
+ * rodar. Casar por cobertura idêntica é o que garante que dois pagadores do
+ * mesmo recorte compartilhem a MESMA entidade desde o primeiro instante.
+ *
+ * NÃO escreve cobertura — ver o comentário no corpo. Um `Billing` criado aqui é
+ * um provisório que a reconciliação final vai confirmar (dando-lhe cobertura) ou
+ * descartar. O churn é de uma transação só, e o estado final é o certo.
+ */
+export async function ensureBillingForCoverage(
+  tx: PrismaTransaction,
+  quoteId: string,
+  coverage: readonly string[],
+): Promise<string> {
+  const alvo = [...coverage].sort().join('|');
+  const existentes = await (tx as any).billing.findMany({
+    where: { quoteId },
+    select: { id: true, tasks: { select: { taskId: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  for (const b of existentes) {
+    const k = (b.tasks ?? []).map((t: { taskId: string }) => t.taskId).sort().join('|');
+    if (k === alvo) return b.id;
+  }
+  // NASCE SEM COBERTURA, e é essencial que seja assim.
+  //
+  // A primeira versão escrevia a cobertura aqui, e com isso ROUBAVA os veículos
+  // do faturamento anterior: ao trocar "os quatro juntos" por "um por veículo", o
+  // `Billing` dos quatro perdia três e ficava com um — e a reconciliação final,
+  // que casa por cobertura idêntica, o reconhecia como "o faturamento do veículo
+  // 1" e o preservava. O recorte de quatro tinha acabado e a entidade continuava
+  // viva, disfarçada. Que é exatamente o "mudar de forma" que este modelo existe
+  // para não fazer.
+  //
+  // Quem atribui cobertura é `reconcileBillingsForQuote`, uma vez, no fim, com o
+  // quadro inteiro na mão. Isto aqui só entrega um `id` para o `NOT NULL`.
+  const novo = await (tx as any).billing.create({ data: { quoteId }, select: { id: true } });
+  return novo.id;
+}
+
+/**
+ * RECONCILIA OS FATURAMENTOS DO ORÇAMENTO — as entidades, não a configuração.
+ *
+ * Roda depois que os pagadores (`TaskQuoteCustomerConfig`) já estão certos, e
+ * deriva deles a única coisa que o modelo novo afirma: **um grupo de veículos
+ * cobrados juntos é um `Billing`**.
+ *
+ * O QUE ISSO MUDA NA PRÁTICA
+ *   Trocar "uma fatura para os quatro" por "uma por veículo" deixa de ser um
+ *   campo que muda de valor. O `Billing` que cobria os quatro **é apagado** e
+ *   **nascem quatro**, cada um com o seu `id`. Trocar de volta apaga os quatro e
+ *   cria um — novo, porque é outra entidade, não a antiga reaproveitada. É
+ *   exatamente o que o dono pediu quando disse "realmente múltiplos faturamentos,
+ *   cada um com seu uuid, cada um sendo um".
+ *
+ * DOIS PAGADORES NÃO SÃO DOIS FATURAMENTOS
+ *   O grupo é definido pela COBERTURA, não pelo cliente. Dois pagadores que
+ *   cobram os mesmos veículos caem no MESMO `Billing`, com dois configs dentro —
+ *   e é por isso que `BillingTask.@@unique([taskId])` pode ser mais forte que a
+ *   regra antiga sem recusar nada que hoje existe.
+ *
+ * DERIVADO, E IDEMPOTENTE
+ *   Não há estado próprio a preservar ainda, então reconciliar a partir da
+ *   cobertura é exato: rodar duas vezes seguidas produz o mesmo conjunto de
+ *   `Billing`, com os mesmos ids. Um `Billing` só troca de id quando o recorte
+ *   que ele representava deixou de existir — que é quando ele deixou de existir.
+ */
+export async function reconcileBillingsForQuote(
+  tx: PrismaTransaction,
+  quoteId: string,
+  /**
+   * O PLANO: `configId` → os veículos que aquele pagador passará a cobrar.
+   *
+   * Omitido = "não muda nada, só confira", e a cobertura lida é a que já está
+   * gravada. É o modo dos chamadores que tocam OUTRA coisa (mover tarefa, apagar
+   * tarefa) e precisam que os faturamentos continuem coerentes depois.
+   */
+  plan?: ReadonlyMap<string, readonly string[]>,
+): Promise<{ created: number; deleted: number; billings: number }> {
+  const configs = await (tx as any).taskQuoteCustomerConfig.findMany({
+    where: { quoteId },
+    select: {
+      id: true,
+      billingId: true,
+      billing: { select: { tasks: { select: { taskId: true } } } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  /** A chave do grupo: a cobertura ORDENADA. Cobertura vazia é um grupo legítimo
+   *  — é o orçamento que ainda não tem veículo, e apagá-lo levaria junto o
+   *  desconto já combinado com o cliente. */
+  const keyOf = (ids: readonly string[]) => [...ids].sort().join('|');
+
+  const grupos = new Map<string, { coverage: string[]; configIds: string[] }>();
+  for (const c of configs) {
+    const planned = plan?.get(c.id);
+    const coverage: string[] = [
+      ...(planned ?? (c.billing?.tasks ?? []).map((r: { taskId: string }) => r.taskId)),
+    ];
+    const k = keyOf(coverage);
+    const g = grupos.get(k);
+    if (g) g.configIds.push(c.id);
+    else grupos.set(k, { coverage, configIds: [c.id] });
+  }
+
+  const existentes = await (tx as any).billing.findMany({
+    where: { quoteId },
+    select: { id: true, tasks: { select: { taskId: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  // Casa por COBERTURA IDÊNTICA. Um `Billing` cuja cobertura mudou não é o mesmo
+  // faturamento com outro recorte — é um recorte que acabou e outro que começou.
+  const porChave = new Map<string, string>();
+  const livres: string[] = [];
+  for (const b of existentes) {
+    const k = keyOf((b.tasks ?? []).map((t: { taskId: string }) => t.taskId));
+    if (grupos.has(k) && !porChave.has(k)) porChave.set(k, b.id);
+    else livres.push(b.id);
+  }
+
+  let created = 0;
+  const idPorChave = new Map<string, string>();
+  for (const [k, g] of grupos) {
+    const jaTem = porChave.get(k);
+    if (jaTem) {
+      idPorChave.set(k, jaTem);
+      continue;
+    }
+    const novo = await (tx as any).billing.create({ data: { quoteId }, select: { id: true } });
+    idPorChave.set(k, novo.id);
+    created++;
+    logger.log(
+      `[Billing] Orçamento ${quoteId}: faturamento ${novo.id} criado cobrindo ${g.coverage.length} veículo(s).`,
+    );
+  }
+
+  // Cada pagador aponta para o faturamento do seu recorte.
+  for (const [k, g] of grupos) {
+    const billingId = idPorChave.get(k)!;
+    const mudaram = g.configIds.filter(
+      id => configs.find((c: any) => c.id === id)?.billingId !== billingId,
+    );
+    if (mudaram.length > 0) {
+      await (tx as any).taskQuoteCustomerConfig.updateMany({
+        where: { id: { in: mudaram } },
+        data: { billingId },
+      });
+    }
+  }
+
+  // A COBERTURA. Apagar antes de inserir não é zelo: `BillingTask.@@unique([taskId])`
+  // é global, e um veículo que muda de faturamento colidiria com a própria linha
+  // antiga se as duas existissem por um instante.
+  const todosTaskIds = [...grupos.values()].flatMap(g => g.coverage);
+  if (todosTaskIds.length > 0) {
+    await (tx as any).billingTask.deleteMany({ where: { taskId: { in: todosTaskIds } } });
+  }
+  for (const [k, g] of grupos) {
+    if (g.coverage.length === 0) continue;
+    await (tx as any).billingTask.createMany({
+      data: g.coverage.map(taskId => ({ billingId: idPorChave.get(k)!, taskId })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Os que sobraram representavam recortes que deixaram de existir.
+  let deleted = 0;
+  if (livres.length > 0) {
+    const res = await (tx as any).billing.deleteMany({ where: { id: { in: livres } } });
+    deleted = res.count;
+    logger.log(`[Billing] Orçamento ${quoteId}: ${deleted} faturamento(s) apagado(s) — o recorte acabou.`);
+  }
+
+  return { created, deleted, billings: grupos.size };
 }

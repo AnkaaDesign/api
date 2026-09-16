@@ -5,6 +5,7 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
+import { billingDeepLinkForInvoice } from '@utils/billing-links';
 
 // Thrown when the webhook references a nossoNumero that does not exist in our DB
 // (pre-migration boletos, manual boletos outside the system). Retrying will never
@@ -384,12 +385,17 @@ export class SicrediWebhookService {
 
       // Build deep link URLs (faturamento page expects task ID; withdrawal-backed
       // invoices link to the "Operação Externa" detail page instead)
+      // A fatura conjunta e o lote têm `taskId` NULO — o link ia para
+      // `/detalhes/null`. `billingDeepLinkForInvoice` resolve pela COBERTURA.
+      const billingLink = withdrawalId
+        ? null
+        : await billingDeepLinkForInvoice(this.prismaService as any, invoice.id);
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+        : billingLink!.web;
       const mobileUrl = withdrawalId
         ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `financial/${invoice.taskId}`;
+        : billingLink!.mobile;
       const actionUrl = JSON.stringify({
         web: webUrl,
         mobile: mobileUrl,

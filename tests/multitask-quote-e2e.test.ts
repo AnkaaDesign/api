@@ -197,8 +197,7 @@ async function main() {
         customerConfigs: {
           select: {
             id: true,
-            billingApprovedAt: true,
-            coveredTasks: { select: { taskId: true } },
+            billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
           },
         },
       },
@@ -231,14 +230,14 @@ async function main() {
     check(
       '`JOINT` produz UMA fatia, cobrindo os QUATRO veículos',
       quote?.customerConfigs.length === 1 &&
-        quote.customerConfigs[0].coveredTasks.length === 4,
+        (quote.customerConfigs[0].billing?.tasks ?? []).length === 4,
       JSON.stringify(quote?.customerConfigs),
     );
     check(
       'a cobertura do `JOINT` é exatamente o conjunto de veículos do orçamento',
-      new Set((quote?.customerConfigs[0]?.coveredTasks ?? []).map(r => r.taskId)).size === 4 &&
-        (quote?.customerConfigs[0]?.coveredTasks ?? []).every(r => taskIds.includes(r.taskId)),
-      JSON.stringify(quote?.customerConfigs[0]?.coveredTasks),
+      new Set((quote?.customerConfigs[0]?.billing?.tasks ?? []).map(r => r.taskId)).size === 4 &&
+        (quote?.customerConfigs[0]?.billing?.tasks ?? []).every(r => taskIds.includes(r.taskId)),
+      JSON.stringify(quote?.customerConfigs[0]?.billing?.tasks),
     );
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -288,7 +287,7 @@ async function main() {
         billingSplit: true,
         vehicleCount: true,
         customerConfigs: {
-          select: { id: true, total: true, coveredTasks: { select: { taskId: true } } },
+          select: { id: true, total: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
         },
       },
     });
@@ -300,7 +299,7 @@ async function main() {
     check(
       'quatro fatias, cada uma cobrindo UM veículo',
       perTask?.customerConfigs.length === 4 &&
-        perTask.customerConfigs.every(c => c.coveredTasks.length === 1),
+        perTask.customerConfigs.every(c => (c.billing?.tasks ?? []).length === 1),
       JSON.stringify(perTask?.customerConfigs),
     );
     // A PARTIÇÃO — a propriedade que o índice único `(taskId, customerId)`
@@ -310,11 +309,11 @@ async function main() {
       'os quatro veículos, cada um em exatamente uma fatia',
       (() => {
         const covered = (perTask?.customerConfigs ?? []).flatMap(c =>
-          c.coveredTasks.map(r => r.taskId),
+          (c.billing?.tasks ?? []).map(r => r.taskId),
         );
         return covered.length === 4 && new Set(covered).size === 4;
       })(),
-      JSON.stringify((perTask?.customerConfigs ?? []).map(c => c.coveredTasks)),
+      JSON.stringify((perTask?.customerConfigs ?? []).map(c => c.billing?.tasks)),
     );
     // `total da fatia = por veículo × cobertos`. Trocar só o modo tem de
     // RECALCULAR: enquanto `billingSplit` não estava na condição de
@@ -360,13 +359,13 @@ async function main() {
           select: {
             id: true,
             total: true,
-            coveredTasks: { select: { taskId: true }, orderBy: { createdAt: 'asc' } },
+            billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true }, orderBy: { createdAt: 'asc' } } } },
           },
         })
       ).map(c => ({
         id: c.id,
         total: Number(c.total),
-        covered: c.coveredTasks.map(r => r.taskId),
+        covered: (c.billing?.tasks ?? []).map(r => r.taskId),
       }));
 
     const lots = await readLots();
@@ -398,21 +397,33 @@ async function main() {
     // `@@unique([taskId, customerId])`. Não é convenção nem guarda de serviço: é
     // o índice que torna IMPOSSÍVEL o mesmo caminhão ser cobrado por duas notas
     // do mesmo cliente — o erro que ninguém percebe até o cliente receber duas.
-    const otherLotId = lots.find(l => !l.covered.includes(taskIds[0]))!.id;
+    // A regra ficou MAIS forte: era `QuoteBillingTask.@@unique([taskId, customerId])`
+    // — um veículo, uma fatura DAQUELE CLIENTE — e virou
+    // `BillingTask.@@unique([taskId])`: um veículo, UM FATURAMENTO, sem escopo de
+    // cliente. Dois pagadores do mesmo recorte dividem o mesmo faturamento, então
+    // a regra global não recusa nada que exista de verdade.
+    const outroFaturamento = (
+      await prisma.billing.findFirst({
+        where: { quoteId, tasks: { none: { taskId: taskIds[0] } } },
+        select: { id: true },
+      })
+    )?.id;
     let refused = false;
-    try {
-      await prisma.quoteBillingTask.create({
-        data: { configId: otherLotId, taskId: taskIds[0], customerId: customer.id },
-      });
-    } catch {
-      refused = true;
+    if (outroFaturamento) {
+      try {
+        await prisma.billingTask.create({
+          data: { billingId: outroFaturamento, taskId: taskIds[0] },
+        });
+      } catch {
+        refused = true;
+      }
+      if (!refused) {
+        await prisma.billingTask
+          .delete({ where: { billingId_taskId: { billingId: outroFaturamento, taskId: taskIds[0] } } })
+          .catch(() => {});
+      }
     }
-    if (!refused) {
-      await prisma.quoteBillingTask
-        .delete({ where: { configId_taskId: { configId: otherLotId, taskId: taskIds[0] } } })
-        .catch(() => {});
-    }
-    check('o banco RECUSA cobrar o mesmo veículo em duas faturas do cliente', refused);
+    check('o banco RECUSA cobrar o mesmo veículo em dois faturamentos', refused);
 
     // ── Regravar os MESMOS lotes não recria nada ─────────────────────────────
     //
@@ -480,10 +491,18 @@ async function main() {
     // Uma fatia já APROVADA não muda de cobertura, em nenhum modo. Sem isto,
     // trocar o fatiamento depois de faturar mudaria, retroativamente, de quais
     // caminhões é uma NFS-e que já foi autorizada.
+    // A aprovação é do FATURAMENTO, não do pagador: `Billing.approvedAt` substituiu
+    // a coluna por pagador, que com dois pagadores do mesmo recorte guardava duas
+    // datas para um evento só.
     const frozenId = split.find(l => l.covered.join() === taskIds[0])!.id;
-    await prisma.taskQuoteCustomerConfig.update({
-      where: { id: frozenId },
-      data: { billingApprovedAt: new Date() },
+    const frozenBillingId = (
+      await prisma.taskQuoteCustomerConfig.findUnique({
+        where: { id: frozenId }, select: { billingId: true },
+      })
+    )!.billingId;
+    await prisma.billing.update({
+      where: { id: frozenBillingId },
+      data: { approvedAt: new Date() },
     });
 
     // Trocar o MODO com faturamento aprovado é RECUSADO — e a recusa é a
@@ -540,9 +559,9 @@ async function main() {
 
     // A aprovação sai do caminho para não travar as verificações seguintes nem
     // a limpeza (uma fatia congelada é, de propósito, difícil de mexer).
-    await prisma.taskQuoteCustomerConfig.update({
-      where: { id: frozenId },
-      data: { billingApprovedAt: null },
+    await prisma.billing.update({
+      where: { id: frozenBillingId },
+      data: { approvedAt: null },
     });
 
     // ═══════════════════════════════════════════════════════════════════════

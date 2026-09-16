@@ -101,6 +101,19 @@ export interface QuoteSnapshotVehicle {
   chassisNumber: string | null;
   category: string | null;
   implementType: string | null;
+  /**
+   * O PEDIDO DE COMPRA do cliente, por veículo.
+   *
+   * Entrou depois das outras: envelope congelado antes desta feature NÃO tem a
+   * chave, e é essa ausência que o aditivo lê para não declarar uma lacuna que
+   * a folha assinada nunca mostrou. Opcional de propósito — não a preencha ao
+   * reler um snapshot antigo.
+   *
+   * Fora do recorte material (`materialProjection` leva só a placa de cada
+   * veículo) e fora do diff: o número chega semanas depois da assinatura, e
+   * tratá-lo como material faria esse preenchimento derrubar a coleta.
+   */
+  orderNumber?: string | null;
 }
 
 /**
@@ -201,7 +214,7 @@ export interface QuoteSnapshot {
  * `billingSplit` entrou — o orçamento passou a poder cobrir N veículos.
  *
  * v4 (2026-09-13): `billingGroups` entrou — a cobertura de cada fatura virou
- * DADO (`QuoteBillingTask`), e com lotes o modo sozinho já não diz quantas
+ * DADO (`BillingTask`), e com lotes o modo sozinho já não diz quantas
  * faturas existem nem de que tamanho.
  */
 export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
@@ -371,9 +384,15 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
       // A COBERTURA. Entra no grafo compartilhado porque o documento DEPENDE
       // dela: é ela que decide se a cláusula de pagamento diz "quatro parcelas de
       // R$ 182.556,00", "para cada um dos 60 veículos" ou "para cada grupo de 20".
-      coveredTasks: {
-        select: { taskId: true },
-        orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+      billing: {
+        select: {
+          id: true,
+          approvedAt: true,
+          tasks: {
+            select: { taskId: true },
+            orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
+          },
+        },
       },
     },
   },
@@ -449,6 +468,7 @@ export class QuoteSnapshotService {
         chassisNumber: t.truck?.chassisNumber ?? null,
         category: t.truck?.category ?? null,
         implementType: t.truck?.implementType ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
       billingSplit: (quote as any).billingSplit ?? 'JOINT',
       // OS LOTES, na ordem do documento. A ordem dos veículos dentro de cada
@@ -456,7 +476,7 @@ export class QuoteSnapshotService {
       // e a ordem dos lotes, da criação das faturas — as duas estáveis, porque
       // uma ordem que muda entre duas leituras muda o hash sem nada ter mudado.
       billingGroups: quote.customerConfigs.map(c =>
-        ((c as any).coveredTasks ?? []).map((row: { taskId: string }) => row.taskId),
+        ((c as any).billing?.tasks ?? []).map((row: { taskId: string }) => row.taskId),
       ),
       services: quote.services.map(s => ({
         description: s.description,

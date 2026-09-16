@@ -91,7 +91,18 @@
     "test:task-order-number": "tsx tests/task-order-number.test.ts",
     "test:signature-reminders": "tsx tests/signature-reminders.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
-    "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts"
+    "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
+    "whatsapp:submit-template": "tsx scripts/submit-signature-whatsapp-template.ts",
+    "test:signature-refusal": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/signature-refusal.test.ts",
+    "test:nfse-line-scale": "tsx tests/nfse-line-scale.test.ts",
+    "test:billing-coverage": "tsx tests/billing-coverage.test.ts",
+    "test:boleto-informativo": "tsx tests/boleto-informativo-cobertura.test.ts",
+    "test:em-negociacao": "tsx tests/em-negociacao-multitarefa.test.ts",
+    "heal:em-negociacao": "tsx scripts/heal-em-negociacao.ts",
+    "test:orcamento-faturamento-p0": "tsx tests/orcamento-faturamento-p0.test.ts",
+    "test:e2e-troca-de-modo": "tsx tests/e2e-ui/fase6-troca-de-modo.ts",
+    "test:faturamento-separado": "tsx tests/e2e-ui/check-faturamento-separado.ts",
+    "test:billing-entity": "tsx tests/billing-entity.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

@@ -163,21 +163,36 @@ export function buildTaskQuoteReceiptHtml(
       ${itemsHtml}
     </table>
 
-    ${
-      data.vehicleCount > 1
-        ? `<table class="items"><tr>
-             <td class="desc">Valor por veículo</td>
-             <td class="amt">${formatCurrencyBRL(
-               data.services.reduce((sum, sv) => sum + sv.amount, 0),
-             )
-               .replace('R$', '')
-               .trim()}</td>
-           </tr><tr>
-             <td class="desc">Veículos</td>
-             <td class="amt">&times; ${data.vehicleCount}</td>
-           </tr></table>`
-        : ''
-    }
+    ${(() => {
+      // ── A CONTA DO CUPOM TEM DE FECHAR ─────────────────────────────────
+      //
+      // A lista acima traz o preço POR VEÍCULO de cada serviço, e `total` é o
+      // valor do contrato (`por veículo × N`, JÁ COM DESCONTO). Multiplicar a
+      // SOMA DOS SERVIÇOS pelos veículos só fecha quando não há desconto: com
+      // 12% num orçamento de quatro, o cupom dizia "Valor por veículo
+      // R$ 1.250,50 · Veículos × 4 · TOTAL PAGO R$ 4.401,76" — três números que
+      // não se explicam. O desconto entra como LINHA, e o valor por veículo é o
+      // de depois dele, que é o que multiplicado por N dá o total pago.
+      const subtotalPorVeiculo =
+        Math.round(data.services.reduce((sum, sv) => sum + sv.amount, 0) * 100) / 100;
+      const totalPorVeiculo = Math.round((data.total / data.vehicleCount) * 100) / 100;
+      const descontoPorVeiculo = Math.round((subtotalPorVeiculo - totalPorVeiculo) * 100) / 100;
+      const cifra = (v: number) => formatCurrencyBRL(v).replace('R$', '').trim();
+      const linhas: string[] = [];
+      if (descontoPorVeiculo > 0.005) {
+        linhas.push(
+          `<tr><td class="desc">Desconto${data.vehicleCount > 1 ? ' por veículo' : ''}</td>` +
+            `<td class="amt">- ${cifra(descontoPorVeiculo)}</td></tr>`,
+        );
+      }
+      if (data.vehicleCount > 1) {
+        linhas.push(
+          `<tr><td class="desc">Valor por veículo</td><td class="amt">${cifra(totalPorVeiculo)}</td></tr>`,
+          `<tr><td class="desc">Veículos</td><td class="amt">&times; ${data.vehicleCount}</td></tr>`,
+        );
+      }
+      return linhas.length > 0 ? `<table class="items">${linhas.join('\n')}</table>` : '';
+    })()}
 
     <div class="total-line">
       <span class="lbl">TOTAL PAGO</span>

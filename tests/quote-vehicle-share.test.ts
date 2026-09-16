@@ -31,6 +31,7 @@ import {
   perVehicleAmount,
   sliceAnchorTaskId,
   sliceTask,
+  withCoverageInclude,
 } from '../src/utils/quote-tasks';
 
 let failures = 0;
@@ -102,30 +103,30 @@ console.log('\n`sliceTask`: a parcela do caminhão 37 abre o caminhão 37');
   const cov = (...ids: string[]) => ids.map(taskId => ({ taskId }));
   check(
     'fatura de um veículo devolve a tarefa DELA',
-    sliceTask({ coveredTasks: cov('truck-37'), quote: { tasks } })?.id === 'truck-37',
+    sliceTask({ tasks: cov('truck-37'), quote: { tasks } })?.id === 'truck-37',
   );
   check(
     'fatura conjunta ancora no primeiro veículo — qualquer um serve para o link',
-    sliceTask({ coveredTasks: cov('truck-1', 'truck-37'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('truck-1', 'truck-37'), quote: { tasks } })?.id === 'truck-1',
   );
   check(
     'a âncora segue a ordem do ORÇAMENTO, não a ordem em que a cobertura veio',
-    sliceTask({ coveredTasks: cov('truck-37', 'truck-1'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('truck-37', 'truck-1'), quote: { tasks } })?.id === 'truck-1',
   );
   check(
     'cobertura que a consulta não trouxe cai no primeiro, nunca em nulo',
-    sliceTask({ coveredTasks: [], quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: [], quote: { tasks } })?.id === 'truck-1',
   );
   check(
     'cobertura de uma tarefa fora da consulta cai no primeiro',
-    sliceTask({ coveredTasks: cov('truck-99'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('truck-99'), quote: { tasks } })?.id === 'truck-1',
   );
   check(
     'orçamento sem tarefa nenhuma devolve nulo',
-    sliceTask({ coveredTasks: [], quote: { tasks: [] } }) === null,
+    sliceTask({ tasks: [], quote: { tasks: [] } }) === null,
   );
   check('configuração ausente devolve nulo', sliceTask(null) === null);
-  check('configuração sem orçamento devolve nulo', sliceTask({ coveredTasks: cov('x') }) === null);
+  check('configuração sem orçamento devolve nulo', sliceTask({ tasks: cov('x') }) === null);
 }
 
 console.log('\n`sliceAnchorTaskId`: o `Invoice.taskId` só existe quando a fatura é de UM');
@@ -133,24 +134,24 @@ console.log('\n`sliceAnchorTaskId`: o `Invoice.taskId` só existe quando a fatur
   const cov = (...ids: string[]) => ids.map(taskId => ({ taskId }));
   check(
     'fatura de um veículo carimba o veículo — inclusive no orçamento de UMA tarefa, que é o acervo inteiro',
-    sliceAnchorTaskId({ coveredTasks: cov('truck-1') }) === 'truck-1',
+    sliceAnchorTaskId({ tasks: cov('truck-1') }) === 'truck-1',
   );
   check(
     'fatura de um lote não é de nenhum veículo: nulo',
-    sliceAnchorTaskId({ coveredTasks: cov('truck-1', 'truck-2') }) === null,
+    sliceAnchorTaskId({ tasks: cov('truck-1', 'truck-2') }) === null,
   );
-  check('sem cobertura, nulo', sliceAnchorTaskId({ coveredTasks: [] }) === null);
+  check('sem cobertura, nulo', sliceAnchorTaskId({ tasks: [] }) === null);
 }
 
 console.log('\nA cobertura: quantos veículos esta fatura cobra');
 {
   const cov = (...ids: string[]) => ids.map(taskId => ({ taskId }));
-  const lote = { coveredTasks: cov('t1', 't2', 't3') };
+  const lote = { tasks: cov('t1', 't2', 't3') };
   check('conta os veículos cobertos', coveredTaskCount(lote) === 3);
   check('responde se cobra um veículo', coversTask(lote, 't2'));
   check('e se NÃO cobra', !coversTask(lote, 't9'));
   check('taskId nulo nunca é coberto', !coversTask(lote, null));
-  check('sem cobertura, zero', coveredTaskCount({ coveredTasks: [] }) === 0);
+  check('sem cobertura, zero', coveredTaskCount({ tasks: [] }) === 0);
   check('relação ausente, zero', coveredTaskCount({}) === 0);
 }
 
@@ -193,6 +194,44 @@ console.log('\nO número do pedido é do VEÍCULO');
     'sem limite, todos entram',
     (orderNumberLabel(muitos) ?? '').split(', ').length === 30,
   );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// O PEDIDO DE UM CLIENTE ANTIGO NÃO PODE DERRUBAR A TELA
+//
+// `coveredTasks` e `billingApprovedAt` saíram de `TaskQuoteCustomerConfig`
+// quando a cobertura e o estado passaram para o `Billing`. Quem ainda os pede
+// não recebe uma coluna a menos: recebe 500, porque o Prisma recusa a consulta
+// INTEIRA com "Unknown field ... for select statement".
+//
+// Aconteceu em produção: um `select` esquecido na lista de faturamento derrubou
+// a TELA TODA — não uma coluna, a tela. E clientes velhos não somem no deploy:
+// um bundle em cache, uma aba de ontem, o app da loja, um favorito.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  console.log('\nChaves aposentadas do pagador');
+  const antigo: any = withCoverageInclude({
+    select: { id: true, customerId: true, billingApprovedAt: true, coveredTasks: true },
+  });
+  check('o `select` de um cliente antigo perde `billingApprovedAt`',
+    !('billingApprovedAt' in antigo.select), JSON.stringify(Object.keys(antigo.select)));
+  check('e perde `coveredTasks`',
+    !('coveredTasks' in antigo.select), JSON.stringify(Object.keys(antigo.select)));
+  check('sem perder o que ele de fato pediu',
+    antigo.select.id === true && antigo.select.customerId === true);
+  check('e o FATURAMENTO vem no lugar, com o estado dentro',
+    !!antigo.select.billing?.select?.approvedAt && !!antigo.select.billing?.select?.tasks);
+
+  const include: any = withCoverageInclude({ include: { coveredTasks: true, customer: true } });
+  check('o mesmo vale para `include`',
+    !('coveredTasks' in include.include) && include.include.customer === true &&
+    !!include.include.billing);
+
+  // Quem pediu `billing` à mão sabe o que quer: não se sobrescreve.
+  const proprio: any = withCoverageInclude({ select: { billing: { select: { id: true } } } });
+  check('um `billing` pedido à mão é respeitado',
+    JSON.stringify(proprio.select.billing) === JSON.stringify({ select: { id: true } }));
 }
 
 if (failures > 0) {

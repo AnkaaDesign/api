@@ -16,7 +16,7 @@ import {
   UsePipes,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceAnalyticsService } from './invoice-analytics.service';
@@ -44,6 +44,7 @@ import {
 import type { InvoiceGetManyFormData } from '@types';
 import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 import { sliceTask } from '../../../utils/quote-tasks';
+import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
 
 /**
  * Controller for Invoice endpoints.
@@ -143,12 +144,17 @@ export class InvoiceController {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
+      // A fatura conjunta e o lote têm `taskId` NULO — o link ia para
+      // `/detalhes/null`. `billingDeepLinkForInvoice` resolve pela COBERTURA.
+      const billingLink = withdrawalId
+        ? null
+        : await billingDeepLinkForInvoice(this.prisma as any, invoice.id);
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+        : billingLink!.web;
       const mobileUrl = withdrawalId
         ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `financial/${invoice.taskId}`;
+        : billingLink!.mobile;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
       await this.dispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {
@@ -579,7 +585,7 @@ export class InvoiceController {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       tasks: {
@@ -1042,13 +1048,7 @@ export class InvoiceController {
       });
       const syncQuoteId = invoiceForSync?.customerConfig?.quoteId;
       if (syncQuoteId) {
-        const syncTask = await this.prisma.task.findFirst({
-          where: { quoteId: syncQuoteId },
-          select: { id: true },
-        });
-        if (syncTask) {
-          await syncEmNegociacaoForTask(this.prisma, syncTask.id);
-        }
+        await syncEmNegociacaoForQuote(this.prisma, syncQuoteId);
       }
     }
 
@@ -1449,7 +1449,7 @@ export class InvoiceController {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       tasks: {
@@ -2032,7 +2032,33 @@ export class InvoiceController {
   )
   async taskNfseHistory(@Param('taskId', ParseUUIDPipe) taskId: string) {
     const docs = await this.prisma.nfseDocument.findMany({
-      where: { taskId },
+      where: {
+        // TRÊS ELOS, porque `taskId` sozinho é NULO POR CONSTRUÇÃO na nota conjunta.
+        //
+        // `NfseDocument.taskId` sai de `sliceAnchorTaskId`, que só devolve tarefa
+        // quando a cobertura tem UM veículo. Num JOINT de quatro caminhões com nota
+        // autorizada, os quatro exibiam histórico fiscal VAZIO — e é justamente para
+        // cá que as notificações de `nfse.cancel_rejected` / `nfse.orphan_live`
+        // mandam o contador.
+        OR: [
+          // 1. a nota da fatia de um veículo só.
+          { taskId },
+          // 2. a nota cuja FATURA cobre este veículo — pega conjunta e lote.
+          { invoice: { customerConfig: { billing: { tasks: { some: { taskId } } } } } },
+          // 3. a órfã de ciclo revertido: perdeu a fatura (`invoiceId` → nulo) e, se
+          //    conjunta, nunca teve tarefa. Sobra o ORÇAMENTO, o elo sempre preenchido.
+          //    Escopar por ele pode mostrar num veículo uma nota de lote que não o
+          //    cobria — e é o lado certo de errar: some um documento fiscal VIVO da
+          //    tela de quem precisa cancelá-lo, ou aparece um a mais, identificado.
+          {
+            AND: [
+              { invoiceId: null },
+              { taskId: null },
+              { quote: { tasks: { some: { id: taskId } } } },
+            ],
+          },
+        ],
+      },
       // Latest first. nfseNumber nulls (PENDING/ERROR, not yet emitted) sort last.
       orderBy: [{ nfseNumber: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       select: {

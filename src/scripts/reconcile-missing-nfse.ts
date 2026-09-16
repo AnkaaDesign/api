@@ -64,7 +64,7 @@ async function main(): Promise<void> {
             // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
             // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
             // `coveredTaskIds()` de `@utils/quote-tasks`.
-            coveredTasks: { select: { taskId: true } },
+            billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
             quote: { select: { tasks: { select: { id: true, customerOrderNumber: true } } } },
           },
         },

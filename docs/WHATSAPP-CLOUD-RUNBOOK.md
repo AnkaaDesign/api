@@ -37,10 +37,47 @@ idioma, quantidade e ordem das variáveis. O TEXTO mora na Meta.
 | `orcamento_assinatura_cancelada` | documento mudou | 2 variáveis | — |
 | `orcamento_aguardando_assinatura` | lembrete diário (09:00) | 3 variáveis | URL com `{{1}}` = token |
 | `orcamento_vencido` | validade encerrada | 2 variáveis | **telefone do comercial (estático)** |
+| `orcamento_recusado` | cliente recusou assinar | 3 variáveis | — |
 
 Os três primeiros estão `APPROVED` e são os únicos que `main` usa hoje. Os dois
 últimos foram submetidos em 13/09/2026 e pertencem ao fluxo que vive em
 `feat/orcamento-multitarefa` — lembrete e vencimento.
+
+### PENDENTE: o aviso de "coleta pausada" ainda não tem template
+
+Quando um responsável recusa, os DEMAIS recebem um aviso de que a coleta parou e
+de que as assinaturas deles continuam valendo (`generateCollectionPausedWhatsApp`).
+Esse aviso sai hoje em **texto livre pelo Baileys** — `sendWhatsApp` cai nele
+porque `notifyRefusalToPeers` passa `whatsappTemplate: null` de propósito.
+
+Antes de ligar a Cloud API, submeta um template para ele, senão o aviso continua
+saindo pelo número do Baileys enquanto o resto da cerimônia migra. Sugestão de
+corpo, 2 variáveis (`{{1}}` quem recusou · `{{2}}` orçamento):
+
+> Olá. {{1}} não aprovou a proposta do orçamento nº {{2}}, e a coleta de
+> assinaturas foi pausada. As assinaturas já registradas continuam valendo.
+> Vamos retomar o contato; se o orçamento mudar, você recebe um novo link.
+
+⚠️ O MOTIVO da recusa não entra: ele é posição interna do cliente e vai só para
+o nosso comercial, pelo `orcamento_recusado`.
+
+### `orcamento_recusado` é o único de destinatário INTERNO
+
+Os outros cinco falam com o CLIENTE. Este avisa o comercial da Ankaa de que o
+cliente recusou, e por quê. Avisos internos normalmente ficam no Baileys —
+texto livre, sem template e sem aprovação —, e só este sai pelo número oficial,
+por decisão de 14/09/2026.
+
+⚠️ A terceira variável é o MOTIVO, texto que o cliente digitou. É achatado
+(`cleanParam`) e cortado em 320 caracteres (`clampParam`) antes do envio: a Meta
+recusa parâmetro com quebra de linha **no envio, não no cadastro**, e um corpo
+que estoura o limite é recusado inteiro — o comercial ficaria sem aviso nenhum
+justamente na recusa que o cliente se deu ao trabalho de explicar. O texto
+completo fica no sistema; a mensagem manda olhar lá.
+
+Enquanto não estiver `APPROVED`, o aviso sai em texto livre pelo Baileys
+(`generateRefusalNoticeWhatsApp`) — `sendWhatsApp` cai nele sozinho quando a
+Cloud API não sabe mandar template. Nada a desligar.
 
 ### `orcamento_vencido` é MARKETING, e isso foi aceito
 

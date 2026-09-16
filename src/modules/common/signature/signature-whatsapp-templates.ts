@@ -63,6 +63,24 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
    * `expiredTemplate` continua mandando só as duas variáveis do corpo.
    */
   EXPIRED: 'orcamento_vencido',
+  /**
+   * O CLIENTE RECUSOU. `{{1}}` quem recusou · `{{2}}` orçamento · `{{3}}` motivo.
+   *
+   * ⚠️ É o PRIMEIRO template deste catálogo cujo destinatário é INTERNO — vai
+   * para o comercial da Ankaa, não para o cliente. Os avisos internos moram no
+   * Baileys justamente por não precisarem de template; este sai pelo número
+   * oficial por decisão de negócio, e por isso precisa de um.
+   *
+   * O MOTIVO É VARIÁVEL, e isso tem consequência: a Meta recusa no ENVIO (não no
+   * cadastro) parâmetro com quebra de linha, tabulação ou corrida de espaços, e
+   * o motivo é texto que o cliente digitou num `textarea`. `cleanParam` achata
+   * tudo; `clampParam` corta o comprimento. Sem os dois, a recusa mais informativa
+   * — a que o cliente se deu ao trabalho de explicar — seria justamente a que
+   * não chega.
+   *
+   * Categoria UTILITY: é atualização de uma transação em curso, não marketing.
+   */
+  REFUSED: 'orcamento_recusado',
 } as const;
 
 /**
@@ -75,6 +93,22 @@ function cleanParam(value: string | number | null | undefined): string {
   return String(value ?? '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Encurta um parâmetro sem cortar palavra no meio.
+ *
+ * O motivo da recusa aceita 1000 caracteres no banco — é um `textarea`, e há
+ * cliente que escreve um parágrafo. Um corpo de template que estoura o limite da
+ * Meta é recusado INTEIRO: em vez de um aviso truncado, o comercial não recebe
+ * aviso nenhum, que é o pior dos dois resultados. O texto completo continua no
+ * sistema, e é para lá que a mensagem manda olhar.
+ */
+function clampParam(value: string, max: number): string {
+  if (value.length <= max) return value;
+  const cut = value.slice(0, max - 1);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 export function invitationTemplate(data: {
@@ -107,6 +141,33 @@ export function invitationTemplate(data: {
  * frase útil é a mesma das duas vezes — o orçamento está pronto e o link é este.
  */
 export const resendTemplate = invitationTemplate;
+
+/**
+ * O aviso de RECUSA para o comercial da Ankaa.
+ *
+ * Sem botão: quem recebe é gente de casa, com sessão no sistema, e o orçamento
+ * é achado pelo número. Um botão de URL para uma tela atrás de login só
+ * produziria uma ida ao login sem contexto.
+ */
+export function refusedTemplate(data: {
+  /** Quem recusou — o responsável do CLIENTE, não quem recebe o aviso. */
+  refusedByName: string;
+  budgetNumber: string | number;
+  reason: string;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.REFUSED,
+    language: LANGUAGE,
+    bodyParams: [
+      // Nome COMPLETO, não só o primeiro: quem lê precisa saber qual dos
+      // responsáveis do cliente recusou, e num cadastro com dois "Carlos" o
+      // primeiro nome não responde isso.
+      cleanParam(data.refusedByName),
+      cleanParam(data.budgetNumber),
+      clampParam(cleanParam(data.reason), 320),
+    ],
+  };
+}
 
 export function otpTemplate(data: { code: string }): SignatureWhatsAppTemplate {
   return {

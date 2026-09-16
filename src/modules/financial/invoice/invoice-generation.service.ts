@@ -7,6 +7,7 @@ import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 import { coveredTaskIds, orderNumberLabel, sliceAnchorTaskId } from '../../../utils/quote-tasks';
+import { deleteInstallmentsWithSlips } from '../../../utils/billing-teardown';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -85,8 +86,14 @@ export class InvoiceGenerationService {
                 // valor (`por veículo × cobertos`) e o `Invoice.taskId` /
                 // `NfseDocument.taskId`, que só é preenchido quando a fatura é
                 // de UM veículo.
-                coveredTasks: {
-                  select: { taskId: true, task: { select: { id: true, finishedAt: true } } },
+                billing: {
+                  select: {
+                    id: true,
+                    approvedAt: true,
+                    tasks: {
+                      select: { taskId: true, task: { select: { id: true, finishedAt: true } } },
+                    },
+                  },
                 },
               },
             },
@@ -122,7 +129,7 @@ export class InvoiceGenerationService {
     const onlyTaskIds = options?.onlyTaskIds ? new Set(options.onlyTaskIds) : null;
     const customerConfigs = (quote.customerConfigs ?? []).filter(config => {
       if (!onlyTaskIds) return true;
-      const covered = ((config as any).coveredTasks ?? []) as Array<{ taskId: string }>;
+      const covered = ((config as any).billing?.tasks ?? []) as Array<{ taskId: string }>;
       // Fatia sem cobertura é o orçamento que ainda não tem veículo vinculado:
       // ali não há o que restringir, e recusá-la deixaria a aprovação sem fatura.
       if (covered.length === 0) return true;
@@ -189,8 +196,9 @@ export class InvoiceGenerationService {
             );
           }
 
-          await tx.installment.deleteMany({
-            where: { invoiceId: { in: ids }, status: { not: 'PAID' } },
+          await deleteInstallmentsWithSlips(tx, {
+            invoiceId: { in: ids },
+            status: { not: 'PAID' },
           });
           await tx.invoice.deleteMany({ where: { id: { in: ids } } });
           this.logger.log(
@@ -216,7 +224,7 @@ export class InvoiceGenerationService {
         // aconteceu. E só vale quando TODOS fecharam: com um pendente não existe
         // "data de conclusão" do lote, e a conta cai na data de aprovação, que é
         // o que os geradores já preferem.
-        const coveredRows = ((config as any).coveredTasks ?? []) as Array<{
+        const coveredRows = ((config as any).billing?.tasks ?? []) as Array<{
           task?: { finishedAt: Date | null } | null;
         }>;
         const coveredFinishedAt = coveredRows.map(r => r.task?.finishedAt ?? null);
@@ -617,11 +625,9 @@ export class InvoiceGenerationService {
           );
         }
 
-        await tx.installment.deleteMany({
-          where: {
-            status: { not: 'PAID' },
-            OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
-          },
+        await deleteInstallmentsWithSlips(tx, {
+          status: { not: 'PAID' },
+          OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
         });
         await tx.invoice.deleteMany({ where: { id: { in: ids } } });
         this.logger.log(
@@ -817,7 +823,7 @@ export class InvoiceGenerationService {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 quote: {
                   select: {
                     services: {
@@ -830,7 +836,22 @@ export class InvoiceGenerationService {
                     // antigo (por cliente) fazia. Ver `orderNumberLabel`.
                     tasks: {
                       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                      select: { id: true, customerOrderNumber: true },
+                      select: {
+                        id: true,
+                        customerOrderNumber: true,
+                        // SÉRIE E CAMINHÃO — numa fatura conjunta `Invoice.task`
+                        // é nulo, e sem eles o informativo do boleto não citava
+                        // veículo nenhum.
+                        serialNumber: true,
+                        truck: {
+                          select: {
+                            plate: true,
+                            chassisNumber: true,
+                            category: true,
+                            implementType: true,
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -1084,20 +1105,31 @@ export class InvoiceGenerationService {
       return parts.length > 0 ? parts : undefined;
     }
 
-    // O pedido dos veículos que ESTA fatura cobre — exatamente eles, nem mais
-    // nem menos. Um só quando a cobrança é veículo a veículo; os do lote quando
-    // é um lote; os do orçamento inteiro quando é conjunta. Citar um pedido que
-    // não é da entrega cobrada faz o cliente receber um boleto que não bate com
-    // nenhum pedido dele. `80` é o que sobra da linha do boleto informativo.
+    // ── OS VEÍCULOS QUE ESTE BOLETO COBRA — uma leitura só ──────────────────
+    //
+    // O pedido de compra e a descrição do veículo têm de falar dos MESMOS
+    // caminhões. Eram duas leituras com recuos diferentes: sem linha de
+    // cobertura (fatura do acervo, anterior à migração), o pedido recuava para o
+    // ORÇAMENTO INTEIRO e a descrição para a tarefa da fatura — o boleto saía
+    // citando os quatro pedidos e nomeando um caminhão só.
+    //
+    // Agora é uma lista: a cobertura; na falta dela, a tarefa da fatura; na
+    // falta das duas, o orçamento inteiro (fatura conjunta antiga, que de fato
+    // cobra todos). `80` é o que sobra da linha do boleto informativo.
     const cfgForOrder = installment.invoice?.customerConfig;
     const coveredForOrder = new Set(coveredTaskIds(cfgForOrder as any));
-    const orderNumber = orderNumberLabel(
+    const quoteTaskRows: any[] = (cfgForOrder?.quote?.tasks ?? []) as any[];
+    const coveredRows: any[] =
       coveredForOrder.size > 0
-        ? (cfgForOrder?.quote?.tasks ?? []).filter(t => coveredForOrder.has(t.id))
-        : (cfgForOrder?.quote?.tasks ?? []),
-      80,
-    );
-    const task = installment.invoice?.task;
+        ? quoteTaskRows.filter(t => coveredForOrder.has(t.id))
+        : installment.invoice?.task
+          ? [installment.invoice.task]
+          : quoteTaskRows;
+    const orderNumber = orderNumberLabel(coveredRows, 80);
+    // A tarefa de CONTEXTO: a da fatura quando ela é de um veículo, senão o
+    // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
+    // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
+    const task: any = installment.invoice?.task ?? coveredRows[0] ?? null;
     const truck = task?.truck;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
@@ -1126,7 +1158,22 @@ export class InvoiceGenerationService {
     if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
-    if (vehicleType || idStr) {
+    if (coveredRows.length > 1) {
+      // MAIS DE UM VEÍCULO: contagem e faixa de séries, como a discriminação da
+      // nota. Cinco linhas de 80 caracteres não cabem sessenta por extenso.
+      const series = coveredRows
+        .map((t: any) => t.serialNumber)
+        .filter((n: any): n is string => Boolean(n))
+        .sort();
+      parts.push(
+        `Referente aos servicos em ${coveredRows.length} veiculos${
+          vehicleType ? ` ${vehicleType}` : ''
+        }`.trimEnd().substring(0, 80),
+      );
+      if (series.length > 1) {
+        parts.push(`Series: ${series[0]} a ${series[series.length - 1]}`.substring(0, 80));
+      }
+    } else if (vehicleType || idStr) {
       parts.push(`Referente aos servicos no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
       if (idStr) parts.push(idStr.substring(0, 80));
     }

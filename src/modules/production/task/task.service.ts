@@ -754,7 +754,9 @@ export class TaskService {
         if (quoteData[key] === undefined) continue;
         if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
           throw new BadRequestException(
-            'Após aprovação para faturamento, este campo não pode ser alterado. Solicite o cancelamento do orçamento para editá-lo.',
+            'Após a aprovação do faturamento os valores deste orçamento não podem mais ser ' +
+              'alterados: a fatura, os boletos e a nota fiscal saíram sobre o preço atual. ' +
+              'Para mudar, use "Reverter Faturamento" na tela de Faturamento e grave de novo.',
           );
         }
         if (key === 'status') {
@@ -13127,28 +13129,43 @@ export class TaskService {
             invoiceToCustomerId: (service as any).invoiceToCustomerId ?? null,
           })),
         },
-        ...(configsByCustomer.length > 0
-          ? {
-              customerConfigs: {
-                create: configsByCustomer.map(c => ({
-                  customerId: c.customerId,
-                  subtotal: c.subtotal,
-                  total: c.total,
-                  discountType: c.discountType,
-                  discountValue: c.discountValue,
-                  discountReference: c.discountReference,
-                  customPaymentText: c.customPaymentText,
-                  responsibleId: c.responsibleId,
-                  paymentCondition: c.paymentCondition,
-                  paymentConfig: (c as any).paymentConfig ?? null,
-                  generateInvoice: c.generateInvoice,
-                  generateBankSlip: c.generateBankSlip,
-                })),
-              },
-            }
-          : {}),
       },
     });
+
+    // ── O FATURAMENTO DA CÓPIA ────────────────────────────────────────────────
+    //
+    // UM só, sem cobertura: a cópia nasce sem veículo (quem vincula a tarefa é o
+    // chamador), e um faturamento sem cobertura é a afirmação honesta nesse
+    // instante — "cobra este orçamento, e quais caminhões ainda não se sabe".
+    // Quando a tarefa entrar, a reconciliação lhe dá a cobertura.
+    //
+    // Não pode ser aninhado no `create` acima: o pagador tem FK obrigatória para o
+    // ORÇAMENTO além da do faturamento, e o id do orçamento só existe depois que
+    // ele é gravado.
+    if (configsByCustomer.length > 0) {
+      await (tx as any).billing.create({
+        data: {
+          quote: { connect: { id: newQuote.id } },
+          customerConfigs: {
+            create: configsByCustomer.map(c => ({
+              quote: { connect: { id: newQuote.id } },
+              customer: { connect: { id: c.customerId } },
+              subtotal: c.subtotal,
+              total: c.total,
+              discountType: c.discountType,
+              discountValue: c.discountValue,
+              discountReference: c.discountReference,
+              customPaymentText: c.customPaymentText,
+              ...(c.responsibleId ? { responsible: { connect: { id: c.responsibleId } } } : {}),
+              paymentCondition: c.paymentCondition,
+              paymentConfig: (c as any).paymentConfig ?? null,
+              generateInvoice: c.generateInvoice,
+              generateBankSlip: c.generateBankSlip,
+            })),
+          },
+        },
+      });
+    }
 
     // Recompute discount-aware per-config + aggregate totals from the cloned rows
     // so the copy is internally consistent (never trust the copied scalars).

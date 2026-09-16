@@ -48,7 +48,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       // filtrar as faturas do caminhão que está na tela — `Invoice.taskId` só
       // existe quando a fatura é de um veículo só.
       customerConfig: {
-        include: { coveredTasks: { select: { taskId: true } } },
+        include: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
       },
     };
   }
@@ -106,7 +106,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       // faturas do orçamento para as que o cobram: mostraria a cobrança do lote
       // inteiro na tela de cada um dos vinte.
       prismaInclude.customerConfig = {
-        include: { coveredTasks: { select: { taskId: true } } },
+        include: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
       };
     }
 

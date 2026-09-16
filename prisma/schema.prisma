@@ -1942,15 +1942,22 @@ model TaskQuote {
   /// COMO os N veículos são cobrados — junto, um a um, ou em lotes.
   ///
   /// É a INTENÇÃO declarada, não a cobertura: quem diz de quais veículos cada
-  /// fatura é são as linhas de `QuoteBillingTask`. O modo serve para a máquina
+  /// fatura é são as linhas de `BillingTask`. O modo serve para a máquina
   /// saber refatiar sozinha quando um veículo entra ou sai do orçamento —
   /// `JOINT` estende o faturamento existente, `PER_TASK` cria um novo, `CUSTOM`
   /// isola o recém-chegado em vez de chutar um lote.
   ///
-  /// Ver `QuoteBillingSplit` e `QuoteBillingTask`.
-  billingSplit       QuoteBillingSplit         @default(JOINT)
-  layoutFiles        File[]                    @relation("QUOTE_LAYOUT")
-  services           TaskQuoteService[]        @relation("QUOTE_SERVICES")
+  /// Ver `QuoteBillingSplit`, `Billing` e `BillingTask`.
+  billingSplit QuoteBillingSplit  @default(JOINT)
+  layoutFiles  File[]             @relation("QUOTE_LAYOUT")
+  services     TaskQuoteService[] @relation("QUOTE_SERVICES")
+  /// OS FATURAMENTOS deste orçamento — 1 ou N, entidades de verdade.
+  billings     Billing[]          @relation("QuoteBillings")
+
+  /// DEPRECIADO como "a lista de faturamentos". Continua existindo porque é a
+  /// lista de PAGADORES, agora pendurada em cada `Billing` por `billingId`. O
+  /// vínculo direto com o orçamento sobrevive à transição e sai quando o último
+  /// leitor tiver migrado para `billings[].customerConfigs`.
   customerConfigs    TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
   commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
   signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
@@ -1982,18 +1989,25 @@ model TaskQuoteService {
 }
 
 model TaskQuoteCustomerConfig {
-  id         String @id @default(uuid())
-  quoteId    String
-  customerId String
+  id      String @id @default(uuid())
+  quoteId String
 
-  /// Quando ESTA fatia teve o faturamento aprovado.
+  /// O FATURAMENTO a que este pagador pertence.
   ///
-  /// Existe porque, com `PER_TASK`, os sessenta caminhões não terminam no mesmo
-  /// dia: o financeiro aprova os que já saíram, e cada aprovação gera a fatura,
-  /// a NFS-e e os boletos daquele veículo com o vencimento contado dali.
-  /// `TaskQuote.billingApprovedAt` continua sendo a data em que a ÚLTIMA fatia
-  /// fechou — é ela que faz o orçamento inteiro estar faturado.
-  billingApprovedAt DateTime?
+  /// Era o orçamento. A linha ERA o faturamento, e por isso "quantos faturamentos
+  /// tem este orçamento?" se respondia contando pagadores — o que dava quatro num
+  /// orçamento de quatro veículos com um cliente só, e dois num orçamento de um
+  /// veículo com dois clientes. Duas perguntas diferentes na mesma contagem.
+  ///
+  /// Agora o faturamento é `Billing` e esta linha é o PAGADOR dentro dele.
+  ///
+  /// `NOT NULL` — no banco desde o backfill de `20260916120000_billing_entity`. O
+  /// schema declarava `String?` por três dias, exatamente o drift que o P0 existiu
+  /// para matar: o cliente tipava como opcional o que o banco exige, e um
+  /// `migrate dev` teria relaxado a coluna de volta.
+  billingId String
+
+  customerId String
 
   subtotal            Decimal       @default(0) @db.Decimal(10, 2)
   total               Decimal       @default(0) @db.Decimal(10, 2)
@@ -2010,29 +2024,23 @@ model TaskQuoteCustomerConfig {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
   quote               TaskQuote     @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
+  billing             Billing       @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
   customer            Customer      @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   responsible         Responsible?  @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
   customerSignature   File?         @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
-  invoice             Invoice?      @relation("InvoiceCustomerConfig")
+  /// 1:N, não 1:1. O banco permite uma fatura viva (índice parcial) MAIS as
+  /// canceladas de ciclos anteriores. Tipar como to-one fazia o Prisma devolver
+  /// uma linha arbitrária entre elas. Quem quer "a fatura viva" agora pergunta.
+  invoices            Invoice[]     @relation("InvoiceCustomerConfig")
   installments        Installment[] @relation("CustomerConfigInstallments")
 
-  /// OS VEÍCULOS QUE ESTE FATURAMENTO COBRE — a cobertura, como DADO.
-  ///
-  /// Era a coluna `taskId`, nula querendo dizer "todos". Isso fazia a resposta a
-  /// "de quais veículos é esta fatura?" ser uma REGRA avaliada na hora da
-  /// leitura, e não um registro: uma fatura já emitida passava a cobrir um
-  /// caminhão acrescentado ao orçamento depois, sem deixar rastro. E não
-  /// permitia lote — "1 a 20 num pedido, 21 a 60 noutro" não era representável.
-  ///
-  /// Ver `QuoteBillingTask`. Quem responde a pergunta é `coveredTaskIds()`.
-  coveredTasks QuoteBillingTask[] @relation("BillingCoverage")
-
-  // Não há `@@unique` do faturamento em si: com lote, o mesmo cliente tem K
-  // faturamentos no mesmo orçamento e K é livre. A unicidade que importa mudou
-  // de lugar e ficou MAIS forte — `QuoteBillingTask.@@unique([taskId, customerId])`
-  // diz que um veículo é cobrado por exatamente UM faturamento daquele cliente,
-  // e isso o banco garante nos três modos.
+  // A COBERTURA NÃO MORA MAIS AQUI. Quais veículos são cobrados é propriedade do
+  // FATURAMENTO (`Billing.tasks`), não do pagador: dois pagadores do mesmo
+  // recorte cobram os mesmos veículos por definição, e guardar a lista duas vezes
+  // era guardar duas versões da mesma verdade. Quem pergunta usa
+  // `coveredTaskIds(config)`, que lê `config.billing.tasks`.
   @@index([quoteId])
+  @@index([billingId])
   @@index([customerId])
   @@index([responsibleId])
   @@index([customerSignatureId])
@@ -2059,19 +2067,86 @@ model TaskQuoteCustomerConfig {
 /// o modo de falha seria cobrar o mesmo caminhão duas vezes. É seguro
 /// desnormalizar porque o cliente de um faturamento nunca muda no lugar: a
 /// reconciliação casa por cliente e troca de cliente é criação + remoção.
-model QuoteBillingTask {
-  configId   String
-  taskId     String
-  customerId String
-  createdAt  DateTime @default(now())
+/// O FATURAMENTO — uma entidade, não uma configuração do orçamento.
+///
+/// POR QUE PRECISOU EXISTIR
+///   O "faturamento" era `TaskQuoteCustomerConfig`: uma linha que ao mesmo tempo
+///   dizia A QUEM cobrar (o pagador, seus termos, seu desconto) e QUAIS VEÍCULOS
+///   a cobrança cobre. Num orçamento de quatro caminhões cobrados um a um isso
+///   produzia quatro linhas do MESMO cliente, indistinguíveis entre si — sem
+///   nome, sem estado, sem identidade de rota. A tela então mostrava "Fatura 1,
+///   2, 3, 4" na mesma página, porque não havia quatro coisas: havia uma lista
+///   de configurações de uma coisa só.
+///
+///   Agora há quatro coisas. Trocar "uma fatura para todos" por "uma por
+///   veículo" num orçamento de quatro DESTRÓI um `Billing` e CRIA quatro, cada
+///   um com o seu `id`. Não é um campo que muda de valor; é entidade que nasce e
+///   morre.
+///
+/// NÃO TEM NÚMERO, DE PROPÓSITO
+///   O número é do ORÇAMENTO (`TaskQuote.budgetNumber`) — é ele que o cliente
+///   recebe, assina e cita. Dar número ao faturamento criaria uma segunda série
+///   a explicar, a reservar e a não repetir, para identificar algo que o `id` já
+///   identifica. Quem precisa nomear um faturamento na tela o nomeia pelo que ele
+///   cobra: os veículos.
+///
+/// A REGRA QUE O BANCO GARANTE
+///   `BillingTask.@@unique([taskId])` — um veículo é cobrado por EXATAMENTE UM
+///   faturamento. É mais forte do que a regra anterior (`[taskId, customerId]`),
+///   e é o que torna "de qual faturamento é este caminhão?" uma pergunta com uma
+///   resposta só.
+///
+/// DOIS PAGADORES NÃO SÃO DOIS FATURAMENTOS
+///   São um faturamento com dois `customerConfigs`: o recorte de VEÍCULOS é o
+///   mesmo, o que difere é quem paga o quê (`TaskQuoteService.invoiceToCustomerId`).
+///   Com um pagador só — o caso comum — o faturamento tem exatamente um config.
+model Billing {
+  id      String @id @default(uuid())
+  quoteId String
 
-  config TaskQuoteCustomerConfig @relation("BillingCoverage", fields: [configId], references: [id], onDelete: Cascade)
-  task   Task                    @relation("TaskBillingCoverage", fields: [taskId], references: [id], onDelete: Cascade)
+  /// QUANDO ESTE FATURAMENTO FOI APROVADO — o estado próprio da entidade.
+  ///
+  /// Era `TaskQuoteCustomerConfig.billingApprovedAt`, uma coluna por PAGADOR. Com
+  /// dois pagadores do mesmo recorte havia duas datas para um evento só, sempre
+  /// escritas juntas pelo mesmo `updateMany` — duas colunas afirmando o mesmo
+  /// fato, que é a forma que a divergência assume antes de aparecer. E a pergunta
+  /// que a tela faz ("este faturamento está aprovado?") não tinha onde ser feita,
+  /// porque o faturamento não existia como linha.
+  ///
+  /// `TaskQuote.billingApprovedAt` continua sendo outra coisa: a data em que o
+  /// ÚLTIMO faturamento do orçamento fechou, isto é, "o orçamento inteiro está
+  /// faturado". Um é do recorte, o outro é do contrato.
+  approvedAt DateTime?
 
-  @@id([configId, taskId])
-  @@unique([taskId, customerId])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quote TaskQuote @relation("QuoteBillings", fields: [quoteId], references: [id], onDelete: Cascade)
+
+  /// OS VEÍCULOS QUE ESTE FATURAMENTO COBRE.
+  tasks BillingTask[] @relation("BillingCoverage")
+
+  /// A QUEM SE COBRA, e em que termos. Um por pagador.
+  customerConfigs TaskQuoteCustomerConfig[] @relation("BillingCustomerConfigs")
+
+  @@index([quoteId])
+}
+
+/// A cobertura do `Billing` — um veículo, um faturamento.
+model BillingTask {
+  billingId String
+  taskId    String
+  createdAt DateTime @default(now())
+
+  billing Billing @relation("BillingCoverage", fields: [billingId], references: [id], onDelete: Cascade)
+  task    Task    @relation("TaskBillingEntity", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([billingId, taskId])
+  /// UM VEÍCULO, UM FATURAMENTO. Sem escopo de cliente: dois pagadores do mesmo
+  /// recorte dividem o MESMO `Billing` (dois `customerConfigs` dentro dele), então
+  /// o veículo continua aparecendo uma vez só.
+  @@unique([taskId])
   @@index([taskId])
-  @@index([customerId])
 }
 
 model Supplier {
@@ -2190,12 +2265,13 @@ model Task {
   forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
   /// O FATURAMENTO que cobra ESTE veículo — uma linha por cliente do orçamento.
   ///
+  /// O FATURAMENTO DESTE VEÍCULO — no máximo um, e o banco garante (`BillingTask.@@unique([taskId])`).
+  ///
   /// Em `JOINT` a linha aponta para o faturamento conjunto, que os N veículos
   /// compartilham; em `PER_TASK`, para o faturamento só deste; em `CUSTOM`, para
   /// o do lote a que ele pertence. Nos três casos a pergunta "quem cobra este
-  /// caminhão?" tem resposta direta, e o banco garante que ela é única por
-  /// cliente. Ver `QuoteBillingTask`.
-  billingCoverage       QuoteBillingTask[]    @relation("TaskBillingCoverage")
+  /// caminhão?" tem uma resposta, e é uma só — não mais uma por cliente.
+  billingEntry          BillingTask[]         @relation("TaskBillingEntity")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -4370,7 +4446,7 @@ enum QuoteBillingSplit {
   PER_TASK
 
   /// LOTES LIVRES. A cobertura não é derivável do modo: ela vem das linhas de
-  /// `QuoteBillingTask` que a tela montou — "1 a 20 no pedido 8842, 21 a 60 no
+  /// `BillingTask` que a tela montou — "1 a 20 no pedido 8842, 21 a 60 no
   /// 9013". É o caso que `JOINT`/`PER_TASK` não cobrem, e é também por que a
   /// cobertura deixou de ser calculada e passou a ser gravada.
   ///
@@ -4667,7 +4743,16 @@ enum GDriveDeleteStatus {
 
 model Invoice {
   id                  String                   @id @default(uuid())
-  customerConfigId    String?                  @unique
+  /// SEM `@unique`. O índice global foi DROPADO em
+  /// `20260506000001_invoice_customer_config_partial_unique` e substituído por um
+  /// índice PARCIAL — `UNIQUE (customerConfigId) WHERE status <> 'CANCELLED'` — que o
+  /// Prisma não sabe declarar. O `@unique` ficou aqui por engano e era um drift
+  /// perigoso: qualquer `migrate dev`/`db push` recriava o índice global e MATAVA o
+  /// refaturamento (uma fatia cancelada e uma viva são duas linhas). Pior, o cliente
+  /// tipava `TaskQuoteCustomerConfig.invoice` como to-one enquanto o banco já podia
+  /// devolver duas linhas, e a leitura que decide `frozen` podia receber a CANCELADA.
+  /// O índice parcial é MANTIDO À MÃO — ver `prisma/migrations/*_p0_estancamento`.
+  customerConfigId    String?
   taskId              String?
   externalOperationId String?                  @unique
   customerId          String
@@ -4678,7 +4763,9 @@ model Invoice {
   createdById         String?
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
-  customerConfig      TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  /// `Restrict`, não `Cascade`: apagar uma fatia NÃO pode levar junto a fatura dela.
+  /// Quem remove uma fatia agora decide explicitamente o que fazer com a fatura.
+  customerConfig      TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
   task                Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
   externalOperation   ExternalOperation?       @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
   customer            Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
@@ -4718,7 +4805,8 @@ model Installment {
   externalClearedNote   String?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
-  customerConfig        TaskQuoteCustomerConfig?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  /// `Restrict`: uma parcela PAGA não some porque a fatia foi removida.
+  customerConfig        TaskQuoteCustomerConfig?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Restrict)
   externalOperation     ExternalOperation?        @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
   invoice               Invoice?                  @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip              BankSlip?                 @relation("InstallmentBankSlip")
@@ -4757,7 +4845,8 @@ model BankSlip {
   lastSyncAt            DateTime?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
-  installment           Installment           @relation("InstallmentBankSlip", fields: [installmentId], references: [id], onDelete: Cascade)
+  /// `Restrict`: boleto REGISTRADO no Sicredi não é apagado por efeito colateral.
+  installment           Installment           @relation("InstallmentBankSlip", fields: [installmentId], references: [id], onDelete: Restrict)
   pdfFile               File?                 @relation("BankSlipPdf", fields: [pdfFileId], references: [id])
   transactions          BankTransaction[]     @relation("BankSlipTransaction")
   reconciliationMatches ReconciliationMatch[] @relation("BankSlipMatches")
@@ -8273,6 +8362,12 @@ enum SignatureEventType {
   DECLARATIONS_ACCEPTED
   SIGNATURE_APPLIED
   SIGNATURE_REFUSED
+
+  /// O operador pediu de novo a quem havia recusado, devolvendo a vez dele.
+  /// A recusa CONTINUA na trilha e em `EnvelopeSigner.refusalReason` — isto não
+  /// a apaga, registra que houve uma segunda pergunta.
+  SIGNER_REOPENED
+
   SIGNER_VOIDED
   CONTACT_CHANGED
   /// Algo que o documento exibe mudou SEM mexer nas condições comerciais

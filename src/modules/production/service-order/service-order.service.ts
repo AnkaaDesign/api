@@ -63,7 +63,7 @@ import {
 } from '../../../utils/task-quote-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import {
-  syncEmNegociacaoForTask,
+  syncEmNegociacaoForTaskAndSiblings,
   registerEmNegociacaoEventEmitter,
 } from '../../../utils/em-negociacao-sync';
 import {
@@ -1754,7 +1754,11 @@ export class ServiceOrderService {
             userId,
           );
         }
-        await syncEmNegociacaoForTask(
+        // E SOBRE AS TAREFAS IRMÃS TAMBÉM. Concluir a "Em Negociação" de um
+        // veículo aprova o ORÇAMENTO inteiro (e reabri-la o desaprova inteiro):
+        // num orçamento de quatro caminhões, sincronizar só a tarefa de origem
+        // deixava as outras três "Em Andamento" sobre um orçamento aprovado.
+        await syncEmNegociacaoForTaskAndSiblings(
           this.prisma,
           (serviceOrder as any).taskId,
           userId,
@@ -3567,8 +3571,7 @@ export class ServiceOrderService {
 
             // Reverse cascade: completing the COMMERCIAL "Em Negociação" SO
             // approves the budget (PENDING → BUDGET_APPROVED). Parity with the
-            // single-update path. The batch path does not run the quote→SO sync,
-            // so there is no revert risk — the completion simply sticks.
+            // single-update path.
             if (
               (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
               ((serviceOrder as any).description ?? '').toLowerCase().trim() ===
@@ -3576,6 +3579,16 @@ export class ServiceOrderService {
               (serviceOrder as any).taskId
             ) {
               await this.budgetApproveOnEmNegociacaoComplete(
+                (serviceOrder as any).taskId,
+                userId,
+              );
+              // E as IRMÃS. A aprovação acima é do orçamento inteiro; sem isto,
+              // concluir em lote a "Em Negociação" de um veículo deixa os outros
+              // do mesmo orçamento negociando um negócio já fechado. Rodar
+              // depois da aprovação não reverte nada: o orçamento já está em
+              // BUDGET_APPROVED, e a O.S. recém-concluída nunca é rebaixada.
+              await syncEmNegociacaoForTaskAndSiblings(
+                this.prisma,
                 (serviceOrder as any).taskId,
                 userId,
               );
@@ -3595,6 +3608,13 @@ export class ServiceOrderService {
             (serviceOrder as any).taskId
           ) {
             await this.budgetRevertOnEmNegociacaoReopen(
+              (serviceOrder as any).taskId,
+              userId,
+            );
+            // Idem na volta: a desaprovação é do orçamento inteiro, então as
+            // "Em Negociação" das tarefas irmãs precisam reabrir junto.
+            await syncEmNegociacaoForTaskAndSiblings(
+              this.prisma,
               (serviceOrder as any).taskId,
               userId,
             );

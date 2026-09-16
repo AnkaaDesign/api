@@ -219,24 +219,75 @@ export function perVehicleAmount(
 // ═══════════════════════════════════════════════════════════════════════════
 // A COBERTURA DE UM FATURAMENTO — quais veículos ele cobra
 //
-// Era `TaskQuoteCustomerConfig.taskId`, com NULO querendo dizer "todos". Agora
-// são linhas em `QuoteBillingTask`, e a diferença é de natureza: a cobertura
-// deixou de ser calculada na leitura e passou a ser gravada. Ver o modelo no
-// `schema.prisma`.
+// TRÊS GERAÇÕES, e vale saber por que houve três:
 //
-// ⚠️ QUEM CONSULTA PRECISA PEDIR. `coveredTasks` é uma relação: um `select` que
-// não a inclui devolve cobertura VAZIA, e os helpers abaixo respondem "cobre
-// zero veículos" — o que, em dinheiro, é R$ 0,00 numa fatura que tem valor. É a
-// razão de `coveredTaskIds` distinguir "relação ausente" de "relação vazia" e de
-// as funções que decidem dinheiro receberem a contagem explicitamente.
+//   1. `TaskQuoteCustomerConfig.taskId`, com NULO querendo dizer "todos". A
+//      resposta era uma REGRA avaliada na leitura: uma fatura já emitida passava
+//      a cobrir um caminhão acrescentado depois, sem deixar rastro.
+//   2. `QuoteBillingTask(configId, taskId, customerId)` — gravada, mas pendurada
+//      no PAGADOR. Dois pagadores do mesmo recorte guardavam a lista DUAS VEZES,
+//      e "quantos faturamentos tem este orçamento?" se respondia contando
+//      pagadores — o que dava quatro num orçamento de quatro veículos com um
+//      cliente só, e dois num de um veículo com dois clientes.
+//   3. `BillingTask(billingId, taskId)` — a cobertura é do FATURAMENTO, que é uma
+//      ENTIDADE com id próprio. Um veículo, um faturamento, e o banco garante.
+//
+// ⚠️ QUEM CONSULTA PRECISA PEDIR. A cobertura é relação, e relação que ninguém
+// pede não vem: os helpers abaixo responderiam "cobre zero veículos", o que em
+// dinheiro é R$ 0,00 numa fatura que tem valor. Não escreva o include à mão —
+// `withCoverageInclude` o injeta em todo caminho que devolve `customerConfigs`.
 //
 // ESPELHADO em `web/src/utils/quote-tasks.ts`.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Uma fatia de faturamento como as consultas a devolvem. */
-export interface BillingConfigLike<T extends QuoteTaskLike = QuoteTaskLike> {
-  coveredTasks?: ReadonlyArray<{ taskId: string; task?: T | null }> | null;
+/** A cobertura, como as consultas a devolvem. */
+export interface BillingCoverageLike<T extends QuoteTaskLike = QuoteTaskLike> {
+  tasks?: ReadonlyArray<{ taskId: string; task?: T | null }> | null;
+}
+
+/**
+ * Um FATURAMENTO, ou um PAGADOR que aponta para um.
+ *
+ * Aceita os dois porque a cobertura é uma só: o pagador não tem cobertura
+ * própria, ele herda a do faturamento a que pertence. Perguntar com qualquer um
+ * dos dois dá a mesma resposta — a alternativa seria cada chamador lembrar de
+ * destrinchar `config.billing` antes, e esquecer disso é silencioso.
+ */
+export interface BillingConfigLike<T extends QuoteTaskLike = QuoteTaskLike>
+  extends BillingCoverageLike<T> {
+  billing?: (BillingCoverageLike<T> & { id?: string; approvedAt?: Date | null }) | null;
   quote?: { tasks?: readonly T[] | null } | null;
+}
+
+/** As linhas de cobertura, venham do faturamento ou do pagador que aponta para ele. */
+function coverageRows<T extends QuoteTaskLike>(
+  config: BillingConfigLike<T> | null | undefined,
+): ReadonlyArray<{ taskId: string; task?: T | null }> {
+  const own = config?.tasks;
+  if (Array.isArray(own)) return own;
+  const viaBilling = config?.billing?.tasks;
+  if (Array.isArray(viaBilling)) return viaBilling;
+  return [];
+}
+
+/**
+ * ESTE FATURAMENTO ESTÁ APROVADO? — pergunte ao faturamento, não ao pagador.
+ *
+ * Era `TaskQuoteCustomerConfig.billingApprovedAt`, uma coluna por pagador. Dois
+ * pagadores do mesmo recorte tinham duas datas para um evento só, sempre
+ * escritas juntas — duas colunas afirmando o mesmo fato.
+ */
+export function billingApprovedAtOf(
+  config: BillingConfigLike | null | undefined,
+): Date | null {
+  const own = (config as { approvedAt?: Date | null } | null | undefined)?.approvedAt;
+  if (own !== undefined) return own ?? null;
+  return config?.billing?.approvedAt ?? null;
+}
+
+/** Atalho legível: este faturamento já foi aprovado? */
+export function isBillingApproved(config: BillingConfigLike | null | undefined): boolean {
+  return billingApprovedAtOf(config) !== null;
 }
 
 /**
@@ -248,8 +299,8 @@ export interface BillingConfigLike<T extends QuoteTaskLike = QuoteTaskLike> {
  * entre duas leituras faz o mesmo faturamento apontar para caminhões diferentes.
  */
 export function coveredTaskIds(config: BillingConfigLike | null | undefined): string[] {
-  const rows = config?.coveredTasks;
-  if (!Array.isArray(rows) || rows.length === 0) return [];
+  const rows = coverageRows(config);
+  if (rows.length === 0) return [];
   const ids = new Set(rows.map(r => r.taskId));
   const ordered = quoteTasks(config?.quote as any)
     .map(t => t.id)
@@ -271,7 +322,7 @@ export function coversTask(
   taskId: string | null | undefined,
 ): boolean {
   if (!taskId) return false;
-  return (config?.coveredTasks ?? []).some(r => r.taskId === taskId);
+  return coverageRows(config).some(r => r.taskId === taskId);
 }
 
 /**
@@ -297,7 +348,7 @@ export function sliceTask<T extends QuoteTaskLike>(
   if (covered.length > 0) {
     const own = tasks.find(t => t.id === covered[0]);
     if (own) return own;
-    const embedded = (config?.coveredTasks ?? []).find(r => r.taskId === covered[0])?.task;
+    const embedded = coverageRows(config).find(r => r.taskId === covered[0])?.task;
     if (embedded) return embedded as T;
   }
   return tasks[0] ?? null;
@@ -338,7 +389,7 @@ export function coverageLabels<T extends QuoteTaskLike & { truck?: { plate?: str
   tasks?: readonly T[] | null,
 ): string[] {
   const byId = new Map((tasks ?? quoteTasks(config?.quote as any) ?? []).map(t => [t.id, t]));
-  return (config?.coveredTasks ?? []).map(row => {
+  return coverageRows(config).map(row => {
     const t = (row.task ?? byId.get(row.taskId) ?? null) as T | null;
     return (
       (t?.serialNumber || undefined) ??
@@ -550,17 +601,22 @@ export function orderNumberLabel(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// A COBERTURA VIAJA SEMPRE
+// O FATURAMENTO VIAJA SEMPRE
 //
-// `coveredTasks` é relação, e relação que ninguém pede não vem. O modo de falha
-// é silencioso e caro: a tela recebe uma fatura com cobertura VAZIA, mostra
+// A cobertura é relação, e relação que ninguém pede não vem. O modo de falha é
+// silencioso e caro: a tela recebe uma fatura com cobertura VAZIA, mostra
 // "nenhum veículo" numa fatura de vinte, e qualquer conta feita a partir dela dá
 // R$ 0,00. Pior, é o tipo de defeito que só aparece na tela que esqueceu de
 // pedir — não no `tsc`, não nos testes das outras.
 //
 // Por isso nenhum repositório escreve o include à mão: todo caminho que devolve
-// `customerConfigs` passa por `withCoverageInclude`, que injeta a cobertura no
-// que o chamador pediu, seja `true`, `include` ou `select`.
+// `customerConfigs` passa por `withCoverageInclude`, que pendura o FATURAMENTO
+// no que o chamador pediu, seja `true`, `include` ou `select`.
+//
+// Foi também o que tornou barata a troca de `QuoteBillingTask` por `Billing`:
+// dezenove clientes (web, dois apps, relatórios) continuaram pedindo o mesmo
+// `customerConfigs` e passaram a receber a cobertura do lugar novo, porque a
+// forma do include é decidida AQUI e não em cada consulta.
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -577,7 +633,6 @@ export const QUOTE_COVERAGE_INCLUDE: {
 } = {
   select: {
     taskId: true,
-    customerId: true,
     task: {
       select: {
         id: true,
@@ -593,27 +648,79 @@ export const QUOTE_COVERAGE_INCLUDE: {
 };
 
 /**
- * Injeta a cobertura no nó de include/select de `customerConfigs`, qualquer que
- * seja a forma que o chamador usou.
+ * O FATURAMENTO como todo leitor de pagador precisa dele: o id (que agora é
+ * ENDEREÇO — a tela de cobrança é `/faturamento/:billingId`), o estado próprio e
+ * a cobertura.
+ */
+export const QUOTE_BILLING_INCLUDE: { select: Record<string, unknown> } = {
+  select: {
+    id: true,
+    quoteId: true,
+    approvedAt: true,
+    createdAt: true,
+    tasks: QUOTE_COVERAGE_INCLUDE,
+  },
+};
+
+/**
+ * Pendura o faturamento no nó de include/select de `customerConfigs`, qualquer
+ * que seja a forma que o chamador usou.
  *
- * `true` e ausente viram `{ include: { coveredTasks } }`. Um nó com `select`
- * recebe a chave dentro do `select` (pôr num `include` ao lado de um `select` é
- * erro do Prisma); um nó com `include`, ou sem nenhum dos dois, recebe dentro do
+ * `true` e ausente viram `{ include: { billing } }`. Um nó com `select` recebe a
+ * chave dentro do `select` (pôr num `include` ao lado de um `select` é erro do
+ * Prisma); um nó com `include`, ou sem nenhum dos dois, recebe dentro do
  * `include`.
+ *
+ * Um chamador que JÁ pediu `billing` à mão é respeitado — quem pediu um recorte
+ * específico sabe o que quer, e sobrescrevê-lo apagaria campos que ele espera.
  */
 export function withCoverageInclude(node: unknown): unknown {
   if (node === undefined || node === null || node === true) {
-    return { include: { coveredTasks: QUOTE_COVERAGE_INCLUDE } };
+    return { include: { billing: QUOTE_BILLING_INCLUDE } };
   }
   if (node === false || typeof node !== 'object') return node;
 
   const next = { ...(node as Record<string, unknown>) };
   const select = next.select as Record<string, unknown> | undefined;
   if (select && typeof select === 'object') {
-    next.select = { ...select, coveredTasks: QUOTE_COVERAGE_INCLUDE };
+    const cleanedSelect = withoutRetiredCoverageKeys(select);
+    next.select =
+      'billing' in cleanedSelect
+        ? cleanedSelect
+        : { ...cleanedSelect, billing: QUOTE_BILLING_INCLUDE };
     return next;
   }
   const include = (next.include as Record<string, unknown> | undefined) ?? {};
-  next.include = { ...include, coveredTasks: QUOTE_COVERAGE_INCLUDE };
+  const cleaned = withoutRetiredCoverageKeys(include);
+  next.include = 'billing' in cleaned ? cleaned : { ...cleaned, billing: QUOTE_BILLING_INCLUDE };
+  return next;
+}
+
+/**
+ * AS CHAVES APOSENTADAS DO PAGADOR — retiradas do pedido em vez de derrubá-lo.
+ *
+ * `coveredTasks` e `billingApprovedAt` saíram de `TaskQuoteCustomerConfig` quando
+ * a cobertura e o estado passaram para o `Billing`. Um cliente que ainda as peça
+ * não recebe uma coluna a menos: recebe **500**, porque o Prisma recusa a consulta
+ * inteira com "Unknown field ... for select statement". E foi o que aconteceu —
+ * um `select` esquecido numa lista derrubou a TELA INTEIRA de faturamento.
+ *
+ * Clientes velhos existem e não somem no deploy: um bundle em cache, uma aba
+ * aberta desde ontem, o app da loja, um favorito. Nenhum deles merece uma tela
+ * morta por pedir um campo que mudou de lugar — ainda mais quando o valor que
+ * eles queriam está vindo na mesma resposta, um nível abaixo, em `billing`.
+ *
+ * Silencioso de propósito: não é erro de quem chama, é a forma antiga da mesma
+ * pergunta. Quem consome usa `coveredTaskIds()` / `billingApprovedAtOf()`, que
+ * leem do lugar novo.
+ */
+const RETIRED_CONFIG_KEYS = ['coveredTasks', 'billingApprovedAt'] as const;
+
+function withoutRetiredCoverageKeys(
+  node: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!RETIRED_CONFIG_KEYS.some(k => k in node)) return node;
+  const next = { ...node };
+  for (const k of RETIRED_CONFIG_KEYS) delete next[k];
   return next;
 }

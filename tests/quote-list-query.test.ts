@@ -283,6 +283,62 @@ console.log('\nFiltros de conveniência emitem a forma to-many');
 
   const doc = taskQuoteGetManySchema.parse({ searchingFor: '13.902.480/0001-28' });
   check('a busca por CNPJ também não emite `task`', !hasToOneTaskKey(doc.where));
+
+  // ─── OS DÍGITOS SOLTOS DE UM TERMO QUE NÃO É DOCUMENTO ────────────────────
+  //
+  // CNPJ e CPF são gravados sem pontuação, então "13.902.480" tem de procurar
+  // também por "13902480". A tradução era um `replace(/\D/g,'')` sobre QUALQUER
+  // termo, e o resultado ia para um `contains` contra as colunas de documento.
+  //
+  // Basta o termo ter letra e número juntos para o filtro deixar de filtrar:
+  // "QA 4V" virava os dígitos "4", e `cnpjNormalized contains '4'` casa com
+  // quase todo cliente do cadastro — um CNPJ tem catorze dígitos. A busca por um
+  // nome devolvia 107 linhas sem relação nenhuma com ele, sem nenhum sinal de
+  // que o filtro estava ligado, na tela em que se decide o que faturar.
+  const documentConditions = (where: unknown): number =>
+    JSON.stringify(where).match(/cnpjNormalized|cpfNormalized/g)?.length ?? 0;
+
+  const nomeComNumero = taskQuoteGetManySchema.parse({ searchingFor: 'QA 4V' });
+  check(
+    'termo com letra e número NÃO vira busca por dígitos em CNPJ/CPF',
+    !JSON.stringify(nomeComNumero.where).includes('"contains":"4"'),
+    JSON.stringify(nomeComNumero.where)?.slice(0, 200),
+  );
+
+  const soNome = taskQuoteGetManySchema.parse({ searchingFor: 'Masterboi' });
+  check(
+    'termo sem dígito nenhum procura o texto como está',
+    JSON.stringify(soNome.where).includes('masterboi'),
+  );
+
+  // Olhando SÓ as colunas de documento: `plateNormalized` também recebe "4"
+  // aqui, e com razão — a busca por placa limpa a pontuação de propósito.
+  const documentContains = (where: unknown): string[] =>
+    JSON.stringify(where)
+      .match(/"(?:cnpjNormalized|cpfNormalized)":\{"contains":"([^"]*)"\}/g)
+      ?.map(m => m.replace(/.*"contains":"([^"]*)".*/, '$1')) ?? [];
+
+  const curto = taskQuoteGetManySchema.parse({ searchingFor: '4.' });
+  check(
+    'poucos dígitos não viram filtro de documento — `contains` de um dígito não filtra nada',
+    !documentContains(curto.where).includes('4'),
+    JSON.stringify(documentContains(curto.where)),
+  );
+  check(
+    'e o termo com letra também não chega às colunas de documento como dígito solto',
+    !documentContains(nomeComNumero.where).includes('4'),
+    JSON.stringify(documentContains(nomeComNumero.where)),
+  );
+
+  check(
+    'documento formatado CONTINUA achando pelos dígitos limpos',
+    JSON.stringify(doc.where).includes('13902480000128'),
+    JSON.stringify(doc.where)?.slice(0, 200),
+  );
+  check(
+    'e ainda procura as colunas de documento',
+    documentConditions(doc.where) > 0,
+  );
 }
 
 console.log(

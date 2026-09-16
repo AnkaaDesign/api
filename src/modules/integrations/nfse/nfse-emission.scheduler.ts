@@ -44,17 +44,31 @@ const resolveGlobalDiscount = (
   invoiceTotal: number,
   declaredType: string | undefined,
   declaredValue: number | undefined,
+  /**
+   * QUANTOS VEÍCULOS a fatura cobre — a quantidade de cada linha.
+   *
+   * O desconto é a diferença entre o que as linhas somam e o que a fatura cobra,
+   * e as linhas só somam o valor da fatura depois de multiplicadas pelos
+   * veículos cobertos (`svc.amount` é o preço de UM). Medir sobre o unitário
+   * fazia o `gap` ficar NEGATIVO em toda fatura de mais de um veículo — e o
+   * ramo do negativo devolve o desconto declarado sem acusar nada, que é
+   * exatamente como uma nota de um caminhão saía contra um boleto de sessenta.
+   */
+  quantity = 1,
 ): { type: string; value: number } | undefined => {
   const declared =
     declaredType && declaredType !== 'NONE' && declaredValue
       ? { type: declaredType, value: declaredValue }
       : undefined;
   if (!services || services.length === 0) return declared;
-  const linesSum = Number(services.reduce((s, x) => s + x.amount, 0).toFixed(2));
+  const qty = Math.max(1, Math.trunc(Number(quantity ?? 1)) || 1);
+  const linesSum = Number(services.reduce((s, x) => s + x.amount * qty, 0).toFixed(2));
   if (linesSum <= 0) return declared;
   const gap = Number((linesSum - invoiceTotal).toFixed(2));
-  // No gap (or a negative one — lines below the invoice total, which is not a
-  // discount) leaves whatever was declared in charge.
+  // No gap leaves whatever was declared in charge. Um gap NEGATIVO — as linhas
+  // somam menos do que a fatura cobra — não é desconto nenhum e significa que a
+  // nota sairia abaixo do cobrado; `emitNfse` tem a trava que recusa isso, e
+  // devolver o declarado aqui só evita inventar um desconto para esconder.
   if (gap <= 0.005) return declared;
   return { type: 'FIXED_VALUE', value: gap };
 };
@@ -69,7 +83,7 @@ const resolveGlobalDiscount = (
  * "os veículos do orçamento". Para a nota de um LOTE — vinte dos sessenta — isso
  * é declarar à prefeitura quarenta caminhões que ela não cobra.
  *
- * A resposta é a COBERTURA (`QuoteBillingTask`), e é a cobertura inteira: a
+ * A resposta é a COBERTURA (`BillingTask`), e é a cobertura inteira: a
  * âncora (`sliceTask`) seria uma afirmação falsa sobre os outros dezenove.
  *
  * O recuo para `Invoice.task` — e, na falta dele, para o orçamento todo — é o
@@ -371,7 +385,7 @@ export class NfseEmissionScheduler {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       id: true,
@@ -494,6 +508,8 @@ export class NfseEmissionScheduler {
               }>
             | undefined;
           let emitBudgetNumber: number | null = null;
+          /** Quantos veículos cada linha de serviço cobre. Operação Externa = 1. */
+          let emitServiceQuantity = 1;
 
           if (isWithdrawal) {
             // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
@@ -598,12 +614,21 @@ export class NfseEmissionScheduler {
             // quando ela cobra um; os do lote quando cobra vinte. É o campo em
             // que a Elotech procura o empenho, e citar o pedido de um caminhão
             // que está noutra nota é errar de nota.
-            orderNumber = orderNumberLabel(coveredRows) ?? undefined;
+            // `240` e não sem limite: a discriminação tem teto de 11 LINHAS de 255
+            // caracteres, e o cabeçalho (pedido + veículos) disputa essas linhas
+            // com a lista de serviços — que é o que o fiscal e o cliente leem.
+            // Vinte pedidos numa linha só passavam de mil caracteres.
+            orderNumber = orderNumberLabel(coveredRows, 240) ?? undefined;
+            // A QUANTIDADE de cada linha: os veículos que esta nota cobre. É o
+            // mesmo multiplicador que `Invoice.totalAmount` já carrega
+            // (`por veículo × cobertos`), e é o que faz a nota fechar com o boleto.
+            emitServiceQuantity = Math.max(1, coveredRows.length);
             globalDiscount = resolveGlobalDiscount(
               services,
               Number(invoice.totalAmount),
               configDiscountType,
               configDiscountValue,
+              emitServiceQuantity,
             );
           }
 
@@ -618,6 +643,7 @@ export class NfseEmissionScheduler {
             budgetNumber: emitBudgetNumber,
             orderNumber,
             services,
+            serviceQuantity: emitServiceQuantity,
             globalDiscount,
           };
 
@@ -733,7 +759,7 @@ export class NfseEmissionScheduler {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 quote: {
                   select: {
                     id: true,
@@ -828,6 +854,8 @@ export class NfseEmissionScheduler {
             }>
           | undefined;
         let emitBudgetNumber: number | null = null;
+        /** Quantos veículos cada linha de serviço cobre. Operação Externa = 1. */
+        let emitServiceQuantity = 1;
 
         if (isWithdrawal) {
           // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
@@ -908,12 +936,16 @@ export class NfseEmissionScheduler {
             implementType: t.truck?.implementType ?? null,
           }));
           emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
-          orderNumber = orderNumberLabel(coveredRows) ?? undefined;
+          // Mesmo teto do caminho agendado — ver a nota lá.
+          orderNumber = orderNumberLabel(coveredRows, 240) ?? undefined;
+          // Mesma quantidade do caminho agendado: os veículos cobertos.
+          emitServiceQuantity = Math.max(1, coveredRows.length);
           globalDiscount = resolveGlobalDiscount(
             services,
             Number(invoice.totalAmount),
             configDiscountType,
             configDiscountValue,
+            emitServiceQuantity,
           );
         }
 
@@ -927,6 +959,7 @@ export class NfseEmissionScheduler {
           budgetNumber: emitBudgetNumber,
           orderNumber,
           services,
+          serviceQuantity: emitServiceQuantity,
           globalDiscount,
         });
 

@@ -9,7 +9,7 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { orderNumberLabel } from '../../../utils/quote-tasks';
+import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
 import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
@@ -325,7 +325,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       // O NÚMERO DO PEDIDO é do VEÍCULO desde o orçamento
@@ -333,7 +333,23 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                       // cobra. Ver `orderNumberLabel`.
                       tasks: {
                         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                        select: { id: true, customerOrderNumber: true },
+                        select: {
+                          id: true,
+                          customerOrderNumber: true,
+                          // SÉRIE E CAMINHÃO: o informativo do boleto diz de
+                          // quais veículos ele é, e numa fatura conjunta
+                          // `Invoice.task` é nulo — sem estes campos o boleto de
+                          // R$ 4.401,76 saía sem citar caminhão nenhum.
+                          serialNumber: true,
+                          truck: {
+                            select: {
+                              plate: true,
+                              chassisNumber: true,
+                              category: true,
+                              implementType: true,
+                            },
+                          },
+                        },
                       },
                       services: {
                         select: { description: true, invoiceToCustomerId: true },
@@ -832,13 +848,30 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
 
     const cfgForOrder = installment.invoice?.customerConfig as any;
-    const orderNumber = orderNumberLabel(
-      cfgForOrder?.taskId
-        ? (cfgForOrder?.quote?.tasks ?? []).filter((t: any) => t.id === cfgForOrder.taskId)
-        : (cfgForOrder?.quote?.tasks ?? []),
-      80,
-    );
-    const task = installment.invoice?.task;
+
+    // ── OS VEÍCULOS QUE ESTE BOLETO COBRA ───────────────────────────────────
+    //
+    // Era `cfgForOrder?.taskId` — a coluna que SAIU em
+    // `20260913120000_billing_coverage`. Passando por `as any`, a condição virou
+    // sempre falsa e o boleto de um LOTE citava o pedido de compra dos SESSENTA.
+    // É a mesma leitura que a NFS-e já faz (`coveredVehicleRows`): a cobertura
+    // inteira, com recuo para a tarefa da fatura e daí para o orçamento todo
+    // (fatura antiga, anterior à migração).
+    const quoteTaskRows: any[] = cfgForOrder?.quote?.tasks ?? [];
+    // `coveredTaskIds` e não a relação crua: é ele que sabe onde a cobertura mora
+    // (hoje `billing.tasks`; ontem `coveredTasks`; antes disso a coluna `taskId`),
+    // e foi justamente uma leitura crua que ficou para trás numa migração e fez
+    // este boleto citar o pedido dos sessenta.
+    const coveredIds = new Set<string>(coveredTaskIds(cfgForOrder));
+    const own = coveredIds.size > 0 ? quoteTaskRows.filter(t => coveredIds.has(t.id)) : [];
+    const coveredRows: any[] =
+      own.length > 0 ? own : installment.invoice?.task ? [installment.invoice.task] : quoteTaskRows;
+
+    const orderNumber = orderNumberLabel(coveredRows, 80);
+    // A tarefa de CONTEXTO: a da fatura quando ela é de um veículo, senão o
+    // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
+    // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
+    const task = installment.invoice?.task ?? coveredRows[0] ?? null;
     const truck = task?.truck;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
@@ -867,7 +900,24 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
-    if (vehicleType || idStr) {
+    if (coveredRows.length > 1) {
+      // MAIS DE UM VEÍCULO: o boleto declara a CONTAGEM e a faixa de séries,
+      // como a discriminação da nota — cinco linhas de 80 caracteres não cabem
+      // sessenta caminhões por extenso, e o que o cliente confere é quantos são
+      // e a que faixa pertencem.
+      const series = coveredRows
+        .map((t: any) => t.serialNumber)
+        .filter((n: any): n is string => Boolean(n))
+        .sort();
+      parts.push(
+        `Referente aos servicos em ${coveredRows.length} veiculos${
+          vehicleType ? ` ${vehicleType}` : ''
+        }`.trimEnd().substring(0, 80),
+      );
+      if (series.length > 1) {
+        parts.push(`Series: ${series[0]} a ${series[series.length - 1]}`.substring(0, 80));
+      }
+    } else if (vehicleType || idStr) {
       parts.push(`Referente aos servicos no veiculo ${vehicleType}`.trimEnd().substring(0, 80));
       if (idStr) parts.push(idStr.substring(0, 80));
     }

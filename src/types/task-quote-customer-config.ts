@@ -17,21 +17,30 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   /**
    * A COBERTURA — de quais VEÍCULOS esta fatura é.
    *
-   * Era a coluna `taskId`, com nulo querendo dizer "todos". Virou registro
-   * (`QuoteBillingTask`) porque a cobertura implícita não sabia responder a
-   * "quais dos sessenta?" quando a resposta era vinte, e porque uma fatura já
-   * emitida passava a cobrir um caminhão acrescentado depois sem deixar rastro.
+   * O FATURAMENTO a que este pagador pertence — e de onde vêm a COBERTURA e o
+   * ESTADO.
+   *
+   * Nenhum dos dois mora mais aqui. A cobertura era a coluna `taskId` (nulo =
+   * "todos"), depois `QuoteBillingTask` pendurada no pagador; o estado era
+   * `billingApprovedAt`, uma data por pagador. Com dois pagadores do mesmo
+   * recorte, as duas coisas existiam em duplicata — duas listas de veículos e
+   * duas datas para um evento só.
    *
    * ⚠️ Relação: um `select` que não a inclui devolve VAZIO, e vazio numa conta
    * de dinheiro é R$ 0,00 numa fatura que tem valor. Leia por `coveredTaskIds()`
-   * / `coveredTaskCount()` de `@utils/quote-tasks`.
+   * / `coveredTaskCount()` / `billingApprovedAtOf()` de `@utils/quote-tasks`, e
+   * peça o include por `withCoverageInclude`.
    */
-  coveredTasks?: Array<{ configId: string; taskId: string; customerId: string; task?: Task }>;
-  /**
-   * Quando ESTA fatia teve o faturamento aprovado. `TaskQuote.billingApprovedAt`
-   * é a data em que a ÚLTIMA fechou.
-   */
-  billingApprovedAt?: Date | null;
+  billing?: {
+    id: string;
+    quoteId?: string;
+    /** Quando ESTE faturamento foi aprovado. `TaskQuote.billingApprovedAt` é a
+     *  data em que o ÚLTIMO fechou — "o orçamento inteiro está faturado". */
+    approvedAt?: Date | null;
+    createdAt?: Date;
+    tasks?: Array<{ taskId: string; task?: Task }>;
+  } | null;
+  billingId?: string;
   subtotal: number;
   total: number;
   discountType: string;

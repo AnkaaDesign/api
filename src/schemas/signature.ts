@@ -239,9 +239,13 @@ export type SignatureSignFormData = z.infer<typeof signatureSignSchema>;
 /**
  * Etapa 2 (alternativa) — recusa.
  *
- * Exige o MESMO desafio OTP verificado que a assinatura exige. A recusa leva o
- * envelope a estado terminal e mata o negócio; sem OTP, qualquer um com o link
- * vazado fazia isso, sem nome, sem CPF e sem prova de posse do telefone.
+ * Exige o MESMO desafio OTP verificado que a assinatura exige: sem ele,
+ * qualquer um com o link vazado recusaria em nome do cliente — sem nome, sem
+ * CPF e sem prova de posse do canal.
+ *
+ * A recusa NÃO derruba mais o envelope nem as assinaturas dos outros
+ * responsáveis (ver `SignatureEnvelopeService.refuse`). Ela trava a conclusão e
+ * avisa; quem invalida assinatura é mudança material no documento.
  */
 export const signatureRefuseSchema = z.object({
   challengeId: z

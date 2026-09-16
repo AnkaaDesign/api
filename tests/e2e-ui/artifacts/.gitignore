@@ -1,0 +1,4 @@
+# Saída de corrida: logs, PIDs, screenshots e os corpos gravados pela sentinela.
+# O que fica versionado é a bateria, não o que ela produziu.
+*
+!.gitignore

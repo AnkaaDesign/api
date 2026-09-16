@@ -9,6 +9,7 @@ import {
   moneySchema,
   normalizeSearchTerm,
   normalizeVehicleSearchTerm,
+  documentSearchDigits,
 } from './common';
 import type { TaskQuote } from '@types';
 import {
@@ -465,8 +466,11 @@ const taskQuoteTransform = (data: any) => {
     ];
     // CNPJ/CPF — stored digits-only, so match both the term as typed and its
     // stripped digits ("13.636" and "13636" both hit)
-    const searchDigits = rawTerm.replace(/\D/g, '');
-    if (searchDigits.length > 0) {
+    // `documentSearchDigits` devolve `null` quando o termo não é um documento:
+    // um `replace(/\D/g,'')` cru transformava "QA 4V" nos dígitos "4" e o
+    // `contains` resultante casava com quase todo CNPJ do cadastro.
+    const searchDigits = documentSearchDigits(rawTerm);
+    if (searchDigits) {
       const documentTerms = searchDigits === term ? [searchDigits] : [term, searchDigits];
       for (const documentTerm of documentTerms) {
         searchConditions.push(
@@ -621,7 +625,7 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
      * dizendo exatamente quem cobra quem, e o modo não sobrescreve.
      *
      * Um veículo só pode estar na cobertura de UM faturamento por cliente — é
-     * índice único no banco (`QuoteBillingTask`), não convenção.
+     * índice único no banco (`BillingTask`), não convenção.
      */
     taskIds: z
       .array(z.string().uuid('Tarefa invalida'))

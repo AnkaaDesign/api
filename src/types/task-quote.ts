@@ -39,7 +39,7 @@ export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
  * o padrão, e byte a byte o comportamento anterior ao orçamento multitarefa.
  * `PER_TASK`: um faturamento POR VEÍCULO, aprovado veículo a veículo, porque os
  * sessenta caminhões não terminam no mesmo dia.
- * `CUSTOM`: lotes livres — a cobertura vem das linhas de `QuoteBillingTask`, não
+ * `CUSTOM`: lotes livres — a cobertura vem das linhas de `BillingTask`, não
  * do modo.
  */
 export type QUOTE_BILLING_SPLIT = 'JOINT' | 'PER_TASK' | 'CUSTOM';
@@ -71,7 +71,7 @@ export interface TaskQuote extends BaseEntity {
   /**
    * COMO os N veículos são cobrados. É a INTENÇÃO declarada, não a cobertura:
    * quem diz de quais veículos cada fatura é são as linhas de
-   * `TaskQuoteCustomerConfig.coveredTasks`. O modo serve para refatiar sozinho
+   * `Billing.tasks`. O modo serve para refatiar sozinho
    * quando um veículo entra ou sai do orçamento.
    */
   billingSplit: QUOTE_BILLING_SPLIT;

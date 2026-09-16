@@ -224,6 +224,68 @@ export interface WhatsAppAnkaaNoticeData extends SignatureWhatsAppBase {
   signedCount?: number;
 }
 
+export interface WhatsAppRefusalNoticeData extends SignatureWhatsAppBase {
+  /** Quem RECUSOU — o responsável do cliente. `signerName` aqui é quem RECEBE. */
+  refusedByName: string;
+  reason: string;
+  /** A tela interna do orçamento. Como no aviso de contra-assinatura: exige login. */
+  quoteUrl: string;
+}
+
+/**
+ * A versão Baileys do aviso de recusa — usada enquanto a Cloud API estiver
+ * desligada, e como recuo se ela for desligada de novo.
+ *
+ * O MOTIVO VEM INTEIRO aqui, ao contrário do template: texto livre não tem
+ * limite de parâmetro, e o comercial que vai ligar para o cliente precisa da
+ * frase completa, não de um resumo.
+ */
+export function generateRefusalNoticeWhatsApp(data: WhatsAppRefusalNoticeData): string {
+  return [
+    `Olá, ${firstName(data.signerName)}.`,
+    '',
+    `*${data.refusedByName}* recusou a assinatura do orçamento nº *${data.budgetNumber}*.`,
+    '',
+    'Motivo informado:',
+    `_${data.reason}_`,
+    '',
+    'A coleta NÃO foi encerrada: as assinaturas já colhidas continuam valendo.',
+    'Para retomar, use "Pedir novamente" no sistema — ou ajuste o orçamento, lembrando que o reajuste invalida as assinaturas já colhidas.',
+    '',
+    data.quoteUrl,
+  ].join('\n');
+}
+
+export interface WhatsAppCollectionPausedData extends SignatureWhatsAppBase {
+  /** Quem recusou. O MOTIVO não vai — ver a nota no gerador. */
+  refusedByName: string;
+}
+
+/**
+ * Aviso aos DEMAIS responsáveis de que um colega recusou.
+ *
+ * SEM O MOTIVO, de propósito. O motivo é uma frase que um responsável escreveu
+ * sobre o negócio ("o preço está acima do que a diretoria aprovou") e repassá-la
+ * aos colegas dele é divulgar uma posição interna do cliente para dentro da
+ * própria empresa dele, por um canal que nós escolhemos. Quem precisa do motivo
+ * para agir é o nosso comercial, e é a ele que ele vai.
+ *
+ * O que estes destinatários precisam saber é só isto: a coleta parou, o link
+ * deles continua válido, e ninguém está esperando uma ação deles agora.
+ */
+export function generateCollectionPausedWhatsApp(data: WhatsAppCollectionPausedData): string {
+  return [
+    `Olá, ${firstName(data.signerName)}.`,
+    '',
+    `A coleta de assinaturas do orçamento nº *${data.budgetNumber}* foi pausada: ` +
+      `*${data.refusedByName}* não aprovou a proposta.`,
+    '',
+    'As assinaturas já registradas continuam valendo — nada do que você assinou foi perdido.',
+    '',
+    `A ${COMPANY.name} vai retomar o contato. Se o orçamento for alterado, você recebe um novo link.`,
+  ].join('\n');
+}
+
 export function generateAnkaaCountersignWhatsApp(data: WhatsAppAnkaaNoticeData): string {
   const quantos =
     data.signedCount && data.signedCount > 0

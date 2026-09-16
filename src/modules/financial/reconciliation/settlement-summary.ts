@@ -83,7 +83,7 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
       // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
       // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
       // `coveredTaskIds()` de `@utils/quote-tasks`.
-      coveredTasks: { select: { taskId: true } },
+      billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
       customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
       quote: {
         select: {
