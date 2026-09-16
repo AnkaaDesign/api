@@ -39,7 +39,7 @@ import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
 import {
-  QUOTE_COVERAGE_INCLUDE,
+  QUOTE_BILLING_INCLUDE,
   withCoverageInclude,
 } from '../../../../utils/quote-tasks';
 
@@ -254,7 +254,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       layoutFiles: { orderBy: { createdAt: 'asc' } },
       customerConfigs: {
         include: {
-          coveredTasks: QUOTE_COVERAGE_INCLUDE,
+          billing: QUOTE_BILLING_INCLUDE,
           customer: {
             select: {
               id: true,
@@ -2227,7 +2227,35 @@ export class TaskPrismaRepository
             select: { quoteId: true },
           });
 
+          // ── ESTA PORTA NÃO ALTERA O QUE MOVE DINHEIRO OU ASSINATURA ─────────
+          //
+          // `PUT /tasks/:id` aceitava um bloco `quote` aninhado que mudava status,
+          // serviços e pagadores, refatiava a cobertura e recalculava totais — sem
+          // nenhuma guarda do serviço de orçamento e sem `onQuoteContentChanged`.
+          // Era o único ponto da API capaz de fazer alteração MATERIAL sem reavaliar
+          // a coleta de assinaturas: o cliente assinava um PDF e o valor mudava
+          // embaixo dele, com a assinatura continuando válida.
+          //
+          // A guarda vale para ALTERAR um orçamento que já existe. CRIAR um
+          // orçamento a partir da tarefa continua podendo mandar serviços e
+          // pagadores — é a única forma de o orçamento nascer com conteúdo, e
+          // nesse instante não há assinatura nem faturamento para proteger.
           if (currentTask?.quoteId) {
+            const forbiddenHere: string[] = [];
+            if (typeof quoteData === 'object' && quoteData) {
+              if (quoteData.status !== undefined) forbiddenHere.push('status');
+              if (hasServices) forbiddenHere.push('serviços');
+              if (hasConfigs) forbiddenHere.push('faturamentos');
+              if ((quoteData as any).billingSplit !== undefined) forbiddenHere.push('forma de faturamento');
+            }
+            if (forbiddenHere.length > 0) {
+              throw new BadRequestException(
+                `Alteração de ${forbiddenHere.join(', ')} do orçamento não pode ser feita pela tarefa. ` +
+                  'Use a tela de Orçamento (PUT /task-quotes/:id), que valida a transição, recalcula os ' +
+                  'totais e reavalia as assinaturas já coletadas.',
+              );
+            }
+
             // Clone any implementMeasure File owned by ANOTHER quote so this quote owns an
             // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
             const resolvedImplementMeasureIds = hasImplementMeasure
@@ -2429,7 +2457,7 @@ export class TaskPrismaRepository
           // A COBERTURA antes do total, e nos DOIS orçamentos.
           //
           // Mover uma tarefa não apaga a linha de cobertura dela: o `onDelete:
-          // Cascade` de `QuoteBillingTask` dispara quando a TAREFA morre, não
+          // Cascade` de `BillingTask` dispara quando a TAREFA morre, não
           // quando ela troca de orçamento. Sem refatiar, a fatura do orçamento de
           // origem continuaria cobrando um caminhão que não é mais dela — e a do
           // destino não cobraria o que recebeu.

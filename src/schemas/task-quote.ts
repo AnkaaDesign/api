@@ -625,7 +625,7 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
      * dizendo exatamente quem cobra quem, e o modo não sobrescreve.
      *
      * Um veículo só pode estar na cobertura de UM faturamento por cliente — é
-     * índice único no banco (`QuoteBillingTask`), não convenção.
+     * índice único no banco (`BillingTask`), não convenção.
      */
     taskIds: z
       .array(z.string().uuid('Tarefa invalida'))

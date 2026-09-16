@@ -30,7 +30,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   // e cobertura vazia numa conta de dinheiro é R$ 0,00 numa fatura que tem valor.
   const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
     where: { quoteId },
-    include: { coveredTasks: { select: { taskId: true } } },
+    include: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
   });
 
   // QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o multiplicador
@@ -71,7 +71,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     // `JOINT` cobre N, `PER_TASK` cobre 1, um lote cobre k — e a fórmula é a
     // mesma nos três. A cobertura vazia (orçamento ainda sem veículo vinculado)
     // cai no padrão de `computeQuoteMoney`, que é cobrir o orçamento inteiro.
-    const coveredCount = ((config as any).coveredTasks ?? []).length || undefined;
+    const coveredCount = ((config as any).billing?.tasks ?? []).length || undefined;
     const money = computeQuoteMoney({
       serviceAmounts: assignedServices.map(sv => Number(sv.amount || 0)),
       discountType: config.discountType || 'NONE',

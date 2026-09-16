@@ -8,8 +8,9 @@ import {
   EXTERNAL_OPERATION_STATUS_ORDER,
 } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import { isDueDateOverdue, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
+import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 
 /**
  * Service for cascading invoice/installment payment status changes
@@ -35,9 +36,15 @@ export class TaskQuoteStatusCascadeService {
     quoteId: string,
   ): Promise<{ label: string; taskId: string | null }> {
     try {
+        // A TAREFA ÂNCORA — a primeira na ordem canônica, nunca a que o banco
+        // devolver primeiro. Sem `orderBy` a escolha mudava entre duas leituras
+        // do MESMO orçamento, e âncora que anda é como o mesmo orçamento passa a
+        // apontar para caminhões diferentes (rótulo, deep link, e o carimbo que a
+        // migração vai ler).
       const task = await this.prisma.task.findFirst({
         where: { quoteId },
         select: { id: true, name: true, serialNumber: true },
+        orderBy: QUOTE_TASKS_ORDER_BY,
       });
       if (task?.serialNumber) {
         return {
@@ -295,6 +302,8 @@ export class TaskQuoteStatusCascadeService {
       const quote = await this.prisma.taskQuote.findUnique({
         where: { id: quoteId },
         include: {
+          // OS FATURAMENTOS: é deles a resposta a "tudo já foi faturado?".
+          billings: { select: { id: true, approvedAt: true } },
           customerConfigs: {
             include: {
               installments: {
@@ -394,15 +403,14 @@ export class TaskQuoteStatusCascadeService {
       // A pergunta que decide é: TODAS as fatias já foram faturadas? Em `JOINT`
       // existe uma fatia só e a resposta é sim desde a primeira aprovação, então
       // nada muda para os orçamentos de sempre.
-      const configsList = quote.customerConfigs ?? [];
+      const billingsList = ((quote as any).billings ?? []) as Array<{ approvedAt: Date | null }>;
       const everySliceBilled =
-        configsList.length > 0 && configsList.every(c => !!(c as any).billingApprovedAt);
-      // COMPATIBILIDADE: orçamento anterior a esta feature tem
-      // `billingApprovedAt` nulo em TODA configuração — a coluna acabou de
-      // nascer. Sem este ramo, todo orçamento já liquidado voltaria de SETTLED
-      // para PARTIAL na primeira cascata que rodasse depois do deploy. O marcador
-      // que aqueles têm é o do ORÇAMENTO.
-      const noSliceMarkers = configsList.every(c => !(c as any).billingApprovedAt);
+        billingsList.length > 0 && billingsList.every(b => !!b.approvedAt);
+      // COMPATIBILIDADE: um orçamento cujo faturamento não deixou marcador em
+      // lugar nenhum — nem no `Billing`, nem em fatura viva de onde o backfill
+      // pudesse derivá-lo. Sem este ramo, ele voltaria de SETTLED para PARTIAL na
+      // primeira cascata. O marcador que esses têm é o do ORÇAMENTO.
+      const noSliceMarkers = billingsList.every(b => !b.approvedAt);
       const fullyBilled =
         everySliceBilled || (noSliceMarkers && !!(quote as any).billingApprovedAt);
 
@@ -434,13 +442,7 @@ export class TaskQuoteStatusCascadeService {
         // por tarefa, e num orçamento de sessenta caminhões reconciliar só a
         // primeira deixaria as outras cinquenta e nove com a O.S. de negociação
         // aberta depois de o contrato estar fechado.
-        const quoteTaskRows = await this.prisma.task.findMany({
-          where: { quoteId },
-          select: { id: true },
-        });
-        for (const t of quoteTaskRows) {
-          await syncEmNegociacaoForTask(this.prisma, t.id);
-        }
+        await syncEmNegociacaoForQuote(this.prisma, quoteId);
 
         // Notify when the quote becomes fully settled via cascade (webhook/reconciliation
         // payment paths). Mirrors the task_quote.settled key emitted by manual settlement.

@@ -77,7 +77,7 @@ export class TaskQuotePaymentScheduler {
               // A COBERTURA — o aviso de vencimento cita o veículo desta fatura,
               // e sem ela a âncora cairia sempre no primeiro caminhão do
               // orçamento, inclusive numa parcela que é de outro.
-              coveredTasks: { select: { taskId: true } },
+              billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
               quote: {
                 include: {
                   tasks: {

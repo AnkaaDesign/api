@@ -18,12 +18,14 @@ import {
 } from './task-match-allocation';
 import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
 import { QUOTE_TASKS_ORDER_BY, sliceAnchorTaskId } from '@utils/quote-tasks';
+import { ensureBillingForCoverage } from '@utils/task-quote-customer-config-sync';
 import type {
   TaskBillingState,
   TaskMatchAllocationInput,
   TaskMatchCandidate,
   TaskMatchOutcome,
 } from '../../../types';
+import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoice';
 
 /**
  * Task-anchored manual conciliation of an incoming bank credit.
@@ -711,13 +713,18 @@ export class ReceivableTaskMatchService {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 subtotal: true,
                 total: true,
                 paymentCondition: true,
                 generateInvoice: true,
                 generateBankSlip: true,
-                invoice: { select: { id: true, status: true, totalAmount: true } },
+                // A VIVA, explicitamente. Era `invoice` to-one, e o Prisma podia
+                // devolver uma CANCELADA de ciclo anterior — ver `billing-invoice.ts`.
+                invoices: {
+                  where: LIVE_INVOICE_WHERE,
+                  select: { id: true, status: true, totalAmount: true },
+                },
                 installments: {
                   select: { id: true, number: true, dueDate: true, amount: true, paidAmount: true, status: true },
                   orderBy: { dueDate: 'asc' },
@@ -951,10 +958,30 @@ export class ReceivableTaskMatchService {
         services: {
           create: [{ description: input.description, amount, position: 0 }],
         },
+      },
+      select: { id: true },
+    });
+
+    // ── O FATURAMENTO, E O PAGADOR DENTRO DELE ───────────────────────────────
+    //
+    // Statement separado, não aninhado no `create` acima: o pagador tem FK
+    // obrigatória para o ORÇAMENTO além da do faturamento, e o id do orçamento só
+    // existe depois de ele ser gravado. (O aninhamento até compila — a união de
+    // tipos do Prisma é grande demais para o `tsc` conferir a fundo —, mas
+    // estoura em runtime com "Argument `quote` is missing".)
+    //
+    // Nasce cobrindo o veículo desta conciliação: é o único que existe, e um
+    // faturamento sem cobertura faria a tela de cobrança não saber de que
+    // caminhão fala.
+    const billing = await (db as any).billing.create({
+      data: {
+        quote: { connect: { id: quote.id } },
+        tasks: { create: [{ task: { connect: { id: input.taskId } } }] },
         customerConfigs: {
           create: [
             {
-              customerId: input.customerId,
+              quote: { connect: { id: quote.id } },
+              customer: { connect: { id: input.customerId } },
               subtotal: amount,
               total: amount,
               discountType: 'NONE',
@@ -965,10 +992,10 @@ export class ReceivableTaskMatchService {
           ],
         },
       },
-      select: { id: true, customerConfigs: { select: { id: true } } },
+      select: { customerConfigs: { select: { id: true } } },
     });
 
-    const configId = quote.customerConfigs[0].id;
+    const configId = billing.customerConfigs[0].id;
 
     // Este ramo só roda com `task.quoteId` NULO, então não há orçamento anterior
     // para ficar órfão. (A justificativa antiga era o `@unique` de
@@ -1042,8 +1069,9 @@ export class ReceivableTaskMatchService {
       if (total <= 0) continue;
       if (config.installments.length > 0) continue;
 
-      let invoiceId = config.invoice?.id ?? null;
-      if (invoiceId && config.invoice?.status === 'CANCELLED') invoiceId = null;
+      // `liveInvoiceOf` já exclui a cancelada; o segundo teste virou redundante e saiu.
+      const liveInvoice = liveInvoiceOf(config);
+      let invoiceId = liveInvoice?.id ?? null;
 
       if (!invoiceId) {
         const invoice = await db.invoice.create({
@@ -1121,9 +1149,15 @@ export class ReceivableTaskMatchService {
           'O orçamento não tem cliente de faturamento. Informe o cliente a faturar.',
         );
       }
+      // O FATURAMENTO PRIMEIRO: `billingId` é `NOT NULL` de propósito — um pagador
+      // sem faturamento é um registro que não responde "cobrando o quê?".
+      // Cobertura vazia aqui é honesto: este orçamento degenerado não tem veículo
+      // escolhido, e a reconciliação a preenche quando houver.
+      const billingId = await ensureBillingForCoverage(db as any, input.quote.id, []);
       const created = await db.taskQuoteCustomerConfig.create({
         data: {
           quoteId: input.quote.id,
+          billingId,
           customerId: input.customerId,
           subtotal: new Decimal(0),
           total: new Decimal(0),
@@ -1140,13 +1174,13 @@ export class ReceivableTaskMatchService {
         // quem a completa é a reconciliação de faturamento (que a estende para o
         // orçamento inteiro no modo `JOINT`). Amarrá-la aqui a um caminhão faria
         // a fatura nascer recortada num veículo que ninguém escolheu.
-        coveredTasks: [],
+        billing: { tasks: [] },
         subtotal: created.subtotal,
         total: created.total,
         paymentCondition: null,
         generateInvoice: false,
         generateBankSlip: false,
-        invoice: null,
+        invoices: [],
         installments: [],
       };
     }
@@ -1573,14 +1607,17 @@ type QuoteWithConfigs = {
   customerConfigs: {
     id: string;
     customerId: string;
-    /** A COBERTURA — os veículos que esta fatura cobra. Ver `QuoteBillingTask`. */
-    coveredTasks: { taskId: string }[];
+    /** O FATURAMENTO a que este pagador pertence: dele vêm a cobertura e o
+     *  estado. Ver `Billing` / `BillingTask` no schema. */
+    billing: { approvedAt?: Date | null; tasks: { taskId: string }[] } | null;
     subtotal: Prisma.Decimal | number;
     total: Prisma.Decimal | number;
     paymentCondition: string | null;
     generateInvoice: boolean;
     generateBankSlip: boolean;
-    invoice: { id: string; status: string; totalAmount: Prisma.Decimal | number } | null;
+    /** As faturas da fatia — a viva e as canceladas dos ciclos anteriores.
+     *  Quem quer "a" fatura chama `liveInvoiceOf`. Ver `utils/billing-invoice.ts`. */
+    invoices: { id: string; status: string; totalAmount: Prisma.Decimal | number }[];
     installments: RawLiteInstallment[];
   }[];
 };

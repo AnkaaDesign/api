@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
+import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /**
@@ -276,12 +276,53 @@ export class InvoiceService {
       const invoiceWithConfig = await this.prisma.invoice.findUnique({
         where: { id },
         select: {
+          customerConfigId: true,
           customerConfig: {
-            select: { quote: { select: { id: true, status: true } } },
+            select: { billingId: true, quote: { select: { id: true, status: true } } },
           },
         },
       });
       const quote = invoiceWithConfig?.customerConfig?.quote;
+
+      // ───────────────────────────────────────────────────────────────────────
+      // O CARIMBO DA FATIA TAMBÉM CAI. Este era o beco sem saída.
+      //
+      // Cancelar a fatura devolvia o orçamento a "Orçamento Aprovado" e deixava
+      // `TaskQuoteCustomerConfig.billingApprovedAt` preenchido. Depois disso o
+      // sistema dizia as duas coisas ao mesmo tempo: aprovar respondia "esta
+      // fatia já teve o faturamento aprovado" (o carimbo) e reverter respondia
+      // "status não revertível" (o orçamento já tinha voltado). Não havia gesto
+      // de tela que saísse dali — só cirurgia no banco.
+      //
+      // O carimbo é levantado SÓ quando o FATURAMENTO fica sem fatura viva —
+      // nenhuma de nenhum pagador dele. Cancelar a fatura de um ciclo antigo não
+      // desfaz a aprovação da vigente, e cancelar a de UM pagador não desfaz a
+      // aprovação de um recorte que o outro pagador ainda cobre.
+      //
+      // A conta migrou da fatia para o faturamento junto com o carimbo: perguntar
+      // "esta fatia ficou sem fatura?" com dois pagadores respondia sim para
+      // metade de um faturamento inteiro, e levantava o carimbo dos dois.
+      const billingId = invoiceWithConfig?.customerConfig?.billingId ?? null;
+      if (billingId) {
+        const liveOnBilling = await this.prisma.invoice.count({
+          where: {
+            customerConfig: { billingId },
+            status: { not: 'CANCELLED' },
+          },
+        });
+        if (liveOnBilling === 0) {
+          const cleared = await (this.prisma as any).billing.updateMany({
+            where: { id: billingId, approvedAt: { not: null } },
+            data: { approvedAt: null },
+          });
+          if (cleared.count > 0) {
+            this.logger.log(
+              `Faturamento ${billingId}: carimbo levantado — a fatura foi cancelada e não sobrou nenhuma viva.`,
+            );
+          }
+        }
+      }
+
       const revertableStatuses = ['BILLING_APPROVED', 'UPCOMING', 'DUE', 'PARTIAL'];
       if (quote && revertableStatuses.includes(quote.status as string)) {
         const nonCancelledCount = await this.prisma.invoice.count({
@@ -293,7 +334,11 @@ export class InvoiceService {
             data: {
               status: TASK_QUOTE_STATUS.BUDGET_APPROVED as any,
               statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BUDGET_APPROVED],
-            },
+              // O carimbo do ORÇAMENTO cai junto: deixá-lo preenchido sobre um
+              // orçamento em `BUDGET_APPROVED` dessincroniza status e data e
+              // envenena `avgSalesCycleDays`.
+              billingApprovedAt: null,
+            } as any,
           });
           this.logger.log(
             `Reverted TaskQuote ${quote.id} to BUDGET_APPROVED — all invoices cancelled`,
@@ -301,13 +346,7 @@ export class InvoiceService {
 
           // Reconcile Em Negociação. Status stays ≥ BUDGET_APPROVED so this is
           // usually a no-op, but kept for symmetry with other status paths.
-          const task = await this.prisma.task.findFirst({
-            where: { quoteId: quote.id },
-            select: { id: true },
-          });
-          if (task) {
-            await syncEmNegociacaoForTask(this.prisma, task.id);
-          }
+          await syncEmNegociacaoForQuote(this.prisma, quote.id);
         }
       }
     } catch (revertError) {

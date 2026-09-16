@@ -78,10 +78,21 @@ async function main(): Promise<void> {
               },
             ],
           },
+        },
+        select: { id: true, budgetNumber: true },
+      });
+
+      // O FATURAMENTO e o pagador dentro dele. Statement separado porque o pagador
+      // tem FK obrigatória para o orçamento, que só existe depois de gravado.
+      // A cobertura é escrita depois que a tarefa nasce (ver abaixo).
+      const billing = await tx.billing.create({
+        data: {
+          quote: { connect: { id: quote.id } },
           customerConfigs: {
             create: [
               {
-                customerId: KENNEDY_CUSTOMER_ID,
+                quote: { connect: { id: quote.id } },
+                customer: { connect: { id: KENNEDY_CUSTOMER_ID } },
                 subtotal: 2,
                 total: 2,
                 generateInvoice: true,
@@ -89,12 +100,12 @@ async function main(): Promise<void> {
                 generateBankSlip: false,
                 paymentCondition: 'CASH_5',
                 paymentConfig: { type: 'CASH', cashDays: 5 },
-                responsibleId: responsible?.id ?? null,
+                ...(responsible?.id ? { responsible: { connect: { id: responsible.id } } } : {}),
               },
             ],
           },
         },
-        select: { id: true, budgetNumber: true },
+        select: { id: true },
       });
 
       const now = new Date();
@@ -114,6 +125,9 @@ async function main(): Promise<void> {
         },
         select: { id: true, name: true, serialNumber: true },
       });
+
+      // A COBERTURA — agora que o veículo existe.
+      await tx.billingTask.create({ data: { billingId: billing.id, taskId: task.id } });
 
       return { quote, task };
     });

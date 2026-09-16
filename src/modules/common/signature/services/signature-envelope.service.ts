@@ -1746,7 +1746,7 @@ export class SignatureEnvelopeService {
         // O rótulo é a união dos veículos do GRUPO — as vinte séries do lote,
         // não a fatia que calhou de vir primeiro.
         const label = coverageSummary(
-          { coveredTasks: group.flatMap(c => (c as any).coveredTasks ?? []) } as any,
+          { tasks: group.flatMap(c => (c as any).billing?.tasks ?? []) } as any,
           vehicleTasks.length,
           vehicleTasks as any,
         );

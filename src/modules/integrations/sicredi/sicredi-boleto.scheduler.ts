@@ -9,7 +9,7 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { orderNumberLabel } from '../../../utils/quote-tasks';
+import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
 import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
@@ -325,7 +325,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       // O NÚMERO DO PEDIDO é do VEÍCULO desde o orçamento
@@ -858,9 +858,11 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     // inteira, com recuo para a tarefa da fatura e daí para o orçamento todo
     // (fatura antiga, anterior à migração).
     const quoteTaskRows: any[] = cfgForOrder?.quote?.tasks ?? [];
-    const coveredIds = new Set<string>(
-      ((cfgForOrder?.coveredTasks ?? []) as Array<{ taskId: string }>).map(r => r.taskId),
-    );
+    // `coveredTaskIds` e não a relação crua: é ele que sabe onde a cobertura mora
+    // (hoje `billing.tasks`; ontem `coveredTasks`; antes disso a coluna `taskId`),
+    // e foi justamente uma leitura crua que ficou para trás numa migração e fez
+    // este boleto citar o pedido dos sessenta.
+    const coveredIds = new Set<string>(coveredTaskIds(cfgForOrder));
     const own = coveredIds.size > 0 ? quoteTaskRows.filter(t => coveredIds.has(t.id)) : [];
     const coveredRows: any[] =
       own.length > 0 ? own : installment.invoice?.task ? [installment.invoice.task] : quoteTaskRows;

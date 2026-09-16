@@ -238,3 +238,77 @@ export async function syncEmNegociacaoForTask(
     // Swallow — this is a best-effort sync; should never break the caller's flow.
   }
 }
+
+/**
+ * Reconcile "Em Negociação" for EVERY task covered by a quote.
+ *
+ * POR QUE PRECISA EXISTIR
+ *   O orçamento é do NEGÓCIO; a O.S. "Em Negociação" é de cada TAREFA. Enquanto
+ *   um orçamento tinha uma tarefa só, `task.findFirst({ where: { quoteId } })`
+ *   seguido de `syncEmNegociacaoForTask` era exato. Com o orçamento
+ *   multi-tarefa (um orçamento cobre N veículos) o `findFirst` virou um sorteio:
+ *   aprovava-se o orçamento e UMA "Em Negociação" fechava; as outras N-1 ficavam
+ *   em "Em Andamento" para sempre, sobre um orçamento já aprovado. Quem abria a
+ *   agenda via um caminhão "Orçamento Aprovado" com o comercial ainda negociando.
+ *
+ * Toda mudança de estado do ORÇAMENTO (aprovar, assinar, vencer, reverter
+ * faturamento, cancelar, cascatear parcelas) tem que passar por aqui, não pelo
+ * `syncEmNegociacaoForTask` de uma tarefa avulsa. O que continua sendo por
+ * tarefa é o que nasce na tarefa: layout aprovado/reprovado, por exemplo.
+ *
+ * Sequencial de propósito: cada `syncEmNegociacaoForTask` emite evento de
+ * notificação, e o paralelismo só trocaria a ordem em que o comercial os recebe.
+ */
+export async function syncEmNegociacaoForQuote(
+  prisma: PrismaContext,
+  quoteId: string,
+  userId?: string | null,
+): Promise<void> {
+  try {
+    const tasks = await (prisma as any).task.findMany({
+      where: { quoteId },
+      select: { id: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    for (const task of tasks) {
+      await syncEmNegociacaoForTask(prisma, task.id, userId);
+    }
+  } catch (error) {
+    logger.error(
+      `[Em Negociação Sync] Error reconciling quote ${quoteId}: ${(error as Error).message}`,
+    );
+  }
+}
+
+/**
+ * Reconcile a task AND every sibling task on the same quote.
+ *
+ * Para os gatilhos que NASCEM numa tarefa mas cujo efeito é do orçamento: ao
+ * concluir a "Em Negociação" de um veículo o orçamento inteiro é aprovado
+ * (`budgetApproveOnEmNegociacaoComplete`), e reabrir aquela mesma O.S. desaprova
+ * o orçamento inteiro. Sincronizar só a tarefa de origem deixaria as irmãs
+ * contando outra história sobre o mesmo orçamento.
+ *
+ * Tarefa sem orçamento cai no caso de sempre: ela e só ela.
+ */
+export async function syncEmNegociacaoForTaskAndSiblings(
+  prisma: PrismaContext,
+  taskId: string,
+  userId?: string | null,
+): Promise<void> {
+  try {
+    const task = await (prisma as any).task.findUnique({
+      where: { id: taskId },
+      select: { quoteId: true },
+    });
+    if (task?.quoteId) {
+      await syncEmNegociacaoForQuote(prisma, task.quoteId, userId);
+      return;
+    }
+  } catch (error) {
+    logger.error(
+      `[Em Negociação Sync] Error resolving quote of task ${taskId}: ${(error as Error).message}`,
+    );
+  }
+  await syncEmNegociacaoForTask(prisma, taskId, userId);
+}

@@ -1,7 +1,7 @@
 {
-  "buildTime": "2026-09-11T17:37:09.621Z",
+  "buildTime": "2026-09-16T21:55:49.989Z",
   "version": "0.0.1",
-  "commit": "7d47b28a71441db6997ac72e6abbea573cdeccdd",
-  "branch": "main",
-  "node": "v22.22.0"
+  "commit": "227b2a9b3d01b21e9a39232e25cddc9612ee1428",
+  "branch": "fix/teste-em-tela-e-bateria-e2e",
+  "node": "v26.4.0"
 }

@@ -83,7 +83,7 @@ const resolveGlobalDiscount = (
  * "os veículos do orçamento". Para a nota de um LOTE — vinte dos sessenta — isso
  * é declarar à prefeitura quarenta caminhões que ela não cobra.
  *
- * A resposta é a COBERTURA (`QuoteBillingTask`), e é a cobertura inteira: a
+ * A resposta é a COBERTURA (`BillingTask`), e é a cobertura inteira: a
  * âncora (`sliceTask`) seria uma afirmação falsa sobre os outros dezenove.
  *
  * O recuo para `Invoice.task` — e, na falta dele, para o orçamento todo — é o
@@ -385,7 +385,7 @@ export class NfseEmissionScheduler {
                   // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                   // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                   // `coveredTaskIds()` de `@utils/quote-tasks`.
-                  coveredTasks: { select: { taskId: true } },
+                  billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                   quote: {
                     select: {
                       id: true,
@@ -759,7 +759,7 @@ export class NfseEmissionScheduler {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 quote: {
                   select: {
                     id: true,

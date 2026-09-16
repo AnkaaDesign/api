@@ -14,6 +14,7 @@ import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/ta
 import { nameSimilarity } from './text-normalization';
 import { isDueDateOverdue } from '@utils/due-date.util';
 import { sliceTask } from '../../../utils/quote-tasks';
+import { deleteInstallmentsWithSlips } from '../../../utils/billing-teardown';
 import {
   RECON_ADVISORY_LOCK_KEY,
   TOP_MATCH_SCORE_BADGE_FLOOR,
@@ -1739,7 +1740,7 @@ export class ReceivableMatchService {
             // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
             // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
             // `coveredTaskIds()` de `@utils/quote-tasks`.
-            coveredTasks: { select: { taskId: true } },
+            billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
             customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
             quote: {
               select: {
@@ -2054,7 +2055,7 @@ export class ReceivableMatchService {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 customer: {
                   select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
                 },
@@ -2635,7 +2636,7 @@ export class ReceivableMatchService {
       const doomedIds = doomed.map(d => d.id);
       if (doomedIds.length > 0) {
         await db.reconciliationMatch.deleteMany({ where: { installmentId: { in: doomedIds } } });
-        await db.installment.deleteMany({ where: { id: { in: doomedIds } } });
+        await deleteInstallmentsWithSlips(db, { id: { in: doomedIds } });
       }
       if (invoiceIds.length > 0) {
         await db.invoice.deleteMany({ where: { id: { in: invoiceIds } } });

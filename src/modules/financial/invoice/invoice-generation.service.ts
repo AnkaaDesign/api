@@ -7,6 +7,7 @@ import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 import { coveredTaskIds, orderNumberLabel, sliceAnchorTaskId } from '../../../utils/quote-tasks';
+import { deleteInstallmentsWithSlips } from '../../../utils/billing-teardown';
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -85,8 +86,14 @@ export class InvoiceGenerationService {
                 // valor (`por veículo × cobertos`) e o `Invoice.taskId` /
                 // `NfseDocument.taskId`, que só é preenchido quando a fatura é
                 // de UM veículo.
-                coveredTasks: {
-                  select: { taskId: true, task: { select: { id: true, finishedAt: true } } },
+                billing: {
+                  select: {
+                    id: true,
+                    approvedAt: true,
+                    tasks: {
+                      select: { taskId: true, task: { select: { id: true, finishedAt: true } } },
+                    },
+                  },
                 },
               },
             },
@@ -122,7 +129,7 @@ export class InvoiceGenerationService {
     const onlyTaskIds = options?.onlyTaskIds ? new Set(options.onlyTaskIds) : null;
     const customerConfigs = (quote.customerConfigs ?? []).filter(config => {
       if (!onlyTaskIds) return true;
-      const covered = ((config as any).coveredTasks ?? []) as Array<{ taskId: string }>;
+      const covered = ((config as any).billing?.tasks ?? []) as Array<{ taskId: string }>;
       // Fatia sem cobertura é o orçamento que ainda não tem veículo vinculado:
       // ali não há o que restringir, e recusá-la deixaria a aprovação sem fatura.
       if (covered.length === 0) return true;
@@ -189,8 +196,9 @@ export class InvoiceGenerationService {
             );
           }
 
-          await tx.installment.deleteMany({
-            where: { invoiceId: { in: ids }, status: { not: 'PAID' } },
+          await deleteInstallmentsWithSlips(tx, {
+            invoiceId: { in: ids },
+            status: { not: 'PAID' },
           });
           await tx.invoice.deleteMany({ where: { id: { in: ids } } });
           this.logger.log(
@@ -216,7 +224,7 @@ export class InvoiceGenerationService {
         // aconteceu. E só vale quando TODOS fecharam: com um pendente não existe
         // "data de conclusão" do lote, e a conta cai na data de aprovação, que é
         // o que os geradores já preferem.
-        const coveredRows = ((config as any).coveredTasks ?? []) as Array<{
+        const coveredRows = ((config as any).billing?.tasks ?? []) as Array<{
           task?: { finishedAt: Date | null } | null;
         }>;
         const coveredFinishedAt = coveredRows.map(r => r.task?.finishedAt ?? null);
@@ -617,11 +625,9 @@ export class InvoiceGenerationService {
           );
         }
 
-        await tx.installment.deleteMany({
-          where: {
-            status: { not: 'PAID' },
-            OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
-          },
+        await deleteInstallmentsWithSlips(tx, {
+          status: { not: 'PAID' },
+          OR: [{ invoiceId: { in: ids } }, { externalOperationId, invoiceId: null }],
         });
         await tx.invoice.deleteMany({ where: { id: { in: ids } } });
         this.logger.log(
@@ -817,7 +823,7 @@ export class InvoiceGenerationService {
                 // relação porque uma fatura pode cobrir um lote — vinte dos sessenta —, e
                 // nesse caso não existe coluna que responda. Leia por `sliceTask()` /
                 // `coveredTaskIds()` de `@utils/quote-tasks`.
-                coveredTasks: { select: { taskId: true } },
+                billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
                 quote: {
                   select: {
                     services: {

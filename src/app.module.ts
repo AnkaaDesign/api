@@ -82,6 +82,7 @@ import { WhatsAppCloudModule } from './modules/integrations/whatsapp-cloud/whats
 import { NfseModule } from './modules/integrations/nfse/nfse.module';
 import { SiegModule } from './modules/integrations/sieg/sieg.module';
 import { InvoiceModule } from './modules/financial/invoice/invoice.module';
+import { BillingModule } from './modules/financial/billing/billing.module';
 import { ReconciliationModule } from './modules/financial/reconciliation/reconciliation.module';
 import { SkillModule } from './modules/skill/skill.module';
 import { QuestionnaireModule } from './modules/questionnaire/questionnaire.module';
@@ -179,6 +180,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     NfseModule,
     SiegModule,
     InvoiceModule,
+    BillingModule,
     ReconciliationModule,
     SkillModule,
     QuestionnaireModule,
