@@ -2888,13 +2888,35 @@ export class OrderService {
     return painterDoc.pixKey;
   }
 
-  async getPayables(): Promise<PayablesResponse> {
+  /**
+   * Janela "pago no mês" da competência selecionada (YYYY-MM), em horário de São Paulo.
+   *
+   * A competência VEM DA TELA: Contas a Pagar navega por mês, e um pedido/aerografia
+   * pago em agosto pertence a agosto — buscar sempre o mês corrente fazia a linha paga
+   * sumir da lista assim que o usuário voltava para o mês em que ela foi paga (as
+   * recorrentes, que já recebiam a competência, continuavam aparecendo; só pedido e
+   * aerografia desapareciam).
+   *
+   * Os limites são meia-noite de SP (UTC−03:00 o ano todo, sem horário de verão desde
+   * 2019) e não meia-noite do processo: a API roda em UTC, então um pagamento feito
+   * às 22h do dia 31 caía no mês seguinte aqui e no mês certo no navegador — some dos
+   * dois lados. Competência ausente/inválida cai no mês corrente em SP.
+   */
+  private paidWindowForCompetence(competence?: string): { monthStart: Date; monthEnd: Date } {
+    const spNow = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    const key = /^\d{4}-\d{2}$/.test(competence ?? '') ? (competence as string) : spNow;
+    const [year, month] = key.split('-').map(Number);
+    return {
+      monthStart: new Date(Date.UTC(year, month - 1, 1, 3, 0, 0)),
+      monthEnd: new Date(Date.UTC(year, month, 1, 3, 0, 0)),
+    };
+  }
+
+  async getPayables(competence?: string): Promise<PayablesResponse> {
     try {
-      // "Paid this month" window — orders/airbrushing settled in the current
+      // "Paid this month" window — orders/airbrushing settled in the SELECTED
       // competence month are surfaced alongside the open obligations.
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const { monthStart, monthEnd } = this.paidWindowForCompetence(competence);
 
       const orderSelect = {
         id: true,
@@ -3001,12 +3023,12 @@ export class OrderService {
             supplier: { select: { id: true, fantasyName: true } },
           },
         }),
-        // Paid this month — orders settled (paidAt) in the current month.
+        // Paid this month — orders settled (paidAt) in the selected month.
         this.prisma.order.findMany({
           where: { paymentStatus: ORDER_PAYMENT_STATUS.PAID, paidAt: { gte: monthStart, lt: monthEnd } },
           select: orderSelect,
         }),
-        // Paid this month — airbrushing settled (paidAt) in the current month.
+        // Paid this month — airbrushing settled (paidAt) in the selected month.
         this.prisma.airbrushing.findMany({
           where: { paymentStatus: 'PAID', paidAt: { gte: monthStart, lt: monthEnd }, price: { not: null, gt: 0 } },
           select: airbrushingSelect,

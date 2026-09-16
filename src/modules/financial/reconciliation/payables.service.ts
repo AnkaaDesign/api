@@ -63,7 +63,10 @@ export class PayablesService {
       const allowMaterialize = competence >= currentCompetence;
 
       const [orderResp, recurrentRows] = await Promise.all([
-        this.orderService.getPayables(),
+        // A competência escolhida na tela vale para TODAS as fontes: sem ela, a janela
+        // "pago no mês" de pedidos/aerografias ficava presa no mês corrente e um mês
+        // passado só mostrava as recorrentes pagas.
+        this.orderService.getPayables(competence),
         this.recurrentPayableService.ensureCurrentOccurrenceRows(competence, allowMaterialize),
       ]);
 

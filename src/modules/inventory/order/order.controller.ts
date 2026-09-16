@@ -209,8 +209,9 @@ export class OrderController {
     SECTOR_PRIVILEGES.ACCOUNTING,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async getPayables(): Promise<PayablesResponse> {
-    return this.orderService.getPayables();
+  // `competence` (YYYY-MM) escolhe o mês da janela "pago no mês"; ausente = mês corrente.
+  async getPayables(@Query('competence') competence?: string): Promise<PayablesResponse> {
+    return this.orderService.getPayables(competence);
   }
 
   // =====================
