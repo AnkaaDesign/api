@@ -910,6 +910,32 @@ export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit
   taskIds: true,
 });
 
+/**
+ * SIMPLIFICAR ORÇAMENTO — o corpo das duas rotas de união.
+ *
+ * Recebe TAREFAS e não orçamentos porque é assim que a tela seleciona: na Agenda
+ * e no Cronograma a linha é um veículo. A deduplicação por orçamento é do
+ * serviço.
+ *
+ * O teto de 200 não é medo de carga: é o tamanho em que a união deixa de ser uma
+ * simplificação e vira uma migração — e migração se faz por script, com alguém
+ * olhando. O maior grupo real em produção tem trinta.
+ */
+export const taskQuoteMergeSchema = z.object({
+  taskIds: z
+    .array(z.string().uuid('Veículo inválido'))
+    .min(2, 'Selecione pelo menos dois veículos.')
+    .max(200, 'Selecione no máximo 200 veículos por vez.'),
+  /**
+   * O modo de cobrança do resultado. Padrão `PER_TASK` — ver a decisão em
+   * `TaskQuoteService.mergeQuotes`: quatro orçamentos de um veículo JÁ ERAM
+   * quatro faturamentos independentes, e `JOINT` os colapsaria numa fatura só.
+   */
+  billingSplit: z.enum(['JOINT', 'PER_TASK']).optional(),
+});
+
+export type TaskQuoteMergeFormData = z.infer<typeof taskQuoteMergeSchema>;
+
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),

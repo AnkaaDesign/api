@@ -79,6 +79,12 @@ import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.servi
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
 import {
+  judgeMerge,
+  type MergeBlocker,
+  type MergeCandidate,
+  type MergeWarning,
+} from '../../../utils/task-quote-merge-rules';
+import {
   computeQuoteMoney,
   planCoverage,
   planCoverageByCustomer,
@@ -100,6 +106,7 @@ import {
 } from '../../../utils/task-quote-customer-config-sync';
 import {
   BILLING_FROZEN_WHERE,
+  isBillingFrozen,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
@@ -2232,6 +2239,329 @@ export class TaskQuoteService {
       }
       throw new InternalServerErrorException('Erro ao atualizar orçamento.');
     }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // SIMPLIFICAR ORÇAMENTO — N orçamentos de 1 veículo viram 1 de N veículos
+  //
+  // A tela de criação produziu um orçamento POR caminhão durante meses, e o
+  // acervo herdou isso: 72 grupos de orçamentos irmãos em produção (mesmo
+  // cliente, mesmo dia, mesmo total), o maior com TRINTA. São trinta números,
+  // trinta PDFs e trinta cerimônias de assinatura para um negócio só.
+  //
+  // O que a união dá: UM documento e UMA assinatura.
+  // O que ela NÃO dá: uma fatura só — ver `billingSplit` em `mergeQuotes`.
+  // ═════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Carrega os candidatos e os reduz ao que as regras julgam.
+   *
+   * Uma consulta por TAREFA, não por orçamento: é a tela que seleciona veículos,
+   * e quatro linhas de um orçamento de quatro são quatro tarefas do MESMO
+   * orçamento. A deduplicação acontece aqui, e é ela que faz a seleção "todos os
+   * veículos deste orçamento" ser inofensiva.
+   */
+  private async loadMergeCandidates(taskIds: string[]): Promise<{
+    candidates: MergeCandidate[];
+    semOrcamento: number;
+  }> {
+    const tasks = await this.prisma.task.findMany({
+      where: { id: { in: taskIds } },
+      select: { id: true, quoteId: true },
+    });
+    const semOrcamento = tasks.filter(t => !t.quoteId).length;
+    const quoteIds = [...new Set(tasks.map(t => t.quoteId).filter((q): q is string => !!q))];
+    if (!quoteIds.length) return { candidates: [], semOrcamento };
+
+    const quotes = await this.prisma.taskQuote.findMany({
+      where: { id: { in: quoteIds } },
+      include: {
+        services: { orderBy: { position: 'asc' } },
+        tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+        layoutFiles: { select: { id: true } },
+        customerConfigs: {
+          include: {
+            billing: { select: { approvedAt: true, status: true } },
+            invoices: { select: { status: true } },
+            nfseDocuments: { select: { status: true } },
+            installments: { select: { status: true, paidAmount: true } },
+          },
+        },
+      },
+    });
+
+    // Assinatura: a fronteira que o serviço de exclusão já define. Um envelope
+    // com coleta viva ou documento selado PROTEGE o orçamento — ele não some.
+    const protegidos = new Set(await this.signatureDeletion.findProtectedQuoteIds(quoteIds));
+
+    const candidates: MergeCandidate[] = quotes.map(q => ({
+      id: q.id,
+      budgetNumber: q.budgetNumber,
+      status: String(q.status),
+      billingSplit: String((q as any).billingSplit ?? 'JOINT'),
+      expiresAt: q.expiresAt,
+      guaranteeYears: q.guaranteeYears ?? null,
+      customGuaranteeText: q.customGuaranteeText ?? null,
+      customForecastDays: q.customForecastDays ?? null,
+      layoutFileIds: (q as any).layoutFiles?.map((f: { id: string }) => f.id) ?? [],
+      services: q.services.map(sv => ({
+        description: sv.description,
+        amount: Number(sv.amount),
+      })),
+      customerConfigs: (q as any).customerConfigs.map((c: any) => ({
+        customerId: c.customerId,
+        discountType: c.discountType ?? null,
+        discountValue: c.discountValue != null ? Number(c.discountValue) : null,
+        paymentCondition: c.paymentCondition ?? null,
+        customPaymentText: c.customPaymentText ?? null,
+        paymentConfig: c.paymentConfig ?? null,
+        billingFrozen: isBillingFrozen(c.billing ?? { approvedAt: null, status: null }),
+        // DINHEIRO VIVO sem cobrança congelada: fatura não cancelada, nota não
+        // cancelada, ou qualquer centavo recebido. São três perguntas porque são
+        // três sistemas — o nosso, a prefeitura e o banco — e cada um deixa um
+        // rastro que a união apagaria.
+        hasLiveMoney:
+          (c.invoices ?? []).some((i: any) => i.status !== 'CANCELLED') ||
+          (c.nfseDocuments ?? []).some((n: any) => n.status !== 'CANCELLED') ||
+          (c.installments ?? []).some((p: any) => Number(p.paidAmount ?? 0) > 0),
+      })),
+      taskIds: q.tasks.map(t => t.id),
+      signatureProtected: protegidos.has(q.id),
+    }));
+
+    return { candidates, semOrcamento };
+  }
+
+  /**
+   * A PRÉVIA — julga sem escrever nada.
+   *
+   * Existe porque a tela de Agenda não carrega o que decide "são iguais": a
+   * linha traz o total e o cliente, não a lista de serviços, o desconto nem as
+   * condições de pagamento. Sem esta rota o diálogo teria de adivinhar ou pedir
+   * o grafo inteiro de N orçamentos só para desenhar um botão.
+   */
+  async previewMergeQuotes(taskIds: string[]): Promise<{
+    success: boolean;
+    data: {
+      survivor: { id: string; budgetNumber: number } | null;
+      absorbed: Array<{ id: string; budgetNumber: number; vehicleCount: number }>;
+      vehicleCount: number;
+      blockers: MergeBlocker[];
+      warnings: MergeWarning[];
+    };
+    message: string;
+  }> {
+    const { candidates, semOrcamento } = await this.loadMergeCandidates(taskIds);
+    const verdict = judgeMerge(candidates);
+
+    // Veículo sem orçamento na seleção BLOQUEIA. Unir não é atribuir: dar a ele
+    // o orçamento do vizinho cobraria do cliente um serviço que ninguém orçou
+    // para aquele caminhão.
+    if (semOrcamento > 0) {
+      verdict.blockers.unshift({
+        code: 'NO_QUOTE',
+        message:
+          `${semOrcamento} ${semOrcamento === 1 ? 'veículo selecionado não tem' : 'veículos selecionados não têm'} ` +
+          'orçamento. Simplificar une orçamentos existentes — não cria um para quem não tem.',
+        budgetNumbers: [],
+      });
+    }
+
+    return {
+      success: true,
+      data: {
+        survivor: verdict.survivor
+          ? { id: verdict.survivor.id, budgetNumber: verdict.survivor.budgetNumber }
+          : null,
+        absorbed: verdict.absorbed.map(c => ({
+          id: c.id,
+          budgetNumber: c.budgetNumber,
+          vehicleCount: c.taskIds.length,
+        })),
+        vehicleCount: verdict.vehicleCount,
+        blockers: verdict.blockers,
+        warnings: verdict.warnings,
+      },
+      message: verdict.blockers.length
+        ? 'Estes orçamentos não podem ser unidos.'
+        : `${verdict.absorbed.length + 1} orçamentos viram 1, com ${verdict.vehicleCount} veículos.`,
+    };
+  }
+
+  /**
+   * A UNIÃO.
+   *
+   * ORDEM DA TRANSAÇÃO, e ela importa:
+   *
+   *   1. julgar de novo (a prévia pode ter envelhecido entre a tela e o botão);
+   *   2. purgar a assinatura dos ABSORVIDOS — envelopes cancelados/expirados que
+   *      não protegem o orçamento, mas cujas linhas o `Cascade` levaria sem
+   *      passar pela ordem de limpeza que o serviço de exclusão define;
+   *   3. MOVER as tarefas para o sobrevivente;
+   *   4. APAGAR os orçamentos vazios. Tem de ser DEPOIS de mover e ANTES de
+   *      refatiar: `BillingTask.@@unique([taskId])` é global, então enquanto o
+   *      faturamento do absorvido existir, o veículo movido ainda está coberto
+   *      por ele e a cobertura nova estoura;
+   *   5. refatiar a cobertura do sobrevivente com os N veículos;
+   *   6. `recalcQuoteTotals` — o ÚNICO que escreve `vehicleCount`, e da mesma
+   *      contagem que multiplica os totais;
+   *   7. changelog no sobrevivente e em cada veículo movido.
+   *
+   * Pós-commit, fora da transação: reconciliar a O.S. "Em Negociação" e
+   * reavaliar a assinatura do sobrevivente (acrescentar veículo é MATERIAL).
+   */
+  async mergeQuotes(
+    taskIds: string[],
+    userId: string,
+    options?: { billingSplit?: string | null },
+  ): Promise<{
+    success: boolean;
+    data: {
+      survivorId: string;
+      budgetNumber: number;
+      absorbedBudgetNumbers: number[];
+      movedTaskIds: string[];
+      vehicleCount: number;
+    };
+    message: string;
+  }> {
+    const preview = await this.previewMergeQuotes(taskIds);
+    if (preview.data.blockers.length) {
+      throw new BadRequestException(preview.data.blockers.map(b => b.message).join(' '));
+    }
+
+    const { candidates } = await this.loadMergeCandidates(taskIds);
+    const verdict = judgeMerge(candidates);
+    if (!verdict.survivor || !verdict.absorbed.length) {
+      throw new BadRequestException('Nada a unir.');
+    }
+    const survivor = verdict.survivor;
+    const absorbedIds = verdict.absorbed.map(c => c.id);
+    const movedTaskIds = verdict.absorbed.flatMap(c => c.taskIds);
+    const allTaskIds = [...survivor.taskIds, ...movedTaskIds];
+
+    // ── O MODO DE COBRANÇA DO RESULTADO ──────────────────────────────────────
+    //
+    // `PER_TASK` por padrão, decisão do dono (17/09/2026) — e não `JOINT`, que
+    // seria a leitura ingênua de "virou um orçamento só".
+    //
+    // Quatro orçamentos de um veículo JÁ ERAM quatro faturamentos independentes,
+    // com quatro números de pedido de compra possíveis e quatro notas. `JOINT`
+    // colapsaria isso numa fatura só e destruiria uma capacidade que o cliente
+    // usa. A união é do DOCUMENTO e da CERIMÔNIA; a cobrança continua onde
+    // estava.
+    const billingSplit = options?.billingSplit ?? 'PER_TASK';
+
+    const result = await this.prisma.$transaction(
+      async tx => {
+        // 2. A assinatura dos absorvidos. `findProtectedQuoteIds` já garantiu
+        //    (no julgamento) que nenhum deles tem coleta viva nem selo, então o
+        //    que sobra aqui são envelopes cancelados, expirados e invalidados —
+        //    que a purga sabe remover na ordem certa.
+        await this.signatureDeletion.purgeForQuotes(tx, absorbedIds);
+
+        // 3. Mover os veículos.
+        await tx.task.updateMany({
+          where: { quoteId: { in: absorbedIds } },
+          data: { quoteId: survivor.id },
+        });
+
+        // 4. Apagar os orçamentos, agora vazios. O `Cascade` leva serviços,
+        //    pagadores e faturamentos — todos já provados sem dinheiro vivo.
+        await tx.taskQuote.deleteMany({ where: { id: { in: absorbedIds } } });
+
+        // 5. O modo e a validade do resultado. A validade mais DISTANTE: encurtar
+        //    a de um veículo por causa da união seria decidir contra o cliente.
+        const expiresAt = new Date(
+          Math.max(...[survivor, ...verdict.absorbed].map(c => c.expiresAt.getTime())),
+        );
+        await tx.taskQuote.update({
+          where: { id: survivor.id },
+          data: {
+            billingSplit: billingSplit as any,
+            expiresAt,
+            // O documento é OUTRO: outros veículos, outro valor total, e o que
+            // houvesse de assinatura nos absorvidos deixou de existir. Volta
+            // para a fila de emissão do comercial.
+            status: TASK_QUOTE_STATUS.PENDING,
+            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.PENDING),
+          },
+        });
+
+        await resliceQuoteCoverage(tx, survivor.id, { billingSplit, taskIds: allTaskIds });
+
+        // 6. Totais e `vehicleCount`, da mesma contagem.
+        await recalcQuoteTotals(tx, survivor.id);
+
+        // 7. A trilha. No sobrevivente, dizendo quem ele absorveu; e em cada
+        //    veículo movido, dizendo de onde ele veio — sem isso o histórico do
+        //    caminhão mostraria o orçamento trocando sozinho.
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_QUOTE,
+          entityId: survivor.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'taskIds',
+          userId,
+          reason:
+            `Simplificação: absorveu ${verdict.absorbed.map(c => `nº ${c.budgetNumber}`).join(', ')} ` +
+            `(${movedTaskIds.length} ${movedTaskIds.length === 1 ? 'veículo' : 'veículos'}).`,
+          oldValue: serializeChangelogValue(survivor.taskIds),
+          newValue: serializeChangelogValue(allTaskIds),
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredById: userId,
+          transaction: tx,
+        });
+        for (const absorvido of verdict.absorbed) {
+          for (const taskId of absorvido.taskIds) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: taskId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'quoteId',
+              userId,
+              reason: `Simplificação: orçamento nº ${absorvido.budgetNumber} → nº ${survivor.budgetNumber}.`,
+              oldValue: serializeChangelogValue(absorvido.id),
+              newValue: serializeChangelogValue(survivor.id),
+              triggeredBy: CHANGE_TRIGGERED_BY.USER,
+              triggeredById: userId,
+              transaction: tx,
+            });
+          }
+        }
+
+        return { vehicleCount: allTaskIds.length };
+      },
+      // Trinta orçamentos, trinta purgas de assinatura e uma reconciliação de
+      // cobertura com trinta fatias. O padrão de 5 s não cobre isso.
+      { timeout: 120_000 },
+    );
+
+    // Pós-commit, best-effort: nenhum dos dois pode desfazer uma união que já
+    // está no banco.
+    try {
+      await syncEmNegociacaoForQuote(this.prisma, survivor.id, userId);
+    } catch (e) {
+      this.logger.error(`Falha ao reconciliar "Em Negociação" do orçamento ${survivor.id}: ${e}`);
+    }
+    try {
+      await this.signatureEnvelopes.onQuoteContentChanged(survivor.id, userId || null);
+    } catch (e) {
+      this.logger.error(`Falha ao reavaliar assinaturas do orçamento ${survivor.id}: ${e}`);
+    }
+
+    return {
+      success: true,
+      data: {
+        survivorId: survivor.id,
+        budgetNumber: survivor.budgetNumber,
+        absorbedBudgetNumbers: verdict.absorbed.map(c => c.budgetNumber),
+        movedTaskIds,
+        vehicleCount: result.vehicleCount,
+      },
+      message:
+        `Orçamento nº ${survivor.budgetNumber} agora cobre ${result.vehicleCount} veículos. ` +
+        `${verdict.absorbed.length} ${verdict.absorbed.length === 1 ? 'orçamento foi absorvido' : 'orçamentos foram absorvidos'}.`,
+    };
   }
 
   /**

@@ -39,11 +39,13 @@ import {
   taskQuoteUpdateSchema,
   taskQuoteGetManySchema,
   taskQuoteQuerySchema,
+  taskQuoteMergeSchema,
 } from '@schemas/task-quote';
 import type {
   TaskQuoteCreateFormData,
   TaskQuoteUpdateFormData,
   TaskQuoteGetManyFormData,
+  TaskQuoteMergeFormData,
 } from '@schemas/task-quote';
 
 /**
@@ -339,6 +341,54 @@ export class TaskQuoteController {
       'Content-Length': buffer.length.toString(),
     });
     res.end(buffer);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // SIMPLIFICAR ORÇAMENTO — N orçamentos de 1 veículo viram 1 de N veículos
+  //
+  // Recebe TAREFAS, não orçamentos, porque é assim que a tela seleciona: na
+  // Agenda e no Cronograma a linha é um veículo. A deduplicação por orçamento é
+  // do serviço — selecionar os quatro veículos de um orçamento de quatro é
+  // inofensivo e não conta como quatro candidatos.
+  //
+  // ADMIN e COMERCIAL: a união é um ato COMERCIAL (juntar propostas do mesmo
+  // negócio num documento só), não financeiro. O financeiro não emite orçamento.
+  //
+  // ⚠️ `merge` é um SEGMENTO LITERAL num controller cheio de `:id`. Hoje não há
+  // `@Post(':id')` registrado, então nada o sombreia — mas o Nest casa por ordem
+  // de registro dentro do controller, e um `@Post(':id')` acrescentado ACIMA
+  // destas linhas engoliria `POST /task-quotes/merge` sem erro nenhum, só um 400
+  // de UUID inválido. Se isso for preciso um dia, estas duas rotas sobem para
+  // antes dele.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * POST /task-quotes/merge/preview — julga sem escrever.
+   *
+   * Obrigatório antes do botão: a tela de Agenda não carrega o que decide "são
+   * iguais" (lista de serviços, desconto, condições de pagamento), então sem
+   * esta rota o diálogo adivinharia.
+   */
+  @Post('merge/preview')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  async previewMerge(
+    @Body(new ZodValidationPipe(taskQuoteMergeSchema)) body: TaskQuoteMergeFormData,
+  ) {
+    return this.taskQuoteService.previewMergeQuotes(body.taskIds);
+  }
+
+  /** POST /task-quotes/merge — executa. Julga de novo por dentro. */
+  @Post('merge')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  async merge(
+    @Body(new ZodValidationPipe(taskQuoteMergeSchema)) body: TaskQuoteMergeFormData,
+    @UserId() userId: string,
+  ) {
+    return this.taskQuoteService.mergeQuotes(body.taskIds, userId, {
+      billingSplit: body.billingSplit ?? null,
+    });
   }
 
   /**
