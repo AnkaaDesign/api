@@ -5838,6 +5838,42 @@ export class BudgetService {
     // A pergunta não é de que estado se vem: é se este orçamento tem a quem
     // cobrar. Ela vale para todo caminho que chegue em APROVADO.
     if (newStatus === TASK_QUOTE_STATUS.APPROVED) {
+      // ── NÃO SE APROVA SOBRE UMA COLETA QUE ACABOU DE CAIR ──────────────────
+      //
+      // Quando uma alteração material derruba as assinaturas, o gancho
+      // `markInvalidatedBySignature` devolve o orçamento a PENDENTE — e essa
+      // parte funciona. O que a desfazia era a gravação seguinte: o assistente
+      // manda o valor e, logo depois, replica pelo endpoint de status o alvo que
+      // o SELETOR carrega desde a abertura da página. O seletor ainda dizia
+      // "Aprovado" porque era esse o estado quando a tela abriu, e o orçamento
+      // voltava a aprovado um segundo depois de ter sido revertido.
+      //
+      // Medido em produção (orçamento nº 984, 17/09 20:05): a reversão registrou
+      // sucesso às 20:05:32 e a reaprovação gravou às 20:05:33, com notificação
+      // de "aguarda aprovação de faturamento" para o financeiro.
+      //
+      // A pergunta é do DOMÍNIO, não da tela: um orçamento APROVADO afirma que
+      // alguém concordou com AQUELE documento. Se o documento aceito morreu e
+      // nada foi colhido depois, não há o que a aprovação esteja afirmando.
+      // Vale para todo caminho que chegue em APROVADO — inclusive o replay.
+      //
+      // Só morde quem TEVE coleta: orçamento aprovado sem nunca ter ido à
+      // assinatura (a maioria) não passa por aqui.
+      const ultimoEnvelope = await this.prisma.signatureEnvelope.findFirst({
+        where: { quoteId },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, invalidatedReason: true },
+      });
+      if (ultimoEnvelope?.status === 'INVALIDATED') {
+        throw new BadRequestException(
+          'As assinaturas deste orçamento foram invalidadas por uma alteração' +
+            (ultimoEnvelope.invalidatedReason
+              ? ` (${ultimoEnvelope.invalidatedReason.replace(/^Alteração em:\s*/, '')})`
+              : '') +
+            '. Reenvie para assinatura e colha a aceitação antes de aprovar de novo.',
+        );
+      }
+
       // Must have at least one customerConfig with total > 0
       const configs = await this.prisma.budgetPayer.findMany({
         where: { quoteId },
