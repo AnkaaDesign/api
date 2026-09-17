@@ -4669,7 +4669,46 @@ export class BudgetService {
           );
         }
 
-        await this.sicrediService.cancelBoleto(slip.nossoNumero);
+        // ── "JÁ BAIXADO" É O SUCESSO, NÃO A FALHA ────────────────────────────
+        //
+        // `cancelBoleto` LANÇA quando o Sicredi recusa a instrução, e uma das
+        // recusas é `0078 — Instrução inválida: título já baixado`. A exceção
+        // subia, `Promise.allSettled` a registrava como falha e o desmonte
+        // inteiro era recusado — por um título que já estava exatamente no
+        // estado que se queria alcançar. Um beco: a baixa nunca ia conseguir.
+        //
+        // Medido em produção (17/09, orçamento nº 309): os dois boletos vinham
+        // OVERDUE no nosso banco e BAIXADOS no Sicredi, e o cancelamento
+        // recusava para sempre.
+        //
+        // A resposta não sai de ler a mensagem de erro — sai de PERGUNTAR ao
+        // banco, que é a única fonte que decide. Baixado: o objetivo está
+        // cumprido. Liquidado/pago: dinheiro entrou entre a guarda e a baixa, e
+        // aí o erro original é o menor dos problemas. Qualquer outra coisa: o
+        // erro sobe como antes.
+        try {
+          await this.sicrediService.cancelBoleto(slip.nossoNumero);
+        } catch (err) {
+          let jaEsta: string | null = null;
+          try {
+            jaEsta = (await this.sicrediService.queryBoleto(slip.nossoNumero))?.situacao ?? null;
+          } catch {
+            throw err;
+          }
+          const upper = (jaEsta ?? '').toUpperCase();
+          if (upper.startsWith('BAIXADO')) {
+            this.logger.log(
+              `[BILLING_TEARDOWN] Boleto ${slip.nossoNumero}: o Sicredi recusou a instrução ` +
+                `(${err instanceof Error ? err.message : err}) porque o título JÁ consta ` +
+                `"${jaEsta}". Baixa considerada cumprida.`,
+            );
+            return { slip, situacao: jaEsta };
+          }
+          if (upper.startsWith('LIQUIDADO') || upper.startsWith('PAGO')) {
+            throw new Error(`o título consta como ${jaEsta} no Sicredi (pagamento recebido)`);
+          }
+          throw err;
+        }
 
         // Poll until the bank reflects the baixa. ~11s worst case, run in parallel per slip.
         let situacao: string | null = null;
