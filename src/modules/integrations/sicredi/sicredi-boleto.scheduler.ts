@@ -24,6 +24,7 @@ import {
   parseDueDateYMD,
   todayInSaoPauloAtNoonUtc,
 } from '@utils/due-date.util';
+import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -1738,6 +1739,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         dueDate: true,
         seuNumero: true,
         status: true,
+        // Needed to rebuild the fator de vencimento when the bank moved the date.
+        barcode: true,
         installment: {
           select: {
             id: true,
@@ -1795,6 +1798,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     dueDate: Date;
     seuNumero: string | null;
     status: string;
+    barcode?: string | null;
     installment: {
       id: string;
       status: string;
@@ -1823,6 +1827,21 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         // Rebuild at noon UTC for timezone-safe storage
         newParsedDate = parseDueDateYMD(sicrediYMD);
         bankSlipUpdates.dueDate = newParsedDate;
+
+        // The customer's boleto carries the new date in its own barcode (fator de
+        // vencimento). Move ours with it, or the stored linha digitável — which is what
+        // the copy button hands out and what /boleto/pdf looks the boleto up by — keeps
+        // pointing at the date the bank just abandoned.
+        const rebuiltCodes = rebuildBoletoCodesForDueDate(bankSlip.barcode, sicrediYMD);
+        if (rebuiltCodes) {
+          bankSlipUpdates.barcode = rebuiltCodes.barcode;
+          bankSlipUpdates.digitableLine = rebuiltCodes.digitableLine;
+        } else if (bankSlip.barcode) {
+          this.logger.warn(
+            `[BOLETO_SYNC] ${bankSlip.nossoNumero}: due date moved to ${sicrediYMD} but the ` +
+              `barcode could not be rebuilt — stored codes still encode the old date.`,
+          );
+        }
 
         // If the boleto was OVERDUE and Sicredi's date is today or later, restore it
         // to ACTIVE so the overdue-check job won't re-mark it immediately. Compare

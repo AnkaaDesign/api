@@ -41,6 +41,7 @@ import {
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
+import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 import { sliceTask } from '../../../utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
 
@@ -1390,6 +1391,21 @@ export class InvoiceController {
     try {
       await this.sicrediService.changeDueDate(bankSlip.nossoNumero, formattedDate);
 
+      // The due date lives INSIDE the boleto too — as the "fator de vencimento" in
+      // positions 6-9 of the barcode. Leaving `barcode`/`digitableLine` untouched here
+      // is how 18 slips ended up with a line encoding a date up to 41 days before the
+      // one we show, which then leaks to the customer through the copy button and
+      // through /boleto/pdf (it looks the boleto up BY the stored linha digitável).
+      // Sicredi's consulta does not return these fields, so they are derived locally.
+      const rebuiltCodes = rebuildBoletoCodesForDueDate(bankSlip.barcode, formattedDate);
+      if (!rebuiltCodes && bankSlip.barcode) {
+        this.logger.warn(
+          `[BOLETO] Could not rebuild barcode for installment ${installmentId} ` +
+            `(nossoNumero=${bankSlip.nossoNumero}, barcode="${bankSlip.barcode}"): keeping the ` +
+            `stored codes, which now encode a stale due date.`,
+        );
+      }
+
       // Update local records
       await this.prisma.bankSlip.update({
         where: { id: bankSlip.id },
@@ -1397,6 +1413,9 @@ export class InvoiceController {
           dueDate: newDate,
           status: 'ACTIVE',
           lastSyncAt: new Date(),
+          ...(rebuiltCodes
+            ? { barcode: rebuiltCodes.barcode, digitableLine: rebuiltCodes.digitableLine }
+            : {}),
         },
       });
 
