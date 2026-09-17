@@ -140,6 +140,7 @@ import {
   STATISTICS_GROUP_BY,
   STATISTICS_METRIC,
   STATISTICS_PERIOD,
+  BILLING_STATUS,
   TASK_QUOTE_STATUS,
   RESCHEDULE_REASON,
   INVOICE_STATUS,
@@ -2103,18 +2104,31 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
 // =====================
 
 export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
-  [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
-  [TASK_QUOTE_STATUS.SIGNED]: 'Assinado',
-  // NÃO é "Vencido": esse rótulo é do DUE, logo abaixo, e lá quer dizer parcela
-  // em atraso. Este diz o que o comercial tem de FAZER com o orçamento.
+  // NÃO é "Vencido": vencida é a PARCELA, e esse rótulo é do
+  // `BILLING_STATUS.OVERDUE`, noutra entidade. Este diz o que o comercial tem de
+  // FAZER com o orçamento.
   [TASK_QUOTE_STATUS.EXPIRED]: 'Aguardando Reanálise',
-  [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
-  [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'Faturamento Aprovado',
-  [TASK_QUOTE_STATUS.UPCOMING]: 'A Vencer',
-  [TASK_QUOTE_STATUS.DUE]: 'Vencido',
-  [TASK_QUOTE_STATUS.PARTIAL]: 'Parcial',
-  [TASK_QUOTE_STATUS.SETTLED]: 'Liquidado',
+  [TASK_QUOTE_STATUS.SIGNED]: 'Assinado',
+  [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
+  // Sem o prefixo "Orçamento": a tela já se chama Orçamentos, e o estado de
+  // faturamento mudou de entidade. Repetir a palavra era desambiguar de algo que
+  // não mora mais aqui.
+  [TASK_QUOTE_STATUS.APPROVED]: 'Aprovado',
   [TASK_QUOTE_STATUS.CANCELLED]: 'Cancelado',
+};
+
+// =====================
+// Billing Labels
+// =====================
+
+export const BILLING_STATUS_LABELS: Record<BILLING_STATUS, string> = {
+  // Aqui "Vencido" é literal: há parcela em atraso.
+  [BILLING_STATUS.OVERDUE]: 'Vencido',
+  [BILLING_STATUS.PENDING]: 'Pendente',
+  [BILLING_STATUS.APPROVED]: 'Aprovado',
+  [BILLING_STATUS.PARTIAL]: 'Parcial',
+  [BILLING_STATUS.SETTLED]: 'Liquidado',
+  [BILLING_STATUS.CANCELLED]: 'Cancelado',
 };
 
 // =====================

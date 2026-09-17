@@ -14,6 +14,7 @@ import {
 import type { TaskQuote } from '@types';
 import {
   TASK_QUOTE_STATUS,
+  BILLING_STATUS,
   DISCOUNT_TYPE,
   PAYMENT_CONDITION,
   GUARANTEE_YEARS_OPTIONS,
@@ -29,16 +30,22 @@ import {
 // `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
 // também, sempre.
 export const taskQuoteStatusSchema = z.enum([
-  TASK_QUOTE_STATUS.PENDING,
-  TASK_QUOTE_STATUS.SIGNED,
   TASK_QUOTE_STATUS.EXPIRED,
-  TASK_QUOTE_STATUS.BUDGET_APPROVED,
-  TASK_QUOTE_STATUS.BILLING_APPROVED,
-  TASK_QUOTE_STATUS.UPCOMING,
-  TASK_QUOTE_STATUS.DUE,
-  TASK_QUOTE_STATUS.PARTIAL,
-  TASK_QUOTE_STATUS.SETTLED,
+  TASK_QUOTE_STATUS.SIGNED,
+  TASK_QUOTE_STATUS.PENDING,
+  TASK_QUOTE_STATUS.APPROVED,
   TASK_QUOTE_STATUS.CANCELLED,
+]);
+
+// O ciclo do FATURAMENTO, que saiu do orçamento em 16/09/2026. Mesmo aviso da
+// lista acima: escrita à mão, não conferida pelo compilador.
+export const billingStatusSchema = z.enum([
+  BILLING_STATUS.OVERDUE,
+  BILLING_STATUS.PENDING,
+  BILLING_STATUS.APPROVED,
+  BILLING_STATUS.PARTIAL,
+  BILLING_STATUS.SETTLED,
+  BILLING_STATUS.CANCELLED,
 ]);
 
 // =====================
@@ -174,8 +181,26 @@ export const taskQuoteIncludeSchema = z
                   }),
                 ])
                 .optional(),
+              /**
+               * O FATURAMENTO do pagador.
+               *
+               * ⚠️ Sem esta chave o zod ESTRIPAVA `billing` do include em silêncio:
+               * um objeto zod comum descarta o que não conhece, sem erro e sem
+               * aviso. O app e a web pediam `billing` à mão e ele nunca chegava ao
+               * mapper — de modo que a promessa de `withCoverageInclude` ("um
+               * chamador que JÁ pediu `billing` é respeitado") não podia ser
+               * verdade nesta rota, só na de `/tasks`, cujo include é um
+               * `z.record` recursivo e passa inteiro.
+               *
+               * `z.any()` porque a forma é a do Prisma (select/include/orderBy
+               * aninhados à vontade) e reescrevê-la aqui criaria um segundo
+               * contrato para divergir do primeiro.
+               */
+              billing: z.any().optional(),
             })
             .optional(),
+          /** Mesma razão, para quem monta o nó com `select` em vez de `include`. */
+          select: z.any().optional(),
         }),
       ])
       .optional(),

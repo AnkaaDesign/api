@@ -212,6 +212,11 @@ export class BillingService {
     approved?: boolean;
     /** Só os que têm todos os veículos concluídos — a fila do financeiro. */
     deliveredOnly?: boolean;
+    /** Filtro pelo ESTADO da cobrança (`BILLING_STATUS`), um ou vários. */
+    statuses?: string[];
+    /** `statusOrder` (padrão), `createdAt` ou `approvedAt`. */
+    orderBy?: 'statusOrder' | 'createdAt' | 'approvedAt';
+    orderDir?: 'asc' | 'desc';
   }) {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(200, Math.max(1, params.limit ?? 40));
@@ -228,11 +233,22 @@ export class BillingService {
     if (params.deliveredOnly) {
       where.tasks = { some: {}, none: { task: { finishedAt: null } } };
     }
+    if (params.statuses && params.statuses.length > 0) {
+      where.status = { in: params.statuses };
+    }
 
     const [data, totalRecords] = await Promise.all([
       (this.prisma as any).billing.findMany({
         where,
-        orderBy: [{ approvedAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+        // ORDENAÇÃO PADRÃO: pelo ESTADO, que é a ordem da ação pendente — vencido
+        // primeiro, depois o que espera a nossa aprovação, depois o que espera o
+        // cliente pagar. Era por `approvedAt`, que ordenava por quando a cobrança
+        // saiu e não por quanto ela urge: uma cobrança vencida há dois meses caía
+        // no fim da lista por ter sido aprovada antes das outras.
+        orderBy: [
+          { [params.orderBy ?? 'statusOrder']: params.orderDir ?? 'asc' },
+          { createdAt: 'desc' },
+        ],
         skip: (page - 1) * limit,
         take: limit,
         include: BillingService.DETAIL_INCLUDE,

@@ -19,14 +19,21 @@ import type { File } from './file';
 // TaskQuote Status Enum (mirrored from constants)
 // =====================
 
+// ⚠️ ESPELHO ESCRITO À MÃO do enum em `@constants`. O compilador não confere um
+// contra o outro: estado que exista lá e falte aqui vira `never` numa comparação
+// e some da tela sem erro nenhum. Mexeu num, mexa no outro.
 export type TASK_QUOTE_STATUS =
-  | 'PENDING'
-  | 'SIGNED'
   | 'EXPIRED'
-  | 'BUDGET_APPROVED'
-  | 'BILLING_APPROVED'
-  | 'UPCOMING'
-  | 'DUE'
+  | 'SIGNED'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'CANCELLED';
+
+/** O ciclo do FATURAMENTO — espelho de `BILLING_STATUS`, mesmo aviso acima. */
+export type BILLING_STATUS =
+  | 'OVERDUE'
+  | 'PENDING'
+  | 'APPROVED'
   | 'PARTIAL'
   | 'SETTLED'
   | 'CANCELLED';
@@ -145,6 +152,20 @@ export interface TaskQuoteIncludes {
           responsible?: boolean;
           installments?: boolean | { orderBy?: { number?: 'asc' | 'desc' } };
         };
+      };
+  /**
+   * OS FATURAMENTOS do orçamento.
+   *
+   * ⚠️ Necessário para a trava do dinheiro (`isQuoteMoneyLocked`): sem ele a
+   * função responde `false` e a gravação passa por cima de fatura, boleto e nota
+   * já emitidos — em silêncio, porque `false` é uma resposta válida.
+   */
+  billings?:
+    | boolean
+    | {
+        select?: Record<string, unknown>;
+        include?: Record<string, unknown>;
+        orderBy?: Record<string, unknown> | Array<Record<string, unknown>>;
       };
 }
 

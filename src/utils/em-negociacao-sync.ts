@@ -29,18 +29,17 @@ export function registerEmNegociacaoEventEmitter(emitter: EmitterLike): void {
 
 const EM_NEGOCIACAO_DESC = 'em negociação';
 
-// SIGNED e EXPIRED ficam de FORA desta lista de propósito: os dois são
-// anteriores à aprovação comercial, e nos dois a Em Negociação continua
-// IN_PROGRESS — no primeiro porque falta a nossa contra-assinatura, no segundo
-// porque o valor volta para a mesa. É exatamente onde o comercial deve vê-los.
-const STATUSES_AT_OR_ABOVE_BUDGET_APPROVED: TASK_QUOTE_STATUS[] = [
-  TASK_QUOTE_STATUS.BUDGET_APPROVED,
-  TASK_QUOTE_STATUS.BILLING_APPROVED,
-  TASK_QUOTE_STATUS.UPCOMING,
-  TASK_QUOTE_STATUS.DUE,
-  TASK_QUOTE_STATUS.PARTIAL,
-  TASK_QUOTE_STATUS.SETTLED,
-];
+// A NEGOCIAÇÃO FECHA QUANDO O ORÇAMENTO É APROVADO, e agora isso é UM estado.
+//
+// Era uma lista de seis porque os cinco de cobrança viviam no mesmo enum e todos
+// vinham DEPOIS da aprovação — "aprovado ou adiante" precisava enumerá-los. Com o
+// ciclo do pagamento no `Billing`, "adiante" não existe mais aqui: `APPROVED` é o
+// último estado do orçamento, e a pergunta virou uma igualdade.
+//
+// SIGNED e EXPIRED continuam de FORA de propósito: os dois são anteriores à
+// aprovação comercial, e nos dois a Em Negociação segue IN_PROGRESS — no primeiro
+// porque falta a nossa contra-assinatura, no segundo porque o valor volta para a
+// mesa. É exatamente onde o comercial deve vê-los.
 
 /**
  * Reconcile the "Em Negociação" COMMERCIAL ServiceOrder for a task to match
@@ -54,13 +53,13 @@ const STATUSES_AT_OR_ABOVE_BUDGET_APPROVED: TASK_QUOTE_STATUS[] = [
  *   ┌───────────────────────────────┬─────────────────────────────────────────┐
  *   │ Quote / task state            │ Target Em Negociação status             │
  *   ├───────────────────────────────┼─────────────────────────────────────────┤
- *   │ < BUDGET_APPROVED             │ IN_PROGRESS                             │
- *   │ ≥ BUDGET_APPROVED + has any   │ COMPLETED  (commercial handed off       │
+ *   │ < APPROVED                    │ IN_PROGRESS                             │
+ *   │ APPROVED + has any            │ COMPLETED  (commercial handed off       │
  *   │   Layout record (any status) │             — layout team owns it now) │
- *   │ ≥ BUDGET_APPROVED + no        │ WAITING_ARTWORK                         │
+ *   │ APPROVED + no                 │ WAITING_ARTWORK                         │
  *   │   Layout record +            │                                         │
  *   │   any ARTWORK-type SO         │                                         │
- *   │ ≥ BUDGET_APPROVED +           │ COMPLETED  (service-only — no layout   │
+ *   │ APPROVED +                    │ COMPLETED  (service-only — no layout   │
  *   │   no ARTWORK-type SO          │             ever needed)                │
  *   └───────────────────────────────┴─────────────────────────────────────────┘
  *
@@ -129,9 +128,7 @@ export async function syncEmNegociacaoForTask(
     // cancelled task. The auto-cancel path already cancels the SO (handled by
     // the RESPECT_MANUAL guard above), so this only affects direct cancels.
     if (quoteStatus === TASK_QUOTE_STATUS.CANCELLED) return;
-    const quoteAtOrAbove =
-      !!quoteStatus &&
-      STATUSES_AT_OR_ABOVE_BUDGET_APPROVED.includes(quoteStatus);
+    const quoteAtOrAbove = quoteStatus === TASK_QUOTE_STATUS.APPROVED;
 
     const layouts = task.layouts || [];
     // Any layout on the task (DRAFT/APPROVED/REPROVED) counts — commercial's

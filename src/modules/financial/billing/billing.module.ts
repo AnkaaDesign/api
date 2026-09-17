@@ -3,6 +3,7 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
+import { BillingStatusModule } from './billing-status.module';
 
 /**
  * O MÓDULO DO FATURAMENTO.
@@ -17,9 +18,9 @@ import { BillingService } from './billing.service';
  * sem o ciclo.
  */
 @Module({
-  imports: [PrismaModule, forwardRef(() => TaskQuoteModule)],
+  imports: [PrismaModule, BillingStatusModule, forwardRef(() => TaskQuoteModule)],
   controllers: [BillingController],
   providers: [BillingService],
-  exports: [BillingService],
+  exports: [BillingService, BillingStatusModule],
 })
 export class BillingModule {}

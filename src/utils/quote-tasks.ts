@@ -657,6 +657,16 @@ export const QUOTE_BILLING_INCLUDE: { select: Record<string, unknown> } = {
     id: true,
     quoteId: true,
     approvedAt: true,
+    // ⚠️ O ESTADO E A ORDEM TÊM DE ESTAR AQUI.
+    //
+    // O comentário acima prometia "o estado próprio" desde que o `Billing`
+    // nasceu, e o `select` não o trazia — porque na época o estado ainda morava
+    // no orçamento. Com o ciclo do pagamento nesta entidade, faltar estas duas
+    // chaves é o bastante para NENHUM cliente receber o estado do faturamento: a
+    // tela, a lista e o app leem daqui, e um `select` sem a chave não é erro, é
+    // silêncio. Foi a auditoria do app que pegou.
+    status: true,
+    statusOrder: true,
     createdAt: true,
     tasks: QUOTE_COVERAGE_INCLUDE,
   },

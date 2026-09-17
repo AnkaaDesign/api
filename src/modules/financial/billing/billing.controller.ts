@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { BillingService } from './billing.service';
+import { BillingStatusCascadeService } from './billing-status-cascade.service';
 import { TaskQuoteService } from '@modules/production/task-quote/task-quote.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -33,6 +34,7 @@ export class BillingController {
   constructor(
     private readonly billingService: BillingService,
     private readonly taskQuoteService: TaskQuoteService,
+    private readonly billingStatusCascade: BillingStatusCascadeService,
   ) {}
 
   /**
@@ -56,6 +58,9 @@ export class BillingController {
     @Query('customerId') customerId?: string,
     @Query('approved') approved?: string,
     @Query('deliveredOnly') deliveredOnly?: string,
+    @Query('statuses') statuses?: string,
+    @Query('orderBy') orderBy?: string,
+    @Query('orderDir') orderDir?: string,
   ) {
     return this.billingService.findMany({
       page,
@@ -64,6 +69,10 @@ export class BillingController {
       customerId: customerId || undefined,
       approved: approved === undefined || approved === '' ? undefined : approved === 'true',
       deliveredOnly: deliveredOnly === 'true',
+      // Lista separada por vírgula, como o resto dos filtros da casa.
+      statuses: statuses ? statuses.split(',').map(v => v.trim()).filter(Boolean) : undefined,
+      orderBy: (orderBy as any) || undefined,
+      orderDir: (orderDir as any) || undefined,
     });
   }
 
@@ -123,6 +132,42 @@ export class BillingController {
   async approve(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     const quoteId = await this.billingService.quoteIdOf(id);
     return this.taskQuoteService.internalApprove(quoteId, userId, null, id);
+  }
+
+  /**
+   * PUT /billings/:id/settle
+   * Liquida ESTA cobrança à mão: marca as parcelas dela como pagas e cancela os
+   * boletos abertos.
+   *
+   * Substitui o caminho antigo, que era mandar `status: 'SETTLED'` para o
+   * endpoint de status do ORÇAMENTO. Naquele desenho, liquidar o primeiro de
+   * sessenta caminhões marcava os sessenta — o estado era um só. Aqui o escopo é
+   * a cobrança, e nenhuma outra é tocada.
+   */
+  @Put(':id/settle')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async settle(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    const quoteId = await this.billingService.quoteIdOf(id);
+    await this.taskQuoteService.settleManually(quoteId, userId, id);
+    await this.billingStatusCascade.recomputeBilling(id);
+    return { success: true, message: 'Faturamento liquidado com sucesso.' };
+  }
+
+  /**
+   * PUT /billings/:id/revert
+   * Desfaz ESTA cobrança: apaga a fatura, as parcelas e os boletos dela, baixa os
+   * títulos no Sicredi e levanta o carimbo de aprovação — sem tocar nas outras.
+   *
+   * Substitui, para o caso de uma cobrança, o `PUT /task-quotes/:id/revert-billing`,
+   * que sempre desmontou o orçamento INTEIRO: num orçamento de três lotes,
+   * reverter o lote 3 apagava fatura e boleto dos lotes 1 e 2. A rota do orçamento
+   * continua de pé para "reverter tudo".
+   */
+  @Put(':id/revert')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async revert(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    const quoteId = await this.billingService.quoteIdOf(id);
+    return this.taskQuoteService.revertBillingApproval(quoteId, userId, id);
   }
 
   /**

@@ -7,6 +7,7 @@ import {
   TASK_STATUS,
   BONIFICATION_STATUS,
   TASK_QUOTE_STATUS,
+  BILLING_STATUS,
   ORDER_STATUS,
   SERVICE_ORDER_STATUS,
   AIRBRUSHING_STATUS,
@@ -163,18 +164,37 @@ export const BONIFICATION_STATUS_ORDER: Record<BONIFICATION_STATUS, number> = {
 // status. Mexer nela exige backfill — a migração
 // `20260911160000_quote_signed_expired_and_reminders` reescreveu as 598 linhas
 // existentes quando EXPIRED e SIGNED entraram no meio.
+// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `TaskQuote.statusOrder` na escrita do
+// status. Mexer nela exige backfill — ver
+// `20260916233000_faturamento_tem_estado_proprio`.
+//
+// A ordem é a da AÇÃO PENDENTE, da nossa para a do cliente: vencido
+// (reprecificar) → assinado (falta a nossa contra-assinatura) → pendente
+// (esperando o cliente) → aprovado (não há mais nada a fazer aqui).
+//
+// Encurtou em 16/09/2026: os cinco estados de cobrança saíram daqui e viraram
+// `BILLING_STATUS_ORDER`, porque o ciclo do pagamento é do `Billing`.
 export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
-  [TASK_QUOTE_STATUS.DUE]: 1,
-  [TASK_QUOTE_STATUS.EXPIRED]: 2,
-  [TASK_QUOTE_STATUS.SIGNED]: 3,
-  [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 4,
-  [TASK_QUOTE_STATUS.BILLING_APPROVED]: 5,
-  [TASK_QUOTE_STATUS.UPCOMING]: 6,
-  [TASK_QUOTE_STATUS.PARTIAL]: 7,
-  [TASK_QUOTE_STATUS.SETTLED]: 8,
-  [TASK_QUOTE_STATUS.PENDING]: 9,
-  // Terminal — sorts last in the faturamento views.
-  [TASK_QUOTE_STATUS.CANCELLED]: 10,
+  [TASK_QUOTE_STATUS.EXPIRED]: 1,
+  [TASK_QUOTE_STATUS.SIGNED]: 2,
+  [TASK_QUOTE_STATUS.PENDING]: 3,
+  [TASK_QUOTE_STATUS.APPROVED]: 4,
+  [TASK_QUOTE_STATUS.CANCELLED]: 5,
+};
+
+// ⚠️ PERSISTIDA em `Billing.statusOrder`, escrita junto com `Billing.status` por
+// `BillingStatusCascadeService` — os dois nunca andam separados.
+//
+// Mesma lógica de ação pendente: vencido primeiro, porque é o único que pede
+// providência HOJE; depois o que depende de NÓS (aprovar o faturamento); depois
+// o que depende do cliente (pagar).
+export const BILLING_STATUS_ORDER: Record<BILLING_STATUS, number> = {
+  [BILLING_STATUS.OVERDUE]: 1,
+  [BILLING_STATUS.PENDING]: 2,
+  [BILLING_STATUS.APPROVED]: 3,
+  [BILLING_STATUS.PARTIAL]: 4,
+  [BILLING_STATUS.SETTLED]: 5,
+  [BILLING_STATUS.CANCELLED]: 6,
 };
 
 export const ORDER_STATUS_ORDER: Record<string, number> = {

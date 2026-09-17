@@ -2118,6 +2118,20 @@ model Billing {
   /// faturado". Um é do recorte, o outro é do contrato.
   approvedAt DateTime?
 
+  /// O ESTADO DO FATURAMENTO — derivado de `approvedAt` + das parcelas.
+  ///
+  /// Persistido, e não calculado na leitura, pelo mesmo motivo de
+  /// `TaskQuote.statusOrder`: a lista de Faturamento ordena e PAGINA por ele no
+  /// servidor, e derivar na consulta obrigaria a trazer todas as parcelas de
+  /// todas as cobranças para ordenar uma página de quarenta.
+  ///
+  /// Quem escreve é `BillingStatusCascade`, e só ele.
+  status BillingStatus @default(PENDING)
+
+  /// Espelho numérico de `status` para ordenação — ver `BILLING_STATUS_ORDER`.
+  /// Os dois TÊM de ser escritos juntos.
+  statusOrder Int @default(2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2130,6 +2144,8 @@ model Billing {
   customerConfigs TaskQuoteCustomerConfig[] @relation("BillingCustomerConfigs")
 
   @@index([quoteId])
+  /// A lista de Faturamento ordena por aqui por padrão.
+  @@index([statusOrder])
 }
 
 /// A cobertura do `Billing` — um veículo, um faturamento.
@@ -4456,25 +4472,64 @@ enum QuoteBillingSplit {
   CUSTOM
 }
 
+/// O CICLO DO ORÇAMENTO, E SÓ DELE.
+///
+/// Até 16/09/2026 este enum carregava também o ciclo do PAGAMENTO
+/// (`BILLING_APPROVED`, `UPCOMING`, `DUE`, `PARTIAL`, `SETTLED`) — herança do
+/// tempo em que orçamento e faturamento eram a mesma linha. Não são mais: o
+/// faturamento é `Billing`, com o seu próprio `BillingStatus`.
+///
+/// A fronteira, dita em uma frase: **o orçamento se altera no máximo até a
+/// execução do serviço; o faturamento, até o pagamento terminar.** Por isso
+/// `APPROVED` é o ÚLTIMO estado daqui — depois dele não há mais nada a decidir
+/// sobre o orçamento, só a cobrar.
 enum TaskQuoteStatus {
-  PENDING
+  /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
+  /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" e não
+  /// "Vencido": vencida é a PARCELA, e isso agora é `BillingStatus.OVERDUE`,
+  /// noutra entidade.
+  EXPIRED
 
   /// Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
   /// Ankaa. Sem este estado o momento era indistinguível de PENDING, e quem
   /// precisa saber o que depende de NÓS não tinha como ver numa lista.
   SIGNED
 
-  /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
-  /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" — `DUE` já
-  /// ocupa a palavra "Vencido", e lá ela quer dizer parcela em atraso.
-  EXPIRED
+  PENDING
 
-  BUDGET_APPROVED
-  BILLING_APPROVED
-  UPCOMING
-  DUE
+  /// O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia para
+  /// desambiguar de `BILLING_APPROVED`, que morreu junto com a confusão.
+  APPROVED
+
+  CANCELLED
+}
+
+/// O CICLO DO FATURAMENTO — nasce com a cobrança e morre quando ela é paga.
+///
+/// Derivado, não digitado: `BillingStatusCascade` o recalcula de `approvedAt` +
+/// das parcelas dos pagadores deste faturamento. Persistido porque a lista
+/// ordena e pagina por ele no servidor.
+///
+/// NÃO existe "A Vencer": aprovado já quer dizer "cobrado, esperando pagar", e
+/// um estado a mais só para dizer "ainda não venceu" separava duas linhas que o
+/// operador trata igual.
+enum BillingStatus {
+  /// Há parcela vencida e não paga. É o único estado que fura a ordem
+  /// cronológica, porque é o único que pede ação hoje.
+  OVERDUE
+
+  /// O faturamento existe e ainda não foi aprovado — `approvedAt` nulo.
+  PENDING
+
+  /// Aprovado e cobrado; nenhuma parcela paga ainda.
+  APPROVED
+
+  /// Alguma parcela paga, e nenhuma vencida.
   PARTIAL
+
+  /// Todas as parcelas ativas pagas.
   SETTLED
+
   CANCELLED
 }
 

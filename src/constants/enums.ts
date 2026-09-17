@@ -2786,25 +2786,66 @@ export const formatResponsibleRoles = (roles: readonly string[] | null | undefin
     .map(role => RESPONSIBLE_ROLE_LABELS[role as RESPONSIBLE_ROLE] ?? role)
     .join(', ');
 
+/**
+ * O CICLO DO ORÇAMENTO, E SÓ DELE.
+ *
+ * Até 16/09/2026 este enum carregava também o ciclo do PAGAMENTO
+ * (`BILLING_APPROVED`, `UPCOMING`, `DUE`, `PARTIAL`, `SETTLED`) — herança do
+ * tempo em que orçamento e faturamento eram a mesma linha. Não são mais: o
+ * faturamento é `Billing`, e o ciclo dele é {@link BILLING_STATUS}.
+ *
+ * A fronteira, em uma frase: **o orçamento se altera no máximo até a execução do
+ * serviço; o faturamento, até o pagamento terminar.** Por isso `APPROVED` é o
+ * ÚLTIMO estado daqui — depois dele não há mais nada a decidir sobre a proposta,
+ * só a cobrar.
+ */
 export enum TASK_QUOTE_STATUS {
-  PENDING = 'PENDING',
+  /**
+   * Passou da validade sem todas as assinaturas; volta ao comercial para
+   * reanálise do valor. O rótulo é "Aguardando Reanálise" e não "Vencido":
+   * vencida é a PARCELA, e isso é {@link BILLING_STATUS.OVERDUE}, noutra
+   * entidade.
+   */
+  EXPIRED = 'EXPIRED',
   /**
    * Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
    * Ankaa. Existe para que "o que depende de nós" seja visível numa lista — até
    * aqui esse momento era PENDING, igual a um orçamento criado há cinco minutos.
    */
   SIGNED = 'SIGNED',
+  PENDING = 'PENDING',
   /**
-   * Passou da validade sem todas as assinaturas; volta ao comercial para
-   * reanálise do valor. ⚠️ `DUE` já se chama "Vencido" na tela e é outra coisa
-   * (parcela em atraso) — por isso o rótulo aqui é "Aguardando Reanálise".
+   * O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia só
+   * para desambiguar de `BILLING_APPROVED`, que morreu junto com a confusão.
    */
-  EXPIRED = 'EXPIRED',
-  BUDGET_APPROVED = 'BUDGET_APPROVED',
-  BILLING_APPROVED = 'BILLING_APPROVED',
-  UPCOMING = 'UPCOMING',
-  DUE = 'DUE',
+  APPROVED = 'APPROVED',
+  CANCELLED = 'CANCELLED',
+}
+
+/**
+ * O CICLO DO FATURAMENTO — nasce com a cobrança e morre quando ela é paga.
+ *
+ * DERIVADO, não digitado: `BillingStatusCascadeService` o recalcula de
+ * `Billing.approvedAt` mais as parcelas dos pagadores daquele faturamento.
+ * Persistido porque a lista ordena e pagina por ele no servidor.
+ *
+ * NÃO existe "A Vencer": aprovado já quer dizer "cobrado, esperando pagar", e um
+ * estado a mais só para dizer "ainda não venceu" separava duas linhas que o
+ * operador trata igual.
+ */
+export enum BILLING_STATUS {
+  /**
+   * Há parcela vencida e não paga. Fura a ordem cronológica de propósito: é o
+   * único estado que pede ação hoje.
+   */
+  OVERDUE = 'OVERDUE',
+  /** O faturamento existe e ainda não foi aprovado — `approvedAt` nulo. */
+  PENDING = 'PENDING',
+  /** Aprovado e cobrado; nenhuma parcela paga ainda. */
+  APPROVED = 'APPROVED',
+  /** Alguma parcela paga, e nenhuma vencida. */
   PARTIAL = 'PARTIAL',
+  /** Todas as parcelas ativas pagas. */
   SETTLED = 'SETTLED',
   CANCELLED = 'CANCELLED',
 }
