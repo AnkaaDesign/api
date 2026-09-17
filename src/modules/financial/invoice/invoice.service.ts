@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
-import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
+import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /**
@@ -24,8 +24,6 @@ import {
   INSTALLMENT_STATUS,
   BANK_SLIP_STATUS,
   NFSE_STATUS,
-  TASK_QUOTE_STATUS,
-  TASK_QUOTE_STATUS_ORDER,
 } from '@constants';
 
 /**
@@ -40,6 +38,10 @@ export class InvoiceService {
     private readonly prisma: PrismaService,
     private readonly invoiceRepository: InvoiceRepository,
     private readonly dispatchService: NotificationDispatchService,
+    // A cascata que recalcula `Billing.status` depois que um carimbo ou uma
+    // parcela muda. O `InvoiceController` deste mesmo módulo já a injeta — o
+    // `TaskQuoteModule` a exporta e este módulo já o importa.
+    private readonly cascadeService: TaskQuoteStatusCascadeService,
   ) {}
 
   /**
@@ -268,17 +270,18 @@ export class InvoiceService {
       });
     }
 
-    // After cancelling all invoice artifacts, revert the linked TaskQuote to BUDGET_APPROVED
-    // if every invoice for that quote is now cancelled. This lets the user re-approve billing
-    // (e.g., after correcting customer data) without the quote getting stuck in a post-billing
-    // status with no live financial documents.
+    // Depois de cancelar os artefatos da fatura, levanta os CARIMBOS de
+    // faturamento que ficaram sobre fatos que deixaram de ser verdade — o da
+    // cobrança (por `Billing`) e o do contrato (`TaskQuote.billingApprovedAt`) —
+    // para que o operador possa reaprovar o faturamento (por exemplo, depois de
+    // corrigir o cadastro do cliente) sem cirurgia no banco.
     try {
       const invoiceWithConfig = await this.prisma.invoice.findUnique({
         where: { id },
         select: {
           customerConfigId: true,
           customerConfig: {
-            select: { billingId: true, quote: { select: { id: true, status: true } } },
+            select: { billingId: true, quote: { select: { id: true } } },
           },
         },
       });
@@ -311,7 +314,7 @@ export class InvoiceService {
           },
         });
         if (liveOnBilling === 0) {
-          const cleared = await (this.prisma as any).billing.updateMany({
+          const cleared = await this.prisma.billing.updateMany({
             where: { id: billingId, approvedAt: { not: null } },
             data: { approvedAt: null },
           });
@@ -323,31 +326,43 @@ export class InvoiceService {
         }
       }
 
-      const revertableStatuses = ['BILLING_APPROVED', 'UPCOMING', 'DUE', 'PARTIAL'];
-      if (quote && revertableStatuses.includes(quote.status as string)) {
-        const nonCancelledCount = await this.prisma.invoice.count({
+      // ───────────────────────────────────────────────────────────────────────
+      // O CARIMBO DO CONTRATO — e o que deixou de existir aqui.
+      //
+      // Este bloco rebaixava o orçamento de `BILLING_APPROVED`/`UPCOMING`/`DUE`/
+      // `PARTIAL` de volta para "Orçamento Aprovado". NÃO HÁ MAIS PARA ONDE
+      // VOLTAR: `APPROVED` é o ÚLTIMO estado do ORÇAMENTO e o ciclo do pagamento
+      // mudou de entidade (`Billing.status`). Cancelar fatura não desfaz a
+      // VENDA — desfaz a COBRANÇA, e quem responde por ela é o carimbo levantado
+      // logo acima, por faturamento.
+      //
+      // O que continua sendo do orçamento é `TaskQuote.billingApprovedAt`: a data
+      // em que o contrato INTEIRO ficou faturado. Sem nenhuma fatura viva ela
+      // afirma um fato que deixou de ser verdade — e envenena o
+      // `avgSalesCycleDays` do painel, que a lê como "quando esta venda virou
+      // dinheiro".
+      if (quote) {
+        const liveOnQuote = await this.prisma.invoice.count({
           where: { customerConfig: { quoteId: quote.id }, status: { not: 'CANCELLED' } },
         });
-        if (nonCancelledCount === 0) {
-          await this.prisma.taskQuote.update({
-            where: { id: quote.id },
-            data: {
-              status: TASK_QUOTE_STATUS.BUDGET_APPROVED as any,
-              statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BUDGET_APPROVED],
-              // O carimbo do ORÇAMENTO cai junto: deixá-lo preenchido sobre um
-              // orçamento em `BUDGET_APPROVED` dessincroniza status e data e
-              // envenena `avgSalesCycleDays`.
-              billingApprovedAt: null,
-            } as any,
+        if (liveOnQuote === 0) {
+          const cleared = await this.prisma.taskQuote.updateMany({
+            where: { id: quote.id, billingApprovedAt: { not: null } },
+            data: { billingApprovedAt: null },
           });
-          this.logger.log(
-            `Reverted TaskQuote ${quote.id} to BUDGET_APPROVED — all invoices cancelled`,
-          );
-
-          // Reconcile Em Negociação. Status stays ≥ BUDGET_APPROVED so this is
-          // usually a no-op, but kept for symmetry with other status paths.
-          await syncEmNegociacaoForQuote(this.prisma, quote.id);
+          if (cleared.count > 0) {
+            this.logger.log(
+              `Orçamento ${quote.id}: carimbo de faturado levantado — nenhuma fatura viva restou.`,
+            );
+          }
         }
+
+        // O estado de cada cobrança é DERIVADO do carimbo e das parcelas, e as
+        // duas coisas acabaram de mudar. Quem recalcula é a cascata — este
+        // serviço não escreve `Billing.status`, e escrever aqui abriria a
+        // segunda fonte de verdade que a separação existiu para fechar. Ela
+        // também reconcilia "Em Negociação" em todas as tarefas do orçamento.
+        await this.cascadeService.cascadeFromQuote(quote.id);
       }
     } catch (revertError) {
       this.logger.warn(

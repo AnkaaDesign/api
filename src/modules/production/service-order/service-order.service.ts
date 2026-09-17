@@ -62,6 +62,7 @@ import {
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { isQuoteMoneyLocked } from '../task-quote/task-quote.guards';
 import {
   syncEmNegociacaoForTaskAndSiblings,
   registerEmNegociacaoEventEmitter,
@@ -401,12 +402,24 @@ export class ServiceOrderService {
               where: { id: data.taskId },
               include: {
                 quote: {
-                  include: { services: true },
+                  include: {
+                    services: true,
+                    // A trava do dinheiro precisa das cobranças; ver abaixo.
+                    billings: { select: { approvedAt: true, status: true } },
+                  },
                 },
               },
             });
 
-            if (taskWithQuote?.quote) {
+            // ⛔ Orçamento com cobrança aprovada não ganha linha nova. Acrescentar
+            // um serviço aqui recalcularia o total de um contrato cuja NFS-e já
+            // foi autorizada e cujo boleto já foi registrado — a O.S. de produção
+            // é criada, mas o dinheiro do contrato não se mexe mais.
+            if (taskWithQuote?.quote && isQuoteMoneyLocked(taskWithQuote.quote.billings)) {
+              this.logger.log(
+                `[SO→QUOTE SYNC] Skipped: quote ${taskWithQuote.quote.id} já tem cobrança aprovada`,
+              );
+            } else if (taskWithQuote?.quote) {
               const existingQuoteItems: SyncQuoteItem[] = (taskWithQuote.quote.services || []).map(
                 (item: any) => ({
                   id: item.id,
@@ -1732,7 +1745,7 @@ export class ServiceOrderService {
         data.status !== undefined && data.status !== serviceOrderExists.status;
       if (isEmNegociacao && statusChanged && (serviceOrder as any)?.taskId) {
         // Reverse cascade FIRST: completing the commercial step IS the budget-
-        // approval gate, so advance the quote (PENDING → BUDGET_APPROVED) before
+        // approval gate, so advance the quote (PENDING → APPROVED) before
         // the sync runs. Otherwise syncEmNegociacaoForTask sees a still-PENDING
         // quote and reverts the just-completed SO back to IN_PROGRESS.
         if (data.status === SERVICE_ORDER_STATUS.COMPLETED) {
@@ -1745,7 +1758,7 @@ export class ServiceOrderService {
           data.status === SERVICE_ORDER_STATUS.IN_PROGRESS
         ) {
           // INVERSE: reopening the commercial step (Concluído → Em Andamento) must
-          // un-approve the auto-approved budget (BUDGET_APPROVED → PENDING) BEFORE
+          // un-approve the auto-approved budget (APPROVED → PENDING) BEFORE
           // the sync runs — otherwise syncEmNegociacaoForTask sees a still-approved
           // quote (+ artwork) and re-completes the SO, so "Reabrir" appears to do
           // nothing. Reverting the quote makes the reopen actually stick.
@@ -1784,11 +1797,12 @@ export class ServiceOrderService {
   /**
    * Reverse of the quote→SO sync (em-negociacao-sync.ts): when the COMMERCIAL
    * "Em Negociação" SO is COMPLETED, the commercial step is done — which IS the
-   * budget-approval gate. Advance the quote PENDING → BUDGET_APPROVED so the two
+   * budget-approval gate. Advance the quote PENDING → APPROVED so the two
    * stay consistent (parity with the manual budget-approve endpoint, minus the
    * notification — auto-firing it per task would spam on bulk completes).
-   * Only ever moves PENDING → BUDGET_APPROVED; never downgrades or skips ahead to
-   * billing. Best-effort: a failure here never breaks the SO update.
+   * Only ever moves PENDING → APPROVED, o ÚLTIMO estado do orçamento — o ciclo
+   * do pagamento é do `Billing` e nada aqui o toca. Best-effort: a failure here
+   * never breaks the SO update.
    */
   private async budgetApproveOnEmNegociacaoComplete(
     taskId: string,
@@ -1828,8 +1842,8 @@ export class ServiceOrderService {
       await this.prisma.taskQuote.update({
         where: { id: quote.id },
         data: {
-          status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
-          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BUDGET_APPROVED],
+          status: TASK_QUOTE_STATUS.APPROVED,
+          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.APPROVED],
         },
       });
 
@@ -1839,7 +1853,7 @@ export class ServiceOrderService {
         action: CHANGE_ACTION.UPDATE,
         field: 'status',
         oldValue: quote.status,
-        newValue: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+        newValue: TASK_QUOTE_STATUS.APPROVED,
         reason:
           'Orçamento aprovado automaticamente pela conclusão da Em Negociação',
         triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
@@ -1848,7 +1862,7 @@ export class ServiceOrderService {
       });
 
       this.logger.log(
-        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} PENDING → BUDGET_APPROVED on commercial completion`,
+        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} PENDING → APPROVED on commercial completion`,
       );
     } catch (error) {
       this.logger.error(
@@ -1861,13 +1875,22 @@ export class ServiceOrderService {
   /**
    * Inverse of budgetApproveOnEmNegociacaoComplete: when the COMMERCIAL "Em
    * Negociação" SO is REOPENED (Concluído → Em Andamento), the commercial step is
-   * no longer done, so un-approve the auto-approved budget (BUDGET_APPROVED →
-   * PENDING). Without this the quote stays approved and syncEmNegociacaoForTask
+   * no longer done, so un-approve the auto-approved budget (APPROVED → PENDING).
+   * Without this the quote stays approved and syncEmNegociacaoForTask
    * immediately re-completes the SO from the still-approved quote, so "Reabrir"
-   * appears to do nothing. Only ever moves BUDGET_APPROVED → PENDING: a quote
-   * manually advanced to billing/settled (or cancelled) is never downgraded —
-   * reopening the commercial note must not silently unwind billing. Best-effort:
-   * a failure here never breaks the SO update.
+   * appears to do nothing. Best-effort: a failure here never breaks the SO
+   * update.
+   *
+   * ⛔ A GUARDA NÃO É MAIS O STATUS. Era `status !== BUDGET_APPROVED → return`, e
+   * aquilo bastava enquanto "faturado" era um status à frente (`BILLING_APPROVED`
+   * e o ciclo depois dele). Depois da separação TODO orçamento faturado está em
+   * `APPROVED` — é o último estado do orçamento e ele não se move mais —, então
+   * a guarda antiga deixava passar exatamente o caso que existia para barrar:
+   * reabrir a Em Negociação rebaixava para PENDENTE um contrato com NFS-e
+   * autorizada na prefeitura e boleto registrado no Sicredi.
+   *
+   * Quem responde "já saiu dinheiro?" é a COBRANÇA — `isQuoteMoneyLocked` sobre
+   * `billings.approvedAt`.
    */
   private async budgetRevertOnEmNegociacaoReopen(
     taskId: string,
@@ -1876,12 +1899,29 @@ export class ServiceOrderService {
     try {
       const task = await this.prisma.task.findUnique({
         where: { id: taskId },
-        select: { quote: { select: { id: true, status: true } } },
+        select: {
+          quote: {
+            select: {
+              id: true,
+              status: true,
+              // ⚠️ Sem este include `isQuoteMoneyLocked` devolve `false` e a
+              // trava simplesmente não acontece.
+              billings: { select: { approvedAt: true, status: true } },
+            },
+          },
+        },
       });
       const quote = (task as any)?.quote;
-      // Only revert the auto-approved state — never downgrade a billing-approved/
-      // billed quote, and never touch a cancelled one.
-      if (!quote || quote.status !== TASK_QUOTE_STATUS.BUDGET_APPROVED) return;
+      // Só desfaz a aprovação AUTOMÁTICA — nunca toca num orçamento cancelado...
+      if (!quote || quote.status !== TASK_QUOTE_STATUS.APPROVED) return;
+      // ...nem num que já tem cobrança aprovada: reabrir uma nota comercial não
+      // pode desfazer faturamento.
+      if (isQuoteMoneyLocked(quote.billings)) {
+        this.logger.log(
+          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: rebaixamento do orçamento ${quote.id} recusado — há cobrança aprovada.`,
+        );
+        return;
+      }
 
       await this.prisma.taskQuote.update({
         where: { id: quote.id },
@@ -1906,7 +1946,7 @@ export class ServiceOrderService {
       });
 
       this.logger.log(
-        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} BUDGET_APPROVED → PENDING on commercial reopen`,
+        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} APPROVED → PENDING on commercial reopen`,
       );
     } catch (error) {
       this.logger.error(
@@ -1923,8 +1963,9 @@ export class ServiceOrderService {
    * counting a line whose SO no longer exists (money drift). Mirrors the task-form
    * cascade (task.service.ts): removes the line ONLY when no other live PRODUCTION
    * SO still references the same desc+observation key, then recomputes both money
-   * layers. Structural changes are limited to draft quotes (PENDING/BUDGET_APPROVED)
-   * so an already-billed line is never silently dropped.
+   * layers. Structural changes are limited to quotes que ainda podem mudar de
+   * preço — estado de rascunho E sem cobrança aprovada — para que uma linha já
+   * faturada nunca seja apagada em silêncio.
    */
   private async cascadeRemoveQuoteServiceForDeletedSO(
     tx: PrismaTransaction,
@@ -1954,6 +1995,8 @@ export class ServiceOrderService {
           select: {
             id: true,
             status: true,
+            // ⚠️ `isQuoteMoneyLocked` devolve `false` sem este include.
+            billings: { select: { approvedAt: true, status: true } },
             services: { select: { id: true, description: true, observation: true } },
           },
         },
@@ -1962,8 +2005,19 @@ export class ServiceOrderService {
     if (!task?.quote) return;
     if (
       task.quote.status !== TASK_QUOTE_STATUS.PENDING &&
-      task.quote.status !== TASK_QUOTE_STATUS.BUDGET_APPROVED
+      task.quote.status !== TASK_QUOTE_STATUS.APPROVED
     ) {
+      return;
+    }
+    // ⛔ E A TRAVA DO DINHEIRO. O par de status acima já não separa rascunho de
+    // faturado: `APPROVED` é o último estado do ORÇAMENTO e um contrato com
+    // NFS-e autorizada continua nele. Sem esta linha, apagar uma O.S. de
+    // produção apagaria a linha de serviço e recalcularia o total de um contrato
+    // já cobrado — e como a escrita é direta pelo `tx`, nenhuma outra trava roda.
+    if (isQuoteMoneyLocked(task.quote.billings)) {
+      this.logger.log(
+        `[SO→Quote sync] Linha de serviço preservada no orçamento ${task.quote.id}: há cobrança aprovada (O.S. ${deletedSO.id} apagada).`,
+      );
       return;
     }
 
@@ -2003,8 +2057,14 @@ export class ServiceOrderService {
    * TaskQuoteService line in sync. A desc/obs edit RENAMES the line (re-aligning
    * the desc+observation key the quote↔SO sync dedups on — otherwise the line is
    * orphaned and the next sync creates a duplicate). A type change into/out of
-   * PRODUCTION creates/removes the mirror. Structural add/remove is limited to
-   * draft quotes; a pure text rename changes no money so it is always applied.
+   * PRODUCTION creates/removes the mirror.
+   *
+   * ⛔ NADA DISSO ACONTECE NUM ORÇAMENTO COM COBRANÇA APROVADA. Antes bastava o
+   * estado de rascunho (`PENDING`/`APPROVED`) para separar o que ainda
+   * podia mudar; hoje `APPROVED` é o último estado do ORÇAMENTO e um contrato
+   * com NFS-e autorizada continua nele. Nem o renomear passa: o texto da linha
+   * já foi impresso na nota, e mudá-lo aqui faria o sistema discordar do
+   * documento fiscal.
    */
   private async syncQuoteServiceForUpdatedSO(
     tx: PrismaTransaction,
@@ -2032,15 +2092,26 @@ export class ServiceOrderService {
           select: {
             id: true,
             status: true,
+            // ⚠️ `isQuoteMoneyLocked` devolve `false` sem este include.
+            billings: { select: { approvedAt: true, status: true } },
             services: { select: { id: true, description: true, observation: true } },
           },
         },
       },
     });
     if (!task?.quote) return;
+    // Contrato com dinheiro na rua não se reescreve — nem a estrutura, nem o
+    // texto. Sai antes de qualquer `deleteMany`/`updateMany`/`recalcQuoteTotals`,
+    // que aqui correm direto pelo `tx` e não passam por trava nenhuma.
+    if (isQuoteMoneyLocked(task.quote.billings)) {
+      this.logger.log(
+        `[SO→Quote sync] Orçamento ${task.quote.id} intocado (O.S. ${updatedSO.id}): há cobrança aprovada.`,
+      );
+      return;
+    }
     const isDraft =
       task.quote.status === TASK_QUOTE_STATUS.PENDING ||
-      task.quote.status === TASK_QUOTE_STATUS.BUDGET_APPROVED;
+      task.quote.status === TASK_QUOTE_STATUS.APPROVED;
 
     const newDescription = (updatedSO.description || '').trim();
     const newObservation = (updatedSO.observation || '').trim() || null;
@@ -2383,7 +2454,15 @@ export class ServiceOrderService {
 
           const tasksWithQuotes = await tx.task.findMany({
             where: { id: { in: taskIdsForSync } },
-            include: { quote: { include: { services: true } } },
+            include: {
+              quote: {
+                include: {
+                  services: true,
+                  // Sem as cobranças a trava do dinheiro não roda — ver o laço abaixo.
+                  billings: { select: { approvedAt: true, status: true } },
+                },
+              },
+            },
           });
 
           const taskQuoteMap = new Map(tasksWithQuotes.map((t: any) => [t.id, t]));
@@ -2410,6 +2489,14 @@ export class ServiceOrderService {
               if (!(task as any)?.quote) {
                 this.logger.log(
                   `[SO→QUOTE SYNC] Batch: Skipped "${(so as any).description}" — task has no quote`,
+                );
+                continue;
+              }
+              // ⛔ Mesma trava do caminho avulso: contrato com cobrança aprovada
+              // não recebe linha nova nem tem o total recalculado.
+              if (isQuoteMoneyLocked((task as any).quote.billings)) {
+                this.logger.log(
+                  `[SO→QUOTE SYNC] Batch: Skipped "${(so as any).description}" — orçamento ${(task as any).quote.id} já tem cobrança aprovada`,
                 );
                 continue;
               }
@@ -3570,7 +3657,7 @@ export class ServiceOrderService {
             });
 
             // Reverse cascade: completing the COMMERCIAL "Em Negociação" SO
-            // approves the budget (PENDING → BUDGET_APPROVED). Parity with the
+            // approves the budget (PENDING → APPROVED). Parity with the
             // single-update path.
             if (
               (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
@@ -3586,7 +3673,7 @@ export class ServiceOrderService {
               // concluir em lote a "Em Negociação" de um veículo deixa os outros
               // do mesmo orçamento negociando um negócio já fechado. Rodar
               // depois da aprovação não reverte nada: o orçamento já está em
-              // BUDGET_APPROVED, e a O.S. recém-concluída nunca é rebaixada.
+              // APPROVED, e a O.S. recém-concluída nunca é rebaixada.
               await syncEmNegociacaoForTaskAndSiblings(
                 this.prisma,
                 (serviceOrder as any).taskId,
@@ -3597,7 +3684,7 @@ export class ServiceOrderService {
 
           // Inverse cascade: reopening the COMMERCIAL "Em Negociação" SO
           // (Concluído → Em Andamento) un-approves the auto-approved budget
-          // (BUDGET_APPROVED → PENDING), parity with the single-update path so
+          // (APPROVED → PENDING), parity with the single-update path so
           // the quote and commercial SO never drift apart.
           if (
             oldData.status === SERVICE_ORDER_STATUS.COMPLETED &&

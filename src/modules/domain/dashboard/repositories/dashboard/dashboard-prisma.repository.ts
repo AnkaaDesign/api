@@ -36,6 +36,8 @@ import {
   PAINT_FINISH,
   PAINT_BRAND,
   TRUCK_MANUFACTURER,
+  TASK_QUOTE_STATUS,
+  BILLING_STATUS,
 } from '../../../../../constants/enums';
 import {
   ACTIVITY_REASON_LABELS,
@@ -46,6 +48,7 @@ import {
   PAINT_FINISH_LABELS,
   PAINT_BRAND_LABELS,
   TRUCK_MANUFACTURER_LABELS,
+  TASK_QUOTE_STATUS_LABELS,
 } from '../../../../../constants/enum-labels';
 import { determineStockLevel } from '../../../../../utils/stock-level';
 import { perVehicleAmount } from '../../../../../utils/quote-tasks';
@@ -3588,15 +3591,25 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
   async getTasksAwaitingQuoteApproval(sector: string, limit = 50): Promise<HomeDashboardTask[]> {
     // The separate commercial double-check step was removed: a completed task with
-    // an approved budget (BUDGET_APPROVED) is ready for billing approval. All sectors
+    // an approved budget is ready for billing approval. All sectors
     // (COMMERCIAL/FINANCIAL/ADMIN) see the same single billing-ready queue.
     void sector;
-    const quoteStatusFilter = { status: 'BUDGET_APPROVED' as any };
+    // `APPROVED` é o ÚLTIMO estado do ORÇAMENTO — e é exatamente o que esta fila
+    // quer: proposta fechada, cobrança ainda por aprovar. O literal virou enum
+    // porque o `as any` escondia a renomeação de `BUDGET_APPROVED`: o `tsc` não
+    // olha string, e a fila teria ficado vazia em silêncio.
+    const quoteStatusFilter = { status: TASK_QUOTE_STATUS.APPROVED };
 
     const tasks = await this.prisma.task.findMany({
       where: {
         status: 'COMPLETED' as any,
         quote: quoteStatusFilter,
+        // E A COBRANÇA DESTE VEÍCULO AINDA NÃO FOI APROVADA. A fila é por
+        // VEÍCULO: num orçamento de sessenta caminhões faturados um a um, os
+        // trinta já cobrados sairiam da fila e os trinta restantes ficariam —
+        // olhar só o estado do orçamento mostrava os sessenta para sempre,
+        // porque `APPROVED` é terminal e não se move mais.
+        billingEntry: { none: { billing: { approvedAt: { not: null } } } },
       },
       select: {
         id: true,
@@ -3637,7 +3650,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         // é a contra-assinatura da Ankaa — o caso mais urgente de "aguardando
         // aprovação" que existe, e o único em que a demora é nossa. EXPIRED fica
         // de fora: ele não espera aprovação, espera REANÁLISE do valor.
-        quote: { status: { in: ['PENDING', 'SIGNED'] as any } },
+        quote: { status: { in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.SIGNED] } },
       },
       select: {
         id: true,
@@ -3872,24 +3885,36 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     // ⚠️ `total` conta TODOS os grupos, e o gráfico só desenha as chaves desta
     // tabela. Um status ausente aqui some do gráfico e continua inflando o
-    // total — as barras deixam de somar o número exibido ao lado delas.
-    const statusLabels: Record<string, string> = {
-      PENDING: 'Pendente',
-      SIGNED: 'Assinado',
-      EXPIRED: 'Aguardando Reanálise',
-      BUDGET_APPROVED: 'Aprovado',
-      BILLING_APPROVED: 'Fat. Aprovado',
-      UPCOMING: 'A Vencer',
-      DUE: 'Vencido',
-      PARTIAL: 'Parcial',
-      SETTLED: 'Liquidado',
-    };
+    // total — as barras deixam de somar o número exibido ao lado delas. Por
+    // isso o mapa vem do ENUM e não de literais escritos à mão: era assim que
+    // `BUDGET_APPROVED` continuava rotulado enquanto o banco já gravava
+    // `APPROVED`, desenhando uma barra de zero ao lado de um total cheio.
+    const statusLabels: Record<string, string> = { ...TASK_QUOTE_STATUS_LABELS };
+
+    // LIQUIDADO NÃO É ESTADO DE ORÇAMENTO. Contava-se `statusMap['SETTLED']`,
+    // que hoje é sempre zero: o ciclo do pagamento mudou para `Billing`. Um
+    // orçamento só está liquidado quando TODAS as suas cobranças vivas estão —
+    // com metade paga ele ainda tem dinheiro na rua.
+    const settledQuotes = await this.prisma.taskQuote.count({
+      where: {
+        ...where,
+        billings: { some: { status: BILLING_STATUS.SETTLED } },
+        NOT: {
+          billings: {
+            some: { status: { notIn: [BILLING_STATUS.SETTLED, BILLING_STATUS.CANCELLED] } },
+          },
+        },
+      },
+    });
 
     return {
       totalQuotes: total,
-      pendingQuotes: statusMap['PENDING'] || 0,
-      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
-      settledQuotes: statusMap['SETTLED'] || 0,
+      pendingQuotes: statusMap[TASK_QUOTE_STATUS.PENDING] || 0,
+      // Só o estado do ORÇAMENTO. Somava-se `BILLING_APPROVED` aqui porque um
+      // orçamento faturado também estivera aprovado; agora aprovar a cobrança
+      // não mexe mais no orçamento, que permanece em `APPROVED`.
+      approvedQuotes: statusMap[TASK_QUOTE_STATUS.APPROVED] || 0,
+      settledQuotes,
       byStatus: {
         labels: Object.values(statusLabels),
         datasets: [
@@ -4123,15 +4148,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
       CANCELLED: 'Cancelado',
     };
 
-    const quoteStatusLabels: Record<string, string> = {
-      PENDING: 'Pendente',
-      BUDGET_APPROVED: 'Orç. Aprovado',
-      BILLING_APPROVED: 'Ap. Faturamento',
-      UPCOMING: 'A Vencer',
-      DUE: 'Vencido',
-      PARTIAL: 'Parcial',
-      SETTLED: 'Liquidado',
-    };
+    // Do ENUM, não de literais: metade desta tabela era o ciclo do PAGAMENTO
+    // (`BILLING_APPROVED`, `UPCOMING`, `DUE`, `PARTIAL`, `SETTLED`), que saiu de
+    // `TaskQuote` para `Billing`, e a outra metade rotulava `BUDGET_APPROVED`,
+    // que virou `APPROVED`. Nada disso o `tsc` vê numa chave de objeto — a
+    // linha da atividade passaria a mostrar o valor cru do banco.
+    const quoteStatusLabels: Record<string, string> = { ...TASK_QUOTE_STATUS_LABELS };
 
     const customerName = (
       c?: { corporateName: string | null; fantasyName: string | null } | null,

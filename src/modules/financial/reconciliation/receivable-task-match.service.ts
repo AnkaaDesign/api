@@ -62,12 +62,21 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  *
  * SETTLEMENT
  * ----------
- * This service never writes a quote status directly. It mints/advances the
- * quote to BILLING_APPROVED — the entry point of the receivables lifecycle —
- * and `TaskQuoteStatusCascadeService.cascadeFromInstallment` does the rest,
- * landing on PARTIAL or SETTLED from the installments alone. That is the same
- * path the Sicredi webhook uses, so a task paid by PIX and a task paid by
- * boleto end up in exactly the same state by exactly the same code.
+ * BAIXA DE RECEBÍVEL É EVENTO DE COBRANÇA, NÃO DE ORÇAMENTO. Até 16/09/2026
+ * este serviço empurrava o ORÇAMENTO para `BILLING_APPROVED` e deixava a
+ * cascata levá-lo a `PARTIAL`/`SETTLED` — porque o ciclo do pagamento morava
+ * em `TaskQuote.status`. Não mora mais: quem tem estado de pagamento é
+ * `Billing`, 1..N por orçamento, e num orçamento de sessenta caminhões
+ * faturados um a um o crédito que paga o caminhão 7 não diz nada sobre o 8.
+ *
+ * O que este serviço escreve, então, é o CARIMBO da cobrança que cobre o
+ * veículo conciliado (`Billing.approvedAt`) — dinheiro recebido por um veículo
+ * é a prova de que ele foi cobrado, e é esse carimbo que `isQuoteMoneyLocked`
+ * lê para travar a edição do orçamento. `Billing.status` ele NÃO escreve:
+ * `TaskQuoteStatusCascadeService.cascadeFromInstallment` roda depois do commit
+ * e deriva `PARTIAL`/`SETTLED`/`OVERDUE` das parcelas, pelo mesmo caminho do
+ * webhook do Sicredi — uma tarefa paga por PIX e outra por boleto acabam no
+ * mesmo estado pelo mesmo código.
  */
 @Injectable()
 export class ReceivableTaskMatchService {
@@ -889,11 +898,10 @@ export class ReceivableTaskMatchService {
     }
     const installmentIds = await this.allocateOnto(db, tx, plan, userId, notes);
 
-    // A quote sitting below the receivables lifecycle would be ignored by the
-    // status cascade, leaving it reading "Pendente" with paid parcelas hanging
-    // off it. Lift it to the lifecycle entry point and let the cascade decide
-    // between PARTIAL and SETTLED from the installments alone.
-    await this.ensureCascadable(db, task.quote.id, task.quote.status);
+    // Dinheiro recebido por este veículo prova que ele foi cobrado: carimba a
+    // COBRANÇA que o cobre. O estado dela (`PARTIAL`/`SETTLED`/`OVERDUE`) quem
+    // deriva é a cascata, depois do commit, a partir das parcelas.
+    await this.ensureBillingApproved(db, task.quote.id, task.id);
 
     return {
       outcome: {
@@ -950,10 +958,13 @@ export class ReceivableTaskMatchService {
         total: amount,
         // The work is done and paid; validity is bookkeeping only.
         expiresAt: input.dueDate,
-        // Entry point of the receivables lifecycle — the cascade takes it from
-        // here to PARTIAL/SETTLED once the parcela is allocated.
-        status: TASK_QUOTE_STATUS.BILLING_APPROVED as any,
-        statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BILLING_APPROVED],
+        // APROVADO, o ÚLTIMO estado do ORÇAMENTO: o serviço foi feito e pago, não
+        // há mais nada a decidir sobre a proposta. Era `BILLING_APPROVED`, que
+        // dizia a mesma coisa de outra entidade — o estado do PAGAMENTO agora é
+        // do `Billing` criado logo abaixo, e quem o deriva é a cascata.
+        status: TASK_QUOTE_STATUS.APPROVED,
+        statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.APPROVED],
+        // O contrato inteiro está faturado: há um veículo e uma cobrança só.
         billingApprovedAt: now,
         services: {
           create: [{ description: input.description, amount, position: 0 }],
@@ -973,9 +984,18 @@ export class ReceivableTaskMatchService {
     // Nasce cobrindo o veículo desta conciliação: é o único que existe, e um
     // faturamento sem cobertura faria a tela de cobrança não saber de que
     // caminhão fala.
-    const billing = await (db as any).billing.create({
+    const billing = await db.billing.create({
       data: {
         quote: { connect: { id: quote.id } },
+        // JÁ NASCE APROVADA. O dinheiro caiu: esta cobrança não está esperando
+        // aprovação, ela está sendo registrada depois do fato. É este carimbo
+        // que `isQuoteMoneyLocked` lê para impedir que o orçamento recém-criado
+        // seja editado por cima de uma conciliação.
+        //
+        // `status`/`statusOrder` ficam no padrão de propósito: quem os escreve é
+        // `BillingStatusCascadeService`, e `cascadeFromInstallment` roda logo
+        // depois do commit derivando o estado real das parcelas.
+        approvedAt: now,
         tasks: { create: [{ task: { connect: { id: input.taskId } } }] },
         customerConfigs: {
           create: [
@@ -1300,36 +1320,73 @@ export class ReceivableTaskMatchService {
   }
 
   /**
-   * Lift a quote into the range `cascadeFromQuote` acts on.
+   * CARIMBA A COBRANÇA QUE COBRE O VEÍCULO CONCILIADO.
    *
-   * Below BILLING_APPROVED the cascade returns early, so a quote conciliated
-   * from PENDING/BUDGET_APPROVED would keep reading "Pendente" forever while
-   * carrying paid parcelas. CANCELLED is left alone — reviving a cancelled
-   * quote is a commercial decision, not a reconciliation side effect.
+   * Era `ensureCascadable`: subia o ORÇAMENTO para `BILLING_APPROVED` porque a
+   * cascata voltava cedo abaixo desse estado, e um orçamento conciliado a
+   * partir de PENDING ficava lendo "Pendente" para sempre com parcelas pagas
+   * penduradas. Aquele degrau não existe mais — a cascata hoje deriva
+   * `Billing.status` sempre, sem faixa de entrada.
+   *
+   * O que sobrou é o fato que o pagamento prova: esta cobrança FOI cobrada.
+   * Sem o carimbo, `isQuoteMoneyLocked` deixaria o orçamento editável por cima
+   * de um recebimento já conciliado, e `Billing` ficaria "Pendente" com dinheiro
+   * dentro. Carimbamos SÓ as cobranças que cobrem este veículo: num orçamento
+   * faturado um a um, o crédito do caminhão 7 não aprova a cobrança do 8.
+   *
+   * `Billing.status` continua sendo escrito por um só lugar
+   * (`BillingStatusCascadeService`, via `cascadeFromInstallment` depois do
+   * commit). Orçamento CANCELADO fica quieto — ressuscitar é decisão comercial,
+   * não efeito colateral de conciliação.
    */
-  private async ensureCascadable(
+  private async ensureBillingApproved(
     db: Prisma.TransactionClient,
     quoteId: string,
-    status: string,
+    taskId: string,
   ): Promise<void> {
-    const lifecycle: string[] = [
-      TASK_QUOTE_STATUS.BILLING_APPROVED,
-      TASK_QUOTE_STATUS.UPCOMING,
-      TASK_QUOTE_STATUS.DUE,
-      TASK_QUOTE_STATUS.PARTIAL,
-      TASK_QUOTE_STATUS.SETTLED,
-    ];
-    if (lifecycle.includes(status) || status === TASK_QUOTE_STATUS.CANCELLED) return;
-
-    await db.taskQuote.update({
+    const quote = await db.taskQuote.findUnique({
       where: { id: quoteId },
-      data: {
-        status: TASK_QUOTE_STATUS.BILLING_APPROVED as any,
-        statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.BILLING_APPROVED],
-        billingApprovedAt: new Date(),
+      select: {
+        status: true,
+        billingApprovedAt: true,
+        billings: {
+          select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } },
+        },
       },
     });
-    this.logger.log(`[TASK_MATCH] Quote ${quoteId}: ${status} → BILLING_APPROVED (conciliação)`);
+    if (!quote || quote.status === TASK_QUOTE_STATUS.CANCELLED) return;
+    if (quote.billings.length === 0) return;
+
+    // Cobrança que declara cobrir este veículo. Sem nenhuma (grafo antigo, sem
+    // linhas de `BillingTask`), o alvo é o faturamento do orçamento — ali não há
+    // recorte para errar.
+    const covering = quote.billings.filter(b => b.tasks.some(t => t.taskId === taskId));
+    const target = covering.length > 0 ? covering : quote.billings;
+    const toStamp = target.filter(b => b.approvedAt === null);
+
+    const now = new Date();
+    if (toStamp.length > 0) {
+      await db.billing.updateMany({
+        where: { id: { in: toStamp.map(b => b.id) } },
+        data: { approvedAt: now },
+      });
+      this.logger.log(
+        `[TASK_MATCH] Orçamento ${quoteId}: ${toStamp.length} cobrança(s) carimbada(s) como aprovada(s) pela conciliação da tarefa ${taskId}.`,
+      );
+    }
+
+    // O carimbo do CONTRATO é outra coisa: a data em que o orçamento INTEIRO
+    // ficou faturado. Só cai quando a última cobrança fecha — com metade dos
+    // caminhões ainda sem cobrar, dizer que o contrato está faturado envenena o
+    // ciclo de venda do painel.
+    const stamped = new Set(toStamp.map(b => b.id));
+    const allBilled = quote.billings.every(b => b.approvedAt !== null || stamped.has(b.id));
+    if (allBilled && !quote.billingApprovedAt) {
+      await db.taskQuote.update({
+        where: { id: quoteId },
+        data: { billingApprovedAt: now },
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------

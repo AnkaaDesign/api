@@ -7,6 +7,7 @@ import {
   BANK_SLIP_STATUS,
   BANK_SLIP_TYPE,
   TASK_QUOTE_STATUS,
+  BILLING_STATUS,
   NFSE_STATUS,
   WEBHOOK_EVENT_STATUS,
 } from '../../../constants/enums';
@@ -15,7 +16,11 @@ import {
   businessPeriodEnd,
   getPeriodForDate,
 } from '../../../utils/business-period';
-import { TASK_QUOTE_STATUS_LABELS, NFSE_STATUS_LABELS } from '../../../constants/enum-labels';
+import {
+  TASK_QUOTE_STATUS_LABELS,
+  BILLING_STATUS_LABELS,
+  NFSE_STATUS_LABELS,
+} from '../../../constants/enum-labels';
 import { perVehicleAmount } from '../../../utils/quote-tasks';
 import type {
   CollectionAnalyticsData,
@@ -600,30 +605,33 @@ export class InvoiceAnalyticsService {
   // 3. Quote Funnel Analytics
   // ---------------------------------------------------------------------------
   //
-  // Models the sales pipeline through TaskQuote statuses.
-  // Logical funnel stages (counted at each gate the quote PASSED, regardless
-  // of current status — so SETTLED quotes count toward every prior stage):
+  // O funil comercial, contado no PORTÃO QUE O ORÇAMENTO PASSOU e não no estado
+  // atual — um contrato já pago conta em todos os degraus anteriores:
   //
-  //   1. PENDING (quote created)
-  //   2. BUDGET_APPROVED (commercial approved the budget)
-  //   3. BILLING_APPROVED+ (billing approved — invoices materialized; covers
-  //      everything past internal approval: UPCOMING/DUE/PARTIAL/SETTLED)
+  //   1. PENDING  — orçamento criado
+  //   2. SIGNED   — o cliente assinou; falta a contra-assinatura da Ankaa
+  //   3. APPROVED — aprovação comercial. É o ÚLTIMO estado do ORÇAMENTO.
+  //   4. BILLED   — alguma COBRANÇA do orçamento foi aprovada (nota e boletos
+  //                 materializados)
+  //   5. SETTLED  — todas as cobranças vivas liquidadas
   //
-  // Quotes never abandoned still progress; cancelled quotes are excluded
-  // upstream.
+  // ⚠️ OS DOIS ÚLTIMOS DEGRAUS NÃO SÃO MAIS ESTADOS DO ORÇAMENTO. Eram
+  // `BILLING_APPROVED`/`UPCOMING`/`DUE`/`PARTIAL`/`SETTLED` dentro de
+  // `TASK_QUOTE_STATUS` — o ciclo do PAGAMENTO morando na linha da VENDA. O
+  // faturamento agora é `Billing`, 1..N por orçamento, com estado próprio
+  // (`BILLING_STATUS`), e é dele que este funil lê "faturou?" e "liquidou?".
+  // Um orçamento de sessenta caminhões cobrados um a um tem sessenta cobranças:
+  // perguntar ao orçamento se "está pago" não tinha resposta possível.
   //
   // ⚠️ NÃO USE `TaskQuote.statusOrder` AQUI. Foi o que este código fazia, e
   // estava errado desde sempre: aquela coluna é uma ordem de PRIORIDADE para a
-  // lista do operador (`DUE` primeiro, porque é dinheiro atrasado), não uma
-  // progressão do funil. Com ela, `PENDING` valia 8 e passava por todos os
-  // limiares — todo orçamento criado contava como faturado, e o funil desenhava
-  // 100% de conversão em qualquer recorte. O índice do funil é o mapa local
-  // abaixo, e só ele.
+  // lista do operador (o que pede ação primeiro), não uma progressão do funil.
+  // Com ela, `PENDING` valia 8 e passava por todos os limiares — todo orçamento
+  // criado contava como faturado, e o funil desenhava 100% de conversão em
+  // qualquer recorte. O índice do funil é o mapa local abaixo, e só ele.
   //
-  // Onde os dois estados novos entram: `SIGNED` é o degrau entre a criação e a
-  // aprovação comercial — o cliente aceitou, falta a contra-assinatura. E
-  // `EXPIRED` NÃO é degrau nenhum: é abandono. Ele fica no estágio 1, que é o
-  // que o funil tem a dizer sobre ele (entrou e não converteu).
+  // `EXPIRED` NÃO é degrau nenhum: é abandono. Fica no estágio 1, que é o que o
+  // funil tem a dizer sobre ele (entrou e não converteu).
 
   async getQuoteFunnelAnalytics(
     filters: QuoteFunnelAnalyticsFilters,
@@ -632,24 +640,120 @@ export class InvoiceAnalyticsService {
     const dateRange = this.resolveDateRange(filters);
     const keyFn = groupBy === 'week' ? weekKey : monthKey;
 
-    // Progressão do funil. Deliberadamente PRÓPRIA — ver a nota acima sobre por
-    // que `statusOrder` não serve.
-    const STATUS_ORDER: Record<string, number> = {
+    // Progressão do funil ATÉ ONDE O ORÇAMENTO RESPONDE. Deliberadamente
+    // PRÓPRIA — ver a nota acima sobre por que `statusOrder` não serve. Os
+    // degraus 4 e 5 não estão aqui porque não são estado de orçamento: vêm das
+    // cobranças, em `stageOf`.
+    const QUOTE_STAGE: Record<string, number> = {
       [TASK_QUOTE_STATUS.PENDING]: 1,
       // Vencido sem assinatura não avança: entrou no funil e parou aqui.
       [TASK_QUOTE_STATUS.EXPIRED]: 1,
       // Assinado pelo cliente, à espera da contra-assinatura da Ankaa. Ainda
       // não é aprovação comercial, mas já não é um orçamento que ninguém olhou.
       [TASK_QUOTE_STATUS.SIGNED]: 2,
-      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 3,
-      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
-      [TASK_QUOTE_STATUS.UPCOMING]: 5,
-      [TASK_QUOTE_STATUS.DUE]: 6,
-      [TASK_QUOTE_STATUS.PARTIAL]: 7,
-      [TASK_QUOTE_STATUS.SETTLED]: 8,
+      // Último estado do orçamento. Daqui para a frente quem anda é a cobrança.
+      [TASK_QUOTE_STATUS.APPROVED]: 3,
     };
-    /** Degrau do funil de um orçamento. Nunca a coluna persistida. */
-    const stageOf = (quote: { status: string }): number => STATUS_ORDER[quote.status] ?? 1;
+
+    /**
+     * O degrau 4 não tem valor no enum do orçamento — é um rótulo de FUNIL, e
+     * precisa de id próprio porque a tabela da tela usa `stage` como chave de
+     * linha: reaproveitar `'APPROVED'` (que já é o degrau 3) daria duas linhas
+     * com a mesma chave.
+     */
+    const BILLED_STAGE = 'BILLED';
+
+    /** Uma linha de orçamento com o que o funil precisa saber das cobranças. */
+    type FunnelQuote = {
+      status: string;
+      total: unknown;
+      tasks?: Array<unknown> | null;
+      billings?: Array<{
+        status: string;
+        approvedAt: Date | null;
+        tasks?: Array<{ taskId: string }> | null;
+      }> | null;
+    };
+
+    /** Alguma cobrança deste orçamento já foi aprovada? (degrau 4) */
+    const isBilled = (quote: FunnelQuote): boolean =>
+      (quote.billings ?? []).some(b => b.approvedAt !== null);
+
+    /**
+     * O orçamento está LIQUIDADO? — pergunta que agora é da COBRANÇA.
+     *
+     * Era `quote.status === SETTLED`. Com 1..N cobranças só é verdade quando
+     * TODAS as vivas estão liquidadas: metade paga é meia conversão, e contá-la
+     * inteira inflava o "liquidado" do painel. Cobrança CANCELADA não conta nem
+     * a favor nem contra — ela saiu do contrato.
+     */
+    const isSettled = (quote: FunnelQuote): boolean => {
+      const alive = (quote.billings ?? []).filter(b => b.status !== BILLING_STATUS.CANCELLED);
+      return alive.length > 0 && alive.every(b => b.status === BILLING_STATUS.SETTLED);
+    };
+
+    /**
+     * Degrau do funil de um orçamento. Nunca a coluna persistida.
+     *
+     * CANCELADO fica no degrau 1 mesmo tendo tido cobrança aprovada: o funil
+     * mede conversão, e contrato cancelado não converteu. Era o que já
+     * acontecia — `CANCELLED` nunca esteve no mapa e caía no `?? 1`.
+     */
+    const stageOf = (quote: FunnelQuote): number => {
+      if (quote.status === TASK_QUOTE_STATUS.CANCELLED) return 1;
+      if (isSettled(quote)) return 5;
+      if (isBilled(quote)) return 4;
+      return QUOTE_STAGE[quote.status] ?? 1;
+    };
+
+    /**
+     * Quanto deste orçamento já entrou como LIQUIDADO, em reais.
+     *
+     * O valor de uma cobrança é a fatia por veículo (`total ÷ N`) vezes os
+     * veículos que ela cobre: num orçamento de sessenta caminhões cobrados um a
+     * um, trinta pagos são metade do contrato — nem o contrato inteiro (o que o
+     * `status === SETTLED` do orçamento fazia, porque não havia meio termo) nem
+     * zero.
+     */
+    const settledValueOf = (quote: FunnelQuote): number => {
+      const billings = quote.billings ?? [];
+      const settled = billings.filter(b => b.status === BILLING_STATUS.SETTLED);
+      if (settled.length === 0) return 0;
+      const coveredAnywhere = billings.reduce((n, b) => n + (b.tasks?.length ?? 0), 0);
+      // Cobertura vazia = grafo anterior a `BillingTask`, em que a cobrança
+      // cobria o orçamento inteiro por definição. Devolver R$ 0,00 para uma
+      // fatura paga seria pior do que essa aproximação.
+      if (coveredAnywhere === 0) {
+        return settled.length === billings.length ? Number(quote.total ?? 0) : 0;
+      }
+      const share = perVehicleAmount(quote.total, quote.tasks?.length);
+      return settled.reduce((sum, b) => sum + share * (b.tasks?.length ?? 0), 0);
+    };
+
+    /** Os veículos cuja cobrança está liquidada — para ratear por cliente/setor. */
+    const settledTaskIdsOf = (quote: FunnelQuote): Set<string> =>
+      new Set(
+        (quote.billings ?? [])
+          .filter(b => b.status === BILLING_STATUS.SETTLED)
+          .flatMap(b => (b.tasks ?? []).map(t => t.taskId)),
+      );
+
+    /**
+     * QUANDO este orçamento passou a ser faturado — a PRIMEIRA cobrança
+     * aprovada, e não `TaskQuote.billingApprovedAt`, que marca a ÚLTIMA (ou
+     * seja, "o contrato inteiro está faturado"). Para um ciclo de venda a
+     * pergunta é quando o dinheiro começou a ser cobrado.
+     */
+    const firstBilledAt = (quote: {
+      billingApprovedAt: Date | null;
+      billings?: Array<{ approvedAt: Date | null }> | null;
+    }): Date | null => {
+      const stamps = (quote.billings ?? [])
+        .map(b => b.approvedAt)
+        .filter((d): d is Date => d !== null);
+      if (stamps.length === 0) return quote.billingApprovedAt;
+      return stamps.reduce((min, d) => (d < min ? d : min));
+    };
 
     // Build where clause for quotes (joining to Task for sector/customer filters)
     const where: any = {
@@ -670,9 +774,19 @@ export class InvoiceAnalyticsService {
         id: true,
         total: true,
         status: true,
-        statusOrder: true,
         createdAt: true,
         billingApprovedAt: true,
+        // OS DOIS ÚLTIMOS DEGRAUS DO FUNIL MORAM AQUI. Sem este `select` o
+        // funil pararia no degrau 3 e diria que nada foi faturado — a
+        // cobertura (`tasks`) entra junto porque é o multiplicador do valor de
+        // cada cobrança.
+        billings: {
+          select: {
+            status: true,
+            approvedAt: true,
+            tasks: { select: { taskId: true } },
+          },
+        },
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -687,11 +801,33 @@ export class InvoiceAnalyticsService {
     });
 
     // ---------- Funnel stages ----------
-    const stageDefs: Array<{ stage: string; orderThreshold: number }> = [
-      { stage: TASK_QUOTE_STATUS.PENDING, orderThreshold: 1 },
-      { stage: TASK_QUOTE_STATUS.SIGNED, orderThreshold: 2 },
-      { stage: TASK_QUOTE_STATUS.BUDGET_APPROVED, orderThreshold: 3 },
-      { stage: TASK_QUOTE_STATUS.BILLING_APPROVED, orderThreshold: 4 },
+    // O rótulo vem junto porque os dois últimos degraus não são estado de
+    // orçamento: procurá-los em `TASK_QUOTE_STATUS_LABELS` devolveria
+    // `undefined`, e o gráfico desenharia uma coluna sem nome.
+    const stageDefs: Array<{ stage: string; label: string; orderThreshold: number }> = [
+      {
+        stage: TASK_QUOTE_STATUS.PENDING,
+        label: TASK_QUOTE_STATUS_LABELS[TASK_QUOTE_STATUS.PENDING],
+        orderThreshold: 1,
+      },
+      {
+        stage: TASK_QUOTE_STATUS.SIGNED,
+        label: TASK_QUOTE_STATUS_LABELS[TASK_QUOTE_STATUS.SIGNED],
+        orderThreshold: 2,
+      },
+      {
+        stage: TASK_QUOTE_STATUS.APPROVED,
+        label: TASK_QUOTE_STATUS_LABELS[TASK_QUOTE_STATUS.APPROVED],
+        orderThreshold: 3,
+      },
+      // "Faturado" e não "Aprovado": o degrau 3 já se chama Aprovado, e repetir
+      // o rótulo é exatamente a confusão que separar as duas entidades desfez.
+      { stage: BILLED_STAGE, label: 'Faturado', orderThreshold: 4 },
+      {
+        stage: BILLING_STATUS.SETTLED,
+        label: BILLING_STATUS_LABELS[BILLING_STATUS.SETTLED],
+        orderThreshold: 5,
+      },
     ];
 
     const totalEntries = quotes.length;
@@ -716,14 +852,16 @@ export class InvoiceAnalyticsService {
       const conversionFromTop =
         totalEntries > 0 ? Math.round((count / totalEntries) * 1000) / 10 : 0;
 
-      // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, billingApprovedAt for billing-approved)
+      // avg days from creation to reaching this stage (approximate: use createdAt vs now for not-yet-billing, first billing approval for billed)
       const ages = reached
         .map(q => {
-          // Só o degrau de FATURAMENTO tem carimbo de data real
-          // (`billingApprovedAt`). Era `>= 3` porque BILLING_APPROVED valia 3
-          // no mapa antigo; com SIGNED no meio ele vale 4.
-          if (def.orderThreshold >= 4 && q.billingApprovedAt) {
-            return diffDays(q.createdAt, q.billingApprovedAt);
+          // Só o degrau de FATURAMENTO tem carimbo de data real: a aprovação da
+          // primeira cobrança. O de LIQUIDADO (5) não tem — a data do pagamento
+          // está nas parcelas, que este agregado não carrega — e cai no proxy
+          // abaixo.
+          const billedAt = def.orderThreshold === 4 ? firstBilledAt(q) : null;
+          if (billedAt) {
+            return diffDays(q.createdAt, billedAt);
           }
           // for upstream stages we don't have stage-transition timestamps,
           // so we use current age as a proxy (only meaningful for current-stage quotes)
@@ -741,7 +879,7 @@ export class InvoiceAnalyticsService {
 
       return {
         stage: def.stage,
-        stageLabel: TASK_QUOTE_STATUS_LABELS[def.stage as keyof typeof TASK_QUOTE_STATUS_LABELS],
+        stageLabel: def.label,
         count,
         totalValue: Math.round(totalValue * 100) / 100,
         conversionFromPrevious,
@@ -783,11 +921,13 @@ export class InvoiceAnalyticsService {
       // SIGNED — contaria como aprovado o orçamento que o cliente assinou e nós
       // ainda não contra-assinamos.
       if (sOrder >= 3) bucket.approvedQuotes++;
+      // Faturado e liquidado saem das COBRANÇAS (ver `stageOf`), não do estado
+      // do orçamento — que não tem mais o que dizer sobre pagamento.
       if (sOrder >= 4) bucket.billedQuotes++;
-      if (q.status === TASK_QUOTE_STATUS.SETTLED) {
-        bucket.settledQuotes++;
-        bucket.settledValue += Number(q.total);
-      }
+      if (sOrder >= 5) bucket.settledQuotes++;
+      // O valor liquidado é rateado: um orçamento com metade das cobranças
+      // pagas soma metade, e não some do numerador até a última quitar.
+      bucket.settledValue += settledValueOf(q);
     }
 
     const sortedKeys = Array.from(periodMap.keys()).sort();
@@ -819,6 +959,11 @@ export class InvoiceAnalyticsService {
     // "quoteCount" que a tela chama de "orçamentos".
     for (const q of quotes) {
       const share = perVehicleAmount(q.total, q.tasks?.length);
+      // Liquidado é POR VEÍCULO agora: quem paga é a cobrança, e a cobrança
+      // cobre veículos. Um orçamento com dois clientes em que só um quitou
+      // credita o liquidado a esse — antes o estado era do orçamento inteiro e
+      // creditava aos dois ou a nenhum.
+      const settledTaskIds = settledTaskIdsOf(q);
       const countedCustomers = new Set<string>();
       for (const task of q.tasks ?? []) {
         const c = task.customer;
@@ -832,7 +977,7 @@ export class InvoiceAnalyticsService {
           countedCustomers.add(c.id);
         }
         entry.total += share;
-        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+        if (settledTaskIds.has(task.id)) {
           entry.settled += share;
         }
       }
@@ -858,6 +1003,7 @@ export class InvoiceAnalyticsService {
     // repartidos entre setores, e o setor do primeiro não responde pelos outros.
     for (const q of quotes) {
       const share = perVehicleAmount(q.total, q.tasks?.length);
+      const settledTaskIds = settledTaskIdsOf(q);
       const countedSectors = new Set<string>();
       for (const task of q.tasks ?? []) {
         const sec = task.sector;
@@ -871,7 +1017,7 @@ export class InvoiceAnalyticsService {
           countedSectors.add(sec.id);
         }
         entry.total += share;
-        if (q.status === TASK_QUOTE_STATUS.SETTLED) {
+        if (settledTaskIds.has(task.id)) {
           entry.settled += share;
         }
       }
@@ -890,26 +1036,37 @@ export class InvoiceAnalyticsService {
     // ---------- Summary ----------
     const totalQuotes = quotes.length;
     const totalQuotedValue = quotes.reduce((s, q) => s + Number(q.total), 0);
-    const settledQuotes = quotes.filter(q => q.status === TASK_QUOTE_STATUS.SETTLED);
-    const totalSettledValue = settledQuotes.reduce((s, q) => s + Number(q.total), 0);
+    // "Liquidado" é o orçamento com TODAS as cobranças vivas quitadas.
+    const settledQuotes = quotes.filter(isSettled);
+    // O valor liquidado, porém, é rateado por cobrança — um contrato meio pago
+    // entra pela metade, e não some do numerador até a última parcela cair.
+    const totalSettledValue = quotes.reduce((s, q) => s + settledValueOf(q), 0);
     const conversionRate =
       totalQuotes > 0 ? Math.round((settledQuotes.length / totalQuotes) * 1000) / 10 : 0;
+    // Ticket médio = valor do CONTRATO fechado e pago ÷ contratos pagos. Usar o
+    // valor rateado aqui misturaria numerador parcial com denominador inteiro e
+    // desenharia um ticket menor do que qualquer venda real.
     const avgTicket =
       settledQuotes.length > 0
-        ? Math.round((totalSettledValue / settledQuotes.length) * 100) / 100
+        ? Math.round(
+            (settledQuotes.reduce((s, q) => s + Number(q.total), 0) / settledQuotes.length) * 100,
+          ) / 100
         : 0;
 
+    // Ciclo de venda = da criação até a PRIMEIRA cobrança aprovada.
     const cycles = quotes
-      .filter(q => q.billingApprovedAt)
-      .map(q => diffDays(q.createdAt, q.billingApprovedAt!))
-      .filter(d => d >= 0);
+      .map(q => {
+        const billedAt = firstBilledAt(q);
+        return billedAt ? diffDays(q.createdAt, billedAt) : null;
+      })
+      .filter((d): d is number => d !== null && d >= 0);
     const avgSalesCycleDays =
       cycles.length > 0
         ? Math.round((cycles.reduce((a, b) => a + b, 0) / cycles.length) * 10) / 10
         : 0;
 
     const activeBacklogValue = quotes
-      .filter(q => q.status !== TASK_QUOTE_STATUS.SETTLED)
+      .filter(q => !isSettled(q))
       .reduce((s, q) => s + Number(q.total), 0);
 
     return {

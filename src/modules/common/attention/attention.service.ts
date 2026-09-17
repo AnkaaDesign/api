@@ -311,8 +311,21 @@ const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
   // vai ser reformulado é pedir um dado que talvez nem se use. Ele volta a esta
   // lista sozinho quando a reformulação o devolve a PENDING.
   status: {
-    in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.SIGNED, TaskQuoteStatus.BUDGET_APPROVED],
+    in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.SIGNED, TaskQuoteStatus.APPROVED],
   },
+  // ⚠️ E A JANELA SÓ FECHA PELO FATURAMENTO. Sem esta condição ela é INFINITA:
+  // `APPROVED` é o ÚLTIMO estado do ORÇAMENTO e ele fica ali para sempre —
+  // inclusive depois de a nota sair e o cliente pagar. Seria o mesmo defeito da
+  // forma negativa ("not CANCELLED") que esta lista de status existiu para
+  // corrigir, de volta por outra porta: quem sabe se a nota saiu é o `Billing`.
+  //
+  // `some { approvedAt: null }` e não `none { approvedAt: not null }`: num
+  // orçamento de sessenta caminhões faturados um a um, com trinta já cobrados,
+  // o dinheiro dos outros trinta continua parado pelo campo que falta.
+  //
+  // O braço `none: {}` é o orçamento que ainda não tem cobrança nenhuma (nasce
+  // sem pagador declarado) — ali nada foi faturado por definição.
+  OR: [{ billings: { none: {} } }, { billings: { some: { approvedAt: null } } }],
 };
 
 /**
@@ -368,7 +381,7 @@ const TASK_MISSING_ORDER_NUMBER: Prisma.TaskWhereInput = {
  * The customer cannot receive an NFS-e yet.
  *
  * MIRRORS `NFSE_REQUIRED_CUSTOMER_FIELDS` in `web/src/lib/billing-customer-data.ts`, which is the
- * same list the wizard's `validateCustomerData` refuses BILLING_APPROVED over. Keep the two in
+ * same list the wizard's `validateCustomerData` refuses to APPROVE A COBRANÇA over. Keep the two in
  * step: a field required there and missing here means the nav under-counts silently, and a field
  * required here and not there means the row blinks over something the form will happily save.
  */
@@ -501,8 +514,9 @@ export const RULE_QUERIES: RuleQuery[] = [
   // ── Comercial / Financeiro ────────────────────────────────────────────────
   //
   // `task-quote.expired-pending` and `task-quote.due` used to live here and were REMOVED with
-  // their client twins. Between them they matched 171 of ~250 quotes: DUE is a status the table
-  // already prints in red and only the CUSTOMER can clear by paying, and expired-pending was a
+  // their client twins. Between them they matched 171 of ~250 quotes: vencido (hoje
+  // `BILLING_STATUS.OVERDUE`, no faturamento) é um estado que a tabela já imprime em vermelho e
+  // que só o CLIENTE limpa pagando, and expired-pending was a
   // 147-record backlog, half of it over three months old. Neither named work this audience could
   // do, which is the bar stated above. What is left is the two conditions that actually BLOCK an
   // invoice, each pointing at the field that unblocks it.
@@ -540,14 +554,19 @@ export const RULE_QUERIES: RuleQuery[] = [
   {
     // The work is DONE, the budget is approved, and the customer's cadastro still cannot carry an
     // NFS-e. Same shape as the rule above and the same reason: money held up by one empty field.
-    // BUDGET_APPROVED is the whole window — before it the quote may not even be approved, after
-    // it the nota has already gone out, so the cadastro was necessarily fine.
+    //
+    // A JANELA SÃO DUAS CONDIÇÕES, e não uma. `APPROVED` abre (antes dele o
+    // orçamento pode nem estar aprovado), mas quem FECHA é a cobrança: o
+    // orçamento não sai mais de `APPROVED` depois que a nota vai, então sozinho
+    // ele deixaria o alerta piscando para sempre sobre contratos já pagos. Só há
+    // o que fazer enquanto existe cobrança por aprovar.
     ruleId: 'task-quote.billing-customer-incomplete',
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
     where: (): Prisma.TaskQuoteWhereInput => ({
       tasks: { some: { status: TaskStatus.COMPLETED } },
-      status: TaskQuoteStatus.BUDGET_APPROVED,
+      status: TaskQuoteStatus.APPROVED,
+      OR: [{ billings: { none: {} } }, { billings: { some: { approvedAt: null } } }],
       customerConfigs: {
         some: { generateInvoice: true, customer: CUSTOMER_MISSING_BILLING_DATA },
       },

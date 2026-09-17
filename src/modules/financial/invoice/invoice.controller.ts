@@ -38,8 +38,6 @@ import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
   INSTALLMENT_PAYMENT_METHOD,
-  TASK_QUOTE_STATUS,
-  TASK_QUOTE_STATUS_ORDER,
 } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
