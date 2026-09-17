@@ -22,8 +22,10 @@ export const TASK_FIELD_DOMAINS = {
    */
   entryDate: ['entryDate'],
   /**
-   * Prazo de Entrega — the delivery deadline negotiated with the customer.
-   * COMMERCIAL + ADMIN only; PRODUCTION_MANAGER and LOGISTIC must NOT write it.
+   * Prazo de Entrega — the delivery deadline the shop commits to.
+   * PRODUCTION_MANAGER + ADMIN only. COMMERCIAL lost it (17/09/2026): the desk
+   * that sells the job no longer promises the date, the desk that runs the
+   * floor does. LOGISTIC never had it.
    */
   term: ['term'],
   /** Task lifecycle status */
@@ -96,7 +98,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'dates',
     // 'entryDate' is intentionally ABSENT — the commercial desk does not record
     // when the vehicle arrived; logistics/production management does.
-    'term',
+    // 'term' is intentionally ABSENT — the delivery deadline moved to
+    // PRODUCTION_MANAGER + ADMIN (17/09/2026).
     'status',
     'bonification',
     'truck',
@@ -119,8 +122,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     'entryDate',
-    // 'term' is intentionally ABSENT — the delivery deadline is the commercial
-    // desk's (and ADMIN's) to negotiate and change.
+    // 'term' is intentionally ABSENT — the delivery deadline is production
+    // management's (and ADMIN's) to set and change.
     'status',
     'truck',
     'responsibles',
@@ -139,7 +142,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     'entryDate',
-    // 'term' is intentionally ABSENT — see LOGISTIC above.
+    'term',
     'status',
     'truck',
     'serviceOrders',
@@ -167,7 +170,9 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
  * task snapshot (dates, status default, sector, default "Em Negociação" SO,
  * truck, files...), so every creator role needs the structural domains.
  * What stays restricted at create:
- * - term (Prazo de Entrega): COMMERCIAL only (same rule as update)
+ * - term (Prazo de Entrega): PRODUCTION_MANAGER only (same rule as update). A
+ *   task created by the commercial desk is born WITHOUT a deadline; production
+ *   management fills it in afterwards.
  * - entryDate (Data de Entrada): LOGISTIC + PRODUCTION_MANAGER only (same rule
  *   as update). No create form exposes it today, so this is belt-and-braces.
  * - bonification: COMMERCIAL only (payroll-adjacent)
@@ -182,7 +187,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     // No 'entryDate' — commercial never records the vehicle's arrival.
-    'term',
+    // No 'term' — the deadline is production management's (17/09/2026).
     'status',
     'bonification',
     'truck',
@@ -229,7 +234,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     'entryDate',
-    // No 'term' — the deadline is COMMERCIAL/ADMIN's to set.
+    // No 'term' — the deadline is PRODUCTION_MANAGER/ADMIN's to set.
     'status',
     'truck',
     'responsibles',
@@ -250,7 +255,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'identity',
     'dates',
     'entryDate',
-    // No 'term' — see LOGISTIC above.
+    'term',
     'status',
     'truck',
     'responsibles',

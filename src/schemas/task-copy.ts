@@ -94,15 +94,11 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.MAINTENANCE,
   ],
-  term: [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    SECTOR_PRIVILEGES.PLOTTING,
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.MAINTENANCE,
-  ],
+  // Prazo de Entrega — o `copy-from` NÃO passa pelo `validateSectorFieldAccess`,
+  // então esta lista é o único freio dele. Tem de espelhar o domínio `term` de
+  // `task.permissions.ts`: ADMIN + PRODUCTION_MANAGER, mais ninguém — senão
+  // "copiar de outra tarefa" vira a porta dos fundos do prazo.
+  term: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION_MANAGER],
   forecastDate: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
