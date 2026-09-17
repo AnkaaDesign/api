@@ -145,6 +145,13 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'statusOrder',
     'bonification',
     'serialNumber',
+    // O Nº do pedido de compra do cliente. Passou a ser coluna de `Task` em
+    // 17/09/2026 (era `BudgetPayer.orderNumber`) e a whitelist não veio junto —
+    // e ela LANÇA 403 em campo não listado, não o descarta: qualquer cliente que
+    // pedisse `tasks: { select: { customerOrderNumber: true } }` derrubava a
+    // requisição inteira. É exatamente o que a lista de Orçamentos do app e o
+    // dossiê precisam ler.
+    'customerOrderNumber',
     'details',
     'entryDate',
     'term',

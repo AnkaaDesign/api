@@ -106,7 +106,10 @@ import {
   type SyncQuoteItem,
 } from '../../../utils/budget-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/budget-totals';
-import { reconcileQuoteCustomerConfigs } from '../../../utils/budget-customer-config-sync';
+import {
+  reconcileQuoteCustomerConfigs,
+  resliceQuoteCoverage,
+} from '../../../utils/budget-customer-config-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -10077,39 +10080,7 @@ export class TaskService {
         // Só quando foi o ÚLTIMO: num orçamento de quatro caminhões, apagar um
         // deixa três, e aí o que cabe é recalcular — que é o que
         // `deleteWithTransaction` já faz.
-        if (task.quoteId) {
-          const restantes = await tx.task.count({ where: { quoteId: task.quoteId } });
-          if (restantes === 0) {
-            const orcamento = await tx.budget.findUnique({
-              where: { id: task.quoteId },
-              select: { id: true, budgetNumber: true, status: true },
-            });
-            if (orcamento && orcamento.status !== TASK_QUOTE_STATUS.CANCELLED) {
-              await tx.budget.update({
-                where: { id: orcamento.id },
-                data: {
-                  status: TASK_QUOTE_STATUS.CANCELLED,
-                  statusOrder: getTaskQuoteStatusOrder(TASK_QUOTE_STATUS.CANCELLED),
-                },
-              });
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK_QUOTE,
-                entityId: orcamento.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'status',
-                oldValue: orcamento.status,
-                newValue: TASK_QUOTE_STATUS.CANCELLED,
-                reason:
-                  `Cancelado automaticamente: o último veículo do orçamento nº ` +
-                  `${orcamento.budgetNumber} foi excluído.`,
-                userId: userId || '',
-                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM as any,
-                triggeredById: userId || null,
-                transaction: tx,
-              });
-            }
-          }
-        }
+        await this.cancelBudgetsLeftWithoutVehicles(tx, [task.quoteId], userId);
 
         return purgeResult;
       });
@@ -10128,6 +10099,70 @@ export class TaskService {
       throw new InternalServerErrorException(
         'Erro interno do servidor ao excluir a tarefa. Tente novamente.',
       );
+    }
+  }
+
+  /**
+   * O ORÇAMENTO QUE FICOU SEM NENHUM VEÍCULO — cancela, não apaga.
+   *
+   * A chave estrangeira mora do lado da TAREFA (`Task.quoteId`), então apagar a
+   * tarefa não toca no orçamento: ele simplesmente fica sem veículo. Em produção,
+   * 17/09/2026, há 105 assim — o mais antigo de janeiro, todos com serviços, 32
+   * marcados como APROVADOS. Nenhum tem fatura viva nem um centavo recebido: são
+   * resíduo, não valor perdido. Eram INVISÍVEIS enquanto a lista consultava
+   * tarefas; quando ela passou a consultar orçamentos, apareceram de uma vez e
+   * ocuparam a primeira página com linhas sem veículo, e a tela parecia quebrada.
+   *
+   * CANCELA, não apaga. Um orçamento sem veículo não pode ser cotado, assinado nem
+   * cobrado: está morto. Mas apagá-lo destruiria o número, o histórico e a lista de
+   * serviços que alguém escreveu — e o número é o que o cliente tem no e-mail.
+   * Cancelar tira das telas operacionais (que filtram por estado), preserva o
+   * registro e é reversível.
+   *
+   * Só quando foi o ÚLTIMO: num orçamento de quatro caminhões, apagar um deixa
+   * três, e aí o que cabe é recalcular — que é o que `deleteWithTransaction` faz.
+   *
+   * ⚠️ EXTRAÍDA DE DENTRO DO `delete` UNITÁRIO. O bloco existia lá e NÃO existia
+   * no `batchDelete`, então apagar os quatro últimos veículos de uma vez produzia
+   * mais um resíduo dos 105 que este código existe para não criar. Um comportamento
+   * que depende de por qual botão se chega não é comportamento, é acidente.
+   */
+  private async cancelBudgetsLeftWithoutVehicles(
+    tx: PrismaTransaction,
+    quoteIds: Array<string | null | undefined>,
+    userId?: string,
+  ): Promise<void> {
+    const ids = [...new Set(quoteIds.filter((q): q is string => !!q))];
+    for (const quoteId of ids) {
+      const restantes = await tx.task.count({ where: { quoteId } });
+      if (restantes > 0) continue;
+      const orcamento = await tx.budget.findUnique({
+        where: { id: quoteId },
+        select: { id: true, budgetNumber: true, status: true },
+      });
+      if (!orcamento || orcamento.status === TASK_QUOTE_STATUS.CANCELLED) continue;
+      await tx.budget.update({
+        where: { id: orcamento.id },
+        data: {
+          status: TASK_QUOTE_STATUS.CANCELLED,
+          statusOrder: getTaskQuoteStatusOrder(TASK_QUOTE_STATUS.CANCELLED),
+        },
+      });
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.TASK_QUOTE,
+        entityId: orcamento.id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'status',
+        oldValue: orcamento.status,
+        newValue: TASK_QUOTE_STATUS.CANCELLED,
+        reason:
+          `Cancelado automaticamente: o último veículo do orçamento nº ` +
+          `${orcamento.budgetNumber} foi excluído.`,
+        userId: userId || '',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM as any,
+        triggeredById: userId || null,
+        transaction: tx,
+      });
     }
   }
 
@@ -10219,11 +10254,19 @@ export class TaskService {
           });
         }
 
+        // Os orçamentos tocados pelo lote, lidos ANTES da exclusão — depois dela
+        // a FK já se foi e não há como saber de qual orçamento cada tarefa era.
+        const quoteIdsTocados = tasks.map(t => (t as any).quoteId as string | null);
+
         // Batch delete
-        return {
-          result: await this.tasksRepository.deleteManyWithTransaction(tx, deletableTaskIds),
-          purged: purgeResult,
-        };
+        const result = await this.tasksRepository.deleteManyWithTransaction(tx, deletableTaskIds);
+
+        // O MESMO desmonte do `delete` unitário: o orçamento que perdeu o último
+        // veículo é cancelado. Faltava aqui, e apagar os quatro últimos de uma vez
+        // deixava o orçamento vivo e sem ninguém.
+        await this.cancelBudgetsLeftWithoutVehicles(tx, quoteIdsTocados, userId);
+
+        return { result, purged: purgeResult };
       });
 
       await this.signatureDeletion.unlinkFrozenDocuments(purged.frozenDocumentPaths);
@@ -13464,6 +13507,28 @@ export class TaskService {
       };
     }
 
+    // ── A TRAVA DO DINHEIRO TAMBÉM VALE AQUI ─────────────────────────────────
+    //
+    // Copiar `quoteId` REPONTA o vínculo do veículo de destino: ele deixa o
+    // orçamento em que está e passa a um duplicado do orçamento de origem. Se o
+    // caminhão já está na cobertura de um faturamento CONGELADO — com fatura
+    // emitida, boleto registrado no Sicredi e NFS-e autorizada na prefeitura —,
+    // isso o arranca de debaixo da cobrança que já saiu.
+    //
+    // `PUT /tasks/:id` nunca teve esse buraco (o repositório carrega `billings` e
+    // a trava recusa). O `copy-from` grava com `tx.task.update` cru, por fora do
+    // repositório E do validador de campos, então a guarda tem de estar aqui.
+    if (fieldsToProcess.includes('quoteId' as CopyableTaskField)) {
+      const bloqueados = await this.findMoneyLockedTaskIds([destinationTaskId]);
+      if (bloqueados.length > 0) {
+        throw new BadRequestException(
+          'Não é possível copiar o orçamento para este veículo: ele já está coberto por um ' +
+            `faturamento aprovado (orçamento nº ${bloqueados[0].budgetNumber ?? '—'}). ` +
+            'Reverta o faturamento antes de trocar o orçamento do veículo.',
+        );
+      }
+    }
+
     try {
       // Orçamento órfão protegido por assinatura coletada: não pode ser purgado
       // dentro da transação — é cancelado (preservado) DEPOIS do commit, porque
@@ -14473,6 +14538,32 @@ export class TaskService {
           // Layout rows — materialize them as APPROVED task layouts now that the
           // destination task↔quote link is set.
           if (updateData.quoteId) {
+            // ── A COBERTURA E OS TOTAIS DOS DOIS LADOS ──────────────────────────
+            //
+            // O vínculo `Task.quoteId` acabou de mudar, e a contagem de veículos é
+            // o multiplicador de todo total (`por veículo × N`). O repositório faz
+            // exatamente isto quando o vínculo muda por `PUT /tasks/:id`
+            // (`task-prisma.repository.ts`); o `copy-from` grava por fora dele e
+            // ficava sem.
+            //
+            // Sem o refatiamento, o `Billing` do orçamento duplicado nasce SEM
+            // cobertura (a cópia é criada antes de a tarefa existir para ela): a
+            // fatura não sabe que caminhão cobra, a nota não tem a quem se ligar e
+            // a lista de Faturamento mostra uma cobrança sem veículo.
+            //
+            // Sem o recálculo do orçamento de ORIGEM DO DESTINO — quando ele
+            // sobrevive por ter outros veículos —, ele segue cobrando por um
+            // caminhão que não é mais dele.
+            await resliceQuoteCoverage(tx, updateData.quoteId as string);
+            await this.recalcQuoteTotals(tx, updateData.quoteId as string);
+            if (orphanedOldQuoteId && orphanedOldQuoteId !== updateData.quoteId) {
+              const aindaExiste = await tx.budget.count({ where: { id: orphanedOldQuoteId } });
+              if (aindaExiste > 0) {
+                await resliceQuoteCoverage(tx, orphanedOldQuoteId);
+                await this.recalcQuoteTotals(tx, orphanedOldQuoteId);
+              }
+            }
+
             await syncTaskLayoutsFromQuote(tx, updateData.quoteId as string, userId);
             // The PRODUCTION service orders are derived from the quote's services (by matching
             // description) — regenerate them to match the copied quote, since the old quote's SOs
@@ -14529,7 +14620,19 @@ export class TaskService {
             },
           });
 
-          if (activeInvoiceCount === 0) {
+          // ── A FATURA NÃO É O ÚNICO SINAL DE QUE O DINHEIRO SAIU ──────────────
+          //
+          // A guarda só perguntava por `Invoice`. Um faturamento APROVADO que
+          // ainda não emitiu fatura — ou LIQUIDADO por conciliação, sem fatura de
+          // onde derivar o carimbo — não era visto por ninguém, e `Billing.quote`
+          // é `onDelete: Cascade`: o `budget.delete` abaixo levava a cobrança
+          // inteira junto, silenciosamente. `BILLING_FROZEN_WHERE` é o mesmo
+          // predicado da trava do dinheiro, em SQL.
+          const frozenBillingCount = await (tx as any).billing.count({
+            where: { quoteId: orphanedOldQuoteId, ...BILLING_FROZEN_WHERE },
+          });
+
+          if (activeInvoiceCount === 0 && frozenBillingCount === 0) {
             // Assinatura colhida/envelope selado protege o orçamento órfão:
             // ele NÃO é apagado — fica preservado (sem tarefa apontando para
             // ele) e é cancelado após o commit, junto das cerimônias RUNNING.
@@ -14565,7 +14668,8 @@ export class TaskService {
             }
           } else {
             this.logger.warn(
-              `[copyFromTask] Kept orphaned previous quote ${orphanedOldQuoteId}: ${activeInvoiceCount} non-cancelled invoice(s) still reference it`,
+              `[copyFromTask] Kept orphaned previous quote ${orphanedOldQuoteId}: ` +
+                `${activeInvoiceCount} non-cancelled invoice(s) and ${frozenBillingCount} frozen billing(s) still reference it`,
             );
           }
         }

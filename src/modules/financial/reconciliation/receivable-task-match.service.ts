@@ -1154,6 +1154,26 @@ export class ReceivableTaskMatchService {
   ): Promise<{ installment: CollectedInstallment; invoiceCreated: boolean }> {
     const amount = new Decimal(input.amount);
 
+    // ── UM SERVIÇO É PREÇO POR VEÍCULO. ESTENDER UM MULTITAREFA INVENTA DINHEIRO ─
+    //
+    // Esta rotina cria um `BudgetItem` e soma o mesmo número UMA vez a
+    // `Budget.subtotal/total`. A conta canônica (`recalcQuoteTotals`) é
+    // `Σ itens × vehicleCount`: num orçamento de 4 caminhões, um acréscimo de
+    // R$ 500 grava 4.500 aqui e o primeiro recálculo devolve 6.000 — mil reais
+    // que ninguém cobrou e que a fatura seguinte cobraria.
+    //
+    // Não há tradução honesta de "crédito avulso" para "preço por veículo", então
+    // a rotina RECUSA em vez de escolher uma. O operador estende o orçamento de um
+    // veículo só, ou lança o valor pelo caminho normal.
+    const vehicleCount = await db.task.count({ where: { quoteId: input.quote.id } });
+    if (vehicleCount > 1) {
+      throw new BadRequestException(
+        `O orçamento ${input.quote.budgetNumber} cobre ${vehicleCount} veículos, e o valor de um ` +
+          'serviço é POR VEÍCULO — estendê-lo multiplicaria o acréscimo por ' +
+          `${vehicleCount}. Lance o valor no faturamento do veículo, ou desmembre o orçamento.`,
+      );
+    }
+
     // Prefer the config the operator named, then the quote's only config —
     // anything else is genuinely ambiguous and must be asked, not guessed.
     const configs = input.quote.customerConfigs;

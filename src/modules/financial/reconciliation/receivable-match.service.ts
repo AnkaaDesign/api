@@ -1524,6 +1524,29 @@ export class ReceivableMatchService {
             where: { id: a.installmentId },
             data: { status: 'PAID', paidAmount: inst.amount, paidAt: tx.postedAt },
           });
+        } else if (!a.linkOnly && allocate > 0) {
+          // ── A LINHA APARADA TAMBÉM DEIXA DINHEIRO NA PARCELA ────────────────
+          //
+          // Quando a alocação cobre só parte da linha, o código gravava o
+          // `ReconciliationMatch` e NÃO tocava em `paidAmount`: o recebido vivia
+          // apenas no casamento. Toda guarda de desmonte desta casa pergunta por
+          // `paidAmount > 0` — as três de `budget.service`, a da regeneração de
+          // faturas e a da remoção de pagador —, então esse dinheiro era
+          // invisível para todas elas, e a parcela podia ser apagada com o boleto
+          // junto. O outro caminho de liquidação (`settleInstallment`) já
+          // acumula; este era o irmão esquecido.
+          const parcial = await db.installment.findUniqueOrThrow({
+            where: { id: a.installmentId },
+            select: { paidAmount: true },
+          });
+          await db.installment.update({
+            where: { id: a.installmentId },
+            data: {
+              paidAmount: new Decimal(
+                Number((Number(parcial.paidAmount ?? 0) + allocate).toFixed(2)),
+              ),
+            },
+          });
         }
         await db.reconciliationMatch.create({
           data: {
@@ -2142,6 +2165,8 @@ export class ReceivableMatchService {
       select: {
         id: true,
         status: true,
+        amount: true,
+        paidAmount: true,
         reconciliationMatches: { where: { reversedAt: null }, select: { id: true } },
         bankSlip: {
           select: { id: true, status: true, transactions: { select: { id: true }, take: 1 } },
@@ -2149,7 +2174,21 @@ export class ReceivableMatchService {
       },
     });
     if (!installment) throw new NotFoundException('Parcela a receber não encontrada.');
-    if (installment.reconciliationMatches.length > 0) {
+    // ── JÁ CONCILIADA, MAS AINDA EM ABERTO, ACEITA O RESTO ───────────────────
+    //
+    // A recusa era por EXISTIR casamento, e isso fechava o caminho de
+    // completar um pagamento PARCIAL: um crédito que cobre metade da parcela
+    // deixa-a em aberto com `paidAmount > 0` e um casamento vivo — e o segundo
+    // crédito, o que fecharia a conta, era recusado com "já está conciliada".
+    // A parcela ficava presa em aberto até o cron marcá-la vencida.
+    //
+    // A pergunta certa é se ainda FALTA dinheiro. Parcela quitada segue recusando
+    // (é o caso que a frase descreve); parcela com saldo aceita mais uma parte, e
+    // o teto de `settleInstallment` garante que ela não absorva além do que falta.
+    const faltaNaParcela = Number(
+      Math.max(0, Number(installment.amount ?? 0) - Number(installment.paidAmount ?? 0)).toFixed(2),
+    );
+    if (installment.reconciliationMatches.length > 0 && faltaNaParcela <= 0.01) {
       throw new BadRequestException('Esta parcela já está conciliada.');
     }
 
@@ -2477,11 +2516,15 @@ export class ReceivableMatchService {
         );
         return;
       }
-      const abs = new Decimal(available);
+      // O QUE DE FATO ENTROU NESTA PARCELA. Começa no crédito disponível e é
+      // reduzido ao que FALTA quando a parcela é menor (ver o teto abaixo). No
+      // caminho "só vínculo" — parcela já PAID por outra via — continua sendo o
+      // crédito, que é o que aquele caminho sempre afirmou.
+      let appliedAmount = available;
 
       const installment = await db.installment.findUniqueOrThrow({
         where: { id: installmentId },
-        select: { id: true, amount: true, invoiceId: true, status: true },
+        select: { id: true, amount: true, paidAmount: true, invoiceId: true, status: true },
       });
       invoiceId = installment.invoiceId;
 
@@ -2491,21 +2534,69 @@ export class ReceivableMatchService {
       // rewrite a real settlement date with the OFX posting date and re-assert
       // paidAmount — so we touch nothing but the match.
       if (installment.status !== 'PAID') {
+        // ── O CRÉDITO PAGA O QUE ELE VALE, NÃO O VALOR DE FACE ─────────────────
+        //
+        // Isto gravava `paidAmount: installment.amount` — o valor da PARCELA —
+        // qualquer que fosse o crédito. Arrastar um PIX de R$ 1.000 sobre uma
+        // parcela de R$ 4.000 declarava R$ 4.000 recebidos enquanto o
+        // `ReconciliationMatch` alocava R$ 1.000: a fatura ia a PAGA, o
+        // faturamento a LIQUIDADO, e os R$ 3.000 que faltavam não apareciam em
+        // tela nenhuma (a derivação não compara com o total, de propósito, e a
+        // cascata conta ESTADO de parcela, nunca `paidAmount`). É a mecânica das
+        // faturas do acervo pagas por menos do que valem.
+        //
+        // O caminho de REVERSÃO já fazia a conta certa — as duas direções
+        // discordavam, e discordar de si mesmo é como o dinheiro some.
+        //
+        // Pagamento PARCIAL é a convenção da casa: a parcela FICA no estado em
+        // que está (PENDING/OVERDUE) com `paidAmount > 0`, que é exatamente o
+        // que o webhook do Sicredi grava numa quitação a menos, e o que as
+        // guardas de desmonte procuram. Um segundo crédito sobre a mesma parcela
+        // soma e a fecha.
+        const face = Number(installment.amount);
+        const already = Number(installment.paidAmount ?? 0);
+        // ⚠️ O TETO. `paidAmount: installment.amount` era, sem querer, um limite:
+        // gravava no MÁXIMO o valor de face. Tirá-lo sem pôr outro abriu o defeito
+        // oposto — arrastar um PIX de R$ 10.000 sobre uma parcela de R$ 4.000
+        // declararia R$ 10.000 recebidos NELA.
+        //
+        // A parcela absorve o que lhe FALTA, e nem um centavo além. O que sobra do
+        // crédito continua disponível, porque `allocatedAmount` passa a registrar
+        // o APLICADO e não o crédito inteiro — que é o que permite casar o resto
+        // com outra parcela em vez de dá-lo por gasto.
+        const falta = Number(Math.max(0, face - already).toFixed(2));
+        const applied = Number(Math.min(available, falta).toFixed(2));
+        if (applied <= 0.01) {
+          this.logger.warn(
+            `Parcela ${installmentId} já está coberta (R$${already.toFixed(2)} de ` +
+              `R$${face.toFixed(2)}); a tx ${tx.id} não foi aplicada.`,
+          );
+          return;
+        }
+        appliedAmount = applied;
+        const nextPaid = Number((already + applied).toFixed(2));
+        const quita = nextPaid >= face - 0.01;
+
         await db.installment.update({
           where: { id: installmentId },
-          data: {
-            status: 'PAID',
-            paidAmount: installment.amount,
-            paidAt: tx.postedAt,
-          },
+          data: quita
+            ? { status: 'PAID', paidAmount: new Decimal(nextPaid), paidAt: tx.postedAt }
+            : { paidAmount: new Decimal(nextPaid) },
         });
+
+        if (!quita) {
+          this.logger.warn(
+            `Parcela ${installmentId} recebeu R$${applied.toFixed(2)} da tx ${tx.id} e segue ` +
+              `EM ABERTO: R$${nextPaid.toFixed(2)} de R$${face.toFixed(2)}.`,
+          );
+        }
       }
 
       await db.reconciliationMatch.create({
         data: {
           transactionId: tx.id,
           installmentId,
-          allocatedAmount: abs,
+          allocatedAmount: new Decimal(appliedAmount),
           matchType:
             source === ReconciliationSource.MANUAL
               ? ReconciliationMatchType.MANUAL

@@ -202,9 +202,22 @@ export class BillingStatusCascadeService {
         i.status === 'CANCELLED' &&
         Number(i.amount ?? 0) > Number(i.paidAmount ?? 0),
     );
+    // ── PARCIAL TAMBÉM É A PARCELA PAGA PELA METADE ──────────────────────────
+    //
+    // `paid` conta ESTADO (`status === 'PAID'`), e um boleto quitado A MENOS
+    // deixa a parcela em PENDING com `paidAmount > 0` — é a convenção da casa, e
+    // é o que o webhook do Sicredi e a conciliação gravam. Numa cobrança de
+    // parcela ÚNICA paga pela metade, `paid` era 0 e a cobrança lia "Aprovado":
+    // a tela do faturamento afirmava que nada tinha entrado enquanto a FATURA,
+    // ao lado, lia "Parcialmente Paga" (`deriveInvoicePaymentState` sempre
+    // olhou `paidAmount`). Duas telas, o mesmo dinheiro, duas respostas.
+    //
+    // Fica DEPOIS do vencido de propósito: uma parcela paga pela metade e já
+    // vencida pede providência hoje, e é isso que o operador precisa ver.
+    const recebeuAlgo = active.some(i => Number(i.paidAmount ?? 0) > 0);
     if (paid === active.length && !canceladaEmAberto) return BILLING_STATUS.SETTLED;
     if (overdue > 0) return BILLING_STATUS.OVERDUE;
-    if (paid > 0) return BILLING_STATUS.PARTIAL;
+    if (paid > 0 || recebeuAlgo) return BILLING_STATUS.PARTIAL;
     return billing.approvedAt ? BILLING_STATUS.APPROVED : BILLING_STATUS.PENDING;
   }
 }

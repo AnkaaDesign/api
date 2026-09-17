@@ -28,6 +28,20 @@ export const TASK_FIELD_DOMAINS = {
    * floor does. LOGISTIC never had it.
    */
   term: ['term'],
+  /**
+   * Nº do Pedido do cliente, DESTE veículo (`Task.customerOrderNumber`).
+   *
+   * ⚠️ Estava em domínio NENHUM. Um campo que o schema de update aceita e que
+   * nenhum domínio declara é 400 para todo setor que não seja ADMIN — e este é
+   * exatamente o campo da grade de edição em lote (com o botão "repetir nas
+   * demais"), do formulário de edição e do detalhe do faturamento. A coluna
+   * mudou de dono em 17/09 (era do pagador, virou da tarefa) e a permissão não
+   * veio junto.
+   *
+   * Audiência: a mesma de `PATCH /budgets/:id/customer-config-order-number` —
+   * ADMIN, FINANCEIRO e COMERCIAL. É um dado comercial/fiscal, não de chão.
+   */
+  orderNumber: ['customerOrderNumber'],
   /** Task lifecycle status */
   status: ['status', 'startedAt', 'finishedAt'],
   /** Free-text observation */
@@ -38,14 +52,36 @@ export const TASK_FIELD_DOMAINS = {
   truck: ['truck'],
   /** Responsible users (incl. inline-created responsibles on create) */
   responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
-  /** Layout files and approval statuses */
-  layouts: ['layoutIds', 'layoutStatuses'],
+  /**
+   * Layout files and approval statuses.
+   *
+   * ⚠️ QUEM ACRESCENTA TEM DE PODER REMOVER. Os `remove*` deste bloco e dos
+   * quatro abaixo estavam fora de todo domínio: o designer adicionava layout e
+   * tomava 400 ao apagar um. Um campo ausente do mapa não é "negado a todos" —
+   * é negado a todos MENOS ao ADMIN, silenciosamente, e só aparece no dia em que
+   * alguém tenta remover.
+   */
+  layouts: ['layoutIds', 'layoutStatuses', 'newLayoutStatuses'],
+  /**
+   * APAGAR arquivo de layout — separado de `layouts` de propósito.
+   *
+   * FINANCEIRO, LOGÍSTICA e GERENTE DE PRODUÇÃO têm `layouts` como PASSTHROUGH:
+   * o formulário reenvia `layoutIds` só para preservar o estado, e o comentário
+   * de `SECTOR_TASK_UPDATE_ACCESS` diz isso. Pôr `removeLayoutIds` no mesmo
+   * domínio daria aos três o poder de APAGAR a arte — um direito que o
+   * passthrough nunca pretendeu conceder.
+   *
+   * Fica com quem de fato cura o layout: comercial, designer e o gerente que
+   * responde pela produção. (`layoutStatuses` já estava em `layouts` antes e
+   * segue lá: aprovar não destrói.)
+   */
+  layoutRemoval: ['removeLayoutIds'],
   /** Paint selection */
-  paint: ['paintId', 'paintIds'],
+  paint: ['paintId', 'paintIds', 'removeGeneralPainting', 'removeLogoPaints'],
   /** Cutting plans */
-  cuts: ['cuts', 'cut'],
+  cuts: ['cuts', 'cut', 'removeCutIds'],
   /** Airbrushings (nested create through the task form) */
-  airbrushings: ['airbrushings'],
+  airbrushings: ['airbrushings', 'removeAirbrushingIds'],
   /** Service orders */
   serviceOrders: ['serviceOrders'],
   /** Quote configuration */
@@ -61,13 +97,32 @@ export const TASK_FIELD_DOMAINS = {
   /** Service order file updates (checkin/checkout per SO) */
   serviceOrderFiles: ['serviceOrderFiles'],
   /** Financial documents: budgets, invoices, receipts, bank slips */
-  financialDocs: ['budgetIds', 'invoiceIds', 'receiptIds', 'bankSlipIds'],
+  financialDocs: [
+    'budgetIds',
+    'invoiceIds',
+    'receiptIds',
+    'bankSlipIds',
+    'removeBudgetIds',
+    'removeInvoiceIds',
+    'removeReceiptIds',
+  ],
   /** Reimbursement documents */
-  reimbursements: ['reimbursementIds', 'reimbursementInvoiceIds'],
+  reimbursements: [
+    'reimbursementIds',
+    'reimbursementInvoiceIds',
+    'removeReimbursementIds',
+    'removeReimbursementInvoiceIds',
+  ],
   /** Sector assignment */
   sector: ['sectorId'],
-  /** Internal markers (not user-facing) */
-  meta: ['_hasFiles', '_soFileMapping'],
+  /**
+   * Internal markers (not user-facing).
+   *
+   * `expectedUpdatedAt` é a TRAVA OTIMISTA que o app manda — controle de
+   * concorrência, não dado. Fora do mapa ela derrubava a gravação do app com
+   * "setor não tem permissão para atualizar" num campo que o usuário nem vê.
+   */
+  meta: ['_hasFiles', '_soFileMapping', 'expectedUpdatedAt'],
 } as const;
 
 type FieldDomain = keyof typeof TASK_FIELD_DOMAINS;
@@ -85,6 +140,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'quote',
     'financialDocs',
     'identity',
+    'orderNumber',
     'serviceOrders',
     // Passthrough: form sends these to preserve existing state
     'layouts',
@@ -95,6 +151,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
     'identity',
+    'orderNumber',
     'dates',
     // 'entryDate' is intentionally ABSENT — the commercial desk does not record
     // when the vehicle arrived; logistics/production management does.
@@ -105,6 +162,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'truck',
     'responsibles',
     'layouts',
+    'layoutRemoval',
     'paint',
     'serviceOrders',
     'quote',
@@ -116,7 +174,15 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'meta'],
 
-  [SECTOR_PRIVILEGES.DESIGNER]: ['layouts', 'paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
+  [SECTOR_PRIVILEGES.DESIGNER]: [
+    'layouts',
+    'layoutRemoval',
+    'paint',
+    'cuts',
+    'serviceOrders',
+    'baseFiles',
+    'meta',
+  ],
 
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity',
@@ -154,8 +220,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'serviceOrderFiles',
     'observation',
     'sector',
-    // Passthrough: form sends these to preserve existing state
     'layouts',
+    'layoutRemoval',
     'meta',
   ],
 
@@ -185,6 +251,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldDomain[]>> = {
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
     'identity',
+    'orderNumber',
     'dates',
     // No 'entryDate' — commercial never records the vehicle's arrival.
     // No 'term' — the deadline is production management's (17/09/2026).
@@ -208,6 +275,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.FINANCIAL]: [
     'identity',
+    'orderNumber',
     'dates',
     // Neither 'entryDate' nor 'term': the financial desk creates a task purely to
     // hang a quote off it; both dates belong to other desks.
@@ -279,12 +347,14 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   dates: 'datas (previsão)',
   entryDate: 'data de entrada',
   term: 'prazo de entrega',
+  orderNumber: 'nº do pedido do cliente',
   status: 'status',
   observation: 'observação',
   bonification: 'bonificação',
   truck: 'caminhão',
   responsibles: 'responsáveis',
   layouts: 'layouts',
+  layoutRemoval: 'exclusão de layout',
   paint: 'tintas',
   cuts: 'plano de corte',
   airbrushings: 'aerografias',

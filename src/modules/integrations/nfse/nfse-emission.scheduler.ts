@@ -8,6 +8,7 @@ import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
 import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
+import { BILLING_FROZEN_WHERE } from '../../../modules/production/budget/budget.guards';
 
 /**
  * Scheduler for automatic NFS-e emission.
@@ -327,6 +328,22 @@ export class NfseEmissionScheduler {
               // Exclude opt-outs: customer config OR external operation with generateInvoice=false.
               customerConfig: { isNot: { generateInvoice: false } },
               externalOperation: { isNot: { generateInvoice: false } },
+              // ── SÓ SOBRE COBRANÇA QUE DE FATO FOI APROVADA ────────────────
+              //
+              // `generateInvoicesForTaskDetailed` COMMITA a própria transação, e
+              // só DEPOIS dela as guardas de `internalApprove` podem lançar
+              // (pagador sem condição de pagamento, divergência de valor, falha
+              // da cascata). O rollback de lá levanta o CARIMBO — não apaga a
+              // fatura nem este `NfseDocument` PENDING. Sem este filtro, o cron
+              // das 09:00 emitia na prefeitura a nota de uma cobrança que a tela
+              // acabara de dizer ao operador que NÃO foi aprovada.
+              //
+              // A retirada externa não tem `Billing` e continua passando pelo
+              // ramo dela — daí o OR, e não um AND direto.
+              OR: [
+                { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+                { externalOperationId: { not: null } },
+              ],
             },
           },
           OR: [

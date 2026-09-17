@@ -337,6 +337,21 @@ export interface QuoteHtmlInput {
    */
   sections?: readonly QuoteSection[];
 
+  /**
+   * A TARJA de documento sem valor — "CANCELADO", "FORA DE VALIDADE".
+   *
+   * Presente = este PDF descreve uma proposta que NÃO está mais de pé, e o papel
+   * tem de dizer isso sozinho. Ausente (o caso normal) = nada é impresso.
+   *
+   * ⚠️ SÓ ALCANÇA O DOCUMENTO SOB DEMANDA. Quem o preenche é
+   * `renderQuoteDocument`, cujo único chamador é `renderUnsignedQuoteDocument`;
+   * o caminho que CONGELA bytes (`createEnvelope` → `renderer.renderAll`) nunca
+   * passa por lá. É deliberado: carimbar um documento já selado mudaria bytes
+   * assinados, e um contrato assinado não deixa de ter sido assinado porque a
+   * proposta que o originou foi cancelada depois.
+   */
+  voidLabel?: string | null;
+
   /** Cláusula de aceitação do meio eletrônico impressa no corpo do documento. */
   acceptanceClause: string;
   verificationCode: string;
@@ -711,6 +726,16 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
            <a href="${whatsappLinkFor(BILLING_CONTACT.phoneClean)}">${escapeHtml(BILLING_CONTACT.phone)}</a>.
          </div>
        </div>`
+    : '';
+
+  // A TARJA, quando o documento não vale mais. Uma folha de um orçamento
+  // cancelado saía IDÊNTICA à de um vivo — e o link público é o UUID do
+  // orçamento, que circula. Medido em 17/09/2026: 76 orçamentos cancelados e 74
+  // pendentes fora da validade servem o documento por este caminho.
+  const voidStampHtml = data.voidLabel
+    ? `<div class="void-stamp${data.voidLabel.length > 10 ? ' is-long' : ''}">${escapeHtml(
+        data.voidLabel,
+      )}</div>`
     : '';
 
   const headerBlock = `
@@ -1336,12 +1361,38 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   .footer-company { font-size: 10pt; font-weight: 700; color: var(--green); }
   .footer-info { font-size: 8.5pt; color: var(--gray); line-height: 1.5; }
   .footer-link { color: var(--green); }
+  /* A TARJA. Diagonal, atras do texto (z-index negativo nao funciona em todo
+     motor de impressao, entao ela vem por cima com opacidade baixa e
+     pointer-events nenhum). print-color-adjust obriga o Chromium a imprimir a
+     cor em vez de descarta-la como "fundo". */
+  .void-stamp {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-24deg);
+    font-size: 46pt;
+    font-weight: 800;
+    letter-spacing: 3pt;
+    color: #c0392b;
+    opacity: 0.16;
+    white-space: nowrap;
+    border: 3mm solid #c0392b;
+    padding: 4mm 10mm;
+    border-radius: 3mm;
+    pointer-events: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Rotulo longo ("FORA DE VALIDADE" tem 16 caracteres contra 9 de
+     "CANCELADO") passaria da largura util e sairia cortado. */
+  .void-stamp.is-long { font-size: 30pt; letter-spacing: 2pt; }
 </style>
 </head>
 <body>
 
 ${part === 'content' || part === 'fused' ? `
 <div class="page" id="page-1">
+  ${voidStampHtml}
   ${headerBlock}
   <div class="page-content${layoutInContent ? ' has-layout' : ''}" id="page-1-content">
     <h1 class="document-title">ORÇAMENTO</h1>
@@ -1461,6 +1512,7 @@ ${part === 'content' || part === 'fused' ? `
           signerSheets.length > 1 ? ` (folha ${index + 1} de ${signerSheets.length})` : '';
         return `
 <div class="page-signatures" id="page-signatures${suffix}">
+  ${voidStampHtml}
   ${headerBlock}
   <div class="signatures-content${layoutHere ? ' has-layout' : ''}" id="signatures-content${suffix}">
     ${layoutHere}

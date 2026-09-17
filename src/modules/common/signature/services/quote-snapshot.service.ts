@@ -274,10 +274,30 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
  * derivável do modo — e emitir a chave nova ali quebraria a reprodutibilidade
  * que permite reconhecer um envelope não alterado.
  */
-export const QUOTE_MATERIAL_SCHEMA_VERSION = 6;
+/**
+ * v7 (2026-09-17): o NÚMERO DO ORÇAMENTO entrou no recorte.
+ *
+ * `quote-diff` já o classificava como MATERIAL, com três parágrafos dizendo por
+ * quê: o número é impresso no cabeçalho de toda folha, é o que o cliente cita no
+ * pedido de compra e na descrição do Pix, e é por ele que a NFS-e e o boleto
+ * amarram a cobrança ao contrato.
+ *
+ * Só que ele NÃO estava aqui — e é este recorte, não o snapshot inteiro, que
+ * `matchesFrozenTerms` compara. Renumerar um orçamento ASSINADO mudava o hash do
+ * snapshot (então o atalho barato não disparava), o diff rodava, os termos
+ * "casavam" porque o número não entra neles, o caminho caía no ramo cosmético — e
+ * ali a linha MATERIAL é descartada por definição. Resultado: o documento que o
+ * cliente tem na mão passa a citar um número que o sistema não usa mais, sem
+ * invalidação e sem uma linha de trilha.
+ *
+ * A v6 continua calculável e continua NÃO emitindo a chave: envelope congelado
+ * sob ela reproduz o hash de antes, que é o que permite reconhecê-lo como não
+ * alterado.
+ */
+export const QUOTE_MATERIAL_SCHEMA_VERSION = 7;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
-export const SUPPORTED_MATERIAL_VERSIONS = [6, 5, 4, 3, 2, 1] as const;
+export const SUPPORTED_MATERIAL_VERSIONS = [7, 6, 5, 4, 3, 2, 1] as const;
 
 /**
  * O recorte que decide invalidação. Espelha a regra de negócio: condições
@@ -285,6 +305,8 @@ export const SUPPORTED_MATERIAL_VERSIONS = [6, 5, 4, 3, 2, 1] as const;
  */
 export interface QuoteMaterialProjection {
   materialVersion: number;
+  /** Só a partir da v7 — ver a nota de versão. */
+  budgetNumber?: number | null;
   services: Array<{
     description: string | null;
     amount: string;
@@ -541,6 +563,8 @@ export class QuoteSnapshotService {
   ): QuoteMaterialProjection {
     return {
       materialVersion: version,
+      // O NÚMERO, a partir da v7. Ver a nota de versão acima.
+      ...(version >= 7 ? { budgetNumber: s.budgetNumber ?? null } : {}),
       services: s.services.map(svc => ({
         description: normText(svc.description),
         amount: svc.amount,

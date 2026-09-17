@@ -375,7 +375,16 @@ export async function reconcileQuoteCustomerConfigs(
       );
     }
 
-    const frozenC = existingC.filter(c => c.frozen && c.coverage.length > 0);
+    // ⚠️ SEM O FILTRO DE COBERTURA. Era `c.frozen && c.coverage.length > 0`, e a
+    // fatia congelada com cobertura VAZIA — a forma de todo orçamento anterior ao
+    // vínculo das tarefas, e a das liquidadas por extrato que nunca tiveram
+    // fatura — ficava de fora do PLANO: não era semeada aqui, não era casada
+    // adiante (as três tentativas pulam `c.frozen`) e caía em `toRemove`.
+    //
+    // Entrando aqui ela vira um grupo planejado com `frozenId`, a tentativa (0) a
+    // casa pelo id, e `coveragePlan` recebe a cobertura que ela já tinha — vazia.
+    // `frozenTaskIds` não muda: cobertura vazia não contribui com veículo nenhum.
+    const frozenC = existingC.filter(c => c.frozen);
     const frozenTaskIds = new Set(frozenC.flatMap(c => c.coverage));
     const freeTaskIds = taskIds.filter(id => !frozenTaskIds.has(id));
 
@@ -645,6 +654,24 @@ export async function reconcileQuoteCustomerConfigs(
   // casos — cliente removido, modo trocado, lote redividido e veículo retirado do
   // orçamento — com a mesma conta. Fatias congeladas nunca chegam aqui: elas são
   // semeadas no plano antes de qualquer outra coisa.
+  // ── REMOVER UM PAGADOR JÁ COBRADO É RECUSA, NÃO SILÊNCIO ──────────────────
+  //
+  // O planejamento é por CLIENTE: ele itera os clientes que CHEGARAM. Uma fatia
+  // congelada de um cliente que o operador tirou da lista nunca entra no laço,
+  // nunca é semeada e chegaria aqui — onde, sem boleto ativo e sem nota viva, as
+  // guardas abaixo deixariam passar e o `approvedAt` sumiria com a linha.
+  //
+  // Guardá-la calada seria pior: a tela diria "salvo", o pagador continuaria lá,
+  // e o operador descobriria pelo extrato. Recusa com nome, e o caminho é o
+  // mesmo de sempre — reverter aquele faturamento primeiro.
+  const congeladosRemovidos = existing.filter(c => !matchedExistingIds.has(c.id) && c.frozen);
+  if (congeladosRemovidos.length > 0) {
+    throw new BadRequestException(
+      `Não é possível remover ${congeladosRemovidos.length === 1 ? 'o cliente' : 'os clientes'} ` +
+        'do faturamento: a cobrança dele já foi aprovada ou já saiu. ' +
+        'Reverta o faturamento dessa fatia antes de mexer nos pagadores.',
+    );
+  }
   const toRemove = existing.filter(c => !matchedExistingIds.has(c.id));
   let cancelledInvoices = false;
   const cancelledInvoiceBillingIds = new Set<string>();
@@ -661,14 +688,25 @@ export async function reconcileQuoteCustomerConfigs(
     // (O `onDelete` dessas relações virou `Restrict` na mesma leva, então hoje o
     // banco também recusaria. Esta guarda existe para recusar com uma frase que
     // diga o que fazer, em vez de um erro de integridade referencial.)
+    // ⚠️ "PAGA" NÃO É SÓ `status: PAID`. Um boleto quitado A MENOS (o cliente
+    // pagou R$ 4.000 de uma parcela de R$ 10.000) deixa a parcela em PENDING com
+    // `paidAmount > 0` — o webhook do Sicredi e o cron de conciliação escrevem o
+    // valor sem promover o estado. Os outros três desmontes já contam assim
+    // (`budget.service.ts` na reversão, `invoice-generation` na regeneração);
+    // este era o único que ainda olhava só o estado, e o `deleteInstallmentsWithSlips`
+    // logo abaixo apagava parcela E `BankSlip`: o dinheiro recebido sumia sem
+    // deixar linha em lugar nenhum.
     const paidOutsideLiveInvoice = await tx.installment.findFirst({
-      where: { customerConfigId: { in: removeIds }, status: 'PAID' },
+      where: {
+        customerConfigId: { in: removeIds },
+        OR: [{ status: 'PAID' }, { paidAmount: { gt: 0 } }],
+      },
       select: { id: true, number: true, customerConfigId: true },
     });
     if (paidOutsideLiveInvoice) {
       throw new BadRequestException(
-        'Não é possível remover este faturamento: existe parcela PAGA vinculada a ele ' +
-          `(parcela ${paidOutsideLiveInvoice.number}), inclusive de ciclos já cancelados. ` +
+        'Não é possível remover este faturamento: existe parcela com pagamento registrado ' +
+          `(parcela ${paidOutsideLiveInvoice.number}), inclusive parcial e de ciclos já cancelados. ` +
           'Dinheiro recebido não é apagado por recomposição de cobertura.',
       );
     }
@@ -685,8 +723,9 @@ export async function reconcileQuoteCustomerConfigs(
       const hasActiveBankSlip = (inv.installments || []).some(
         (inst: any) => inst.bankSlip && inst.bankSlip.status !== 'CANCELLED',
       );
+      // Mesma regra da guarda acima: pagamento PARCIAL também é dinheiro recebido.
       const hasPaidInstallment = (inv.installments || []).some(
-        (inst: any) => inst.status === 'PAID',
+        (inst: any) => inst.status === 'PAID' || Number(inst.paidAmount ?? 0) > 0,
       );
       // A "live" municipal note is anything past PENDING that isn't fully dead:
       // AUTHORIZED, an in-flight cancel (CANCEL_REQUESTED), a rejected cancel
@@ -731,7 +770,14 @@ export async function reconcileQuoteCustomerConfigs(
     // fatia. Quem remove diz o que acontece com cada peça, nesta ordem, e só
     // chega aqui o que a guarda acima já declarou descartável — nenhuma parcela
     // paga, nenhum boleto ativo, nenhuma nota viva.
-    await deleteInstallmentsWithSlips(tx, { customerConfigId: { in: removeIds } });
+    // A CONSULTA QUE APAGA REPETE O CRITÉRIO DA QUE RECUSA. A guarda acima já
+    // abortou se houvesse pagamento, então isto é a rede: se um caminho futuro
+    // desviar da guarda, o `deleteMany` ainda assim não leva dinheiro junto.
+    await deleteInstallmentsWithSlips(tx, {
+      customerConfigId: { in: removeIds },
+      status: { not: 'PAID' },
+      paidAmount: { lte: 0 },
+    });
     // A NOTA FISCAL NÃO É APAGADA. `NfseDocument.invoiceId` é `SetNull` de
     // propósito: nota emitida sobrevive à fatura e continua sendo o histórico
     // fiscal do orçamento. Só as canceladas/ERROR chegam até aqui.
@@ -910,7 +956,14 @@ export async function reconcileBillingsForQuote(
 
   const existentes = await (tx as any).billing.findMany({
     where: { quoteId },
-    select: { id: true, tasks: { select: { taskId: true } } },
+    // `approvedAt` e `status` vêm para que `isBillingFrozen` possa responder aqui:
+    // um faturamento que já cobrou NÃO é apagado por recomposição de cobertura.
+    select: {
+      id: true,
+      approvedAt: true,
+      status: true,
+      tasks: { select: { taskId: true } },
+    },
     orderBy: { createdAt: 'asc' },
   });
 
@@ -918,7 +971,12 @@ export async function reconcileBillingsForQuote(
   // faturamento com outro recorte — é um recorte que acabou e outro que começou.
   const porChave = new Map<string, string>();
   const livres: string[] = [];
-  for (const b of existentes) {
+  // O CONGELADO TEM PRECEDÊNCIA na disputa por uma chave: entre dois faturamentos
+  // de mesma cobertura, quem já emitiu fatura é o que sobrevive.
+  const ordenados = [...existentes].sort(
+    (a: any, b: any) => Number(isBillingFrozen(b)) - Number(isBillingFrozen(a)),
+  );
+  for (const b of ordenados) {
     const k = keyOf((b.tasks ?? []).map((t: { taskId: string }) => t.taskId));
     if (grupos.has(k) && !porChave.has(k)) porChave.set(k, b.id);
     else livres.push(b.id);
@@ -969,10 +1027,28 @@ export async function reconcileBillingsForQuote(
     });
   }
 
-  // Os que sobraram representavam recortes que deixaram de existir.
+  // Os que sobraram representavam recortes que deixaram de existir — MENOS os que
+  // já cobraram.
+  //
+  // ⚠️ Este `deleteMany` era incondicional, e `Billing → BudgetPayer` é `Cascade`.
+  // Um faturamento APROVADO (ou LIQUIDADO por conciliação, sem fatura de onde
+  // derivar o carimbo) cuja cobertura deixou de casar com grupo nenhum era apagado
+  // com os pagadores dentro. Com fatura, o `Restrict` de `Invoice.customerConfig`
+  // derrubava a transação com erro de integridade; SEM fatura — que é exatamente a
+  // forma das liquidadas por extrato — sumia calado.
+  const congelados = new Set<string>(
+    existentes.filter((b: any) => isBillingFrozen(b)).map((b: any) => b.id as string),
+  );
+  const descartaveis = livres.filter(id => !congelados.has(id));
+  if (descartaveis.length < livres.length) {
+    logger.warn(
+      `[Billing] Orçamento ${quoteId}: ${livres.length - descartaveis.length} faturamento(s) ` +
+        'preservado(s) por já terem cobrado, apesar de o recorte ter mudado.',
+    );
+  }
   let deleted = 0;
-  if (livres.length > 0) {
-    const res = await (tx as any).billing.deleteMany({ where: { id: { in: livres } } });
+  if (descartaveis.length > 0) {
+    const res = await (tx as any).billing.deleteMany({ where: { id: { in: descartaveis } } });
     deleted = res.count;
     logger.log(`[Billing] Orçamento ${quoteId}: ${deleted} faturamento(s) apagado(s) — o recorte acabou.`);
   }

@@ -25,6 +25,7 @@ import {
   todayInSaoPauloAtNoonUtc,
 } from '@utils/due-date.util';
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
+import { BILLING_FROZEN_WHERE } from '../../production/budget/budget.guards';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -270,6 +271,24 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                     errorCount: { lt: 3 },
                   },
                 },
+              ],
+            },
+            {
+              // ── SÓ SOBRE COBRANÇA QUE DE FATO FOI APROVADA ──────────────────
+              //
+              // `generateInvoicesForTaskDetailed` COMMITA a própria transação, e
+              // só DEPOIS dela as guardas de `internalApprove` podem lançar. O
+              // rollback de lá levanta o CARIMBO — não apaga a fatura nem estas
+              // parcelas PENDING. Sem este filtro, o cron das 06:00 registrava no
+              // Sicredi o título de uma cobrança que a tela acabara de dizer ao
+              // operador que NÃO foi aprovada: o cliente recebe um boleto de algo
+              // que a Ankaa não considera faturado.
+              //
+              // A retirada externa não tem `Billing` e continua passando pelo ramo
+              // dela — daí o OR, e não um AND direto.
+              OR: [
+                { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+                { externalOperationId: { not: null } },
               ],
             },
           ],

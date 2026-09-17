@@ -29,7 +29,34 @@ export function parseDueDateYMD(ymd: string): Date {
  * compared against and persisted as a stored due date.
  */
 export function todayInSaoPauloAtNoonUtc(): Date {
-  return parseDueDateYMD(new Date().toLocaleDateString('en-CA', { timeZone: SAO_PAULO }));
+  return saoPauloCalendarDayAtNoonUtc(new Date());
+}
+
+/**
+ * O DIA DE CALENDÁRIO EM SÃO PAULO de um INSTANTE, materializado ao meio-dia UTC.
+ *
+ * É o conversor que faltava entre as duas metades deste arquivo: `parseDueDateYMD`
+ * já sabe virar uma data de calendário em instante armazenável, e
+ * `todayInSaoPauloAtNoonUtc` já sabia fazer isto para AGORA — mas não havia como
+ * fazê-lo para um instante qualquer (o carimbo de aprovação de um faturamento, o
+ * `finishedAt` de uma tarefa).
+ *
+ * ⚠️ POR QUE PRECISOU EXISTIR. Quem ancorava vencimento lia os COMPONENTES UTC do
+ * instante — `Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12)`.
+ * São Paulo é UTC−3: das 21:00 à meia-noite o dia UTC já é o SEGUINTE. Aprovar um
+ * faturamento às 22:10 de 30/09 ancorava em 01/10, e todo boleto saía com um dia a
+ * mais do que a proposta prometeu — um erro que aparece em três horas do dia e some
+ * nas outras vinte e uma, que é a forma mais cara de um defeito existir.
+ */
+export function saoPauloCalendarDayAtNoonUtc(instant: Date): Date {
+  return parseDueDateYMD(instant.toLocaleDateString('en-CA', { timeZone: SAO_PAULO }));
+}
+
+/** O mesmo dia de calendário SP, deslocado em N dias inteiros. */
+export function saoPauloCalendarDayPlus(instant: Date, days: number): Date {
+  const base = saoPauloCalendarDayAtNoonUtc(instant);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base;
 }
 
 /**

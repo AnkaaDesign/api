@@ -927,6 +927,45 @@ export class SignatureEnvelopeService {
     if (!loaded) throw new NotFoundException('Orçamento não encontrado.');
     const { quote, snapshot, hash, materialHash } = loaded;
 
+    // ── UM DOCUMENTO SÓ NÃO DESCREVE DOIS PAGADORES ──────────────────────────
+    //
+    // O recorte deste envelope é por FUNÇÃO (proprietário, veículo, compras), e
+    // nunca por CLIENTE: `buildRenderInput` é chamado com `customerId = null` na
+    // emissão, de propósito — o parâmetro só tem uso no caminho não-assinado. Com
+    // dois pagadores, o documento congelado sai com:
+    //
+    //   · a lista de serviços dos DOIS, pelo valor cheio (o filtro por
+    //     `invoiceToCustomerId` só roda quando há `segment`);
+    //   · o desconto e a condição de pagamento do PRIMEIRO pagador;
+    //   · as cláusulas do primeiro, e só dele — as do segundo não aparecem em
+    //     lugar nenhum do instrumento;
+    //   · o quadro do tomador do primeiro.
+    //
+    // E todos assinam isso, enquanto a `Billing` de cada um cobra outra coisa. O
+    // hash não protege: `quoteSnapshot` também lê `customerConfigs[0]`, então
+    // mudar o desconto do segundo produz snapshot idêntico.
+    //
+    // ⚠️ Medido em produção (17/09/2026): 12 orçamentos têm dois pagadores e
+    // NENHUM deles tem envelope — esta recusa não fecha porta que alguém use,
+    // fecha porta por onde ninguém passou ainda. Emitir é que seria novidade.
+    //
+    // A correção definitiva é o recorte por `sections × customerId` (um plano de
+    // variante por pagador, cada um com os seus serviços, o seu desconto e as
+    // suas cláusulas). Enquanto ela não existe, recusar é a única resposta
+    // honesta: assinatura eletrônica sobre documento errado não se conserta
+    // depois.
+    const pagadores = new Set(
+      (quote.customerConfigs ?? []).map((c: { customerId: string }) => c.customerId),
+    );
+    if (pagadores.size > 1) {
+      throw new BadRequestException(
+        `Este orçamento fatura para ${pagadores.size} clientes, e a cerimônia de assinatura ainda ` +
+          'não recorta o documento por pagador — todos assinariam um instrumento com os serviços, ' +
+          'o desconto e as cláusulas de apenas um deles. Separe em um orçamento por cliente antes ' +
+          'de enviar para assinatura.',
+      );
+    }
+
     // ── COLETA VIVA, OU COLETA JÁ CONCLUÍDA ──────────────────────────────────
     //
     // `RUNNING` sempre foi barrado. `COMPLETED` não era, e a rota aceitava
@@ -1798,8 +1837,30 @@ export class SignatureEnvelopeService {
     sections?: readonly QuoteSection[],
     withPaymentSchedule = false,
   ) {
-    return this.renderer.render(
-      this.buildRenderInput(
+    // ── A TARJA DE DOCUMENTO SEM VALOR ───────────────────────────────────────
+    //
+    // Esta função tem UM chamador — `renderUnsignedQuoteDocument` —, e é por
+    // isso que o carimbo mora aqui: o caminho que CONGELA bytes
+    // (`createEnvelope` → `renderer.renderAll`) não passa por ela. Carimbar um
+    // documento já selado mudaria bytes assinados, e um contrato assinado não
+    // deixa de ter sido assinado porque a proposta que o originou foi cancelada
+    // depois.
+    //
+    // "Vencido" é lido do RELÓGIO, não do status: `BudgetStatus.EXPIRED` existe
+    // no enum e tem ZERO linhas em produção — a proposta vencida fica PENDING e
+    // o `expiresAt` é quem sabe. São 74 assim hoje, 73 delas vencidas há mais de
+    // trinta dias, e todas imprimiam como proposta viva.
+    const voidLabel =
+      (quote as { status?: string }).status === 'CANCELLED'
+        ? 'CANCELADO'
+        : (quote as { status?: string }).status === 'PENDING' &&
+            quote.expiresAt &&
+            new Date(quote.expiresAt).getTime() < Date.now()
+          ? 'FORA DE VALIDADE'
+          : null;
+
+    return this.renderer.render({
+      ...this.buildRenderInput(
         quote,
         signers,
         verificationCode,
@@ -1808,7 +1869,8 @@ export class SignatureEnvelopeService {
         sections,
         withPaymentSchedule,
       ),
-    );
+      voidLabel,
+    });
   }
 
   /**

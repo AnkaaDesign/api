@@ -193,36 +193,52 @@ console.log('\nTradução do filtro legado `taskId` (coluna extinta) → `tasks`
   );
 }
 
-console.log('\nOrdenação por campo da tarefa — descartada, nunca enviada');
+console.log('\nOrdenação por campo da tarefa — descartada, e a FILA entra como desempate');
+// ⚠️ ESTE BLOCO ESTAVA VERMELHO. Ele descrevia o comportamento anterior ao
+// desempate da fila, que passou a ser ANEXADO dentro da própria limpeza do
+// `orderBy` — porque o app instalado manda uma ordenação que não sobrevive a ela,
+// e `statusOrder` sozinho devolve a ordem física do heap (a lista PARECE ordenada
+// e não está). Um portão vermelho que ninguém lê é um portão que não existe.
+const FILA = { queueRank: 'asc' };
 {
   const kept = stripUnorderableTaskEntries([{ statusOrder: 'asc' }, { task: { term: 'asc' } }]);
   check(
-    'a entrada `task` sai do array e o resto fica',
-    JSON.stringify(kept) === JSON.stringify([{ statusOrder: 'asc' }]),
+    'a entrada `task` sai do array, o resto fica e a fila entra atrás',
+    JSON.stringify(kept) === JSON.stringify([{ statusOrder: 'asc' }, FILA]),
     JSON.stringify(kept),
   );
   check(
-    'array só com `task` vira undefined (e não `[{}]`, que o Prisma recusa)',
-    stripUnorderableTaskEntries([{ task: { term: 'asc' } }]) === undefined,
+    'array só com `task` cai na ordenação da FILA (nunca `[{}]`, que o Prisma recusa)',
+    JSON.stringify(stripUnorderableTaskEntries([{ task: { term: 'asc' } }])) ===
+      JSON.stringify([{ statusOrder: 'asc' }, FILA]),
+    JSON.stringify(stripUnorderableTaskEntries([{ task: { term: 'asc' } }])),
   );
   check(
-    'objeto só com `task` vira undefined',
-    stripUnorderableTaskEntries({ task: { term: 'asc' } }) === undefined,
+    'objeto só com `task` cai na ordenação da FILA',
+    JSON.stringify(stripUnorderableTaskEntries({ task: { term: 'asc' } })) ===
+      JSON.stringify([{ statusOrder: 'asc' }, FILA]),
   );
   check(
-    'ordenação por campo do próprio orçamento passa intacta',
+    'ordenação por campo do próprio orçamento passa intacta, com a fila atrás',
     JSON.stringify(stripUnorderableTaskEntries({ budgetNumber: 'desc' })) ===
-      JSON.stringify({ budgetNumber: 'desc' }),
+      JSON.stringify([{ budgetNumber: 'desc' }, FILA]),
+    JSON.stringify(stripUnorderableTaskEntries({ budgetNumber: 'desc' })),
   );
   const withTaskId = stripUnorderableTaskEntries([{ taskId: 'asc' }, { budgetNumber: 'desc' }]);
   check(
     '`taskId` (coluna extinta) também sai do orderBy',
-    JSON.stringify(withTaskId) === JSON.stringify([{ budgetNumber: 'desc' }]),
+    JSON.stringify(withTaskId) === JSON.stringify([{ budgetNumber: 'desc' }, FILA]),
     JSON.stringify(withTaskId),
   );
   check(
-    'objeto só com `taskId` vira undefined',
-    stripUnorderableTaskEntries({ taskId: 'asc' }) === undefined,
+    'objeto só com `taskId` cai na ordenação da FILA',
+    JSON.stringify(stripUnorderableTaskEntries({ taskId: 'asc' })) ===
+      JSON.stringify([{ statusOrder: 'asc' }, FILA]),
+  );
+  check(
+    'quem JÁ pede `queueRank` não ganha um segundo',
+    JSON.stringify(stripUnorderableTaskEntries([{ queueRank: 'asc' }])) ===
+      JSON.stringify([{ queueRank: 'asc' }]),
   );
 }
 

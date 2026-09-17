@@ -2286,6 +2286,60 @@ export class TaskPrismaRepository
               if (hasServices) forbiddenHere.push('serviços');
               if (hasConfigs) forbiddenHere.push('faturamentos');
               if ((quoteData as any).billingSplit !== undefined) forbiddenHere.push('forma de faturamento');
+
+              // ── OS ESCALARES MATERIAIS TAMBÉM SÃO MATERIAIS ────────────────
+              //
+              // A guarda cobria status, serviços, pagadores e modo. Mas validade,
+              // garantia, prazo e o LAYOUT de referência estão todos na
+              // `materialProjection` do diff de assinatura — e passavam por aqui
+              // sem reavaliar coleta nenhuma. Trocar o layout de um orçamento
+              // ASSINADO por esta porta é exatamente o incidente do nº 973, pelos
+              // fundos: a correção daquele dia mora no serviço de orçamento, e
+              // nada aqui a chama.
+              //
+              // ⚠️ SÓ QUANDO MUDA DE VALOR. O formulário da tarefa reenvia o bloco
+              // inteiro a cada gravação, então recusar pela PRESENÇA derrubaria
+              // toda edição de tarefa que tenha orçamento. Compara-se com o que
+              // está gravado: eco passa, mudança é redirecionada para a tela que
+              // sabe invalidar.
+              const atual = await transaction.budget.findUnique({
+                where: { id: currentTask.quoteId },
+                select: {
+                  expiresAt: true,
+                  guaranteeYears: true,
+                  customGuaranteeText: true,
+                  customForecastDays: true,
+                  simultaneousTasks: true,
+                  layoutFiles: { select: { id: true } },
+                },
+              });
+              const mudou = (novo: unknown, velho: unknown): boolean => {
+                if (novo === undefined) return false;
+                if (novo instanceof Date || velho instanceof Date) {
+                  return new Date(novo as any).getTime() !== new Date(velho as any).getTime();
+                }
+                return (novo ?? null) !== (velho ?? null);
+              };
+              if (atual) {
+                if (mudou((quoteData as any).expiresAt, atual.expiresAt))
+                  forbiddenHere.push('validade');
+                if (mudou((quoteData as any).guaranteeYears, atual.guaranteeYears))
+                  forbiddenHere.push('garantia');
+                if (mudou((quoteData as any).customGuaranteeText, atual.customGuaranteeText))
+                  forbiddenHere.push('texto de garantia');
+                if (mudou((quoteData as any).customForecastDays, atual.customForecastDays))
+                  forbiddenHere.push('prazo de execução');
+                if (mudou((quoteData as any).simultaneousTasks, atual.simultaneousTasks))
+                  forbiddenHere.push('veículos simultâneos');
+                if (hasImplementMeasure) {
+                  const pedidos = [...((quoteData as any).layoutFileIds ?? [])].sort().join('|');
+                  const gravados = atual.layoutFiles
+                    .map(f => f.id)
+                    .sort()
+                    .join('|');
+                  if (pedidos !== gravados) forbiddenHere.push('layout de referência');
+                }
+              }
             }
             if (forbiddenHere.length > 0) {
               throw new BadRequestException(

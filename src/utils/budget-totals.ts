@@ -127,8 +127,19 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   // The billing-approval guard (budget.service unassigned check) still blocks
   // approval until every service is assigned, so this never reaches an invoice.
   if (!isSingleConfig) {
+    // ⚠️ "SEM CLIENTE" INCLUI "COM UM CLIENTE QUE NÃO PAGA ESTE ORÇAMENTO".
+    //
+    // O filtro era só `!s.invoiceToCustomerId`. Um serviço apontando para um
+    // cliente que deixou de ser pagador — removido da lista, ou trocado no
+    // assistente — não casa com nenhuma configuração ACIMA (o laço filtra por
+    // `=== config.customerId`) e não casava aqui: sumia de TODOS os totais, sem
+    // erro e sem linha. O orçamento passava a valer menos do que a soma dos seus
+    // próprios serviços, e a diferença só aparecia conferindo à mão.
+    //
+    // Entra pelo valor cheio, como o não atribuído: é a leitura honesta do
+    // rascunho. Quem impede que isso chegue a uma fatura é a guarda de aprovação.
     const unassignedSum = allItems
-      .filter(s => !s.invoiceToCustomerId)
+      .filter(s => !s.invoiceToCustomerId || !distinctCustomers.has(s.invoiceToCustomerId))
       .reduce((sum, s) => sum + Number(s.amount || 0), 0);
     // Vezes os veículos: é serviço prestado em cada um. A guarda de aprovação
     // de faturamento continua barrando enquanto houver serviço sem cliente, então

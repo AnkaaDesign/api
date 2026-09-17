@@ -5,6 +5,7 @@ import { OrderService } from '../inventory/order/order.service';
 import { PpeDeliveryScheduleService } from '../inventory/ppe/ppe-delivery-schedule.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ORDER_STATUS } from '../../constants/enums';
+import { todayInSaoPauloAtNoonUtc } from '../../utils/due-date.util';
 
 /**
  * CronService handles general system cron jobs
@@ -41,7 +42,19 @@ export class CronService {
    */
   @Cron('0 8 * * *', { timeZone: 'America/Sao_Paulo' })
   async markOverdueReceivablesAndPayables() {
-    const now = new Date();
+    // ⚠️ VENCIDO É DIA DE CALENDÁRIO, NÃO INSTANTE.
+    //
+    // Era `new Date()` cru. Um vencimento é gravado ao MEIO-DIA UTC (09:00 SP),
+    // de propósito, para que o dia do calendário seja o mesmo em qualquer fuso —
+    // e comparar um instante contra ele só não marcava como vencida a parcela que
+    // vence HOJE por uma hora de margem (o cron roda às 08:00 SP = 11:00 UTC
+    // contra a data gravada às 12:00 UTC). Mover este cron uma hora para a frente
+    // — coisa que ninguém associaria a dinheiro — carimbaria OVERDUE em toda
+    // parcela que vence hoje, com o cliente ainda tendo o dia inteiro para pagar.
+    //
+    // `todayInSaoPauloAtNoonUtc()` é o MESMO corte que `isDueDateOverdue` usa, e
+    // é o que a cascata do faturamento já respeita.
+    const now = todayInSaoPauloAtNoonUtc();
     this.logger.log('Starting overdue receivables/payables sweep...');
 
     try {

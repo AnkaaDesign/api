@@ -376,10 +376,22 @@ export class BudgetPrismaRepository
     // A ordem canônica é imposta aqui, não pelo cliente.
     const requestedTaskInclude = (include as any).tasks ?? (include as any).task;
     if (requestedTaskInclude !== undefined) {
+      // ⚠️ O `select` TAMBÉM PASSA. Só `include` era repassado, e um `select`
+      // chegava aqui para ser DESCARTADO em silêncio: o Prisma devolvia todos os
+      // escalares (por isso "quase funcionava") e nenhuma relação. A lista de
+      // Orçamentos do app pede `tasks: { select: { …, truck: { select: { plate } } } }`
+      // justamente para não trazer o veículo inteiro, e o caminhão não voltava —
+      // a coluna IDENTIFICADOR, que recua de `serialNumber` para a placa, ficava
+      // vazia em todo veículo sem número de série.
+      //
+      // `select` e `include` são mutuamente exclusivos no Prisma, então é um ou
+      // outro, com o `select` tendo precedência por ser o mais específico.
       mappedInclude.tasks =
         typeof requestedTaskInclude === 'boolean'
           ? { orderBy: TASK_ORDER }
-          : { orderBy: TASK_ORDER, include: requestedTaskInclude.include as any };
+          : (requestedTaskInclude as any).select
+            ? { orderBy: TASK_ORDER, select: (requestedTaskInclude as any).select }
+            : { orderBy: TASK_ORDER, include: requestedTaskInclude.include as any };
     }
     if ((include as any).layoutFiles !== undefined)
       mappedInclude.layoutFiles = (include as any).layoutFiles;

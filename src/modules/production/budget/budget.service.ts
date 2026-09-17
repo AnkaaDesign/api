@@ -597,11 +597,30 @@ export class BudgetService {
 
         // Installments are now created at BILLING_APPROVED time, not at quote creation
 
-        // Vincula TODAS as tarefas a este orçamento (FK `Task.quoteId`, agora 1:N).
-        await tx.task.updateMany({
-          where: { id: { in: taskIds } },
+        // ── O VÍNCULO É A TRAVA, E ELE É CONDICIONAL ─────────────────────────
+        //
+        // A guarda `alreadyQuoted` lá em cima roda FORA desta transação (ela usa
+        // `db`, que só é a transação quando o chamador passou uma). Dois cliques
+        // em 200 ms: os dois leem `quoteId = null`, os dois criam orçamento, e o
+        // segundo `updateMany` sobrescreve o vínculo do primeiro. Sobra um Budget
+        // com número queimado, pagadores, faturamentos e ZERO tarefas —
+        // exatamente a forma dos 105 órfãos, e invisível em toda tela que lista
+        // por tarefa. `Task.quoteId` perdeu o `@unique` na migração 1:1→1:N,
+        // então o banco também não recusa.
+        //
+        // `quoteId: null` no `where` transforma o vínculo num compare-and-swap:
+        // quem chega depois escreve ZERO linhas e a contagem denuncia. É o mesmo
+        // mecanismo com que `internalApprove` reivindica cada carimbo.
+        const vinculadas = await tx.task.updateMany({
+          where: { id: { in: taskIds }, quoteId: null },
           data: { quoteId: newQuote.id },
         });
+        if (vinculadas.count !== taskIds.length) {
+          throw new BadRequestException(
+            'Um dos veículos deste orçamento acabou de receber outro orçamento. ' +
+              'Recarregue a tela e confira antes de criar de novo.',
+          );
+        }
 
         // ── OS FATURAMENTOS NASCEM AQUI, E OS PAGADORES DENTRO DELES ─────────
         //
@@ -2801,6 +2820,32 @@ export class BudgetService {
       // endpoint só move o ciclo do orçamento.
       await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
 
+      // ── VOLTAR A PENDENTE COM COBRANÇA VIVA DESFAZ SÓ A METADE ──────────────
+      //
+      // `status` está em `QUOTE_SAFE_AFTER_BILLING_FIELDS` — o ciclo do orçamento
+      // PODE andar com a cobrança congelada, e isso está certo para cancelar (que
+      // desce por `cancelForTaskCancellation`, com desmonte) e para aprovar. Mas
+      // `APPROVED → PENDING` é a REPROVAÇÃO: ela devolve a proposta ao comercial
+      // enquanto a fatura, o boleto no Sicredi e a NFS-e na prefeitura continuam
+      // de pé. A tela passa a ler "Pendente", e `internalApprove` recusa as fatias
+      // que ainda faltavam faturar — o orçamento fica preso entre dois estados.
+      //
+      // Quem desfaz cobrança é "Reverter Faturamento", que baixa o boleto e
+      // cancela a nota antes. A frase diz isso, em vez de deixar o operador
+      // descobrir pelo resultado.
+      if (status === TASK_QUOTE_STATUS.PENDING) {
+        const congeladas = await (this.prisma as any).billing.count({
+          where: { quoteId: id, ...BILLING_FROZEN_WHERE },
+        });
+        if (congeladas > 0) {
+          throw new BadRequestException(
+            `Este orçamento tem ${congeladas} faturamento(s) já cobrado(s). Reverta o faturamento ` +
+              'antes de devolver o orçamento a Pendente — a reversão dá baixa nos boletos e ' +
+              'cancela as notas emitidas.',
+          );
+        }
+      }
+
       // ── CANCELAR PASSA PELO DESMONTE, SEMPRE ─────────────────────────────
       //
       // Esta rota chamava `update(..., _internal = true)`, e é o `_internal` que
@@ -3693,8 +3738,15 @@ export class BudgetService {
    * pendente, aprovar tudo e aprovar aquela são o mesmo ato.
    */
   async countPendingBillings(quoteId: string): Promise<number> {
+    // ⚠️ PENDENTE É O QUE NÃO ESTÁ CONGELADO — e congelado não é só ter carimbo.
+    //
+    // `approvedAt: null` sozinho conta como pendente a cobrança LIQUIDADA POR
+    // CONCILIAÇÃO, que nunca teve fatura de onde derivar a data (orçamentos 34,
+    // 216, 287, 347, 351 e 309 do acervo). O contador alimenta o "aprovar tudo",
+    // então a conta mentia e a aprovação tentava refaturar dinheiro já recebido.
+    // `BILLING_FROZEN_WHERE` é o MESMO predicado que `isBillingFrozen`, em SQL.
     return (this.prisma as any).billing.count({
-      where: { quoteId, approvedAt: null },
+      where: { quoteId, NOT: BILLING_FROZEN_WHERE },
     });
   }
 
@@ -3738,6 +3790,12 @@ export class BudgetService {
       select: {
         id: true,
         approvedAt: true,
+        // ⚠️ O ESTADO VEM JUNTO, e não é enfeite: há cobrança LIQUIDADA sem
+        // carimbo (conciliação bancária, sem fatura de onde derivar a data). Sem
+        // `status` no select, `isBillingFrozen` responderia pelo carimbo apenas —
+        // que é exatamente a cegueira que fazia "Aprovar" emitir NFS-e e boleto
+        // novos sobre dinheiro já recebido.
+        status: true,
         tasks: { select: { taskId: true } },
         customerConfigs: { select: { id: true }, orderBy: { createdAt: 'asc' } },
       },
@@ -3745,6 +3803,7 @@ export class BudgetService {
     })) as Array<{
       id: string;
       approvedAt: Date | null;
+      status: string | null;
       tasks: Array<{ taskId: string }>;
       customerConfigs: Array<{ id: string }>;
     }>;
@@ -3762,7 +3821,10 @@ export class BudgetService {
     //   · SEM ENDEREÇO — todos os faturamentos ainda pendentes. É o "faturar os
     //     sessenta de uma vez".
     const targetBillings = quoteBillings.filter(b => {
-      if (b.approvedAt) return false;
+      // Congelada não entra — nem por carimbo, nem por ESTADO pós-aprovação. É o
+      // mesmo predicado da trava do dinheiro (`isBillingFrozen`), e usá-lo aqui é
+      // o que impede reaprovar uma cobrança liquidada por conciliação.
+      if (isBillingFrozen(b)) return false;
       if (billingId) return b.id === billingId;
       if (!sliceTaskId) return true;
       // Faturamento sem cobertura é o orçamento que nasceu antes do vínculo das
@@ -3775,7 +3837,8 @@ export class BudgetService {
     const targetConfigs = targetBillings.flatMap(b => b.customerConfigs);
 
     if (targetBillings.length === 0) {
-      const jaAprovado = billingId && quoteBillings.some(b => b.id === billingId && b.approvedAt);
+      const jaAprovado =
+        billingId && quoteBillings.some(b => b.id === billingId && isBillingFrozen(b));
       if (billingId && !jaAprovado) {
         throw new NotFoundException(`Faturamento ${billingId} não pertence ao orçamento ${id}.`);
       }
@@ -4149,7 +4212,14 @@ export class BudgetService {
       try {
         const unclaimed = await (this.prisma as any).billing.updateMany({
           where: { id: { in: targetBillingIds } },
-          data: { approvedAt: null },
+          data: {
+            approvedAt: null,
+            // O estado acompanha o carimbo: um rollback que levanta a aprovação e
+            // deixa `status` em APROVADO fabrica a cobrança que se afirma cobrada
+            // sem ter sido — e essa é a forma que nem aprova nem reverte.
+            status: BILLING_STATUS.PENDING as any,
+            statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+          },
         });
         if (unclaimed.count > 0) {
           this.logger.warn(
@@ -4664,8 +4734,14 @@ export class BudgetService {
     // sentidos: recusava reverter um orçamento LIQUIDADO (estorno depois de pago
     // é exatamente um caso de reversão) e aceitava reverter um orçamento em
     // "Faturamento Aprovado" cujas cobranças já tivessem sido todas revertidas.
+    //
+    // ⚠️ E "aprovada" é CONGELADA, não "com carimbo". Há cobrança em estado
+    // pós-aprovação SEM `approvedAt` — liquidada por conciliação bancária, sem
+    // fatura de onde derivar a data. Perguntando só pelo carimbo, essas ficavam
+    // num beco: a trava do dinheiro (que usa `isBillingFrozen`) as considera
+    // cobradas e manda reverter, e a reversão respondia "não há o que reverter".
     const cobrancasAprovadas = await (this.prisma as any).billing.count({
-      where: { quoteId: id, approvedAt: { not: null }, ...(billingId ? { id: billingId } : {}) },
+      where: { quoteId: id, ...BILLING_FROZEN_WHERE, ...(billingId ? { id: billingId } : {}) },
     });
     if (cobrancasAprovadas === 0) {
       throw new BadRequestException(
@@ -4791,7 +4867,17 @@ export class BudgetService {
       // orçamento que acabou de voltar para Orçamento Aprovado.
       await (tx as any).billing.updateMany({
         where: { quoteId: id, ...(billingId ? { id: billingId } : {}) },
-        data: { approvedAt: null },
+        data: {
+          approvedAt: null,
+          // O ESTADO VAI JUNTO COM O CARIMBO — a janela entre os dois é o defeito.
+          // A cascata roda DEPOIS da transação e engole erro por cobrança: morrer
+          // ali deixava `status` pós-aprovação com `approvedAt` nulo, e essa
+          // combinação fecha as TRÊS portas de uma vez (não é alvo de aprovação,
+          // não é revertível, não volta a Pendente). Gravando PENDENTE aqui, a
+          // falha da cascata deixa um estado COERENTE; ela só refina depois.
+          status: BILLING_STATUS.PENDING as any,
+          statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+        },
       });
       // O status do ORÇAMENTO não é revertido porque ele não foi movido: aprovar
       // faturamento deixou de mexer nele. O que cai é o carimbo de "inteiramente
@@ -4984,7 +5070,17 @@ export class BudgetService {
       // O carimbo de cada faturamento volta a zero — mesma razão da reversão.
       await (tx as any).billing.updateMany({
         where: { quoteId: id },
-        data: { approvedAt: null },
+        data: {
+          approvedAt: null,
+          // O ESTADO VAI JUNTO COM O CARIMBO — a janela entre os dois é o defeito.
+          // A cascata roda DEPOIS da transação e engole erro por cobrança: morrer
+          // ali deixava `status` pós-aprovação com `approvedAt` nulo, e essa
+          // combinação fecha as TRÊS portas de uma vez (não é alvo de aprovação,
+          // não é revertível, não volta a Pendente). Gravando PENDENTE aqui, a
+          // falha da cascata deixa um estado COERENTE; ela só refina depois.
+          status: BILLING_STATUS.PENDING as any,
+          statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+        },
       });
       await tx.budget.update({
         where: { id },
@@ -4995,6 +5091,25 @@ export class BudgetService {
         } as any,
       });
     });
+
+    // ── O ESTADO DAS COBRANÇAS TEM DE ACOMPANHAR ─────────────────────────────
+    //
+    // A transação acima zera `Billing.approvedAt` e carimba o orçamento como
+    // CANCELADO, mas `Billing.status` é PERSISTIDO e tem um escritor só: a
+    // cascata. Sem esta chamada ele fica no valor antigo — e a primeira regra da
+    // cascata (`BillingStatusCascadeService.resolve`) diz justamente que
+    // orçamento cancelado cancela as cobranças dele.
+    //
+    // ⚠️ MEDIDO EM PRODUÇÃO (17/09/2026): 23 cobranças ficaram "Pendente" em
+    // orçamentos cancelados no mesmo dia — 23 linhas na lista de Faturamento
+    // convidando o financeiro a cobrar contrato que não existe mais. O lote de
+    // 16/09 (51 linhas) está CANCELLED porque veio pelo backfill da migração, não
+    // por este caminho: o defeito só aparece quando o cancelamento roda pelo
+    // código, que é o que passou a acontecer.
+    //
+    // Fora da transação e depois dela, como as outras cascatas: ela abre a
+    // própria escrita e precisa LER o orçamento já cancelado para decidir.
+    await this.billingStatusCascade.recomputeForQuote(id);
 
     await syncEmNegociacaoForQuote(this.prisma, id, userId);
 
@@ -5776,10 +5891,20 @@ export class BudgetService {
       select: { customerId: true },
     });
     if (hasMultipleCustomers(quoteCustomers)) {
-      const unassigned = services.filter(s => !s.invoiceToCustomerId);
+      // ⚠️ "SEM CLIENTE" INCLUI APONTAR PARA QUEM NÃO PAGA ESTE ORÇAMENTO.
+      //
+      // A guarda perguntava só por `invoiceToCustomerId` nulo. Um serviço marcado
+      // para um cliente que não é (ou deixou de ser) pagador não casa com fatia
+      // nenhuma: ele não entra em fatura alguma, e antes desta rodada também não
+      // entrava em total nenhum. Passava aqui, e o orçamento era faturado por
+      // menos do que a soma dos próprios serviços.
+      const pagadores = new Set(quoteCustomers.map(c => c.customerId));
+      const unassigned = services.filter(
+        s => !s.invoiceToCustomerId || !pagadores.has(s.invoiceToCustomerId),
+      );
       if (unassigned.length > 0) {
         throw new BadRequestException(
-          `Os seguintes serviços não possuem cliente atribuído: ${unassigned.map(s => `"${s.description}"`).join(', ')}. Quando há múltiplos clientes, todos os serviços devem ter um cliente selecionado.`,
+          `Os seguintes serviços não possuem um cliente PAGADOR atribuído: ${unassigned.map(s => `"${s.description}"`).join(', ')}. Quando há múltiplos clientes, todo serviço deve apontar para um dos clientes do faturamento.`,
         );
       }
     }

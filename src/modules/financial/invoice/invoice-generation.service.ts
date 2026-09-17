@@ -5,7 +5,12 @@ import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.s
 import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants';
 import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
-import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
+import {
+  formatDueDateYMD,
+  saoPauloCalendarDayAtNoonUtc,
+  saoPauloCalendarDayPlus,
+  todayInSaoPauloAtNoonUtc,
+} from '@utils/due-date.util';
 import { coveredTaskIds, orderNumberLabel, sliceAnchorTaskId } from '../../../utils/quote-tasks';
 import { deleteInstallmentsWithSlips } from '../../../utils/billing-teardown';
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
@@ -389,11 +394,36 @@ export class InvoiceGenerationService {
           generatedInstallments.reduce((s, i) => s + i.amount, 0).toFixed(2),
         );
         if (Math.abs(installmentsSum - totalAmount) > 0.01) {
+          // ── DIVERGÊNCIA RECUSA A APROVAÇÃO; NÃO VIRA LINHA DE LOG ────────────
+          //
+          // Isto apenas REGISTRAVA e seguia em frente, emitindo uma fatura que
+          // não fecha com as próprias parcelas. Medido em produção (17/09/2026):
+          // 5 faturas nesse estado, e o buraco é de **R$ 7.924,80 nunca cobrados**
+          // — a fatura do orçamento 115 diz R$ 18.235,00 e a única parcela
+          // emitida é de R$ 16.187,50. O cliente pagou tudo o que lhe foi
+          // apresentado; os R$ 2.047,50 não existiram em boleto nenhum. E não
+          // aparece em tela alguma, porque `deriveInvoicePaymentState` compara
+          // pagamento com PARCELAS, nunca com o total (decisão deliberada).
+          //
+          // Entra em `skippedConfigs` — a mesma via do pagador sem condição de
+          // pagamento —, e é ela que faz `internalApprove` RECUSAR a aprovação
+          // inteira com o nome do pagador. Nada foi emitido ainda: o operador
+          // corrige a forma de pagamento e aprova de novo, sem perder nada.
+          const motivo =
+            `as parcelas somam R$ ${installmentsSum.toFixed(2)} e a cobrança é de ` +
+            `R$ ${Number(totalAmount).toFixed(2)} (diferença de R$ ${Math.abs(installmentsSum - Number(totalAmount)).toFixed(2)})`;
+          skippedConfigs.push({
+            configId: config.id,
+            customerName: config.customer?.fantasyName ?? 'cliente sem nome',
+            total: Number(totalAmount),
+            reason: motivo,
+          });
           this.logger.error(
             `[INVOICE_GEN] AMOUNT DIVERGENCE for customerConfig ${config.id} (task ${taskId}, ` +
               `customer ${config.customerId}): config.total=${totalAmount} but Σ installments=` +
-              `${installmentsSum}. Billing the frozen total; reconcile manually.`,
+              `${installmentsSum}. Aprovação RECUSADA para este pagador.`,
           );
+          continue;
         }
 
         // Create the Invoice
@@ -1437,16 +1467,15 @@ export class InvoiceGenerationService {
     // N days from the moment the financial team approved billing — not from when the
     // task was finished (which can be months in the past, collapsing all dates to minDueDate).
     const anchor = approvalDate ?? finishedAt;
-    const baseDate = new Date(
-      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate(), 12, 0, 0),
-    );
+    // ⚠️ O DIA DE CALENDÁRIO É O DE SÃO PAULO, não o do UTC. Ler os componentes
+    // UTC do instante fazia toda aprovação depois das 21:00 BRT ancorar no dia
+    // SEGUINTE — o boleto saía com um vencimento a mais do que a proposta prometeu.
+    const baseDate = saoPauloCalendarDayAtNoonUtc(anchor);
 
     const now = new Date();
     // Bumping the floor to the next business day is correct: if "today + 3" is
     // a Saturday, the customer effectively can't pay until Monday anyway.
-    const minDueDate = nextBrazilianBusinessDay(
-      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0)),
-    );
+    const minDueDate = nextBrazilianBusinessDay(saoPauloCalendarDayPlus(now, 3));
 
     const addDays = (base: Date, days: number): Date => {
       const d = new Date(base);
@@ -1556,29 +1585,9 @@ export class InvoiceGenerationService {
     // faturamento como faz em qualquer outra parcela.
     if (paymentCondition === 'CUSTOM') {
       const anchorCustom = approvalDate ?? finishedAt;
-      const baseCustom = new Date(
-        Date.UTC(
-          anchorCustom.getUTCFullYear(),
-          anchorCustom.getUTCMonth(),
-          anchorCustom.getUTCDate() + 5,
-          12,
-          0,
-          0,
-        ),
-      );
-      const nowCustom = new Date();
-      const floorCustom = nextBrazilianBusinessDay(
-        new Date(
-          Date.UTC(
-            nowCustom.getUTCFullYear(),
-            nowCustom.getUTCMonth(),
-            nowCustom.getUTCDate() + 3,
-            12,
-            0,
-            0,
-          ),
-        ),
-      );
+      // Dia de calendário de SÃO PAULO, como todo vencimento desta casa.
+      const baseCustom = saoPauloCalendarDayPlus(anchorCustom, 5);
+      const floorCustom = nextBrazilianBusinessDay(saoPauloCalendarDayPlus(new Date(), 3));
       return [
         {
           number: 1,
@@ -1592,9 +1601,10 @@ export class InvoiceGenerationService {
     // "first payment in N days" means N days from billing approval, not from a possibly stale finishedAt
     // (which can be weeks/months in the past, collapsing all installment dates to the same minimum floor).
     const anchor = approvalDate ?? finishedAt;
-    const baseDate = new Date(
-      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate(), 12, 0, 0),
-    );
+    // ⚠️ O DIA DE CALENDÁRIO É O DE SÃO PAULO, não o do UTC. Ler os componentes
+    // UTC do instante fazia toda aprovação depois das 21:00 BRT ancorar no dia
+    // SEGUINTE — o boleto saía com um vencimento a mais do que a proposta prometeu.
+    const baseDate = saoPauloCalendarDayAtNoonUtc(anchor);
 
     const addDays = (base: Date, days: number): Date => {
       const d = new Date(base);
@@ -1605,9 +1615,7 @@ export class InvoiceGenerationService {
     // Minimum due date: 3 days from today (noon UTC), then rolled to the next
     // Brazilian business day so the floor itself is payable.
     const now = new Date();
-    const minDueDate = nextBrazilianBusinessDay(
-      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 3, 12, 0, 0)),
-    );
+    const minDueDate = nextBrazilianBusinessDay(saoPauloCalendarDayPlus(now, 3));
 
     const ensureMinDate = (date: Date): Date => {
       return date < minDueDate ? minDueDate : date;
