@@ -116,7 +116,16 @@ async function main() {
   }
 }
 
-main().catch(e => {
-  console.error(e);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // SAÍDA EXPLÍCITA. O AppModule segura o event loop mesmo depois de
+    // `app.close()` — Baileys e Redis mantêm sockets abertos. Na primeira
+    // execução a gravação levou 2 segundos e o processo ficou pendurado por
+    // mais de dez minutos, o que faz um script de correção parecer travado
+    // justamente quando se quer saber se ele terminou.
+    process.exit(0);
+  })
+  .catch(e => {
+    console.error(e);
+    process.exit(1);
+  });
