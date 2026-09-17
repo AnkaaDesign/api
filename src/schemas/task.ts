@@ -1175,6 +1175,27 @@ const taskOrderByFieldsSchema = z.object({
   // the quote's customer configs. Not a Prisma field — the repository resolves and
   // sorts it in memory over the whole result set before paginating.
   currentInstallmentDueDate: orderByWithNullsSchema.optional(),
+  /**
+   * ORDENAR PELO ESTADO DA COBRANÇA.
+   *
+   * `Task → BillingTask → Billing` é uma cadeia de-UM em toda a extensão: o banco
+   * garante um faturamento por veículo (`BillingTask.@@unique([taskId])`), e a
+   * relação passou a ser declarada `BillingTask?` justamente para o Prisma poder
+   * atravessá-la. Enquanto era lista, a coluna "Status Faturamento" não podia ser
+   * ordenada pelo servidor — e ordenar só a página carregada faria cada página
+   * parecer ordenada com a ordem global errada.
+   */
+  billingEntry: z
+    .object({
+      billing: z
+        .object({
+          statusOrder: orderByDirectionSchema.optional(),
+          status: orderByDirectionSchema.optional(),
+          approvedAt: orderByWithNullsSchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   // Nested relation sorting (for billing/financial views). Both are to-ONE relations, so Prisma
   // orders by them directly; the repository's flattenOrderBy dot-joins the path and preserves
   // multi-sort priority.
@@ -1332,6 +1353,20 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         })
         .optional(),
       quote: z.any().optional(),
+      /**
+       * FILTRAR PELO FATURAMENTO DESTE VEÍCULO.
+       *
+       * ⚠️ Este objeto é `.strict()`: chave que não esteja aqui é REJEITADA, e sem
+       * esta linha a lista de Faturamento só conseguia filtrar por
+       * `quote.billings.some.status` — "o ORÇAMENTO tem alguma cobrança nesse
+       * estado", que é mais largo que a linha e discorda do badge que a própria
+       * linha mostra. Num orçamento de sessenta caminhões com uma fatia vencida,
+       * o filtro "Vencido" trazia os sessenta.
+       *
+       * Relação de-UM (`BillingTask?`), então `is`/`isNot` em vez de
+       * `some`/`every`/`none`.
+       */
+      billingEntry: z.any().optional(),
       cutRequest: z.any().optional(),
       cutPlan: z.any().optional(),
       relatedTasks: z

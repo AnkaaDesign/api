@@ -2287,7 +2287,17 @@ model Task {
   /// compartilham; em `PER_TASK`, para o faturamento só deste; em `CUSTOM`, para
   /// o do lote a que ele pertence. Nos três casos a pergunta "quem cobra este
   /// caminhão?" tem uma resposta, e é uma só — não mais uma por cliente.
-  billingEntry          BillingTask[]         @relation("TaskBillingEntity")
+  /// ⚠️ É `?` E NÃO `[]`, e isso não é cosmética de tipo.
+  ///
+  /// `BillingTask.@@unique([taskId])` já garantia no máximo um, mas declarar a
+  /// relação como LISTA fazia o Prisma tratá-la como de-muitos — e `orderBy` não
+  /// atravessa relação de muitos. Era só por isso que a coluna "Status
+  /// Faturamento" da lista não podia ser ordenada pelo servidor: o dado estava a
+  /// um passo de distância, num passo que o ORM se recusava a dar.
+  ///
+  /// Como de-um, `orderBy: { billingEntry: { billing: { statusOrder: 'asc' } } }`
+  /// funciona nativamente, sem coluna desnormalizada e sem ordenar em memória.
+  billingEntry          BillingTask?          @relation("TaskBillingEntity")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)

@@ -3609,7 +3609,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
         // trinta já cobrados sairiam da fila e os trinta restantes ficariam —
         // olhar só o estado do orçamento mostrava os sessenta para sempre,
         // porque `APPROVED` é terminal e não se move mais.
-        billingEntry: { none: { billing: { approvedAt: { not: null } } } },
+        //
+        // ⚠️ São DOIS casos, e escrever só o primeiro esvaziaria a fila: o veículo
+        // que ainda não entrou em cobrança nenhuma, e o que já está numa cobrança
+        // que ninguém aprovou. `billingEntry` virou relação de-UM (era lista), e
+        // com ela `none: { billing: ... }` deixou de existir como forma.
+        OR: [
+          { billingEntry: { is: null } },
+          { billingEntry: { billing: { approvedAt: null } } },
+        ],
       },
       select: {
         id: true,

@@ -191,8 +191,13 @@ export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
 export const BILLING_STATUS_ORDER: Record<BILLING_STATUS, number> = {
   [BILLING_STATUS.OVERDUE]: 1,
   [BILLING_STATUS.PENDING]: 2,
-  [BILLING_STATUS.APPROVED]: 3,
-  [BILLING_STATUS.PARTIAL]: 4,
+  // PARCIAL antes de APROVADO, por decisão do dono (17/09). Não é a ordem
+  // cronológica — cronologicamente aprovado vem antes de parcial. É a ordem da
+  // ATENÇÃO: uma cobrança parcialmente paga tem saldo em aberto e alguém do outro
+  // lado já começou a pagar, enquanto uma recém-aprovada só está esperando o
+  // primeiro vencimento chegar.
+  [BILLING_STATUS.PARTIAL]: 3,
+  [BILLING_STATUS.APPROVED]: 4,
   [BILLING_STATUS.SETTLED]: 5,
   [BILLING_STATUS.CANCELLED]: 6,
 };
