@@ -491,10 +491,10 @@ model EconomicActivity {
 }
 
 model Customer {
-  id                    String                    @id @default(uuid())
-  fantasyName           String                    @unique
-  cnpj                  String?                   @unique
-  cpf                   String?                   @unique
+  id                    String              @id @default(uuid())
+  fantasyName           String              @unique
+  cnpj                  String?             @unique
+  cpf                   String?             @unique
   corporateName         String?
   email                 String?
   address               String?
@@ -508,8 +508,8 @@ model Customer {
   phones                String[]
   tags                  String[]
   logoId                String?
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
   economicActivityId    String?
   registrationStatus    RegistrationStatus?
   stateRegistration     String?
@@ -517,14 +517,14 @@ model Customer {
   /// quando preenchida; a Elotech só aceita valor numérico.
   municipalRegistration String?
   streetType            StreetType?
-  economicActivity      EconomicActivity?         @relation(fields: [economicActivityId], references: [id])
-  logo                  File?                     @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
-  tasks                 Task[]                    @relation("TaskCustomer")
+  economicActivity      EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  logo                  File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
+  tasks                 Task[]              @relation("TaskCustomer")
   quoteServiceInvoices  BudgetItem[]        @relation("QuoteServiceInvoiceToCustomer")
-  quoteCustomerConfigs  BudgetPayer[] @relation("QuoteCustomerConfigCustomer")
-  responsibles          Responsible[]             @relation("CompanyResponsibles")
-  invoiceEntities       Invoice[]                 @relation("CustomerInvoiceEntities")
-  externalOperations    ExternalOperation[]       @relation("CustomerExternalOperations")
+  quoteCustomerConfigs  BudgetPayer[]       @relation("QuoteCustomerConfigCustomer")
+  responsibles          Responsible[]       @relation("CompanyResponsibles")
+  invoiceEntities       Invoice[]           @relation("CustomerInvoiceEntities")
+  externalOperations    ExternalOperation[] @relation("CustomerExternalOperations")
 
   addressNormalized       String? /// accent-insensitive search (generated column, see migration)
   cityNormalized          String? /// accent-insensitive search (generated column, see migration)
@@ -750,7 +750,7 @@ model PpeScheduleItem {
 }
 
 model File {
-  id                                     String                    @id @default(uuid())
+  id                                     String                 @id @default(uuid())
   filename                               String
   originalName                           String
   mimetype                               String
@@ -758,67 +758,67 @@ model File {
   size                                   Int
   thumbnailUrl                           String?
   quoteLayoutId                          String?
-  createdAt                              DateTime                  @default(now())
-  updatedAt                              DateTime                  @updatedAt
+  createdAt                              DateTime               @default(now())
+  updatedAt                              DateTime               @updatedAt
   layouts                                Layout?
-  customerLogo                           Customer[]                @relation("CUSTOMER_LOGO")
-  taskCuts                               Cut[]                     @relation("TASK_CUTS")
-  implementMeasurePhotos                 ImplementMeasure[]        @relation("IMPLEMENT_MEASURE_PHOTO")
-  truckVinPlates                         Truck[]                   @relation("TRUCK_VIN_PLATE")
-  ppeDeliveryDocuments                   PpeDelivery[]             @relation("PPE_DELIVERY_DOCUMENT")
-  ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
-  warningSignatureDocuments              WarningSignature[]        @relation("WARNING_SIGNATURE_DOCUMENT")
-  supplierLogo                           Supplier[]                @relation("SUPPLIER_LOGO")
-  configCustomerSignatures               BudgetPayer[] @relation("CONFIG_CUSTOMER_SIGNATURE")
+  customerLogo                           Customer[]             @relation("CUSTOMER_LOGO")
+  taskCuts                               Cut[]                  @relation("TASK_CUTS")
+  implementMeasurePhotos                 ImplementMeasure[]     @relation("IMPLEMENT_MEASURE_PHOTO")
+  truckVinPlates                         Truck[]                @relation("TRUCK_VIN_PLATE")
+  ppeDeliveryDocuments                   PpeDelivery[]          @relation("PPE_DELIVERY_DOCUMENT")
+  ppeSignatureDocuments                  PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
+  warningSignatureDocuments              WarningSignature[]     @relation("WARNING_SIGNATURE_DOCUMENT")
+  supplierLogo                           Supplier[]             @relation("SUPPLIER_LOGO")
+  configCustomerSignatures               BudgetPayer[]          @relation("CONFIG_CUSTOMER_SIGNATURE")
   quoteLayout                            Budget?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
-  userAvatar                             User[]                    @relation("USER_AVATAR")
+  userAvatar                             User[]                 @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
-  paintingFaceFiles                      PaintingAnalysisFace[]    @relation("PAINTING_FACE_FILE")
-  paintingFaceOverlays                   PaintingAnalysisFace[]    @relation("PAINTING_FACE_OVERLAY")
-  airbrushingInvoices                    Airbrushing[]             @relation("AIRBRUSHING_INVOICES")
-  airbrushingReceipts                    Airbrushing[]             @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingNfsePdfs                    AirbrushingNfse[]         @relation("AIRBRUSHING_NFSE_PDF")
-  airbrushingNfseXmls                    AirbrushingNfse[]         @relation("AIRBRUSHING_NFSE_XML")
-  externalOperationInvoices              ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICES")
-  externalOperationInvoiceReimbursements ExternalOperation[]       @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
-  externalOperationReceipts              ExternalOperation[]       @relation("EXTERNAL_OPERATION_RECEIPTS")
-  externalOperationReimbursements        ExternalOperation[]       @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
-  warning                                Warning[]                 @relation("FileToWarning")
-  observations                           Observation[]             @relation("OBSERVATIONS_FILES")
-  orderReceipts                          Order[]                   @relation("ORDER_RECEIPTS")
-  taskBaseFiles                          Task[]                    @relation("TASK_BASE_FILES")
-  taskBudgets                            Task[]                    @relation("TASK_BUDGETS")
-  taskInvoices                           Task[]                    @relation("TASK_INVOICES")
-  taskInvoiceReimbursements              Task[]                    @relation("TASK_INVOICE_REIMBURSEMENTS")
-  taskReceipts                           Task[]                    @relation("TASK_RECEIPTS")
-  taskReimbursements                     Task[]                    @relation("TASK_REIMBURSEMENTS")
-  taskBankSlips                          Task[]                    @relation("TASK_BANK_SLIPS")
-  taskProjectFiles                       Task[]                    @relation("TASK_PROJECT_FILES")
-  taskCheckinFiles                       Task[]                    @relation("TASK_CHECKIN_FILES")
-  taskCheckoutFiles                      Task[]                    @relation("TASK_CHECKOUT_FILES")
-  serviceOrderCheckinFiles               ServiceOrder[]            @relation("SERVICE_ORDER_CHECKIN_FILES")
-  serviceOrderCheckoutFiles              ServiceOrder[]            @relation("SERVICE_ORDER_CHECKOUT_FILES")
-  bankSlipPdfs                           BankSlip[]                @relation("BankSlipPdf")
-  installmentReceipts                    Installment[]             @relation("InstallmentReceipts")
-  bankTransactionImports                 BankTransaction[]         @relation("BankTransactionFile")
-  fiscalDocumentXmls                     FiscalDocument[]          @relation("FiscalDocXml")
-  wasteCertificatePdfs                   WasteCertificate[]        @relation("WASTE_CERTIFICATE_PDF")
-  wasteCertificateSigned                 WasteCertificate[]        @relation("WASTE_CERTIFICATE_SIGNED")
-  userBenefitDeclaration                 UserBenefit?              @relation("USER_BENEFIT_DECLARATION")
-  admissionDocuments                     AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILE")
-  admissionDocumentsSigned               AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
-  admissionDocumentsAttached             AdmissionDocument[]       @relation("ADMISSION_DOCUMENT_FILES")
-  terminationDocuments                   TerminationDocument[]     @relation("TERMINATION_DOCUMENT_FILE")
-  medicalExamAsos                        MedicalExam[]             @relation("MEDICAL_EXAM_ASO")
-  leaves                                 Leave[]                   @relation("FileToLeave")
-  workAccidentReports                    WorkAccidentReport[]      @relation("WORK_ACCIDENT_REPORT_FILE")
-  fispqPdfs                              Fispq[]                   @relation("FISPQ_PDF")
-  signatureEnvelopeOriginals             SignatureEnvelope[]       @relation("ENVELOPE_ORIGINAL_FILE")
-  signatureEnvelopeFinals                SignatureEnvelope[]       @relation("ENVELOPE_FINAL_FILE")
-  signatureEnvelopeDossiers              SignatureEnvelope[]       @relation("ENVELOPE_DOSSIER_FILE")
-  signatureEnvelopeAddenda               SignatureEnvelope[]       @relation("ENVELOPE_ADDENDUM_FILE")
-  envelopeDocumentOriginals              EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
-  envelopeDocumentFinals                 EnvelopeDocument[]        @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
+  paintingFaceFiles                      PaintingAnalysisFace[] @relation("PAINTING_FACE_FILE")
+  paintingFaceOverlays                   PaintingAnalysisFace[] @relation("PAINTING_FACE_OVERLAY")
+  airbrushingInvoices                    Airbrushing[]          @relation("AIRBRUSHING_INVOICES")
+  airbrushingReceipts                    Airbrushing[]          @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingNfsePdfs                    AirbrushingNfse[]      @relation("AIRBRUSHING_NFSE_PDF")
+  airbrushingNfseXmls                    AirbrushingNfse[]      @relation("AIRBRUSHING_NFSE_XML")
+  externalOperationInvoices              ExternalOperation[]    @relation("EXTERNAL_OPERATION_INVOICES")
+  externalOperationInvoiceReimbursements ExternalOperation[]    @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  externalOperationReceipts              ExternalOperation[]    @relation("EXTERNAL_OPERATION_RECEIPTS")
+  externalOperationReimbursements        ExternalOperation[]    @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
+  warning                                Warning[]              @relation("FileToWarning")
+  observations                           Observation[]          @relation("OBSERVATIONS_FILES")
+  orderReceipts                          Order[]                @relation("ORDER_RECEIPTS")
+  taskBaseFiles                          Task[]                 @relation("TASK_BASE_FILES")
+  taskBudgets                            Task[]                 @relation("TASK_BUDGETS")
+  taskInvoices                           Task[]                 @relation("TASK_INVOICES")
+  taskInvoiceReimbursements              Task[]                 @relation("TASK_INVOICE_REIMBURSEMENTS")
+  taskReceipts                           Task[]                 @relation("TASK_RECEIPTS")
+  taskReimbursements                     Task[]                 @relation("TASK_REIMBURSEMENTS")
+  taskBankSlips                          Task[]                 @relation("TASK_BANK_SLIPS")
+  taskProjectFiles                       Task[]                 @relation("TASK_PROJECT_FILES")
+  taskCheckinFiles                       Task[]                 @relation("TASK_CHECKIN_FILES")
+  taskCheckoutFiles                      Task[]                 @relation("TASK_CHECKOUT_FILES")
+  serviceOrderCheckinFiles               ServiceOrder[]         @relation("SERVICE_ORDER_CHECKIN_FILES")
+  serviceOrderCheckoutFiles              ServiceOrder[]         @relation("SERVICE_ORDER_CHECKOUT_FILES")
+  bankSlipPdfs                           BankSlip[]             @relation("BankSlipPdf")
+  installmentReceipts                    Installment[]          @relation("InstallmentReceipts")
+  bankTransactionImports                 BankTransaction[]      @relation("BankTransactionFile")
+  fiscalDocumentXmls                     FiscalDocument[]       @relation("FiscalDocXml")
+  wasteCertificatePdfs                   WasteCertificate[]     @relation("WASTE_CERTIFICATE_PDF")
+  wasteCertificateSigned                 WasteCertificate[]     @relation("WASTE_CERTIFICATE_SIGNED")
+  userBenefitDeclaration                 UserBenefit?           @relation("USER_BENEFIT_DECLARATION")
+  admissionDocuments                     AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_FILE")
+  admissionDocumentsSigned               AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
+  admissionDocumentsAttached             AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_FILES")
+  terminationDocuments                   TerminationDocument[]  @relation("TERMINATION_DOCUMENT_FILE")
+  medicalExamAsos                        MedicalExam[]          @relation("MEDICAL_EXAM_ASO")
+  leaves                                 Leave[]                @relation("FileToLeave")
+  workAccidentReports                    WorkAccidentReport[]   @relation("WORK_ACCIDENT_REPORT_FILE")
+  fispqPdfs                              Fispq[]                @relation("FISPQ_PDF")
+  signatureEnvelopeOriginals             SignatureEnvelope[]    @relation("ENVELOPE_ORIGINAL_FILE")
+  signatureEnvelopeFinals                SignatureEnvelope[]    @relation("ENVELOPE_FINAL_FILE")
+  signatureEnvelopeDossiers              SignatureEnvelope[]    @relation("ENVELOPE_DOSSIER_FILE")
+  signatureEnvelopeAddenda               SignatureEnvelope[]    @relation("ENVELOPE_ADDENDUM_FILE")
+  envelopeDocumentOriginals              EnvelopeDocument[]     @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
+  envelopeDocumentFinals                 EnvelopeDocument[]     @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -1883,12 +1883,12 @@ model ServiceOrder {
 }
 
 model Budget {
-  id          String          @id @default(uuid())
-  subtotal    Decimal         @db.Decimal(10, 2)
-  total       Decimal         @db.Decimal(10, 2)
+  id          String       @id @default(uuid())
+  subtotal    Decimal      @db.Decimal(10, 2)
+  total       Decimal      @db.Decimal(10, 2)
   expiresAt   DateTime
   status      BudgetStatus @default(PENDING)
-  statusOrder Int             @default(1)
+  statusOrder Int          @default(1)
 
   /// A FILA: o que espera ação vem primeiro, e do mais antigo.
   ///
@@ -1900,7 +1900,7 @@ model Budget {
   ///
   /// ⚠️ NUNCA a escreva: o Postgres recusa `INSERT`/`UPDATE` em coluna gerada. Os
   /// mapeadores desestruturam campo a campo, então ela não vaza para um payload.
-  queueRank   Float?          @map("queueRank")
+  queueRank Float? @map("queueRank")
 
   /// Quando o cliente foi avisado de que a validade venceu sem todas as
   /// assinaturas. Existe para que a varredura horária avise UMA vez: sem ele,
@@ -1960,20 +1960,20 @@ model Budget {
   /// isola o recém-chegado em vez de chutar um lote.
   ///
   /// Ver `QuoteBillingSplit`, `Billing` e `BillingTask`.
-  billingSplit QuoteBillingSplit  @default(JOINT)
-  layoutFiles  File[]             @relation("QUOTE_LAYOUT")
-  services     BudgetItem[] @relation("QUOTE_SERVICES")
+  billingSplit QuoteBillingSplit @default(JOINT)
+  layoutFiles  File[]            @relation("QUOTE_LAYOUT")
+  services     BudgetItem[]      @relation("QUOTE_SERVICES")
   /// OS FATURAMENTOS deste orçamento — 1 ou N, entidades de verdade.
-  billings     Billing[]          @relation("QuoteBillings")
+  billings     Billing[]         @relation("QuoteBillings")
 
   /// DEPRECIADO como "a lista de faturamentos". Continua existindo porque é a
   /// lista de PAGADORES, agora pendurada em cada `Billing` por `billingId`. O
   /// vínculo direto com o orçamento sobrevive à transição e sai quando o último
   /// leitor tiver migrado para `billings[].customerConfigs`.
-  customerConfigs    BudgetPayer[] @relation("QuoteCustomerConfig")
-  commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
-  signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
-  nfseDocuments      NfseDocument[]            @relation("QuoteNfseDocuments")
+  customerConfigs    BudgetPayer[]       @relation("QuoteCustomerConfig")
+  commercialUser     User?               @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
+  signatureEnvelopes SignatureEnvelope[] @relation("QUOTE_SIGNATURE_ENVELOPES")
+  nfseDocuments      NfseDocument[]      @relation("QuoteNfseDocuments")
 
   @@index([status])
   @@index([statusOrder])
@@ -1991,7 +1991,7 @@ model BudgetItem {
   updatedAt           DateTime  @updatedAt
   observation         String?
   position            Int       @default(0)
-  quote               Budget @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote               Budget    @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
   invoiceToCustomerId String?
   invoiceToCustomer   Customer? @relation("QuoteServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
 
@@ -2036,7 +2036,7 @@ model BudgetPayer {
   customerSignatureId String?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
-  quote               Budget      @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote               Budget         @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
   billing             Billing        @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
   customer            Customer       @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   responsible         Responsible?   @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
@@ -2282,7 +2282,7 @@ model Task {
   createdBy             User?                 @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
   customer              Customer?             @relation("TaskCustomer", fields: [customerId], references: [id])
   generalPainting       Paint?                @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  quote                 Budget?            @relation("TASK_QUOTE", fields: [quoteId], references: [id])
+  quote                 Budget?               @relation("TASK_QUOTE", fields: [quoteId], references: [id])
   sector                Sector?               @relation(fields: [sectorId], references: [id])
   fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
@@ -2633,7 +2633,7 @@ model User {
   ppeDeliveries                  PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSignatures                  PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSignatureEvents             PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
-  quotesAsCommercial             Budget[]                  @relation("QUOTE_COMMERCIAL_USER")
+  quotesAsCommercial             Budget[]                     @relation("QUOTE_COMMERCIAL_USER")
   envelopeSignatures             EnvelopeSigner[]             @relation("ENVELOPE_SIGNER_USER")
   warningSignatures              WarningSignature[]           @relation("WARNING_SIGNATURE_USER")
   warningSignaturesRegistered    WarningSignature[]           @relation("WARNING_SIGNATURE_REGISTRAR")
@@ -3493,10 +3493,10 @@ model Backup {
 }
 
 model Responsible {
-  id                    String                    @id @default(uuid())
+  id                    String            @id @default(uuid())
   name                  String
-  email                 String?                   @unique
-  phone                 String                    @unique
+  email                 String?           @unique
+  phone                 String            @unique
   /// Âncora de identidade da assinatura eletrônica. NÃO é @unique: a unicidade
   /// da pessoa já vem do telefone, e o CPF passa a ser gravado durante a
   /// cerimônia — uma colisão ali derrubaria a assinatura do cliente.
@@ -3506,22 +3506,22 @@ model Responsible {
   /// employees know which areas that contact actually handles. Always kept
   /// non-empty by the validation layer and sorted in enum-declaration order
   /// (see responsibleRolesSchema) so changelog diffs stay stable.
-  roles                 ResponsibleRole[]         @default([])
-  companyId             String?                   @map("customerId")
-  isActive              Boolean                   @default(true)
-  verified              Boolean                   @default(false)
+  roles                 ResponsibleRole[] @default([])
+  companyId             String?           @map("customerId")
+  isActive              Boolean           @default(true)
+  verified              Boolean           @default(false)
   verificationCode      String?
   verificationExpiresAt DateTime?
-  sessionToken          String?                   @unique
-  resetToken            String?                   @unique
+  sessionToken          String?           @unique
+  resetToken            String?           @unique
   resetTokenExpiry      DateTime?
   lastLoginAt           DateTime?
-  createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
-  company               Customer?                 @relation("CompanyResponsibles", fields: [companyId], references: [id])
-  tasks                 Task[]                    @relation("TaskResponsibles")
-  customerConfigs       BudgetPayer[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
-  envelopeSignatures    EnvelopeSigner[]          @relation("ENVELOPE_SIGNER_RESPONSIBLE")
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  company               Customer?         @relation("CompanyResponsibles", fields: [companyId], references: [id])
+  tasks                 Task[]            @relation("TaskResponsibles")
+  customerConfigs       BudgetPayer[]     @relation("CUSTOMER_CONFIG_RESPONSIBLE")
+  envelopeSignatures    EnvelopeSigner[]  @relation("ENVELOPE_SIGNER_RESPONSIBLE")
 
   cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -4834,7 +4834,7 @@ enum GDriveDeleteStatus {
 // =====================
 
 model Invoice {
-  id                  String                   @id @default(uuid())
+  id                  String             @id @default(uuid())
   /// SEM `@unique`. O índice global foi DROPADO em
   /// `20260506000001_invoice_customer_config_partial_unique` e substituído por um
   /// índice PARCIAL — `UNIQUE (customerConfigId) WHERE status <> 'CANCELLED'` — que o
@@ -4846,18 +4846,18 @@ model Invoice {
   /// O índice parcial é MANTIDO À MÃO — ver `prisma/migrations/*_p0_estancamento`.
   customerConfigId    String?
   taskId              String?
-  externalOperationId String?                  @unique
+  externalOperationId String?            @unique
   customerId          String
-  totalAmount         Decimal                  @db.Decimal(10, 2)
-  paidAmount          Decimal                  @default(0) @db.Decimal(10, 2)
-  status              InvoiceStatus            @default(DRAFT)
+  totalAmount         Decimal            @db.Decimal(10, 2)
+  paidAmount          Decimal            @default(0) @db.Decimal(10, 2)
+  status              InvoiceStatus      @default(DRAFT)
   notes               String?
   createdById         String?
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
   /// `Restrict`, não `Cascade`: apagar uma fatia NÃO pode levar junto a fatura dela.
   /// Quem remove uma fatia agora decide explicitamente o que fazer com a fatura.
-  customerConfig      BudgetPayer? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
+  customerConfig      BudgetPayer?       @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
   /// `Restrict`, não `Cascade` — a mesma decisão que `customerConfig` acima e que
   /// as demais FKs de dinheiro do P0. Apagar o VEÍCULO não pode levar junto a
   /// fatura emitida sobre ele: eram 159 faturas vivas alcançáveis por um
@@ -4868,12 +4868,12 @@ model Invoice {
   /// A guarda em código (`TaskService.findMoneyLockedTaskIds`) recusa antes, com
   /// uma frase que diz o que fazer; isto aqui é a rede que pega todo caminho que
   /// não passe por ela.
-  task                Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Restrict)
-  externalOperation   ExternalOperation?       @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
-  customer            Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
-  createdBy           User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
-  installments        Installment[]            @relation("InvoiceInstallments")
-  nfseDocuments       NfseDocument[]           @relation("InvoiceNfse")
+  task                Task?              @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Restrict)
+  externalOperation   ExternalOperation? @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
+  customer            Customer           @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
+  createdBy           User?              @relation("InvoicesCreated", fields: [createdById], references: [id])
+  installments        Installment[]      @relation("InvoiceInstallments")
+  nfseDocuments       NfseDocument[]     @relation("InvoiceNfse")
 
   notesNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -4908,7 +4908,7 @@ model Installment {
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   /// `Restrict`: uma parcela PAGA não some porque a fatia foi removida.
-  customerConfig        BudgetPayer?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Restrict)
+  customerConfig        BudgetPayer?              @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Restrict)
   externalOperation     ExternalOperation?        @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
   invoice               Invoice?                  @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip              BankSlip?                 @relation("InstallmentBankSlip")
@@ -5025,16 +5025,16 @@ model NfseDocument {
   supersededByNfseNumber     Int? // denormalized — this number is what the fiscal demands
   supersededAt               DateTime? // when the replacement note reached AUTHORIZED
 
-  invoice        Invoice?                 @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
-  task           Task?                    @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
-  quote          Budget?               @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
-  customerConfig BudgetPayer? @relation("CustomerConfigNfse", fields: [customerConfigId], references: [id], onDelete: SetNull)
-  supersededBy   NfseDocument?            @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
-  supersedes     NfseDocument[]           @relation("NfseSupersede")
+  invoice        Invoice?        @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
+  task           Task?           @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  quote          Budget?         @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
+  customerConfig BudgetPayer?    @relation("CustomerConfigNfse", fields: [customerConfigId], references: [id], onDelete: SetNull)
+  supersededBy   NfseDocument?   @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
+  supersedes     NfseDocument[]  @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
   // emission (set on import by nfseNumber + our company CNPJ). FK lives on
   // FiscalDocument.nfseDocumentId (@unique).
-  fiscalDocument FiscalDocument?          @relation("NfseFiscalDocument")
+  fiscalDocument FiscalDocument? @relation("NfseFiscalDocument")
 
   @@index([invoiceId])
   @@index([taskId])
@@ -8164,7 +8164,7 @@ model SignatureEnvelope {
   sentAt      DateTime?
   completedAt DateTime?
 
-  quote            Budget             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote            Budget                @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
   originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
   finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
   dossierFile      File?                 @relation("ENVELOPE_DOSSIER_FILE", fields: [dossierFileId], references: [id])
@@ -8314,9 +8314,15 @@ model EnvelopeSigner {
   timesViewed    Int       @default(0)
   maxPageReached Int?
 
-  /// Agendamento do lembrete de assinatura pendente. A cadência (3 primeiros
-  /// dias úteis, depois de 5 em 5) é ancorada no ÚLTIMO envio e não na data da
-  /// emissão: um dia de API fora do ar não vira dois lembretes no dia seguinte.
+  /// Agendamento do lembrete de assinatura pendente.
+  ///
+  /// `reminderCount` NÃO é "quantas mensagens saíram": é até onde o CALENDÁRIO
+  /// foi consumido (`signature-reminder-cadence.ts`). Para o cliente são quatro
+  /// toques — 1 dia após o convite, 2 dias após esse, 5 dias e 1 dia antes do
+  /// vencimento —, e um toque perdido numa queda do agendador é pulado, não
+  /// reposto: o contador salta para o índice entregue. Para o grupo 1 (nossa
+  /// contra-assinatura) a cadência antiga continua, e ali o campo é contagem
+  /// mesmo.
   lastReminderAt DateTime?
   reminderCount  Int       @default(0)
 

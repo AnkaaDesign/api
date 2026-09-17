@@ -112,9 +112,9 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
    * "aguarda a contra-assinatura" — e o que muda entre eles é o texto LIVRE, que
    * sai por e-mail e pelo Baileys e ali diz há quantos dias está parado.
    *
-   * Sem botão, como o `orcamento_recusado`: quem recebe é gente de casa, a tela
-   * exige login e o orçamento é achado pelo número. Um botão de URL para uma
-   * tela atrás de login só produziria uma ida ao login sem contexto.
+   * COM BOTÃO "Abrir o orçamento" desde 17/09, como o `orcamento_recusado` — e
+   * aqui ele vale ainda mais: a contra-assinatura É um clique naquela tela. A
+   * mensagem que avisa e o lugar onde se resolve passam a ser a mesma coisa.
    */
   ANKAA_COUNTERSIGN: 'orcamento_contra_assinatura',
 
@@ -193,15 +193,16 @@ export const resendTemplate = invitationTemplate;
 /**
  * O aviso de RECUSA para o comercial da Ankaa.
  *
- * Sem botão: quem recebe é gente de casa, com sessão no sistema, e o orçamento
- * é achado pelo número. Um botão de URL para uma tela atrás de login só
- * produziria uma ida ao login sem contexto.
+ * O botão abre a tela interna do orçamento. Ver a nota em `REFUSED` sobre por
+ * que ele deixou de ser dispensável.
  */
 export function refusedTemplate(data: {
   /** Quem recusou — o responsável do CLIENTE, não quem recebe o aviso. */
   refusedByName: string;
   budgetNumber: string | number;
   reason: string;
+  /** Sufixo do botão: o id da TAREFA, que é como a tela interna é endereçada. */
+  quoteTaskId: string;
 }): SignatureWhatsAppTemplate {
   return {
     name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.REFUSED,
@@ -214,6 +215,7 @@ export function refusedTemplate(data: {
       cleanParam(data.budgetNumber),
       clampParam(cleanParam(data.reason), 320),
     ],
+    urlButtonParam: cleanParam(data.quoteTaskId),
   };
 }
 
@@ -312,11 +314,14 @@ export function collectionPausedTemplate(data: {
 export function ankaaCountersignTemplate(data: {
   signerName: string;
   budgetNumber: string | number;
+  /** Sufixo do botão: o id da TAREFA, que é como a tela interna é endereçada. */
+  quoteTaskId: string;
 }): SignatureWhatsAppTemplate {
   return {
     name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.ANKAA_COUNTERSIGN,
     language: LANGUAGE,
     bodyParams: [cleanParam(firstName(data.signerName)), cleanParam(data.budgetNumber)],
+    urlButtonParam: cleanParam(data.quoteTaskId),
   };
 }
 
@@ -326,6 +331,8 @@ export function voidedInternalTemplate(data: {
   budgetNumber: string | number;
   /** Por que a coleta foi anulada. Texto nosso, mas de tamanho livre. */
   reason: string;
+  /** Sufixo do botão: o id da TAREFA, que é como a tela interna é endereçada. */
+  quoteTaskId: string;
 }): SignatureWhatsAppTemplate {
   return {
     name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.VOIDED_INTERNAL,
@@ -335,5 +342,6 @@ export function voidedInternalTemplate(data: {
       cleanParam(data.budgetNumber),
       clampParam(cleanParam(data.reason), 320),
     ],
+    urlButtonParam: cleanParam(data.quoteTaskId),
   };
 }

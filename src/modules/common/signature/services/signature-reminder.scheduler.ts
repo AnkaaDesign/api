@@ -9,12 +9,14 @@
  *   que não era assinado na primeira semana morria em silêncio — e o primeiro
  *   sinal era a validade vencendo.
  *
- * A CADÊNCIA mora em `SignatureEnvelopeService.isReminderDue`, junto do resto da
- * cerimônia. Este arquivo é só o relógio: decidir QUANDO acordar é dele, decidir
- * QUEM está na hora é de lá.
+ * A CADÊNCIA mora em `signature-reminder-cadence.ts`. Este arquivo é só o
+ * relógio: decidir QUANDO acordar é dele, decidir QUEM está na hora é de lá.
+ * São duas cadências e não uma — `dueCustomerReminder` para o cliente (quatro
+ * toques, dois deles mirando o vencimento) e `isInternalReminderDue` para a
+ * nossa contra-assinatura.
  *
  * UMA RODADA POR DIA, às 9h de São Paulo. Não é de hora em hora com filtro de
- * dia porque a cadência é contada em dias civis: acordar 24 vezes para mandar no
+ * dia porque as cadências são contadas em dias civis: acordar 24 vezes para mandar no
  * máximo uma mensagem por signatário é trabalho para produzir o mesmo resultado.
  * 9h é depois de o comercial chegar — um lembrete que gera resposta ("me liga")
  * cai em horário em que alguém atende.

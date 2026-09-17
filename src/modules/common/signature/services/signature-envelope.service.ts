@@ -150,7 +150,13 @@ import {
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
-import { customerSideCompletedAt, isReminderDue, spDayDiff } from '../signature-reminder-cadence';
+import {
+  customerSideCompletedAt,
+  dueCustomerReminder,
+  civilDayKey,
+  isInternalReminderDue,
+  spDayDiff,
+} from '../signature-reminder-cadence';
 import {
   ankaaCountersignTemplate,
   collectionPausedTemplate,
@@ -2375,6 +2381,8 @@ export class SignatureEnvelopeService {
         id: true,
         createdAt: true,
         deadlineAt: true,
+        // Recuo do botão dos avisos internos quando o orçamento não tem tarefa.
+        quoteId: true,
         quote: {
           select: {
             budgetNumber: true,
@@ -2425,7 +2433,7 @@ export class SignatureEnvelopeService {
       for (const signer of envelope.signers.filter(
         sig => sig.orderGroup === 0 && aindaCobravel(sig.status),
       )) {
-        const due = isReminderDue(
+        const due = dueCustomerReminder(
           {
             lastReminderAt: signer.lastReminderAt,
             reminderCount: signer.reminderCount,
@@ -2433,6 +2441,8 @@ export class SignatureEnvelopeService {
             // data do convite. Não há coluna `invitedAt` — e uma seria um
             // segundo lugar para a mesma verdade divergir.
             invitedAt: envelope.createdAt,
+            // O PRAZO entra na cadência: os dois últimos toques miram nele.
+            deadlineAt: envelope.deadlineAt,
           },
           now,
         );
@@ -2479,9 +2489,14 @@ export class SignatureEnvelopeService {
         // recusas da guarda de saída, trinta linhas de erro no journal — e
         // nenhuma delas conserta o número. Falhou entra na cadência como se
         // tivesse saído; o que registra o problema é a trilha, abaixo.
+        // `set`, e não `increment`: o contador marca ATÉ ONDE o calendário foi
+        // consumido, não quantas mensagens saíram. Depois de uma queda de dois
+        // dias, sai o toque mais recente e os pulados ficam para trás — um
+        // `increment` os traria de volta na fila dos dias seguintes, que é
+        // exatamente o efeito que `dueCustomerReminder` existe para evitar.
         await this.prisma.envelopeSigner.update({
           where: { id: signer.id },
-          data: { lastReminderAt: now, reminderCount: { increment: 1 } },
+          data: { lastReminderAt: now, reminderCount: due.index + 1 },
         });
 
         await this.audit.recordBestEffort(envelope.id, {
@@ -2492,7 +2507,11 @@ export class SignatureEnvelopeService {
           payload: {
             channel: auditChannelOf(channel),
             destination: this.maskContactFor(signer, channel),
-            reminderNumber: signer.reminderCount + 1,
+            reminderNumber: due.index + 1,
+            reminderTotal: due.total,
+            // O dia PREVISTO, ao lado do dia real: numa queda do agendador os
+            // dois divergem, e a trilha é o único lugar onde isso aparece.
+            scheduledFor: civilDayKey(due.scheduledFor),
             daysLeft,
             ...(delivery.reason ? { failureReason: delivery.reason } : {}),
             ...(delivery.code ? { failureCode: delivery.code } : {}),
@@ -2514,7 +2533,7 @@ export class SignatureEnvelopeService {
       );
       if (!fechouEm || !ankaaSigner) continue;
 
-      const ankaaDue = isReminderDue(
+      const ankaaDue = isInternalReminderDue(
         {
           lastReminderAt: ankaaSigner.lastReminderAt,
           reminderCount: ankaaSigner.reminderCount,
@@ -2557,6 +2576,10 @@ export class SignatureEnvelopeService {
         whatsappTemplate: ankaaCountersignTemplate({
           signerName: ankaaSigner.declaredName,
           budgetNumber: envelope.quote.budgetNumber,
+          quoteTaskId: this.internalQuoteButtonParam(
+            primaryTask(envelope.quote)?.id ?? null,
+            envelope.quoteId,
+          ),
         }),
         kind: 'SIGNATURE_ANKAA_REMINDER',
       });
@@ -2850,8 +2873,17 @@ export class SignatureEnvelopeService {
     /** Cartão de prévia, quando a mensagem de WhatsApp carrega um link. */
     whatsappPreview?: { url: string; title: string; description?: string } | null;
     /**
-     * Template do canal oficial. As mensagens do CLIENTE têm um; os avisos
-     * internos, não — e é essa ausência que os mantém no Baileys.
+     * Template do canal oficial.
+     *
+     * OBRIGATÓRIO NA PRÁTICA desde 17/09: TODA mensagem da cerimônia sai por
+     * template, inclusive os avisos internos. Continua opcional no tipo só para
+     * o ambiente sem Cloud API, onde `sendTemplate` não existe e o texto livre
+     * do Baileys volta a ser o caminho.
+     *
+     * ⚠️ Deixar de passar um template aqui NÃO é um detalhe de estilo: o envio
+     * cai no Baileys, que é o número interno da empresa, e uma mensagem de
+     * cliente saindo por ele fora da janela de 24 h é exatamente o tráfego que
+     * derruba número.
      */
     whatsappTemplate?: SignatureWhatsAppTemplate | null;
     kind: string;
@@ -4001,6 +4033,10 @@ export class SignatureEnvelopeService {
         refusedByName: payload.refusedByName,
         budgetNumber: payload.budgetNumber,
         reason,
+        quoteTaskId: this.internalQuoteButtonParam(
+          primaryTask(env.quote)?.id ?? null,
+          env.quoteId,
+        ),
       }),
       kind: 'SIGNATURE_REFUSAL_NOTICE',
     });
@@ -4981,6 +5017,10 @@ export class SignatureEnvelopeService {
       whatsappTemplate: ankaaCountersignTemplate({
         signerName: signer.declaredName,
         budgetNumber: signer.envelope.quote.budgetNumber,
+        quoteTaskId: this.internalQuoteButtonParam(
+          primaryTask(signer.envelope.quote)?.id ?? null,
+          signer.envelope.quoteId,
+        ),
       }),
       kind: 'SIGNATURE_ANKAA_NOTICE',
     });
@@ -5867,12 +5907,23 @@ export class SignatureEnvelopeService {
         orderGroup: number;
         signedAt: Date | null;
       }>;
+      quoteId: string;
       quote?: { budgetNumber: number } | null;
     },
     materialEntries: QuoteChange[],
     reason: string,
   ): Promise<void> {
     const toNotify = running.signers.filter(s => s.status !== EnvelopeSignerStatus.REFUSED);
+
+    // O botão do template interno é endereçado pela TAREFA, e este método só
+    // recebe o orçamento. Uma consulta, fora do laço: o alvo é o mesmo para
+    // todos os signatários, e o laço fala com dois transportes de rede.
+    const task = await this.prisma.task.findFirst({
+      where: { quoteId: running.quoteId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    });
+    const quoteButtonParam = this.internalQuoteButtonParam(task?.id ?? null, running.quoteId);
     for (const s of toNotify) {
       // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
       // anulada não deveria precisar abrir um link para descobrir qual preço
@@ -5925,6 +5976,7 @@ export class SignatureEnvelopeService {
                 signerName: voidedPayload.signerName,
                 budgetNumber: voidedPayload.budgetNumber,
                 reason: voidedPayload.reason,
+                quoteTaskId: quoteButtonParam,
               })
             : voidedTemplate({
                 signerName: voidedPayload.signerName,
@@ -7545,6 +7597,24 @@ export class SignatureEnvelopeService {
    * que existe no histórico — devolve a raiz do módulo, que ao menos põe a
    * pessoa no lugar certo para procurar.
    */
+  /**
+   * O sufixo do botão "Abrir o orçamento" dos templates INTERNOS.
+   *
+   * O template guarda `https://…/financeiro/orcamento/detalhes/{{1}}` e só o id
+   * viaja — o mesmo desenho do botão do cliente, onde só o token viaja.
+   *
+   * ⚠️ A TELA INTERNA É ENDEREÇADA PELA TAREFA, não pelo orçamento, e há
+   * orçamento sem tarefa: 6 dos 47 envelopes em produção hoje, todos de
+   * julho/agosto, dois números só (883 e 945). Nesses o botão cai no id do
+   * orçamento e a tela não encontra nada — um beco, mas um beco RARO e
+   * herdado, e a alternativa (não mandar botão nenhum) piora os outros 41.
+   * O conserto de verdade é a rota do web aceitar o id do orçamento; enquanto
+   * não existe, o parâmetro nunca vai vazio, que é o que a Meta recusaria.
+   */
+  private internalQuoteButtonParam(taskId: string | null, quoteId: string): string {
+    return taskId ?? quoteId;
+  }
+
   private internalQuoteUrl(taskId: string | null): string {
     return taskId
       ? `${this.webBase()}/financeiro/orcamento/detalhes/${taskId}`

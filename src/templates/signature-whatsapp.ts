@@ -153,9 +153,11 @@ export interface WhatsAppExpiredData extends SignatureWhatsAppBase {
  * assinou a tempo" seria cobrar de quem estava decidindo — e é o mesmo cliente
  * que vai receber a proposta reformulada na semana que vem.
  *
- * DIZ O QUE ACONTECE AGORA, e não só o que deixou de valer. "Vamos rever o valor
- * e enviar uma nova proposta" é a frase que impede a pergunta "e agora?" — que,
- * sem ela, chega por telefone ao comercial, um cliente de cada vez.
+ * A INICIATIVA É DO CLIENTE (decisão de 17/09). Até aqui a mensagem prometia
+ * proposta nova — "vamos revisar os valores e enviar" —, e a promessa criava
+ * fila: todo orçamento vencido virava trabalho comercial, inclusive o de quem
+ * já tinha desistido. O texto diz o que deixou de valer e devolve o próximo
+ * passo a quem ainda tem interesse, sem cobrar nada de quem não tem.
  *
  * VAI PARA QUEM JÁ ASSINOU TAMBÉM (decisão de 11/09): quem assinou e vê a coleta
  * cair sem explicação nenhuma conclui que a assinatura dele se perdeu por
@@ -178,7 +180,7 @@ export function generateSignatureExpiredWhatsApp(data: WhatsAppExpiredData): str
       ? 'Sua assinatura ficou registrada — o que venceu foi o prazo do orçamento, não ela.'
       : 'O link que você recebeu não vale mais.',
     '',
-    `A ${COMPANY.name} vai revisar os valores e enviar uma proposta atualizada. Se preferir adiantar, fale com ${COMPANY.directorName}, ${COMPANY.directorTitle}: ${COMPANY.phone}.`,
+    `Se ainda houver interesse, fale com ${COMPANY.directorName}, ${COMPANY.directorTitle} da ${COMPANY.name} (${COMPANY.phone}), para avaliarmos uma nova proposta.`,
   ].join('\n');
 }
 

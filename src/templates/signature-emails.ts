@@ -467,9 +467,14 @@ export interface ExpiredEmailData extends SignatureEmailBase {
  * A validade venceu sem todas as assinaturas.
  *
  * O e-mail diz o mesmo que o WhatsApp e acrescenta o que só cabe aqui: a data
- * exata do vencimento e a promessa da proposta nova. Ver a nota gêmea em
- * `generateSignatureExpiredWhatsApp` sobre o tom — o prazo é nosso, a validade é
- * do PREÇO, e o cliente não descumpriu coisa alguma.
+ * exata do vencimento. Ver a nota gêmea em `generateSignatureExpiredWhatsApp`
+ * sobre o tom — o prazo é nosso, a validade é do PREÇO, e o cliente não
+ * descumpriu coisa alguma — e sobre por que a iniciativa da proposta nova é
+ * dele, e não nossa.
+ *
+ * SAIU o "nenhuma providência é necessária da sua parte": era verdade enquanto
+ * nós prometíamos voltar com valores novos. Agora contradiria o parágrafo de
+ * cima, que pede exatamente uma providência de quem ainda quiser o serviço.
  */
 export function generateSignatureExpiredEmail(data: ExpiredEmailData): {
   subject: string;
@@ -480,7 +485,7 @@ export function generateSignatureExpiredEmail(data: ExpiredEmailData): {
     html: shell({
       title: 'Validade encerrada',
       subtitle: `Orçamento nº ${data.budgetNumber}`,
-      preheader: 'Vamos revisar os valores e enviar uma proposta atualizada.',
+      preheader: 'Se ainda houver interesse, fale com o nosso comercial.',
       footerNote: 'E-mail automático da cerimônia de assinatura.',
       body: `
 <p>Olá, ${esc(data.signerName)}.</p>
@@ -492,10 +497,9 @@ ${
        O que venceu foi o prazo de validade do orçamento — não a assinatura que você fez.</div>`
     : '<p>O link de assinatura que você recebeu não vale mais.</p>'
 }
-<p>Nosso time comercial vai revisar os valores e enviar uma proposta atualizada para sua
-apreciação. Se houver urgência ou alguma condição nova a considerar, basta responder este e-mail
-ou falar com ${esc(COMPANY.directorName)}, ${esc(COMPANY.directorTitle)}, pelo ${esc(COMPANY.phone)}.</p>
-<p class="muted">Nenhuma providência é necessária da sua parte neste momento.</p>`,
+<p>Se ainda houver interesse neste serviço, entre em contato com o nosso time comercial para
+avaliarmos uma nova proposta: basta responder este e-mail ou falar com
+${esc(COMPANY.directorName)}, ${esc(COMPANY.directorTitle)}, pelo ${esc(COMPANY.phone)}.</p>`,
     }),
   };
 }

@@ -125,9 +125,14 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
         }
       },
 
-      // O canal do CLIENTE. Só é registrado quando há token e número na
-      // configuração — a cerimônia pergunta se o método existe antes de usá-lo,
-      // então a ausência aqui não quebra nada: cai no texto livre do Baileys.
+      // O canal OFICIAL. Registrado quando há token e número na configuração —
+      // a cerimônia pergunta se o método existe antes de usá-lo, então a
+      // ausência aqui não quebra nada: cai no texto livre do Baileys.
+      //
+      // Desde 17/09 ele atende a cerimônia INTEIRA, e não só o cliente: os
+      // avisos internos (recusa, contra-assinatura, anulação) ganharam template
+      // próprio e saíram do Baileys. O texto livre continua no código como a
+      // versão de contingência para quando a Cloud API estiver desligada.
       ...(cloudReady
         ? {
             sendTemplate: (phone: string, template: SignatureWhatsAppTemplate) =>
@@ -138,7 +143,7 @@ export class SignatureWhatsAppBridgeModule implements OnModuleInit {
 
     this.logger.log(
       cloudReady
-        ? 'Assinatura: cliente pela Cloud API (template), avisos internos pelo Baileys.'
+        ? 'Assinatura: TODO o WhatsApp pela Cloud API (template) — cliente e avisos internos.'
         : 'Assinatura: WhatsApp pelo Baileys (Cloud API não configurada).',
     );
   }
