@@ -1,4 +1,4 @@
-// packages/interfaces/src/task-quote.ts
+// packages/interfaces/src/budget.ts
 
 import type {
   BaseEntity,
@@ -11,12 +11,12 @@ import type {
 } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
-import type { TaskQuoteService } from './task-quote-service';
-import type { TaskQuoteCustomerConfig } from './task-quote-customer-config';
+import type { BudgetItem } from './budget-item';
+import type { BudgetPayer } from './budget-payer';
 import type { File } from './file';
 
 // =====================
-// TaskQuote Status Enum (mirrored from constants)
+// Budget Status Enum (mirrored from constants)
 // =====================
 
 // ⚠️ ESPELHO ESCRITO À MÃO do enum em `@constants`. O compilador não confere um
@@ -52,10 +52,10 @@ export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 export type QUOTE_BILLING_SPLIT = 'JOINT' | 'PER_TASK' | 'CUSTOM';
 
 // =====================
-// TaskQuote Interface
+// Budget Interface
 // =====================
 
-export interface TaskQuote extends BaseEntity {
+export interface Budget extends BaseEntity {
   budgetNumber: number; // Auto-generated sequential number for display
   subtotal: number; // Aggregate: sum of config subtotals
   total: number; // Aggregate: sum of config totals
@@ -107,16 +107,16 @@ export interface TaskQuote extends BaseEntity {
   task?: Task;
   /** OS VEÍCULOS deste orçamento, na ordem do documento (`createdAt`, `id`). */
   tasks?: Task[];
-  services?: TaskQuoteService[];
-  customerConfigs?: TaskQuoteCustomerConfig[];
+  services?: BudgetItem[];
+  customerConfigs?: BudgetPayer[];
 }
 
 // =====================
 // Include Types
 // =====================
 
-export interface TaskQuoteIncludes {
-  /** @deprecated Ver `TaskQuote.task`. O servidor ainda ACEITA e traduz. */
+export interface BudgetIncludes {
+  /** @deprecated Ver `Budget.task`. O servidor ainda ACEITA e traduz. */
   task?:
     | boolean
     | {
@@ -154,7 +154,7 @@ export interface TaskQuoteIncludes {
           /**
            * O FATURAMENTO do pagador — dele vêm a COBERTURA e o estado.
            *
-           * O zod (`taskQuoteIncludeSchema`) já aceitava esta chave; faltava
+           * O zod (`budgetIncludeSchema`) já aceitava esta chave; faltava
            * aqui, e o tipo é o contrato que o servidor compila contra. Quem
            * precisa saber quais veículos uma fatia cobre (a detecção de
            * recomposição de lotes) não conseguia sequer pedir.
@@ -184,13 +184,13 @@ export interface TaskQuoteIncludes {
 }
 
 // Alias for backward compatibility
-export type TaskQuoteInclude = TaskQuoteIncludes;
+export type BudgetInclude = BudgetIncludes;
 
 // =====================
 // OrderBy Types
 // =====================
 
-export interface TaskQuoteOrderBy {
+export interface BudgetOrderBy {
   id?: ORDER_BY_DIRECTION;
   total?: ORDER_BY_DIRECTION;
   expiresAt?: ORDER_BY_DIRECTION;
@@ -207,7 +207,7 @@ export interface TaskQuoteOrderBy {
 // Where/Filter Types
 // =====================
 
-export interface TaskQuoteWhere {
+export interface BudgetWhere {
   id?: string | { in: string[] };
   taskId?: string;
   status?: TASK_QUOTE_STATUS | { in: TASK_QUOTE_STATUS[] };
@@ -217,25 +217,25 @@ export interface TaskQuoteWhere {
 }
 
 // =====================
-// Response Interfaces - TaskQuote
+// Response Interfaces - Budget
 // =====================
 
-export interface TaskQuoteGetUniqueResponse extends BaseGetUniqueResponse<TaskQuote> {}
-export interface TaskQuoteGetManyResponse extends BaseGetManyResponse<TaskQuote> {}
-export interface TaskQuoteCreateResponse extends BaseCreateResponse<TaskQuote> {}
-export interface TaskQuoteUpdateResponse extends BaseUpdateResponse<TaskQuote> {}
-export interface TaskQuoteDeleteResponse extends BaseDeleteResponse {}
+export interface BudgetGetUniqueResponse extends BaseGetUniqueResponse<Budget> {}
+export interface BudgetGetManyResponse extends BaseGetManyResponse<Budget> {}
+export interface BudgetCreateResponse extends BaseCreateResponse<Budget> {}
+export interface BudgetUpdateResponse extends BaseUpdateResponse<Budget> {}
+export interface BudgetDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
-// Batch Operation Responses - TaskQuote
+// Batch Operation Responses - Budget
 // =====================
 
-export interface TaskQuoteBatchCreateResponse<T> extends BaseBatchResponse<TaskQuote, T> {}
-export interface TaskQuoteBatchUpdateResponse<T> extends BaseBatchResponse<
-  TaskQuote,
+export interface BudgetBatchCreateResponse<T> extends BaseBatchResponse<Budget, T> {}
+export interface BudgetBatchUpdateResponse<T> extends BaseBatchResponse<
+  Budget,
   T & { id: string }
 > {}
-export interface TaskQuoteBatchDeleteResponse extends BaseBatchResponse<
+export interface BudgetBatchDeleteResponse extends BaseBatchResponse<
   { id: string; deleted: boolean },
   { id: string }
 > {}

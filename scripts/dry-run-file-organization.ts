@@ -79,9 +79,9 @@ async function referencesOf(fileId: string, quoteLayoutId: string | null): Promi
     out.push({ key, context, owner });
 
   if (quoteLayoutId) {
-    const q = await prisma.taskQuote.findUnique({
+    const q = await prisma.budget.findUnique({
       where: { id: quoteLayoutId },
-      // `tasks` (lista) desde o orçamento multitarefa: `TaskQuote.task` não
+      // `tasks` (lista) desde o orçamento multitarefa: `Budget.task` não
       // existe mais e mandá-lo ao Prisma estoura a consulta. O nome de pasta sai
       // do PRIMEIRO veículo — qualquer um serve para nomear o diretório do
       // cliente, e nos sessenta é o mesmo cliente.

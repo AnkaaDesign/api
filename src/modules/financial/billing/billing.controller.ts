@@ -12,7 +12,7 @@ import {
 import { BillingService, BILLING_ORDER_BY } from './billing.service';
 import type { BillingDateRange, BillingNumberRange, BillingOrderDir } from './billing.service';
 import { BillingStatusCascadeService } from './billing-status-cascade.service';
-import { TaskQuoteService } from '@modules/production/task-quote/task-quote.service';
+import { BudgetService } from '@modules/production/budget/budget.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
@@ -158,7 +158,7 @@ function assertEnumList(values: string[] | undefined, allowed: string[], label: 
 export class BillingController {
   constructor(
     private readonly billingService: BillingService,
-    private readonly taskQuoteService: TaskQuoteService,
+    private readonly budgetService: BudgetService,
     private readonly billingStatusCascade: BillingStatusCascadeService,
   ) {}
 
@@ -356,7 +356,7 @@ export class BillingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async approve(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     const quoteId = await this.billingService.quoteIdOf(id);
-    return this.taskQuoteService.internalApprove(quoteId, userId, null, id);
+    return this.budgetService.internalApprove(quoteId, userId, null, id);
   }
 
   /**
@@ -373,7 +373,7 @@ export class BillingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async settle(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     const quoteId = await this.billingService.quoteIdOf(id);
-    await this.taskQuoteService.settleManually(quoteId, userId, id);
+    await this.budgetService.settleManually(quoteId, userId, id);
     await this.billingStatusCascade.recomputeBilling(id);
     return { success: true, message: 'Faturamento liquidado com sucesso.' };
   }
@@ -392,7 +392,7 @@ export class BillingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async revert(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     const quoteId = await this.billingService.quoteIdOf(id);
-    return this.taskQuoteService.revertBillingApproval(quoteId, userId, id);
+    return this.budgetService.revertBillingApproval(quoteId, userId, id);
   }
 
   /**

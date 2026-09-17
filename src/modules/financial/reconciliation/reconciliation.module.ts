@@ -40,7 +40,7 @@ import { ReceivableMatchService } from './receivable-match.service';
 import { ReceivableTaskMatchService } from './receivable-task-match.service';
 import { PayableMatchService } from './payable-match.service';
 import { OrderModule } from '@modules/inventory/order/order.module';
-import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
+import { BudgetModule } from '@modules/production/budget/budget.module';
 import { CATEGORY_LEARNERS } from './learning/category-signal';
 
 // Order matters only for display tie-breaks; fusion is order-independent. The
@@ -86,9 +86,9 @@ const categoryLearnersProvider = {
     // Contas a Pagar by PayablesService. financial → inventory direction.
     OrderModule,
     // Task-quote status cascade — reused by ReceivableMatchService to flip
-    // Installment → Invoice → TaskQuote when an inflow is conciliated (same
+    // Installment → Invoice → Budget when an inflow is conciliated (same
     // cascade the Sicredi webhook runs for boletos).
-    TaskQuoteModule,
+    BudgetModule,
   ],
   controllers: [
     ReconciliationController,

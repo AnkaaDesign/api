@@ -1,5 +1,5 @@
 /**
- * E2E do C2 — exclusão de Task/TaskQuote com envelope de assinatura.
+ * E2E do C2 — exclusão de Task/Budget com envelope de assinatura.
  *
  * Prova quatro coisas, contra o banco local e com dados DESCARTÁVEIS criados e
  * removidos pelo próprio script (nada real é tocado):
@@ -46,7 +46,7 @@ function check(label, ok, detail) {
     SignatureEnvelopeService,
   } = require(`${ROOT}/dist/modules/common/signature/services/signature-envelope.service`);
   const { PrismaService } = require(`${ROOT}/dist/modules/common/prisma/prisma.service`);
-  const { TaskQuoteService } = require(`${ROOT}/dist/modules/production/task-quote/task-quote.service`);
+  const { BudgetService } = require(`${ROOT}/dist/modules/production/budget/budget.service`);
   const { TaskService } = require(`${ROOT}/dist/modules/production/task/task.service`);
 
   const app = await NestFactory.create(AppModule, { logger: ['error'] });
@@ -54,7 +54,7 @@ function check(label, ok, detail) {
 
   const prisma = app.get(PrismaService, { strict: false });
   const envelopes = app.get(SignatureEnvelopeService, { strict: false });
-  const quotes = app.get(TaskQuoteService, { strict: false });
+  const quotes = app.get(BudgetService, { strict: false });
   const tasks = app.get(TaskService, { strict: false });
 
   // Nunca dispara WhatsApp de verdade: os telefones locais são de clientes reais.
@@ -64,13 +64,13 @@ function check(label, ok, detail) {
   const created = { customerId: null, responsibleId: null, taskIds: [], quoteIds: [] };
 
   const nextBudgetNumber = async () => {
-    const top = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
+    const top = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
     return (top._max.budgetNumber ?? 0) + 1;
   };
 
   /** Cria uma quote + task descartáveis prontas para envelope. */
   async function makeDisposable(seq) {
-    const quote = await prisma.taskQuote.create({
+    const quote = await prisma.budget.create({
       data: {
         subtotal: 1000,
         total: 950,
@@ -182,7 +182,7 @@ function check(label, ok, detail) {
       const fileRow = await prisma.file.findUnique({ where: { id: files.originalFile.id } });
       check('linha File do PDF congelado removida', fileRow === null);
       check('PDF congelado removido do disco', !existsSync(files.originalFile.path));
-      const quoteRow = await prisma.taskQuote.findUnique({ where: { id: quote.id } });
+      const quoteRow = await prisma.budget.findUnique({ where: { id: quote.id } });
       check('orçamento removido', quoteRow === null);
       created.quoteIds = created.quoteIds.filter(id => id !== quote.id);
     }
@@ -214,7 +214,7 @@ function check(label, ok, detail) {
       const msg = (refused && (refused.message || '')) + '';
       check('mensagem cita a assinatura coletada', /assinatura eletrônica já coletada/i.test(msg), msg);
       check('mensagem nomeia o signatário', msg.includes('Contato Descartavel'), msg);
-      const still = await prisma.taskQuote.findUnique({ where: { id: quote.id } });
+      const still = await prisma.budget.findUnique({ where: { id: quote.id } });
       check('orçamento preservado', still !== null);
       const foot = await envelopeFootprint(env.envelopeId);
       check('trilha de auditoria preservada', foot.events > 0);
@@ -291,7 +291,7 @@ function check(label, ok, detail) {
       // A quote sobrevive (Task é o lado FILHO da relação); limpamos abaixo.
       check(
         'orçamento órfão continua existindo (Task.quoteId é o FK)',
-        (await prisma.taskQuote.findUnique({ where: { id: quote.id } })) !== null,
+        (await prisma.budget.findUnique({ where: { id: quote.id } })) !== null,
       );
     }
   } finally {
@@ -317,7 +317,7 @@ function check(label, ok, detail) {
       });
     }
     await prisma.task.deleteMany({ where: { id: { in: created.taskIds } } });
-    await prisma.taskQuote.deleteMany({ where: { id: { in: created.quoteIds } } });
+    await prisma.budget.deleteMany({ where: { id: { in: created.quoteIds } } });
     if (created.responsibleId)
       await prisma.responsible.deleteMany({ where: { id: created.responsibleId } });
     if (created.customerId)

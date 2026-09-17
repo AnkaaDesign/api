@@ -17,7 +17,7 @@ import { BillingStatusCascadeService } from '@modules/financial/billing/billing-
  * pulava o pagador em silêncio e devolvia só os ids dos que deram certo.
  */
 export type SkippedBillingConfig = {
-  /** `TaskQuoteCustomerConfig.id` — o pagador. */
+  /** `BudgetPayer.id` — o pagador. */
   configId: string;
   /** Nome de fantasia do cliente, para a mensagem de erro dizer de quem é. */
   customerName: string;

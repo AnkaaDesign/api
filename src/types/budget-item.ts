@@ -1,4 +1,4 @@
-// packages/interfaces/src/task-quote-service.ts
+// packages/interfaces/src/budget-item.ts
 
 import type {
   BaseEntity,
@@ -10,14 +10,14 @@ import type {
   BaseBatchResponse,
 } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { TaskQuote, TaskQuoteIncludes, TaskQuoteOrderBy } from './task-quote';
+import type { Budget, BudgetIncludes, BudgetOrderBy } from './budget';
 import type { Customer } from './customer';
 
 // =====================
-// TaskQuoteService Interface
+// BudgetItem Interface
 // =====================
 
-export interface TaskQuoteService extends BaseEntity {
+export interface BudgetItem extends BaseEntity {
   description: string;
   observation?: string | null;
   amount: number;
@@ -25,7 +25,7 @@ export interface TaskQuoteService extends BaseEntity {
   invoiceToCustomerId: string | null;
 
   // Relations
-  quote?: TaskQuote;
+  quote?: Budget;
   invoiceToCustomer?: Customer;
 }
 
@@ -33,11 +33,11 @@ export interface TaskQuoteService extends BaseEntity {
 // Include Types
 // =====================
 
-export interface TaskQuoteServiceIncludes {
+export interface BudgetItemIncludes {
   quote?:
     | boolean
     | {
-        include?: TaskQuoteIncludes;
+        include?: BudgetIncludes;
       };
   invoiceToCustomer?:
     | boolean
@@ -48,7 +48,7 @@ export interface TaskQuoteServiceIncludes {
 // OrderBy Types
 // =====================
 
-export interface TaskQuoteServiceOrderBy {
+export interface BudgetItemOrderBy {
   id?: ORDER_BY_DIRECTION;
   description?: ORDER_BY_DIRECTION;
   amount?: ORDER_BY_DIRECTION;
@@ -56,32 +56,32 @@ export interface TaskQuoteServiceOrderBy {
   invoiceToCustomerId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
-  quote?: TaskQuoteOrderBy;
+  quote?: BudgetOrderBy;
 }
 
 // =====================
-// Response Interfaces - TaskQuoteService
+// Response Interfaces - BudgetItem
 // =====================
 
-export interface TaskQuoteServiceGetUniqueResponse extends BaseGetUniqueResponse<TaskQuoteService> {}
-export interface TaskQuoteServiceGetManyResponse extends BaseGetManyResponse<TaskQuoteService> {}
-export interface TaskQuoteServiceCreateResponse extends BaseCreateResponse<TaskQuoteService> {}
-export interface TaskQuoteServiceUpdateResponse extends BaseUpdateResponse<TaskQuoteService> {}
-export interface TaskQuoteServiceDeleteResponse extends BaseDeleteResponse {}
+export interface BudgetItemGetUniqueResponse extends BaseGetUniqueResponse<BudgetItem> {}
+export interface BudgetItemGetManyResponse extends BaseGetManyResponse<BudgetItem> {}
+export interface BudgetItemCreateResponse extends BaseCreateResponse<BudgetItem> {}
+export interface BudgetItemUpdateResponse extends BaseUpdateResponse<BudgetItem> {}
+export interface BudgetItemDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
-// Batch Operation Responses - TaskQuoteService
+// Batch Operation Responses - BudgetItem
 // =====================
 
-export interface TaskQuoteServiceBatchCreateResponse<T> extends BaseBatchResponse<
-  TaskQuoteService,
+export interface BudgetItemBatchCreateResponse<T> extends BaseBatchResponse<
+  BudgetItem,
   T
 > {}
-export interface TaskQuoteServiceBatchUpdateResponse<T> extends BaseBatchResponse<
-  TaskQuoteService,
+export interface BudgetItemBatchUpdateResponse<T> extends BaseBatchResponse<
+  BudgetItem,
   T & { id: string }
 > {}
-export interface TaskQuoteServiceBatchDeleteResponse extends BaseBatchResponse<
+export interface BudgetItemBatchDeleteResponse extends BaseBatchResponse<
   { id: string; deleted: boolean },
   { id: string }
 > {}

@@ -2732,7 +2732,7 @@ export const RESPONSIBLE_ROLE_LABELS = {
 
 /**
  * Ordem de preferência para eleger o responsável PRINCIPAL de uma tarefa — o
- * contato a quem o orçamento é endereçado e que os `TaskQuoteCustomerConfig`
+ * contato a quem o orçamento é endereçado e que os `BudgetPayer`
  * herdam quando ninguém escolheu um.
  *
  * Existe porque o critério era `roles.includes('OWNER')`, escrito à mão em quatro
@@ -2821,6 +2821,21 @@ export enum TASK_QUOTE_STATUS {
   APPROVED = 'APPROVED',
   CANCELLED = 'CANCELLED',
 }
+
+/**
+ * Apelido de transição para `TASK_QUOTE_STATUS`, enquanto a entidade termina de
+ * virar `Budget`.
+ *
+ * É o MESMO enum — o mesmo objeto em runtime, os mesmos cinco valores de string.
+ * Só o nome do enum mudou; os VALORES continuam `'PENDING'`, `'SIGNED'`,
+ * `'APPROVED'`, `'EXPIRED'` e `'CANCELLED'`, e é por eles que 3.863 linhas de
+ * ChangeLog, o banco e o app instalado se entendem. Trocar um valor por
+ * `'BUDGET_*'` não é renomear: é perder o histórico.
+ *
+ * `TASK_QUOTE_STATUS` NÃO foi removido — código antigo continua compilando.
+ */
+export const BUDGET_STATUS = TASK_QUOTE_STATUS;
+export type BUDGET_STATUS = TASK_QUOTE_STATUS;
 
 /**
  * O CICLO DO FATURAMENTO — nasce com a cobrança e morre quando ela é paga.

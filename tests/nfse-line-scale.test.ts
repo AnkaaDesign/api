@@ -3,7 +3,7 @@
  *
  * O QUE ESTE ARQUIVO PROTEGE
  * ─────────────────────────────────────────────────────────────────────────────
- * `TaskQuoteService.amount` é o preço de UM veículo (ver `utils/quote-money.ts`),
+ * `BudgetItem.amount` é o preço de UM veículo (ver `utils/quote-money.ts`),
  * e `Invoice.totalAmount` é `por veículo × cobertos`. A nota precisa fazer a
  * MESMA multiplicação: `quantidade = cobertos`, `valorUnitario` = o preço do
  * caminhão. Sem ela a nota saía pelo valor de UM enquanto o boleto cobrava os

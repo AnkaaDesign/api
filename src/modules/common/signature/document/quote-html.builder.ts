@@ -249,7 +249,7 @@ export interface QuoteHtmlInput {
   discountLabel: string | null;
   /** Percentual quando o desconto é `PERCENTAGE`. */
   discountPercent?: number | null;
-  /** Motivo do desconto (`TaskQuoteCustomerConfig.discountReference`). */
+  /** Motivo do desconto (`BudgetPayer.discountReference`). */
   discountReference?: string | null;
   discountAmount: number;
 

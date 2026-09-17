@@ -110,7 +110,7 @@ export function checkServiceOrderUpdatePermission(
 
   // WAITING_ARTWORK is ONLY valid for COMMERCIAL service orders (commercial-approval
   // → artwork-pending workflow). It is set/cleared automatically by the
-  // task-quote flow; manual transitions are allowed but constrained by type.
+  // budget flow; manual transitions are allowed but constrained by type.
   if (
     newStatus === SERVICE_ORDER_STATUS.WAITING_ARTWORK &&
     serviceOrder.type !== SERVICE_ORDER_TYPE.COMMERCIAL

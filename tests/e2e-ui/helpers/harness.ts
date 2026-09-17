@@ -1,5 +1,5 @@
 /**
- * Harness do e2e de UI — mesma ideia do `check()` de `multitask-quote-e2e`:
+ * Harness do e2e de UI — mesma ideia do `check()` de `multibudget-e2e`:
  * nenhuma asserção derruba a bateria. Um cenário que falha registra o defeito,
  * tira a foto da tela e o próximo cenário continua — é o contrário de um
  * `expect` que aborta e esconde os outros oito defeitos atrás do primeiro.

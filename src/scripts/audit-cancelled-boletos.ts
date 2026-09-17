@@ -2,7 +2,7 @@
  * Read-only audit of locally-CANCELLED boletos against Sicredi.
  *
  * Three cancellation paths (invoice.controller cancelBoleto / markBoletoAsPaid,
- * task-quote settleManually) call Sicredi fire-and-forget: they log a warning on
+ * budget settleManually) call Sicredi fire-and-forget: they log a warning on
  * failure and write status = CANCELLED regardless. A boleto can therefore be dead
  * locally and perfectly alive at the bank — collectible, and (until the webhook fix
  * of 2026-08-09) able to be paid with the liquidation silently discarded.

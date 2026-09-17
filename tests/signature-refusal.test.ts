@@ -237,7 +237,7 @@ async function main() {
     // Limpeza. O envelope cairia por cascade do orçamento — ver acima por que
     // isso não acontece quando a coleta chegou a gravar trilha.
     if (criados.quoteId) {
-      await prisma.taskQuote.deleteMany({ where: { id: criados.quoteId } }).catch(() => {});
+      await prisma.budget.deleteMany({ where: { id: criados.quoteId } }).catch(() => {});
     }
     if (criados.taskIds.length) {
       await prisma.task.deleteMany({ where: { id: { in: criados.taskIds } } }).catch(() => {});

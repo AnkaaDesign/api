@@ -70,7 +70,7 @@ export interface MunicipalEmitNfseInput {
   /**
    * QUANTOS VEÍCULOS ESTA NOTA COBRA — a quantidade de cada linha de serviço.
    *
-   * `TaskQuoteService.amount` é o preço de UM veículo (ver `utils/quote-money.ts`).
+   * `BudgetItem.amount` é o preço de UM veículo (ver `utils/quote-money.ts`).
    * Uma fatura que cobre dois caminhões vale `por veículo × 2`, e a nota tem de
    * declarar os dois: `quantidade = 2`, `valorUnitario` = o preço do caminhão.
    * Sem isto a nota saía pelo preço de UM enquanto o boleto cobrava os dois —
@@ -2038,7 +2038,7 @@ export class ElotechOxyNfseService {
       // Cobertura → pagadores desta rodada. `billing.tasks` é a cobertura
       // explícita; cobrança sem cobertura declarada (acervo anterior a 13/09)
       // simplesmente não casa com nenhum `taskId`, e a nota fica viva.
-      const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+      const configs = await this.prisma.budgetPayer.findMany({
         where: { id: { in: [...pagadoresDaRodada] } },
         select: { id: true, billingId: true, billing: { select: { tasks: { select: { taskId: true } } } } },
       });

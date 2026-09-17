@@ -623,7 +623,7 @@ export class InvoiceAnalyticsService {
   // Um orçamento de sessenta caminhões cobrados um a um tem sessenta cobranças:
   // perguntar ao orçamento se "está pago" não tinha resposta possível.
   //
-  // ⚠️ NÃO USE `TaskQuote.statusOrder` AQUI. Foi o que este código fazia, e
+  // ⚠️ NÃO USE `Budget.statusOrder` AQUI. Foi o que este código fazia, e
   // estava errado desde sempre: aquela coluna é uma ordem de PRIORIDADE para a
   // lista do operador (o que pede ação primeiro), não uma progressão do funil.
   // Com ela, `PENDING` valia 8 e passava por todos os limiares — todo orçamento
@@ -740,7 +740,7 @@ export class InvoiceAnalyticsService {
 
     /**
      * QUANDO este orçamento passou a ser faturado — a PRIMEIRA cobrança
-     * aprovada, e não `TaskQuote.billingApprovedAt`, que marca a ÚLTIMA (ou
+     * aprovada, e não `Budget.billingApprovedAt`, que marca a ÚLTIMA (ou
      * seja, "o contrato inteiro está faturado"). Para um ciclo de venda a
      * pergunta é quando o dinheiro começou a ser cobrado.
      */
@@ -762,7 +762,7 @@ export class InvoiceAnalyticsService {
     };
 
     if (customerIds?.length || sectorIds?.length) {
-      // ⚠️ `tasks: { some: … }`, não `task: { … }`. `TaskQuote.task` singular
+      // ⚠️ `tasks: { some: … }`, não `task: { … }`. `Budget.task` singular
       // deixou de existir quando o orçamento passou a cobrir N veículos
       // (`20260903120000_multitask_quote`) — a relação é `tasks Task[]`. O
       // `where` antigo era aceito pelo TypeScript (o objeto é `any`) e recusado
@@ -779,7 +779,7 @@ export class InvoiceAnalyticsService {
       };
     }
 
-    const quotes = await this.prisma.taskQuote.findMany({
+    const quotes = await this.prisma.budget.findMany({
       where,
       select: {
         id: true,

@@ -1,4 +1,4 @@
-// api/src/modules/production/task-quote/task-quote.service.ts
+// api/src/modules/production/budget/budget.service.ts
 
 import {
   Injectable,
@@ -14,7 +14,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { TaskQuoteRepository } from './repositories/task-quote.repository';
+import { BudgetRepository } from './repositories/budget.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
@@ -22,20 +22,20 @@ import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nf
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { FileService } from '@modules/common/file/file.service';
 import type {
-  TaskQuoteCreateFormData,
-  TaskQuoteUpdateFormData,
-  TaskQuoteGetManyFormData,
-} from '@schemas/task-quote';
+  BudgetCreateFormData,
+  BudgetUpdateFormData,
+  BudgetGetManyFormData,
+} from '@schemas/budget';
 import type {
-  TaskQuoteGetManyResponse,
-  TaskQuoteGetUniqueResponse,
-  TaskQuoteCreateResponse,
-  TaskQuoteUpdateResponse,
-  TaskQuoteDeleteResponse,
-  TaskQuoteBatchCreateResponse,
-  TaskQuoteBatchUpdateResponse,
-  TaskQuoteBatchDeleteResponse,
-  TaskQuote,
+  BudgetGetManyResponse,
+  BudgetGetUniqueResponse,
+  BudgetCreateResponse,
+  BudgetUpdateResponse,
+  BudgetDeleteResponse,
+  BudgetBatchCreateResponse,
+  BudgetBatchUpdateResponse,
+  BudgetBatchDeleteResponse,
+  Budget,
 } from '@types';
 import {
   TASK_QUOTE_STATUS,
@@ -68,22 +68,22 @@ import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import {
   getQuoteItemToServiceOrderSync,
   type SyncServiceOrder,
-} from '../../../utils/task-quote-service-order-sync';
+} from '../../../utils/budget-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import {
   syncTaskLayoutsFromQuote,
   reproveNonSelectedTaskLayoutsFromQuote,
 } from '../../../utils/sync-quote-task-layouts';
-import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from './budget-status-cascade.service';
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
-import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { recalcQuoteTotals } from '../../../utils/budget-totals';
 import {
   judgeMerge,
   type MergeBlocker,
   type MergeCandidate,
   type MergeWarning,
-} from '../../../utils/task-quote-merge-rules';
+} from '../../../utils/budget-merge-rules';
 import {
   computeQuoteMoney,
   planCoverage,
@@ -103,7 +103,7 @@ import { allocateBudgetNumber } from '../../../utils/budget-number';
 import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
-} from '../../../utils/task-quote-customer-config-sync';
+} from '../../../utils/budget-customer-config-sync';
 import {
   BILLING_FROZEN_WHERE,
   isBillingFrozen,
@@ -111,13 +111,13 @@ import {
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
-} from './task-quote.guards';
+} from './budget.guards';
 import { LIVE_INVOICE_WHERE } from '../../../utils/billing-invoice';
 import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
 import { deleteInstallmentsWithSlips } from '@utils/billing-teardown';
-import { reconcileBillingsForQuote } from '@utils/task-quote-customer-config-sync';
+import { reconcileBillingsForQuote } from '@utils/budget-customer-config-sync';
 
 /**
  * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
@@ -135,16 +135,16 @@ function computeConfigDiscount(
 }
 
 /**
- * Service for managing TaskQuote entities
+ * Service for managing Budget entities
  * Handles CRUD operations, status management, and business logic
  */
 @Injectable()
-export class TaskQuoteService {
-  private readonly logger = new Logger(TaskQuoteService.name);
+export class BudgetService {
+  private readonly logger = new Logger(BudgetService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly taskQuoteRepository: TaskQuoteRepository,
+    private readonly budgetRepository: BudgetRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
     @Inject(forwardRef(() => InvoiceGenerationService))
@@ -159,8 +159,8 @@ export class TaskQuoteService {
     private readonly signatureDeletion: SignatureDeletionService,
     // A cascata do ORÇAMENTO: reconcilia a O.S. "Em Negociação" e dispara o aviso
     // de contrato quitado. Não calcula mais status — isso é da cobrança.
-    @Inject(forwardRef(() => TaskQuoteStatusCascadeService))
-    private readonly statusCascadeService: TaskQuoteStatusCascadeService,
+    @Inject(forwardRef(() => BudgetStatusCascadeService))
+    private readonly statusCascadeService: BudgetStatusCascadeService,
     // A cascata da COBRANÇA: deriva `Billing.status` das parcelas. É quem fecha o
     // estado depois de aprovar um faturamento, e quem o recalcula quando uma
     // aprovação falha no meio.
@@ -170,7 +170,7 @@ export class TaskQuoteService {
   /**
    * Find many quotes with filtering, pagination, and sorting
    */
-  async findMany(query: TaskQuoteGetManyFormData): Promise<TaskQuoteGetManyResponse> {
+  async findMany(query: BudgetGetManyFormData): Promise<BudgetGetManyResponse> {
     try {
       // ⚠️ `GET /task-quotes` NÃO PAGINAVA.
       //
@@ -190,7 +190,7 @@ export class TaskQuoteService {
         take: limit,
         skip: query.skip ?? (page - 1) * limit,
       };
-      const result = await this.taskQuoteRepository.findMany(paginated);
+      const result = await this.budgetRepository.findMany(paginated);
 
       return {
         success: true,
@@ -216,9 +216,9 @@ export class TaskQuoteService {
    * aprovado antes de aprovar o orçamento") — the client mirror of the server
    * guard fired on a payload the server never sent. Keep the wrapper.
    */
-  async findUnique(id: string, include?: any): Promise<TaskQuoteGetUniqueResponse> {
+  async findUnique(id: string, include?: any): Promise<BudgetGetUniqueResponse> {
     try {
-      const quote = await this.taskQuoteRepository.findById(id, include ? { include } : undefined);
+      const quote = await this.budgetRepository.findById(id, include ? { include } : undefined);
 
       if (!quote) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -239,9 +239,9 @@ export class TaskQuoteService {
   /**
    * Find quote by task ID
    */
-  async findByTaskId(taskId: string): Promise<TaskQuoteGetUniqueResponse> {
+  async findByTaskId(taskId: string): Promise<BudgetGetUniqueResponse> {
     try {
-      const quote = await this.taskQuoteRepository.findByTaskId(taskId);
+      const quote = await this.budgetRepository.findByTaskId(taskId);
 
       // Return null data when no quote exists (not an error - task may not have a quote yet)
       if (!quote) {
@@ -275,10 +275,10 @@ export class TaskQuoteService {
    * orçamento nasce ou não nasce JUNTO com as tarefas.
    */
   async create(
-    data: TaskQuoteCreateFormData,
+    data: BudgetCreateFormData,
     userId: string,
     externalTx?: PrismaTransaction,
-  ): Promise<TaskQuoteCreateResponse> {
+  ): Promise<BudgetCreateResponse> {
     try {
       // Toda leitura de validação usa a transação quando ela existe: fora dela,
       // as tarefas recém-criadas pelo mesmo `$transaction` ainda não estão
@@ -408,7 +408,7 @@ export class TaskQuoteService {
       }
 
       // NOTE: Each task has its own independent quote record.
-      // When copying a quote (e.g. via copyFromTask), a new TaskQuote is created as a deep copy.
+      // When copying a quote (e.g. via copyFromTask), a new Budget is created as a deep copy.
 
       // Validate services exist
       if (!data.services || data.services.length === 0) {
@@ -419,7 +419,7 @@ export class TaskQuoteService {
       // DINHEIRO
       // ═══════════════════════════════════════════════════════════════════════
       //
-      // `TaskQuoteService.amount` é o preço de UM veículo. A conta de cada
+      // `BudgetItem.amount` é o preço de UM veículo. A conta de cada
       // configuração de faturamento é `computeQuoteMoney`, a mesma que
       // `recalcQuoteTotals` usa depois e a mesma que o documento imprime — é
       // isso que faz o PDF assinado e o boleto fecharem no centavo.
@@ -509,7 +509,7 @@ export class TaskQuoteService {
         // Get next budget number (auto-increment, advisory-locked against concurrent minters)
         const nextBudgetNumber = await allocateBudgetNumber(tx);
 
-        const newQuote = await tx.taskQuote.create({
+        const newQuote = await tx.budget.create({
           data: {
             budgetNumber: nextBudgetNumber,
             subtotal: aggregateSubtotal,
@@ -598,7 +598,7 @@ export class TaskQuoteService {
         //
         // DOIS PAGADORES DO MESMO RECORTE CAEM NO MESMO FATURAMENTO, com dois
         // `customerConfigs` dentro: o que difere entre eles é quem paga o quê
-        // (`TaskQuoteService.invoiceToCustomerId`), não quais caminhões a cobrança
+        // (`BudgetItem.invoiceToCustomerId`), não quais caminhões a cobrança
         // cobre. Era este colapso que a modelagem antiga não sabia fazer — ela
         // respondia "dois faturamentos" para um recorte só.
         //
@@ -789,7 +789,7 @@ export class TaskQuoteService {
           // Não lança: falha de sincronia não pode desfazer a criação do orçamento.
         }
 
-        return tx.taskQuote.findUnique({
+        return tx.budget.findUnique({
           where: { id: newQuote.id },
           include: {
             services: {
@@ -980,7 +980,7 @@ export class TaskQuoteService {
   /**
    * AS CHAVES QUE O ORÇAMENTO NÃO TEM — e que por isso nunca são "alteração".
    *
-   * `TaskQuote` não tem coluna `taskId` (a FK mudou de lado e hoje mora em
+   * `Budget` não tem coluna `taskId` (a FK mudou de lado e hoje mora em
    * `Task.quoteId`), mas o zod a aceitava no corpo do update e a tela a mandava.
    * O efeito era brutal e invisível: `isScalarChanged(undefined, "<uuid>")`
    * responde SEMPRE "mudou", então `taskId` nunca era filtrado; com uma cobrança
@@ -1002,13 +1002,13 @@ export class TaskQuoteService {
    */
   private filterToMaterialChanges(
     existing: any,
-    data: TaskQuoteUpdateFormData,
-  ): TaskQuoteUpdateFormData {
+    data: BudgetUpdateFormData,
+  ): BudgetUpdateFormData {
     const filtered: any = {};
     for (const key of Object.keys(data)) {
       const value = (data as any)[key];
       if (value === undefined) continue;
-      if (TaskQuoteService.NON_QUOTE_UPDATE_KEYS.has(key)) continue;
+      if (BudgetService.NON_QUOTE_UPDATE_KEYS.has(key)) continue;
       if (key === 'customerConfigs') {
         if (this.customerConfigsMateriallyChanged(existing.customerConfigs || [], value)) {
           filtered[key] = value;
@@ -1050,7 +1050,7 @@ export class TaskQuoteService {
         }
       }
     }
-    return filtered as TaskQuoteUpdateFormData;
+    return filtered as BudgetUpdateFormData;
   }
 
   /**
@@ -1058,7 +1058,7 @@ export class TaskQuoteService {
    * fields. Used to drive auto-revert-to-PENDING when value changes happen
    * after BUDGET_APPROVED.
    */
-  private hasValueAffectingChange(existing: any, data: TaskQuoteUpdateFormData): boolean {
+  private hasValueAffectingChange(existing: any, data: BudgetUpdateFormData): boolean {
     if (data.services !== undefined) return true;
 
     // A FROTA MUDOU → O VALOR MUDOU. O total do orçamento é `por veículo × N`;
@@ -1107,13 +1107,13 @@ export class TaskQuoteService {
    */
   async update(
     id: string,
-    data: TaskQuoteUpdateFormData,
+    data: BudgetUpdateFormData,
     userId: string,
     _internal = false,
     actorPrivilege?: string,
-  ): Promise<TaskQuoteUpdateResponse> {
+  ): Promise<BudgetUpdateResponse> {
     try {
-      const existing = await this.taskQuoteRepository.findById(id, {
+      const existing = await this.budgetRepository.findById(id, {
         include: {
           services: { orderBy: { position: 'asc' } },
           // ⚠️ A COBERTURA DE CADA PAGADOR vem junto. A detecção de mudança
@@ -1277,7 +1277,7 @@ export class TaskQuoteService {
         // Default each customerConfig's responsibleId to the best task responsible if missing.
         // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt (mirrors
         // create() and the public budget page).
-        // The TaskQuote↔Task relation lives on Task.quoteId — query via that side.
+        // The Budget↔Task relation lives on Task.quoteId — query via that side.
         // Âncora na ordem canônica: o responsável herdado tem de ser sempre o do
         // MESMO veículo, não o de qualquer um que o banco devolva primeiro.
         const taskWithResp = await this.prisma.task.findFirst({
@@ -1438,7 +1438,7 @@ export class TaskQuoteService {
 
           if (removedTaskIds.length > 0) {
             // As configurações de faturamento da tarefa retirada saem por
-            // cascata (`TaskQuoteCustomerConfig.taskId` é `onDelete: Cascade` na
+            // cascata (`BudgetPayer.taskId` é `onDelete: Cascade` na
             // TAREFA, não no vínculo) — então a reconciliação abaixo é quem as
             // apaga, com as guardas de boleto ativo e parcela paga.
             await tx.task.updateMany({
@@ -1461,7 +1461,7 @@ export class TaskQuoteService {
         // a checagem é um palpite: duas renumerações simultâneas passariam as
         // duas pela leitura e uma morreria no INSERT.
         if ((data as any).budgetNumber !== undefined) {
-          const taken = await tx.taskQuote.findFirst({
+          const taken = await tx.budget.findFirst({
             where: { budgetNumber: (data as any).budgetNumber, id: { not: id } },
             select: { id: true, tasks: { select: { serialNumber: true }, take: 1 } },
           });
@@ -1474,7 +1474,7 @@ export class TaskQuoteService {
           }
         }
 
-        const updatedQuote = await tx.taskQuote.update({
+        const updatedQuote = await tx.budget.update({
           where: { id },
           data: {
             ...(aggregateSubtotal !== undefined && { subtotal: aggregateSubtotal }),
@@ -1661,7 +1661,7 @@ export class TaskQuoteService {
         // o orçamento afirmava um modo que a cobertura contradizia — exatamente o
         // que esta guarda existe para impedir.
         if (billingSplitChanged) {
-          const frozen = await tx.taskQuoteCustomerConfig.count({
+          const frozen = await tx.budgetPayer.count({
             where: {
               quoteId: id,
               OR: [
@@ -1682,7 +1682,7 @@ export class TaskQuoteService {
           }
         }
         if (data.customerConfigs === undefined && billingSplitChanged) {
-          const storedConfigs = await tx.taskQuoteCustomerConfig.findMany({
+          const storedConfigs = await tx.budgetPayer.findMany({
             where: { quoteId: id },
             orderBy: { createdAt: 'asc' },
           });
@@ -1753,7 +1753,7 @@ export class TaskQuoteService {
           }
 
           // Audit the per-customer billing terms. The discount lives on the config
-          // row, so when it moved off TaskQuote (migration 20260408000003) it left
+          // row, so when it moved off Budget (migration 20260408000003) it left
           // the `fieldsToTrack` scalar allowlist behind and stopped being audited
           // entirely — a discount could be wiped with no trace beyond the derived
           // quote total. Logged against the QUOTE id so the entries surface on the
@@ -1840,7 +1840,7 @@ export class TaskQuoteService {
               },
             });
             if (desaprovadas.count > 0) {
-              await tx.taskQuote.update({
+              await tx.budget.update({
                 where: { id },
                 data: {
                   // O carimbo de "inteiramente faturado" cai junto: deixou de ser verdade.
@@ -1853,7 +1853,7 @@ export class TaskQuoteService {
           // Clear orphaned service assignments: if a customer was removed from configs,
           // any services assigned to that customer via invoiceToCustomerId should be set to null
           const validCustomerIds = data.customerConfigs.map(c => c.customerId);
-          await tx.taskQuoteService.updateMany({
+          await tx.budgetItem.updateMany({
             where: {
               quoteId: id,
               invoiceToCustomerId: {
@@ -1971,7 +1971,7 @@ export class TaskQuoteService {
           );
 
           if (allOldAmountsZero && anyNewAmountNonZero) {
-            const updatedWithTask = await tx.taskQuote.findUnique({
+            const updatedWithTask = await tx.budget.findUnique({
               where: { id },
               include: {
                 tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
@@ -2038,7 +2038,7 @@ export class TaskQuoteService {
 
           if (keysToDelete.size > 0) {
             // Get the task ID for this quote
-            const quoteWithTask = await tx.taskQuote.findUnique({
+            const quoteWithTask = await tx.budget.findUnique({
               where: { id },
               select: {
                 tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
@@ -2078,7 +2078,7 @@ export class TaskQuoteService {
           // PRODUCTION service orders
           // =====================================================================
           try {
-            const quoteWithTask = await tx.taskQuote.findUnique({
+            const quoteWithTask = await tx.budget.findUnique({
               where: { id },
               select: {
                 tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
@@ -2181,7 +2181,7 @@ export class TaskQuoteService {
           await recalcQuoteTotals(tx, id);
         }
 
-        return tx.taskQuote.findUnique({
+        return tx.budget.findUnique({
           where: { id },
           include: {
             services: {
@@ -2292,7 +2292,7 @@ export class TaskQuoteService {
     const quoteIds = [...new Set(tasks.map(t => t.quoteId).filter((q): q is string => !!q))];
     if (!quoteIds.length) return { candidates: [], semOrcamento };
 
-    const quotes = await this.prisma.taskQuote.findMany({
+    const quotes = await this.prisma.budget.findMany({
       where: { id: { in: quoteIds } },
       include: {
         services: { orderBy: { position: 'asc' } },
@@ -2487,14 +2487,14 @@ export class TaskQuoteService {
 
         // 4. Apagar os orçamentos, agora vazios. O `Cascade` leva serviços,
         //    pagadores e faturamentos — todos já provados sem dinheiro vivo.
-        await tx.taskQuote.deleteMany({ where: { id: { in: absorbedIds } } });
+        await tx.budget.deleteMany({ where: { id: { in: absorbedIds } } });
 
         // 5. O modo e a validade do resultado. A validade mais DISTANTE: encurtar
         //    a de um veículo por causa da união seria decidir contra o cliente.
         const expiresAt = new Date(
           Math.max(...[survivor, ...verdict.absorbed].map(c => c.expiresAt.getTime())),
         );
-        await tx.taskQuote.update({
+        await tx.budget.update({
           where: { id: survivor.id },
           data: {
             billingSplit: billingSplit as any,
@@ -2586,9 +2586,9 @@ export class TaskQuoteService {
   /**
    * Delete quote
    */
-  async delete(id: string, userId: string): Promise<TaskQuoteDeleteResponse> {
+  async delete(id: string, userId: string): Promise<BudgetDeleteResponse> {
     try {
-      const existing = await this.prisma.taskQuote.findUnique({
+      const existing = await this.prisma.budget.findUnique({
         where: { id },
         include: {
           services: { orderBy: { position: 'asc' } },
@@ -2669,7 +2669,7 @@ export class TaskQuoteService {
 
       const purged = await this.prisma.$transaction(async tx => {
         // A trilha de auditoria é append-only por trigger; o `onDelete: Cascade`
-        // de TaskQuote → SignatureEnvelope → SignatureAuditEvent estouraria em
+        // de Budget → SignatureEnvelope → SignatureAuditEvent estouraria em
         // `restrict_violation` (500). A purga explícita esvazia o cascade antes
         // do delete, abrindo a válvula da migration só dentro desta transação.
         const result = await this.signatureDeletion.purgeForQuotes(tx, [id]);
@@ -2708,7 +2708,7 @@ export class TaskQuoteService {
           }
         }
 
-        await tx.taskQuote.delete({ where: { id } });
+        await tx.budget.delete({ where: { id } });
 
         // Log the quote deletion itself
         await this.changeLogService.logChange({
@@ -2749,9 +2749,9 @@ export class TaskQuoteService {
     id: string,
     status: TASK_QUOTE_STATUS,
     userId: string,
-  ): Promise<TaskQuoteUpdateResponse> {
+  ): Promise<BudgetUpdateResponse> {
     try {
-      const existing = await this.taskQuoteRepository.findById(id);
+      const existing = await this.budgetRepository.findById(id);
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -2788,7 +2788,7 @@ export class TaskQuoteService {
       // artefatos dele. Por isso o motivo do changelog é parâmetro.
       if (status === TASK_QUOTE_STATUS.CANCELLED) {
         await this.cancelForTaskCancellation(id, userId, 'Orçamento cancelado pelo usuário');
-        const cancelled = await this.taskQuoteRepository.findById(id);
+        const cancelled = await this.budgetRepository.findById(id);
         return {
           success: true,
           data: cancelled as any,
@@ -2872,7 +2872,7 @@ export class TaskQuoteService {
       // fatura e parcelas de TODOS os pagadores do orçamento — e o passo seguinte
       // as marcava pagas. Liquidar à mão uma cobrança sem parcelas quitava o
       // contrato inteiro, inventando o dinheiro que declarava recebido.
-      const configsDaCobranca = await this.prisma.taskQuoteCustomerConfig.findMany({
+      const configsDaCobranca = await this.prisma.budgetPayer.findMany({
         where: configScope,
         select: { id: true },
       });
@@ -3086,7 +3086,7 @@ export class TaskQuoteService {
         paid.dueDate,
       );
     }
-    await this.dispatchTaskQuoteSettledNotification(quoteId);
+    await this.dispatchBudgetSettledNotification(quoteId);
   }
 
   /**
@@ -3173,7 +3173,7 @@ export class TaskQuoteService {
       const nextStep = 'aprovação de faturamento';
 
       await this.dispatchService.dispatchByConfiguration('task_quote.approval_pending', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'approval_pending',
         data: { quoteLabel, nextStep },
@@ -3201,11 +3201,11 @@ export class TaskQuoteService {
    * Dispatch task_quote.settled when a quote is settled manually.
    * Best-effort — never breaks the settlement flow.
    */
-  private async dispatchTaskQuoteSettledNotification(quoteId: string): Promise<void> {
+  private async dispatchBudgetSettledNotification(quoteId: string): Promise<void> {
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
       await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'settled',
         data: { quoteLabel },
@@ -3245,7 +3245,7 @@ export class TaskQuoteService {
    * cascateamento de parcelas.
    */
   async markSigned(quoteId: string, userId: string = 'system'): Promise<void> {
-    const existing = await this.prisma.taskQuote.findUnique({
+    const existing = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: { status: true },
     });
@@ -3275,7 +3275,7 @@ export class TaskQuoteService {
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
       await this.dispatchService.dispatchByConfiguration('task_quote.signed', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'signed',
         data: { quoteLabel },
@@ -3314,7 +3314,7 @@ export class TaskQuoteService {
    * propósito (o cliente aceitou dentro do prazo; o que falta é nosso).
    */
   async markExpiredBySignature(quoteId: string, userId: string = 'system'): Promise<void> {
-    const existing = await this.prisma.taskQuote.findUnique({
+    const existing = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: { status: true, expiresAt: true },
     });
@@ -3337,7 +3337,7 @@ export class TaskQuoteService {
         timeZone: 'America/Sao_Paulo',
       });
       await this.dispatchService.dispatchByConfiguration('task_quote.expired', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'expired',
         data: { quoteLabel, expiredOn },
@@ -3386,7 +3386,7 @@ export class TaskQuoteService {
     reason: string,
     userId: string = 'system',
   ): Promise<void> {
-    const existing = await this.prisma.taskQuote.findUnique({
+    const existing = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: { status: true },
     });
@@ -3409,7 +3409,7 @@ export class TaskQuoteService {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
       const motivo = reason?.trim() || 'sem motivo informado';
       await this.dispatchService.dispatchByConfiguration('task_quote.refused', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'refused',
         data: { quoteLabel, reason: motivo },
@@ -3438,13 +3438,13 @@ export class TaskQuoteService {
    * no separate second commercial double-check. From this state financial can
    * approve billing directly, regardless of whether the task is finished yet.
    */
-  async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+  async budgetApprove(id: string, userId: string): Promise<BudgetUpdateResponse> {
     // Required-layout gate: a budget can only be approved once an approved layout
-    // (TaskQuote.layoutFiles) has been selected in Step 2. This gates ONLY the
+    // (Budget.layoutFiles) has been selected in Step 2. This gates ONLY the
     // manual commercial approval; the automated Em Negociação auto-approval path
     // writes the status directly (service-order.service) and is intentionally not
     // subject to this gate.
-    const quoteForGate = await this.prisma.taskQuote.findUnique({
+    const quoteForGate = await this.prisma.budget.findUnique({
       where: { id },
       select: { layoutFiles: { select: { id: true } } },
     });
@@ -3458,7 +3458,7 @@ export class TaskQuoteService {
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
       await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? id,
         action: 'budget_approved',
         data: { quoteLabel },
@@ -3559,7 +3559,7 @@ export class TaskQuoteService {
    *   estados. (`BILLING_APPROVED`/`UPCOMING`/`DUE`/`PARTIAL` como status de
    *   orçamento não existem mais.)
    *
-   *   `TaskQuote.billingApprovedAt` só é gravado quando o ÚLTIMO faturamento
+   *   `Budget.billingApprovedAt` só é gravado quando o ÚLTIMO faturamento
    *   fecha — é ele que significa "este orçamento está inteiramente faturado", e
    *   `Billing.approvedAt` responde faturamento a faturamento.
    */
@@ -3588,7 +3588,7 @@ export class TaskQuoteService {
      * o app e os links antigos ainda endereçam por veículo.
      */
     billingId?: string | null,
-  ): Promise<TaskQuoteUpdateResponse> {
+  ): Promise<BudgetUpdateResponse> {
     this.logger.log(
       `[INTERNAL_APPROVE] Starting internal approval for quote ${id} by user ${userId}` +
         (billingId
@@ -3599,7 +3599,7 @@ export class TaskQuoteService {
     );
 
     // 1. Validate the quote exists and prerequisites are met
-    const existing = await this.taskQuoteRepository.findById(id);
+    const existing = await this.budgetRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
@@ -3794,12 +3794,12 @@ export class TaskQuoteService {
     // mesmo serviço.
     const claimedBillings = targetBillings.filter(b => targetBillingIds.includes(b.id));
     const claimedConfigs = claimedBillings.flatMap(b => b.customerConfigs);
-    // `TaskQuote.billingApprovedAt` significa "orçamento INTEIRAMENTE faturado" —
+    // `Budget.billingApprovedAt` significa "orçamento INTEIRAMENTE faturado" —
     // e continua sendo do orçamento, porque é sobre o contrato, não sobre uma
     // cobrança. Num orçamento de sessenta caminhões ele é gravado quando o
     // sexagésimo fecha.
     if (await fechaOOrcamento()) {
-      await this.prisma.taskQuote.update({
+      await this.prisma.budget.update({
         where: { id },
         data: { billingApprovedAt: approvalDate } as any,
       });
@@ -4047,7 +4047,7 @@ export class TaskQuoteService {
         // acabou de gravar legitimamente; o que vale é a pergunta de agora, com o
         // claim desta tentativa já levantado.
         if (!(await fechaOOrcamento())) {
-          await this.prisma.taskQuote.update({
+          await this.prisma.budget.update({
             where: { id },
             data: { billingApprovedAt: null } as any,
           });
@@ -4079,7 +4079,7 @@ export class TaskQuoteService {
       );
     }
 
-    const refreshed = await this.taskQuoteRepository.findById(id);
+    const refreshed = await this.budgetRepository.findById(id);
 
     // Billing approved (invoices + NFS-e emitted) -> notify commercial/financial/admin.
     try {
@@ -4100,7 +4100,7 @@ export class TaskQuoteService {
       const fraseFaturas =
         quantas === 1 ? 'a fatura foi gerada' : `${quantas} cobranças foram faturadas`;
       await this.dispatchService.dispatchByConfiguration('task_quote.billing_approved', userId, {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? id,
         action: 'billing_approved',
         data: { quoteLabel },
@@ -4524,13 +4524,13 @@ export class TaskQuoteService {
      * parcela paga, porque aí a guarda barrava tudo.
      */
     billingId?: string | null,
-  ): Promise<TaskQuoteUpdateResponse> {
+  ): Promise<BudgetUpdateResponse> {
     this.logger.log(
       `[REVERT_BILLING] Revertendo ${billingId ? `a cobrança ${billingId}` : 'TODAS as cobranças'} ` +
         `do orçamento ${id} (usuário ${userId})`,
     );
 
-    const existing = await this.taskQuoteRepository.findById(id);
+    const existing = await this.budgetRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Orçamento ${id} não encontrado.`);
     }
@@ -4675,7 +4675,7 @@ export class TaskQuoteService {
       // faturado" — deixá-lo de pé afirmaria que os sessenta caminhões estão
       // faturados depois de a cobrança ter sido desmontada, e envenenaria o
       // `avgSalesCycleDays`.
-      await tx.taskQuote.update({
+      await tx.budget.update({
         where: { id },
         data: { billingApprovedAt: null } as any,
       });
@@ -4711,7 +4711,7 @@ export class TaskQuoteService {
       userId,
     });
 
-    const refreshed = await this.taskQuoteRepository.findById(id);
+    const refreshed = await this.budgetRepository.findById(id);
     return {
       success: true,
       data: refreshed as any,
@@ -4740,7 +4740,7 @@ export class TaskQuoteService {
     userId: string,
     changeLogReason = 'Orçamento cancelado automaticamente pelo cancelamento da tarefa',
   ): Promise<void> {
-    const existing = await this.taskQuoteRepository.findById(id);
+    const existing = await this.budgetRepository.findById(id);
     if (!existing) {
       this.logger.warn(`[CANCEL_QUOTE] Quote ${id} not found; nothing to cancel.`);
       return;
@@ -4839,7 +4839,7 @@ export class TaskQuoteService {
         where: { quoteId: id },
         data: { approvedAt: null },
       });
-      await tx.taskQuote.update({
+      await tx.budget.update({
         where: { id },
         data: {
           status: TASK_QUOTE_STATUS.CANCELLED,
@@ -4924,7 +4924,7 @@ export class TaskQuoteService {
     // O cliente ainda é aceito (o app instalado o manda) e serve de guarda: o
     // número pertence ao orçamento daquele cliente, não a um orçamento qualquer.
     if (customerId) {
-      const configs = await this.prisma.taskQuoteCustomerConfig.count({
+      const configs = await this.prisma.budgetPayer.count({
         where: { quoteId, customerId },
       });
       if (configs === 0) {
@@ -4972,16 +4972,16 @@ export class TaskQuoteService {
    * Get approved price for a task
    */
   async getApprovedPriceForTask(taskId: string): Promise<number> {
-    const quote = await this.taskQuoteRepository.findApprovedByTaskId(taskId);
+    const quote = await this.budgetRepository.findApprovedByTaskId(taskId);
     return quote?.total || 0;
   }
 
   /**
    * Find expired quotes and optionally mark them
    */
-  async findAndMarkExpired(): Promise<TaskQuote[]> {
+  async findAndMarkExpired(): Promise<Budget[]> {
     try {
-      const expired = await this.taskQuoteRepository.findExpired();
+      const expired = await this.budgetRepository.findExpired();
 
       this.logger.log(`Found ${expired.length} expired quotes`);
 
@@ -5003,7 +5003,7 @@ export class TaskQuoteService {
     implementType: string;
   }) {
     try {
-      const suggestion = await this.taskQuoteRepository.findSuggestion(params);
+      const suggestion = await this.budgetRepository.findSuggestion(params);
 
       if (!suggestion) {
         return {
@@ -5034,13 +5034,13 @@ export class TaskQuoteService {
    * @param id - Quote ID
    * @param ignoreExpiration - If true, returns quote even if expired (for authenticated users)
    */
-  async findPublic(id: string, ignoreExpiration = false): Promise<TaskQuoteGetUniqueResponse> {
+  async findPublic(id: string, ignoreExpiration = false): Promise<BudgetGetUniqueResponse> {
     try {
       // Public-facing select clause — DB-layer enforcement (preferred over post-fetch masking).
       // Sensitive fields explicitly NOT selected: BankSlip.barcode/linhaDigitavel/pixQrCode/
       // nossoNumero/sicrediStatus/errorMessage/liquidationData/pdfFileId, NfseDocument numbering
       // and URLs, responsibleUser (entire user record), createdById/updatedById, internal status reasons.
-      const quote = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.budget.findUnique({
         where: { id },
         select: {
           id: true,
@@ -5280,9 +5280,9 @@ export class TaskQuoteService {
     id: string,
     file: Express.Multer.File,
     customerConfigId?: string,
-  ): Promise<TaskQuoteUpdateResponse> {
+  ): Promise<BudgetUpdateResponse> {
     try {
-      const quote = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.budget.findUnique({
         where: { id },
         include: {
           customerConfigs: {
@@ -5339,7 +5339,7 @@ export class TaskQuoteService {
       });
 
       // Update customer config with signature
-      await this.prisma.taskQuoteCustomerConfig.update({
+      await this.prisma.budgetPayer.update({
         where: { id: targetConfig.id },
         data: {
           customerSignatureId: signatureFile.id,
@@ -5358,7 +5358,7 @@ export class TaskQuoteService {
       }
 
       // Re-fetch the full quote
-      const updated = await this.prisma.taskQuote.findUnique({
+      const updated = await this.prisma.budget.findUnique({
         where: { id },
         include: {
           services: true,
@@ -5427,7 +5427,7 @@ export class TaskQuoteService {
     // Explicit allowlist for manual status changes via the /status endpoint.
     //
     // Scheduler-driven cascades (UPCOMING↔DUE↔PARTIAL on installment events)
-    // bypass this via direct prisma.taskQuote.update — the scheduler is the
+    // bypass this via direct prisma.budget.update — the scheduler is the
     // authoritative source for those transitions. This allowlist covers
     // operator-initiated overrides (admin corrections, chargebacks, manual
     // re-cycles when the scheduler hasn't caught up or made a wrong call).
@@ -5511,7 +5511,7 @@ export class TaskQuoteService {
     // cobrar. Ela vale para todo caminho que chegue em APROVADO.
     if (newStatus === TASK_QUOTE_STATUS.APPROVED) {
       // Must have at least one customerConfig with total > 0
-      const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+      const configs = await this.prisma.budgetPayer.findMany({
         where: { quoteId },
         select: { total: true },
       });
@@ -5563,7 +5563,7 @@ export class TaskQuoteService {
         ? { quoteId, id: { in: [...onlyConfigIds] } }
         : { quoteId };
     // Each customerConfig must have valid paymentCondition or paymentConfig; task must be finished
-    const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+    const configs = await this.prisma.budgetPayer.findMany({
       where: escopo,
       select: {
         id: true,
@@ -5601,7 +5601,7 @@ export class TaskQuoteService {
     // invoices/boletos can be generated at any gate once the budget is approved.
 
     // Validate services: none may have negative amounts
-    const services = await this.prisma.taskQuoteService.findMany({
+    const services = await this.prisma.budgetItem.findMany({
       where: { quoteId },
       select: { id: true, description: true, amount: true, invoiceToCustomerId: true },
     });
@@ -5624,7 +5624,7 @@ export class TaskQuoteService {
     // lote de cada vez. Lida do escopo, uma cobrança de um pagador só num
     // orçamento de dois clientes pularia a guarda e faturaria serviço que
     // pertence ao outro.
-    const quoteCustomers = await this.prisma.taskQuoteCustomerConfig.findMany({
+    const quoteCustomers = await this.prisma.budgetPayer.findMany({
       where: { quoteId },
       select: { customerId: true },
     });
@@ -5710,12 +5710,12 @@ export class TaskQuoteService {
     // This can happen legitimately due to discounts or manual adjustments, so we only log.
     // A hard block would prevent intentional partial-invoicing or courtesy adjustments.
     {
-      const configTotals = await this.prisma.taskQuoteCustomerConfig.findMany({
+      const configTotals = await this.prisma.budgetPayer.findMany({
         where: { quoteId },
         select: { total: true },
       });
       const sumConfigTotals = configTotals.reduce((acc, c) => acc + Number(c.total), 0);
-      const quoteRecord = await this.prisma.taskQuote.findUnique({
+      const quoteRecord = await this.prisma.budget.findUnique({
         where: { id: quoteId },
         select: { total: true },
       });

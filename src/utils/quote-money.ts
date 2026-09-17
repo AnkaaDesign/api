@@ -3,14 +3,14 @@
  *
  * Todo número que o cliente vê tem de sair daqui: a lista de serviços do PDF
  * assinado, o "× 60", o total geral, o `subtotal`/`total` de cada
- * `TaskQuoteCustomerConfig`, o `Invoice.totalAmount`, o valor de cada parcela e
+ * `BudgetPayer`, o `Invoice.totalAmount`, o valor de cada parcela e
  * o valor de cada boleto. Se dois desses forem calculados por caminhos
  * diferentes, eles divergem em centavos — e um documento assinado que não fecha
  * com o boleto é um problema jurídico, não um arredondamento.
  *
  * A REGRA CENTRAL: O PREÇO É POR VEÍCULO
  * ─────────────────────────────────────────────────────────────────────────────
- * `TaskQuoteService.amount` é o preço de UM veículo. Sempre foi — num orçamento
+ * `BudgetItem.amount` é o preço de UM veículo. Sempre foi — num orçamento
  * de uma tarefa a distinção não existia. Agora que um orçamento cobre sessenta,
  * ela é a decisão de projeto que tudo o mais segue:
  *
@@ -89,7 +89,7 @@ export interface QuoteMoney {
   coveredVehicleCount: number;
   /**
    * O que UMA configuração de faturamento cobra — ou seja, o que vai para
-   * `TaskQuoteCustomerConfig.total`, `Invoice.totalAmount` e a soma das parcelas.
+   * `BudgetPayer.total`, `Invoice.totalAmount` e a soma das parcelas.
    *
    * É `por veículo × cobertos`, sem ramificação: o total geral quando a fatura
    * cobre os sessenta, o de um caminhão quando cobre um, o do lote quando cobre

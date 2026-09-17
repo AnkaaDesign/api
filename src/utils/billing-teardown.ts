@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
  *
  * `BankSlip.installment`, `Installment.customerConfig` e `Invoice.customerConfig`
  * eram `onDelete: Cascade`. Um `installment.deleteMany` levava junto o BOLETO
- * REGISTRADO no Sicredi, e um `taskQuoteCustomerConfig.deleteMany` levava a
+ * REGISTRADO no Sicredi, e um `budgetPayer.deleteMany` levava a
  * fatura, as parcelas — PAGAS inclusive — os boletos e os `ReconciliationMatch`.
  * A guarda de obrigação viva só olhava faturas `status <> 'CANCELLED'`, então uma
  * parcela PAGA pendurada numa fatura CANCELADA (o que sobra de um ciclo

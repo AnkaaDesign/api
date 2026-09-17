@@ -1,7 +1,7 @@
 /**
  * Task Quote and Production Service Order Bidirectional Synchronization Utilities
  *
- * This module provides synchronization logic between TaskQuoteServices and
+ * This module provides synchronization logic between BudgetItems and
  * Production Service Orders. The sync is bidirectional and simplified:
  *
  * 1. Service Order (PRODUCTION) → Task Quote Item:

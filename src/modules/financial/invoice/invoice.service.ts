@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { deriveInvoicePaymentState } from './invoice-payment-state';
 
 /**
@@ -35,8 +35,8 @@ export class InvoiceService {
     private readonly dispatchService: NotificationDispatchService,
     // A cascata que recalcula `Billing.status` depois que um carimbo ou uma
     // parcela muda. O `InvoiceController` deste mesmo módulo já a injeta — o
-    // `TaskQuoteModule` a exporta e este módulo já o importa.
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    // `BudgetModule` a exporta e este módulo já o importa.
+    private readonly cascadeService: BudgetStatusCascadeService,
   ) {}
 
   /**
@@ -267,7 +267,7 @@ export class InvoiceService {
 
     // Depois de cancelar os artefatos da fatura, levanta os CARIMBOS de
     // faturamento que ficaram sobre fatos que deixaram de ser verdade — o da
-    // cobrança (por `Billing`) e o do contrato (`TaskQuote.billingApprovedAt`) —
+    // cobrança (por `Billing`) e o do contrato (`Budget.billingApprovedAt`) —
     // para que o operador possa reaprovar o faturamento (por exemplo, depois de
     // corrigir o cadastro do cliente) sem cirurgia no banco.
     try {
@@ -286,7 +286,7 @@ export class InvoiceService {
       // O CARIMBO DA FATIA TAMBÉM CAI. Este era o beco sem saída.
       //
       // Cancelar a fatura devolvia o orçamento a "Orçamento Aprovado" e deixava
-      // `TaskQuoteCustomerConfig.billingApprovedAt` preenchido. Depois disso o
+      // `BudgetPayer.billingApprovedAt` preenchido. Depois disso o
       // sistema dizia as duas coisas ao mesmo tempo: aprovar respondia "esta
       // fatia já teve o faturamento aprovado" (o carimbo) e reverter respondia
       // "status não revertível" (o orçamento já tinha voltado). Não havia gesto
@@ -331,7 +331,7 @@ export class InvoiceService {
       // VENDA — desfaz a COBRANÇA, e quem responde por ela é o carimbo levantado
       // logo acima, por faturamento.
       //
-      // O que continua sendo do orçamento é `TaskQuote.billingApprovedAt`: a data
+      // O que continua sendo do orçamento é `Budget.billingApprovedAt`: a data
       // em que o contrato INTEIRO ficou faturado. Sem nenhuma fatura viva ela
       // afirma um fato que deixou de ser verdade — e envenena o
       // `avgSalesCycleDays` do painel, que a lê como "quando esta venda virou
@@ -341,7 +341,7 @@ export class InvoiceService {
           where: { customerConfig: { quoteId: quote.id }, status: { not: 'CANCELLED' } },
         });
         if (liveOnQuote === 0) {
-          const cleared = await this.prisma.taskQuote.updateMany({
+          const cleared = await this.prisma.budget.updateMany({
             where: { id: quote.id, billingApprovedAt: { not: null } },
             data: { billingApprovedAt: null },
           });
@@ -361,7 +361,7 @@ export class InvoiceService {
       }
     } catch (revertError) {
       this.logger.warn(
-        `Failed to revert TaskQuote status after invoice cancellation: ${revertError}`,
+        `Failed to revert Budget status after invoice cancellation: ${revertError}`,
       );
     }
 

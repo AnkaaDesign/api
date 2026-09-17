@@ -16,7 +16,7 @@
  * `npm run test:quote-merge`
  */
 
-import { judgeMerge, type MergeCandidate } from '../src/utils/task-quote-merge-rules';
+import { judgeMerge, type MergeCandidate } from '../src/utils/budget-merge-rules';
 
 let failures = 0;
 

@@ -160,11 +160,11 @@ export const BONIFICATION_STATUS_ORDER: Record<BONIFICATION_STATUS, number> = {
 // são dinheiro e prazo vencidos; o terceiro é a única linha da lista em que o
 // gargalo somos nós.
 //
-// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `TaskQuote.statusOrder` na escrita do
+// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `Budget.statusOrder` na escrita do
 // status. Mexer nela exige backfill — a migração
 // `20260911160000_quote_signed_expired_and_reminders` reescreveu as 598 linhas
 // existentes quando EXPIRED e SIGNED entraram no meio.
-// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `TaskQuote.statusOrder` na escrita do
+// ⚠️ ESTA NUMERAÇÃO É PERSISTIDA em `Budget.statusOrder` na escrita do
 // status. Mexer nela exige backfill — ver
 // `20260916233000_faturamento_tem_estado_proprio`.
 //

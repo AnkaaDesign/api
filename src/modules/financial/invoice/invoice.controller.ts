@@ -26,7 +26,7 @@ import { FilesStorageService } from '@modules/common/file/services/files-storage
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 import { SicrediBoletoScheduler } from '@modules/integrations/sicredi/sicredi-boleto.scheduler';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -64,7 +64,7 @@ export class InvoiceController {
     private readonly nfseEmissionScheduler: NfseEmissionScheduler,
     private readonly dispatchService: NotificationDispatchService,
     private readonly filesStorageService: FilesStorageService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
     private readonly changeLogService: ChangeLogService,
   ) {}
 
@@ -73,7 +73,7 @@ export class InvoiceController {
    * whole quote. Best-effort — never breaks the request flow. The billing detail
    * deep link is keyed by taskId (/financeiro/orcamento/detalhes/:taskId).
    */
-  private async dispatchTaskQuoteSettled(quoteId: string, taskId: string | null): Promise<void> {
+  private async dispatchBudgetSettled(quoteId: string, taskId: string | null): Promise<void> {
     try {
       let label = quoteId.slice(-8).toUpperCase();
       if (taskId) {
@@ -88,7 +88,7 @@ export class InvoiceController {
         }
       }
       await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'settled',
         data: { quoteLabel: label },
@@ -1408,7 +1408,7 @@ export class InvoiceController {
         },
       });
 
-      // Cascade TaskQuote status — due-date change can turn a DUE quote into UPCOMING
+      // Cascade Budget status — due-date change can turn a DUE quote into UPCOMING
       const invoiceLink = await this.prisma.installment.findUnique({
         where: { id: installmentId },
         select: { invoiceId: true },

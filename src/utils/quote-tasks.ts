@@ -194,7 +194,7 @@ export function buildLateValueMap(
 /**
  * O valor de UM VEÍCULO a partir do total do orçamento.
  *
- * `TaskQuote.total` é o valor do CONTRATO: `preço por veículo × N`. Toda leitura
+ * `Budget.total` é o valor do CONTRATO: `preço por veículo × N`. Toda leitura
  * feita pelo lado da TAREFA — a linha da lista, o cartão da Preparação, a
  * receita do painel, a coluna de valor do Histórico — quer o valor DAQUELE
  * veículo, e lia o total dos sessenta. O painel, que soma linha a linha, chegava
@@ -221,7 +221,7 @@ export function perVehicleAmount(
 //
 // TRÊS GERAÇÕES, e vale saber por que houve três:
 //
-//   1. `TaskQuoteCustomerConfig.taskId`, com NULO querendo dizer "todos". A
+//   1. `BudgetPayer.taskId`, com NULO querendo dizer "todos". A
 //      resposta era uma REGRA avaliada na leitura: uma fatura já emitida passava
 //      a cobrir um caminhão acrescentado depois, sem deixar rastro.
 //   2. `QuoteBillingTask(configId, taskId, customerId)` — gravada, mas pendurada
@@ -273,7 +273,7 @@ function coverageRows<T extends QuoteTaskLike>(
 /**
  * ESTE FATURAMENTO ESTÁ APROVADO? — pergunte ao faturamento, não ao pagador.
  *
- * Era `TaskQuoteCustomerConfig.billingApprovedAt`, uma coluna por pagador. Dois
+ * Era `BudgetPayer.billingApprovedAt`, uma coluna por pagador. Dois
  * pagadores do mesmo recorte tinham duas datas para um evento só, sempre
  * escritas juntas — duas colunas afirmando o mesmo fato.
  */
@@ -709,7 +709,7 @@ export function withCoverageInclude(node: unknown): unknown {
 /**
  * AS CHAVES APOSENTADAS DO PAGADOR — retiradas do pedido em vez de derrubá-lo.
  *
- * `coveredTasks` e `billingApprovedAt` saíram de `TaskQuoteCustomerConfig` quando
+ * `coveredTasks` e `billingApprovedAt` saíram de `BudgetPayer` quando
  * a cobertura e o estado passaram para o `Billing`. Um cliente que ainda as peça
  * não recebe uma coluna a menos: recebe **500**, porque o Prisma recusa a consulta
  * inteira com "Unknown field ... for select statement". E foi o que aconteceu —

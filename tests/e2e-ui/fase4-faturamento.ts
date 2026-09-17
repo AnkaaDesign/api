@@ -80,7 +80,7 @@ async function main() {
       const taskId = res.url.split('/').pop()!;
       const t = await prisma.task.findUnique({ where: { id: taskId }, select: { quoteId: true } });
       quoteId = t!.quoteId!;
-      const q = await prisma.taskQuote.findUnique({
+      const q = await prisma.budget.findUnique({
         where: { id: quoteId },
         select: { budgetNumber: true, total: true, tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } } },
       });
@@ -98,7 +98,7 @@ async function main() {
       await openQuoteDetail(page, tasks[0].id);
       await goToLastStep(page);
       await setQuoteStatus(page, /^Aprovado$/);
-      const st = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { status: true } });
+      const st = await prisma.budget.findUnique({ where: { id: quoteId }, select: { status: true } });
       check(`${c.tag}: orçamento ficou APROVADO`, st?.status === 'APPROVED', `status=${st?.status}`);
     });
 
@@ -111,7 +111,7 @@ async function main() {
       // por veículo ou em lotes, cada fatura é aprovada na tela de um veículo
       // que ela cobre — é assim que "os sessenta não terminam no mesmo dia"
       // deveria funcionar.
-      const cfgs = await prisma.taskQuoteCustomerConfig.findMany({
+      const cfgs = await prisma.budgetPayer.findMany({
         where: { quoteId },
         select: { id: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
       });
@@ -140,7 +140,7 @@ async function main() {
         }
       }
 
-      const q = await prisma.taskQuote.findUnique({
+      const q = await prisma.budget.findUnique({
         where: { id: quoteId },
         select: {
           status: true,

@@ -14,7 +14,7 @@
  *   ninguém importa. `SignatureModule` segue sem saber que WhatsApp existe;
  *   `WhatsAppModule` segue sem saber que assinatura existe.
  *
- *   É o mesmo padrão que `TaskQuoteModule` já usa para registrar
+ *   É o mesmo padrão que `BudgetModule` já usa para registrar
  *   `setOnEnvelopeCompleted` — injeção tardia por callback, e não dependência de
  *   módulo.
  *

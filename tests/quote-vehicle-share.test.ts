@@ -3,7 +3,7 @@
  *
  * O DEFEITO QUE ESTE ARQUIVO IMPEDE
  * ─────────────────────────────────────────────────────────────────────────────
- * Desde o orçamento multitarefa, `TaskQuote.total` é o valor do CONTRATO:
+ * Desde o orçamento multitarefa, `Budget.total` é o valor do CONTRATO:
  * `preço por veículo × N`. Mas quase toda tela lê o orçamento pelo lado da
  * TAREFA — a lista de Orçamentos, a de Faturamento, a Preparação, o Histórico,
  * a receita do painel — e cada linha ali é UM veículo. Lendo `quote.total`
@@ -200,7 +200,7 @@ console.log('\nO número do pedido é do VEÍCULO');
 // ═══════════════════════════════════════════════════════════════════════════
 // O PEDIDO DE UM CLIENTE ANTIGO NÃO PODE DERRUBAR A TELA
 //
-// `coveredTasks` e `billingApprovedAt` saíram de `TaskQuoteCustomerConfig`
+// `coveredTasks` e `billingApprovedAt` saíram de `BudgetPayer`
 // quando a cobertura e o estado passaram para o `Billing`. Quem ainda os pede
 // não recebe uma coluna a menos: recebe 500, porque o Prisma recusa a consulta
 // INTEIRA com "Unknown field ... for select statement".

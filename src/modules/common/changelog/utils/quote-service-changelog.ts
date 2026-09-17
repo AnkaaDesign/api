@@ -1,7 +1,7 @@
 import { ChangeLogService } from '../changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../../constants';
 import { serializeChangelogValue } from './serialize-changelog-value';
-import { normalizeDescription } from '../../../../utils/task-quote-service-order-sync';
+import { normalizeDescription } from '../../../../utils/budget-service-order-sync';
 
 interface QuoteServiceForDiff {
   id?: string;

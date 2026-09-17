@@ -9,7 +9,7 @@
  *   2. Boleto nossoNumero=600003443 (seuNumero NF3179) — ACTIVE at Sicredi. Baixa via API.
  *
  * Only then delete: Task (cascades ServiceOrder/Truck/logs/forecast/Invoice) and the
- * TaskQuote (cascades TaskQuoteCustomerConfig → Installment → BankSlip).
+ * Budget (cascades BudgetPayer → Installment → BankSlip).
  *
  * NfseDocument.taskId/invoiceId are onDelete:SetNull BY DESIGN — the fiscal record survives
  * as an orphan so the cancellation outcome stays auditable. This script does NOT delete it.
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
 
     // ── 3) Delete task + quote ──────────────────────────────────────────────────────────
     if (!APPLY) {
-      logger.log(`\n[DRY-RUN] deletaria Task ${TASK_ID} e TaskQuote ${task.quoteId}.`);
+      logger.log(`\n[DRY-RUN] deletaria Task ${TASK_ID} e Budget ${task.quoteId}.`);
       return;
     }
 
@@ -123,8 +123,8 @@ async function main(): Promise<void> {
     logger.log(`\n✓ Task ${TASK_ID} deletada (cascade: ServiceOrder, Truck, logs, forecast, Invoice).`);
 
     if (task.quoteId) {
-      await prisma.taskQuote.delete({ where: { id: task.quoteId } });
-      logger.log(`✓ TaskQuote ${task.quoteId} deletada (cascade: customerConfig → Installment → BankSlip).`);
+      await prisma.budget.delete({ where: { id: task.quoteId } });
+      logger.log(`✓ Budget ${task.quoteId} deletada (cascade: customerConfig → Installment → BankSlip).`);
     }
 
     const leftovers = await prisma.nfseDocument.findMany({

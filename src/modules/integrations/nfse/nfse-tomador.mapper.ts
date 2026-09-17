@@ -95,7 +95,7 @@ function normalizePhone(raw: string | null | undefined): string | undefined {
 export function buildNfseCustomer(
   customer: NfseCustomerSource,
   /**
-   * The responsável picked for THIS billing (TaskQuoteCustomerConfig.responsible), when there
+   * The responsável picked for THIS billing (BudgetPayer.responsible), when there
    * is one. It outranks the role ordering below — somebody chose that person for this note.
    */
   preferredContact?: ResponsibleContact | null,

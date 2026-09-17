@@ -1,11 +1,11 @@
-// api/src/modules/production/task-quote/repositories/task-quote-prisma.repository.ts
+// api/src/modules/production/budget/repositories/budget-prisma.repository.ts
 
 import { Injectable, Logger } from '@nestjs/common';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
-import { TaskQuoteRepository } from './task-quote.repository';
+import { BudgetRepository } from './budget.repository';
 import {
   QUOTE_TASKS_ORDER_BY,
   QUOTE_BILLING_INCLUDE,
@@ -15,28 +15,28 @@ import {
 /** A ordem canônica das tarefas de um orçamento — ver `QUOTE_TASKS_ORDER_BY`. */
 const TASK_ORDER = QUOTE_TASKS_ORDER_BY;
 import type {
-  TaskQuote,
-  TaskQuoteInclude,
-  TaskQuoteOrderBy,
-  TaskQuoteWhere,
+  Budget,
+  BudgetInclude,
+  BudgetOrderBy,
+  BudgetWhere,
   FindManyOptions,
   FindManyResult,
   CreateOptions,
   UpdateOptions,
 } from '@types';
-import type { TaskQuoteCreateFormData, TaskQuoteUpdateFormData } from '@schemas/task-quote';
+import type { BudgetCreateFormData, BudgetUpdateFormData } from '@schemas/budget';
 import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
-import { TaskQuote as PrismaTaskQuote, Prisma } from '@prisma/client';
+import { Budget as PrismaBudget, Prisma } from '@prisma/client';
 
 /**
- * Prisma implementation of TaskQuoteRepository
+ * Prisma implementation of BudgetRepository
  */
 /**
  * Traduz o filtro to-one `task` — a forma anterior ao orçamento multitarefa —
  * para a relação de LISTA `tasks`.
  *
  * POR QUE EXISTE. `Task.quoteId` deixou de ser `@unique`, então
- * `TaskQuoteWhereInput.task` não existe mais: mandá-lo ao Prisma derruba a
+ * `BudgetWhereInput.task` não existe mais: mandá-lo ao Prisma derruba a
  * consulta inteira com "Unknown argument `task`". E o `where` chega aqui como
  * `Record<string, unknown>` — o `tsc` não vê nada. Quem ainda manda a chave
  * antiga é o app instalado nos aparelhos, que não se atualiza no mesmo instante
@@ -126,7 +126,7 @@ export function translateLegacyTaskFilter(where: any): any {
 export function stripUnorderableTaskEntries(orderBy: any): any {
   const clean = (entry: any): any | null => {
     if (!entry || typeof entry !== 'object') return entry;
-    // `taskId` sai junto: a coluna não existe mais em `TaskQuote` (a FK está em
+    // `taskId` sai junto: a coluna não existe mais em `Budget` (a FK está em
     // `Task.quoteId`), então ordenar por ela é o mesmo 500 de `task`.
     const { task: _dropped, taskId: _droppedId, ...rest } = entry as Record<string, unknown>;
     return Object.keys(rest).length > 0 ? rest : null;
@@ -139,37 +139,37 @@ export function stripUnorderableTaskEntries(orderBy: any): any {
 }
 
 @Injectable()
-export class TaskQuotePrismaRepository
+export class BudgetPrismaRepository
   extends BaseStringPrismaRepository<
-    TaskQuote,
-    TaskQuoteCreateFormData,
-    TaskQuoteUpdateFormData,
-    TaskQuoteInclude,
-    TaskQuoteOrderBy,
-    TaskQuoteWhere,
-    PrismaTaskQuote,
-    Prisma.TaskQuoteCreateInput,
-    Prisma.TaskQuoteUpdateInput,
-    Prisma.TaskQuoteInclude,
-    Prisma.TaskQuoteOrderByWithRelationInput,
-    Prisma.TaskQuoteWhereInput
+    Budget,
+    BudgetCreateFormData,
+    BudgetUpdateFormData,
+    BudgetInclude,
+    BudgetOrderBy,
+    BudgetWhere,
+    PrismaBudget,
+    Prisma.BudgetCreateInput,
+    Prisma.BudgetUpdateInput,
+    Prisma.BudgetInclude,
+    Prisma.BudgetOrderByWithRelationInput,
+    Prisma.BudgetWhereInput
   >
-  implements TaskQuoteRepository
+  implements BudgetRepository
 {
-  protected readonly logger = new Logger(TaskQuotePrismaRepository.name);
+  protected readonly logger = new Logger(BudgetPrismaRepository.name);
 
   constructor(protected readonly prisma: PrismaService) {
     super(prisma);
   }
 
   // Abstract method implementations from BaseStringPrismaRepository
-  protected mapDatabaseEntityToEntity(databaseEntity: any): TaskQuote {
+  protected mapDatabaseEntityToEntity(databaseEntity: any): Budget {
     return {
       ...databaseEntity,
       total: databaseEntity.total ? Number(databaseEntity.total) : 0,
       // ⚠️ `subtotal` FALTAVA na conversão, e só ele.
       //
-      // `Decimal` do Prisma serializa como STRING no JSON, e o tipo `TaskQuote`
+      // `Decimal` do Prisma serializa como STRING no JSON, e o tipo `Budget`
       // declara `number`. A lista de Orçamentos nunca consumiu esta rota (ela
       // lia tarefas), então a divergência nunca apareceu — e apareceria como uma
       // coluna de dinheiro ordenando por texto, "R$ 9.000,00" antes de
@@ -192,13 +192,13 @@ export class TaskQuotePrismaRepository
           paidAmount: inst.paidAmount ? Number(inst.paidAmount) : 0,
         })),
       })),
-    } as TaskQuote;
+    } as Budget;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
-    formData: TaskQuoteCreateFormData,
-  ): Prisma.TaskQuoteCreateInput {
-    const createInput: Prisma.TaskQuoteCreateInput = {
+    formData: BudgetCreateFormData,
+  ): Prisma.BudgetCreateInput {
+    const createInput: Prisma.BudgetCreateInput = {
       // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
       budgetNumber: 0,
       subtotal: formData.subtotal || 0,
@@ -214,7 +214,7 @@ export class TaskQuotePrismaRepository
       customGuaranteeText: formData.customGuaranteeText || null,
       // Layout Files (max 2). NOTE: this raw connect does NOT clone foreign
       // Files — it would steal ownership (FK lives on File). It is currently
-      // unreached (controller routes create/update to TaskQuoteService's inline
+      // unreached (controller routes create/update to BudgetService's inline
       // transaction, which clones via resolveLayoutFileIdsForQuote). Do NOT wire
       // this mapper to user input without routing ids through that resolver.
       ...(formData.layoutFileIds !== undefined && {
@@ -273,9 +273,9 @@ export class TaskQuotePrismaRepository
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
-    formData: TaskQuoteUpdateFormData,
-  ): Prisma.TaskQuoteUpdateInput {
-    const updateInput: Prisma.TaskQuoteUpdateInput = {};
+    formData: BudgetUpdateFormData,
+  ): Prisma.BudgetUpdateInput {
+    const updateInput: Prisma.BudgetUpdateInput = {};
 
     if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
     if (formData.total !== undefined) updateInput.total = formData.total;
@@ -293,7 +293,7 @@ export class TaskQuotePrismaRepository
     // Layout Files (max 2) — `set` replaces the relation wholesale ([] clears).
     // NOTE: this raw set does NOT clone foreign Files — it would steal ownership
     // (FK lives on File). It is currently unreached (controller routes create/
-    // update to TaskQuoteService's inline transaction, which clones via
+    // update to BudgetService's inline transaction, which clones via
     // resolveLayoutFileIdsForQuote). Do NOT wire this mapper to user input
     // without routing ids through that resolver.
     if (formData.layoutFileIds !== undefined) {
@@ -312,11 +312,11 @@ export class TaskQuotePrismaRepository
   }
 
   protected mapIncludeToDatabaseInclude(
-    include?: TaskQuoteInclude,
-  ): Prisma.TaskQuoteInclude | undefined {
+    include?: BudgetInclude,
+  ): Prisma.BudgetInclude | undefined {
     if (!include) return undefined;
 
-    const mappedInclude: Prisma.TaskQuoteInclude = {};
+    const mappedInclude: Prisma.BudgetInclude = {};
 
     if (include.services !== undefined) {
       mappedInclude.services =
@@ -385,20 +385,20 @@ export class TaskQuotePrismaRepository
   }
 
   protected mapOrderByToDatabaseOrderBy(
-    orderBy?: TaskQuoteOrderBy,
-  ): Prisma.TaskQuoteOrderByWithRelationInput | undefined {
+    orderBy?: BudgetOrderBy,
+  ): Prisma.BudgetOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
     return stripUnorderableTaskEntries(orderBy) as any;
   }
 
   protected mapWhereToDatabaseWhere(
-    where?: TaskQuoteWhere,
-  ): Prisma.TaskQuoteWhereInput | undefined {
+    where?: BudgetWhere,
+  ): Prisma.BudgetWhereInput | undefined {
     if (!where) return undefined;
     return translateLegacyTaskFilter(where) as any;
   }
 
-  protected getDefaultInclude(): Prisma.TaskQuoteInclude | undefined {
+  protected getDefaultInclude(): Prisma.BudgetInclude | undefined {
     return {
       services: {
         orderBy: { position: 'asc' },
@@ -440,9 +440,9 @@ export class TaskQuotePrismaRepository
   // Create with transaction
   async createWithTransaction(
     transaction: PrismaTransaction,
-    data: TaskQuoteCreateFormData,
-    options?: CreateOptions<TaskQuoteInclude>,
-  ): Promise<TaskQuote> {
+    data: BudgetCreateFormData,
+    options?: CreateOptions<BudgetInclude>,
+  ): Promise<Budget> {
     const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
@@ -453,7 +453,7 @@ export class TaskQuotePrismaRepository
     // Inject budgetNumber into create input
     (createInput as any).budgetNumber = nextBudgetNumber;
 
-    const created = await transaction.taskQuote.create({
+    const created = await transaction.budget.create({
       data: createInput,
       include,
     });
@@ -465,13 +465,13 @@ export class TaskQuotePrismaRepository
   async updateWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    data: TaskQuoteUpdateFormData,
-    options?: UpdateOptions<TaskQuoteInclude>,
-  ): Promise<TaskQuote> {
+    data: BudgetUpdateFormData,
+    options?: UpdateOptions<BudgetInclude>,
+  ): Promise<Budget> {
     const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const updated = await transaction.taskQuote.update({
+    const updated = await transaction.budget.update({
       where: { id },
       data: updateInput,
       include,
@@ -483,21 +483,21 @@ export class TaskQuotePrismaRepository
   // Find many with transaction
   async findManyWithTransaction(
     transaction: PrismaTransaction,
-    options?: FindManyOptions<TaskQuoteOrderBy, TaskQuoteWhere, TaskQuoteInclude>,
-  ): Promise<FindManyResult<TaskQuote>> {
+    options?: FindManyOptions<BudgetOrderBy, BudgetWhere, BudgetInclude>,
+  ): Promise<FindManyResult<Budget>> {
     const where = this.mapWhereToDatabaseWhere(options?.where);
     const orderBy = this.mapOrderByToDatabaseOrderBy(options?.orderBy);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
     const [data, total] = await Promise.all([
-      transaction.taskQuote.findMany({
+      transaction.budget.findMany({
         where,
         orderBy,
         include,
         skip: options?.skip,
         take: options?.take,
       }),
-      transaction.taskQuote.count({ where }),
+      transaction.budget.count({ where }),
     ]);
 
     const take = options?.take || 10;
@@ -521,11 +521,11 @@ export class TaskQuotePrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: { include?: TaskQuoteInclude },
-  ): Promise<TaskQuote | null> {
+    options?: { include?: BudgetInclude },
+  ): Promise<Budget | null> {
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const found = await transaction.taskQuote.findUnique({
+    const found = await transaction.budget.findUnique({
       where: { id },
       include,
     });
@@ -534,8 +534,8 @@ export class TaskQuotePrismaRepository
   }
 
   // Delete with transaction
-  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<TaskQuote> {
-    const deleted = await transaction.taskQuote.delete({
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Budget> {
+    const deleted = await transaction.budget.delete({
       where: { id },
       include: this.getDefaultInclude(),
     });
@@ -546,11 +546,11 @@ export class TaskQuotePrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: { include?: TaskQuoteInclude },
-  ): Promise<TaskQuote[]> {
+    options?: { include?: BudgetInclude },
+  ): Promise<Budget[]> {
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const found = await transaction.taskQuote.findMany({
+    const found = await transaction.budget.findMany({
       where: { id: { in: ids } },
       include,
     });
@@ -561,17 +561,17 @@ export class TaskQuotePrismaRepository
   // Count with transaction
   async countWithTransaction(
     transaction: PrismaTransaction,
-    where?: TaskQuoteWhere,
+    where?: BudgetWhere,
   ): Promise<number> {
     const databaseWhere = this.mapWhereToDatabaseWhere(where);
-    return transaction.taskQuote.count({ where: databaseWhere });
+    return transaction.budget.count({ where: databaseWhere });
   }
 
   /**
    * Find quote by task ID (with services)
    */
-  async findByTaskId(taskId: string): Promise<TaskQuote | null> {
-    const quote = await this.prisma.taskQuote.findFirst({
+  async findByTaskId(taskId: string): Promise<Budget | null> {
+    const quote = await this.prisma.budget.findFirst({
       where: { tasks: { some: { id: taskId } } },
       include: {
         // TODAS as tarefas do orçamento, não só aquela por onde se entrou.
@@ -657,8 +657,8 @@ export class TaskQuotePrismaRepository
   /**
    * Find all quotes by status
    */
-  async findByStatus(status: string): Promise<TaskQuote[]> {
-    const quotes = await this.prisma.taskQuote.findMany({
+  async findByStatus(status: string): Promise<Budget[]> {
+    const quotes = await this.prisma.budget.findMany({
       where: { status: status as any },
       include: {
         services: {
@@ -703,9 +703,9 @@ export class TaskQuotePrismaRepository
    * Fica `PENDING` (passou do prazo sem todas as assinaturas) e `EXPIRED` (a
    * varredura já marcou e o comercial ainda não reanalisou).
    */
-  async findExpired(): Promise<TaskQuote[]> {
+  async findExpired(): Promise<Budget[]> {
     const now = new Date();
-    const quotes = await this.prisma.taskQuote.findMany({
+    const quotes = await this.prisma.budget.findMany({
       where: {
         expiresAt: { lt: now },
         status: {
@@ -749,8 +749,8 @@ export class TaskQuotePrismaRepository
    * cobrado e o 8 não. Por isso a condição é sobre a cobrança QUE COBRE ESTA
    * TAREFA, e não sobre qualquer cobrança do orçamento.
    */
-  async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
-    const quote = await this.prisma.taskQuote.findFirst({
+  async findApprovedByTaskId(taskId: string): Promise<Budget | null> {
+    const quote = await this.prisma.budget.findFirst({
       where: {
         tasks: { some: { id: taskId } },
         billings: {
@@ -821,7 +821,7 @@ export class TaskQuotePrismaRepository
     };
 
     // 1. Try exact match (case-insensitive)
-    let quote = await this.prisma.taskQuote.findFirst({
+    let quote = await this.prisma.budget.findFirst({
       where: {
         tasks: { some: { ...baseWhere, name: { equals: params.name, mode: 'insensitive' } } },
       },
@@ -831,7 +831,7 @@ export class TaskQuotePrismaRepository
 
     // 2. Fallback: startsWith (case-insensitive) — e.g. "Martini" matches "Martini Frutas"
     if (!quote) {
-      quote = await this.prisma.taskQuote.findFirst({
+      quote = await this.prisma.budget.findFirst({
         where: {
           tasks: { some: { ...baseWhere, name: { startsWith: params.name, mode: 'insensitive' } } },
         },

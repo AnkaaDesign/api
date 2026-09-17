@@ -12,7 +12,7 @@ import { INVOICE_STATUS } from '../constants/enums';
  * ciclos anteriores**. Qual delas o Prisma devolvia não era escolha de ninguém.
  *
  * Isso não era teórico: a leitura que decide se uma fatia está CONGELADA
- * (`task-quote-customer-config-sync.ts`) perguntava `invoice.status !== 'CANCELLED'`.
+ * (`budget-customer-config-sync.ts`) perguntava `invoice.status !== 'CANCELLED'`.
  * Recebendo a CANCELADA de um ciclo antigo, a resposta era "não congelada" — e a
  * cobertura de um faturamento VIVO voltava a ser reescrita.
  *

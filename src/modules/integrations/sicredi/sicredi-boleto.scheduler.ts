@@ -7,7 +7,7 @@ import { FilesStorageService } from '@modules/common/file/services/files-storage
 import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
@@ -55,7 +55,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     private readonly sicrediService: SicrediService,
     private readonly authService: SicrediAuthService,
     private readonly webhookService: SicrediWebhookService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
     private readonly configService: ConfigService,
     private readonly notificationDispatchService: NotificationDispatchService,
     private readonly events: EventEmitter2,
@@ -1409,7 +1409,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               data: { status: INSTALLMENT_STATUS.OVERDUE },
             });
 
-            // Update Invoice status and cascade to TaskQuote
+            // Update Invoice status and cascade to Budget
             if (bankSlip.installment.invoice) {
               await this.updateInvoiceStatus(bankSlip.installment.invoice.id);
               await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoice.id);
@@ -1951,7 +1951,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   /**
-   * Public passthrough to the TaskQuote status cascade (single source of truth for
+   * Public passthrough to the Budget status cascade (single source of truth for
    * SETTLED / PARTIAL / DUE / UPCOMING derivation). Exposed so callers that already
    * inject this scheduler (e.g. InvoiceController's manual mark-paid / cancel-boleto)
    * can reconverge a quote without re-implementing the derivation. Best-effort —

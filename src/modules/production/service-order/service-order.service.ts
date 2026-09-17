@@ -60,9 +60,9 @@ import {
   getServiceOrderToQuoteSync,
   makeDescObsKey,
   type SyncQuoteItem,
-} from '../../../utils/task-quote-service-order-sync';
-import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
-import { isQuoteMoneyLocked } from '../task-quote/task-quote.guards';
+} from '../../../utils/budget-service-order-sync';
+import { recalcQuoteTotals } from '../../../utils/budget-totals';
+import { isQuoteMoneyLocked } from '../budget/budget.guards';
 import {
   syncEmNegociacaoForTaskAndSiblings,
   registerEmNegociacaoEventEmitter,
@@ -199,13 +199,13 @@ export class ServiceOrderService {
         const statusOrder = TASK_QUOTE_STATUS_ORDER[previousStatus as TASK_QUOTE_STATUS];
         if (statusOrder === undefined) continue;
 
-        const current = await tx.taskQuote.findUnique({
+        const current = await tx.budget.findUnique({
           where: { id: entry.entityId },
           select: { id: true, status: true },
         });
         if (!current || current.status !== TASK_QUOTE_STATUS.CANCELLED) continue;
 
-        await tx.taskQuote.update({
+        await tx.budget.update({
           where: { id: current.id },
           data: { status: previousStatus as TASK_QUOTE_STATUS, statusOrder },
         });
@@ -253,7 +253,7 @@ export class ServiceOrderService {
    * tudo, deixando documento fiscal vivo pendurado em tarefa CANCELADA.
    *
    * É o mesmo buraco que `cancelQuote` já fechou trocando o escopo por tarefa
-   * pelo escopo por orçamento (`invoicesOfQuote` em `task-quote.service.ts`), e
+   * pelo escopo por orçamento (`invoicesOfQuote` em `budget.service.ts`), e
    * a forma aqui é a mesma: pela COBERTURA (`customerConfig.quoteId`) com o ramo
    * por `task` mantido para a fatura de acervo, anterior ao `customerConfigId`.
    */
@@ -504,7 +504,7 @@ export class ServiceOrderService {
                   `[SO→QUOTE SYNC] Creating quote item: "${syncResult.quoteItemDescription}" for SO "${created.description}"`,
                 );
 
-                await tx.taskQuoteService.create({
+                await tx.budgetItem.create({
                   data: {
                     quoteId: taskWithQuote.quote.id,
                     description: syncResult.quoteItemDescription,
@@ -514,7 +514,7 @@ export class ServiceOrderService {
                 });
 
                 // Recalculate quote totals (discount-aware, keeps the aggregate
-                // TaskQuote and every TaskQuoteCustomerConfig in sync). A naive
+                // Budget and every BudgetPayer in sync). A naive
                 // subtotal=total=sum here wiped customer discounts and left the
                 // configs drifting from the aggregate.
                 await recalcQuoteTotals(tx, taskWithQuote.quote.id);
@@ -655,7 +655,7 @@ export class ServiceOrderService {
       // cancelar ou restaurar um orçamento muda a primeira metade dessa conta.
       // Nada aqui recalculava: cancelar deixava as cobranças no estado anterior,
       // e restaurar as deixava CANCELADAS PARA SEMPRE — a varredura diária
-      // (`task-quote-payment.scheduler.ts`) não varre orçamento cancelado, então
+      // (`budget-payment.scheduler.ts`) não varre orçamento cancelado, então
       // não havia nem caminho lento que consertasse depois.
       //
       // Depois do COMMIT, e não dentro da transação: a cascata lê por outra
@@ -1123,7 +1123,7 @@ export class ServiceOrderService {
               });
               const qfc = (quoteForCancel as any)?.quote;
               if (qfc && qfc.status !== TASK_QUOTE_STATUS.CANCELLED) {
-                await tx.taskQuote.update({
+                await tx.budget.update({
                   where: { id: qfc.id },
                   data: {
                     status: TASK_QUOTE_STATUS.CANCELLED,
@@ -1925,7 +1925,7 @@ export class ServiceOrderService {
 
       // Required-layout gate: the budget cannot be approved (here, by completing
       // the commercial "Em Negociação" step) until an approved layout
-      // (TaskQuote.layoutFiles) has been selected in Step 2. Skip the auto-
+      // (Budget.layoutFiles) has been selected in Step 2. Skip the auto-
       // approval when none is selected — the quote stays PENDING, and the
       // caller's syncEmNegociacaoForTask then reverts the just-completed SO out
       // of COMPLETED, so the commercial step cannot close without a layout.
@@ -1957,7 +1957,7 @@ export class ServiceOrderService {
         return;
       }
 
-      await this.prisma.taskQuote.update({
+      await this.prisma.budget.update({
         where: { id: quote.id },
         data: {
           status: TASK_QUOTE_STATUS.APPROVED,
@@ -2041,7 +2041,7 @@ export class ServiceOrderService {
         return;
       }
 
-      await this.prisma.taskQuote.update({
+      await this.prisma.budget.update({
         where: { id: quote.id },
         data: {
           status: TASK_QUOTE_STATUS.PENDING,
@@ -2076,7 +2076,7 @@ export class ServiceOrderService {
 
   /**
    * I11: When a PRODUCTION service order is DELETED directly via the SO module
-   * (not through the task form), keep its mirrored priced TaskQuoteService line in
+   * (not through the task form), keep its mirrored priced BudgetItem line in
    * sync. Without this the quote line is orphaned and the quote totals keep
    * counting a line whose SO no longer exists (money drift). Mirrors the task-form
    * cascade (task.service.ts): removes the line ONLY when no other live PRODUCTION
@@ -2160,7 +2160,7 @@ export class ServiceOrderService {
     );
     if (toDelete.length === 0) return;
 
-    await tx.taskQuoteService.deleteMany({
+    await tx.budgetItem.deleteMany({
       where: { id: { in: toDelete.map((s: any) => s.id) } },
     });
     await recalcQuoteTotals(tx, task.quote.id);
@@ -2172,7 +2172,7 @@ export class ServiceOrderService {
   /**
    * I11: When a PRODUCTION service order is UPDATED directly (description /
    * observation / type) via the SO module, keep its mirrored priced
-   * TaskQuoteService line in sync. A desc/obs edit RENAMES the line (re-aligning
+   * BudgetItem line in sync. A desc/obs edit RENAMES the line (re-aligning
    * the desc+observation key the quote↔SO sync dedups on — otherwise the line is
    * orphaned and the next sync creates a duplicate). A type change into/out of
    * PRODUCTION creates/removes the mirror.
@@ -2249,14 +2249,14 @@ export class ServiceOrderService {
       if (newKeyExists) {
         // The renamed-to line already exists → the old line is now a duplicate.
         if (isDraft) {
-          await tx.taskQuoteService.deleteMany({
+          await tx.budgetItem.deleteMany({
             where: { id: { in: matches.map((m: any) => m.id) } },
           });
           await recalcQuoteTotals(tx, task.quote.id);
         }
         return;
       }
-      await tx.taskQuoteService.updateMany({
+      await tx.budgetItem.updateMany({
         where: { id: { in: matches.map((m: any) => m.id) } },
         data: { description: newDescription, observation: newObservation },
       });
@@ -2284,7 +2284,7 @@ export class ServiceOrderService {
       if (remainingKeys.has(oldKey)) return;
       const matches = task.quote.services.filter((s: any) => keyMatches(s, oldKey));
       if (matches.length === 0) return;
-      await tx.taskQuoteService.deleteMany({
+      await tx.budgetItem.deleteMany({
         where: { id: { in: matches.map((m: any) => m.id) } },
       });
       await recalcQuoteTotals(tx, task.quote.id);
@@ -2296,7 +2296,7 @@ export class ServiceOrderService {
       if (!isDraft || !newKey) return;
       const exists = task.quote.services.some((s: any) => keyMatches(s, newKey));
       if (exists) return;
-      await tx.taskQuoteService.create({
+      await tx.budgetItem.create({
         data: {
           quoteId: task.quote.id,
           description: newDescription,
@@ -2583,7 +2583,7 @@ export class ServiceOrderService {
             },
           });
 
-          const taskQuoteMap = new Map(tasksWithQuotes.map((t: any) => [t.id, t]));
+          const budgetMap = new Map(tasksWithQuotes.map((t: any) => [t.id, t]));
 
           // Track in-memory so multiple SOs for the same quote don't create duplicates
           const quoteItemsMap = new Map<string, SyncQuoteItem[]>();
@@ -2603,7 +2603,7 @@ export class ServiceOrderService {
 
           for (const so of productionSOs) {
             try {
-              const task = taskQuoteMap.get((so as any).taskId);
+              const task = budgetMap.get((so as any).taskId);
               if (!(task as any)?.quote) {
                 this.logger.log(
                   `[SO→QUOTE SYNC] Batch: Skipped "${(so as any).description}" — task has no quote`,
@@ -2637,7 +2637,7 @@ export class ServiceOrderService {
                   `[SO→QUOTE SYNC] Batch: Creating quote item "${syncResult.quoteItemDescription}" for SO "${(so as any).description}"`,
                 );
 
-                const createdItem = await tx.taskQuoteService.create({
+                const createdItem = await tx.budgetItem.create({
                   data: {
                     quoteId,
                     description: syncResult.quoteItemDescription,
@@ -2654,8 +2654,8 @@ export class ServiceOrderService {
                   amount: Number(createdItem.amount),
                 });
 
-                // Discount-aware recalc: keeps the aggregate TaskQuote and every
-                // TaskQuoteCustomerConfig consistent (a naive subtotal=total=sum
+                // Discount-aware recalc: keeps the aggregate Budget and every
+                // BudgetPayer consistent (a naive subtotal=total=sum
                 // wiped discounts and drifted the configs).
                 await recalcQuoteTotals(tx, quoteId);
 
@@ -3295,7 +3295,7 @@ export class ServiceOrderService {
                     });
                     const qfc = (quoteForCancel as any)?.quote;
                     if (qfc && qfc.status !== TASK_QUOTE_STATUS.CANCELLED) {
-                      await tx.taskQuote.update({
+                      await tx.budget.update({
                         where: { id: qfc.id },
                         data: {
                           status: TASK_QUOTE_STATUS.CANCELLED,

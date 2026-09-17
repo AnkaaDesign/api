@@ -59,7 +59,7 @@ async function limpar() {
       });
     }
     await prisma.task.delete({ where: { id: t.id } });
-    if (t.quoteId) await prisma.taskQuote.delete({ where: { id: t.quoteId } });
+    if (t.quoteId) await prisma.budget.delete({ where: { id: t.quoteId } });
     console.log(`removido: ${t.name} (+${envs.length} envelope(s))`);
   }
 }
@@ -72,8 +72,8 @@ async function main() {
   console.log('WhatsApp:', statusRes ? `HTTP ${statusRes.status}` : 'API não respondeu');
 
   // 2. Dados descartáveis
-  const top = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-  const quote = await prisma.taskQuote.create({
+  const top = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+  const quote = await prisma.budget.create({
     data: {
       subtotal: 28000,
       total: 26600,

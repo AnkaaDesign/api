@@ -31,7 +31,7 @@ import {
 import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
-import { taskQuoteCreateNestedSchema, taskQuoteCreateNestedInBatchSchema } from './task-quote';
+import { budgetCreateNestedSchema, budgetCreateNestedInBatchSchema } from './budget';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
 
 // E-mail dos responsáveis criados inline (newResponsibles). A regra é a mesma
@@ -2704,7 +2704,7 @@ export const taskCreateSchema = z
     checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     quoteId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique quote
-    quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
+    quote: budgetCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
@@ -3007,7 +3007,7 @@ export const taskUpdateSchema = z
     checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     quoteId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique quote
-    quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
+    quote: budgetCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
@@ -3137,7 +3137,7 @@ export const taskBatchCreateWithQuoteSchema = z.object({
     .array(taskCreateSchema)
     .min(1, 'Pelo menos uma tarefa deve ser fornecida')
     .max(200, 'Maximo de 200 tarefas por orcamento'),
-  quote: taskQuoteCreateNestedInBatchSchema,
+  quote: budgetCreateNestedInBatchSchema,
 });
 
 export type TaskBatchCreateWithQuoteFormData = z.infer<typeof taskBatchCreateWithQuoteSchema>;

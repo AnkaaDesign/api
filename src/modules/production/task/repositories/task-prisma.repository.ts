@@ -29,11 +29,11 @@ import {
   mapWhereClause,
   transformPaintColorPreview,
 } from '../../../../utils';
-import { recalcQuoteTotals } from '../../../../utils/task-quote-totals';
+import { recalcQuoteTotals } from '../../../../utils/budget-totals';
 import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
-} from '../../../../utils/task-quote-customer-config-sync';
+} from '../../../../utils/budget-customer-config-sync';
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
@@ -1887,7 +1887,7 @@ export class TaskPrismaRepository
               }
             : {};
 
-        const newQuote = await transaction.taskQuote.create({
+        const newQuote = await transaction.budget.create({
           data: {
             budgetNumber: nextBudgetNumber,
             subtotal,
@@ -2305,7 +2305,7 @@ export class TaskPrismaRepository
                 ? { layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
-            await transaction.taskQuote.update({
+            await transaction.budget.update({
               where: { id: currentTask.quoteId },
               data: {
                 expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : undefined,
@@ -2412,7 +2412,7 @@ export class TaskPrismaRepository
                 ? { layoutFiles: { connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
                 : {};
 
-            const newQuote = await transaction.taskQuote.create({
+            const newQuote = await transaction.budget.create({
               data: {
                 budgetNumber: nextBudgetNumber,
                 subtotal: calculatedSubtotal,
@@ -2510,7 +2510,7 @@ export class TaskPrismaRepository
         for (const quoteId of affected) {
           // O orçamento pode ter sido apagado na mesma transação (relação
           // `SET NULL`): recalcular linha inexistente derrubaria a transação.
-          const stillThere = await transaction.taskQuote.count({ where: { id: quoteId } });
+          const stillThere = await transaction.budget.count({ where: { id: quoteId } });
           if (stillThere === 0) continue;
           // A COBERTURA antes do total, e nos DOIS orçamentos.
           //
@@ -2549,7 +2549,7 @@ export class TaskPrismaRepository
   /**
    * Exclui a tarefa e RECALCULA o orçamento que ela deixou.
    *
-   * Desde o orçamento multitarefa, `TaskQuote.total` é `por veículo × N` e
+   * Desde o orçamento multitarefa, `Budget.total` é `por veículo × N` e
    * `vehicleCount` é esse N. Apagar um dos sessenta caminhões sem recalcular
    * deixava o orçamento afirmando sessenta veículos e cobrando por sessenta,
    * com cinquenta e nove no registro: o documento recalcula na renderização (lê
@@ -2578,7 +2578,7 @@ export class TaskPrismaRepository
         // `SET NULL`, então o delete dele não barra) — recalcular uma linha que
         // não existe mais estouraria a transação inteira por um efeito
         // secundário.
-        const quoteStillThere = await transaction.taskQuote.count({
+        const quoteStillThere = await transaction.budget.count({
           where: { id: before.quoteId },
         });
         if (quoteStillThere > 0) {

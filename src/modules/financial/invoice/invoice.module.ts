@@ -10,9 +10,9 @@ import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
-// forwardRef: TaskQuoteModule imports this module back (invoice generation on approval),
+// forwardRef: BudgetModule imports this module back (invoice generation on approval),
 // so the pair is circular by design.
-import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
+import { BudgetModule } from '@modules/production/budget/budget.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { BillingStatusModule } from '@modules/financial/billing/billing-status.module';
 
@@ -26,7 +26,7 @@ import { BillingStatusModule } from '@modules/financial/billing/billing-status.m
     NfseModule,
     NotificationModule,
     FilesStorageModule,
-    forwardRef(() => TaskQuoteModule),
+    forwardRef(() => BudgetModule),
   ],
   controllers: [InvoiceController],
   providers: [

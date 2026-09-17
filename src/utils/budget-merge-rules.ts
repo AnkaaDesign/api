@@ -23,7 +23,7 @@
  * Bloqueia o que a união DESTRUIRIA; avisa o que ela apenas DECIDE.
  *
  * A lista de serviços é o caso exemplar. Ela é UMA por orçamento, e
- * `TaskQuoteService.amount` é o preço de UM veículo. Unir dois orçamentos com
+ * `BudgetItem.amount` é o preço de UM veículo. Unir dois orçamentos com
  * listas diferentes não "mescla" nada: o segundo passa a ser cobrado pela lista
  * do primeiro, e alguém recebe uma fatura por um serviço que não contratou. Isso
  * bloqueia.

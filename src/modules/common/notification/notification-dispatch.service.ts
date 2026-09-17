@@ -2196,7 +2196,7 @@ export class NotificationDispatchService {
    * Routes to the appropriate deep link generator based on entity type.
    *
    * Entity type matching is NORMALIZED (uppercased, separators stripped) so both
-   * the PascalCase values ('TaskQuote') and the UPPER_SNAKE values emit sites use
+   * the PascalCase values ('Budget') and the UPPER_SNAKE values emit sites use
    * via overrides.relatedEntityType ('TASK_QUOTE') resolve to the same links.
    *
    * Unknown entity types return null (the dispatch metadata build tolerates it

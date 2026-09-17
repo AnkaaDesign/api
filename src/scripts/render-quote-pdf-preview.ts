@@ -27,7 +27,7 @@ async function main() {
   });
   try {
     const prisma = app.get(PrismaService);
-    const quote = await prisma.taskQuote.findFirst({
+    const quote = await prisma.budget.findFirst({
       where: { budgetNumber: Number(budgetNumberArg) },
       select: { id: true },
     });

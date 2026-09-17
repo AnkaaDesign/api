@@ -1,4 +1,4 @@
-// api/src/modules/production/task-quote/task-quote-receipt.service.ts
+// api/src/modules/production/budget/budget-receipt.service.ts
 //
 // Gera o PDF do recibo de quitação (cupom) enviado ao cliente quando o
 // orçamento chega a SETTLED. Renderiza com o Chromium do Playwright, no
@@ -15,12 +15,12 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@config/company';
 import { BILLING_STATUS } from '@constants';
 import {
-  buildTaskQuoteReceiptHtml,
+  buildBudgetReceiptHtml,
   formatDocument,
-  TaskQuoteReceiptData,
-} from './task-quote-receipt.builder';
+  BudgetReceiptData,
+} from './budget-receipt.builder';
 
-export interface TaskQuoteReceiptResult {
+export interface BudgetReceiptResult {
   buffer: Buffer;
   filename: string;
 }
@@ -34,14 +34,14 @@ const MM_PER_PX = 25.4 / 96;
 const PAGE_WIDTH_MM = 80;
 
 @Injectable()
-export class TaskQuoteReceiptService {
-  private readonly logger = new Logger(TaskQuoteReceiptService.name);
+export class BudgetReceiptService {
+  private readonly logger = new Logger(BudgetReceiptService.name);
   private logoDataUri: string | null | undefined;
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async generate(quoteId: string): Promise<TaskQuoteReceiptResult> {
-    const quote = await this.prisma.taskQuote.findUnique({
+  async generate(quoteId: string): Promise<BudgetReceiptResult> {
+    const quote = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       include: {
         tasks: {
@@ -137,7 +137,7 @@ export class TaskQuoteReceiptService {
       year: 'numeric',
     }).format(settledAt);
 
-    const data: TaskQuoteReceiptData = {
+    const data: BudgetReceiptData = {
       budgetNumber: quote.budgetNumber,
       settledAtLabel,
       customerName,
@@ -152,7 +152,7 @@ export class TaskQuoteReceiptService {
       nfseNoticeEnabled,
     };
 
-    const html = buildTaskQuoteReceiptHtml(
+    const html = buildBudgetReceiptHtml(
       data,
       {
         name: COMPANY.name,

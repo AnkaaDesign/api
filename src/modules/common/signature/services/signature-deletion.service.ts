@@ -6,7 +6,7 @@
  * ---------------------------------------------------------------------------
  * `SignatureAuditEvent` é append-only por trigger (migration
  * `20260726150000_budget_signature_envelope`). O `onDelete: Cascade` de
- * `TaskQuote → SignatureEnvelope → SignatureAuditEvent` faz o Postgres emitir um
+ * `Budget → SignatureEnvelope → SignatureAuditEvent` faz o Postgres emitir um
  * DELETE naquela tabela, o trigger levanta `restrict_violation` e a exclusão do
  * orçamento morre em 500 — sem mensagem útil, e com a transação inteira abortada.
  *
@@ -57,7 +57,7 @@
  * ---------------------------------------------------------------------------
  * ORDEM DA LIMPEZA
  * ---------------------------------------------------------------------------
- * A purga é feita ANTES do delete do alvo. Assim, quando o `taskQuote.delete()`
+ * A purga é feita ANTES do delete do alvo. Assim, quando o `budget.delete()`
  * roda, não sobrou nenhuma linha de auditoria para o cascade tocar — o trigger
  * nem chega a ser acionado, e a válvula já voltou para 'off' dentro da mesma
  * transação.
@@ -179,7 +179,7 @@ export class SignatureDeletionService {
    *
    * `tasks: { some }` e não o filtro to-one: `Task.quoteId` deixou de ser
    * `@unique` (orçamento multitarefa), e `quote.task` não existe mais no
-   * `TaskQuoteWhereInput` — a forma antiga passava pelo `tsc` porque `purge`
+   * `BudgetWhereInput` — a forma antiga passava pelo `tsc` porque `purge`
    * recebe `Record<string, unknown>`, e estourava no Prisma em runtime, no meio
    * da transação de exclusão de tarefa.
    *

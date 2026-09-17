@@ -10,7 +10,7 @@ import {
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { nameSimilarity } from './text-normalization';
 import { isDueDateOverdue } from '@utils/due-date.util';
@@ -271,7 +271,7 @@ type SlipCandidate = {
  * through the BankSlip bridge (`onBankSlipPaid`). This service closes the
  * remaining gap: it matches incoming bank CREDITs (PIX/TED/cash) against open
  * NON-boleto installments, marks them paid, recalculates the invoice and
- * cascades the task-quote status — exactly what the Sicredi webhook does for
+ * cascades the budget status — exactly what the Sicredi webhook does for
  * boletos. Conservative auto-match (unique value+date), with a manual path for
  * the Contas a Receber UI.
  */
@@ -283,7 +283,7 @@ export class ReceivableMatchService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
     private readonly config: ConfigService,
   ) {}
 
@@ -1458,7 +1458,7 @@ export class ReceivableMatchService {
 
   /** Apply an allocation plan: settle OPEN installments, LINK already-paid ones
    *  (clearance, no re-settle), recompute their invoices, mark the credit
-   *  reconciled, tag service revenue, and cascade each installment's task-quote
+   *  reconciled, tag service revenue, and cascade each installment's budget
    *  status. Idempotent via the (transactionId, installmentId) unique index. */
   private async applyReceivableAllocation(
     tx: { id: string; postedAt: Date; amount: Prisma.Decimal | number },
@@ -2556,7 +2556,7 @@ export class ReceivableMatchService {
   /**
    * Drop a billing spine that only ever existed to hold a conciliation.
    *
-   * `ReceivableTaskMatchService.matchTasks` mints TaskQuote → config → Invoice →
+   * `ReceivableTaskMatchService.matchTasks` mints Budget → config → Invoice →
    * Installment for a task that had none, then allocates the credit onto it in the
    * SAME transaction — so a minted parcela is born PAID and never represents a
    * debt. Reversing that match used to delete the match and reopen the parcela
@@ -2593,7 +2593,7 @@ export class ReceivableMatchService {
     ];
 
     for (const quoteId of quoteIds) {
-      const configs = await db.taskQuoteCustomerConfig.findMany({
+      const configs = await db.budgetPayer.findMany({
         where: { quoteId },
         select: { id: true, generateInvoice: true, generateBankSlip: true },
       });
@@ -2640,10 +2640,10 @@ export class ReceivableMatchService {
       if (invoiceIds.length > 0) {
         await db.invoice.deleteMany({ where: { id: { in: invoiceIds } } });
       }
-      await db.taskQuoteService.deleteMany({ where: { quoteId } });
+      await db.budgetItem.deleteMany({ where: { quoteId } });
       await db.task.updateMany({ where: { quoteId }, data: { quoteId: null } });
-      await db.taskQuoteCustomerConfig.deleteMany({ where: { id: { in: configIds } } });
-      await db.taskQuote.delete({ where: { id: quoteId } });
+      await db.budgetPayer.deleteMany({ where: { id: { in: configIds } } });
+      await db.budget.delete({ where: { id: quoteId } });
 
       this.logger.log(
         `[UNMATCH] Removida espinha de faturamento criada pela conciliação (quote ${quoteId}) — ` +

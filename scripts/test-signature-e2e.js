@@ -70,7 +70,7 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
       `\n\x1b[33mATENÇÃO: rodando contra o orçamento REAL nº ${requestedBudget}. ` +
         'Ele será assinado e passará a BUDGET_APPROVED.\x1b[0m',
     );
-    quote = await prisma.taskQuote.findFirst({
+    quote = await prisma.budget.findFirst({
       where: { budgetNumber: requestedBudget },
       include: { task: { include: { responsibles: true, customer: true } } },
     });
@@ -95,8 +95,8 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
       },
     });
     disposable.responsibleId = responsible.id;
-    const top = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-    const createdQuote = await prisma.taskQuote.create({
+    const top = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+    const createdQuote = await prisma.budget.create({
       data: {
         subtotal: 28000,
         total: 26600,
@@ -138,7 +138,7 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
       },
     });
     disposable.taskId = task.id;
-    quote = await prisma.taskQuote.findUnique({
+    quote = await prisma.budget.findUnique({
       where: { id: createdQuote.id },
       include: { task: { include: { responsibles: true, customer: true } } },
     });
@@ -251,7 +251,7 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
   }
 
   step('7. Status do orçamento após conclusão');
-  const q1 = await prisma.taskQuote.findUnique({ where: { id: quote.id }, select: { status: true } });
+  const q1 = await prisma.budget.findUnique({ where: { id: quote.id }, select: { status: true } });
   q1.status === 'BUDGET_APPROVED'
     ? ok('orçamento passou a BUDGET_APPROVED pela assinatura')
     : info(
@@ -267,8 +267,8 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
     ctx: { ipAddress: '203.0.113.10', userAgent: 'e2e-test/1.0' },
   });
   ok(`novo envelope v2: ${env2.envelopeId}`);
-  const svc = await prisma.taskQuoteService.findFirst({ where: { quoteId: quote.id } });
-  await prisma.taskQuoteService.update({
+  const svc = await prisma.budgetItem.findFirst({ where: { quoteId: quote.id } });
+  await prisma.budgetItem.update({
     where: { id: svc.id },
     data: { amount: Number(svc.amount) + 777 },
   });
@@ -281,7 +281,7 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
   info(`status: ${env2row.status} · motivo: ${env2row.invalidatedReason}`);
   info(`signatários VOIDED: ${env2row.signers.filter(s => s.status === 'VOIDED').length}/${env2row.signers.length}`);
   // restaura o valor
-  await prisma.taskQuoteService.update({ where: { id: svc.id }, data: { amount: svc.amount } });
+  await prisma.budgetItem.update({ where: { id: svc.id }, data: { amount: svc.amount } });
 
   if (disposable.quoteId && process.env.KEEP === '1') {
     // KEEP=1 preserva os dados para inspecionar o artefato (ex.: montar o
@@ -303,7 +303,7 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
     );
     await deletion.unlinkFrozenDocuments(purged.frozenDocumentPaths);
     await prisma.task.deleteMany({ where: { id: disposable.taskId } });
-    await prisma.taskQuote.deleteMany({ where: { id: disposable.quoteId } });
+    await prisma.budget.deleteMany({ where: { id: disposable.quoteId } });
     await prisma.responsible.deleteMany({ where: { id: disposable.responsibleId } });
     await prisma.customer.deleteMany({ where: { id: disposable.customerId } });
     ok(`removidos ${purged.envelopesRemoved} envelope(s) e os registros descartáveis`);

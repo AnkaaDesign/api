@@ -277,7 +277,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           notesNormalized: true,
           reasonNormalized: true,
         },
-        taskQuoteService: {
+        budgetItem: {
           descriptionNormalized: true,
         },
         taxBracket: {

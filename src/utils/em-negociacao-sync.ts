@@ -14,7 +14,7 @@ const logger = new Logger('EmNegociacaoSync');
 
 /**
  * Event emitter registered once at bootstrap (ServiceOrderService constructor).
- * This util is a plain function called from many layers (task-quote, invoice,
+ * This util is a plain function called from many layers (budget, invoice,
  * layout listeners, …) that mostly lack an EventEmitter2 — registering the
  * shared instance here lets every auto-transition emit the same
  * 'service_order.status.changed' event the manual SO update path emits, so

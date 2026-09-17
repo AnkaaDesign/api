@@ -858,7 +858,7 @@ export class ExternalOperationService {
 
   /**
    * Billing pipeline — runs AFTER the PENDING → CHARGED transition commits
-   * (mirror of TaskQuoteService.internalApprove). Each stage is best-effort:
+   * (mirror of BudgetService.internalApprove). Each stage is best-effort:
    * failures are logged and never revert the withdrawal status — the NFS-e and
    * bank slip schedulers (plus the manual /generate-billing endpoint) recover.
    */

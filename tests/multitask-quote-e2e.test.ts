@@ -5,7 +5,7 @@
  * O DEFEITO QUE ESTE ARQUIVO IMPEDE
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * `TaskQuoteService.create` montava a fatia de faturamento com
+ * `BudgetService.create` montava a fatia de faturamento com
  * `orderNumber: (config as any).orderNumber || null`. A coluna saiu do modelo na
  * migração `20260909170000` — o pedido de compra é do VEÍCULO
  * (`Task.customerOrderNumber`) — mas `x || null` emite a chave SEMPRE, mesmo
@@ -21,7 +21,7 @@
  * exatamente por isso que nenhum deles viu. Este aqui sobe o container de DI e
  * chama o MESMO método que a tela chama.
  *
- *   npm run test:multitask-quote
+ *   npm run test:multibudget
  *
  * O script exporta `BACKUP_PATH` para um diretório local: o `BackupService` cria
  * a árvore de backup no bootstrap e `/mnt/backup` — o padrão de produção — não
@@ -44,10 +44,10 @@ import { NestFactory } from '@nestjs/core';
 // `exports`; e não `ts-node-dev`: o watcher reinicia o teste a cada save).
 import { AppModule } from '../src/app.module';
 import { taskBatchCreateWithQuoteSchema } from '../src/schemas/task';
-import { taskQuoteUpdateSchema } from '../src/schemas/task-quote';
+import { budgetUpdateSchema } from '../src/schemas/budget';
 import { PrismaService } from '../src/modules/common/prisma/prisma.service';
 import { TaskService } from '../src/modules/production/task/task.service';
-import { TaskQuoteService } from '../src/modules/production/task-quote/task-quote.service';
+import { BudgetService } from '../src/modules/production/budget/budget.service';
 
 let failures = 0;
 
@@ -77,7 +77,7 @@ function parseBody(body: unknown): any {
 }
 
 /**
- * O portão de `PUT /task-quotes/:id` — `ZodValidationPipe(taskQuoteUpdateSchema)`.
+ * O portão de `PUT /task-quotes/:id` — `ZodValidationPipe(budgetUpdateSchema)`.
  *
  * Existe pela mesma razão que `parseBody`: é aqui que a cobertura (`taskIds` de
  * cada fatia) e o `id` da fatia atravessam — ou não — o contrato. Foi assim que
@@ -86,7 +86,7 @@ function parseBody(body: unknown): any {
  * do mesmo cliente sem nada que os distinga.
  */
 function parseQuoteUpdate(body: unknown): any {
-  const parsed = taskQuoteUpdateSchema.safeParse(body);
+  const parsed = budgetUpdateSchema.safeParse(body);
   if (!parsed.success) {
     throw new Error(`o zod recusou a atualização: ${JSON.stringify(parsed.error.issues)}`);
   }
@@ -103,7 +103,7 @@ async function main() {
 
   const prisma = app.get(PrismaService);
   const tasks = app.get(TaskService);
-  const quotes = app.get(TaskQuoteService);
+  const quotes = app.get(BudgetService);
 
   const createdQuoteIds: string[] = [];
   const createdTaskIds: string[] = [];
@@ -187,7 +187,7 @@ async function main() {
 
     if (!quoteId) return;
 
-    const quote = await prisma.taskQuote.findUnique({
+    const quote = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         vehicleCount: true,
@@ -281,7 +281,7 @@ async function main() {
     console.log('\nTrocar para faturamento por veículo cria uma fatia por caminhão');
     // ═══════════════════════════════════════════════════════════════════════
     await quotes.update(quoteId, { billingSplit: 'PER_TASK', status: 'PENDING' } as any, user.id);
-    const perTask = await prisma.taskQuote.findUnique({
+    const perTask = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         billingSplit: true,
@@ -353,7 +353,7 @@ async function main() {
 
     const readLots = async () =>
       (
-        await prisma.taskQuoteCustomerConfig.findMany({
+        await prisma.budgetPayer.findMany({
           where: { quoteId },
           orderBy: { createdAt: 'asc' },
           select: {
@@ -496,7 +496,7 @@ async function main() {
     // datas para um evento só.
     const frozenId = split.find(l => l.covered.join() === taskIds[0])!.id;
     const frozenBillingId = (
-      await prisma.taskQuoteCustomerConfig.findUnique({
+      await prisma.budgetPayer.findUnique({
         where: { id: frozenId }, select: { billingId: true },
       })
     )!.billingId;
@@ -594,7 +594,7 @@ async function main() {
 
     // O zod NÃO é `.strict()`: tirar a chave do schema não recusa o corpo, apaga
     // o valor. Sem esta verificação, remover `orderNumber` do
-    // `taskQuoteCustomerConfigCreateNestedSchema` passaria por todos os portões
+    // `budgetPayerCreateNestedSchema` passaria por todos os portões
     // e o pedido de compra do aparelho instalado sumiria em silêncio.
     check(
       'o zod PRESERVA `orderNumber` na fatia (não é `.strict()`: ele apagaria)',
@@ -633,7 +633,7 @@ async function main() {
           where: { id: { in: createdTaskIds } },
           data: { quoteId: null },
         });
-        await prisma.taskQuote.deleteMany({ where: { id: { in: createdQuoteIds } } });
+        await prisma.budget.deleteMany({ where: { id: { in: createdQuoteIds } } });
       }
       if (createdTaskIds.length > 0) {
         await prisma.task.deleteMany({ where: { id: { in: createdTaskIds } } });

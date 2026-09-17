@@ -92,7 +92,7 @@ type InstallmentReceivable = Prisma.InstallmentGetPayload<{ select: typeof INSTA
 /**
  * Normalizes a receivable installment onto a single `invoice`-shaped view,
  * regardless of whether it's backed by a classic Invoice or a Faturamento
- * TaskQuoteCustomerConfig — so the detail page can read `installment.invoice`
+ * BudgetPayer — so the detail page can read `installment.invoice`
  * without caring which source it came from (mirrors the fallback pattern in
  * receivable-match.service.ts / receivables.service.ts).
  */

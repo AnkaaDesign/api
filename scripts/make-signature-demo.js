@@ -13,7 +13,7 @@ const ROOT='/home/kennedy/Documents/repositories/api';
   env.setWhatsAppSender({ async sendMessage(phone,message){ captured.push({phone,message}); return true; } });
 
   const bn=Number(process.argv[2]||583);
-  const q=await prisma.taskQuote.findFirst({where:{budgetNumber:bn},include:{task:{include:{customer:true,responsibles:true}}}});
+  const q=await prisma.budget.findFirst({where:{budgetNumber:bn},include:{task:{include:{customer:true,responsibles:true}}}});
   // A trilha de auditoria e append-only; apagar envelopes exige a valvula
   // explicita `ankaa.allow_signature_audit_delete`, que so existe para casos
   // legitimos como este (limpeza de demo). SET LOCAL vale so nesta transacao.
@@ -21,7 +21,7 @@ const ROOT='/home/kennedy/Documents/repositories/api';
     await tx.$executeRawUnsafe("SET LOCAL ankaa.allow_signature_audit_delete = 'on'");
     await tx.$executeRawUnsafe('DELETE FROM "SignatureEnvelope" WHERE "quoteId" = $1', q.id);
   });
-  await prisma.taskQuote.update({where:{id:q.id},data:{status:'PENDING', expiresAt:new Date(Date.now()+30*864e5)}});
+  await prisma.budget.update({where:{id:q.id},data:{status:'PENDING', expiresAt:new Date(Date.now()+30*864e5)}});
   const actor=await prisma.user.findFirst({select:{id:true}});
   const r=await env.createEnvelope({quoteId:q.id,actorUserId:actor.id,ctx:{ipAddress:'127.0.0.1',userAgent:'demo'}});
   const signers=await prisma.envelopeSigner.findMany({where:{envelopeId:r.envelopeId},orderBy:{orderGroup:'asc'}});

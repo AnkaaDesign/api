@@ -192,7 +192,7 @@ export class DossierAssemblerService {
     // tratá-lo como id faria a validação abaixo recusar um pedido que é, na
     // verdade, "dossiê completo".
     const customerId = options.customerId?.trim() || null;
-    const quote = await this.prisma.taskQuote.findUnique({
+    const quote = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         id: true,

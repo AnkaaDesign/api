@@ -3,7 +3,7 @@
  *
  * O defeito histórico: todo caminho de gravação fazia
  *   `deleteMany({ quoteId }) + createMany(...)`
- * em `TaskQuoteCustomerConfig`. Como a linha é o pai `onDelete: Cascade` de
+ * em `BudgetPayer`. Como a linha é o pai `onDelete: Cascade` de
  * `Invoice` (@unique) e `Installment`, destruir-e-recriar:
  *   - perdia em silêncio campos que o formulário não reenvia
  *     (`customerSignatureId`, `paymentConfig`);
@@ -50,7 +50,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { planCoverage } from './quote-money';
 import { PrismaTransaction } from '../modules/common/base/base.repository';
-import { isBillingFrozen } from '../modules/production/task-quote/task-quote.guards';
+import { isBillingFrozen } from '../modules/production/budget/budget.guards';
 import { hasLiveInvoice } from './billing-invoice';
 import { deleteInstallmentsWithSlips } from './billing-teardown';
 import { Logger } from '@nestjs/common';
@@ -121,7 +121,7 @@ function buildConfigWriteData(config: IncomingCustomerConfig): Record<string, un
   // `orderNumber` NÃO é mais campo da fatia: o número do pedido de compra é do
   // VEÍCULO (`Task.customerOrderNumber`), porque um orçamento cobre N caminhões e
   // o pedido é por entrega. O campo continua aceito no payload (o app instalado o
-  // manda) e quem o traduz para as tarefas é `TaskQuoteService`.
+  // manda) e quem o traduz para as tarefas é `BudgetService`.
   if (config.responsibleId !== undefined) d.responsibleId = config.responsibleId ?? null;
   if (config.paymentCondition !== undefined) d.paymentCondition = config.paymentCondition ?? null;
   if (config.paymentConfig !== undefined) d.paymentConfig = (config.paymentConfig ?? null) as any;
@@ -230,7 +230,7 @@ export async function reconcileQuoteCustomerConfigs(
 
   const billingSplit =
     options?.billingSplit ??
-    (await tx.taskQuote.findUnique({ where: { id: quoteId }, select: { billingSplit: true } }))
+    (await tx.budget.findUnique({ where: { id: quoteId }, select: { billingSplit: true } }))
       ?.billingSplit ??
     'JOINT';
 
@@ -244,7 +244,7 @@ export async function reconcileQuoteCustomerConfigs(
       })
     ).map(t => t.id);
 
-  const storedConfigs = await tx.taskQuoteCustomerConfig.findMany({
+  const storedConfigs = await tx.budgetPayer.findMany({
     where: { quoteId },
     orderBy: { createdAt: 'asc' },
     include: {
@@ -517,7 +517,7 @@ export async function reconcileQuoteCustomerConfigs(
       // `defaultIncoming`, que é a entrada de OUTRO grupo.
       //
       // Isso seria inócuo se a entrada carregasse só termos. Mas
-      // `TaskQuoteService.update` grava nela um `subtotal`/`total` PROVISÓRIO,
+      // `BudgetService.update` grava nela um `subtotal`/`total` PROVISÓRIO,
       // calculado da cobertura DECLARADA daquele outro grupo, contando que
       // `recalcQuoteTotals` corrija tudo no fim da transação. O provisório de
       // três veículos vinha então parar na fatia congelada de um, e o contrato
@@ -550,7 +550,7 @@ export async function reconcileQuoteCustomerConfigs(
           }
         }
         if (Object.keys(writeData).length > 0) {
-          await tx.taskQuoteCustomerConfig.update({ where: { id: prev.id }, data: writeData });
+          await tx.budgetPayer.update({ where: { id: prev.id }, data: writeData });
         }
         // A cobertura de uma fatia CONGELADA nunca é reescrita: ela entra no
         // plano exatamente como está, para que a reconciliação dos faturamentos
@@ -632,7 +632,7 @@ export async function reconcileQuoteCustomerConfigs(
       // caírem no mesmo `Billing` já na criação, em vez de nascerem em dois e
       // serem fundidos depois.
       const billingId = await ensureBillingForCoverage(tx, quoteId, planned.coverage);
-      const created = await tx.taskQuoteCustomerConfig.create({
+      const created = await tx.budgetPayer.create({
         data: { quoteId, billingId, customerId, ...writeData },
       });
       coveragePlan.set(created.id, planned.coverage);
@@ -736,7 +736,7 @@ export async function reconcileQuoteCustomerConfigs(
     // propósito: nota emitida sobrevive à fatura e continua sendo o histórico
     // fiscal do orçamento. Só as canceladas/ERROR chegam até aqui.
     await tx.invoice.deleteMany({ where: { customerConfigId: { in: removeIds } } });
-    await tx.taskQuoteCustomerConfig.deleteMany({ where: { id: { in: removeIds } } });
+    await tx.budgetPayer.deleteMany({ where: { id: { in: removeIds } } });
   }
 
   // ── 6. E OS FATURAMENTOS ──────────────────────────────────────────────────
@@ -783,7 +783,7 @@ export async function resliceQuoteCoverage(
   quoteId: string,
   options?: { billingSplit?: string | null; taskIds?: readonly string[] | null },
 ): Promise<void> {
-  const stored = await tx.taskQuoteCustomerConfig.findMany({
+  const stored = await tx.budgetPayer.findMany({
     where: { quoteId },
     select: { customerId: true },
     orderBy: { createdAt: 'asc' },
@@ -845,7 +845,7 @@ export async function ensureBillingForCoverage(
 /**
  * RECONCILIA OS FATURAMENTOS DO ORÇAMENTO — as entidades, não a configuração.
  *
- * Roda depois que os pagadores (`TaskQuoteCustomerConfig`) já estão certos, e
+ * Roda depois que os pagadores (`BudgetPayer`) já estão certos, e
  * deriva deles a única coisa que o modelo novo afirma: **um grupo de veículos
  * cobrados juntos é um `Billing`**.
  *
@@ -881,7 +881,7 @@ export async function reconcileBillingsForQuote(
    */
   plan?: ReadonlyMap<string, readonly string[]>,
 ): Promise<{ created: number; deleted: number; billings: number }> {
-  const configs = await (tx as any).taskQuoteCustomerConfig.findMany({
+  const configs = await (tx as any).budgetPayer.findMany({
     where: { quoteId },
     select: {
       id: true,
@@ -947,7 +947,7 @@ export async function reconcileBillingsForQuote(
       id => configs.find((c: any) => c.id === id)?.billingId !== billingId,
     );
     if (mudaram.length > 0) {
-      await (tx as any).taskQuoteCustomerConfig.updateMany({
+      await (tx as any).budgetPayer.updateMany({
         where: { id: { in: mudaram } },
         data: { billingId },
       });

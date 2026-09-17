@@ -524,7 +524,7 @@ export class SignatureEnvelopeService {
   }> {
     const settings = this.getDeliverySettings();
 
-    const quote = await this.prisma.taskQuote.findUnique({
+    const quote = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         id: true,
@@ -748,7 +748,7 @@ export class SignatureEnvelopeService {
   }
 
   /**
-   * Registrado pelo TaskQuoteModule. Evita que o módulo de assinatura conheça o
+   * Registrado pelo BudgetModule. Evita que o módulo de assinatura conheça o
    * domínio de orçamento: a conclusão do envelope apenas avisa, e quem decide o
    * que isso significa para o status da quote é o dono daquele domínio.
    */
@@ -788,7 +788,7 @@ export class SignatureEnvelopeService {
    *
    * ⚠️ ESTE GANCHO NÃO EXISTIA, e a falta dele deixava o orçamento parado num
    * estado que não descrevia mais a realidade: o envelope ia para `REFUSED` e o
-   * `TaskQuote` continuava `PENDING`, indistinguível de um criado naquela manhã.
+   * `Budget` continuava `PENDING`, indistinguível de um criado naquela manhã.
    * Em toda lista, filtro e relatório do comercial, um negócio que o cliente
    * recusou aparecia como um negócio à espera de resposta. Medido no acervo:
    * NOVE envelopes `REFUSED` com o orçamento em `PENDING`.
@@ -936,7 +936,7 @@ export class SignatureEnvelopeService {
 
     // ── O LAYOUT APROVADO É CONDIÇÃO PARA EMITIR, NÃO PARA APROVAR ───────────
     //
-    // O portão de layout mora em `TaskQuoteService.budgetApprove`, que é
+    // O portão de layout mora em `BudgetService.budgetApprove`, que é
     // chamado DEPOIS de tudo: cliente assinou, Ankaa contra-assinou, PAdES
     // aplicado, dossiê congelado. Ele estoura dentro do `try/catch`
     // best-effort de `finalize`, que só loga — e o orçamento fica PENDING com um
@@ -954,7 +954,7 @@ export class SignatureEnvelopeService {
     // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
     // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
     // e o layout pode ser desvinculado entre a emissão e a conclusão.
-    const gate = await this.prisma.taskQuote.findUnique({
+    const gate = await this.prisma.budget.findUnique({
       where: { id: args.quoteId },
       select: { layoutFiles: { select: { id: true }, take: 1 } },
     });
@@ -1303,13 +1303,13 @@ export class SignatureEnvelopeService {
 
       // NOVA COLETA, NOVO DIREITO A UM AVISO DE VENCIMENTO.
       //
-      // `TaskQuote.expiryNoticeSentAt` impede que a varredura horária avise duas
+      // `Budget.expiryNoticeSentAt` impede que a varredura horária avise duas
       // vezes pelo MESMO vencimento. Mas um orçamento reformulado — preço
       // revisto, validade nova — que vença outra vez é outra proposta, e o
       // cliente precisa saber dela também. Sem esta limpeza, o segundo
       // vencimento passaria em silêncio: o carimbo do primeiro continuaria lá, a
       // varredura leria "já avisei" e ninguém receberia nada.
-      await tx.taskQuote.update({
+      await tx.budget.update({
         where: { id: args.quoteId },
         data: { expiryNoticeSentAt: null },
       });
@@ -1734,7 +1734,7 @@ export class SignatureEnvelopeService {
       );
     }
     // Sem representante comercial atribuído, cai no diretor configurado. Não há
-    // hoje nenhum campo de vendedor responsável em Task/TaskQuote além deste.
+    // hoje nenhum campo de vendedor responsável em Task/Budget além deste.
     const director = await this.prisma.user.findFirst({
       where: { name: { contains: COMPANY.directorName, mode: 'insensitive' }, ...EMPLOYED_USER_WHERE },
       select,
@@ -2300,7 +2300,7 @@ export class SignatureEnvelopeService {
   /**
    * A data de validade como o CLIENTE a lê.
    *
-   * ⚠️ O `timeZone` não é preciosismo. `TaskQuote.expiresAt` é gravado às
+   * ⚠️ O `timeZone` não é preciosismo. `Budget.expiresAt` é gravado às
    * 23:59:59.999 de São Paulo — que em UTC já é 02:59 do DIA SEGUINTE. Num
    * servidor que roda em UTC (o normal em Linux, e o caso de produção), um
    * `toLocaleDateString('pt-BR')` sem fuso imprimia o dia seguinte: o convite
@@ -3406,7 +3406,7 @@ export class SignatureEnvelopeService {
     // GUARANTIA DE FRESCOR — verificada no momento do ato, não confiando na
     // cobertura dos hooks de escrita.
     //
-    // `onQuoteContentChanged` é chamado de UM ponto (TaskQuoteService.update),
+    // `onQuoteContentChanged` é chamado de UM ponto (BudgetService.update),
     // mas dezenas de caminhos alteram o que o documento exibe: escrita aninhada
     // via PUT /tasks/:id, service-order renomeando serviços, rollback de campo,
     // truck.service, customer.service, responsible.service (que pode até TROCAR
@@ -4086,7 +4086,7 @@ export class SignatureEnvelopeService {
     // A trava era "só a pessoa designada", e o argumento contra o administrador
     // era bom: assinar no lugar de alguém gravaria o nome dela num ato que ela não
     // praticou. O que o argumento não via é que o contra-assinante é UMA PESSOA em
-    // todo o sistema — `TaskQuote.commercialUserId` é nulo em todo o acervo, e
+    // todo o sistema — `Budget.commercialUserId` é nulo em todo o acervo, e
     // `resolveAnkaaSigner` cai sempre no diretor. Com um contra-assinante único, a
     // trava não protegia a verdade do documento: ela transformava férias, doença ou
     // desligamento em coleta impossível de concluir, com o cliente já tendo
@@ -5501,7 +5501,7 @@ export class SignatureEnvelopeService {
    * TAMBÉM GRAVA A DERIVA, e isso é o conserto de um buraco real.
    *
    *   `onQuoteContentChanged` — o gancho que registra `SNAPSHOT_DRIFTED` — é
-   *   chamado de UM lugar: `TaskQuoteService.update`. Mas placa e chassi são
+   *   chamado de UM lugar: `BudgetService.update`. Mas placa e chassi são
    *   escritos por `PUT /tasks/:id` (escrita aninhada em `truck`), que não passa
    *   por ali. Resultado medido no orçamento nº 945: a tela mostrava as duas
    *   alterações porque as calcula ao vivo, e a trilha do documento não tinha
@@ -6839,7 +6839,7 @@ export class SignatureEnvelopeService {
       // passou ou não pela assinatura eletrônica; isso é conteúdo do PDF, não do
       // nome. Consulta própria porque `renderUnsignedQuoteDocument` devolve só
       // os bytes e é compartilhada com o dossiê.
-      const quote = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.budget.findUnique({
         where: { id: quoteId },
         select: {
           budgetNumber: true,
@@ -7000,7 +7000,7 @@ export class SignatureEnvelopeService {
   async listForQuote(quoteId: string, viewerUserId?: string | null) {
     // O cadastro do veículo AGORA — é contra ele que as lacunas reservadas são
     // conferidas, para o painel poder avisar antes da contra-assinatura.
-    const vehicle = await this.prisma.taskQuote.findUnique({
+    const vehicle = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         // O estado do ORÇAMENTO, para o painel poder dizer que uma coleta

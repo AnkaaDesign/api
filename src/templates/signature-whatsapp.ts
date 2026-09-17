@@ -21,7 +21,7 @@ import { COMPANY } from '../config/company';
 
 export interface SignatureWhatsAppBase {
   signerName: string;
-  /** `string | number` como no par de e-mail: `TaskQuote.budgetNumber` é Int. */
+  /** `string | number` como no par de e-mail: `Budget.budgetNumber` é Int. */
   budgetNumber: string | number;
 }
 

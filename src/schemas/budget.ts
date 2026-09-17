@@ -1,4 +1,4 @@
-// packages/schemas/src/task-quote.ts
+// packages/schemas/src/budget.ts
 
 import { z } from 'zod';
 import {
@@ -11,7 +11,7 @@ import {
   normalizeVehicleSearchTerm,
   documentSearchDigits,
 } from './common';
-import type { TaskQuote } from '@types';
+import type { Budget } from '@types';
 import {
   TASK_QUOTE_STATUS,
   BILLING_STATUS,
@@ -21,7 +21,7 @@ import {
 } from '@constants';
 
 // =====================
-// TaskQuote Status Schema
+// Budget Status Schema
 // =====================
 
 // ⚠️ ESTA LISTA É ESCRITA À MÃO e o `tsc` não a confere contra o enum: um
@@ -29,7 +29,7 @@ import {
 // do filtro, e a lista volta sem ele em silêncio. Ver
 // `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
 // também, sempre.
-export const taskQuoteStatusSchema = z.enum([
+export const budgetStatusSchema = z.enum([
   TASK_QUOTE_STATUS.EXPIRED,
   TASK_QUOTE_STATUS.SIGNED,
   TASK_QUOTE_STATUS.PENDING,
@@ -85,7 +85,7 @@ export const guaranteeYearsSchema = z
   });
 
 // =====================
-// TaskQuote Include Schema Based on Prisma Schema (Second Level Only)
+// Budget Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
 /**
@@ -136,7 +136,7 @@ const quoteTasksIncludeSchema = z
   ])
   .optional();
 
-export const taskQuoteIncludeSchema = z
+export const budgetIncludeSchema = z
   .object({
     /** As tarefas do orçamento — uma por veículo. A forma corrente. */
     tasks: quoteTasksIncludeSchema,
@@ -208,10 +208,10 @@ export const taskQuoteIncludeSchema = z
   .partial();
 
 // =====================
-// TaskQuote OrderBy Schema
+// Budget OrderBy Schema
 // =====================
 
-export const taskQuoteOrderBySchema = z
+export const budgetOrderBySchema = z
   .union([
     z
       .object({
@@ -297,15 +297,15 @@ export const taskQuoteOrderBySchema = z
   .optional();
 
 // =====================
-// TaskQuote Where Schema
+// Budget Where Schema
 // =====================
 
-export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
+export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
-      AND: z.union([taskQuoteWhereSchema, z.array(taskQuoteWhereSchema)]).optional(),
-      OR: z.array(taskQuoteWhereSchema).optional(),
-      NOT: z.union([taskQuoteWhereSchema, z.array(taskQuoteWhereSchema)]).optional(),
+      AND: z.union([budgetWhereSchema, z.array(budgetWhereSchema)]).optional(),
+      OR: z.array(budgetWhereSchema).optional(),
+      NOT: z.union([budgetWhereSchema, z.array(budgetWhereSchema)]).optional(),
       id: z
         .union([
           z.string(),
@@ -353,12 +353,12 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
       status: z
         .union([
-          taskQuoteStatusSchema,
+          budgetStatusSchema,
           z.object({
-            equals: taskQuoteStatusSchema.optional(),
-            in: z.array(taskQuoteStatusSchema).optional(),
-            notIn: z.array(taskQuoteStatusSchema).optional(),
-            not: taskQuoteStatusSchema.optional(),
+            equals: budgetStatusSchema.optional(),
+            in: z.array(budgetStatusSchema).optional(),
+            notIn: z.array(budgetStatusSchema).optional(),
+            not: budgetStatusSchema.optional(),
           }),
         ])
         .optional(),
@@ -495,7 +495,7 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
       /**
        * @deprecated Filtro to-one, anterior ao orçamento multitarefa.
        *
-       * `Task.quoteId` deixou de ser `@unique` e `TaskQuoteWhereInput.task` não
+       * `Task.quoteId` deixou de ser `@unique` e `BudgetWhereInput.task` não
        * existe mais; mandá-lo ao Prisma estoura a consulta. Continua ACEITO aqui
        * porque o app instalado ainda o envia, e `mapWhereToDatabaseWhere` o
        * traduz para `tasks: { some: … }` antes do banco.
@@ -519,18 +519,18 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
 // Convenience Filters
 // =====================
 
-const taskQuoteFilters = {
+const budgetFilters = {
   searchingFor: z.string().optional(),
   taskId: z.string().uuid().optional(),
   hasTask: z.boolean().optional(),
-  status: taskQuoteStatusSchema.optional(),
+  status: budgetStatusSchema.optional(),
 };
 
 // =====================
 // Transform Function for Filters
 // =====================
 
-const taskQuoteTransform = (data: any) => {
+const budgetTransform = (data: any) => {
   const transformed: any = { ...data };
 
   // Handle searchingFor filter — search across logomarca (task name), série
@@ -603,7 +603,7 @@ const taskQuoteTransform = (data: any) => {
     delete transformed.searchingFor;
   }
 
-  // Handle taskId filter (FK lives on Task, not TaskQuote)
+  // Handle taskId filter (FK lives on Task, not Budget)
   // `some`: "o orçamento que cobre esta tarefa". Com um veículo é a mesma
   // consulta de sempre; com sessenta, é a única que responde.
   if (data.taskId) {
@@ -616,7 +616,7 @@ const taskQuoteTransform = (data: any) => {
 
   // Handle hasTask filter
   // `some: {}` / `none: {}` é a forma to-many de "tem tarefa" / "não tem": o
-  // `isNot: null` / `null` do to-one não existe mais no `TaskQuoteWhereInput`.
+  // `isNot: null` / `null` do to-one não existe mais no `BudgetWhereInput`.
   if (data.hasTask !== undefined) {
     transformed.where = {
       ...transformed.where,
@@ -638,10 +638,10 @@ const taskQuoteTransform = (data: any) => {
 };
 
 // =====================
-// GetMany Schema - TaskQuote
+// GetMany Schema - Budget
 // =====================
 
-export const taskQuoteGetManySchema = z
+export const budgetGetManySchema = z
   .object({
     // Pagination
     page: z.coerce.number().int().min(0).default(1).optional(),
@@ -654,12 +654,12 @@ export const taskQuoteGetManySchema = z
     skip: z.coerce.number().int().min(0).optional(),
 
     // Direct Prisma clauses
-    where: taskQuoteWhereSchema.optional(),
-    orderBy: taskQuoteOrderBySchema.optional(),
-    include: taskQuoteIncludeSchema.optional(),
+    where: budgetWhereSchema.optional(),
+    orderBy: budgetOrderBySchema.optional(),
+    include: budgetIncludeSchema.optional(),
 
     // Convenience filters
-    ...taskQuoteFilters,
+    ...budgetFilters,
 
     // Date filters
     createdAt: z
@@ -681,7 +681,7 @@ export const taskQuoteGetManySchema = z
       })
       .optional(),
   })
-  .transform(taskQuoteTransform);
+  .transform(budgetTransform);
 
 // =====================
 // Nested Schemas for Relations
@@ -713,7 +713,7 @@ export const paymentConfigSchema = z.object({
     .optional(),
 });
 
-export const taskQuoteCustomerConfigCreateNestedSchema = z
+export const budgetPayerCreateNestedSchema = z
   .object({
     /**
      * O ID DESTA FATIA, quando a tela edita uma que já existe.
@@ -754,7 +754,7 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
     // which leaves an OMITTED key as `undefined`. The reverse, `.optional().default(x)`,
     // yields ZodDefault(ZodOptional) and MATERIALIZES x for an absent key — which
     // silently defeats the "absence = preserve" contract that
-    // task-quote-customer-config-sync.ts relies on to keep DB-owned values. The two
+    // budget-customer-config-sync.ts relies on to keep DB-owned values. The two
     // orderings are one token apart with opposite semantics and no type-level signal,
     // so keep them all in this form. Real columns already carry @default in Prisma.
     subtotal: moneySchema.default(0).optional(),
@@ -840,9 +840,9 @@ export const discountReferenceSchema = z
   .nullable()
   .optional();
 
-// TaskQuoteService nested schema
+// BudgetItem nested schema
 // Amount is optional and defaults to 0 (courtesy services)
-export const taskQuoteServiceCreateNestedSchema = z.object({
+export const budgetItemCreateNestedSchema = z.object({
   id: z.string().uuid().optional(), // For updating existing services
   description: z
     .string()
@@ -859,15 +859,15 @@ export const taskQuoteServiceCreateNestedSchema = z.object({
   invoiceToCustomerId: z.string().uuid('Cliente invalido').optional().nullable(),
 });
 
-// TaskQuote nested schema for task create/update (matches Prisma TaskQuote model)
-export const taskQuoteCreateNestedSchema = z.object({
+// Budget nested schema for task create/update (matches Prisma Budget model)
+export const budgetCreateNestedSchema = z.object({
   services: z
-    .array(taskQuoteServiceCreateNestedSchema)
+    .array(budgetItemCreateNestedSchema)
     .min(1, 'Pelo menos um servico e obrigatorio'),
   expiresAt: z.coerce.date({
     errorMap: () => ({ message: 'Data de validade invalida' }),
   }),
-  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
+  status: budgetStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
   // Aggregate totals (computed from customerConfigs)
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
@@ -884,7 +884,7 @@ export const taskQuoteCreateNestedSchema = z.object({
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
-    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .array(budgetPayerCreateNestedSchema)
     .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
@@ -910,14 +910,14 @@ export const taskQuoteCreateNestedSchema = z.object({
 export const quoteBillingSplitSchema = z.enum(['JOINT', 'PER_TASK', 'CUSTOM']);
 
 // =====================
-// CRUD Schemas - TaskQuote
+// CRUD Schemas - Budget
 // =====================
 
-export const taskQuoteCreateBaseSchema = z.object({
+export const budgetCreateBaseSchema = z.object({
   subtotal: moneySchema,
   total: moneySchema,
   expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
-  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
+  status: budgetStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
   /**
    * A TAREFA do orçamento — forma antiga, de UMA tarefa.
    *
@@ -941,7 +941,7 @@ export const taskQuoteCreateBaseSchema = z.object({
     .optional(),
   billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
   services: z
-    .array(taskQuoteServiceCreateNestedSchema)
+    .array(budgetItemCreateNestedSchema)
     .min(1, 'Pelo menos um servico e obrigatorio')
     .optional(),
 
@@ -957,11 +957,11 @@ export const taskQuoteCreateBaseSchema = z.object({
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
-    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .array(budgetPayerCreateNestedSchema)
     .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
-export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema.superRefine((data, ctx) => {
+export const budgetCreateSchema = budgetCreateBaseSchema.superRefine((data, ctx) => {
   // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
   // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
   // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
@@ -991,7 +991,7 @@ export const taskQuoteCreateSchema = taskQuoteCreateBaseSchema.superRefine((data
  * coisa na outra. Exigir os ids aqui obrigaria a tela a criar as tarefas antes,
  * que é exatamente o que deixava N tarefas órfãs quando o orçamento falhava.
  */
-export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit({
+export const budgetCreateNestedInBatchSchema = budgetCreateBaseSchema.omit({
   taskId: true,
   taskIds: true,
 });
@@ -1038,22 +1038,22 @@ export const customerConfigOrderNumberSchema = z
 
 export type CustomerConfigOrderNumberFormData = z.infer<typeof customerConfigOrderNumberSchema>;
 
-export const taskQuoteMergeSchema = z.object({
+export const budgetMergeSchema = z.object({
   taskIds: z
     .array(z.string().uuid('Veículo inválido'))
     .min(2, 'Selecione pelo menos dois veículos.')
     .max(200, 'Selecione no máximo 200 veículos por vez.'),
   /**
    * O modo de cobrança do resultado. Padrão `PER_TASK` — ver a decisão em
-   * `TaskQuoteService.mergeQuotes`: quatro orçamentos de um veículo JÁ ERAM
+   * `BudgetService.mergeQuotes`: quatro orçamentos de um veículo JÁ ERAM
    * quatro faturamentos independentes, e `JOINT` os colapsaria numa fatura só.
    */
   billingSplit: z.enum(['JOINT', 'PER_TASK']).optional(),
 });
 
-export type TaskQuoteMergeFormData = z.infer<typeof taskQuoteMergeSchema>;
+export type BudgetMergeFormData = z.infer<typeof budgetMergeSchema>;
 
-export const taskQuoteUpdateSchema = z.object({
+export const budgetUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
   /**
@@ -1078,11 +1078,11 @@ export const taskQuoteUpdateSchema = z.object({
   expiresAt: z.coerce
     .date({ errorMap: () => ({ message: 'Data de validade invalida' }) })
     .optional(),
-  status: taskQuoteStatusSchema.optional(),
+  status: budgetStatusSchema.optional(),
   /**
    * ⚠️ `taskId` NÃO EXISTE AQUI, e a ausência é deliberada.
    *
-   * `TaskQuote` não tem essa coluna — a FK mudou de lado e hoje mora em
+   * `Budget` não tem essa coluna — a FK mudou de lado e hoje mora em
    * `Task.quoteId` —, mas o campo continuava declarado neste update e a tela
    * continuava mandando. Como o objeto não é `.strict()`, o zod agora o DESCARTA,
    * que é exatamente o que se quer: nada lê `data.taskId` no caminho de
@@ -1095,7 +1095,7 @@ export const taskQuoteUpdateSchema = z.object({
    * Quem muda o conjunto de veículos usa `taskIds` (abaixo), que é lido.
    *
    * (Na CRIAÇÃO `taskId` continua aceito e é LIDO — ver
-   * `taskQuoteCreateBaseSchema`: o app Flutter instalado manda o singular.)
+   * `budgetCreateBaseSchema`: o app Flutter instalado manda o singular.)
    */
   /**
    * O CONJUNTO de tarefas do orçamento. Ausente = não mexe; presente =
@@ -1111,7 +1111,7 @@ export const taskQuoteUpdateSchema = z.object({
     .max(200, 'Maximo de 200 tarefas por orcamento')
     .optional(),
   billingSplit: quoteBillingSplitSchema.optional(),
-  services: z.array(taskQuoteServiceCreateNestedSchema).optional(),
+  services: z.array(budgetItemCreateNestedSchema).optional(),
 
   // Guarantee Terms
   guaranteeYears: guaranteeYearsSchema.optional().nullable(),
@@ -1128,55 +1128,55 @@ export const taskQuoteUpdateSchema = z.object({
   // instructs the reconcile to DELETE every billing config, collapsing the quote to
   // the raw undiscounted services sum. No client intends that.
   customerConfigs: z
-    .array(taskQuoteCustomerConfigCreateNestedSchema)
+    .array(budgetPayerCreateNestedSchema)
     .min(1, 'Pelo menos uma configuracao de cliente e obrigatoria')
     .optional(),
 });
 
 // =====================
-// Batch Operations Schemas - TaskQuote
+// Batch Operations Schemas - Budget
 // =====================
 
-export const taskQuoteBatchCreateSchema = z.object({
-  quotes: z.array(taskQuoteCreateSchema).min(1, 'Pelo menos um orcamento deve ser fornecido'),
+export const budgetBatchCreateSchema = z.object({
+  quotes: z.array(budgetCreateSchema).min(1, 'Pelo menos um orcamento deve ser fornecido'),
 });
 
-export const taskQuoteBatchUpdateSchema = z.object({
+export const budgetBatchUpdateSchema = z.object({
   quotes: z
     .array(
       z.object({
         id: z.string().uuid('Orcamento invalido'),
-        data: taskQuoteUpdateSchema,
+        data: budgetUpdateSchema,
       }),
     )
     .min(1, 'Pelo menos um orcamento deve ser fornecido'),
 });
 
-export const taskQuoteBatchDeleteSchema = z.object({
+export const budgetBatchDeleteSchema = z.object({
   quoteIds: z
     .array(z.string().uuid('Orcamento invalido'))
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
-export const taskQuoteQuerySchema = z.object({
-  include: taskQuoteIncludeSchema.optional(),
+export const budgetQuerySchema = z.object({
+  include: budgetIncludeSchema.optional(),
 });
 
 // =====================
 // Export Inferred Types
 // =====================
 
-export type TaskQuoteCreateFormData = z.infer<typeof taskQuoteCreateSchema>;
-export type TaskQuoteUpdateFormData = z.infer<typeof taskQuoteUpdateSchema>;
-export type TaskQuoteGetManyFormData = z.infer<typeof taskQuoteGetManySchema>;
-export type TaskQuoteInclude = z.infer<typeof taskQuoteIncludeSchema>;
-export type TaskQuoteOrderBy = z.infer<typeof taskQuoteOrderBySchema>;
-export type TaskQuoteWhere = z.infer<typeof taskQuoteWhereSchema>;
-export type TaskQuoteServiceCreateNestedFormData = z.infer<
-  typeof taskQuoteServiceCreateNestedSchema
+export type BudgetCreateFormData = z.infer<typeof budgetCreateSchema>;
+export type BudgetUpdateFormData = z.infer<typeof budgetUpdateSchema>;
+export type BudgetGetManyFormData = z.infer<typeof budgetGetManySchema>;
+export type BudgetInclude = z.infer<typeof budgetIncludeSchema>;
+export type BudgetOrderBy = z.infer<typeof budgetOrderBySchema>;
+export type BudgetWhere = z.infer<typeof budgetWhereSchema>;
+export type BudgetItemCreateNestedFormData = z.infer<
+  typeof budgetItemCreateNestedSchema
 >;
-export type TaskQuoteCustomerConfigCreateNestedFormData = z.infer<
-  typeof taskQuoteCustomerConfigCreateNestedSchema
+export type BudgetPayerCreateNestedFormData = z.infer<
+  typeof budgetPayerCreateNestedSchema
 >;
-export type TaskQuoteCreateNestedFormData = z.infer<typeof taskQuoteCreateNestedSchema>;
+export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema>;

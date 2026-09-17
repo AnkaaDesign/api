@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from './budget-status-cascade.service';
 import { sliceTask } from '@utils/quote-tasks';
 
 /**
@@ -11,23 +11,23 @@ import { sliceTask } from '@utils/quote-tasks';
  * and notify FINANCIAL/ADMIN users to charge the customer.
  */
 @Injectable()
-export class TaskQuotePaymentScheduler {
-  private readonly logger = new Logger(TaskQuotePaymentScheduler.name);
+export class BudgetPaymentScheduler {
+  private readonly logger = new Logger(BudgetPaymentScheduler.name);
   private isProcessing = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatchService: NotificationDispatchService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
   ) {}
 
   @Cron('0 8 * * *', {
-    name: 'task-quote-payment-reminder',
+    name: 'budget-payment-reminder',
     timeZone: 'America/Sao_Paulo',
   })
   async checkPaymentReminders(): Promise<void> {
     if (process.env.NODE_ENV !== 'production') {
-      this.logger.log('Skipping task-quote payment reminder in non-production env');
+      this.logger.log('Skipping budget payment reminder in non-production env');
       return;
     }
 
@@ -148,7 +148,7 @@ export class TaskQuotePaymentScheduler {
         });
 
         await this.dispatchService.dispatchByConfiguration('task_quote.payment_due', 'system', {
-          entityType: 'TaskQuote',
+          entityType: 'Budget',
           entityId: task.id,
           action: 'payment_due',
           data: {
@@ -179,7 +179,7 @@ export class TaskQuotePaymentScheduler {
             'task_quote.installment_overdue',
             'system',
             {
-              entityType: 'TaskQuote',
+              entityType: 'Budget',
               entityId: task.id,
               action: 'installment_overdue',
               data: {
@@ -214,7 +214,7 @@ export class TaskQuotePaymentScheduler {
       // an installment due *yesterday*, so a quote that flipped to DUE on an earlier
       // overdue installment never gets re-evaluated once that installment is paid
       // through a path that doesn't itself cascade (e.g. a late manual/PIX payment).
-      // To guarantee TaskQuote.status always reconverges with its installments, we
+      // To guarantee Budget.status always reconverges with its installments, we
       // re-cascade EVERY quote currently in an active payment status — not just the
       // ones affected today. cascadeFromQuote is idempotent and only writes when the
       // derived status differs, so this is a cheap daily reconciliation pass.
@@ -227,7 +227,7 @@ export class TaskQuotePaymentScheduler {
       // `SETTLED` entra de propósito — uma cobrança marcada como paga por engano
       // volta a abrir quando a cascata encontra parcela ativa em aberto, e é esta
       // passagem que lhe dá a chance.
-      const activeQuotes = await this.prisma.taskQuote.findMany({
+      const activeQuotes = await this.prisma.budget.findMany({
         where: {
           billings: {
             some: { status: { in: ['PENDING', 'APPROVED', 'PARTIAL', 'OVERDUE', 'SETTLED'] } },

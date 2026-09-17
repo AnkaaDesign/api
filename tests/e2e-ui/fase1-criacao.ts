@@ -37,7 +37,7 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
   });
   if (!check(`${label}: a tela redirecionou para uma tarefa que existe`, !!task?.quoteId, taskUrl)) return null;
 
-  const quote = await prisma.taskQuote.findUnique({
+  const quote = await prisma.budget.findUnique({
     where: { id: task!.quoteId! },
     select: {
       id: true, budgetNumber: true, vehicleCount: true, subtotal: true, total: true,
@@ -153,7 +153,7 @@ async function main() {
     } as QuoteSpec);
     const taskId = res.url.split('/').pop()!;
     const t = await prisma.task.findUnique({ where: { id: taskId }, select: { quoteId: true } });
-    const q = await prisma.taskQuote.findUnique({
+    const q = await prisma.budget.findUnique({
       where: { id: t!.quoteId! },
       select: {
         total: true, vehicleCount: true,

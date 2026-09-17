@@ -1,11 +1,11 @@
-// api/src/modules/production/task-quote/task-quote-receipt.builder.ts
+// api/src/modules/production/budget/budget-receipt.builder.ts
 //
 // HTML do recibo de quitação (cupom) enviado ao cliente quando o orçamento
 // vira SETTLED. Documento à parte do orçamento assinado (`quote-html.builder.ts`):
 // aqui não há cláusulas contratuais, é só o comprovante de "pago" para o cliente
-// guardar — por isso vive em `task-quote/`, não em `common/signature/`.
+// guardar — por isso vive em `budget/`, não em `common/signature/`.
 
-export interface TaskQuoteReceiptData {
+export interface BudgetReceiptData {
   budgetNumber: number;
   settledAtLabel: string;
   customerName: string;
@@ -26,7 +26,7 @@ export interface TaskQuoteReceiptData {
   nfseNoticeEnabled: boolean;
 }
 
-export interface TaskQuoteReceiptCompanyInfo {
+export interface BudgetReceiptCompanyInfo {
   name: string;
   corporateName: string;
   cnpjFormatted: string;
@@ -64,9 +64,9 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function buildTaskQuoteReceiptHtml(
-  data: TaskQuoteReceiptData,
-  company: TaskQuoteReceiptCompanyInfo,
+export function buildBudgetReceiptHtml(
+  data: BudgetReceiptData,
+  company: BudgetReceiptCompanyInfo,
   logoDataUri: string | null,
 ): string {
   const kvRows: { label: string; value: string }[] = [

@@ -19,7 +19,7 @@ import type { Observation, ObservationIncludes } from './observation';
 import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
 import type { User, UserIncludes, UserOrderBy } from './user';
 import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
-import type { TaskQuote } from './task-quote';
+import type { Budget } from './budget';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
 import type { Truck, TruckIncludes } from './truck';
@@ -71,8 +71,8 @@ export interface Task extends BaseEntity {
   layouts?: Layout[];
   logoPaints?: Paint[];
   serviceOrders?: ServiceOrder[]; // Prisma relation field
-  quoteId?: string | null; // Foreign key to TaskQuote
-  quote?: TaskQuote; // Task quote (each task has its own independent quote record)
+  quoteId?: string | null; // Foreign key to Budget
+  quote?: Budget; // Task quote (each task has its own independent quote record)
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;

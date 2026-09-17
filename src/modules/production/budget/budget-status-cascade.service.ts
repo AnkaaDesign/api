@@ -15,13 +15,13 @@ import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 
 /**
  * Service for cascading invoice/installment payment status changes
- * up to the TaskQuote level.
+ * up to the Budget level.
  *
  * Called after Sicredi webhook processes a payment or reversal.
  */
 @Injectable()
-export class TaskQuoteStatusCascadeService {
-  private readonly logger = new Logger(TaskQuoteStatusCascadeService.name);
+export class BudgetStatusCascadeService {
+  private readonly logger = new Logger(BudgetStatusCascadeService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -70,7 +70,7 @@ export class TaskQuoteStatusCascadeService {
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
       await this.dispatchService.dispatchByConfiguration('task_quote.settled', 'system', {
-        entityType: 'TaskQuote',
+        entityType: 'Budget',
         entityId: taskId ?? quoteId,
         action: 'settled',
         data: { quoteLabel },
@@ -95,7 +95,7 @@ export class TaskQuoteStatusCascadeService {
   }
 
   /**
-   * Recalculate and cascade TaskQuote status based on installment payment state.
+   * Recalculate and cascade Budget status based on installment payment state.
    * Called from SicrediWebhookService after recalculateInvoice().
    *
    * Logic:
@@ -136,7 +136,7 @@ export class TaskQuoteStatusCascadeService {
 
   async cascadeFromInvoice(invoiceId: string): Promise<void> {
     try {
-      // Find the invoice and trace back to the TaskQuote (or ExternalOperation)
+      // Find the invoice and trace back to the Budget (or ExternalOperation)
       const invoice = await this.prisma.invoice.findUnique({
         where: { id: invoiceId },
         include: {
@@ -297,7 +297,7 @@ export class TaskQuoteStatusCascadeService {
   }
 
   /**
-   * Recalculate TaskQuote status from all its invoices/installments.
+   * Recalculate Budget status from all its invoices/installments.
    */
   /**
    * RECALCULA O ESTADO DAS COBRANÇAS DE UM ORÇAMENTO.

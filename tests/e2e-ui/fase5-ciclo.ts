@@ -121,7 +121,7 @@ async function conferirDinheiro(
    */
   pedido: string,
 ) {
-  const q = await prisma.taskQuote.findUnique({
+  const q = await prisma.budget.findUnique({
     where: { id: quoteId },
     select: {
       total: true, subtotal: true, vehicleCount: true,
@@ -429,7 +429,7 @@ async function main() {
     await goToLastStep(page);
     await revertBilling(page);
 
-    const depois = await prisma.taskQuote.findUnique({
+    const depois = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         status: true, billingApprovedAt: true,
@@ -523,7 +523,7 @@ async function main() {
     await setLots(page, [[vs[0].serialNumber!, vs[1].serialNumber!], [vs[2].serialNumber!, vs[3].serialNumber!]]);
     await saveDetail(page);
 
-    const cobertura = await prisma.taskQuoteCustomerConfig.findMany({
+    const cobertura = await prisma.budgetPayer.findMany({
       where: { quoteId }, select: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
     check('C3: o lote gravou duas faturas de 2 veículos',
@@ -539,7 +539,7 @@ async function main() {
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
     await pause(page, 6000);
-    const meio = await prisma.taskQuoteCustomerConfig.findMany({
+    const meio = await prisma.budgetPayer.findMany({
       where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('C3: só UMA fatia foi aprovada com o primeiro lote',
@@ -560,7 +560,7 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 6000);
 
-    const fim = await prisma.taskQuoteCustomerConfig.findMany({
+    const fim = await prisma.budgetPayer.findMany({
       where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('C3: as DUAS fatias ficaram aprovadas',
@@ -631,7 +631,7 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 8000);
 
-    const cfgs = await prisma.taskQuoteCustomerConfig.findMany({
+    const cfgs = await prisma.budgetPayer.findMany({
       where: { quoteId },
       select: {
         id: true, total: true,
@@ -715,7 +715,7 @@ async function main() {
     }
     await saveDetail(page);
 
-    const cfg = await prisma.taskQuoteCustomerConfig.findFirst({
+    const cfg = await prisma.budgetPayer.findFirst({
       where: { quoteId }, select: { generateInvoice: true, generateBankSlip: true },
     });
     check('C5: as duas chaves gravaram desligadas',
@@ -773,7 +773,7 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 6000);
 
-    const antes = await prisma.taskQuote.findUnique({
+    const antes = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: { total: true, customerConfigs: { select: { id: true, total: true, billing: { select: { approvedAt: true } } } } },
     });
@@ -808,7 +808,7 @@ async function main() {
     await saveDetail(page);
     await pause(page, 3000);
 
-    const depois = await prisma.taskQuote.findUnique({
+    const depois = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: {
         total: true, vehicleCount: true,
@@ -882,7 +882,7 @@ async function main() {
     await pause(page, 3000);
 
     const aviso = await lastToast(page);
-    const q = await prisma.taskQuote.findUnique({
+    const q = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: { total: true, services: { select: { amount: true } } },
     });
@@ -926,7 +926,7 @@ async function main() {
     const quoteId = (await prisma.task.findUnique({ where: { id: taskId }, select: { quoteId: true } }))!.quoteId!;
     const vs = await veiculosDo(quoteId);
 
-    const cfgs0 = await prisma.taskQuoteCustomerConfig.findMany({
+    const cfgs0 = await prisma.budgetPayer.findMany({
       where: { quoteId }, select: { customerId: true, billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
     check('C8: nasceram 4 fatias (2 clientes × 2 veículos)', cfgs0.length === 4, `${cfgs0.length}`);
@@ -948,7 +948,7 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 8000);
 
-    const meio = await prisma.taskQuoteCustomerConfig.findMany({
+    const meio = await prisma.budgetPayer.findMany({
       where: { quoteId },
       select: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
     });
@@ -1029,7 +1029,7 @@ async function main() {
     await approveBillingForOpenVehicle(page);
     await pause(page, 6000);
 
-    const meio = await prisma.taskQuoteCustomerConfig.findMany({
+    const meio = await prisma.budgetPayer.findMany({
       where: { quoteId }, select: { billing: { select: { approvedAt: true } } },
     });
     check('CA: só UMA fatia está aprovada antes de reverter',
@@ -1041,7 +1041,7 @@ async function main() {
     await goToLastStep(page);
     await revertBilling(page);
 
-    const depois = await prisma.taskQuote.findUnique({
+    const depois = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: { status: true, customerConfigs: { select: { billing: { select: { approvedAt: true } } } } },
     });

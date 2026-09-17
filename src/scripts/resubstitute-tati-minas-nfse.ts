@@ -2,7 +2,7 @@
  * Substituição da NFS-e 3199 — tarefa "Tati Minas 8,50" (placa EKH7691, orçamento 546).
  *
  * POR QUE: a NF 3199 foi emitida em 04/08/2026 SEM o número de pedido do cliente
- * (`Pedido: 16677`), porque `TaskQuoteCustomerConfig.orderNumber` ainda estava vazio naquele
+ * (`Pedido: 16677`), porque `BudgetPayer.orderNumber` ainda estava vazio naquele
  * momento — a discriminação saiu só com o veículo e os serviços. A nota está fiscalmente
  * errada para o cliente, então tem de ser substituída, não mantida.
  *
@@ -32,7 +32,7 @@ import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
-import { TaskQuoteService } from '../modules/production/task-quote/task-quote.service';
+import { BudgetService } from '../modules/production/budget/budget.service';
 import { orderNumberLabel } from '../utils/quote-tasks';
 
 const QUOTE_ID = 'c9a7e245-5270-4c8d-ba76-017c63d6ac0e';
@@ -48,7 +48,7 @@ const APPLY = process.argv.includes('--apply');
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function snapshot(prisma: PrismaService, label: string) {
-  const quote = await prisma.taskQuote.findUnique({
+  const quote = await prisma.budget.findUnique({
     where: { id: QUOTE_ID },
     select: { status: true, total: true, budgetNumber: true },
   });
@@ -106,10 +106,10 @@ async function main() {
 
   try {
     const prisma = app.get(PrismaService);
-    const taskQuoteService = app.get(TaskQuoteService);
+    const budgetService = app.get(BudgetService);
 
     // ── Pré-condições ────────────────────────────────────────────────────────
-    const config = await prisma.taskQuoteCustomerConfig.findFirst({
+    const config = await prisma.budgetPayer.findFirst({
       where: { quoteId: QUOTE_ID },
       select: { id: true, generateInvoice: true, generateBankSlip: true },
     });
@@ -174,14 +174,14 @@ async function main() {
       console.log('\n▸ Nenhuma cobrança carimbada — revert já feito, pulando.');
     } else {
       console.log('\n▸ Revertendo o faturamento...');
-      await taskQuoteService.revertBillingApproval(QUOTE_ID, ACTING_USER_ID);
+      await budgetService.revertBillingApproval(QUOTE_ID, ACTING_USER_ID);
       console.log('✓ Faturamento revertido. A NF 3199 permanece ATIVA na prefeitura.');
       await snapshot(prisma, 'APÓS O REVERT');
     }
 
     // ── 2. Reaprovar → nova NF + boletos + substituição ───────────────────────
     console.log('\n▸ Aprovando o faturamento novamente (emite NF nova, registra boletos)...');
-    await taskQuoteService.internalApprove(QUOTE_ID, ACTING_USER_ID);
+    await budgetService.internalApprove(QUOTE_ID, ACTING_USER_ID);
     console.log('✓ Faturamento aprovado.');
 
     // A emissão e o registro são síncronos no internalApprove, mas o pedido de cancelamento

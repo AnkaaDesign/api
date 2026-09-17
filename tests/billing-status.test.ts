@@ -166,7 +166,7 @@ check(
 // ── O CASO QUE O MODELO ANTIGO NÃO SABIA REPRESENTAR ────────────────────────
 //
 // Mesmo orçamento, duas cobranças: a do caminhão 1 paga, a do caminhão 2
-// vencida. Com o estado em `TaskQuote.status` havia UM campo para as duas, e
+// vencida. Com o estado em `Budget.status` havia UM campo para as duas, e
 // quem escrevesse por último ganhava.
 const fatia1 = billing([{ status: 'PAID', dueDate: ONTEM }], { approvedAt: HOJE });
 const fatia2 = billing([{ status: 'PENDING', dueDate: ONTEM }], { approvedAt: HOJE });

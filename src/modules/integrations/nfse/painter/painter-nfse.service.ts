@@ -17,7 +17,7 @@
  * A intenção nasce DENTRO da transação que conclui a aerografia; a chamada à
  * SEFIN acontece SEMPRE fora. Chamada externa dentro de transação Prisma segura
  * conexão do pool pelo tempo de rede e é justamente o que a convenção do
- * repositório evita (task-quote.service.ts faz o mesmo com boletos).
+ * repositório evita (budget.service.ts faz o mesmo com boletos).
  *
  * ─── Numeração ───
  * O nDPS é alocado UMA vez e reaproveitado nas retentativas. Isso é o que permite

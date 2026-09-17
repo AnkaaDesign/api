@@ -22,7 +22,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 import { SicrediService } from '../modules/integrations/sicredi/sicredi.service';
-import { TaskQuoteStatusCascadeService } from '../modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '../modules/production/budget/budget-status-cascade.service';
 import { BANK_SLIP_STATUS, INSTALLMENT_STATUS } from '../constants';
 import {
   bankDateToYMD,
@@ -305,7 +305,7 @@ async function main(): Promise<void> {
     );
 
     if (APPLY) {
-      const cascade = app.get(TaskQuoteStatusCascadeService);
+      const cascade = app.get(BudgetStatusCascadeService);
       let cascadeErrors = 0;
       for (const invoiceId of invoiceIdsToCascade) {
         try {

@@ -23,7 +23,7 @@ import { PrismaClient } from '@prisma/client';
 import {
   reconcileQuoteCustomerConfigs,
   reconcileBillingsForQuote,
-} from '../src/utils/task-quote-customer-config-sync';
+} from '../src/utils/budget-customer-config-sync';
 
 const QA_DB = (process.env.DATABASE_URL ?? '').replace(/\/[^/?]+(\?|$)/, '/ankaa_qa_e2e$1');
 const prisma = new PrismaClient({ datasources: { db: { url: QA_DB } } });
@@ -68,8 +68,8 @@ async function main() {
     if (!cliA || !cliB) { check('clientes de apoio existem (QA Alfa / QA Beta)', false); return; }
     customerA = cliA.id; customerB = cliB.id;
 
-    const maxNum = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-    const quote = await prisma.taskQuote.create({
+    const maxNum = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+    const quote = await prisma.budget.create({
       data: {
         subtotal: 4000, total: 4000,
         expiresAt: new Date(Date.now() + 30 * 86400000),
@@ -169,7 +169,7 @@ async function main() {
     // ═══════════════════════════════════════════════════════════════════════
     // O ESTADO É DO FATURAMENTO — e é ele que congela a própria cobertura.
     //
-    // `Billing.approvedAt` substituiu `TaskQuoteCustomerConfig.billingApprovedAt`,
+    // `Billing.approvedAt` substituiu `BudgetPayer.billingApprovedAt`,
     // uma data por PAGADOR: com dois pagadores do mesmo recorte havia duas datas
     // para um evento só, sempre escritas juntas. O que este bloco prova é que a
     // coluna nova é de fato a que MANDA — aprovar um faturamento tem de impedir
@@ -232,9 +232,9 @@ async function main() {
     if (quoteId) {
       await prisma.billingTask.deleteMany({ where: { taskId: { in: taskIds } } }).catch(() => {});
       await prisma.task.deleteMany({ where: { id: { in: taskIds } } }).catch(() => {});
-      await prisma.taskQuoteCustomerConfig.deleteMany({ where: { quoteId } }).catch(() => {});
+      await prisma.budgetPayer.deleteMany({ where: { quoteId } }).catch(() => {});
       await prisma.billing.deleteMany({ where: { quoteId } }).catch(() => {});
-      await prisma.taskQuote.delete({ where: { id: quoteId } }).catch(() => {});
+      await prisma.budget.delete({ where: { id: quoteId } }).catch(() => {});
     }
     await prisma.$disconnect();
   }

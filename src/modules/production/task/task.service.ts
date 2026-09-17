@@ -62,7 +62,7 @@ import {
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
-} from '../task-quote/task-quote.guards';
+} from '../budget/budget.guards';
 import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
@@ -104,9 +104,9 @@ import {
   makeDescObsKey,
   type SyncServiceOrder,
   type SyncQuoteItem,
-} from '../../../utils/task-quote-service-order-sync';
-import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
-import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
+} from '../../../utils/budget-service-order-sync';
+import { recalcQuoteTotals } from '../../../utils/budget-totals';
+import { reconcileQuoteCustomerConfigs } from '../../../utils/budget-customer-config-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -119,7 +119,7 @@ import {
 } from '@modules/common/notification/airbrushing-notification.service';
 // Fonte única do vencimento da aerografia — a mesma que o AirbrushingService usa.
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
-import { TaskQuoteService } from '../task-quote/task-quote.service';
+import { BudgetService } from '../budget/budget.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { describePrismaFailure } from '../../../utils/quote-tasks';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
@@ -174,8 +174,8 @@ export class TaskService {
     // formulário grava painterId/paymentStatus por fora do AirbrushingService,
     // então o gancho que avisa o pintor precisa ser repetido aqui.
     private readonly airbrushingNotifier: AirbrushingNotificationService,
-    @Inject(forwardRef(() => TaskQuoteService))
-    private readonly taskQuoteService: TaskQuoteService,
+    @Inject(forwardRef(() => BudgetService))
+    private readonly budgetService: BudgetService,
     @Inject(forwardRef(() => SignatureDeletionService))
     private readonly signatureDeletion: SignatureDeletionService,
   ) {}
@@ -221,7 +221,7 @@ export class TaskService {
       generateInvoice: c.generateInvoice !== false,
       generateBankSlip: c.generateBankSlip !== false,
       // ⚠️ `orderNumber` NÃO ENTRA NA CANONICALIZAÇÃO, e a gêmea em
-      // `TaskQuoteService.canonicalizeQuoteCustomerConfig` já o excluía por este
+      // `BudgetService.canonicalizeQuoteCustomerConfig` já o excluía por este
       // exato motivo. A coluna foi DROPADA em `20260909170000` e o número do
       // pedido virou `Task.customerOrderNumber` — o que está gravado nunca tem a
       // chave, e um cliente antigo (app instalado, aba aberta desde ontem) manda
@@ -262,10 +262,10 @@ export class TaskService {
 
   /**
    * Recomputes a quote's per-customer-config subtotals/totals (applying each
-   * config's discount) and the aggregate TaskQuote.subtotal/total from the
-   * current TaskQuoteService rows. Use after any operation that adds/removes
+   * config's discount) and the aggregate Budget.subtotal/total from the
+   * current BudgetItem rows. Use after any operation that adds/removes
    * quote services (cascade delete, SO↔quote sync) so the aggregate and the
-   * customer configs never drift apart — the bug where TaskQuote dropped to the
+   * customer configs never drift apart — the bug where Budget dropped to the
    * raw remaining-services sum while CustomerConfig kept the old approved total.
    */
   /**
@@ -442,7 +442,7 @@ export class TaskService {
       // Create missing quote services from service orders.
       if (syncActions.quoteItemsToCreate.length > 0 && currentQuote?.id) {
         for (const itemToCreate of syncActions.quoteItemsToCreate) {
-          await tx.taskQuoteService.create({
+          await tx.budgetItem.create({
             data: {
               quoteId: currentQuote.id,
               description: itemToCreate.description,
@@ -470,7 +470,7 @@ export class TaskService {
           });
         }
 
-        // Discount-aware recompute keeps TaskQuote + every CustomerConfig in sync.
+        // Discount-aware recompute keeps Budget + every CustomerConfig in sync.
         await this.recalcQuoteTotals(tx, currentQuote.id);
       }
 
@@ -584,7 +584,7 @@ export class TaskService {
     persistedTaskStatus: TASK_STATUS,
   ): Promise<void> {
     try {
-      const quote = await tx.taskQuote.findUnique({
+      const quote = await tx.budget.findUnique({
         where: { id: quoteId },
         include: { services: { orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] } },
       });
@@ -731,7 +731,7 @@ export class TaskService {
   }
 
   /**
-   * Enforces TaskQuoteService.update guards on a NESTED quote write coming
+   * Enforces BudgetService.update guards on a NESTED quote write coming
    * through the task update paths (single + batch), so PUT /tasks cannot be
    * used to bypass quote status locks, per-stage role gates, or the
    * approved→PENDING auto-revert.
@@ -782,7 +782,7 @@ export class TaskService {
     }
 
     // Auto-revert approved → PENDING when values change, unless the client
-    // pinned a status (same semantics as TaskQuoteService.update).
+    // pinned a status (same semantics as BudgetService.update).
     if (
       !clientProvidedStatus &&
       QUOTE_VALUE_REVERTABLE_STATUSES.includes(currentStatus) &&
@@ -2296,7 +2296,7 @@ export class TaskService {
             );
           }
 
-          const quote = await this.taskQuoteService.create(
+          const quote = await this.budgetService.create(
             { ...data.quote, taskIds: created.map(t => t.id) },
             userId as string,
             tx,
@@ -2506,7 +2506,7 @@ export class TaskService {
         // services/customerConfigs on every no-op save, emit spurious
         // changelogs, and (when this update runs at BILLING_APPROVED+)
         // overwrite locked quote fields. Direct callers of the dedicated
-        // task-quote endpoint go through TaskQuoteService.update which has
+        // budget endpoint go through BudgetService.update which has
         // the same protection.
         // ───────────────────────────────────────────────────────────────────
         if ((data as any).quote && existingTask.quote) {
@@ -2520,7 +2520,7 @@ export class TaskService {
           } else {
             (data as any).quote = filteredQuote;
             // Nested quote writes must honor the same guards as
-            // TaskQuoteService.update (status locks, role gates, auto-revert).
+            // BudgetService.update (status locks, role gates, auto-revert).
             this.enforceNestedQuoteGuards(
               existingTask.quote,
               filteredQuote,
@@ -3547,7 +3547,7 @@ export class TaskService {
           // `pickPrimaryResponsible` substitui o antigo `roles.includes('OWNER')`:
           // a função PROPRIETÁRIO deixou de existir e a eleição do principal
           // passou a seguir uma ordem de preferência única, compartilhada com
-          // task-quote.service e com a página pública do orçamento.
+          // budget.service e com a página pública do orçamento.
           oldBestResponsibleId = pickPrimaryResponsible(oldResps)?.id ?? null;
         }
 
@@ -3604,7 +3604,7 @@ export class TaskService {
           const newBestId = pickPrimaryResponsible(newResps)?.id ?? null;
 
           if (oldBestResponsibleId !== newBestId) {
-            await tx.taskQuoteCustomerConfig.updateMany({
+            await tx.budgetPayer.updateMany({
               where: {
                 quoteId: existingTask.quote.id,
                 responsibleId: oldBestResponsibleId,
@@ -4389,7 +4389,7 @@ export class TaskService {
                 );
               } else {
                 // Find matching quote services by composite desc::obs key
-                const matchingQuoteItems = await tx.taskQuoteService.findMany({
+                const matchingQuoteItems = await tx.budgetItem.findMany({
                   where: {
                     quote: {
                       tasks: { some: { id: id } },
@@ -4406,7 +4406,7 @@ export class TaskService {
                     this.logger.log(
                       `[Task Update] Cascade-deleting quote service ${quoteItem.id} (${quoteItem.description})`,
                     );
-                    await tx.taskQuoteService.delete({
+                    await tx.budgetItem.delete({
                       where: { id: quoteItem.id },
                     });
                     deletedQuoteItemIds.push(quoteItem.id);
@@ -4414,13 +4414,13 @@ export class TaskService {
                 }
 
                 // Recalculate quote totals if any quote services were deleted.
-                // Discount-aware recalc keeps TaskQuote and CustomerConfig in sync.
+                // Discount-aware recalc keeps Budget and CustomerConfig in sync.
                 if (deletedQuoteItemIds.length > 0) {
-                  const taskQuote = await tx.taskQuote.findFirst({
+                  const budget = await tx.budget.findFirst({
                     where: { tasks: { some: { id: id } } },
                   });
-                  if (taskQuote) {
-                    await this.recalcQuoteTotals(tx, taskQuote.id);
+                  if (budget) {
+                    await this.recalcQuoteTotals(tx, budget.id);
                     this.logger.log(
                       `[Task Update] Recalculated quote totals after cascade delete of ${deletedQuoteItemIds.length} quote service(s)`,
                     );
@@ -6555,7 +6555,7 @@ export class TaskService {
 
           // Fetch old quote details if it existed (complete data for rollback restoration)
           if (existingTask.quoteId) {
-            const oldQuote = await tx.taskQuote.findUnique({
+            const oldQuote = await tx.budget.findUnique({
               where: { id: existingTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
@@ -6600,7 +6600,7 @@ export class TaskService {
 
           // Fetch new quote details if exists (complete data for rollback restoration)
           if (updatedTask.quoteId) {
-            const newQuote = await tx.taskQuote.findUnique({
+            const newQuote = await tx.budget.findUnique({
               where: { id: updatedTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
@@ -6666,7 +6666,7 @@ export class TaskService {
           !hasValueChanged(existingTask.quoteId, updatedTask.quoteId)
         ) {
           const oldQuoteItems = (existingTask as any).quote?.services || [];
-          const updatedQuoteState = await tx.taskQuote.findUnique({
+          const updatedQuoteState = await tx.budget.findUnique({
             where: { id: updatedTask.quoteId },
             include: { services: { orderBy: { position: 'asc' } } },
           });
@@ -7295,7 +7295,7 @@ export class TaskService {
       ) {
         const quoteToCancelId = (updatedTask as any).quoteId as string;
         try {
-          await this.taskQuoteService.cancelForTaskCancellation(quoteToCancelId, userId);
+          await this.budgetService.cancelForTaskCancellation(quoteToCancelId, userId);
           this.logger.log(
             `[Task Update] Cascade-cancelled quote ${quoteToCancelId} after task ${id} cancellation`,
           );
@@ -7590,20 +7590,20 @@ export class TaskService {
               );
 
               // Nested quote writes must honor the same guards as
-              // TaskQuoteService.update (status locks, role gates, auto-revert).
+              // BudgetService.update (status locks, role gates, auto-revert).
               if ((update.data as any).quote) {
-                const taskQuoteRef = await tx.task.findUnique({
+                const budgetRef = await tx.task.findUnique({
                   where: { id: update.id },
                   select: { quoteId: true },
                 });
-                if (!taskQuoteRef?.quoteId) {
+                if (!budgetRef?.quoteId) {
                   // No quote yet — the repository will CREATE one from this
                   // block; apply the nested-create guards.
                   this.enforceNestedQuoteCreateGuards((update.data as any).quote, userPrivilege);
                 }
-                if (taskQuoteRef?.quoteId) {
-                  const existingQuote = await tx.taskQuote.findUnique({
-                    where: { id: taskQuoteRef.quoteId },
+                if (budgetRef?.quoteId) {
+                  const existingQuote = await tx.budget.findUnique({
+                    where: { id: budgetRef.quoteId },
                     include: {
                       services: { orderBy: { position: 'asc' } },
                       customerConfigs: true,
@@ -9909,7 +9909,7 @@ export class TaskService {
     // manual, como lá.
     if (task.quoteId) {
       try {
-        await this.taskQuoteService.cancelForTaskCancellation(
+        await this.budgetService.cancelForTaskCancellation(
           task.quoteId,
           userId || '',
           'Orçamento com assinatura eletrônica coletada — exclusão da tarefa convertida em cancelamento para preservar o documento assinado',
@@ -9951,7 +9951,7 @@ export class TaskService {
    * O critério é a COBERTURA, não o orçamento inteiro, e é deliberado: a trava do
    * dinheiro foi desenhada para NÃO travar os cinquenta e nove veículos que ainda
    * não foram cobrados e cujo preço ainda pode mudar (ver o cabeçalho de
-   * `task-quote.guards.ts`). É o mesmo recorte de `orphanedFrozen`.
+   * `budget.guards.ts`). É o mesmo recorte de `orphanedFrozen`.
    *
    * A migração `2026091715..._fatura_nao_morre_com_o_veiculo` troca
    * `Invoice.task` para `Restrict`, de modo que o banco também recusa. Esta
@@ -10903,12 +10903,12 @@ export class TaskService {
             Array.isArray(parsedOldValue.services)
           ) {
             // Delete all current items
-            await tx.taskQuoteService.deleteMany({ where: { quoteId: changeLog.entityId } });
+            await tx.budgetItem.deleteMany({ where: { quoteId: changeLog.entityId } });
 
             // Recreate from old snapshot
             for (let i = 0; i < parsedOldValue.services.length; i++) {
               const item = parsedOldValue.services[i];
-              await tx.taskQuoteService.create({
+              await tx.budgetItem.create({
                 data: {
                   quoteId: changeLog.entityId,
                   description: item.description || '',
@@ -10973,7 +10973,7 @@ export class TaskService {
             }
             rollbackData.statusOrder = TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS];
           }
-          await tx.taskQuote.update({
+          await tx.budget.update({
             where: { id: changeLog.entityId },
             data: rollbackData,
           });
@@ -11024,11 +11024,11 @@ export class TaskService {
 
         if (changeLog.action === 'CREATE') {
           // Undo item addition — find and delete the item
-          const item = await tx.taskQuoteService.findFirst({
+          const item = await tx.budgetItem.findFirst({
             where: { quoteId, description: itemDescription },
           });
           if (item) {
-            await tx.taskQuoteService.delete({ where: { id: item.id } });
+            await tx.budgetItem.delete({ where: { id: item.id } });
             await recalculateTotals();
           }
         } else if (changeLog.action === 'DELETE') {
@@ -11043,7 +11043,7 @@ export class TaskService {
           }
           if (parsedOldValue && typeof parsedOldValue === 'object') {
             const itemData = parsedOldValue as any;
-            await tx.taskQuoteService.create({
+            await tx.budgetItem.create({
               data: {
                 quoteId,
                 description: itemData.description || itemDescription,
@@ -11061,7 +11061,7 @@ export class TaskService {
             throw new BadRequestException('Não é possível reverter: campo não especificado');
           }
 
-          const item = await tx.taskQuoteService.findFirst({
+          const item = await tx.budgetItem.findFirst({
             where: { quoteId, description: itemDescription },
           });
           if (item) {
@@ -11069,7 +11069,7 @@ export class TaskService {
             if (field === 'amount') {
               convertedValue = Number(convertedValue);
             }
-            await tx.taskQuoteService.update({
+            await tx.budgetItem.update({
               where: { id: item.id },
               data: { [field]: convertedValue },
             });
@@ -11425,17 +11425,17 @@ export class TaskService {
             // It's a full quote object - extract the ID
             quoteIdToRestore = (parsedValue as any).id;
 
-            // Check if the TaskQuote record still exists
-            const existingQuote = await tx.taskQuote.findUnique({
+            // Check if the Budget record still exists
+            const existingQuote = await tx.budget.findUnique({
               where: { id: quoteIdToRestore },
             });
 
             if (!existingQuote) {
-              // Recreate the TaskQuote from the stored data
-              this.logger.log(`[Rollback] TaskQuote ${quoteIdToRestore} not found, recreating`);
+              // Recreate the Budget from the stored data
+              this.logger.log(`[Rollback] Budget ${quoteIdToRestore} not found, recreating`);
               const quoteData = parsedValue as any;
 
-              const recreatedQuote = await tx.taskQuote.create({
+              const recreatedQuote = await tx.budget.create({
                 data: {
                   id: quoteIdToRestore,
                   budgetNumber: quoteData.budgetNumber || 0,
@@ -11515,7 +11515,7 @@ export class TaskService {
                 }
               }
 
-              this.logger.log(`[Rollback] Recreated TaskQuote ${recreatedQuote.id}`);
+              this.logger.log(`[Rollback] Recreated Budget ${recreatedQuote.id}`);
 
               // Restore implementMeasure files by CLONING any that another quote now owns —
               // a raw `connect` of the snapshot ids would STEAL them from their
@@ -11527,7 +11527,7 @@ export class TaskService {
                     quoteIdToRestore,
                     quoteData.layoutFileIds,
                   );
-                await tx.taskQuote.update({
+                await tx.budget.update({
                   where: { id: quoteIdToRestore },
                   data: {
                     layoutFiles: {
@@ -11541,7 +11541,7 @@ export class TaskService {
               if (quoteData.services && Array.isArray(quoteData.services)) {
                 for (let i = 0; i < quoteData.services.length; i++) {
                   const item = quoteData.services[i];
-                  await tx.taskQuoteService.create({
+                  await tx.budgetItem.create({
                     data: {
                       description: item.description || '',
                       amount: item.amount || '0',
@@ -13178,7 +13178,7 @@ export class TaskService {
   // now go through the event-based system with configuration-based targeting.
 
   /**
-   * Duplicate a TaskQuote record (deep copy with items and invoice connections).
+   * Duplicate a Budget record (deep copy with items and invoice connections).
    * Creates a new independent quote with a new budgetNumber.
    * Does NOT copy customerSignatureId (signature is specific to the original budget).
    */
@@ -13195,8 +13195,8 @@ export class TaskService {
    * ADMIN/FINANCEIRO/COMERCIAL. O `billingSplit` também não é copiado: a cópia
    * tem um veículo, e a única leitura possível ali é `JOINT`.
    */
-  private async duplicateTaskQuote(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
-    const sourceQuote = await tx.taskQuote.findUnique({
+  private async duplicateBudget(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
+    const sourceQuote = await tx.budget.findUnique({
       where: { id: sourceQuoteId },
       include: {
         services: {
@@ -13258,7 +13258,7 @@ export class TaskService {
       clonedImplementMeasureIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
     }
 
-    const newQuote = await tx.taskQuote.create({
+    const newQuote = await tx.budget.create({
       data: {
         budgetNumber: nextBudgetNumber,
         subtotal: sourceQuote.subtotal,
@@ -13839,7 +13839,7 @@ export class TaskService {
                   orphanedOldQuoteId = destinationTask.quote.id;
                 }
                 // Create an independent copy of the quote (never share quote across tasks)
-                const newQuoteId = await this.duplicateTaskQuote(sourceTask.quoteId, tx);
+                const newQuoteId = await this.duplicateBudget(sourceTask.quoteId, tx);
                 updateData.quoteId = newQuoteId;
                 copiedFields.push(field);
                 // Store quote info for changelog display
@@ -14439,7 +14439,7 @@ export class TaskService {
         // must be preserved for the financial record. Quote children (services,
         // customer configs) cascade on delete; the financial guard prevents
         // wiping a quote that still anchors a live invoice/installment.
-        // Belt-and-braces: `taskQuote.delete` below is unconditional by design, so a
+        // Belt-and-braces: `budget.delete` below is unconditional by design, so a
         // stale `orphanedOldQuoteId` silently destroys real data. Two ways it can be
         // stale, both refusing the delete rather than trusting the caller:
         //  - it IS the source's quote (the self-copy shape guarded at the top of this
@@ -14489,7 +14489,7 @@ export class TaskService {
               );
             } else {
               // Mesmo cascade append-only do delete de orçamento: sem a purga
-              // explícita este `taskQuote.delete` estoura `restrict_violation` e
+              // explícita este `budget.delete` estoura `restrict_violation` e
               // derruba a cópia inteira. A quote está sendo descartada por já
               // ter sido substituída, e um envelope não-vinculante dela não
               // obriga ninguém a nada.
@@ -14502,7 +14502,7 @@ export class TaskService {
                     `do orçamento órfão ${orphanedOldQuoteId}`,
                 );
               }
-              await tx.taskQuote.delete({ where: { id: orphanedOldQuoteId } });
+              await tx.budget.delete({ where: { id: orphanedOldQuoteId } });
               this.logger.log(
                 `[copyFromTask] Deleted orphaned previous quote ${orphanedOldQuoteId} (no active invoice)`,
               );
@@ -14580,7 +14580,7 @@ export class TaskService {
       // assinatura coletada. Best-effort — a cópia já foi commitada.
       if (protectedOrphanQuoteId) {
         try {
-          await this.taskQuoteService.cancelForTaskCancellation(
+          await this.budgetService.cancelForTaskCancellation(
             protectedOrphanQuoteId,
             userId || '',
             'Orçamento substituído por cópia de outra tarefa — cancelado (não excluído) por possuir assinatura eletrônica coletada',
@@ -14651,6 +14651,12 @@ export class TaskService {
       const isPrismaUniqueError =
         error?.code === 'P2002' &&
         (error?.meta?.target?.includes?.('budgetNumber') ||
+          // Nome do índice ÚNICO, que o Postgres devolve como string em
+          // `meta.target`. A migração o renomeia de `TaskQuote_budgetNumber_key`
+          // para `Budget_budgetNumber_key`; os dois ficam aceitos porque o
+          // código pode subir antes de a migração rodar — e aí o nome que volta
+          // do banco ainda é o antigo, sem erro de compilação nenhum a acusar.
+          error?.meta?.target?.includes?.('Budget_budgetNumber_key') ||
           error?.meta?.target?.includes?.('TaskQuote_budgetNumber_key'));
 
       if (isPrismaUniqueError && _retryCount < 3) {

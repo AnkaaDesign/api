@@ -19,8 +19,8 @@
  * Rodar: pnpm tsx tests/orcamento-faturamento-a-db.test.ts
  */
 import { PrismaClient } from '@prisma/client';
-import { recalcQuoteTotals } from '../src/utils/task-quote-totals';
-import { reconcileQuoteCustomerConfigs } from '../src/utils/task-quote-customer-config-sync';
+import { recalcQuoteTotals } from '../src/utils/budget-totals';
+import { reconcileQuoteCustomerConfigs } from '../src/utils/budget-customer-config-sync';
 
 const QA_DB = (process.env.DATABASE_URL ?? '').replace(/\/[^/?]+(\?|$)/, '/ankaa_qa_e2e$1');
 const prisma = new PrismaClient({ datasources: { db: { url: QA_DB } } });
@@ -49,8 +49,8 @@ async function main() {
       return;
     }
 
-    const maxNum = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-    const quote = await prisma.taskQuote.create({
+    const maxNum = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+    const quote = await prisma.budget.create({
       data: {
         subtotal: 0,
         total: 0,
@@ -73,7 +73,7 @@ async function main() {
 
     // Um serviço de R$ 1.000,00 por veículo. Em `PER_TASK` cada fatia cobre um
     // caminhão, então cada uma vale R$ 1.000,00 e o contrato vale R$ 2.000,00.
-    await prisma.taskQuoteService.create({
+    await prisma.budgetItem.create({
       data: { quoteId, description: `${marca} serviço`, amount: 1000, position: 0 },
     });
 
@@ -86,12 +86,12 @@ async function main() {
     });
 
     console.log('\nPonto de partida: duas fatias de R$ 1.000,00');
-    let configs = await prisma.taskQuoteCustomerConfig.findMany({
+    let configs = await prisma.budgetPayer.findMany({
       where: { quoteId },
       select: { id: true, total: true, billingId: true },
       orderBy: { createdAt: 'asc' },
     });
-    let q = await prisma.taskQuote.findUnique({
+    let q = await prisma.budget.findUnique({
       where: { id: quoteId },
       select: { total: true },
     });
@@ -109,7 +109,7 @@ async function main() {
     // boleto diriam se tivessem sido emitidos sobre um preço que depois mudou.
     // É exatamente o caso que a guarda existe para preservar.
     console.log('\nA fatia 1 é aprovada e o valor dela congela em R$ 1.234,56');
-    await prisma.taskQuoteCustomerConfig.update({
+    await prisma.budgetPayer.update({
       where: { id: configs[0].id },
       data: { subtotal: 1234.56, total: 1234.56 },
     });
@@ -122,12 +122,12 @@ async function main() {
       await recalcQuoteTotals(tx as any, quoteId);
     });
 
-    configs = await prisma.taskQuoteCustomerConfig.findMany({
+    configs = await prisma.budgetPayer.findMany({
       where: { quoteId },
       select: { id: true, total: true },
       orderBy: { createdAt: 'asc' },
     });
-    q = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { total: true } });
+    q = await prisma.budget.findUnique({ where: { id: quoteId }, select: { total: true } });
 
     check(
       'o recálculo NÃO reescreveu a fatia faturada',
@@ -147,19 +147,19 @@ async function main() {
 
     // ── E SEGUE VALENDO QUANDO O PREÇO DO SERVIÇO MUDA ────────────────────────
     console.log('\nO preço do serviço sobe para R$ 1.500,00');
-    await prisma.taskQuoteService.updateMany({
+    await prisma.budgetItem.updateMany({
       where: { quoteId },
       data: { amount: 1500 },
     });
     await prisma.$transaction(async tx => {
       await recalcQuoteTotals(tx as any, quoteId);
     });
-    configs = await prisma.taskQuoteCustomerConfig.findMany({
+    configs = await prisma.budgetPayer.findMany({
       where: { quoteId },
       select: { id: true, total: true },
       orderBy: { createdAt: 'asc' },
     });
-    q = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { total: true } });
+    q = await prisma.budget.findUnique({ where: { id: quoteId }, select: { total: true } });
     check(
       'a fatia faturada continua em R$ 1.234,56 — é o que saiu na fatura',
       Number(configs[0].total) === 1234.56,
@@ -178,7 +178,7 @@ async function main() {
     // derivar `approvedAt`. Para as definições antigas de "congelado" ela era
     // editável.
     console.log('\nCobrança LIQUIDADA sem carimbo (liquidação por conciliação)');
-    const livre = await prisma.taskQuoteCustomerConfig.findUnique({
+    const livre = await prisma.budgetPayer.findUnique({
       where: { id: configs[1].id },
       select: { billingId: true },
     });
@@ -186,14 +186,14 @@ async function main() {
       where: { id: livre!.billingId },
       data: { approvedAt: null, status: 'SETTLED', statusOrder: 5 },
     });
-    await prisma.taskQuoteCustomerConfig.update({
+    await prisma.budgetPayer.update({
       where: { id: configs[1].id },
       data: { subtotal: 777.77, total: 777.77 },
     });
     await prisma.$transaction(async tx => {
       await recalcQuoteTotals(tx as any, quoteId);
     });
-    const depois = await prisma.taskQuoteCustomerConfig.findUnique({
+    const depois = await prisma.budgetPayer.findUnique({
       where: { id: configs[1].id },
       select: { total: true },
     });
@@ -206,10 +206,10 @@ async function main() {
     if (quoteId) {
       await prisma.billingTask.deleteMany({ where: { taskId: { in: taskIds } } });
       await prisma.task.updateMany({ where: { id: { in: taskIds } }, data: { quoteId: null } });
-      await prisma.taskQuoteService.deleteMany({ where: { quoteId } });
-      await prisma.taskQuoteCustomerConfig.deleteMany({ where: { quoteId } });
+      await prisma.budgetItem.deleteMany({ where: { quoteId } });
+      await prisma.budgetPayer.deleteMany({ where: { quoteId } });
       await prisma.billing.deleteMany({ where: { quoteId } });
-      await prisma.taskQuote.deleteMany({ where: { id: quoteId } });
+      await prisma.budget.deleteMany({ where: { id: quoteId } });
       await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
     }
     await prisma.$disconnect();

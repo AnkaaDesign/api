@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
@@ -74,7 +74,7 @@ export class SicrediWebhookService {
 
   constructor(
     private readonly prismaService: PrismaService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
     private readonly notificationDispatchService: NotificationDispatchService,
     private readonly events: EventEmitter2,
   ) {}
@@ -480,7 +480,7 @@ export class SicrediWebhookService {
       await this.recalculateInvoice(tx, bankSlip.installment.invoiceId);
     });
 
-    // Cascade TaskQuote status (SETTLED → PARTIAL → UPCOMING)
+    // Cascade Budget status (SETTLED → PARTIAL → UPCOMING)
     await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoiceId);
 
     this.logger.log(`Reversal handled for nossoNumero: ${nossoNumero}`);

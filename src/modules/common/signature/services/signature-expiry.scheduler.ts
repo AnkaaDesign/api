@@ -121,7 +121,7 @@ export class SignatureExpiryScheduler {
         if (!env.quote?.expiryNoticeSentAt) {
           try {
             const outcome = await this.envelopes.notifyExpiry(env.id);
-            await this.prisma.taskQuote.update({
+            await this.prisma.budget.update({
               where: { id: env.quoteId },
               data: { expiryNoticeSentAt: new Date() },
             });
@@ -139,7 +139,7 @@ export class SignatureExpiryScheduler {
         }
 
         // Move o orçamento para "Aguardando Reanálise" e avisa o comercial. O
-        // gancho é registrado pelo `TaskQuoteModule`: a cerimônia não conhece o
+        // gancho é registrado pelo `BudgetModule`: a cerimônia não conhece o
         // domínio de orçamento, pelo mesmo motivo do `onEnvelopeCompleted`.
         await this.envelopes.notifyQuoteExpired(env.quoteId, env.id);
       } catch (error) {

@@ -35,7 +35,7 @@ const PRECO = 1000;
 
 /** O retrato do faturamento: quantas fatias, o que cada uma cobre, e quanto cobra. */
 async function retrato(quoteId: string) {
-  const q = await prisma.taskQuote.findUnique({
+  const q = await prisma.budget.findUnique({
     where: { id: quoteId },
     select: {
       billingSplit: true, total: true, vehicleCount: true,
@@ -94,7 +94,7 @@ async function main() {
     where: { id: criado.url.split('/').pop()! },
     select: { quoteId: true },
   });
-  const quote = await prisma.taskQuote.findUnique({
+  const quote = await prisma.budget.findUnique({
     where: { id: t0!.quoteId! },
     select: { id: true, budgetNumber: true, tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } } },
   });

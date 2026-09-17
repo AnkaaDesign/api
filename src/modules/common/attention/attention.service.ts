@@ -7,7 +7,7 @@ import {
   CutStatus,
   OrderStatus,
   PpeDeliveryStatus,
-  TaskQuoteStatus,
+  BudgetStatus,
   SectorPrivileges,
   Prisma,
 } from '@prisma/client';
@@ -261,7 +261,7 @@ const ENTITY_DELEGATES: Record<RuleEntityType, (prisma: PrismaService) => IdFind
   ORDER: (p) => p.order as unknown as IdFindMany,
   PPE_DELIVERY: (p) => p.ppeDelivery as unknown as IdFindMany,
   AIRBRUSHING: (p) => p.airbrushing as unknown as IdFindMany,
-  TASK_QUOTE: (p) => p.taskQuote as unknown as IdFindMany,
+  TASK_QUOTE: (p) => p.budget as unknown as IdFindMany,
 };
 
 interface RuleQuery {
@@ -302,7 +302,7 @@ const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL]
  * pre-billing statuses for the same reason: the negative form ("not CANCELLED") let every
  * post-invoice status through, so quotes whose nota was issued and paid months ago kept matching.
  */
-const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
+const NOT_YET_INVOICED: Prisma.BudgetWhereInput = {
   // SIGNED entra: o cliente assinou, a nota vem a seguir, e é exatamente a
   // janela em que faltar o número do pedido ainda trava alguma coisa.
   //
@@ -311,7 +311,7 @@ const NOT_YET_INVOICED: Prisma.TaskQuoteWhereInput = {
   // vai ser reformulado é pedir um dado que talvez nem se use. Ele volta a esta
   // lista sozinho quando a reformulação o devolve a PENDING.
   status: {
-    in: [TaskQuoteStatus.PENDING, TaskQuoteStatus.SIGNED, TaskQuoteStatus.APPROVED],
+    in: [BudgetStatus.PENDING, BudgetStatus.SIGNED, BudgetStatus.APPROVED],
   },
   // ⚠️ E A JANELA SÓ FECHA PELO FATURAMENTO. Sem esta condição ela é INFINITA:
   // `APPROVED` é o ÚLTIMO estado do ORÇAMENTO e ele fica ali para sempre —
@@ -361,7 +361,7 @@ function missingRequiredText(field: keyof Prisma.CustomerWhereInput): Prisma.Cus
  * existe veículo sem número de pedido. Bastaria um veículo em branco entre os
  * sessenta para a nota daquele sair sem o pedido que o cliente exige.
  */
-const IBIPORA_BILLED_CONFIG: Prisma.TaskQuoteCustomerConfigWhereInput = {
+const IBIPORA_BILLED_CONFIG: Prisma.BudgetPayerWhereInput = {
   customerId: PINNED_CUSTOMERS.IBIPORA,
   generateInvoice: true,
 };
@@ -513,7 +513,7 @@ export const RULE_QUERIES: RuleQuery[] = [
 
   // ── Comercial / Financeiro ────────────────────────────────────────────────
   //
-  // `task-quote.expired-pending` and `task-quote.due` used to live here and were REMOVED with
+  // `budget.expired-pending` and `budget.due` used to live here and were REMOVED with
   // their client twins. Between them they matched 171 of ~250 quotes: vencido (hoje
   // `BILLING_STATUS.OVERDUE`, no faturamento) é um estado que a tabela já imprime em vermelho e
   // que só o CLIENTE limpa pagando, and expired-pending was a
@@ -528,10 +528,10 @@ export const RULE_QUERIES: RuleQuery[] = [
     // This is the ONE task-derived rule whose trigger is COMPLETED, so it deliberately does NOT
     // use IN_FLIGHT (which exists to exclude exactly that). While the task is still running the
     // gap is a cadastro detail, not blocked money.
-    ruleId: 'task-quote.ibipora-missing-order-number',
+    ruleId: 'budget.ibipora-missing-order-number',
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
-    where: (): Prisma.TaskQuoteWhereInput => ({
+    where: (): Prisma.BudgetWhereInput => ({
       // `Task.quoteId` DEIXOU DE SER @unique: um orçamento cobre N veículos, e o
       // filtro passou de to-one para `some`. A semântica muda de propósito —
       // "algum veículo já está pronto" é o gatilho certo: num orçamento de
@@ -560,12 +560,12 @@ export const RULE_QUERIES: RuleQuery[] = [
     // orçamento não sai mais de `APPROVED` depois que a nota vai, então sozinho
     // ele deixaria o alerta piscando para sempre sobre contratos já pagos. Só há
     // o que fazer enquanto existe cobrança por aprovar.
-    ruleId: 'task-quote.billing-customer-incomplete',
+    ruleId: 'budget.billing-customer-incomplete',
     entityType: 'TASK_QUOTE',
     privileges: QUOTE_AUDIENCE,
-    where: (): Prisma.TaskQuoteWhereInput => ({
+    where: (): Prisma.BudgetWhereInput => ({
       tasks: { some: { status: TaskStatus.COMPLETED } },
-      status: TaskQuoteStatus.APPROVED,
+      status: BudgetStatus.APPROVED,
       OR: [{ billings: { none: {} } }, { billings: { some: { approvedAt: null } } }],
       customerConfigs: {
         some: { generateInvoice: true, customer: CUSTOMER_MISSING_BILLING_DATA },

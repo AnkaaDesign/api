@@ -114,8 +114,8 @@ export interface QuoteFunnelItem {
   approvedQuotes: number; // BUDGET_APPROVED count
   billedQuotes: number; // BILLING_APPROVED count (materialized)
   settledQuotes: number; // SETTLED count
-  totalValue: number; // sum of TaskQuote.total for new in this period
-  settledValue: number; // sum of TaskQuote.total for settled in this period
+  totalValue: number; // sum of Budget.total for new in this period
+  settledValue: number; // sum of Budget.total for settled in this period
 }
 
 export interface QuoteTopCustomer {

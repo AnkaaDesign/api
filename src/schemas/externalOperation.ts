@@ -8,7 +8,7 @@ import {
   createNameSchema,
   normalizeSearchTerm,
 } from './common';
-import { paymentConditionSchema, paymentConfigSchema } from './task-quote';
+import { paymentConditionSchema, paymentConfigSchema } from './budget';
 import type { ExternalOperation, ExternalOperationItem } from '@types';
 import { EXTERNAL_OPERATION_STATUS, EXTERNAL_OPERATION_TYPE } from '@constants';
 

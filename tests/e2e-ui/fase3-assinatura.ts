@@ -95,7 +95,7 @@ async function main() {
     taskId = res.url.split('/').pop()!;
     const t = await prisma.task.findUnique({ where: { id: taskId }, select: { quoteId: true } });
     quoteId = t!.quoteId!;
-    const q = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { budgetNumber: true, total: true } });
+    const q = await prisma.budget.findUnique({ where: { id: quoteId }, select: { budgetNumber: true, total: true } });
     budgetNumber = q!.budgetNumber!;
     info(`orçamento nº ${budgetNumber} · contrato ${money(Number(q!.total))}`);
     check('S0: o contrato é 2 × R$ 2.500,00', near(Number(q!.total), PRECO_VEICULO * 2), money(Number(q!.total)));
@@ -290,7 +290,7 @@ async function main() {
     check('S5: o painel lista os 3 documentos e quem assinou cada um',
       /Documento completo[\s\S]*Layout[\s\S]*Lista de servi.os/.test(painel), painel.slice(0, 300));
     check('S5: o orçamento está SIGNED (clientes assinaram, falta a Ankaa)',
-      (await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { status: true } }))?.status === 'SIGNED');
+      (await prisma.budget.findUnique({ where: { id: quoteId }, select: { status: true } }))?.status === 'SIGNED');
 
     // Um ADMIN qualquer NÃO contra-assina: quem assina é o signatário designado.
     let status403 = 0;
@@ -319,7 +319,7 @@ async function main() {
     await ctx2.close();
 
     const env = await prisma.signatureEnvelope.findFirst({ where: { quoteId }, select: { status: true, completedAt: true } });
-    const q = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { status: true } });
+    const q = await prisma.budget.findUnique({ where: { id: quoteId }, select: { status: true } });
     check('S5: o envelope concluiu', env?.status === 'COMPLETED', `status=${env?.status}`);
     check('S5: o orçamento ficou APROVADO', q?.status === 'APPROVED', `status=${q?.status}`);
 

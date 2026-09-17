@@ -36,7 +36,7 @@ async function main(): Promise<void> {
       const task = await prisma.task.findUnique({ where: { id: taskId }, select: { quoteId: true, name: true } });
       if (!task) throw new Error(`Tarefa ${taskId} não encontrada`);
       await prisma.task.delete({ where: { id: taskId } });
-      if (task.quoteId) await prisma.taskQuote.delete({ where: { id: task.quoteId } }).catch(() => undefined);
+      if (task.quoteId) await prisma.budget.delete({ where: { id: task.quoteId } }).catch(() => undefined);
       out(`Tarefa "${task.name}" removida.`);
       return;
     }
@@ -49,13 +49,13 @@ async function main(): Promise<void> {
     // budgetNumber é MAX+1 sob advisory lock — mesmo caminho do serviço de produção.
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('task_quote_budget_number'))`;
-      const max = await tx.taskQuote.aggregate({ _max: { budgetNumber: true } });
+      const max = await tx.budget.aggregate({ _max: { budgetNumber: true } });
       const budgetNumber = (max._max.budgetNumber ?? 0) + 1;
 
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 30);
 
-      const quote = await tx.taskQuote.create({
+      const quote = await tx.budget.create({
         data: {
           budgetNumber,
           subtotal: 2,

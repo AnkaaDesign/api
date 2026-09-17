@@ -18,7 +18,7 @@ import { FilesStorageService, type FilesFolderMapping } from './files-storage.se
  *   2. The reference check could not SEE the reference. "What points at this file?"
  *      was answered by enumerating foreign keys that reference File.id. The
  *      quote-layout link is not one of those: it is File.quoteLayoutId, a column ON
- *      File pointing OUT at TaskQuote. Every inbound-FK-only check therefore reports
+ *      File pointing OUT at Budget. Every inbound-FK-only check therefore reports
  *      "unreferenced" for every quote layout in the database, in any folder.
  *
  * Defect 1 only decided WHICH files were looked at. Defect 2 is what made a
@@ -47,7 +47,7 @@ const OUTBOUND_REFERENCES: ReadonlyArray<{
 }> = [
   {
     column: 'quoteLayoutId',
-    targetTable: 'TaskQuote',
+    targetTable: 'Budget',
     context: 'quote-layouts',
     label: 'layout aprovado de orçamento',
   },
@@ -199,7 +199,7 @@ const INBOUND_REFERENCES: Readonly<
     context: 'budgetDossiers',
     label: 'dossiê do orçamento',
   },
-  'TaskQuoteCustomerConfig.customerSignatureId': {
+  'BudgetPayer.customerSignatureId': {
     context: null,
     label: 'assinatura do cliente no orçamento',
   },

@@ -6,7 +6,7 @@ import { isDueDateOverdue, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util
 /**
  * QUEM ESCREVE `Billing.status`. Ninguém mais.
  *
- * Até 16/09/2026 o ciclo do pagamento morava em `TaskQuote.status`, e isso tinha
+ * Até 16/09/2026 o ciclo do pagamento morava em `Budget.status`, e isso tinha
  * um defeito que nenhuma quantidade de cuidado consertava: **o estado era do
  * ORÇAMENTO, que é um, enquanto as cobranças são N**. Num orçamento de sessenta
  * caminhões faturados um a um, uma fatia paga e outra vencida tinham de caber no
@@ -89,7 +89,7 @@ export class BillingStatusCascadeService {
    * o mesmo trabalho.
    */
   async recomputeForCustomerConfig(customerConfigId: string): Promise<void> {
-    const config = await this.prisma.taskQuoteCustomerConfig.findUnique({
+    const config = await this.prisma.budgetPayer.findUnique({
       where: { id: customerConfigId },
       select: { billingId: true },
     });

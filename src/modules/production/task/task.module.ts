@@ -1,7 +1,7 @@
 // tasks.module.ts
 import { Module, forwardRef } from '@nestjs/common';
 import { TaskController } from './task.controller';
-import { TaskQuoteModule } from '../task-quote/task-quote.module';
+import { BudgetModule } from '../budget/budget.module';
 import { TaskService } from './task.service';
 import { TaskAnalyticsService } from './task-analytics.service';
 import { TaskRepository } from './repositories/task.repository';
@@ -27,7 +27,7 @@ import { SignatureModule } from '@modules/common/signature/signature.module';
     FileModule,
     NotificationModule,
     NfseModule,
-    forwardRef(() => TaskQuoteModule),
+    forwardRef(() => BudgetModule),
     forwardRef(() => SignatureModule),
   ],
   controllers: [TaskController],

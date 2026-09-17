@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
 
-type PrismaContext = Prisma.TransactionClient | { taskQuote: any; $executeRaw: any };
+type PrismaContext = Prisma.TransactionClient | { budget: any; $executeRaw: any };
 
 /**
- * Advisory-lock key that serializes `TaskQuote.budgetNumber` allocation.
+ * Advisory-lock key that serializes `Budget.budgetNumber` allocation.
  *
  * Distinct from RECON_ADVISORY_LOCK_KEY (4_337_271) — advisory locks share one
  * global namespace, so every key in the app must be unique.
@@ -11,7 +11,7 @@ type PrismaContext = Prisma.TransactionClient | { taskQuote: any; $executeRaw: a
 export const BUDGET_NUMBER_ADVISORY_LOCK_KEY = 4_337_272;
 
 /**
- * Allocate the next `TaskQuote.budgetNumber`.
+ * Allocate the next `Budget.budgetNumber`.
  *
  * `budgetNumber` is `@unique` but is minted read-then-write (`MAX(budgetNumber) + 1`).
  * Under READ COMMITTED — Postgres' default, which is what Prisma opens transactions
@@ -33,7 +33,7 @@ export const BUDGET_NUMBER_ADVISORY_LOCK_KEY = 4_337_272;
 export async function allocateBudgetNumber(tx: PrismaContext): Promise<number> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BUDGET_NUMBER_ADVISORY_LOCK_KEY})`;
 
-  const maxBudgetNumber = await tx.taskQuote.aggregate({
+  const maxBudgetNumber = await tx.budget.aggregate({
     _max: { budgetNumber: true },
   });
 

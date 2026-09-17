@@ -50,7 +50,7 @@ export const SETTLEMENT_FD_SELECT = {
  * Task-quote context behind a receivable parcela, so the Extrato's "Vínculo"
  * column can name the tarefa and link to it instead of printing the constant
  * "Parcela a receber" with nowhere to click. Two paths reach a task: an
- * Invoice (the normal billing flow) or a TaskQuoteCustomerConfig (receivables
+ * Invoice (the normal billing flow) or a BudgetPayer (receivables
  * that never materialized an invoice).
  */
 export const INSTALLMENT_RECEIVABLE_SELECT = {
@@ -71,8 +71,8 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
       installments: { select: { id: true } },
     },
   },
-  // Faturamento (task-quote) receivables have no Invoice row — they hang off a
-  // TaskQuoteCustomerConfig instead.
+  // Faturamento (budget) receivables have no Invoice row — they hang off a
+  // BudgetPayer instead.
   customerConfig: {
     select: {
       id: true,
@@ -594,7 +594,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
   if (slipMatch || instMatch) {
     const slip = slipMatch?.bankSlip;
     // The parcela reached either directly or through its boleto. Both carry the
-    // same task-quote context; prefer whichever this match actually anchored.
+    // same budget context; prefer whichever this match actually anchored.
     const inst = instMatch?.installment ?? slip?.installment ?? null;
     const task = inst?.invoice?.task ?? sliceTask(inst?.customerConfig) ?? null;
     const customer = inst?.invoice?.customer ?? inst?.customerConfig?.customer;

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma, ReconciliationMatchType, ReconciliationSource, ReconciliationStatus } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { allocateBudgetNumber } from '@utils/budget-number';
@@ -19,7 +19,7 @@ import {
 } from './task-match-allocation';
 import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
 import { QUOTE_TASKS_ORDER_BY, sliceAnchorTaskId } from '@utils/quote-tasks';
-import { ensureBillingForCoverage } from '@utils/task-quote-customer-config-sync';
+import { ensureBillingForCoverage } from '@utils/budget-customer-config-sync';
 import type {
   TaskBillingState,
   TaskMatchAllocationInput,
@@ -37,7 +37,7 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  * (`ReconciliationMatch.installmentId`), and an installment only exists at the
  * end of a chain that starts at the quote:
  *
- *     Task.quoteId → TaskQuote → TaskQuoteCustomerConfig → Invoice → Installment
+ *     Task.quoteId → Budget → BudgetPayer → Invoice → Installment
  *
  * The system migration left a large population of tasks with `quoteId = NULL`
  * (the FK lives on Task with ON DELETE SET NULL, so a deleted quote leaves no
@@ -46,7 +46,7 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  * candidate finder, to Contas a Receber, and to every matcher pass.
  *
  * This service closes that gap by building whatever part of the spine is
- * missing — up to and including the TaskQuote itself — and then handing off to
+ * missing — up to and including the Budget itself — and then handing off to
  * the ordinary allocation path, so nothing downstream needs to know a shortcut
  * was taken.
  *
@@ -66,7 +66,7 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  * BAIXA DE RECEBÍVEL É EVENTO DE COBRANÇA, NÃO DE ORÇAMENTO. Até 16/09/2026
  * este serviço empurrava o ORÇAMENTO para `BILLING_APPROVED` e deixava a
  * cascata levá-lo a `PARTIAL`/`SETTLED` — porque o ciclo do pagamento morava
- * em `TaskQuote.status`. Não mora mais: quem tem estado de pagamento é
+ * em `Budget.status`. Não mora mais: quem tem estado de pagamento é
  * `Billing`, 1..N por orçamento, e num orçamento de sessenta caminhões
  * faturados um a um o crédito que paga o caminhão 7 não diz nada sobre o 8.
  *
@@ -74,7 +74,7 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  * veículo conciliado (`Billing.approvedAt`) — dinheiro recebido por um veículo
  * é a prova de que ele foi cobrado, e é esse carimbo que `isQuoteMoneyLocked`
  * lê para travar a edição do orçamento. `Billing.status` ele NÃO escreve:
- * `TaskQuoteStatusCascadeService.cascadeFromInstallment` roda depois do commit
+ * `BudgetStatusCascadeService.cascadeFromInstallment` roda depois do commit
  * e deriva `PARTIAL`/`SETTLED`/`OVERDUE` das parcelas, pelo mesmo caminho do
  * webhook do Sicredi — uma tarefa paga por PIX e outra por boleto acabam no
  * mesmo estado pelo mesmo código.
@@ -85,7 +85,7 @@ export class ReceivableTaskMatchService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cascadeService: TaskQuoteStatusCascadeService,
+    private readonly cascadeService: BudgetStatusCascadeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -923,10 +923,10 @@ export class ReceivableTaskMatchService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Create TaskQuote → TaskQuoteCustomerConfig → Invoice → Installment for a
+   * Create Budget → BudgetPayer → Invoice → Installment for a
    * task that has none, sized to the credit being conciliated.
    *
-   * Deliberately NOT routed through `TaskQuoteService.create` or
+   * Deliberately NOT routed through `BudgetService.create` or
    * `InvoiceGenerationService.generateInvoicesForTask`: both emit NFS-e and
    * register Sicredi boletos. This is retroactive bookkeeping for money that
    * already landed — issuing a fiscal document or a charge for it would be
@@ -952,7 +952,7 @@ export class ReceivableTaskMatchService {
     const amount = new Decimal(input.amount);
     const now = new Date();
 
-    const quote = await db.taskQuote.create({
+    const quote = await db.budget.create({
       data: {
         budgetNumber,
         subtotal: amount,
@@ -1175,7 +1175,7 @@ export class ReceivableTaskMatchService {
       // Cobertura vazia aqui é honesto: este orçamento degenerado não tem veículo
       // escolhido, e a reconciliação a preenche quando houver.
       const billingId = await ensureBillingForCoverage(db as any, input.quote.id, []);
-      const created = await db.taskQuoteCustomerConfig.create({
+      const created = await db.budgetPayer.create({
         data: {
           quoteId: input.quote.id,
           billingId,
@@ -1215,7 +1215,7 @@ export class ReceivableTaskMatchService {
     const nextPosition =
       input.quote.services.reduce((max, s) => Math.max(max, s.position ?? 0), -1) + 1;
 
-    await db.taskQuoteService.create({
+    await db.budgetItem.create({
       data: {
         quoteId: input.quote.id,
         description: input.description,
@@ -1227,7 +1227,7 @@ export class ReceivableTaskMatchService {
       },
     });
 
-    await db.taskQuoteCustomerConfig.update({
+    await db.budgetPayer.update({
       where: { id: config.id },
       data: {
         subtotal: new Decimal(Number(config.subtotal)).add(amount),
@@ -1235,7 +1235,7 @@ export class ReceivableTaskMatchService {
       },
     });
 
-    await db.taskQuote.update({
+    await db.budget.update({
       where: { id: input.quote.id },
       data: {
         subtotal: new Decimal(Number(input.quote.subtotal)).add(amount),
@@ -1345,7 +1345,7 @@ export class ReceivableTaskMatchService {
     quoteId: string,
     taskId: string,
   ): Promise<void> {
-    const quote = await db.taskQuote.findUnique({
+    const quote = await db.budget.findUnique({
       where: { id: quoteId },
       select: {
         status: true,
@@ -1383,7 +1383,7 @@ export class ReceivableTaskMatchService {
     const stamped = new Set(toStamp.map(b => b.id));
     const allBilled = quote.billings.every(b => b.approvedAt !== null || stamped.has(b.id));
     if (allBilled && !quote.billingApprovedAt) {
-      await db.taskQuote.update({
+      await db.budget.update({
         where: { id: quoteId },
         data: { billingApprovedAt: now },
       });

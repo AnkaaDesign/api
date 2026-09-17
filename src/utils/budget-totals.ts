@@ -1,16 +1,16 @@
 /**
- * Discount-aware recomputation of a TaskQuote's monetary totals.
+ * Discount-aware recomputation of a Budget's monetary totals.
  *
  * Grava também `vehicleCount` — a contagem de tarefas que multiplica os totais.
  * É o divisor que as telas por TAREFA usam para voltar do valor do contrato ao
  * valor de um veículo, e sai da mesma contagem, na mesma escrita.
  *
  * A quote's money lives in two places that MUST stay consistent:
- *   - the aggregate `TaskQuote.subtotal` / `TaskQuote.total`
- *   - one `TaskQuoteCustomerConfig.subtotal` / `.total` per invoiced customer
+ *   - the aggregate `Budget.subtotal` / `Budget.total`
+ *   - one `BudgetPayer.subtotal` / `.total` per invoiced customer
  *     (each carrying its own discount).
  *
- * Several flows add or remove `TaskQuoteService` rows (cascade-delete on SO
+ * Several flows add or remove `BudgetItem` rows (cascade-delete on SO
  * removal, the SO↔quote bidirectional sync, item-snapshot rollbacks). Each one
  * must recompute the totals the SAME way, otherwise the aggregate drifts from
  * the per-customer configs and/or silently drops the discount — the bug that
@@ -21,15 +21,15 @@
  * same transaction right after mutating a quote's services.
  */
 import { PrismaTransaction } from '../modules/common/base/base.repository';
-import { isBillingFrozen } from '../modules/production/task-quote/task-quote.guards';
+import { isBillingFrozen } from '../modules/production/budget/budget.guards';
 import { computeQuoteMoney, round2 } from './quote-money';
 
 export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
-  const allItems = await tx.taskQuoteService.findMany({ where: { quoteId } });
+  const allItems = await tx.budgetItem.findMany({ where: { quoteId } });
   // A COBERTURA VEM JUNTO. É ela que multiplica o valor de cada fatura
   // (`por veículo × cobertos`); uma consulta sem ela devolveria cobertura vazia,
   // e cobertura vazia numa conta de dinheiro é R$ 0,00 numa fatura que tem valor.
-  const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
+  const allConfigs = await tx.budgetPayer.findMany({
     where: { quoteId },
     include: {
       billing: {
@@ -39,7 +39,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   });
 
   // QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o multiplicador
-  // de todo total. `TaskQuoteService.amount` é o preço de UM veículo; ignorar a
+  // de todo total. `BudgetItem.amount` é o preço de UM veículo; ignorar a
   // contagem aqui faria o orçamento do Marquespan gravar R$ 12.170,40 num
   // contrato de R$ 730.224,00.
   const vehicleCount = Math.max(1, await tx.task.count({ where: { quoteId } }));
@@ -49,7 +49,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   if (allConfigs.length === 0) {
     const sum = allItems.reduce((s, i) => s + Number(i.amount || 0), 0);
     const rounded = round2(round2(sum) * vehicleCount);
-    await tx.taskQuote.update({
+    await tx.budget.update({
       where: { id: quoteId },
       data: { subtotal: rounded, total: rounded, vehicleCount },
     });
@@ -104,7 +104,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
       coveredTaskCount: coveredCount,
     });
 
-    await tx.taskQuoteCustomerConfig.update({
+    await tx.budgetPayer.update({
       where: { id: config.id },
       data: { subtotal: money.configSubtotal, total: money.configTotal },
     });
@@ -123,8 +123,8 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   // Multi-config: services not yet assigned to any customer (invoiceToCustomerId
   // null) belong to no config above, so their amounts were dropped from the
   // aggregate. Fold them in at full value (they bear no config discount) so the
-  // draft TaskQuote.subtotal/total shown on the task detail page is truthful.
-  // The billing-approval guard (task-quote.service unassigned check) still blocks
+  // draft Budget.subtotal/total shown on the task detail page is truthful.
+  // The billing-approval guard (budget.service unassigned check) still blocks
   // approval until every service is assigned, so this never reaches an invoice.
   if (!isSingleConfig) {
     const unassignedSum = allItems
@@ -138,7 +138,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     aggregateTotal += unassignedRounded;
   }
 
-  await tx.taskQuote.update({
+  await tx.budget.update({
     where: { id: quoteId },
     data: {
       subtotal: round2(aggregateSubtotal),

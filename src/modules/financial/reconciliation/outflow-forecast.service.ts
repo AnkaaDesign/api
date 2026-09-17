@@ -343,7 +343,7 @@ export class OutflowForecastService {
     items.sort((a, b) => b.monthlyAverage - a.monthlyAverage);
 
     // Forward-looking companion: taxes on the SERVICES invoiced this month,
-    // derived from the task-quote → invoice → NFS-e workflow. Informational —
+    // derived from the budget → invoice → NFS-e workflow. Informational —
     // NOT added to totalForecast (would double-count the historical ISS debits
     // already inside the 3-month average above). Surfaced on the Impostos card.
     const invoicedServices = await this.buildInvoicedServiceTaxForecast(from, to);
@@ -365,7 +365,7 @@ export class OutflowForecastService {
   }
 
   /**
-   * Estimate the taxes owed on services INVOICED this month, from the task-quote
+   * Estimate the taxes owed on services INVOICED this month, from the budget
    * workflow: every Invoice created in the window that emits an NFS-e
    * (nfseDocuments present) is taxable service revenue. ISS = base × the same
    * municipal aliquota used at emission (ELOTECH_OXY_SERVICO_LC_ALIQUOTA, default

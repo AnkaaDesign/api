@@ -18,18 +18,18 @@ import {
   isBillingFrozen,
   isQuoteMoneyLocked,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
-} from '../src/modules/production/task-quote/task-quote.guards';
+} from '../src/modules/production/budget/budget.guards';
 import {
-  taskQuoteUpdateSchema,
-  taskQuoteCustomerConfigCreateNestedSchema,
-} from '../src/schemas/task-quote';
+  budgetUpdateSchema,
+  budgetPayerCreateNestedSchema,
+} from '../src/schemas/budget';
 import { TASK_QUOTE_STATUS_ORDER, BILLING_STATUS } from '../src/constants';
-import { TaskQuoteService } from '../src/modules/production/task-quote/task-quote.service';
+import { BudgetService } from '../src/modules/production/budget/budget.service';
 
 // O construtor do serviço só guarda dependências; a detecção de mudança material
 // é pura (compara dois objetos) e não toca no Prisma, então um serviço vazio
 // basta para exercitá-la — mesmo padrão de `tests/quote-diff.test.ts`.
-const svc: any = new (TaskQuoteService as any)();
+const svc: any = new (BudgetService as any)();
 
 let failures = 0;
 function check(name: string, ok: boolean, detail?: string) {
@@ -221,10 +221,10 @@ console.log('\nA2 — `taskId` não é campo do orçamento e não pode travar a 
     taskId: '33333333-3333-4333-8333-333333333333',
     expiresAt: '2026-12-31T00:00:00.000Z',
   };
-  const parsed = taskQuoteUpdateSchema.safeParse(corpo);
+  const parsed = budgetUpdateSchema.safeParse(corpo);
   check('o corpo com `taskId` continua sendo ACEITO (não é 400)', parsed.success);
   check(
-    'mas `taskId` é DESCARTADO — `TaskQuote` não tem essa coluna',
+    'mas `taskId` é DESCARTADO — `Budget` não tem essa coluna',
     parsed.success && !('taskId' in parsed.data),
     parsed.success ? Object.keys(parsed.data).join(', ') : '',
   );
@@ -233,7 +233,7 @@ console.log('\nA2 — `taskId` não é campo do orçamento e não pode travar a 
     parsed.success && Object.keys(parsed.data).every(k => QUOTE_SAFE_AFTER_BILLING_FIELDS.has(k)),
   );
   // `taskIds` (plural) é lido e tem de continuar passando.
-  const comTaskIds = taskQuoteUpdateSchema.safeParse({
+  const comTaskIds = budgetUpdateSchema.safeParse({
     taskIds: ['33333333-3333-4333-8333-333333333333'],
   });
   check(
@@ -341,7 +341,7 @@ console.log('\nA2 (serviço) — chave fantasma não entra no diff');
 console.log('\nA13 — campo aceito e nunca lido é pior que campo recusado');
 // ═══════════════════════════════════════════════════════════════════════════
 {
-  const parsed = taskQuoteCustomerConfigCreateNestedSchema.safeParse({
+  const parsed = budgetPayerCreateNestedSchema.safeParse({
     customerId: CLIENTE_A,
     installments: [{ number: 1, dueDate: '2026-12-31', amount: 100 }],
   });

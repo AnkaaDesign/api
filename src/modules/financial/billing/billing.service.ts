@@ -73,7 +73,7 @@ const OPEN_INSTALLMENT_STATUSES = [
  *
  * A tela de cobrança era endereçada por VEÍCULO (`/faturamento/detalhes/:taskId`)
  * porque não havia mais nada para endereçar: "faturamento" era uma lista de
- * `TaskQuoteCustomerConfig` pendurada no orçamento, sem id que significasse a
+ * `BudgetPayer` pendurada no orçamento, sem id que significasse a
  * cobrança. A consequência aparecia na tela: num orçamento de quatro caminhões
  * cobrados um a um, abrir qualquer veículo mostrava "Fatura 1 · 2 · 3 · 4" na
  * MESMA página, porque não havia quatro coisas — havia uma lista de

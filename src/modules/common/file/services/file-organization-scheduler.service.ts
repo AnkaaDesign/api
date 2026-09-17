@@ -311,7 +311,7 @@ export class FileOrganizationSchedulerService {
         return layout.airbrushing.task.customer.fantasyName;
       }
 
-      // Quote layout (File.quoteLayoutId -> TaskQuote -> task -> customer).
+      // Quote layout (File.quoteLayoutId -> Budget -> task -> customer).
       // These are uploaded standalone and attached to the quote afterwards, so the
       // upload itself has no customer to route by; this lets the organizer re-file
       // them into Clientes/{cliente}/Layouts/ once the attachment exists.

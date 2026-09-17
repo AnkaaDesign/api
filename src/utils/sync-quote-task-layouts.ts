@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-type PrismaContext = Prisma.TransactionClient | { taskQuote: any; layout: any; task: any };
+type PrismaContext = Prisma.TransactionClient | { budget: any; layout: any; task: any };
 
 const logger = new Logger('QuoteTaskLayoutSync');
 
@@ -14,7 +14,7 @@ const imageKey = (f: {
 }): string => `${(f.originalName || f.filename || '').trim().toLowerCase()}::${f.size ?? 0}`;
 
 /**
- * Materialize a quote's approved layout files (`TaskQuote.layoutFiles`, the
+ * Materialize a quote's approved layout files (`Budget.layoutFiles`, the
  * QUOTE_LAYOUT relation) as APPROVED task layouts (`Layout` rows on
  * `Task.layouts`).
  *
@@ -55,7 +55,7 @@ export async function syncTaskLayoutsFromQuote(
   reapproveReprovedSelection = false,
 ): Promise<void> {
   try {
-    const quote = await (prisma as any).taskQuote.findUnique({
+    const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
       select: {
         tasks: {
@@ -203,7 +203,7 @@ async function syncOneTaskFromQuoteFiles(
 
 /**
  * Subtractive counterpart to {@link syncTaskLayoutsFromQuote}: when a quote
- * reference (`TaskQuote.layoutFiles`) is UNSELECTED — dropped from the quote —
+ * reference (`Budget.layoutFiles`) is UNSELECTED — dropped from the quote —
  * mark the corresponding task `Layout` REPROVED. This flows an unselect in the
  * budget editor / "Layout do Orçamento" modal through to the task layout gallery
  * (the commercial rule: "unselect the reference → the task layout is reproved").
@@ -240,7 +240,7 @@ export async function reproveDroppedTaskLayoutsFromQuote(
       return reprovedLayoutIds;
     }
 
-    const quote = await (prisma as any).taskQuote.findUnique({
+    const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
       select: {
         tasks: {
@@ -361,7 +361,7 @@ export async function reproveDroppedTaskLayoutsFromQuote(
 /**
  * AUTHORITATIVE reconciler — the stronger counterpart to
  * {@link reproveDroppedTaskLayoutsFromQuote}. When a quote's approved-layout
- * selection (`TaskQuote.layoutFiles`) is set, the SELECTION IS AUTHORITATIVE:
+ * selection (`Budget.layoutFiles`) is set, the SELECTION IS AUTHORITATIVE:
  * every APPROVED task layout of the quote's task whose image is NOT in the
  * current selection is REPROVED — not just the ones that were previously
  * selected and dropped. (Commercial rule: "whatever is picked in Step 2 stays
@@ -389,7 +389,7 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
 ): Promise<string[]> {
   const reprovedLayoutIds: string[] = [];
   try {
-    const quote = await (prisma as any).taskQuote.findUnique({
+    const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
       select: {
         tasks: {

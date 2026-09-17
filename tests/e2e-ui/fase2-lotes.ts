@@ -22,7 +22,7 @@ import { login, createQuote, openQuoteDetail, gotoCustomerStep, setLots, readLot
 const S = serialBase(2);
 
 async function coverage(quoteId: string) {
-  const q = await prisma.taskQuote.findUnique({
+  const q = await prisma.budget.findUnique({
     where: { id: quoteId },
     select: {
       billingSplit: true, total: true, vehicleCount: true,
@@ -57,7 +57,7 @@ async function main() {
     services: [{ search: 'Logomarca', option: /./, amount: '100000' }],
   });
   const t0 = await prisma.task.findUnique({ where: { id: criado.url.split('/').pop()! }, select: { quoteId: true } });
-  const quote = await prisma.taskQuote.findUnique({
+  const quote = await prisma.budget.findUnique({
     where: { id: t0!.quoteId! },
     select: { id: true, budgetNumber: true, tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } } },
   });

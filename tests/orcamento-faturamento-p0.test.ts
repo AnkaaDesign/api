@@ -6,7 +6,7 @@
  * Dois enganos do mesmo tipo: um campo respondia a uma pergunta que ele não
  * sabia responder, e ninguém percebia porque a resposta errada era plausível.
  *
- *   1. `TaskQuoteCustomerConfig.invoice` — o `schema.prisma` dizia to-one, o
+ *   1. `BudgetPayer.invoice` — o `schema.prisma` dizia to-one, o
  *      banco sempre permitiu 1:N (a viva MAIS as canceladas dos ciclos
  *      anteriores). Qual linha o Prisma devolvia não era escolha de ninguém, e a
  *      leitura que decide se uma fatia está CONGELADA dependia disso.

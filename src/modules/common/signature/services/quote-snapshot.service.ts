@@ -398,7 +398,7 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
   },
   tasks: {
     // A MESMA ordem canônica de `QUOTE_TASKS_ORDER_BY`, escrita aqui porque este
-    // objeto tem de satisfazer `Prisma.TaskQuoteInclude` literalmente. A ordem
+    // objeto tem de satisfazer `Prisma.BudgetInclude` literalmente. A ordem
     // dos veículos entra no documento assinado E no hash do snapshot: deixá-la
     // para o plano do Postgres faria o mesmo orçamento hashear diferente entre
     // duas leituras.
@@ -409,9 +409,9 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
       responsibles: { orderBy: { name: 'asc' } },
     },
   },
-} satisfies Prisma.TaskQuoteInclude;
+} satisfies Prisma.BudgetInclude;
 
-export type QuoteWithSnapshotGraph = Prisma.TaskQuoteGetPayload<{
+export type QuoteWithSnapshotGraph = Prisma.BudgetGetPayload<{
   include: typeof QUOTE_SNAPSHOT_INCLUDE;
 }>;
 
@@ -420,7 +420,7 @@ export class QuoteSnapshotService {
   constructor(private readonly prisma: PrismaService) {}
 
   async loadQuoteGraph(quoteId: string): Promise<QuoteWithSnapshotGraph | null> {
-    return this.prisma.taskQuote.findUnique({
+    return this.prisma.budget.findUnique({
       where: { id: quoteId },
       include: QUOTE_SNAPSHOT_INCLUDE,
     });

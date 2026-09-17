@@ -3,8 +3,8 @@
  *
  * O DEFEITO QUE ORIGINOU ESTE ARQUIVO
  * ─────────────────────────────────────────────────────────────────────────────
- * `Task.quoteId` deixou de ser `@unique`: `TaskQuote.task` (to-one) virou
- * `TaskQuote.tasks` (lista). Toda consulta que ainda mandasse `task` ao Prisma
+ * `Task.quoteId` deixou de ser `@unique`: `Budget.task` (to-one) virou
+ * `Budget.tasks` (lista). Toda consulta que ainda mandasse `task` ao Prisma
  * passou a estourar com "Unknown argument `task`" — e NADA disso aparece no
  * `tsc`, porque o `where` chega ao repositório como `Record<string, unknown>` e
  * o `orderBy` como `any`. O resultado é uma tela que compila, sobe, e devolve
@@ -18,7 +18,7 @@
  *
  * O IRMÃO ESQUECIDO: `taskId`
  * ─────────────────────────────────────────────────────────────────────────────
- * A varredura seguinte achou que a coluna `TaskQuote.taskId` foi embora junto
+ * A varredura seguinte achou que a coluna `Budget.taskId` foi embora junto
  * com a relação to-one — o FK mudou de lado e hoje mora em `Task.quoteId`. Mas
  * o zod continuava DECLARANDO `taskId` no `where` e no `orderBy`, e nada o
  * traduzia. Declarado e não traduzido é o pior dos dois mundos: o `.strict()`
@@ -40,12 +40,12 @@
 import {
   translateLegacyTaskFilter,
   stripUnorderableTaskEntries,
-} from '../src/modules/production/task-quote/repositories/task-quote-prisma.repository';
+} from '../src/modules/production/budget/repositories/budget-prisma.repository';
 import {
-  taskQuoteGetManySchema,
-  taskQuoteIncludeSchema,
-  taskQuoteWhereSchema,
-} from '../src/schemas/task-quote';
+  budgetGetManySchema,
+  budgetIncludeSchema,
+  budgetWhereSchema,
+} from '../src/schemas/budget';
 
 let failures = 0;
 
@@ -75,14 +75,14 @@ function hasToOneTaskKey(value: unknown): boolean {
  * Só no nível do orçamento: `tasks: { some: { … } }` desce para `Task`, onde
  * `taskId` pode legitimamente existir em relações da tarefa. O que não pode
  * existir é um `taskId` irmão de `status`/`budgetNumber` — esse vai direto para
- * `TaskQuoteWhereInput`, que não tem a coluna.
+ * `BudgetWhereInput`, que não tem a coluna.
  */
 function hasQuoteLevelTaskIdKey(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   if (Array.isArray(value)) return value.some(hasQuoteLevelTaskIdKey);
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (k === 'taskId') return true;
-    // `tasks`/`task` mudam de modelo: dali para baixo é `Task`, não `TaskQuote`.
+    // `tasks`/`task` mudam de modelo: dali para baixo é `Task`, não `Budget`.
     if (k === 'tasks' || k === 'task') continue;
     if (hasQuoteLevelTaskIdKey(v)) return true;
   }
@@ -185,7 +185,7 @@ console.log('\nTradução do filtro legado `taskId` (coluna extinta) → `tasks`
       translateLegacyTaskFilter({ tasks: { some: { truck: { taskId: 'x' } } } }),
     ) === JSON.stringify({ tasks: { some: { truck: { taskId: 'x' } } } }),
   );
-  const legacyWhere = taskQuoteWhereSchema.parse({ taskId: 'task-1' });
+  const legacyWhere = budgetWhereSchema.parse({ taskId: 'task-1' });
   check(
     'o zod continua ACEITANDO `taskId` (recusar derrubaria o app instalado)',
     (legacyWhere as any).taskId === 'task-1',
@@ -228,22 +228,22 @@ console.log('\nOrdenação por campo da tarefa — descartada, nunca enviada');
 
 console.log('\nO zod não pode APAGAR `tasks` em silêncio');
 {
-  const include = taskQuoteIncludeSchema.parse({
+  const include = budgetIncludeSchema.parse({
     tasks: { include: { truck: true, customer: true } },
     services: true,
   });
   check('include `tasks` sobrevive ao parse', (include as any).tasks !== undefined);
   check('include `tasks.include` chega inteiro', (include as any).tasks?.include?.truck === true);
-  const legacyInclude = taskQuoteIncludeSchema.parse({ task: { include: { truck: true } } });
+  const legacyInclude = budgetIncludeSchema.parse({ task: { include: { truck: true } } });
   check('include `task` legado continua aceito', (legacyInclude as any).task !== undefined);
 
-  const where = taskQuoteWhereSchema.parse({ tasks: { some: {} }, status: 'PENDING' });
+  const where = budgetWhereSchema.parse({ tasks: { some: {} }, status: 'PENDING' });
   check('where `tasks: { some: {} }` passa pelo strict()', (where as any).tasks !== undefined);
 }
 
 console.log('\nFiltros de conveniência emitem a forma to-many');
 {
-  const byTask = taskQuoteGetManySchema.parse({ taskId: '3f1a5b7c-0000-4000-8000-000000000001' });
+  const byTask = budgetGetManySchema.parse({ taskId: '3f1a5b7c-0000-4000-8000-000000000001' });
   check(
     'taskId vira `tasks: { some: { id } }`',
     !hasToOneTaskKey(byTask.where) &&
@@ -252,19 +252,19 @@ console.log('\nFiltros de conveniência emitem a forma to-many');
     JSON.stringify(byTask.where),
   );
 
-  const has = taskQuoteGetManySchema.parse({ hasTask: true });
+  const has = budgetGetManySchema.parse({ hasTask: true });
   check(
     'hasTask=true vira `tasks: { some: {} }`',
     !hasToOneTaskKey(has.where) &&
       JSON.stringify((has.where as any).tasks) === JSON.stringify({ some: {} }),
   );
-  const hasNot = taskQuoteGetManySchema.parse({ hasTask: false });
+  const hasNot = budgetGetManySchema.parse({ hasTask: false });
   check(
     'hasTask=false vira `tasks: { none: {} }`',
     JSON.stringify((hasNot.where as any).tasks) === JSON.stringify({ none: {} }),
   );
 
-  const search = taskQuoteGetManySchema.parse({ searchingFor: '39239' });
+  const search = budgetGetManySchema.parse({ searchingFor: '39239' });
   const conditions = (search.where as any).OR as any[];
   check(
     'a busca não emite nenhum `task` to-one',
@@ -281,7 +281,7 @@ console.log('\nFiltros de conveniência emitem a forma to-many');
     JSON.stringify(conditions?.slice(0, 3)),
   );
 
-  const doc = taskQuoteGetManySchema.parse({ searchingFor: '13.902.480/0001-28' });
+  const doc = budgetGetManySchema.parse({ searchingFor: '13.902.480/0001-28' });
   check('a busca por CNPJ também não emite `task`', !hasToOneTaskKey(doc.where));
 
   // ─── OS DÍGITOS SOLTOS DE UM TERMO QUE NÃO É DOCUMENTO ────────────────────
@@ -298,14 +298,14 @@ console.log('\nFiltros de conveniência emitem a forma to-many');
   const documentConditions = (where: unknown): number =>
     JSON.stringify(where).match(/cnpjNormalized|cpfNormalized/g)?.length ?? 0;
 
-  const nomeComNumero = taskQuoteGetManySchema.parse({ searchingFor: 'QA 4V' });
+  const nomeComNumero = budgetGetManySchema.parse({ searchingFor: 'QA 4V' });
   check(
     'termo com letra e número NÃO vira busca por dígitos em CNPJ/CPF',
     !JSON.stringify(nomeComNumero.where).includes('"contains":"4"'),
     JSON.stringify(nomeComNumero.where)?.slice(0, 200),
   );
 
-  const soNome = taskQuoteGetManySchema.parse({ searchingFor: 'Masterboi' });
+  const soNome = budgetGetManySchema.parse({ searchingFor: 'Masterboi' });
   check(
     'termo sem dígito nenhum procura o texto como está',
     JSON.stringify(soNome.where).includes('masterboi'),
@@ -318,7 +318,7 @@ console.log('\nFiltros de conveniência emitem a forma to-many');
       .match(/"(?:cnpjNormalized|cpfNormalized)":\{"contains":"([^"]*)"\}/g)
       ?.map(m => m.replace(/.*"contains":"([^"]*)".*/, '$1')) ?? [];
 
-  const curto = taskQuoteGetManySchema.parse({ searchingFor: '4.' });
+  const curto = budgetGetManySchema.parse({ searchingFor: '4.' });
   check(
     'poucos dígitos não viram filtro de documento — `contains` de um dígito não filtra nada',
     !documentContains(curto.where).includes('4'),

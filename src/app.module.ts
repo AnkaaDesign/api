@@ -48,7 +48,7 @@ import { SupplierModule } from './modules/inventory/supplier/supplier.module';
 import { WarehouseLocationModule } from './modules/inventory/warehouse-location/warehouse-location.module';
 import { FispqModule } from './modules/inventory/fispq/fispq.module';
 import { TaskModule } from './modules/production/task/task.module';
-import { TaskQuoteModule } from './modules/production/task-quote/task-quote.module';
+import { BudgetModule } from './modules/production/budget/budget.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
 import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
 import { LayoutDimensionsModule } from './modules/production/layout-dimensions/layout-dimensions.module';
@@ -147,7 +147,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     WarehouseLocationModule,
     FispqModule,
     TaskModule,
-    TaskQuoteModule,
+    BudgetModule,
     ImplementMeasureModule,
     LayoutDimensionsModule,
     TruckModule,

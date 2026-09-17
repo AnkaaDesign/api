@@ -131,7 +131,7 @@ export const canAccessAllPrivileges = (
  * NOTE this governs the VISIBILITY of monetary fields, not access to a module.
  * ACCOUNTING may see money wherever it already has access (bonuses, PPE,
  * ferramentas); it does not gain the Faturamento module by being listed here —
- * that is enforced separately by `@Roles` on the task-quote controller.
+ * that is enforced separately by `@Roles` on the budget controller.
  */
 export const MONEY_PRIVILEGES: SECTOR_PRIVILEGES[] = [
   SECTOR_PRIVILEGES.ADMIN,

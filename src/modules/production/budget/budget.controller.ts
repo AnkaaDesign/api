@@ -1,4 +1,4 @@
-// api/src/modules/production/task-quote/task-quote.controller.ts
+// api/src/modules/production/budget/budget.controller.ts
 
 import {
   Controller,
@@ -23,8 +23,8 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { TaskQuoteService } from './task-quote.service';
-import { TaskQuoteReceiptService } from './task-quote-receipt.service';
+import { BudgetService } from './budget.service';
+import { BudgetReceiptService } from './budget-receipt.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
@@ -35,23 +35,23 @@ import {
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
 import {
-  taskQuoteCreateSchema,
-  taskQuoteUpdateSchema,
-  taskQuoteGetManySchema,
-  taskQuoteQuerySchema,
-  taskQuoteMergeSchema,
+  budgetCreateSchema,
+  budgetUpdateSchema,
+  budgetGetManySchema,
+  budgetQuerySchema,
+  budgetMergeSchema,
   customerConfigOrderNumberSchema,
-} from '@schemas/task-quote';
+} from '@schemas/budget';
 import type {
-  TaskQuoteCreateFormData,
-  TaskQuoteUpdateFormData,
-  TaskQuoteGetManyFormData,
-  TaskQuoteMergeFormData,
+  BudgetCreateFormData,
+  BudgetUpdateFormData,
+  BudgetGetManyFormData,
+  BudgetMergeFormData,
   CustomerConfigOrderNumberFormData,
-} from '@schemas/task-quote';
+} from '@schemas/budget';
 
 /**
- * Controller for TaskQuote endpoints
+ * Controller for Budget endpoints
  * Handles HTTP requests for quote management
  *
  * Access Control:
@@ -59,11 +59,14 @@ import type {
  * - FINANCIAL: Can view all, do financial verification and billing approval
  * - ADMIN: Full access to everything
  */
-@Controller('task-quotes')
-export class TaskQuoteController {
+// A rota canônica é `/budgets`. `/task-quotes` fica como ALIAS no MESMO
+// handler porque o app instalado em campo ainda chama o caminho antigo — um
+// binário que ninguém pode forçar a atualizar. Remover o alias derruba o app.
+@Controller(['budgets', 'task-quotes'])
+export class BudgetController {
   constructor(
-    private readonly taskQuoteService: TaskQuoteService,
-    private readonly taskQuoteReceiptService: TaskQuoteReceiptService,
+    private readonly budgetService: BudgetService,
+    private readonly budgetReceiptService: BudgetReceiptService,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -80,10 +83,10 @@ export class TaskQuoteController {
   @Get()
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findMany(
-    @Query(new ZodQueryValidationPipe(taskQuoteGetManySchema))
-    query: TaskQuoteGetManyFormData,
+    @Query(new ZodQueryValidationPipe(budgetGetManySchema))
+    query: BudgetGetManyFormData,
   ) {
-    return this.taskQuoteService.findMany(query);
+    return this.budgetService.findMany(query);
   }
 
   /**
@@ -106,7 +109,7 @@ export class TaskQuoteController {
         'Todos os campos são obrigatórios: name, customerId, category, implementType.',
       );
     }
-    return this.taskQuoteService.findSuggestion({ name, customerId, category, implementType });
+    return this.budgetService.findSuggestion({ name, customerId, category, implementType });
   }
 
   /**
@@ -117,9 +120,9 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findUnique(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskQuoteQuerySchema)) query: any,
+    @Query(new ZodQueryValidationPipe(budgetQuerySchema)) query: any,
   ) {
-    return this.taskQuoteService.findUnique(id, query.include);
+    return this.budgetService.findUnique(id, query.include);
   }
 
   /**
@@ -129,7 +132,7 @@ export class TaskQuoteController {
   @Get('task/:taskId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
-    return this.taskQuoteService.findByTaskId(taskId);
+    return this.budgetService.findByTaskId(taskId);
   }
 
   /**
@@ -142,11 +145,11 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Body(new ZodValidationPipe(taskQuoteCreateSchema))
-    data: TaskQuoteCreateFormData,
+    @Body(new ZodValidationPipe(budgetCreateSchema))
+    data: BudgetCreateFormData,
     @UserId() userId: string,
   ) {
-    return this.taskQuoteService.create(data, userId);
+    return this.budgetService.create(data, userId);
   }
 
   /**
@@ -161,12 +164,12 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(taskQuoteUpdateSchema))
-    data: TaskQuoteUpdateFormData,
+    @Body(new ZodValidationPipe(budgetUpdateSchema))
+    data: BudgetUpdateFormData,
     @UserId() userId: string,
     @User('role') userPrivilege: string,
   ) {
-    return this.taskQuoteService.update(id, data, userId, false, userPrivilege);
+    return this.budgetService.update(id, data, userId, false, userPrivilege);
   }
 
   /**
@@ -203,7 +206,7 @@ export class TaskQuoteController {
     //
     // Chamadas antigas caem no `Status inválido` acima, que é o correto: o valor
     // não existe mais no contrato.
-    return this.taskQuoteService.updateStatus(id, status as TASK_QUOTE_STATUS, userId);
+    return this.budgetService.updateStatus(id, status as TASK_QUOTE_STATUS, userId);
   }
 
   /**
@@ -217,7 +220,7 @@ export class TaskQuoteController {
   @Put(':id/budget-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async budgetApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.budgetApprove(id, userId);
+    return this.budgetService.budgetApprove(id, userId);
   }
 
   /**
@@ -252,7 +255,7 @@ export class TaskQuoteController {
     // levar 400 no fluxo mais comum que existe.
     //
     // A pergunta certa é sobre a PLURALIDADE, e ela é do serviço, não da rota.
-    const pendentes = await this.taskQuoteService.countPendingBillings(id);
+    const pendentes = await this.budgetService.countPendingBillings(id);
     if (pendentes > 1 && aprovarTudo !== true) {
       throw new BadRequestException(
         `Este orçamento tem ${pendentes} cobranças pendentes, e esta rota aprovaria TODAS. ` +
@@ -260,7 +263,7 @@ export class TaskQuoteController {
           `${pendentes} mesmo, mande { "aprovarTudo": true }.`,
       );
     }
-    return this.taskQuoteService.internalApprove(id, userId);
+    return this.budgetService.internalApprove(id, userId);
   }
 
   /**
@@ -287,7 +290,7 @@ export class TaskQuoteController {
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @UserId() userId: string,
   ) {
-    return this.taskQuoteService.internalApprove(id, userId, taskId);
+    return this.budgetService.internalApprove(id, userId, taskId);
   }
 
   /**
@@ -299,7 +302,7 @@ export class TaskQuoteController {
   @Put(':id/revert-billing')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async revertBillingApproval(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.revertBillingApproval(id, userId);
+    return this.budgetService.revertBillingApproval(id, userId);
   }
 
   /**
@@ -313,7 +316,7 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.OK)
   async syncEmNegociacao(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.syncEmNegociacao(id, userId);
+    return this.budgetService.syncEmNegociacao(id, userId);
   }
 
   /**
@@ -329,7 +332,7 @@ export class TaskQuoteController {
     @Param('id', ParseUUIDPipe) id: string,
     @Res() res: Response,
   ): Promise<void> {
-    const { buffer, filename } = await this.taskQuoteReceiptService.generate(id);
+    const { buffer, filename } = await this.budgetReceiptService.generate(id);
     // Nome tem razão social do cliente — pode ter acento. filename= puro (sem
     // RFC 5987) quebra em runtimes que validam o header como Latin-1/ASCII.
     const asciiFallback =
@@ -375,9 +378,9 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.OK)
   async previewMerge(
-    @Body(new ZodValidationPipe(taskQuoteMergeSchema)) body: TaskQuoteMergeFormData,
+    @Body(new ZodValidationPipe(budgetMergeSchema)) body: BudgetMergeFormData,
   ) {
-    return this.taskQuoteService.previewMergeQuotes(body.taskIds);
+    return this.budgetService.previewMergeQuotes(body.taskIds);
   }
 
   /** POST /task-quotes/merge — executa. Julga de novo por dentro. */
@@ -385,10 +388,10 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.OK)
   async merge(
-    @Body(new ZodValidationPipe(taskQuoteMergeSchema)) body: TaskQuoteMergeFormData,
+    @Body(new ZodValidationPipe(budgetMergeSchema)) body: BudgetMergeFormData,
     @UserId() userId: string,
   ) {
-    return this.taskQuoteService.mergeQuotes(body.taskIds, userId, {
+    return this.budgetService.mergeQuotes(body.taskIds, userId, {
       billingSplit: body.billingSplit ?? null,
     });
   }
@@ -419,7 +422,7 @@ export class TaskQuoteController {
     // era a única rota de escrita do módulo com `@Body()` cru, e a validação à
     // mão cobria só essa regra — não o tipo, não o tamanho, não o formato dos
     // ids.
-    return this.taskQuoteService.updateCustomerConfigOrderNumber(
+    return this.budgetService.updateCustomerConfigOrderNumber(
       id,
       body.customerId ?? null,
       body.orderNumber ?? null,
@@ -437,7 +440,7 @@ export class TaskQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskQuoteService.delete(id, userId);
+    return this.budgetService.delete(id, userId);
   }
 
   /**
@@ -449,7 +452,7 @@ export class TaskQuoteController {
   @Get('expired/list')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findExpired() {
-    const expired = await this.taskQuoteService.findAndMarkExpired();
+    const expired = await this.budgetService.findAndMarkExpired();
     return {
       success: true,
       data: expired,
@@ -498,7 +501,7 @@ export class TaskQuoteController {
       }
     }
 
-    return this.taskQuoteService.findPublic(id, isAuthenticated);
+    return this.budgetService.findPublic(id, isAuthenticated);
   }
 
   /**
@@ -532,6 +535,6 @@ export class TaskQuoteController {
       );
     }
 
-    return this.taskQuoteService.uploadCustomerSignature(id, file, customerConfigId);
+    return this.budgetService.uploadCustomerSignature(id, file, customerConfigId);
   }
 }

@@ -1,6 +1,6 @@
-// api/src/modules/production/task-quote/task-quote.guards.ts
+// api/src/modules/production/budget/budget.guards.ts
 //
-// Shared TaskQuote write-guards. Extracted from TaskQuoteService.update so the
+// Shared Budget write-guards. Extracted from BudgetService.update so the
 // nested quote write path (PUT /tasks/:id and PUT /tasks/batch via TaskService)
 // enforces the SAME rules without duplicating them.
 //
@@ -134,7 +134,7 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
  * Role-gates an EXPLICIT quote status change made through a generic update
  * (PUT /task-quotes/:id or a nested quote write through the task endpoints),
  * mirroring the roles of the dedicated transition endpoints
- * (task-quote.controller.ts):
+ * (budget.controller.ts):
  * - APPROVED           → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)
  * - todos os demais    → ADMIN, FINANCIAL, COMMERCIAL (PUT /:id/status)
  *

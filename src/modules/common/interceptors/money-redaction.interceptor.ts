@@ -133,7 +133,7 @@ const MAX_DEPTH = 12;
  * leaf that must survive by reference. Decimal is a class instance whose value
  * lives in internal fields and which serialises through its own `toJSON`;
  * structurally copying one yields `{ s, e, d }` and silently corrupts every
- * monetary and numeric Decimal column in the payload (Bonus, TaskQuote,
+ * monetary and numeric Decimal column in the payload (Bonus, Budget,
  * Vacation). Copying a `Date` the same way yields `{}`.
  */
 function isPlainObject(value: object): boolean {

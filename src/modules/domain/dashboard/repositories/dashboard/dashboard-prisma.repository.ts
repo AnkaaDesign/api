@@ -3878,7 +3878,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       where.createdAt = dateFilter;
     }
 
-    const statusGroups = await this.prisma.taskQuote.groupBy({
+    const statusGroups = await this.prisma.budget.groupBy({
       by: ['status'],
       where,
       _count: { id: true },
@@ -3903,7 +3903,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     // que hoje é sempre zero: o ciclo do pagamento mudou para `Billing`. Um
     // orçamento só está liquidado quando TODAS as suas cobranças vivas estão —
     // com metade paga ele ainda tem dinheiro na rua.
-    const settledQuotes = await this.prisma.taskQuote.count({
+    const settledQuotes = await this.prisma.budget.count({
       where: {
         ...where,
         billings: { some: { status: BILLING_STATUS.SETTLED } },
@@ -4121,7 +4121,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
             },
           },
         }),
-        this.prisma.taskQuote.findMany({
+        this.prisma.budget.findMany({
           where: {
             status: { not: 'PENDING' },
             ...(dateFilter?.gte || dateFilter?.lte ? { updatedAt: dateFilter } : {}),
@@ -4158,7 +4158,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     // Do ENUM, não de literais: metade desta tabela era o ciclo do PAGAMENTO
     // (`BILLING_APPROVED`, `UPCOMING`, `DUE`, `PARTIAL`, `SETTLED`), que saiu de
-    // `TaskQuote` para `Billing`, e a outra metade rotulava `BUDGET_APPROVED`,
+    // `Budget` para `Billing`, e a outra metade rotulava `BUDGET_APPROVED`,
     // que virou `APPROVED`. Nada disso o `tsc` vê numa chave de objeto — a
     // linha da atividade passaria a mostrar o valor cru do banco.
     const quoteStatusLabels: Record<string, string> = { ...TASK_QUOTE_STATUS_LABELS };

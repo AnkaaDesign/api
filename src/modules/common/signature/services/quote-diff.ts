@@ -253,7 +253,7 @@ const SAME_LINE_THRESHOLD = 1 / 3;
  * Pareia os serviços dos dois snapshots, da evidência mais forte para a mais
  * fraca.
  *
- * Não há id estável para ancorar: `TaskQuoteService.id` existe no banco, mas o
+ * Não há id estável para ancorar: `BudgetItem.id` existe no banco, mas o
  * snapshot não o guarda de propósito (ids internos não são exibidos, e gravá-los
  * faria um `set()` do Prisma que recria as linhas parecer troca de conteúdo).
  * Então o pareamento é heurístico:
@@ -1044,7 +1044,7 @@ export function diffQuoteSnapshots(
   // documento assinado como "Orçamento Nº 0973" não é o mesmo documento depois
   // de virar 0912 — quem assinou aceitou uma proposta identificada.
   //
-  // Entrou junto com a possibilidade de renumerar (`taskQuoteUpdateSchema`):
+  // Entrou junto com a possibilidade de renumerar (`budgetUpdateSchema`):
   // antes o campo estava no snapshot e não era comparado por ninguém, então uma
   // renumeração mudaria o hash SEM produzir uma linha que a explicasse.
   scalar(out, {

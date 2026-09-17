@@ -233,7 +233,7 @@ async function purgarEnvelopes(qid) {
           select: { customerId: true, responsibles: { select: { id: true } } },
         });
         await prisma.task.deleteMany({ where: { id: taskId } });
-        await prisma.taskQuote.deleteMany({ where: { id: quoteId } });
+        await prisma.budget.deleteMany({ where: { id: quoteId } });
         if (task) {
           for (const r of task.responsibles) await prisma.responsible.deleteMany({ where: { id: r.id } });
           if (task.customerId) await prisma.customer.deleteMany({ where: { id: task.customerId } });

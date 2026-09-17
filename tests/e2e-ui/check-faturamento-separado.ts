@@ -40,7 +40,7 @@ async function main() {
     where: { id: criado.url.split('/').pop()! },
     select: { quoteId: true },
   });
-  const quote = await prisma.taskQuote.findUnique({
+  const quote = await prisma.budget.findUnique({
     where: { id: t0!.quoteId! },
     select: {
       budgetNumber: true,

@@ -30,7 +30,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { ReceivableTaskMatchService } from '../src/modules/financial/reconciliation/receivable-task-match.service';
-import { TaskQuoteStatusCascadeService } from '../src/modules/production/task-quote/task-quote-status-cascade.service';
+import { BudgetStatusCascadeService } from '../src/modules/production/budget/budget-status-cascade.service';
 
 const url = process.env.TASK_MATCH_TEST_DATABASE_URL;
 if (!url) {
@@ -65,7 +65,7 @@ const prisma = new PrismaClient({ datasources: { db: { url } } });
 
 // The cascade dispatches notifications; stub the dispatcher, keep the real cascade.
 const dispatchStub: any = { dispatchByConfiguration: async () => undefined };
-const cascade = new TaskQuoteStatusCascadeService(prisma as any, dispatchStub);
+const cascade = new BudgetStatusCascadeService(prisma as any, dispatchStub);
 const svc = new ReceivableTaskMatchService(prisma as any, cascade);
 
 let failures = 0;
@@ -88,9 +88,9 @@ async function reset() {
   await prisma.installment.deleteMany({});
   await prisma.invoice.deleteMany({});
   await prisma.task.updateMany({ data: { quoteId: null } });
-  await prisma.taskQuoteService.deleteMany({});
-  await prisma.taskQuoteCustomerConfig.deleteMany({});
-  await prisma.taskQuote.deleteMany({});
+  await prisma.budgetItem.deleteMany({});
+  await prisma.budgetPayer.deleteMany({});
+  await prisma.budget.deleteMany({});
   await prisma.truck.deleteMany({});
   await prisma.task.deleteMany({});
   await prisma.bankTransaction.deleteMany({});
@@ -159,8 +159,8 @@ async function mkCredit(amount: number, cnpj: string | null, name: string | null
 
 /** Full billed quote: quote → config → invoice → installments. */
 async function mkBilledQuote(taskId: string, customerId: string, total: number, parts: number[]) {
-  const max = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-  const quote = await prisma.taskQuote.create({
+  const max = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+  const quote = await prisma.budget.create({
     data: {
       budgetNumber: (max._max.budgetNumber ?? 0) + 1,
       subtotal: total, total, expiresAt: D('2026-12-31'),
@@ -208,8 +208,8 @@ async function mkBilledQuote(taskId: string, customerId: string, total: number, 
 
 /** Approved-but-unbilled quote: configs with totals, no invoice, no parcelas. */
 async function mkUnbilledQuote(taskId: string, customerId: string, total: number) {
-  const max = await prisma.taskQuote.aggregate({ _max: { budgetNumber: true } });
-  const quote = await prisma.taskQuote.create({
+  const max = await prisma.budget.aggregate({ _max: { budgetNumber: true } });
+  const quote = await prisma.budget.create({
     data: {
       budgetNumber: (max._max.budgetNumber ?? 0) + 1,
       subtotal: total, total, expiresAt: D('2026-12-31'),
@@ -219,7 +219,7 @@ async function mkUnbilledQuote(taskId: string, customerId: string, total: number
   });
   // A COBRANÇA EXISTE, SÓ NÃO FOI APROVADA — é isso que "orçamento aprovado e não
   // faturado" quer dizer agora. O pagador não pode mais ser criado solto: a FK
-  // `TaskQuoteCustomerConfig.billingId` é NOT NULL, então o `create` aninhado no
+  // `BudgetPayer.billingId` é NOT NULL, então o `create` aninhado no
   // orçamento (como estava aqui) estoura em runtime.
   await prisma.billing.create({
     data: {
@@ -669,7 +669,7 @@ async function main() {
   const ok = results.filter(r => r.status === 'fulfilled').length;
   check('todas as 5 concluíram sem P2002', ok === 5,
     results.filter(r => r.status === 'rejected').map((r: any) => r.reason?.message).join(' | '));
-  const nums = (await prisma.taskQuote.findMany({ where: { task: { id: { in: tasks.map(t => t.id) } } }, select: { budgetNumber: true } })).map(q => q.budgetNumber);
+  const nums = (await prisma.budget.findMany({ where: { task: { id: { in: tasks.map(t => t.id) } } }, select: { budgetNumber: true } })).map(q => q.budgetNumber);
   check('5 budgetNumbers, todos distintos', new Set(nums).size === 5, JSON.stringify(nums));
 
   console.log('\nC. Idempotência: reconciliar de novo um crédito já conciliado');
@@ -678,7 +678,7 @@ async function main() {
   catch (e: any) { blocked = /excede o saldo disponível/i.test(e.message); }
   check('recusa realocar um crédito já esgotado', blocked);
   check('continua com 1 match só', (await prisma.reconciliationMatch.count({ where: { transactionId: tx1.id } })) === 1);
-  check('orçamento não duplicou', (await prisma.taskQuote.count({ where: { task: { id: t1.id } } })) === 1);
+  check('orçamento não duplicou', (await prisma.budget.count({ where: { task: { id: t1.id } } })) === 1);
 
   console.log('\nD. Crédito IGNORADO é recusado');
   const c2 = await prisma.customer.create({ data: { fantasyName: 'Cli D', cnpj: '41414141000141', fantasyNameNormalized: 'cli d' } });
@@ -688,7 +688,7 @@ async function main() {
   try { await svc.matchTasks(tx2.id, [{ taskId: t2.id, amount: 500 }], USER_ID); }
   catch (e: any) { ign = /ignorada/i.test(e.message); }
   check('recusa conciliar transação ignorada', ign);
-  check('nenhum orçamento criado na recusa', (await prisma.taskQuote.count({ where: { task: { id: t2.id } } })) === 0);
+  check('nenhum orçamento criado na recusa', (await prisma.budget.count({ where: { task: { id: t2.id } } })) === 0);
 
   console.log('\nE. Rollback: falha em UMA alocação desfaz o lote inteiro');
   const c3 = await prisma.customer.create({ data: { fantasyName: 'Cli E', cnpj: '51515151000151', fantasyNameNormalized: 'cli e' } });
@@ -699,7 +699,7 @@ async function main() {
   try { await svc.matchTasks(tx3.id, [{ taskId: tGood.id, amount: 400 }, { taskId: tBad.id, amount: 500 }], USER_ID); }
   catch { rolled = true; }
   check('lote falhou', rolled);
-  check('orçamento da tarefa BOA foi desfeito', (await prisma.taskQuote.count({ where: { task: { id: tGood.id } } })) === 0);
+  check('orçamento da tarefa BOA foi desfeito', (await prisma.budget.count({ where: { task: { id: tGood.id } } })) === 0);
   check('nenhum match gravado', (await prisma.reconciliationMatch.count({ where: { transactionId: tx3.id } })) === 0);
   check('crédito continua PENDING', (await prisma.bankTransaction.findUniqueOrThrow({ where: { id: tx3.id } })).reconciliationStatus === 'PENDING');
 

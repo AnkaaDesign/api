@@ -520,8 +520,8 @@ model Customer {
   economicActivity      EconomicActivity?         @relation(fields: [economicActivityId], references: [id])
   logo                  File?                     @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks                 Task[]                    @relation("TaskCustomer")
-  quoteServiceInvoices  TaskQuoteService[]        @relation("QuoteServiceInvoiceToCustomer")
-  quoteCustomerConfigs  TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfigCustomer")
+  quoteServiceInvoices  BudgetItem[]        @relation("QuoteServiceInvoiceToCustomer")
+  quoteCustomerConfigs  BudgetPayer[] @relation("QuoteCustomerConfigCustomer")
   responsibles          Responsible[]             @relation("CompanyResponsibles")
   invoiceEntities       Invoice[]                 @relation("CustomerInvoiceEntities")
   externalOperations    ExternalOperation[]       @relation("CustomerExternalOperations")
@@ -769,8 +769,8 @@ model File {
   ppeSignatureDocuments                  PpeDeliverySignature[]    @relation("PPE_SIGNATURE_DOCUMENT")
   warningSignatureDocuments              WarningSignature[]        @relation("WARNING_SIGNATURE_DOCUMENT")
   supplierLogo                           Supplier[]                @relation("SUPPLIER_LOGO")
-  configCustomerSignatures               TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
-  quoteLayout                            TaskQuote?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
+  configCustomerSignatures               BudgetPayer[] @relation("CONFIG_CUSTOMER_SIGNATURE")
+  quoteLayout                            Budget?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
   userAvatar                             User[]                    @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
   paintingFaceFiles                      PaintingAnalysisFace[]    @relation("PAINTING_FACE_FILE")
@@ -1882,12 +1882,12 @@ model ServiceOrder {
   @@index([pausedById])
 }
 
-model TaskQuote {
+model Budget {
   id          String          @id @default(uuid())
   subtotal    Decimal         @db.Decimal(10, 2)
   total       Decimal         @db.Decimal(10, 2)
   expiresAt   DateTime
-  status      TaskQuoteStatus @default(PENDING)
+  status      BudgetStatus @default(PENDING)
   statusOrder Int             @default(1)
 
   /// Quando o cliente foi avisado de que a validade venceu sem todas as
@@ -1906,7 +1906,7 @@ model TaskQuote {
 
   /// Ankaa-side signer of the budget (the commercial representative). Nullable so
   /// existing quotes keep working; resolved at envelope creation with a fallback to
-  /// the configured director. There is no other User relation on TaskQuote.
+  /// the configured director. There is no other User relation on Budget.
   commercialUserId String? @map("commercialUserId")
 
   /// As TAREFAS deste orçamento — uma por veículo.
@@ -1920,7 +1920,7 @@ model TaskQuote {
   /// sai daqui.
   ///
   /// A lista de serviços é UMA, compartilhada por todas as tarefas: o preço de
-  /// `TaskQuoteService.amount` é POR VEÍCULO. Veículo que precisa de outra lista
+  /// `BudgetItem.amount` é POR VEÍCULO. Veículo que precisa de outra lista
   /// é outro orçamento.
   tasks Task[] @relation("TASK_QUOTE")
 
@@ -1950,7 +1950,7 @@ model TaskQuote {
   /// Ver `QuoteBillingSplit`, `Billing` e `BillingTask`.
   billingSplit QuoteBillingSplit  @default(JOINT)
   layoutFiles  File[]             @relation("QUOTE_LAYOUT")
-  services     TaskQuoteService[] @relation("QUOTE_SERVICES")
+  services     BudgetItem[] @relation("QUOTE_SERVICES")
   /// OS FATURAMENTOS deste orçamento — 1 ou N, entidades de verdade.
   billings     Billing[]          @relation("QuoteBillings")
 
@@ -1958,7 +1958,7 @@ model TaskQuote {
   /// lista de PAGADORES, agora pendurada em cada `Billing` por `billingId`. O
   /// vínculo direto com o orçamento sobrevive à transição e sai quando o último
   /// leitor tiver migrado para `billings[].customerConfigs`.
-  customerConfigs    TaskQuoteCustomerConfig[] @relation("QuoteCustomerConfig")
+  customerConfigs    BudgetPayer[] @relation("QuoteCustomerConfig")
   commercialUser     User?                     @relation("QUOTE_COMMERCIAL_USER", fields: [commercialUserId], references: [id], onDelete: SetNull)
   signatureEnvelopes SignatureEnvelope[]       @relation("QUOTE_SIGNATURE_ENVELOPES")
   nfseDocuments      NfseDocument[]            @relation("QuoteNfseDocuments")
@@ -1969,7 +1969,7 @@ model TaskQuote {
   @@index([commercialUserId])
 }
 
-model TaskQuoteService {
+model BudgetItem {
   id                  String    @id @default(uuid())
   description         String
   amount              Decimal   @db.Decimal(10, 2)
@@ -1978,7 +1978,7 @@ model TaskQuoteService {
   updatedAt           DateTime  @updatedAt
   observation         String?
   position            Int       @default(0)
-  quote               TaskQuote @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote               Budget @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
   invoiceToCustomerId String?
   invoiceToCustomer   Customer? @relation("QuoteServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
 
@@ -1988,7 +1988,7 @@ model TaskQuoteService {
   @@index([invoiceToCustomerId])
 }
 
-model TaskQuoteCustomerConfig {
+model BudgetPayer {
   id      String @id @default(uuid())
   quoteId String
 
@@ -2023,7 +2023,7 @@ model TaskQuoteCustomerConfig {
   customerSignatureId String?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
-  quote               TaskQuote      @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote               Budget      @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
   billing             Billing        @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
   customer            Customer       @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   responsible         Responsible?   @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
@@ -2057,7 +2057,7 @@ model TaskQuoteCustomerConfig {
 /// uma assinatura só; o faturamento passa a ser um particionamento explícito dos
 /// veículos dele.
 ///
-/// Os três modos de `TaskQuote.billingSplit` são a MESMA forma, com coberturas
+/// Os três modos de `Budget.billingSplit` são a MESMA forma, com coberturas
 /// diferentes — não três caminhos de código:
 ///
 ///   JOINT     1 faturamento × N veículos          (o padrão, e o de sempre)
@@ -2074,7 +2074,7 @@ model TaskQuoteCustomerConfig {
 /// O FATURAMENTO — uma entidade, não uma configuração do orçamento.
 ///
 /// POR QUE PRECISOU EXISTIR
-///   O "faturamento" era `TaskQuoteCustomerConfig`: uma linha que ao mesmo tempo
+///   O "faturamento" era `BudgetPayer`: uma linha que ao mesmo tempo
 ///   dizia A QUEM cobrar (o pagador, seus termos, seu desconto) e QUAIS VEÍCULOS
 ///   a cobrança cobre. Num orçamento de quatro caminhões cobrados um a um isso
 ///   produzia quatro linhas do MESMO cliente, indistinguíveis entre si — sem
@@ -2088,7 +2088,7 @@ model TaskQuoteCustomerConfig {
 ///   morre.
 ///
 /// NÃO TEM NÚMERO, DE PROPÓSITO
-///   O número é do ORÇAMENTO (`TaskQuote.budgetNumber`) — é ele que o cliente
+///   O número é do ORÇAMENTO (`Budget.budgetNumber`) — é ele que o cliente
 ///   recebe, assina e cita. Dar número ao faturamento criaria uma segunda série
 ///   a explicar, a reservar e a não repetir, para identificar algo que o `id` já
 ///   identifica. Quem precisa nomear um faturamento na tela o nomeia pelo que ele
@@ -2102,7 +2102,7 @@ model TaskQuoteCustomerConfig {
 ///
 /// DOIS PAGADORES NÃO SÃO DOIS FATURAMENTOS
 ///   São um faturamento com dois `customerConfigs`: o recorte de VEÍCULOS é o
-///   mesmo, o que difere é quem paga o quê (`TaskQuoteService.invoiceToCustomerId`).
+///   mesmo, o que difere é quem paga o quê (`BudgetItem.invoiceToCustomerId`).
 ///   Com um pagador só — o caso comum — o faturamento tem exatamente um config.
 model Billing {
   id      String @id @default(uuid())
@@ -2110,14 +2110,14 @@ model Billing {
 
   /// QUANDO ESTE FATURAMENTO FOI APROVADO — o estado próprio da entidade.
   ///
-  /// Era `TaskQuoteCustomerConfig.billingApprovedAt`, uma coluna por PAGADOR. Com
+  /// Era `BudgetPayer.billingApprovedAt`, uma coluna por PAGADOR. Com
   /// dois pagadores do mesmo recorte havia duas datas para um evento só, sempre
   /// escritas juntas pelo mesmo `updateMany` — duas colunas afirmando o mesmo
   /// fato, que é a forma que a divergência assume antes de aparecer. E a pergunta
   /// que a tela faz ("este faturamento está aprovado?") não tinha onde ser feita,
   /// porque o faturamento não existia como linha.
   ///
-  /// `TaskQuote.billingApprovedAt` continua sendo outra coisa: a data em que o
+  /// `Budget.billingApprovedAt` continua sendo outra coisa: a data em que o
   /// ÚLTIMO faturamento do orçamento fechou, isto é, "o orçamento inteiro está
   /// faturado". Um é do recorte, o outro é do contrato.
   approvedAt DateTime?
@@ -2125,7 +2125,7 @@ model Billing {
   /// O ESTADO DO FATURAMENTO — derivado de `approvedAt` + das parcelas.
   ///
   /// Persistido, e não calculado na leitura, pelo mesmo motivo de
-  /// `TaskQuote.statusOrder`: a lista de Faturamento ordena e PAGINA por ele no
+  /// `Budget.statusOrder`: a lista de Faturamento ordena e PAGINA por ele no
   /// servidor, e derivar na consulta obrigaria a trazer todas as parcelas de
   /// todas as cobranças para ordenar uma página de quarenta.
   ///
@@ -2139,13 +2139,13 @@ model Billing {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  quote TaskQuote @relation("QuoteBillings", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote Budget @relation("QuoteBillings", fields: [quoteId], references: [id], onDelete: Cascade)
 
   /// OS VEÍCULOS QUE ESTE FATURAMENTO COBRE.
   tasks BillingTask[] @relation("BillingCoverage")
 
   /// A QUEM SE COBRA, e em que termos. Um por pagador.
-  customerConfigs TaskQuoteCustomerConfig[] @relation("BillingCustomerConfigs")
+  customerConfigs BudgetPayer[] @relation("BillingCustomerConfigs")
 
   @@index([quoteId])
   /// A lista de Faturamento ordena por aqui por padrão.
@@ -2232,7 +2232,7 @@ model Task {
 
   /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
   ///
-  /// Morava em `TaskQuoteCustomerConfig.orderNumber`, uma linha por cliente do
+  /// Morava em `BudgetPayer.orderNumber`, uma linha por cliente do
   /// orçamento. Com um orçamento cobrindo N caminhões isso obrigava os sessenta a
   /// citarem o MESMO pedido na nota e no boleto, e o pedido é por ENTREGA: às
   /// vezes é o mesmo para todos, às vezes muda a cada veículo, às vezes vem em
@@ -2259,7 +2259,7 @@ model Task {
   updatedAt             DateTime              @updatedAt
   bonusDiscountId       String?
   /// Sem `@unique` desde o orçamento multitarefa: N tarefas apontam para o
-  /// MESMO orçamento. Ver `TaskQuote.tasks`.
+  /// MESMO orçamento. Ver `Budget.tasks`.
   quoteId               String?
   airbrushings          Airbrushing[]         @relation("AIRBRUSHING")
   cuts                  Cut[]                 @relation("CUT_TASK")
@@ -2269,7 +2269,7 @@ model Task {
   createdBy             User?                 @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
   customer              Customer?             @relation("TaskCustomer", fields: [customerId], references: [id])
   generalPainting       Paint?                @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  quote                 TaskQuote?            @relation("TASK_QUOTE", fields: [quoteId], references: [id])
+  quote                 Budget?            @relation("TASK_QUOTE", fields: [quoteId], references: [id])
   sector                Sector?               @relation(fields: [sectorId], references: [id])
   fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
@@ -2620,7 +2620,7 @@ model User {
   ppeDeliveries                  PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSignatures                  PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSignatureEvents             PpeDeliverySignatureEvent[]  @relation("PPE_SIGNATURE_EVENT_ACTOR")
-  quotesAsCommercial             TaskQuote[]                  @relation("QUOTE_COMMERCIAL_USER")
+  quotesAsCommercial             Budget[]                  @relation("QUOTE_COMMERCIAL_USER")
   envelopeSignatures             EnvelopeSigner[]             @relation("ENVELOPE_SIGNER_USER")
   warningSignatures              WarningSignature[]           @relation("WARNING_SIGNATURE_USER")
   warningSignaturesRegistered    WarningSignature[]           @relation("WARNING_SIGNATURE_REGISTRAR")
@@ -3507,7 +3507,7 @@ model Responsible {
   updatedAt             DateTime                  @updatedAt
   company               Customer?                 @relation("CompanyResponsibles", fields: [companyId], references: [id])
   tasks                 Task[]                    @relation("TaskResponsibles")
-  customerConfigs       TaskQuoteCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
+  customerConfigs       BudgetPayer[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
   envelopeSignatures    EnvelopeSigner[]          @relation("ENVELOPE_SIGNER_RESPONSIBLE")
 
   cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
@@ -4507,7 +4507,7 @@ enum QuoteBillingSplit {
 /// execução do serviço; o faturamento, até o pagamento terminar.** Por isso
 /// `APPROVED` é o ÚLTIMO estado daqui — depois dele não há mais nada a decidir
 /// sobre o orçamento, só a cobrar.
-enum TaskQuoteStatus {
+enum BudgetStatus {
   /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
   /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" e não
   /// "Vencido": vencida é a PARCELA, e isso agora é `BillingStatus.OVERDUE`,
@@ -4828,7 +4828,7 @@ model Invoice {
   /// Prisma não sabe declarar. O `@unique` ficou aqui por engano e era um drift
   /// perigoso: qualquer `migrate dev`/`db push` recriava o índice global e MATAVA o
   /// refaturamento (uma fatia cancelada e uma viva são duas linhas). Pior, o cliente
-  /// tipava `TaskQuoteCustomerConfig.invoice` como to-one enquanto o banco já podia
+  /// tipava `BudgetPayer.invoice` como to-one enquanto o banco já podia
   /// devolver duas linhas, e a leitura que decide `frozen` podia receber a CANCELADA.
   /// O índice parcial é MANTIDO À MÃO — ver `prisma/migrations/*_p0_estancamento`.
   customerConfigId    String?
@@ -4844,7 +4844,7 @@ model Invoice {
   updatedAt           DateTime                 @updatedAt
   /// `Restrict`, não `Cascade`: apagar uma fatia NÃO pode levar junto a fatura dela.
   /// Quem remove uma fatia agora decide explicitamente o que fazer com a fatura.
-  customerConfig      TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
+  customerConfig      BudgetPayer? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
   /// `Restrict`, não `Cascade` — a mesma decisão que `customerConfig` acima e que
   /// as demais FKs de dinheiro do P0. Apagar o VEÍCULO não pode levar junto a
   /// fatura emitida sobre ele: eram 159 faturas vivas alcançáveis por um
@@ -4895,7 +4895,7 @@ model Installment {
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
   /// `Restrict`: uma parcela PAGA não some porque a fatia foi removida.
-  customerConfig        TaskQuoteCustomerConfig?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Restrict)
+  customerConfig        BudgetPayer?  @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Restrict)
   externalOperation     ExternalOperation?        @relation("ExternalOperationInstallments", fields: [externalOperationId], references: [id], onDelete: Cascade)
   invoice               Invoice?                  @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip              BankSlip?                 @relation("InstallmentBankSlip")
@@ -5014,8 +5014,8 @@ model NfseDocument {
 
   invoice        Invoice?                 @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
   task           Task?                    @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
-  quote          TaskQuote?               @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
-  customerConfig TaskQuoteCustomerConfig? @relation("CustomerConfigNfse", fields: [customerConfigId], references: [id], onDelete: SetNull)
+  quote          Budget?               @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
+  customerConfig BudgetPayer? @relation("CustomerConfigNfse", fields: [customerConfigId], references: [id], onDelete: SetNull)
   supersededBy   NfseDocument?            @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
   supersedes     NfseDocument[]           @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
@@ -8151,7 +8151,7 @@ model SignatureEnvelope {
   sentAt      DateTime?
   completedAt DateTime?
 
-  quote            TaskQuote             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
+  quote            Budget             @relation("QUOTE_SIGNATURE_ENVELOPES", fields: [quoteId], references: [id], onDelete: Cascade)
   originalFile     File                  @relation("ENVELOPE_ORIGINAL_FILE", fields: [originalFileId], references: [id])
   finalFile        File?                 @relation("ENVELOPE_FINAL_FILE", fields: [finalFileId], references: [id])
   dossierFile      File?                 @relation("ENVELOPE_DOSSIER_FILE", fields: [dossierFileId], references: [id])

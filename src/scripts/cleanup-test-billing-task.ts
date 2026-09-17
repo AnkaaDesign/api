@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     }
     if (task.quoteId) {
       const configIds = (
-        await prisma.taskQuoteCustomerConfig.findMany({
+        await prisma.budgetPayer.findMany({
           where: { quoteId: task.quoteId },
           select: { id: true },
         })
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
 
     if (task.quoteId) {
       // Cascateia serviços e customer configs do orçamento.
-      await prisma.taskQuote.delete({ where: { id: task.quoteId } });
+      await prisma.budget.delete({ where: { id: task.quoteId } });
       out('Orçamento removido (serviços e configs em cascata).');
     }
 

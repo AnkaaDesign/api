@@ -160,7 +160,7 @@ export const PINNED_CUSTOMERS = {
   /**
    * Ibiporã Implementos Rodoviários — "Industria de Carrocerias Metalicas Ibipora LTDA",
    * CNPJ 85462471000174. Fatura contra pedido de compra, portanto
-   * `TaskQuoteCustomerConfig.orderNumber` é obrigatório para ela.
+   * `BudgetPayer.orderNumber` é obrigatório para ela.
    */
   IBIPORA: '93dfbeb1-aec0-4829-a297-6a2f09fcfe08',
 } as const;

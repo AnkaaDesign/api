@@ -1,17 +1,17 @@
-// packages/interfaces/src/task-quote-customer-config.ts
+// packages/interfaces/src/budget-payer.ts
 
 import type { BaseEntity } from './common';
-import type { TaskQuote } from './task-quote';
+import type { Budget } from './budget';
 import type { Task } from './task';
 import type { Customer } from './customer';
 import type { Installment } from './invoice';
 import type { File } from './file';
 
 // =====================
-// TaskQuoteCustomerConfig Interface
+// BudgetPayer Interface
 // =====================
 
-export interface TaskQuoteCustomerConfig extends BaseEntity {
+export interface BudgetPayer extends BaseEntity {
   quoteId: string;
   customerId: string;
   /**
@@ -34,7 +34,7 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   billing?: {
     id: string;
     quoteId?: string;
-    /** Quando ESTE faturamento foi aprovado. `TaskQuote.billingApprovedAt` é a
+    /** Quando ESTE faturamento foi aprovado. `Budget.billingApprovedAt` é a
      *  data em que o ÚLTIMO fechou — "o orçamento inteiro está faturado". */
     approvedAt?: Date | null;
     createdAt?: Date;
@@ -67,7 +67,7 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   customerSignature?: File;
 
   // Relations
-  quote?: TaskQuote;
+  quote?: Budget;
   customer?: Customer;
   responsible?: { id: string; name: string; roles: string[] };
   installments?: Installment[];
