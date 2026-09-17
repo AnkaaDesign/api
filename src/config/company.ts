@@ -65,8 +65,14 @@ export const COMPANY = {
 export interface ReceivingAccount {
   /** A chave, já formatada para leitura humana — é para ser copiada do papel. */
   key: string;
-  /** O TIPO, impresso entre parênteses: o pagador confere antes de colar. */
-  keyKind: 'CNPJ' | 'CPF' | 'E-mail' | 'Telefone' | 'Aleatória';
+  /**
+   * O TIPO, impresso entre parênteses: o pagador confere antes de colar.
+   *
+   * ⚠️ A CAIXA É A DO DOCUMENTO, não uma convenção de código. Os dossiês reais
+   * saem "Chave Pix (CPF)" e "Chave Pix (telefone)" — sigla em maiúsculas,
+   * substantivo comum em minúsculas. Normalizar tudo mudaria o papel.
+   */
+  keyKind: 'CNPJ' | 'CPF' | 'telefone' | 'e-mail' | 'aleatória';
   /** O favorecido que o app do banco vai mostrar na confirmação. */
   holder: string;
 }
@@ -88,15 +94,17 @@ export const RECEIVING_ACCOUNTS: Record<string, ReceivingAccount> = {
     holder: 'Genivaldo Rodrigues',
   },
   /**
-   * ⚠️ CHAVE DERIVADA DO CADASTRO, não confirmada pelo dono.
+   * Conta do outro sócio. A chave é o TELEFONE — o mesmo número que a empresa
+   * publica no rodapé (ele é o Diretor Comercial, e a linha da Ankaa é o celular
+   * dele). Confirmado no dossiê do orçamento nº 0915.
    *
-   * O CPF é o de `User.cpf` do Sergio em produção (06856214995). O do Genivaldo
-   * veio de um dossiê real; este não — se a conta dele usar outra chave (e-mail,
-   * telefone, aleatória), é aqui que se troca, numa linha.
+   * ⚠️ NÃO é o CPF. O cadastro tem um (`User.cpf`), e usá-lo por dedução
+   * mandaria o cliente pagar numa chave que não existe no banco do favorecido —
+   * o Pix recusa, e quem descobre é o financeiro do cliente.
    */
   ACCOUNT_SERGIO: {
-    key: '068.562.149-95',
-    keyKind: 'CPF',
+    key: '43 98428-3228',
+    keyKind: 'telefone',
     holder: 'Sergio Rodrigues',
   },
 };
