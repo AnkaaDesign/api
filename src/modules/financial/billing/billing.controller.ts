@@ -6,30 +6,140 @@ import {
   Param,
   Query,
   ParseUUIDPipe,
-  ParseBoolPipe,
   DefaultValuePipe,
   ParseIntPipe,
 } from '@nestjs/common';
-import { BillingService } from './billing.service';
+import { BillingService, BILLING_ORDER_BY } from './billing.service';
+import type { BillingDateRange, BillingNumberRange, BillingOrderDir } from './billing.service';
 import { BillingStatusCascadeService } from './billing-status-cascade.service';
 import { TaskQuoteService } from '@modules/production/task-quote/task-quote.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { BILLING_STATUS, SECTOR_PRIVILEGES } from '@constants';
+import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
 
 /**
- * OS ÚNICOS `orderBy` QUE ESTA ROTA ACEITA.
+ * OS ÚNICOS `orderBy` QUE ESTA ROTA ACEITA — a lista vem do serviço
+ * (`BILLING_ORDER_BY_FIELDS`), que é quem sabe traduzir cada chave para o Prisma.
  *
- * A lista é curta de propósito: o valor vai direto para o `orderBy` do Prisma, e
- * um nome de campo que não existe não vira 400 — vira 500, porque o erro nasce
- * lá dentro do driver. Validar aqui é o que separa "pedido inválido" de "servidor
- * quebrado", e é a mesma razão de `statuses` ser conferido contra o enum abaixo.
+ * A validação é curta de propósito: o valor iria direto para o `orderBy` do
+ * Prisma, e um nome de campo que não existe não vira 400 — vira 500, porque o erro
+ * nasce lá dentro do driver. Validar aqui é o que separa "pedido inválido" de
+ * "servidor quebrado", e é a mesma razão de `statuses` ser conferido contra o enum.
+ *
+ * Ter UMA fonte (o mapa do serviço) é o que impede o defeito clássico destes três
+ * lugares que precisam concordar: o whitelist aceitava um nome que o mapa não
+ * traduzia, e a tela recebia 500 numa ordenação que o 400 dizia ser válida.
  */
-const BILLING_ORDER_BY = ['statusOrder', 'createdAt', 'approvedAt'] as const;
-type BillingOrderBy = (typeof BILLING_ORDER_BY)[number];
-
 const BILLING_ORDER_DIR = ['asc', 'desc'] as const;
-type BillingOrderDir = (typeof BILLING_ORDER_DIR)[number];
+
+/**
+ * LISTA DE FILTRO: `chave=a,b` ou `chave[]=a&chave[]=b`.
+ *
+ * As duas formas chegam da tela — o `DataTable` serializa arrays em colchetes e os
+ * links salvos carregam a vírgula. Aceitar só uma fazia o filtro ser ignorado em
+ * silêncio, que na lista de faturamento significa mostrar tudo como se nada
+ * estivesse marcado.
+ */
+function parseList(value: unknown): string[] | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const raw = Array.isArray(value) ? value : String(value).split(',');
+  const out = raw.map(v => String(v).trim()).filter(Boolean);
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * BOOLEANO DE QUERY STRING — e por que comparar com `'true'` não bastava.
+ *
+ * O parser de query da aplicação (`main.ts`) converte `'true'`/`'false'` em
+ * booleanos DE VERDADE antes de o Nest ver o valor. O código antigo fazia
+ * `approved === 'true'` sobre um `true` booleano: dava `false`. Ou seja
+ * `?approved=true` listava exatamente o contrário do pedido (o que ainda NÃO fora
+ * faturado), e `?deliveredOnly=true` nunca filtrou nada — dois filtros ligados na
+ * tela e desligados no servidor, sem erro em lugar nenhum.
+ */
+function parseBool(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  const v = String(value).trim().toLowerCase();
+  if (v === 'true' || v === '1') return true;
+  if (v === 'false' || v === '0') return false;
+  return undefined;
+}
+
+/** Objeto de query — `chave[min]=1` (colchetes), `chave.min=1` (ponto) ou JSON. */
+function parseObject(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  const raw = String(value).trim();
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function parseDate(value: unknown, label: string): Date | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`Data inválida em ${label}: ${String(value)}.`);
+  }
+  return date;
+}
+
+/**
+ * FAIXA DE DATAS. Aceita `from`/`to` (como a tela escreve) e `gte`/`lte` (como o
+ * Prisma escreve) porque os dois vocabulários circulam nos filtros salvos — um
+ * deles ser ignorado é o filtro sumir sem aviso.
+ */
+function parseDateRange(value: unknown, label: string): BillingDateRange | undefined {
+  const obj = parseObject(value);
+  if (!obj) return undefined;
+  const from = parseDate(obj.from ?? obj.gte ?? obj.start, `${label}.from`);
+  const to = parseDate(obj.to ?? obj.lte ?? obj.end, `${label}.to`);
+  return from || to ? { from, to } : undefined;
+}
+
+function parseNumber(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = Number(String(value).replace(',', '.').trim());
+  if (!Number.isFinite(n)) {
+    throw new BadRequestException(`Número inválido em ${label}: ${String(value)}.`);
+  }
+  return n;
+}
+
+/** Faixa numérica. `min`/`max` da tela, `gte`/`lte` do Prisma — as duas valem. */
+function parseNumberRange(value: unknown, label: string): BillingNumberRange | undefined {
+  const obj = parseObject(value);
+  if (!obj) return undefined;
+  const min = parseNumber(obj.min ?? obj.gte, `${label}.min`);
+  const max = parseNumber(obj.max ?? obj.lte, `${label}.max`);
+  return min !== undefined || max !== undefined ? { min, max } : undefined;
+}
+
+/**
+ * Confere uma lista de filtro contra o enum dela.
+ *
+ * Sem isto o valor ia cru para o `where.status.in` e o Prisma respondia com erro
+ * de validação de enum, que o filtro global traduz em 500: o cliente pedia errado
+ * e a culpa aparecia como se fosse do servidor.
+ */
+function assertEnumList(values: string[] | undefined, allowed: string[], label: string): void {
+  if (!values?.length) return;
+  const invalid = values.filter(v => !allowed.includes(v));
+  if (invalid.length > 0) {
+    throw new BadRequestException(
+      `${label} inválido: ${invalid.join(', ')}. Valores aceitos: ${allowed.join(', ')}.`,
+    );
+  }
+}
 
 /**
  * O FATURAMENTO TEM ENDEREÇO PRÓPRIO.
@@ -58,6 +168,15 @@ export class BillingController {
    *
    * `approved=false&deliveredOnly=true` é a fila que o financeiro nunca teve:
    * o que já foi entregue e ainda não foi cobrado.
+   *
+   * ⚠️ `quoteStatuses` não tem padrão, e a tela de Faturamento TEM de mandá-lo.
+   * `Billing` nasce junto com o orçamento, não na aprovação: sem esse filtro, a
+   * lista traz cobrança de orçamento PENDING que ninguém assinou e de EXPIRED que
+   * voltou ao comercial para reanálise do preço — faturar um deles é cobrar um
+   * valor que ainda não foi vendido. Quem pede `?quoteId=` é a exceção, e por isso
+   * o filtro é opcional.
+   *
+   * Todo parâmetro além de `page`/`limit` é opcional, e o que não vier não filtra.
    */
   @Get()
   @Roles(
@@ -70,42 +189,91 @@ export class BillingController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(40), ParseIntPipe) limit: number,
     @Query('quoteId') quoteId?: string,
-    @Query('customerId') customerId?: string,
-    @Query('approved') approved?: string,
-    @Query('deliveredOnly') deliveredOnly?: string,
-    @Query('statuses') statuses?: string,
-    @Query('orderBy') orderBy?: string,
-    @Query('orderDir') orderDir?: string,
+    @Query('customerId') customerId?: unknown,
+    @Query('approved') approved?: unknown,
+    @Query('deliveredOnly') deliveredOnly?: unknown,
+    @Query('statuses') statuses?: unknown,
+    @Query('quoteStatuses') quoteStatuses?: unknown,
+    @Query('searchingFor') searchingFor?: unknown,
+    @Query('budgetNumber') budgetNumber?: unknown,
+    @Query('customerIds') customerIds?: unknown,
+    @Query('taskCustomerIds') taskCustomerIds?: unknown,
+    @Query('totalRange') totalRange?: unknown,
+    @Query('hasOrderNumber') hasOrderNumber?: unknown,
+    @Query('dueDateRange') dueDateRange?: unknown,
+    @Query('finishedDateRange') finishedDateRange?: unknown,
+    @Query('billingApprovedRange') billingApprovedRange?: unknown,
+    @Query('createdAtRange') createdAtRange?: unknown,
+    @Query('orderBy') orderBy?: unknown,
+    @Query('orderDir') orderDir?: unknown,
   ) {
-    // Lista separada por vírgula, como o resto dos filtros da casa — e conferida
-    // contra o enum. Um estado inexistente ia cru para o `where.status.in` e o
-    // Prisma respondia com erro de validação de enum, que o filtro global traduz
-    // em 500: o cliente pedia errado e a culpa aparecia como se fosse do servidor.
-    const parsedStatuses = statuses
-      ? statuses
-          .split(',')
-          .map(v => v.trim())
-          .filter(Boolean)
-      : undefined;
-    if (parsedStatuses?.length) {
-      const validos = Object.values(BILLING_STATUS) as string[];
-      const invalidos = parsedStatuses.filter(s => !validos.includes(s));
-      if (invalidos.length > 0) {
+    const parsedStatuses = parseList(statuses);
+    assertEnumList(
+      parsedStatuses,
+      Object.values(BILLING_STATUS) as string[],
+      'Estado de faturamento',
+    );
+
+    const parsedQuoteStatuses = parseList(quoteStatuses);
+    assertEnumList(
+      parsedQuoteStatuses,
+      Object.values(TASK_QUOTE_STATUS) as string[],
+      'Estado de orçamento',
+    );
+
+    // ORDENAÇÃO EM LISTA, porque o padrão da tela tem DUAS chaves (o estado da
+    // cobrança e, dentro dele, a data). A rota aceitava uma só e descartava a
+    // segunda em silêncio — a lista chegava ordenada por um critério que ninguém
+    // pediu, e ninguém tinha como perceber. Cada entrada pode trazer a direção
+    // colada (`budgetNumber:desc`); `orderDir` pareia por posição, e uma direção
+    // sozinha vale para todas as chaves.
+    const orderFields: string[] = [];
+    const orderDirs: BillingOrderDir[] = [];
+    const rawDirs = parseList(orderDir) ?? [];
+    const rawFields = parseList(orderBy) ?? [];
+
+    rawFields.forEach((entry, index) => {
+      const [field, inlineDir] = entry.split(':').map(part => part.trim());
+      if (!BILLING_ORDER_BY.includes(field)) {
         throw new BadRequestException(
-          `Estado de faturamento inválido: ${invalidos.join(', ')}. ` +
-            `Valores aceitos: ${validos.join(', ')}.`,
+          `Ordenação inválida: ${field}. Valores aceitos: ${BILLING_ORDER_BY.join(', ')}. ` +
+            'Nome, identificador, cliente e valor não são ordenáveis nesta lista: ' +
+            'os três primeiros vêm dos veículos cobertos (vários por cobrança) e o ' +
+            'valor é a soma dos pagadores — nenhum é coluna do faturamento.',
         );
       }
+      const dir = (inlineDir || rawDirs[index] || rawDirs[0] || 'asc').toLowerCase();
+      if (!BILLING_ORDER_DIR.includes(dir as BillingOrderDir)) {
+        throw new BadRequestException(
+          `Direção de ordenação inválida: ${dir}. Valores aceitos: ${BILLING_ORDER_DIR.join(', ')}.`,
+        );
+      }
+      orderFields.push(field);
+      orderDirs.push(dir as BillingOrderDir);
+    });
+
+    // Sem `orderBy` mas com `orderDir` — a direção sozinha ainda governa o padrão.
+    if (orderFields.length === 0 && rawDirs.length > 0) {
+      const dir = rawDirs[0].toLowerCase();
+      if (!BILLING_ORDER_DIR.includes(dir as BillingOrderDir)) {
+        throw new BadRequestException(
+          `Direção de ordenação inválida: ${dir}. Valores aceitos: ${BILLING_ORDER_DIR.join(', ')}.`,
+        );
+      }
+      orderDirs.push(dir as BillingOrderDir);
     }
 
-    if (orderBy && !BILLING_ORDER_BY.includes(orderBy as BillingOrderBy)) {
+    const search = searchingFor === undefined ? undefined : String(searchingFor).trim();
+
+    // O número do orçamento é `Int` no banco. Um "984,5" digitado por engano viraria
+    // um decimal que o Prisma recusa lá dentro — 500 por um filtro mal preenchido.
+    const parsedBudgetNumber = parseNumber(
+      budgetNumber === undefined ? undefined : String(budgetNumber).replace(/^#/, ''),
+      'budgetNumber',
+    );
+    if (parsedBudgetNumber !== undefined && !Number.isInteger(parsedBudgetNumber)) {
       throw new BadRequestException(
-        `Ordenação inválida: ${orderBy}. Valores aceitos: ${BILLING_ORDER_BY.join(', ')}.`,
-      );
-    }
-    if (orderDir && !BILLING_ORDER_DIR.includes(orderDir as BillingOrderDir)) {
-      throw new BadRequestException(
-        `Direção de ordenação inválida: ${orderDir}. Valores aceitos: ${BILLING_ORDER_DIR.join(', ')}.`,
+        `Número de orçamento inválido: ${String(budgetNumber)}. Informe um número inteiro.`,
       );
     }
 
@@ -113,12 +281,23 @@ export class BillingController {
       page,
       limit,
       quoteId: quoteId || undefined,
-      customerId: customerId || undefined,
-      approved: approved === undefined || approved === '' ? undefined : approved === 'true',
-      deliveredOnly: deliveredOnly === 'true',
+      customerId: customerId ? String(customerId) : undefined,
+      approved: parseBool(approved),
+      deliveredOnly: parseBool(deliveredOnly) ?? false,
       statuses: parsedStatuses,
-      orderBy: (orderBy as BillingOrderBy) || undefined,
-      orderDir: (orderDir as BillingOrderDir) || undefined,
+      quoteStatuses: parsedQuoteStatuses,
+      searchingFor: search || undefined,
+      budgetNumber: parsedBudgetNumber,
+      customerIds: parseList(customerIds),
+      taskCustomerIds: parseList(taskCustomerIds),
+      totalRange: parseNumberRange(totalRange, 'totalRange'),
+      hasOrderNumber: parseBool(hasOrderNumber),
+      dueDateRange: parseDateRange(dueDateRange, 'dueDateRange'),
+      finishedDateRange: parseDateRange(finishedDateRange, 'finishedDateRange'),
+      billingApprovedRange: parseDateRange(billingApprovedRange, 'billingApprovedRange'),
+      createdAtRange: parseDateRange(createdAtRange, 'createdAtRange'),
+      orderBy: orderFields.length > 0 ? orderFields : undefined,
+      orderDir: orderDirs.length > 0 ? orderDirs : undefined,
     });
   }
 
