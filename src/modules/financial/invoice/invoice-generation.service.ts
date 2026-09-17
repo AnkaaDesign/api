@@ -278,18 +278,30 @@ export class InvoiceGenerationService {
           // H3a: never hard-delete PAID installments (and their bank slips) during
           // re-generation cleanup — they are real financial history. If any PAID
           // installment hangs off a cancelled invoice, abort with a clear error.
+          //
+          // ⚠️ "PAGA" NÃO É SÓ `status: PAID`. Um boleto quitado A MENOS deixa a
+          // parcela em PENDING com `paidAmount > 0` — o webhook do Sicredi grava
+          // o valor sem promover o estado. Sem o `paidAmount` na conta, a
+          // regeneração apagava a parcela e o `BankSlip` dela, e o dinheiro
+          // recebido sumia sem linha em lugar nenhum. As DUAS consultas precisam
+          // do mesmo critério: a que recusa e a que apaga.
           const paidCount = await tx.installment.count({
-            where: { invoiceId: { in: ids }, status: 'PAID' },
+            where: {
+              invoiceId: { in: ids },
+              OR: [{ status: 'PAID' }, { paidAmount: { gt: 0 } }],
+            },
           });
           if (paidCount > 0) {
             throw new BadRequestException(
-              'Não é possível regenerar o faturamento: existem parcelas pagas vinculadas a faturas canceladas. Trate as parcelas pagas manualmente antes de regenerar.',
+              'Não é possível regenerar o faturamento: existem parcelas com pagamento registrado ' +
+                '(inclusive parcial) vinculadas a faturas canceladas. Trate-as manualmente antes de regenerar.',
             );
           }
 
           await deleteInstallmentsWithSlips(tx, {
             invoiceId: { in: ids },
             status: { not: 'PAID' },
+            paidAmount: { lte: 0 },
           });
           await tx.invoice.deleteMany({ where: { id: { in: ids } } });
           this.logger.log(

@@ -762,9 +762,20 @@ export class InvoiceAnalyticsService {
     };
 
     if (customerIds?.length || sectorIds?.length) {
-      where.task = {
-        ...(customerIds?.length && { customerId: { in: customerIds } }),
-        ...(sectorIds?.length && { sectorId: { in: sectorIds } }),
+      // ⚠️ `tasks: { some: … }`, não `task: { … }`. `TaskQuote.task` singular
+      // deixou de existir quando o orçamento passou a cobrir N veículos
+      // (`20260903120000_multitask_quote`) — a relação é `tasks Task[]`. O
+      // `where` antigo era aceito pelo TypeScript (o objeto é `any`) e recusado
+      // pelo Prisma em runtime: todo `POST /invoices/analytics/quote-funnel`
+      // com filtro de cliente ou de setor devolvia 500, e só com filtro.
+      //
+      // `some` é a semântica certa: o funil quer os orçamentos que TOCAM aquele
+      // cliente ou setor, e num orçamento de sessenta caminhões basta um.
+      where.tasks = {
+        some: {
+          ...(customerIds?.length && { customerId: { in: customerIds } }),
+          ...(sectorIds?.length && { sectorId: { in: sectorIds } }),
+        },
       };
     }
 

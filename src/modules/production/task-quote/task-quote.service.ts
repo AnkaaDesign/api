@@ -113,6 +113,7 @@ import {
   validateQuoteStatusChangeRole,
 } from './task-quote.guards';
 import { LIVE_INVOICE_WHERE } from '../../../utils/billing-invoice';
+import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
 import { deleteInstallmentsWithSlips } from '@utils/billing-teardown';
@@ -2746,6 +2747,37 @@ export class TaskQuoteService {
       // endpoint só move o ciclo do orçamento.
       await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
 
+      // ── CANCELAR PASSA PELO DESMONTE, SEMPRE ─────────────────────────────
+      //
+      // Esta rota chamava `update(..., _internal = true)`, e é o `_internal` que
+      // desarma a trava do dinheiro: `status` está em
+      // `QUOTE_SAFE_AFTER_BILLING_FIELDS` (o ciclo do orçamento pode andar com a
+      // cobrança congelada) e a segunda guarda — a que manda usar esta rota — só
+      // dispara quando a chamada é externa. Resultado: um
+      // `PUT /:id/status {CANCELLED}` carimbava CANCELADO num orçamento com
+      // NFS-e AUTORIZADA na prefeitura e boletos REGISTRADOS no Sicredi, sem
+      // tocar em nenhum dos dois. Os títulos seguiam pagáveis e a nota, ativa.
+      //
+      // `cancelForTaskCancellation` tem as guardas E o desmonte: exige artefato
+      // confirmado antes de mexer, recusa com parcela PAGA (estorno é manual),
+      // dá baixa nos boletos e confirma cada uma, cancela a NFS-e na Elotech,
+      // apaga parcelas e faturas, zera o carimbo de cada faturamento e derruba a
+      // cerimônia de assinatura em andamento. Sem dinheiro emitido, tudo isso é
+      // no-op — e o caminho passa a ser UM só.
+      //
+      // O nome fala em tarefa por causa da origem (a cascata do cancelamento da
+      // tarefa), mas ele não toca em tarefa nenhuma: só no orçamento e nos
+      // artefatos dele. Por isso o motivo do changelog é parâmetro.
+      if (status === TASK_QUOTE_STATUS.CANCELLED) {
+        await this.cancelForTaskCancellation(id, userId, 'Orçamento cancelado pelo usuário');
+        const cancelled = await this.taskQuoteRepository.findById(id);
+        return {
+          success: true,
+          data: cancelled as any,
+          message: 'Orçamento cancelado com sucesso.',
+        };
+      }
+
       // Update status — pass _internal=true to bypass the external-call guard
       const updated = await this.update(id, { status }, userId, true);
 
@@ -2926,31 +2958,36 @@ export class TaskQuoteService {
         });
       }
 
-      // Update all invoices for this quote to PAID
+      // O ESTADO DAS FATURAS SAI DA REGRA ÚNICA, não de uma soma local.
+      //
+      // ⚠️ Era a SEXTA cópia da derivação — as outras cinco foram unificadas em
+      // `deriveInvoicePaymentState` —, e ela errava no ponto que aquele arquivo
+      // documenta: somava as parcelas CANCELADAS junto, e pelo VALOR DE FACE
+      // (`paid > 0 ? paid : amount`). Três parcelas de R$ 5.000, a segunda
+      // cancelada e nunca recebida: gravava `paidAmount = 15.000` e `PAID` com
+      // R$ 10.000 de fato recebidos. A cascata logo em seguida relia as parcelas
+      // pela regra certa e via PARCIAL — dois números sobre o mesmo dinheiro, e o
+      // relatório escolhia um deles.
+      //
+      // Também não se força `PAID`: as parcelas acabaram de ser marcadas pagas
+      // ACIMA, nesta mesma transação, então a regra chega a `PAID` sozinha quando
+      // é o caso — e quando não é (uma fatura de outro pagador que o escopo
+      // alcançou sem ter sido liquidada), ela diz a verdade em vez de mentir.
       const invoices = await tx.invoice.findMany({
         where: {
           customerConfig: configScope,
           status: { not: INVOICE_STATUS.CANCELLED },
         },
         include: {
-          installments: { select: { amount: true, paidAmount: true } },
+          installments: { select: { status: true, paidAmount: true } },
         },
       });
 
       for (const invoice of invoices) {
-        // Use actual paidAmount when available (webhook payments may differ from face value
-        // due to Sicredi fines/interest). Fall back to face-value amount for installments
-        // being settled now (paidAmount not yet recorded).
-        const totalPaid = invoice.installments.reduce((sum, inst) => {
-          const paid = Number(inst.paidAmount ?? 0);
-          return sum + (paid > 0 ? paid : Number(inst.amount));
-        }, 0);
+        const derived = deriveInvoicePaymentState(invoice.installments);
         await tx.invoice.update({
           where: { id: invoice.id },
-          data: {
-            status: INVOICE_STATUS.PAID,
-            paidAmount: totalPaid,
-          },
+          data: { status: derived.status, paidAmount: derived.paidAmount },
         });
       }
     });
@@ -4536,16 +4573,23 @@ export class TaskQuoteService {
     });
 
     // Verify no installment has been paid
+    // ⚠️ "PAGA" NÃO É SÓ `status: PAID`. Um boleto quitado A MENOS (o cliente
+    // pagou R$ 4.000 de uma parcela de R$ 10.000) deixa a parcela em PENDING com
+    // `paidAmount > 0` — o webhook do Sicredi e o cron de conciliação escrevem
+    // o valor sem promover o estado. A guarda que olhava só o estado deixava
+    // passar, e o desmonte apagava a parcela E o `BankSlip`: o dinheiro recebido
+    // sumia sem deixar linha em lugar nenhum.
     const paidInstallments = await this.prisma.installment.findMany({
       where: {
         invoice: this.invoicesOfQuote(id, billingId),
-        status: { in: ['PAID'] },
+        OR: [{ status: { in: ['PAID'] } }, { paidAmount: { gt: 0 } }],
       },
       select: { id: true },
     });
     if (paidInstallments.length > 0) {
       throw new BadRequestException(
-        `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível reverter um faturamento com pagamentos registrados.`,
+        `Existem ${paidInstallments.length} parcela(s) com pagamento registrado. Não é possível ` +
+          'reverter um faturamento com dinheiro recebido — inclusive pagamento parcial.',
       );
     }
 
@@ -4703,14 +4747,19 @@ export class TaskQuoteService {
       // Real money received → cannot silently cancel; needs manual estorno.
       // Pela COBERTURA: numa fatura conjunta `Invoice.taskId` é nulo, e a guarda
       // por tarefa deixava passar um orçamento com parcela PAGA.
+      // Mesma regra da reversão: pagamento PARCIAL também é dinheiro recebido.
+      // Ver a nota em `revert`.
       const paidInstallments = await this.prisma.installment.findMany({
-        where: { invoice: this.invoicesOfQuote(id), status: { in: ['PAID'] } },
+        where: {
+          invoice: this.invoicesOfQuote(id),
+          OR: [{ status: { in: ['PAID'] } }, { paidAmount: { gt: 0 } }],
+        },
         select: { id: true },
       });
       if (paidInstallments.length > 0) {
         throw new BadRequestException(
-          `Existem ${paidInstallments.length} parcela(s) paga(s). Não é possível cancelar um ` +
-            `orçamento com pagamentos registrados — trate o estorno manualmente.`,
+          `Existem ${paidInstallments.length} parcela(s) com pagamento registrado. Não é possível ` +
+            `cancelar um orçamento com dinheiro recebido — trate o estorno manualmente.`,
         );
       }
 
