@@ -4779,12 +4779,12 @@ export class BudgetService {
     // Sai em silêncio de propósito: não é erro nem recusa, é a cascata
     // concluindo que ainda não é hora. Quem cancelou o caminhão não precisa ser
     // avisado de que o orçamento dos outros três segue de pé.
-    const veiculosAtivos = await this.prisma.task.count({
+    const activeVehicles = await this.prisma.task.count({
       where: { quoteId: id, status: { not: TASK_STATUS.CANCELLED } },
     });
-    if (veiculosAtivos > 0) {
+    if (activeVehicles > 0) {
       this.logger.log(
-        `[CANCEL_QUOTE] Orçamento ${id} mantido: ${veiculosAtivos} veículo(s) ainda ativo(s).`,
+        `[CANCEL_QUOTE] Orçamento ${id} mantido: ${activeVehicles} veículo(s) ainda ativo(s).`,
       );
       return;
     }

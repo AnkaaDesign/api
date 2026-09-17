@@ -31,7 +31,7 @@ import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
 import { BudgetService } from '../modules/production/budget/budget.service';
 
-const RAZAO = 'Orçamento cancelado: todos os veículos cobertos estão cancelados';
+const REASON = 'Orçamento cancelado: todos os veículos cobertos estão cancelados';
 
 async function main() {
   const apply = process.argv.includes('--apply');
@@ -44,7 +44,7 @@ async function main() {
     // O ator. O cancelamento vira ChangeLog, e ChangeLog sem autor é uma linha
     // que ninguém sabe explicar daqui a um ano. Usa o admin mais antigo — o
     // mesmo critério de outras correções em lote deste repositório.
-    const ator = await prisma.user.findFirst({
+    const actor = await prisma.user.findFirst({
       // `User` não tem `status` — quem diz se a pessoa ainda trabalha aqui é
       // `currentContractStatus`. Um script que filtra pelo campo errado não
       // falha: o zod não passa por aqui e o Prisma recusa em tempo de tipo.
@@ -52,13 +52,13 @@ async function main() {
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true },
     });
-    if (!ator) throw new Error('Nenhum usuário ADMIN ativo para assinar o ChangeLog.');
+    if (!actor) throw new Error('Nenhum usuário ADMIN ativo para assinar o ChangeLog.');
 
     // TEM veículo, e TODOS cancelados. `some` + `every` juntos de propósito:
     // `every` sozinho é verdadeiro para lista VAZIA, e orçamento sem veículo
     // nenhum é outro problema (105 linhas, de outra causa) que este script não
     // resolve e não deve tocar.
-    const alvos = await prisma.budget.findMany({
+    const targets = await prisma.budget.findMany({
       where: {
         status: { not: 'CANCELLED' },
         tasks: { some: {}, every: { status: 'CANCELLED' } },
@@ -73,44 +73,44 @@ async function main() {
       orderBy: { budgetNumber: 'asc' },
     });
 
-    if (alvos.length === 0) {
+    if (targets.length === 0) {
       console.log('\nNenhum orçamento nessa condição. Nada a fazer.\n');
       return;
     }
 
-    console.log(`\n▸ ${alvos.length} orçamento(s) com TODOS os veículos cancelados`);
-    console.log(`  Autor do ChangeLog: ${ator.name}`);
+    console.log(`\n▸ ${targets.length} orçamento(s) com TODOS os veículos cancelados`);
+    console.log(`  Autor do ChangeLog: ${actor.name}`);
     console.log(`  Modo: ${apply ? 'GRAVANDO' : 'ENSAIO (use --apply para gravar)'}\n`);
 
-    for (const b of alvos) {
-      const rotulo =
+    for (const b of targets) {
+      const label =
         `  nº ${String(b.budgetNumber).padStart(4, '0')}  ${b.status.padEnd(9)} ` +
         `${b._count.tasks} veíc.  R$ ${Number(b.total).toFixed(2)}`;
 
       if (!apply) {
-        console.log(`${rotulo}   → cancelaria`);
+        console.log(`${label}   → cancelaria`);
         continue;
       }
 
       try {
-        await budgets.cancelForTaskCancellation(b.id, ator.id, RAZAO);
-        const depois = await prisma.budget.findUnique({
+        await budgets.cancelForTaskCancellation(b.id, actor.id, REASON);
+        const after = await prisma.budget.findUnique({
           where: { id: b.id },
           select: { status: true },
         });
         // O método sai em silêncio quando decide não agir (veículo que voltou a
         // ficar ativo). Conferir o estado DEPOIS é o que separa "cancelou" de
         // "achou que cancelou".
-        console.log(`${rotulo}   → ${depois?.status === 'CANCELLED' ? 'CANCELADO' : `mantido (${depois?.status})`}`);
+        console.log(`${label}   → ${after?.status === 'CANCELLED' ? 'CANCELADO' : `mantido (${after?.status})`}`);
       } catch (e: any) {
-        console.log(`${rotulo}   → RECUSADO: ${e?.message ?? e}`);
+        console.log(`${label}   → RECUSADO: ${e?.message ?? e}`);
       }
     }
 
-    const restantes = await prisma.budget.count({
+    const remaining = await prisma.budget.count({
       where: { status: { not: 'CANCELLED' }, tasks: { some: {}, every: { status: 'CANCELLED' } } },
     });
-    console.log(`\n▸ Restam ${restantes} nessa condição.\n`);
+    console.log(`\n▸ Restam ${remaining} nessa condição.\n`);
   } finally {
     await app.close();
   }

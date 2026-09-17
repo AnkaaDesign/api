@@ -123,6 +123,16 @@ export function translateLegacyTaskFilter(where: any): any {
  * do próprio orçamento (`budgetNumber`, `createdAt`, `expiresAt`) passam
  * intactas, e é para elas que os clientes novos apontam.
  */
+/**
+ * A FILA, como último critério — sempre.
+ *
+ * `queueRank` é coluna GERADA: o instante de criação em segundos, negado para
+ * APPROVED e CANCELLED. Ascendente, ela dá pendente mais ANTIGO primeiro e
+ * aprovado mais RECENTE primeiro, que é a leitura que a casa pediu.
+ */
+export const BUDGET_QUEUE_TIEBREAKER = { queueRank: 'asc' as const };
+export const BUDGET_QUEUE_ORDER = [{ statusOrder: 'asc' as const }, BUDGET_QUEUE_TIEBREAKER];
+
 export function stripUnorderableTaskEntries(orderBy: any): any {
   const clean = (entry: any): any | null => {
     if (!entry || typeof entry !== 'object') return entry;
@@ -131,11 +141,34 @@ export function stripUnorderableTaskEntries(orderBy: any): any {
     const { task: _dropped, taskId: _droppedId, ...rest } = entry as Record<string, unknown>;
     return Object.keys(rest).length > 0 ? rest : null;
   };
+
+  const hasQueueKey = (es: any[]) => es.some(e => e && typeof e === 'object' && 'queueRank' in e);
+
+  // ── O DESEMPATE ENTRA AQUI, E NÃO SÓ NO SERVIÇO ──────────────────────────
+  //
+  // O APP INSTALADO manda `[{statusOrder:'asc'}, {'task.term':'asc'}]`. O prazo
+  // é da TAREFA, e são N por orçamento desde o multitarefa, então a segunda
+  // entrada é descartada logo acima — e o que sobrava era `statusOrder`
+  // sozinho: dentro de "pendente" o Postgres devolvia a ordem física do heap,
+  // que muda a cada UPDATE. A lista parecia ordenada e não era.
+  //
+  // O padrão do serviço não alcança esse caso, porque o app MANDA um `orderBy`
+  // — ele só não sobrevive à limpeza. E aparelho em campo não se atualiza
+  // sozinho: se a correção morasse só no app, cada celular que não baixasse a
+  // versão nova continuaria com a lista embaralhada.
+  //
+  // Anexar sempre também é o que torna a PAGINAÇÃO estável: sem uma última
+  // chave praticamente única, duas linhas de mesmo valor trocam de lugar entre
+  // uma página e outra, e a página 2 repete uma linha e some com outra.
   if (Array.isArray(orderBy)) {
     const kept = orderBy.map(clean).filter((e): e is object => e !== null);
-    return kept.length > 0 ? kept : undefined;
+    if (kept.length === 0) return BUDGET_QUEUE_ORDER;
+    return hasQueueKey(kept) ? kept : [...kept, BUDGET_QUEUE_TIEBREAKER];
   }
-  return clean(orderBy) ?? undefined;
+
+  const single = clean(orderBy);
+  if (!single) return BUDGET_QUEUE_ORDER;
+  return hasQueueKey([single]) ? single : [single, BUDGET_QUEUE_TIEBREAKER];
 }
 
 @Injectable()
