@@ -172,7 +172,25 @@ export class TaskQuoteService {
    */
   async findMany(query: TaskQuoteGetManyFormData): Promise<TaskQuoteGetManyResponse> {
     try {
-      const result = await this.taskQuoteRepository.findMany(query);
+      // ⚠️ `GET /task-quotes` NÃO PAGINAVA.
+      //
+      // O zod declara `page`/`limit` (e os coage, e dá `default`), e o
+      // repositório lê `skip`/`take` — ninguém traduzia entre os dois. Resultado:
+      // `?page=2&limit=40` devolvia a TABELA INTEIRA, e o `meta` calculado a
+      // partir de `take` indefinido dizia "página 1 de 1" sobre 722 registros.
+      // Ninguém tinha percebido porque nenhuma tela consumia esta rota — a lista
+      // de Orçamentos consultava tarefas.
+      //
+      // `skip`/`take` explícitos continuam ganhando: são o contrato de baixo
+      // nível, e quem os manda sabe o que quer.
+      const limit = query.take ?? query.limit ?? 20;
+      const page = Math.max(1, query.page ?? 1);
+      const paginated = {
+        ...query,
+        take: limit,
+        skip: query.skip ?? (page - 1) * limit,
+      };
+      const result = await this.taskQuoteRepository.findMany(paginated);
 
       return {
         success: true,

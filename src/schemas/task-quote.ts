@@ -217,6 +217,12 @@ export const taskQuoteOrderBySchema = z
       .object({
         id: orderByDirectionSchema.optional(),
         total: orderByDirectionSchema.optional(),
+        // `subtotal` e `vehicleCount` são ESCALARES do orçamento e a lista os
+        // oferece como coluna ordenável. Faltavam aqui — e `orderBy` NÃO é
+        // `.strict()`, então o zod os descartava em silêncio: a seta aparecia no
+        // cabeçalho e nada acontecia.
+        subtotal: orderByDirectionSchema.optional(),
+        vehicleCount: orderByDirectionSchema.optional(),
         expiresAt: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
@@ -324,16 +330,24 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      /**
+       * ⚠️ `z.coerce.date()`, não `z.coerce.date()`.
+       *
+       * O filtro chega como STRING ISO no query param, e o pipe de validação
+       * revive booleano e número aninhados, mas não datas. Com `z.coerce.date()` o
+       * filtro de Validade levava 400 — e, por ser `.strict()`, derrubava a
+       * lista inteira. O schema de Task já usa `coerce` por este mesmo motivo.
+       */
       expiresAt: z
         .union([
-          z.date(),
+          z.coerce.date(),
           z.object({
-            equals: z.date().optional(),
-            gt: z.date().optional(),
-            gte: z.date().optional(),
-            lt: z.date().optional(),
-            lte: z.date().optional(),
-            not: z.date().optional(),
+            equals: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            not: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -374,29 +388,97 @@ export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
       createdAt: z
         .union([
-          z.date(),
+          z.coerce.date(),
           z.object({
-            equals: z.date().optional(),
-            gt: z.date().optional(),
-            gte: z.date().optional(),
-            lt: z.date().optional(),
-            lte: z.date().optional(),
-            not: z.date().optional(),
+            equals: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            not: z.coerce.date().optional(),
           }),
         ])
         .optional(),
       updatedAt: z
         .union([
-          z.date(),
+          z.coerce.date(),
           z.object({
-            equals: z.date().optional(),
-            gt: z.date().optional(),
-            gte: z.date().optional(),
-            lt: z.date().optional(),
-            lte: z.date().optional(),
-            not: z.date().optional(),
+            equals: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            not: z.coerce.date().optional(),
           }),
         ])
+        .optional(),
+      /**
+       * O NÚMERO DO ORÇAMENTO como filtro.
+       *
+       * ⚠️ `where` é `.strict()`: enquanto a chave não existiu aqui, mandá-la
+       * derrubava a CONSULTA INTEIRA com `unrecognized_keys` — não o filtro, a
+       * lista. É a diferença entre o `where` (estrito, recusa) e o `orderBy` (não
+       * estrito, apaga em silêncio), e as duas formas de falhar já morderam.
+       */
+      budgetNumber: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            in: z.array(z.number()).optional(),
+            notIn: z.array(z.number()).optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            not: z.number().optional(),
+          }),
+        ])
+        .optional(),
+      /** Quantos veículos o orçamento cobre — escalar desnormalizado. */
+      vehicleCount: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            not: z.number().optional(),
+          }),
+        ])
+        .optional(),
+      /** Modo de cobrança declarado (`JOINT` | `PER_TASK` | `CUSTOM`). */
+      billingSplit: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+      /**
+       * Filtro pelos PAGADORES — é por aqui que a lista filtra por cliente de
+       * faturamento, e é a relação de lista que responde "este orçamento cobra
+       * deste cliente?".
+       */
+      customerConfigs: z
+        .object({
+          some: z.record(z.any()).optional(),
+          every: z.record(z.any()).optional(),
+          none: z.record(z.any()).optional(),
+        })
+        .optional(),
+      /** Filtro pelos FATURAMENTOS do orçamento (estado da cobrança). */
+      billings: z
+        .object({
+          some: z.record(z.any()).optional(),
+          every: z.record(z.any()).optional(),
+          none: z.record(z.any()).optional(),
+        })
         .optional(),
       // Filtro da relação de LISTA `tasks` — a forma corrente, na gramática do
       // Prisma para to-many. A lista de Orçamentos manda `{ some: {} }` ("tem
@@ -563,8 +645,12 @@ export const taskQuoteGetManySchema = z
   .object({
     // Pagination
     page: z.coerce.number().int().min(0).default(1).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
-    take: z.coerce.number().int().positive().max(100).optional(),
+    // Teto de 1000, não 100: a lista exporta tudo em páginas de 200 e o pager
+    // anterior/próximo reconstrói a ordem inteira com até 1000 ids. Com o teto em
+    // 100 os dois levavam 400 — e o exportador só descobriria isso em produção,
+    // porque a tela nunca pede mais que 40.
+    limit: z.coerce.number().int().positive().max(1000).default(20).optional(),
+    take: z.coerce.number().int().positive().max(1000).optional(),
     skip: z.coerce.number().int().min(0).optional(),
 
     // Direct Prisma clauses

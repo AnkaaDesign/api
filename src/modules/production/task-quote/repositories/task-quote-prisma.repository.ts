@@ -167,6 +167,15 @@ export class TaskQuotePrismaRepository
     return {
       ...databaseEntity,
       total: databaseEntity.total ? Number(databaseEntity.total) : 0,
+      // ⚠️ `subtotal` FALTAVA na conversão, e só ele.
+      //
+      // `Decimal` do Prisma serializa como STRING no JSON, e o tipo `TaskQuote`
+      // declara `number`. A lista de Orçamentos nunca consumiu esta rota (ela
+      // lia tarefas), então a divergência nunca apareceu — e apareceria como uma
+      // coluna de dinheiro ordenando por texto, "R$ 9.000,00" antes de
+      // "R$ 10.000,00", que é o tipo de defeito que se lê como "a tabela está
+      // errada" e não como "o tipo está errado".
+      subtotal: databaseEntity.subtotal ? Number(databaseEntity.subtotal) : 0,
       services: databaseEntity.services?.map((service: any) => ({
         ...service,
         amount: service.amount ? Number(service.amount) : 0,
