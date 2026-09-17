@@ -962,32 +962,48 @@ export function diffQuoteSnapshots(
   // a mesma obrigação escrita com dois nomes; o que o cliente assina é quantas
   // faturas de que tamanho, não o nome do enum. `billingGroups`, logo abaixo,
   // responde isso — e responde para qualquer número de veículos.
-  if (before.billingSplit && after.billingSplit && !mesmoAgrupamento(before, after)) {
+  // ⚠️ UMA LINHA, NÃO DUAS. O modo e os lotes eram reportados separadamente, e
+  // isso fazia UMA decisão aparecer como DUAS alterações:
+  //
+  //     Forma de faturamento   Fatura única para todos os veículos
+  //                          → Uma fatura por veículo
+  //     Lotes de faturamento   1 fatura cobrindo 4 veículos
+  //                          → 4 faturas de 1 veículo
+  //
+  // São a mesma frase escrita de dois jeitos. Quem assina lê "2 alterações" e
+  // procura a segunda; quem recebe o e-mail de invalidação conta duas mudanças
+  // num orçamento em que mexeram numa coisa só.
+  //
+  // O AGRUPAMENTO É A OBRIGAÇÃO; o modo é o nome dele. Quantas faturas de que
+  // tamanho é o que o cliente assina — "4 faturas de 1 veículo" diz tudo que
+  // "Uma fatura por veículo" diz, e ainda diz o número. Então a linha é uma só,
+  // e o valor é o agrupamento; o rótulo do modo fica como RECUO para o snapshot
+  // anterior à v4, que não tem `billingGroups` e só sabe responder pelo nome.
+  const temGrupos = Boolean(before.billingGroups && after.billingGroups);
+  const agrupamentoMudou = temGrupos && !mesmoAgrupamento(before, after);
+  const modoMudou = Boolean(
+    before.billingSplit && after.billingSplit && before.billingSplit !== after.billingSplit,
+  );
+  if (agrupamentoMudou || (modoMudou && !temGrupos)) {
+    const antes = billingGroupsLabel(before.billingGroups) ?? billingSplitLabel(before.billingSplit);
+    let depois = billingGroupsLabel(after.billingGroups) ?? billingSplitLabel(after.billingSplit);
+    // MESMO TAMANHO, OUTRA DISTRIBUIÇÃO — e sem isto a alteração ficava MUDA.
+    //
+    // Trocar quais caminhões vão em cada lote, mantendo os tamanhos, muda o
+    // conteúdo de cada fatura e não muda uma vírgula do rótulo: "2 faturas de 2
+    // veículos" antes e depois. O hash material difere, então a coleta É
+    // invalidada — e a lista de alterações saía vazia, dizendo ao signatário que
+    // nada mudou num documento que acabou de derrubar a assinatura dele.
+    if (agrupamentoMudou && antes === depois) {
+      depois = `${depois} — outra distribuição dos veículos`;
+    }
     scalar(out, {
       key: 'billingSplit',
       severity: 'MATERIAL',
       group: 'PAYMENT',
       label: 'Forma de faturamento',
-      before: billingSplitLabel(before.billingSplit),
-      after: billingSplitLabel(after.billingSplit),
-    });
-  }
-  // OS LOTES. Entram por si porque reagrupar sem trocar de modo muda o valor de
-  // cada fatura sem mexer em nenhum outro campo do recorte — "três de vinte"
-  // para "duas de trinta" é o mesmo `CUSTOM` e outro boleto.
-  //
-  // Mesma correção da guarda acima: `&&`. Com `||`, todo snapshot anterior à v4
-  // — que é a totalidade dos contratos concluídos em produção — aparecia como
-  // "lotes alterados" por ter ganhado um campo que não existia quando foi
-  // congelado.
-  if (before.billingGroups && after.billingGroups) {
-    scalar(out, {
-      key: 'billingGroups',
-      severity: 'MATERIAL',
-      group: 'PAYMENT',
-      label: 'Lotes de faturamento',
-      before: billingGroupsLabel(before.billingGroups),
-      after: billingGroupsLabel(after.billingGroups),
+      before: antes,
+      after: depois,
     });
   }
 

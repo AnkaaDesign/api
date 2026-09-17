@@ -150,10 +150,48 @@ console.log('Nada mudou');
   (depois as Record<string, unknown>).billingGroups = [['t1'], ['t2']];
 
   const changes = diffQuoteSnapshots(antes, depois);
+  const faturamento = changes.filter(c => c.key === 'billingSplit' || c.key === 'billingGroups');
   check(
     'separar uma fatura em duas CONTINUA sendo material',
-    changes.some(c => c.key === 'billingSplit') && changes.some(c => c.key === 'billingGroups'),
+    faturamento.length === 1 && faturamento[0].severity === 'MATERIAL',
     JSON.stringify(changes.map(c => c.key)),
+  );
+  // ⚠️ UMA LINHA, NÃO DUAS — e esta é a metade do teste que existe por um defeito
+  // relatado. O modo e os lotes eram duas entradas, e uma decisão só aparecia
+  // como "2 alterações": "Fatura única para todos os veículos → Uma fatura por
+  // veículo" seguido de "1 fatura cobrindo 2 veículos → 2 faturas de 1 veículo".
+  // A mesma frase, escrita de dois jeitos, para quem está decidindo se reassina.
+  check(
+    'e aparece UMA VEZ, com o agrupamento concreto no valor',
+    faturamento[0]?.after === '2 faturas de 1 veículo',
+    JSON.stringify(faturamento[0]),
+  );
+}
+
+{
+  // MESMO TAMANHO, OUTRA DISTRIBUIÇÃO. Trocar quais caminhões vão em cada lote
+  // mantendo os tamanhos muda o conteúdo de cada fatura e não muda uma vírgula do
+  // rótulo — e o hash material difere, então a coleta É invalidada. Sem a frase
+  // extra a lista saía VAZIA, dizendo ao signatário que nada mudou num documento
+  // que acabou de derrubar a assinatura dele.
+  const antes = clone(baseSnapshot());
+  (antes as Record<string, unknown>).billingSplit = 'CUSTOM';
+  (antes as Record<string, unknown>).billingGroups = [['t1', 't2'], ['t3', 't4']];
+  const depois = clone(baseSnapshot());
+  (depois as Record<string, unknown>).billingSplit = 'CUSTOM';
+  (depois as Record<string, unknown>).billingGroups = [['t1', 't3'], ['t2', 't4']];
+
+  const changes = diffQuoteSnapshots(antes, depois);
+  const linha = changes.find(c => c.key === 'billingSplit');
+  check(
+    'redistribuir os veículos entre lotes de mesmo tamanho NÃO sai mudo',
+    !!linha && linha.severity === 'MATERIAL' && linha.after !== linha.before,
+    JSON.stringify(linha),
+  );
+  check(
+    'e a frase diz que foi a distribuição que mudou',
+    !!linha?.after?.includes('outra distribuição'),
+    JSON.stringify(linha?.after),
   );
 }
 
