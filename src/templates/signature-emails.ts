@@ -230,6 +230,52 @@ export function generateAnkaaCountersignEmail(data: AnkaaNoticeEmailData): {
   };
 }
 
+/**
+ * A COBRANÇA da contra-assinatura, dias depois do aviso.
+ *
+ * Existe porque a cadência de lembretes passou a alcançar o grupo 1 (o nosso
+ * lado). Até 17/09 o aviso de contra-assinatura saía UMA vez, sem `await` e
+ * best-effort: se a mensagem falhasse — telefone errado, disjuntor do WhatsApp
+ * aberto, servidor de e-mail recusando —, ninguém era cobrado de novo e a coleta
+ * ficava parada com o cliente já tendo assinado.
+ *
+ * NÃO REPETE O AVISO, pela mesma razão do lembrete do cliente: quem recebe isto
+ * já foi avisado. A informação nova é UMA — há quanto tempo está parado.
+ */
+export interface AnkaaCountersignReminderEmailData extends AnkaaNoticeEmailData {
+  /** Dias civis desde que o último responsável do cliente assinou. */
+  daysPending: number;
+}
+
+export function generateAnkaaCountersignReminderEmail(data: AnkaaCountersignReminderEmailData): {
+  subject: string;
+  html: string;
+} {
+  const tempo =
+    data.daysPending <= 0
+      ? 'hoje'
+      : data.daysPending === 1
+        ? 'desde ontem'
+        : `há ${data.daysPending} dias`;
+  return {
+    subject: `Orçamento nº ${data.budgetNumber} — contra-assinatura pendente ${tempo}`,
+    html: shell({
+      title: 'Contra-assinatura pendente',
+      subtitle: `Orçamento nº ${data.budgetNumber}`,
+      preheader: `O cliente assinou ${tempo} e a coleta aguarda a Ankaa.`,
+      footerNote: 'E-mail automático da cerimônia de assinatura.',
+      body: `
+<p>Olá, ${esc(data.signerName)}.</p>
+<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> está assinado pelo cliente ${esc(tempo)} e continua aguardando a contra-assinatura da ${COMPANY.name}.</p>
+<p>Enquanto ela não sai, o documento final não é emitido e o orçamento não é aprovado.</p>
+<p style="text-align:center;margin:26px 0;">
+  <a href="${data.quoteUrl}" class="button">Abrir o orçamento e contra-assinar</a>
+</p>
+<p class="linkbox">${esc(data.quoteUrl)}</p>`,
+    }),
+  };
+}
+
 export interface RefusalNoticeEmailData extends SignatureEmailBase {
   /** Quem RECUSOU. `signerName` é quem RECEBE o aviso. */
   refusedByName: string;

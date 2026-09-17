@@ -9,9 +9,10 @@ import { ServiceOrderPrismaRepository } from './repositories/service-order/servi
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
+import { BillingStatusModule } from '@modules/financial/billing/billing-status.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, NotificationModule],
+  imports: [PrismaModule, ChangeLogModule, NotificationModule, BillingStatusModule],
   controllers: [ServiceOrderController],
   providers: [
     ServiceOrderService,

@@ -50,6 +50,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { planCoverage } from './quote-money';
 import { PrismaTransaction } from '../modules/common/base/base.repository';
+import { isBillingFrozen } from '../modules/production/task-quote/task-quote.guards';
 import { hasLiveInvoice } from './billing-invoice';
 import { deleteInstallmentsWithSlips } from './billing-teardown';
 import { Logger } from '@nestjs/common';
@@ -146,6 +147,16 @@ export interface ConfigDiffEntry {
 export interface ReconcileConfigsResult {
   /** True if a removed customer's stale (inactive) invoice was auto-cancelled. */
   cancelledInvoices: boolean;
+  /**
+   * OS FATURAMENTOS que perderam uma fatura por esta reconciliação.
+   *
+   * Existe porque o chamador precisava desaprovar EXATAMENTE esses e só tinha o
+   * booleano acima — então desaprovava TODOS os faturamentos do orçamento.
+   * Num orçamento de sessenta caminhões, remover um pagador do lote 3 levantava
+   * o carimbo dos lotes 1 e 2, que estavam faturados, com nota autorizada e
+   * boleto registrado.
+   */
+  cancelledInvoiceBillingIds: string[];
   /** The customerIds present after reconciliation (for orphan-service clearing). */
   customerIds: string[];
   /** Field-level changes, for the caller to write to the ChangeLog. */
@@ -238,7 +249,9 @@ export async function reconcileQuoteCustomerConfigs(
     orderBy: { createdAt: 'asc' },
     include: {
       // O FATURAMENTO, não o pagador: é dele a cobertura e é dele o estado.
-      billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
+      billing: {
+        select: { id: true, approvedAt: true, status: true, tasks: { select: { taskId: true } } },
+      },
       // `invoices` (plural) e SEM filtro: o critério de congelamento precisa ver
       // todas para decidir, e `liveInvoiceOf` escolhe a viva. Antes isto era
       // `invoice` to-one sobre uma relação que o banco sempre deixou ser 1:N — e
@@ -269,7 +282,13 @@ export async function reconcileQuoteCustomerConfigs(
     // junto com a fatura. É o que a guarda `orphanedFrozen` recusa com nome.
     rawCoverage: ((c as any).billing?.tasks ?? []).map((r: { taskId: string }) => r.taskId),
     // CONGELADO: já faturado, ou com fatura viva. Cobertura imutável.
-    frozen: !!(c as any).billing?.approvedAt || hasLiveInvoice(c as any),
+    //
+    // `isBillingFrozen` é o MESMO predicado da trava do orçamento — carimbo OU
+    // estado pós-aprovação. Aqui só o carimbo era lido, e isso deixava passar a
+    // cobrança liquidada por conciliação bancária (sem fatura, sem carimbo, com
+    // estado SETTLED): a reconciliação a tratava como recorte livre e podia
+    // reescrever a cobertura de um contrato já pago.
+    frozen: isBillingFrozen((c as any).billing ?? { approvedAt: null }) || hasLiveInvoice(c as any),
   }));
 
   const existingByCustomer = new Map<string, ExistingConfig[]>();
@@ -489,6 +508,30 @@ export async function reconcileQuoteCustomerConfigs(
 
       const writeData = buildConfigWriteData(source ?? { customerId });
 
+      // ── DINHEIRO DE FATIA CONGELADA NÃO SE NEGOCIA ───────────────────────
+      //
+      // A cobertura de uma fatia congelada já é preservada acima. O VALOR dela
+      // precisa da mesma proteção, e por um motivo que não é óbvio: quando o
+      // grupo congelado não tem entrada declarada correspondente — e nunca tem,
+      // porque a tela manda só os lotes que está recompondo —, `source` cai no
+      // `defaultIncoming`, que é a entrada de OUTRO grupo.
+      //
+      // Isso seria inócuo se a entrada carregasse só termos. Mas
+      // `TaskQuoteService.update` grava nela um `subtotal`/`total` PROVISÓRIO,
+      // calculado da cobertura DECLARADA daquele outro grupo, contando que
+      // `recalcQuoteTotals` corrija tudo no fim da transação. O provisório de
+      // três veículos vinha então parar na fatia congelada de um, e o contrato
+      // passava a somar 600 onde devia somar 400.
+      //
+      // `recalcQuoteTotals` deixou de corrigir a fatia congelada de propósito —
+      // é o que impede que uma mudança de preço reescreva o número que já saiu
+      // na fatura, no boleto e na NFS-e. Com ela não corrigindo, o provisório
+      // ficava de pé. A proteção tem de estar aqui, onde a escrita acontece.
+      if (planned.frozenId) {
+        delete (writeData as Record<string, unknown>).subtotal;
+        delete (writeData as Record<string, unknown>).total;
+      }
+
       if (prev) {
         matchedExistingIds.add(prev.id);
         for (const field of [...DISCOUNT_FIELDS, ...DEAL_TERM_FIELDS]) {
@@ -604,6 +647,7 @@ export async function reconcileQuoteCustomerConfigs(
   // semeadas no plano antes de qualquer outra coisa.
   const toRemove = existing.filter(c => !matchedExistingIds.has(c.id));
   let cancelledInvoices = false;
+  const cancelledInvoiceBillingIds = new Set<string>();
   if (toRemove.length > 0) {
     const removeIds = toRemove.map(c => c.id);
 
@@ -662,6 +706,10 @@ export async function reconcileQuoteCustomerConfigs(
       // Inactive obligations: cancel the stale invoice before removing its config.
       await tx.invoice.update({ where: { id: inv.id }, data: { status: 'CANCELLED' } });
       cancelledInvoices = true;
+      // O FATURAMENTO de quem perdeu a fatura — nominalmente. É o que permite ao
+      // chamador desaprovar só este, em vez de todos os do orçamento.
+      const dono = toRemove.find(c => c.id === (inv as any).customerConfigId);
+      if (dono?.billingId) cancelledInvoiceBillingIds.add(dono.billingId);
     }
 
     for (const removed of toRemove) {
@@ -700,7 +748,12 @@ export async function reconcileQuoteCustomerConfigs(
   // recomposição, então nenhum caminho de escrita escapa.
   await reconcileBillingsForQuote(tx, quoteId, coveragePlan);
 
-  return { cancelledInvoices, customerIds: [...incomingCustomerIdSet], diff };
+  return {
+    cancelledInvoices,
+    cancelledInvoiceBillingIds: [...cancelledInvoiceBillingIds],
+    customerIds: [...incomingCustomerIdSet],
+    diff,
+  };
 }
 
 /**

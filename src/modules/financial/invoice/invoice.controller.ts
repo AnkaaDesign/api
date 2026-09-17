@@ -507,6 +507,14 @@ export class InvoiceController {
         where: { id: installmentId },
         data: { dueDate: newDate },
       });
+
+      // MOVER O VENCIMENTO MUDA O ESTADO, e este caminho não recalculava nada.
+      // Regerar um boleto com data nova é justamente como uma parcela vencida
+      // volta a ficar em dia — e a cobrança continuava lendo VENCIDO sobre um
+      // boleto novo com vencimento no futuro. Os dois irmãos deste arquivo
+      // (`changeBankSlipDueDate` e `changeInstallmentDueDateWithoutBoleto`) já
+      // chamam a cascata pelo mesmo motivo; ver o comentário de lá.
+      await this.cascadeService.cascadeFromInstallment(installmentId);
     }
 
     if (bankSlip) {

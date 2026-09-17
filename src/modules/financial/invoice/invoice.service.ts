@@ -3,7 +3,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { InvoiceRepository } from './repositories/invoice.repository';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
-import { Decimal } from '@prisma/client/runtime/library';
+import { deriveInvoicePaymentState } from './invoice-payment-state';
 
 /**
  * Minimal Prisma transaction-client shape needed by recalcInvoicePaymentState.
@@ -19,12 +19,7 @@ import type {
   InvoiceGetManyFormData,
   InvoiceGetManyResponse,
 } from '@types';
-import {
-  INVOICE_STATUS,
-  INSTALLMENT_STATUS,
-  BANK_SLIP_STATUS,
-  NFSE_STATUS,
-} from '@constants';
+import { INVOICE_STATUS, BANK_SLIP_STATUS, NFSE_STATUS } from '@constants';
 
 /**
  * Service for managing Invoice entities.
@@ -380,48 +375,19 @@ export class InvoiceService {
   /**
    * Recalculate the paidAmount and status of an invoice based on its installments.
    * Called after a payment is recorded or a boleto is liquidated.
+   *
+   * ⚠️ Era a QUINTA cópia da derivação, e a mais perigosa das cinco: sem nenhum
+   * chamador, divergindo das outras quatro e capaz de escrever `CANCELLED` — um
+   * estado terminal que só `cancelInvoice` pode escrever. Ficou como fachada
+   * sobre `recalcInvoicePaymentState` para que ninguém a adote por engano.
    */
   async updateInvoicePaymentStatus(invoiceId: string): Promise<Invoice> {
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        installments: true,
-      },
-    });
-
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) {
       throw new NotFoundException(`Fatura com ID ${invoiceId} não encontrada.`);
     }
 
-    // Sum paidAmount across all installments
-    const paidAmount = invoice.installments.reduce((sum, inst) => sum + Number(inst.paidAmount), 0);
-
-    // Determine new status based on payments
-    const allPaid = invoice.installments.every(
-      inst => inst.status === 'PAID' || inst.status === 'CANCELLED',
-    );
-    const hasPaidInstallments = invoice.installments.some(inst => inst.status === 'PAID');
-    const allCancelled = invoice.installments.every(inst => inst.status === 'CANCELLED');
-
-    let newStatus: string;
-
-    if (allCancelled) {
-      newStatus = INVOICE_STATUS.CANCELLED;
-    } else if (allPaid) {
-      newStatus = INVOICE_STATUS.PAID;
-    } else if (hasPaidInstallments || paidAmount > 0) {
-      newStatus = INVOICE_STATUS.PARTIALLY_PAID;
-    } else {
-      newStatus = INVOICE_STATUS.ACTIVE;
-    }
-
-    await this.prisma.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        paidAmount,
-        status: newStatus as any,
-      },
-    });
+    await this.recalcInvoicePaymentState(this.prisma, invoiceId);
 
     return this.findById(invoiceId);
   }
@@ -452,30 +418,11 @@ export class InvoiceService {
 
     const installments = await tx.installment.findMany({ where: { invoiceId } });
 
-    // Sum paid amount across NON-CANCELLED installments (Decimal-safe).
-    const activeInstallments = installments.filter(
-      inst => inst.status !== INSTALLMENT_STATUS.CANCELLED,
-    );
-    const paidAmount = activeInstallments.reduce(
-      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
-      new Decimal(0),
-    );
-
-    let status: string;
-    if (activeInstallments.length === 0) {
-      // All installments cancelled — nothing to settle; keep the invoice un-cancelled
-      // (cancelInvoice handles full cancellation) but reflect no outstanding payment.
-      status = INVOICE_STATUS.ACTIVE;
-    } else {
-      const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
-      if (allPaid) {
-        status = INVOICE_STATUS.PAID;
-      } else if (paidAmount.gt(0)) {
-        status = INVOICE_STATUS.PARTIALLY_PAID;
-      } else {
-        status = INVOICE_STATUS.ACTIVE;
-      }
-    }
+    // A derivação mora em `deriveInvoicePaymentState` — uma só, compartilhada
+    // com o webhook do Sicredi, as duas conciliações e o agendador de boletos.
+    // As cinco cópias que existiam discordavam, e três decidiam por DINHEIRO
+    // contra o `totalAmount` congelado; ver o cabeçalho daquele arquivo.
+    const { paidAmount, status } = deriveInvoicePaymentState(installments);
 
     // ALWAYS write paidAmount (do not skip on unchanged status — that was the I31 staleness bug).
     await tx.invoice.update({

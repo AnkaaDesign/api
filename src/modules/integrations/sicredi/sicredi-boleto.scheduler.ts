@@ -9,6 +9,7 @@ import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
 import {
   BANK_SLIP_STATUS,
@@ -634,6 +635,14 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               where: { id: installment.id },
               data: { dueDate: effectiveDueDate },
             });
+
+            // MOVER O VENCIMENTO MUDA O ESTADO, e o estado não se recalcula
+            // sozinho. A parcela veio de uma data no passado — a cobrança dela
+            // lia VENCIDO — e acabou de ser empurrada para hoje ou depois. Sem
+            // esta cascata a cobrança continuava vermelha na lista sobre um
+            // boleto registrado e em dia. É a mesma cascata que o caminho de
+            // "alterar vencimento" do controller chama, e pelo mesmo motivo.
+            await this.cascadeService.cascadeFromInstallment(installment.id).catch(() => undefined);
           }
 
           created++;
@@ -1973,37 +1982,19 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
     if (!invoice) return;
 
-    const activeInstallments = invoice.installments.filter(
-      inst => inst.status !== INSTALLMENT_STATUS.CANCELLED,
-    );
-
-    if (activeInstallments.length === 0) return;
-
     // Never overwrite a CANCELLED invoice — cancelInvoice owns that terminal state.
     if (invoice.status === INVOICE_STATUS.CANCELLED) return;
 
-    const allPaid = activeInstallments.every(inst => inst.status === INSTALLMENT_STATUS.PAID);
-
-    // I31: sum ALL recorded payment across active installments (not only PAID ones) so an
-    // underpayment recorded on a still-ACTIVE installment is reflected in paidAmount. Mirrors
-    // InvoiceService.recalcInvoicePaymentState — single algorithm, always writes paidAmount.
-    const totalPaid = Number(
-      activeInstallments
-        .reduce((sum, inst) => sum + Number((inst.paidAmount ?? 0).toString()), 0)
-        .toFixed(2),
+    // I31 + 17/09: a derivação é UMA e mora em `deriveInvoicePaymentState`. Esta
+    // cópia já perguntava por estado de parcela (e não por dinheiro contra o
+    // `totalAmount` congelado, que era o defeito das outras três), mas continuava
+    // sendo uma cópia — e cópia é como as quatro voltaram a divergir da primeira vez.
+    // O `paidAmount` é SEMPRE escrito: pular a escrita quando o status não mudava
+    // deixava o valor velho e fazia os recalcs discordarem no limiar.
+    const { paidAmount: totalPaid, status: newStatus } = deriveInvoicePaymentState(
+      invoice.installments,
     );
 
-    let newStatus: string;
-    if (allPaid) {
-      newStatus = INVOICE_STATUS.PAID;
-    } else if (totalPaid > 0) {
-      newStatus = INVOICE_STATUS.PARTIALLY_PAID;
-    } else {
-      newStatus = INVOICE_STATUS.ACTIVE;
-    }
-
-    // I31: ALWAYS write paidAmount (the old code skipped the write when status was unchanged,
-    // leaving paidAmount stale and causing threshold disagreement across the three recalcs).
     await tx.invoice.update({
       where: { id: invoiceId },
       data: {

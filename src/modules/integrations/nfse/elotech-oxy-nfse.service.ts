@@ -4,6 +4,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ElotechOxyAuthService, ElotechCity } from './elotech-oxy-auth.service';
 import axios from 'axios';
 import { FiscalDocumentStatus, NfseStatus } from '@prisma/client';
+import { NFSE_LIVE_STATUSES } from '@constants';
 
 export interface MunicipalEmitNfseInput {
   id: string;
@@ -1898,6 +1899,230 @@ export class ElotechOxyNfseService {
         totalNfse,
       },
     };
+  }
+
+  /**
+   * FECHA O CICLO DA SUBSTITUIÇÃO — cancela na prefeitura as notas que um ciclo
+   * anterior deixou vivas, citando a nota recém-emitida como substituta.
+   *
+   * Ibiporã entrega o `SubstituirNfseEnvio` atômico do ABRASF DESLIGADO
+   * (`HABILITASOLSUBSTITUICAONFSE = "N"`) e não expõe rota de substituição, então
+   * substituir são dois passos nossos: a reversão deixa a nota velha de pé, isto
+   * roda depois que a nota nova é autorizada, e só então a velha é cancelável —
+   * porque agora existe um número substituto para nomear.
+   *
+   * Best-effort por desenho: o chamador engole falhas. O que não completar aqui é
+   * retomado pelo cron `nfse-cancellation-reconcile`, que se guia pelas colunas
+   * `superseded*` gravadas ANTES da chamada à Elotech exatamente para isso.
+   *
+   * ⚠️ O PAREAMENTO É POR PAGADOR (`customerConfigId`), NÃO POR RODADA.
+   *
+   * A versão anterior escolhia UMA substituta para a rodada inteira
+   * (`findFirst` com `orderBy: { nfseNumber: 'desc' }` sobre todas as faturas
+   * emitidas) e mandava cancelar TODA nota órfã do ORÇAMENTO citando ela. Duas
+   * consequências, as duas provadas em bancada:
+   *
+   *   · a nota de uma cobrança que NINGUÉM refaturou era mandada cancelar
+   *     citando a nota de OUTRA cobrança — outro veículo, outro valor, outra
+   *     empresa;
+   *   · dentro da mesma cobrança, a nota do pagador 1 era cancelada citando a
+   *     nota do pagador 2.
+   *
+   * Cancelar citando substituta errada é erro fiscal IRREVERSÍVEL na prefeitura:
+   * a nota morre e o número que ela aponta como substituta é de um serviço que
+   * não é o dela. Por isso a regra aqui é conservadora: **na dúvida não cancela**.
+   * Nota viva a mais é problema visível, que o cron e a auditoria acham; nota
+   * cancelada errado, não.
+   *
+   * @param quoteId    Orçamento cujas notas de ciclos anteriores serão substituídas
+   * @param invoiceIds Faturas criadas pela aprovação que acabou de rodar
+   */
+  async supersedePreviousNfses(quoteId: string, invoiceIds: string[]): Promise<void> {
+    if (invoiceIds.length === 0) return;
+
+    // ── AS SUBSTITUTAS, UMA POR PAGADOR ───────────────────────────────────────
+    // Uma nota autorizada NESTA rodada, com número de verdade. Sem número não há
+    // o que citar, e cancelar sem substituta é exatamente o pedido que o fiscal
+    // já recusou — então não se queima outra rejeição.
+    const emitidas = await this.prisma.nfseDocument.findMany({
+      where: {
+        invoiceId: { in: invoiceIds },
+        status: NfseStatus.AUTHORIZED,
+        nfseNumber: { not: null },
+      },
+      select: {
+        id: true,
+        nfseNumber: true,
+        invoice: { select: { customerConfigId: true } },
+      },
+      orderBy: { nfseNumber: 'asc' },
+    });
+
+    // `orderBy asc` + sobrescrita = fica a de MAIOR número por pagador, que é a
+    // corrente aos olhos do fiscal.
+    const substitutaPorPagador = new Map<string, { id: string; nfseNumber: number }>();
+    for (const nota of emitidas) {
+      const configId = nota.invoice?.customerConfigId;
+      if (!configId || nota.nfseNumber == null) continue;
+      substitutaPorPagador.set(configId, { id: nota.id, nfseNumber: nota.nfseNumber });
+    }
+    if (substitutaPorPagador.size === 0) return;
+
+    const idsDaRodada = new Set(emitidas.map(n => n.id));
+
+    // O ESCOPO DA RODADA — os pagadores desta aprovação. Órfã de pagador fora
+    // dele não é assunto desta rodada, e era justamente isso que fazia a
+    // aprovação de uma cobrança cancelar a nota de outra.
+    const faturasDaRodada = await this.prisma.invoice.findMany({
+      where: { id: { in: invoiceIds } },
+      select: { customerConfigId: true },
+    });
+    const pagadoresDaRodada = new Set(
+      faturasDaRodada.map(f => f.customerConfigId).filter((v): v is string => !!v),
+    );
+    if (pagadoresDaRodada.size === 0) return;
+
+    type Par = {
+      velhaId: string;
+      velhaNumero: number | null;
+      substituta: { id: string; nfseNumber: number };
+    };
+    const pares: Par[] = [];
+
+    // ── GRUPO 1: notas AINDA LIGADAS a uma fatura cancelada do mesmo pagador ──
+    // Aqui a atribuição é EXATA: a nota conhece a própria fatura, e a fatura
+    // conhece o pagador. É o caminho do cancelamento de fatura (que marca
+    // CANCELLED e preserva o vínculo), por oposição ao da reversão (que apaga a
+    // fatura e deixa a nota órfã).
+    const ligadas = await this.prisma.nfseDocument.findMany({
+      where: {
+        id: { notIn: [...idsDaRodada] },
+        invoiceId: { not: null },
+        invoice: { is: { customerConfigId: { in: [...pagadoresDaRodada] }, status: 'CANCELLED' } },
+        status: { in: [...NFSE_LIVE_STATUSES] },
+        elotechNfseId: { not: null },
+      },
+      select: { id: true, nfseNumber: true, invoice: { select: { customerConfigId: true } } },
+    });
+    for (const velha of ligadas) {
+      const configId = velha.invoice?.customerConfigId;
+      const substituta = configId ? substitutaPorPagador.get(configId) : undefined;
+      if (!substituta) continue;
+      pares.push({ velhaId: velha.id, velhaNumero: velha.nfseNumber, substituta });
+    }
+
+    // ── GRUPO 2: ÓRFÃS (`invoiceId` nulo) — a assinatura de um ciclo revertido ─
+    //
+    // A reversão APAGA a fatura, e com ela o único caminho da nota até o pagador
+    // (`NfseDocument` não guarda `customerConfigId`). O que sobra é `taskId` —
+    // que, por `BillingTask.@@unique([taskId])`, identifica a COBRANÇA, não o
+    // pagador.
+    //
+    // Então: se a cobrança daquele veículo tem UM pagador nesta rodada, a
+    // atribuição é única e o par se fecha. Se tem dois, ou se a nota é de lote
+    // (`taskId` nulo, porque ela não é de nenhum veículo em particular), a nota
+    // NÃO é atribuível e fica viva, registrada no log. Ver o aviso do topo:
+    // cancelar citando a substituta errada é pior do que não cancelar.
+    const orfas = await this.prisma.nfseDocument.findMany({
+      where: {
+        quoteId,
+        id: { notIn: [...idsDaRodada] },
+        invoiceId: null,
+        status: { in: [...NFSE_LIVE_STATUSES] },
+        elotechNfseId: { not: null },
+      },
+      select: { id: true, nfseNumber: true, taskId: true },
+    });
+
+    if (orfas.length > 0) {
+      // Cobertura → pagadores desta rodada. `billing.tasks` é a cobertura
+      // explícita; cobrança sem cobertura declarada (acervo anterior a 13/09)
+      // simplesmente não casa com nenhum `taskId`, e a nota fica viva.
+      const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+        where: { id: { in: [...pagadoresDaRodada] } },
+        select: { id: true, billingId: true, billing: { select: { tasks: { select: { taskId: true } } } } },
+      });
+
+      const pagadoresPorVeiculo = new Map<string, string[]>();
+      for (const config of configs) {
+        for (const row of config.billing?.tasks ?? []) {
+          const lista = pagadoresPorVeiculo.get(row.taskId) ?? [];
+          lista.push(config.id);
+          pagadoresPorVeiculo.set(row.taskId, lista);
+        }
+      }
+
+      for (const orfa of orfas) {
+        const candidatos = orfa.taskId ? (pagadoresPorVeiculo.get(orfa.taskId) ?? []) : [];
+        const comSubstituta = candidatos.filter(c => substitutaPorPagador.has(c));
+        if (comSubstituta.length !== 1) {
+          this.logger.warn(
+            `[SUPERSEDE] NFS-e nº ${orfa.nfseNumber ?? '?'} (órfã, orçamento ${quoteId}) ` +
+              `NÃO foi atribuída a um pagador desta rodada ` +
+              `(${orfa.taskId ? `${comSubstituta.length} candidato(s) para o veículo ${orfa.taskId}` : 'nota de lote, sem veículo'}). ` +
+              `Ela segue VIVA na prefeitura — cancelar citando a substituta errada é erro fiscal irreversível. ` +
+              `Trate à mão ou refature a cobrança dela.`,
+          );
+          continue;
+        }
+        const substituta = substitutaPorPagador.get(comSubstituta[0])!;
+        pares.push({ velhaId: orfa.id, velhaNumero: orfa.nfseNumber, substituta });
+      }
+    }
+
+    if (pares.length === 0) return;
+
+    this.logger.log(
+      `[SUPERSEDE] Orçamento ${quoteId}: ` +
+        pares
+          .map(
+            p =>
+              `NFS-e nº ${p.velhaNumero ?? '?'} → substituída pela nº ${p.substituta.nfseNumber}`,
+          )
+          .join('; '),
+    );
+
+    for (const par of pares) {
+      // Grava a INTENÇÃO antes de chamar a Elotech. Se o processo morrer no meio
+      // da chamada, o cron acha a linha e sabe o que repetir e que número citar.
+      await this.prisma.nfseDocument.update({
+        where: { id: par.velhaId },
+        data: {
+          supersededByNfseDocumentId: par.substituta.id,
+          supersededByNfseNumber: par.substituta.nfseNumber,
+          supersededAt: new Date(),
+        },
+      });
+
+      try {
+        const outcome = await this.cancelNfse(
+          par.velhaId,
+          // O genérico "Cancelamento automático por reversão de faturamento." era
+          // parte do problema: não nomeia defeito e não cita substituta, que é
+          // exatamente o que o fiscal pediu. Diz os dois.
+          `Nota substituída por refaturamento da ordem de serviço. O mesmo serviço foi ` +
+            `faturado novamente na NFS-e nº ${par.substituta.nfseNumber}, que substitui esta.`,
+          1, // 1 = Erro na emissão
+          par.substituta.nfseNumber,
+        );
+        if (outcome?.cancelled) {
+          this.logger.log(`[SUPERSEDE] NFS-e #${par.velhaNumero} cancelada na prefeitura.`);
+        } else if (outcome?.pending) {
+          this.logger.log(
+            `[SUPERSEDE] NFS-e #${par.velhaNumero}: cancelamento aguardando o fiscal.`,
+          );
+        } else {
+          this.logger.warn(
+            `[SUPERSEDE] NFS-e #${par.velhaNumero} segue ATIVA: ` +
+              `${outcome?.rejectionMessage ?? 'desfecho não confirmado'}.`,
+          );
+        }
+      } catch (error) {
+        this.logger.warn(
+          `[SUPERSEDE] Falha ao pedir cancelamento da NFS-e #${par.velhaNumero}: ${error}`,
+        );
+      }
+    }
   }
 
   private packServiceLines(descriptions: string[], maxLines: number): string[] {

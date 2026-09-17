@@ -595,7 +595,17 @@ const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
   },
   // A cobrança DESTA linha. A lista é por VEÍCULO, e o vencimento que interessa é
   // o da cobrança que cobra este veículo — não o do orçamento.
-  billingEntry: { select: { billingId: true } },
+  //
+  // ⚠️ `billing` NÃO é decoração, é a invariante declarada acima: toda chave que
+  // `taskOrderByFieldsSchema` aceita tem de estar neste select. A lista de
+  // Faturamento ordena por `billingEntry.billing.statusOrder` POR PADRÃO
+  // (`billingStatus asc, finishedAt desc`), e sem esta linha `resolveSortValue`
+  // devolvia `undefined` para os dois lados: o comparador tratava tudo como nulo
+  // e PULAVA a chave. O primeiro clique em "Vencimento" jogava a ordenação
+  // primária fora, sem aviso e sem erro.
+  billingEntry: {
+    select: { billingId: true, billing: { select: { statusOrder: true, status: true } } },
+  },
   customer: { select: { fantasyName: true, corporateName: true } },
 };
 

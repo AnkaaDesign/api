@@ -47,10 +47,14 @@ import {
   INSTALLMENT_STATUS,
   BANK_SLIP_STATUS,
   INVOICE_STATUS,
-  NFSE_STATUS,
+  // `NFSE_STATUS` saiu com a lógica de substituição, que mudou de casa para o
+  // serviço da Elotech (`supersedePreviousNfses`). `NFSE_LIVE_STATUSES` fica: a
+  // reversão ainda precisa saber quais notas estão vivas na prefeitura.
   NFSE_LIVE_STATUSES,
   NFSE_READY_FOR_BOLETO_STATUSES,
   NFSE_IN_FLIGHT_STATUSES,
+  BILLING_STATUS,
+  BILLING_STATUS_ORDER,
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
@@ -74,7 +78,12 @@ import {
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
-import { computeQuoteMoney, planCoverage, round2 } from '@utils/quote-money';
+import {
+  computeQuoteMoney,
+  planCoverage,
+  planCoverageByCustomer,
+  round2,
+} from '@utils/quote-money';
 import {
   describePrismaFailure,
   distinctCustomerIds,
@@ -90,6 +99,7 @@ import {
   resliceQuoteCoverage,
 } from '../../../utils/task-quote-customer-config-sync';
 import {
+  BILLING_FROZEN_WHERE,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
@@ -410,33 +420,39 @@ export class TaskQuoteService {
         money: ReturnType<typeof computeQuoteMoney>;
       }> = [];
 
-      for (const config of data.customerConfigs) {
+      // ⚠️ O PLANO É POR CLIENTE, NUNCA POR CONFIGURAÇÃO.
+      //
+      // `planCoverage` ISOLA todo veículo que nenhum lote reivindicou (é o que
+      // faz o `CUSTOM` recém-declarado nascer um-por-veículo). Chamando-a uma vez
+      // por CONFIGURAÇÃO, com um grupo só, cada fatia reivindicava o seu lote e
+      // recebia os lotes das outras como veículos isolados: num orçamento de
+      // quatro caminhões em dois lotes, cada caminhão aparecia DUAS vezes no
+      // plano, e o `createMany` de `BillingTask` — cuja unicidade é global — caía
+      // em P2002 ("Já existe registro com estes dados") na criação inteira.
+      //
+      // A EDIÇÃO sempre acertou: `reconcileQuoteCustomerConfigs` agrupa por
+      // cliente e entrega TODOS os lotes dele a uma chamada só. A criação passa a
+      // usar a MESMA regra, agora escrita uma vez em `planCoverageByCustomer`,
+      // para que os dois caminhos não possam divergir de novo.
+      for (const { config, coverage } of planCoverageByCustomer(
+        data.customerConfigs,
+        taskIds,
+        billingSplit,
+      )) {
         // Com um cliente só, TODO serviço é dele, independentemente de um
         // `invoiceToCustomerId` remanescente de quando o orçamento teve dois.
         // Filtrar ali derrubaria serviços do subtotal em silêncio.
         const assignedServices = isSingleConfig
           ? data.services || []
           : (data.services || []).filter(s => s.invoiceToCustomerId === config.customerId);
-        const declared = Array.isArray((config as any).taskIds)
-          ? [(config as any).taskIds as string[]]
-          : (config as any).taskId
-            ? [[(config as any).taskId as string]]
-            : null;
-        const groups = planCoverage(
-          declared ? 'CUSTOM' : billingSplit,
-          taskIds,
-          declared,
-        );
-        for (const coverage of groups) {
-          const money = computeQuoteMoney({
-            serviceAmounts: assignedServices.map(sv => sv.amount || 0),
-            discountType: (config as any).discountType,
-            discountValue: (config as any).discountValue,
-            taskCount: taskIds.length,
-            coveredTaskCount: coverage.length || undefined,
-          });
-          plannedConfigs.push({ config, coverage, money });
-        }
+        const money = computeQuoteMoney({
+          serviceAmounts: assignedServices.map(sv => sv.amount || 0),
+          discountType: (config as any).discountType,
+          discountValue: (config as any).discountValue,
+          taskCount: taskIds.length,
+          coveredTaskCount: coverage.length || undefined,
+        });
+        plannedConfigs.push({ config, coverage, money });
       }
 
       // O agregado do orçamento é SEMPRE o valor do contrato inteiro. Somar as
@@ -814,6 +830,61 @@ export class TaskQuoteService {
   // the caller actually changed.
   // ─────────────────────────────────────────────────────────────────────────
 
+  /** A cobertura que o objeto de entrada DECLAROU, canônica; `null` = delegou ao modo. */
+  private declaredCoverageKey(config: any): string | null {
+    if (Array.isArray(config?.taskIds)) return [...config.taskIds].sort().join('|');
+    if (typeof config?.taskId === 'string' && config.taskId) return config.taskId;
+    return null;
+  }
+
+  /** A cobertura GRAVADA de um pagador, canônica; `null` = a consulta não a trouxe. */
+  private storedCoverageKey(config: any): string | null {
+    const stored = config?.billing?.tasks;
+    if (!Array.isArray(stored)) return null;
+    return stored
+      .map((r: any) => r.taskId)
+      .sort()
+      .join('|');
+  }
+
+  /**
+   * A RECOMPOSIÇÃO DE LOTES É ALTERAÇÃO MATERIAL.
+   *
+   * `canonicalizeCustomerConfig` compara TERMOS (cliente, desconto, condição), e
+   * mover um caminhão do lote 1 para o lote 2 não mexe em termo nenhum: com o
+   * mesmo NÚMERO de lotes e os mesmos valores, a gravação era descartada com
+   * "Nenhuma alteração detectada." e `success: true`. A tela mostrava o arranjo
+   * novo, o banco guardava o velho, e nada acusava.
+   *
+   * ⚠️ A comparação é ASSIMÉTRICA de propósito. Não declarar cobertura significa
+   * "decida pelo modo" — é o que toda tela manda quando não está compondo lotes,
+   * e tratá-lo como "cobertura vazia" faria todo save de um orçamento `JOINT`
+   * parecer recomposição (e, num orçamento com cobrança aprovada, bater na trava
+   * do dinheiro). Só o que foi DECLARADO é comparado; o que não foi, não opina.
+   */
+  private coverageMateriallyChanged(existing: any[], incoming: any[]): boolean {
+    const declared = incoming
+      .map(c => this.declaredCoverageKey(c))
+      .filter((k): k is string => k !== null);
+    if (declared.length === 0) return false;
+
+    const stored = (existing || [])
+      .map(c => this.storedCoverageKey(c))
+      .filter((k): k is string => k !== null);
+    // A consulta não trouxe a cobertura gravada: não há com o que comparar, e
+    // inventar "mudou" recusaria gravações legítimas. Quem precisa da detecção
+    // carrega `customerConfigs.billing.tasks` — ver o include em `update`.
+    if (stored.length === 0) return false;
+
+    const disponiveis = [...stored];
+    for (const key of declared) {
+      const i = disponiveis.indexOf(key);
+      if (i === -1) return true;
+      disponiveis.splice(i, 1);
+    }
+    return false;
+  }
+
   private canonicalizeCustomerConfig(config: any): string {
     return JSON.stringify({
       customerId: config.customerId ?? null,
@@ -841,7 +912,10 @@ export class TaskQuoteService {
     if ((existing?.length ?? 0) !== incoming.length) return true;
     const a = (existing || []).map(c => this.canonicalizeCustomerConfig(c)).sort();
     const b = incoming.map(c => this.canonicalizeCustomerConfig(c)).sort();
-    return a.some((v, i) => v !== b[i]);
+    if (a.some((v, i) => v !== b[i])) return true;
+    // Mesmos termos, mesmo número de fatias — e mesmo assim pode ter mudado
+    // QUEM COBRA QUEM. Ver `coverageMateriallyChanged`.
+    return this.coverageMateriallyChanged(existing || [], incoming);
   }
 
   private canonicalizeService(service: any): string {
@@ -878,6 +952,24 @@ export class TaskQuoteService {
   }
 
   /**
+   * AS CHAVES QUE O ORÇAMENTO NÃO TEM — e que por isso nunca são "alteração".
+   *
+   * `TaskQuote` não tem coluna `taskId` (a FK mudou de lado e hoje mora em
+   * `Task.quoteId`), mas o zod a aceitava no corpo do update e a tela a mandava.
+   * O efeito era brutal e invisível: `isScalarChanged(undefined, "<uuid>")`
+   * responde SEMPRE "mudou", então `taskId` nunca era filtrado; com uma cobrança
+   * aprovada, a trava do dinheiro encontrava uma chave fora da lista segura e
+   * recusava a gravação INTEIRA — inclusive prorrogar `expiresAt`, que é
+   * exatamente o que a lista segura existe para permitir.
+   *
+   * Comparar contra `undefined` não distingue "campo que não existe" de "campo
+   * nulo no banco"; a lista é a única resposta honesta. Ela é uma REDE: o zod já
+   * derruba `taskId`, e isto garante que a próxima chave fantasma não trave a
+   * tela de novo.
+   */
+  private static readonly NON_QUOTE_UPDATE_KEYS = new Set<string>(['taskId']);
+
+  /**
    * Return a copy of `data` with no-op fields stripped (where the incoming
    * value is structurally equal to the existing one). Internal callers may
    * pass `_internal = true` on update() to bypass this filter.
@@ -890,6 +982,7 @@ export class TaskQuoteService {
     for (const key of Object.keys(data)) {
       const value = (data as any)[key];
       if (value === undefined) continue;
+      if (TaskQuoteService.NON_QUOTE_UPDATE_KEYS.has(key)) continue;
       if (key === 'customerConfigs') {
         if (this.customerConfigsMateriallyChanged(existing.customerConfigs || [], value)) {
           filtered[key] = value;
@@ -970,7 +1063,15 @@ export class TaskQuoteService {
       const existing = await this.taskQuoteRepository.findById(id, {
         include: {
           services: { orderBy: { position: 'asc' } },
-          customerConfigs: true,
+          // ⚠️ A COBERTURA DE CADA PAGADOR vem junto. A detecção de mudança
+          // material compara a cobertura declarada pela tela com a GRAVADA, e
+          // sem esta linha o lado gravado responde "não declarada" em toda
+          // gravação: um save idempotente de um orçamento em lotes pareceria
+          // recomposição, e num orçamento com cobrança aprovada a trava do
+          // dinheiro o recusaria.
+          customerConfigs: {
+            include: { billing: { select: { tasks: { select: { taskId: true } } } } },
+          },
           // ⚠️ OS VEÍCULOS. Sem esta linha `existingTaskIds` sai VAZIO e leva
           // junto tudo o que depende de quantos veículos o orçamento cobre:
           // `updateVehicleCount` cai para 1 (e `computeQuoteMoney` calcula o
@@ -1471,7 +1572,11 @@ export class TaskQuoteService {
             where: {
               quoteId: id,
               OR: [
-                { billing: { approvedAt: { not: null } } },
+                // O MESMO critério da trava do orçamento e da reconciliação:
+                // carimbo OU estado pós-aprovação. Aqui só o carimbo era lido, e
+                // a cobrança liquidada por conciliação bancária (SETTLED sem
+                // `approvedAt` — duas no acervo) passava por livre.
+                { billing: BILLING_FROZEN_WHERE },
                 { invoices: { some: { status: { not: INVOICE_STATUS.CANCELLED } } } },
               ],
             },
@@ -1525,7 +1630,11 @@ export class TaskQuoteService {
           // createMany, which silently wiped the signature and could cascade-
           // delete an issued invoice. Installments stay created at
           // BILLING_APPROVED time, not here.
-          const { cancelledInvoices, diff: configDiff } = await reconcileQuoteCustomerConfigs(
+          const {
+            cancelledInvoices,
+            cancelledInvoiceBillingIds,
+            diff: configDiff,
+          } = await reconcileQuoteCustomerConfigs(
             tx,
             id,
             data.customerConfigs as any,
@@ -1616,10 +1725,26 @@ export class TaskQuoteService {
           // porque o que foi vendido não mudou. Levantar o `approvedAt` devolve a
           // cobrança a PENDENTE e obriga o financeiro a reconferir antes de
           // reemitir fatura, boleto e NFS-e.
-          if (cancelledInvoices) {
+          // ⚠️ SÓ OS FATURAMENTOS QUE PERDERAM A FATURA. Era
+          // `where: { quoteId: id }` — TODOS os do orçamento. Num orçamento de
+          // sessenta caminhões, remover um pagador do lote 3 levantava o carimbo
+          // dos lotes 1 e 2, que estavam faturados, com nota autorizada na
+          // prefeitura e boleto registrado no Sicredi.
+          //
+          // E o ESTADO vai junto com o carimbo. Escrever `approvedAt: null`
+          // deixando `status` em APROVADO fabrica exatamente a divergência que a
+          // trava do dinheiro precisa enxergar depois: cobrança sem aprovação
+          // afirmando-se aprovada. Sem parcela viva e sem carimbo, a cascata
+          // (`BillingStatusCascadeService.resolve`) responde PENDENTE — é esse
+          // valor que se grava, não um inventado.
+          if (cancelledInvoices && cancelledInvoiceBillingIds.length > 0) {
             const desaprovadas = await (tx as any).billing.updateMany({
-              where: { quoteId: id, approvedAt: { not: null } },
-              data: { approvedAt: null },
+              where: { id: { in: cancelledInvoiceBillingIds }, approvedAt: { not: null } },
+              data: {
+                approvedAt: null,
+                status: BILLING_STATUS.PENDING as any,
+                statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+              },
             });
             if (desaprovadas.count > 0) {
               await tx.taskQuote.update({
@@ -2068,8 +2193,12 @@ export class TaskQuoteService {
       // era uma lista de estados do orçamento — que num orçamento faturado
       // veículo a veículo respondia "sim" para o contrato inteiro assim que a
       // primeira fatia saía, e "não" para nenhuma depois de uma reversão parcial.
+      // O MESMO critério de "congelado" das outras três guardas — carimbo OU
+      // estado pós-aprovação. Só o carimbo deixava apagar o orçamento liquidado
+      // por CONCILIAÇÃO (SETTLED, sem fatura e sem carimbo de onde derivar a
+      // data): um contrato pago desaparecendo do sistema sem nada acusar.
       const cobrancasAprovadas = await (this.prisma as any).billing.count({
-        where: { quoteId: id, approvedAt: { not: null } },
+        where: { quoteId: id, ...BILLING_FROZEN_WHERE },
       });
       if (cobrancasAprovadas > 0) {
         throw new BadRequestException(
@@ -2673,8 +2802,8 @@ export class TaskQuoteService {
     // SÓ DE PENDING.
     //
     // Um orçamento já aprovado, faturado ou cancelado não volta para "assinado"
-    // porque uma assinatura atrasada chegou: `BUDGET_APPROVED` é posterior a
-    // este estado, e regredir apagaria a aprovação. Cancelado, então, é pior —
+    // porque uma assinatura atrasada chegou: `APPROVED` é posterior a este
+    // estado, e regredir apagaria a aprovação. Cancelado, então, é pior —
     // reviveria na lista de quem vende um negócio que morreu.
     if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
       this.logger.log(
@@ -2778,6 +2907,78 @@ export class TaskQuoteService {
   }
 
   /**
+   * O CLIENTE RECUSOU E NÃO SOBROU NINGUÉM DO LADO DELE PARA ASSINAR.
+   *
+   * Gêmeo de `markExpiredBySignature`, e pelo mesmo raciocínio: a cerimônia sabe
+   * que a coleta morreu, e só o dono do orçamento sabe o que isso significa para
+   * o estado dele. Sem ouvinte registrado o envelope ia a `REFUSED` e o orçamento
+   * ficava em `PENDING` — 9 assim no acervo, indistinguíveis de um orçamento
+   * criado naquela manhã, na mesma lista e na mesma cor.
+   *
+   * ⚠️ O DESTINO É `EXPIRED` ("Aguardando Reanálise"), e não um estado
+   * "recusado". Não existe estado de recusa, e criar um seria duplicar o que
+   * `EXPIRED` já significa: a proposta parou, o valor volta para o comercial
+   * rever. É exatamente para onde o vencimento aponta, e a recusa é a mesma
+   * situação chegando por outra porta — com a vantagem de trazer um MOTIVO.
+   *
+   * ⚠️ VIA `update(..., _internal = true)`, não `updateStatus`: `PENDING →
+   * EXPIRED` não está na lista de transições MANUAIS, e não deve estar — ninguém
+   * digita "vencido". `markExpiredBySignature` faz igual, pela mesma razão.
+   *
+   * @param reason O motivo que o cliente escreveu. É a única informação que a
+   *   recusa acrescenta: sem ele, quem recebe o aviso sabe que parou e não sabe o
+   *   que negociar.
+   */
+  async markRefusedBySignature(
+    quoteId: string,
+    reason: string,
+    userId: string = 'system',
+  ): Promise<void> {
+    const existing = await this.prisma.taskQuote.findUnique({
+      where: { id: quoteId },
+      select: { status: true },
+    });
+    if (!existing) return;
+
+    // SÓ DE PENDING — a mesma guarda do vencimento. Um orçamento já aprovado,
+    // faturado ou cancelado não regride porque uma recusa atrasada chegou.
+    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
+      this.logger.log(
+        `Orçamento ${quoteId} não foi marcado para reanálise após a recusa: está em ${existing.status}.`,
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.EXPIRED }, userId, true);
+
+    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
+
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      const motivo = reason?.trim() || 'sem motivo informado';
+      await this.dispatchService.dispatchByConfiguration('task_quote.refused', userId, {
+        entityType: 'TaskQuote',
+        entityId: taskId ?? quoteId,
+        action: 'refused',
+        data: { quoteLabel, reason: motivo },
+        overrides: {
+          title: 'Orçamento Recusado — Reanalisar',
+          body: `O cliente recusou o orçamento ${quoteLabel}. Motivo: ${motivo}. Revise o valor e reemita a proposta.`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao notificar orçamento recusado (task_quote.refused):', error);
+    }
+  }
+
+  /**
    * Commercial approves the budget.
    *
    * This is the single commercial approval gate. Once the budget is approved
@@ -2810,7 +3011,7 @@ export class TaskQuoteService {
         action: 'budget_approved',
         data: { quoteLabel },
         overrides: {
-          title: 'Orçamento Aprovado',  // o EVENTO, não o nome do estado (que agora é só "Aprovado")
+          title: 'Orçamento Aprovado', // o EVENTO, não o nome do estado (que agora é só "Aprovado")
           body: `O orçamento ${quoteLabel} foi aprovado e já está pronto para aprovação de faturamento.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId
@@ -2896,12 +3097,15 @@ export class TaskQuoteService {
    *   foi faturado, que é o comportamento de `JOINT` — onde existe uma fatia só —
    *   e é também o "faturar os sessenta de uma vez".
    *
-   * COMO O STATUS SE MOVE COM FATIAS
+   * COMO O ESTADO SE MOVE COM FATIAS
    *   Os sessenta caminhões do Marquespan não terminam no mesmo dia, então o
-   *   orçamento passa meses parcialmente faturado. O status não tenta descrever
-   *   isso com um valor novo: a PRIMEIRA fatia aprovada já leva o orçamento a
-   *   BILLING_APPROVED, e dali em diante a cascata o move por
-   *   UPCOMING/DUE/PARTIAL/SETTLED a partir das parcelas que existem.
+   *   orçamento passa meses parcialmente faturado. O STATUS DO ORÇAMENTO não
+   *   descreve isso e não tenta: ele entra em `APPROVED` e fica. Quem tem ciclo
+   *   de pagamento é a COBRANÇA — `Billing.status`, escrito só por
+   *   `BillingStatusCascadeService` a partir das parcelas —, e é por isso que
+   *   uma fatia paga e outra vencida no mesmo orçamento são duas linhas com dois
+   *   estados. (`BILLING_APPROVED`/`UPCOMING`/`DUE`/`PARTIAL` como status de
+   *   orçamento não existem mais.)
    *
    *   `TaskQuote.billingApprovedAt` só é gravado quando o ÚLTIMO faturamento
    *   fecha — é ele que significa "este orçamento está inteiramente faturado", e
@@ -2998,9 +3202,7 @@ export class TaskQuoteService {
     if (targetBillings.length === 0) {
       const jaAprovado = billingId && quoteBillings.some(b => b.id === billingId && b.approvedAt);
       if (billingId && !jaAprovado) {
-        throw new NotFoundException(
-          `Faturamento ${billingId} não pertence ao orçamento ${id}.`,
-        );
+        throw new NotFoundException(`Faturamento ${billingId} não pertence ao orçamento ${id}.`);
       }
       throw new BadRequestException(
         billingId
@@ -3043,12 +3245,25 @@ export class TaskQuoteService {
       );
     }
     // Os pré-requisitos da COBRANÇA — condição de pagamento, dados do pagador,
-    // serviço concluído. Rodam na primeira aprovação, que é quando o conjunto de
-    // pagadores do orçamento é conferido; as fatias seguintes herdam o mesmo
-    // conjunto já validado.
-    if (isFirstApproval) {
-      await this.validateBillingApprovalPrerequisites(id);
-    }
+    // valor a cobrar.
+    //
+    // ⚠️ DUAS CORREÇÕES NESTA CHAMADA.
+    //
+    // (1) ESCOPO. A verificação era do ORÇAMENTO inteiro: aprovar o lote 1 era
+    //     recusado por um CEP faltando no pagador do lote 3 — um erro que não se
+    //     podia obedecer sem mexer em quem não estava sendo faturado. Agora ela
+    //     olha só os pagadores DESTA aprovação.
+    //
+    // (2) FREQUÊNCIA. Rodava só `if (isFirstApproval)`, com o argumento de que as
+    //     fatias seguintes herdavam um conjunto já conferido. Não herdam: entre a
+    //     primeira e a segunda aprovação a tela edita pagador, troca condição de
+    //     pagamento e acrescenta cliente. Da segunda em diante NADA era validado
+    //     — é o que deixava uma cobrança ser aprovada com pagador que a geração
+    //     não sabe faturar.
+    await this.validateBillingApprovalPrerequisites(
+      id,
+      targetConfigs.map(c => c.id),
+    );
 
     // Capture billing approval time now — used as the base date for installment due date calculation.
     // "First payment in N days" counts from this moment, not from task.finishedAt.
@@ -3073,35 +3288,60 @@ export class TaskQuoteService {
         where: { quoteId: id, approvedAt: null },
       })) === 0;
 
-    const targetBillingIds = targetBillings.map(b => b.id);
+    const pedidos = targetBillings.map(b => b.id);
 
-    // 2. Claim ATÔMICO da transição — só na primeira aprovação.
+    // 2. Claim ATÔMICO da transição.
     //
-    // Só um pedido ganha: o que encontra BUDGET_APPROVED e grava
-    // BILLING_APPROVED. `billingApprovedAt` do ORÇAMENTO só é gravado quando esta
-    // aprovação fecha a última fatia; do contrário ele afirmaria que os sessenta
-    // caminhões estão faturados no dia em que o primeiro foi.
-    // O CLAIM É DA COBRANÇA, sempre — inclusive na primeira.
-    //
-    // Antes a primeira aprovação reivindicava o STATUS DO ORÇAMENTO
-    // (`status: APPROVED` → `BILLING_APPROVED`) e as seguintes reivindicavam o
-    // carimbo da fatia. Duas condições de corrida diferentes para o mesmo evento,
-    // e a primeira protegia a coisa errada: duas requisições aprovando
+    // O CLAIM É DA COBRANÇA, sempre — inclusive na primeira. Antes a primeira
+    // aprovação reivindicava o STATUS DO ORÇAMENTO e as seguintes reivindicavam o
+    // carimbo da fatia: duas condições de corrida diferentes para o mesmo evento,
+    // e a primeira protegia a coisa errada (duas requisições aprovando
     // faturamentos DIFERENTES do mesmo orçamento disputavam um campo que não era
-    // de nenhuma das duas.
+    // de nenhuma das duas).
     //
-    // `approvedAt IS NULL` no `updateMany` resolve a corrida sem transação
-    // explícita, e resolve a corrida CERTA: a de aprovar a mesma cobrança duas
-    // vezes.
-    const claimedSlices = await (this.prisma as any).billing.updateMany({
-      where: { id: { in: targetBillingIds }, approvedAt: null },
-      data: { approvedAt: approvalDate },
-    });
-    if (claimedSlices.count === 0) {
+    // ⚠️ UMA COBRANÇA POR VEZ, e o resultado É a lista do que se ganhou.
+    //
+    // Era um `updateMany` sobre todos os alvos que só recusava `count === 0`.
+    // Com alvos SOBREPOSTOS (duas chamadas sem endereço, ou uma sem endereço e
+    // outra por veículo) o claim PARCIAL passava: a chamada seguia adiante
+    // gerando fatura, nota e boleto para `targetBillingIds` INTEIROS — inclusive
+    // a cobrança que a outra requisição acabara de reivindicar. E o desfazer
+    // identificava "o que esta tentativa carimbou" por `approvedAt: approvalDate`
+    // — um instante de milissegundo que duas chamadas simultâneas compartilham,
+    // de modo que o rollback de uma levantava o carimbo da outra. Provado em 14
+    // rodadas: 2 terminaram com cobrança tendo fatura e boleto VIVOS e
+    // `approvedAt` NULO.
+    //
+    // Reivindicando uma a uma, `count === 1` é prova de posse daquela linha, e a
+    // LISTA das ganhas — não um timestamp — é o token do desfazer. O escopo desta
+    // aprovação passa a ser exatamente o que ela reivindicou: quem perdeu uma
+    // cobrança para outra requisição simplesmente não a fatura, e quem ganhou a
+    // fatura uma vez só.
+    const targetBillingIds: string[] = [];
+    for (const candidato of pedidos) {
+      const ganho = await (this.prisma as any).billing.updateMany({
+        where: { id: candidato, approvedAt: null },
+        data: { approvedAt: approvalDate },
+      });
+      if (ganho.count === 1) targetBillingIds.push(candidato);
+    }
+    if (targetBillingIds.length === 0) {
       throw new BadRequestException(
         'Este faturamento já foi aprovado por outra requisição simultânea.',
       );
     }
+    if (targetBillingIds.length < pedidos.length) {
+      this.logger.warn(
+        `[INTERNAL_APPROVE] ${pedidos.length - targetBillingIds.length} de ${pedidos.length} ` +
+          `cobrança(s) do orçamento ${id} já haviam sido reivindicadas por outra requisição — ` +
+          'esta aprovação segue apenas com as que ganhou.',
+      );
+    }
+    // O escopo da GERAÇÃO segue o claim, não o pedido: faturar um pagador de uma
+    // cobrança que esta chamada não reivindicou emitiria a segunda nota fiscal do
+    // mesmo serviço.
+    const claimedBillings = targetBillings.filter(b => targetBillingIds.includes(b.id));
+    const claimedConfigs = claimedBillings.flatMap(b => b.customerConfigs);
     // `TaskQuote.billingApprovedAt` significa "orçamento INTEIRAMENTE faturado" —
     // e continua sendo do orçamento, porque é sobre o contrato, não sobre uma
     // cobrança. Num orçamento de sessenta caminhões ele é gravado quando o
@@ -3113,8 +3353,9 @@ export class TaskQuoteService {
       });
     }
 
-    // Trigger invoice generation and auto-transition to UPCOMING
-    // If anything fails, revert status back to BUDGET_APPROVED so the user can retry
+    // Emissão de fatura, NFS-e e boleto. Se qualquer coisa falhar, o `catch`
+    // levanta os carimbos DESTA tentativa (ver ali) — o status do orçamento não
+    // se move, porque aprovar cobrança deixou de mexer nele.
     try {
       // A tarefa de ENTRADA da geração: a fatia pedida quando há uma, senão a
       // primeira do orçamento. Ela serve de contexto (data de conclusão de
@@ -3139,49 +3380,72 @@ export class TaskQuoteService {
         );
       }
 
-      // O ESCOPO É A LISTA DE PAGADORES DOS FATURAMENTOS ALVO — exata, sem
-      // inferência. `targetConfigs` já era calculado logo acima e só servia para
-      // checar se estava vazio; é exatamente o dado que responde "quais faturas
-      // esta aprovação emite".
-      const onlyConfigIdsDaCobranca = targetConfigs.map(c => c.id);
+      // O ESCOPO É A LISTA DE PAGADORES DAS COBRANÇAS REIVINDICADAS — exata, sem
+      // inferência. É exatamente o dado que responde "quais faturas esta
+      // aprovação emite".
+      const onlyConfigIdsDaCobranca = claimedConfigs.map(c => c.id);
 
       this.logger.log(
         `[INTERNAL_APPROVE] Escopo da geração: ${onlyConfigIdsDaCobranca.length} pagador(es) ` +
-          `de ${targetBillings.length} faturamento(s).`,
+          `de ${claimedBillings.length} faturamento(s).`,
       );
       this.logger.log(`[INTERNAL_APPROVE] Triggering invoice generation for task ${task.id}...`);
-      const invoiceIds = await this.invoiceGenerationService.generateInvoicesForTask(
-        task.id,
-        userId,
-        approvalDate,
-        // O VEÍCULO PEDIDO. Sem isto, aprovar o caminhão 1 de um orçamento
-        // cobrado veículo a veículo emitiria as sessenta faturas, as sessenta
-        // notas fiscais e os duzentos e quarenta boletos de uma vez — exatamente
-        // o que "veículo a veículo" existe para não fazer.
-        //
-        // ⚠️ DUAS CORREÇÕES MORAM NESTA LINHA.
-        //
-        // Era `sliceTaskId ? { onlyTaskIds: [sliceTaskId] } : undefined`. O
-        // primeiro buraco apareceu quando a tela passou a endereçar por cobrança:
-        // em `PUT /billings/:id/approve` o `sliceTaskId` é NULO, o escopo saía
-        // `undefined`, e a geração faturava TODAS as configurações pendentes do
-        // orçamento — aprovar o caminhão 1 de sessenta emitia as sessenta notas e
-        // os sessenta boletos.
-        //
-        // O segundo estava na correção: escopar pela COBERTURA ainda dá a volta
-        // pelo veículo, e cobrança sem cobertura declarada escapa do filtro (a
-        // migration do faturamento-entidade criou uma para todo orçamento anterior
-        // a 13/09). Endereçar os PAGADORES fecha os dois, e vale nos três modos
-        // porque é do conjunto de pagadores que o modo é feito.
-        { onlyConfigIds: onlyConfigIdsDaCobranca },
-      );
+      const { invoiceIds, skippedConfigs } =
+        await this.invoiceGenerationService.generateInvoicesForTaskDetailed(
+          task.id,
+          userId,
+          approvalDate,
+          // O VEÍCULO PEDIDO. Sem isto, aprovar o caminhão 1 de um orçamento
+          // cobrado veículo a veículo emitiria as sessenta faturas, as sessenta
+          // notas fiscais e os duzentos e quarenta boletos de uma vez — exatamente
+          // o que "veículo a veículo" existe para não fazer.
+          //
+          // ⚠️ DUAS CORREÇÕES MORAM NESTA LINHA.
+          //
+          // Era `sliceTaskId ? { onlyTaskIds: [sliceTaskId] } : undefined`. O
+          // primeiro buraco apareceu quando a tela passou a endereçar por cobrança:
+          // em `PUT /billings/:id/approve` o `sliceTaskId` é NULO, o escopo saía
+          // `undefined`, e a geração faturava TODAS as configurações pendentes do
+          // orçamento — aprovar o caminhão 1 de sessenta emitia as sessenta notas e
+          // os sessenta boletos.
+          //
+          // O segundo estava na correção: escopar pela COBERTURA ainda dá a volta
+          // pelo veículo, e cobrança sem cobertura declarada escapa do filtro (a
+          // migration do faturamento-entidade criou uma para todo orçamento anterior
+          // a 13/09). Endereçar os PAGADORES fecha os dois, e vale nos três modos
+          // porque é do conjunto de pagadores que o modo é feito.
+          { onlyConfigIds: onlyConfigIdsDaCobranca },
+        );
       this.logger.log(
         `[INTERNAL_APPROVE] Invoice generation complete: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}]`,
       );
 
-      if (invoiceIds.length === 0) {
+      // ⚠️ A PERGUNTA É "FATUROU TODO MUNDO?", NÃO "FATUROU ALGUÉM?".
+      //
+      // Era `invoiceIds.length === 0`, e isso deixava passar o caso que de fato
+      // acontece: com dois pagadores na cobrança, um com condição de pagamento
+      // que a geração sabe traduzir e outro sem, sai UMA fatura, a guarda aprova,
+      // o carimbo fica de pé — e a cobrança termina APROVADA com um pagador que
+      // nunca foi cobrado, sem nota, sem boleto e sem parcela. A conferência é
+      // contra o ESCOPO pedido.
+      //
+      // `skippedConfigs` vem do próprio gerador e já traz o NOME e o MOTIVO de
+      // cada pulo (ver `SkippedBillingConfig`); a contagem logo abaixo é a rede
+      // para um pulo que algum dia escape da lista.
+      if (skippedConfigs.length > 0) {
+        const quem = skippedConfigs.map(c => `"${c.customerName}" — ${c.reason}`).join('; ');
         throw new InternalServerErrorException(
-          `Nenhuma fatura foi gerada para o orçamento ${id}. Verifique a configuração de faturamento.`,
+          `O faturamento não emitiu fatura para ${skippedConfigs.length} pagador(es): ${quem}. ` +
+            'Nenhum pagador da cobrança pode ficar de fora — corrija e tente de novo.',
+        );
+      }
+      if (invoiceIds.length < onlyConfigIdsDaCobranca.length) {
+        throw new InternalServerErrorException(
+          invoiceIds.length === 0
+            ? `Nenhuma fatura foi gerada para o orçamento ${id}. Verifique a configuração de faturamento.`
+            : `Foram geradas ${invoiceIds.length} fatura(s) para ${onlyConfigIdsDaCobranca.length} ` +
+                'pagador(es) desta cobrança. Nenhum pagador pode ficar sem fatura — verifique a ' +
+                'configuração de faturamento e tente de novo.',
         );
       }
 
@@ -3260,14 +3524,12 @@ export class TaskQuoteService {
         }
       }
 
-      // Marca os faturamentos aprovados. Na primeira aprovação o claim mexeu no
-      // STATUS do orçamento, não nos faturamentos — é aqui, depois de as faturas
-      // existirem, que cada um passa a se declarar faturado. Antes disso uma falha
-      // na geração deixaria faturamento marcado sem fatura nenhuma.
-      await (this.prisma as any).billing.updateMany({
-        where: { id: { in: targetBillingIds }, approvedAt: null },
-        data: { approvedAt: approvalDate },
-      });
+      // (O carimbo das cobranças já foi gravado no CLAIM, uma a uma — é ele que
+      // resolve a corrida. Havia aqui um segundo `updateMany` re-carimbando "o que
+      // sobrou nulo", herdado de quando a primeira aprovação reivindicava o status
+      // do ORÇAMENTO em vez das cobranças. Hoje ele não carimba nada: depois do
+      // claim nenhum alvo está nulo. Ficava afirmando, no comentário, uma mecânica
+      // que já não existe.)
 
       // O ESTADO É RECALCULADO, NUNCA DIGITADO.
       //
@@ -3301,12 +3563,17 @@ export class TaskQuoteService {
       // ficavam de pé, de modo que a tentativa seguinte respondia "esta fatia já
       // teve o faturamento aprovado" sobre um caminhão que nunca foi faturado.
       //
-      // O desfazer é escopado à tentativa: os carimbos DESTA aprovação (marcados
-      // com `approvalDate`, que é único por chamada) e, só quando esta era a
-      // PRIMEIRA aprovação, o status do orçamento.
+      // O desfazer é escopado à tentativa: as cobranças que ELA reivindicou.
+      //
+      // ⚠️ O TOKEN É A LISTA DO CLAIM, NÃO O TIMESTAMP. Era
+      // `approvedAt: approvalDate` — "o que esta chamada carimbou" —, e
+      // `approvalDate` é um instante de milissegundo que duas chamadas
+      // simultâneas compartilham: o rollback de uma levantava o carimbo da outra,
+      // que tinha acabado de emitir nota e boleto. `targetBillingIds` é o que
+      // esta chamada ganhou linha a linha, e nenhuma outra pode tê-lo ganhado.
       try {
         const unclaimed = await (this.prisma as any).billing.updateMany({
-          where: { id: { in: targetBillingIds }, approvedAt: approvalDate },
+          where: { id: { in: targetBillingIds } },
           data: { approvedAt: null },
         });
         if (unclaimed.count > 0) {
@@ -3365,6 +3632,21 @@ export class TaskQuoteService {
     // Billing approved (invoices + NFS-e emitted) -> notify commercial/financial/admin.
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      // ── O AVISO LEVA À COBRANÇA, NÃO AO ORÇAMENTO ─────────────────────────
+      //
+      // O link ia para `/financeiro/orcamento/detalhes/<taskId>` — a tela da
+      // PROPOSTA, de um dos sessenta caminhões, escolhido como âncora. Quem
+      // recebe "Faturamento Aprovado" quer ver a COBRANÇA que acabou de sair: a
+      // fatura, as parcelas, o boleto. Endereçar por `billingId` é a rota
+      // própria dela, e existe desde que o faturamento virou entidade.
+      //
+      // Com mais de uma cobrança nesta aprovação o link vai para a primeira e o
+      // texto diz quantas são — um link não pode apontar para duas telas, e
+      // dizer o número é melhor do que apontar para a errada.
+      const cobrancaAlvo = targetBillingIds[0] ?? null;
+      const quantas = targetBillingIds.length;
+      const fraseFaturas =
+        quantas === 1 ? 'a fatura foi gerada' : `${quantas} cobranças foram faturadas`;
       await this.dispatchService.dispatchByConfiguration('task_quote.billing_approved', userId, {
         entityType: 'TaskQuote',
         entityId: taskId ?? id,
@@ -3372,14 +3654,19 @@ export class TaskQuoteService {
         data: { quoteLabel },
         overrides: {
           title: 'Faturamento Aprovado',
-          body: `O faturamento do orçamento ${quoteLabel} foi aprovado e as faturas foram geradas.`,
+          body: `O faturamento do orçamento ${quoteLabel} foi aprovado e ${fraseFaturas}.`,
           relatedEntityType: 'TASK_QUOTE',
-          ...(taskId
+          ...(cobrancaAlvo
             ? {
-                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
-                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+                webUrl: `/financeiro/faturamento/detalhes/${cobrancaAlvo}`,
+                mobileUrl: `/(tabs)/financeiro/faturamento/detalhes/${cobrancaAlvo}`,
               }
-            : {}),
+            : taskId
+              ? {
+                  webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                  mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+                }
+              : {}),
         },
       });
     } catch (error) {
@@ -3415,108 +3702,30 @@ export class TaskQuoteService {
    * @param action Infinitive used in the error message ("reverter o faturamento", …)
    */
   /**
-   * Close the substitution loop: cancel the notes a previous billing cycle left alive,
-   * citing the note just emitted as the substituta the prefeitura demands.
+   * Fecha o ciclo da substituição fiscal — DELEGADO.
    *
-   * Ibiporã ships ABRASF's atomic `SubstituirNfseEnvio` DISABLED
-   * (`HABILITASOLSUBSTITUICAONFSE = "N"`) and exposes no substitution route, so substitution
-   * has to be two of our own steps: the revert leaves the old note standing, this runs after
-   * the new note is authorized, and the old one is finally cancellable because a substitute
-   * number now exists to name.
+   * A lógica inteira mora em `ElotechOxyNfseService.supersedePreviousNfses`, e
+   * mora lá porque é fiscal: quem sabe o que a prefeitura aceita como
+   * substituta é o serviço que fala com ela.
    *
-   * Best-effort by design — the caller swallows failures. Whatever does not complete here is
-   * retried by the `nfse-cancellation-reconcile` cron, which keys off the `superseded*`
-   * columns written BEFORE the Elotech call precisely so a crash mid-flight is resumable.
+   * ⚠️ O QUE MUDOU AO MUDAR DE CASA. A versão que vivia aqui escolhia UMA
+   * substituta para a rodada inteira (`findFirst` com o maior número entre todas
+   * as faturas emitidas) e mandava cancelar TODA nota órfã do ORÇAMENTO citando
+   * ela. Num orçamento com várias cobranças isso cancelava a nota de uma
+   * cobrança que ninguém refaturou, citando a nota de OUTRA — outro veículo,
+   * outro valor, outra empresa; e dentro da mesma cobrança, cancelava a nota do
+   * pagador 1 citando a do pagador 2. Cancelar citando substituta errada é erro
+   * IRREVERSÍVEL na prefeitura. O pareamento agora é POR PAGADOR
+   * (`customerConfigId`), e na dúvida não cancela.
    *
-   * ⚠️ O VÍNCULO É O ORÇAMENTO, NÃO A TAREFA. `NfseDocument.taskId` é NULO numa
-   * nota conjunta ou de lote (ela não é de nenhum dos sessenta caminhões), e a
-   * reversão ainda zera o `invoiceId` — a nota de um ciclo revertido ficava sem
-   * os dois, invisível para esta busca. Resultado: depois de reverter e faturar
-   * de novo, a prefeitura ficava com DUAS notas AUTORIZADAS do mesmo serviço, e
-   * a antiga sem nem pedido de cancelamento. `quoteId` é o único elo preenchido
-   * SEMPRE (ver o modelo em `schema.prisma`).
+   * Best-effort por desenho: o chamador engole falhas, e o cron
+   * `nfse-cancellation-reconcile` retoma o que ficar pela metade.
    *
    * @param quoteId    Orçamento cujas notas de ciclos anteriores serão substituídas
-   * @param invoiceIds Invoices created by the approval that just ran
+   * @param invoiceIds Faturas criadas pela aprovação que acabou de rodar
    */
   private async supersedePreviousNfses(quoteId: string, invoiceIds: string[]): Promise<void> {
-    // The substituta: a note authorized in THIS round, with a real number. Without one there
-    // is nothing to cite, and cancelling without a substitute is the exact request the fiscal
-    // already refused — so we do nothing rather than burn another rejection.
-    const replacement = await this.prisma.nfseDocument.findFirst({
-      where: {
-        invoiceId: { in: invoiceIds },
-        status: NFSE_STATUS.AUTHORIZED,
-        nfseNumber: { not: null },
-      },
-      orderBy: { nfseNumber: 'desc' },
-      select: { id: true, nfseNumber: true },
-    });
-    if (!replacement?.nfseNumber) return;
-
-    // The superseded: notes of the same task still LIVE at the prefeitura but orphaned of an
-    // invoice — the signature of a reverted cycle. Chains (approve→revert→approve→revert) can
-    // leave several; every one of them points at the NEWEST note, never at each other, because
-    // the latest is the only one the fiscal recognizes as current.
-    const previous = await this.prisma.nfseDocument.findMany({
-      where: {
-        quoteId,
-        id: { not: replacement.id },
-        invoiceId: null,
-        status: { in: [...NFSE_LIVE_STATUSES] },
-        elotechNfseId: { not: null },
-      },
-      select: { id: true, nfseNumber: true },
-    });
-    if (previous.length === 0) return;
-
-    this.logger.log(
-      `[SUPERSEDE] Orçamento ${quoteId}: NFS-e nº ${previous
-        .map(p => p.nfseNumber ?? '?')
-        .join(', ')} será(ão) substituída(s) pela NFS-e nº ${replacement.nfseNumber}.`,
-    );
-
-    for (const old of previous) {
-      // Record the intent BEFORE calling Elotech. If the process dies mid-call, the cron finds
-      // the row and knows both what to retry and which number to cite.
-      await this.prisma.nfseDocument.update({
-        where: { id: old.id },
-        data: {
-          supersededByNfseDocumentId: replacement.id,
-          supersededByNfseNumber: replacement.nfseNumber,
-          supersededAt: new Date(),
-        },
-      });
-
-      try {
-        const outcome = await this.elotechNfseService.cancelNfse(
-          old.id,
-          // The generic "Cancelamento automático por reversão de faturamento." was itself part
-          // of the problem: it names no defect and cites no substitute, which is precisely what
-          // the fiscal asked for. Say both.
-          `Nota substituída por refaturamento da ordem de serviço. O mesmo serviço foi ` +
-            `faturado novamente na NFS-e nº ${replacement.nfseNumber}, que substitui esta.`,
-          1, // 1 = Erro na emissão
-          replacement.nfseNumber,
-        );
-        if (outcome?.cancelled) {
-          this.logger.log(`[SUPERSEDE] NFS-e #${old.nfseNumber} cancelada na prefeitura.`);
-        } else if (outcome?.pending) {
-          this.logger.log(
-            `[SUPERSEDE] NFS-e #${old.nfseNumber}: cancelamento aguardando o fiscal.`,
-          );
-        } else {
-          this.logger.warn(
-            `[SUPERSEDE] NFS-e #${old.nfseNumber} segue ATIVA: ` +
-              `${outcome?.rejectionMessage ?? 'desfecho não confirmado'}.`,
-          );
-        }
-      } catch (error) {
-        this.logger.warn(
-          `[SUPERSEDE] Falha ao pedir cancelamento da NFS-e #${old.nfseNumber}: ${error}`,
-        );
-      }
-    }
+    await this.elotechNfseService.supersedePreviousNfses(quoteId, invoiceIds);
   }
 
   /**
@@ -3629,19 +3838,36 @@ export class TaskQuoteService {
     });
 
     // ─── NFS-e ─────────────────────────────────────────────────────────────
+    //
+    // VÁRIOS elos, porque nenhum sozinho alcança todas. A nota de um ciclo
+    // revertido perde a FATURA (`invoiceId` vira nulo) e, se for conjunta, nunca
+    // teve TAREFA. Sem os elos largos, uma nota viva de um faturamento já
+    // revertido não era conferida na prefeitura antes de desmontar o seguinte.
+    //
+    // ⚠️ MAS O ESCOPO SEGUE A COBRANÇA QUANDO ELA É DITA. Dos três ramos
+    // originais, só o da FATURA respeitava `billingId`; `{ quoteId }` e
+    // `{ task: { quoteId } }` eram do orçamento INTEIRO. O efeito: uma nota
+    // travada (em emissão, ou ilegível na Elotech) de UMA cobrança congelava a
+    // reversão das outras cinquenta e nove — cobranças que não têm nada a ver com
+    // ela e cujos artefatos estão todos confirmados.
+    //
+    // Escopado, os elos viram: a fatura daquela cobrança, o PAGADOR daquela
+    // cobrança (`customerConfigId`, o elo que sobrevive à reversão) e o VEÍCULO
+    // coberto por ela. Sem `billingId`, a pergunta é do orçamento e os elos
+    // largos voltam — é o caminho do cancelamento do orçamento inteiro.
+    const nfseWhere = billingId
+      ? {
+          OR: [
+            { invoice: this.invoicesOfQuote(quoteId, billingId) },
+            { customerConfig: { billingId } },
+            { task: { billingEntry: { billingId } } },
+          ],
+        }
+      : {
+          OR: [{ quoteId }, { invoice: this.invoicesOfQuote(quoteId) }, { task: { quoteId } }],
+        };
     const nfses = await this.prisma.nfseDocument.findMany({
-      where: {
-        // TRÊS elos, porque nenhum sozinho alcança todas. A nota de um ciclo
-        // revertido perde a FATURA (`invoiceId` vira nulo) e, se for conjunta,
-        // nunca teve TAREFA — sobra só o ORÇAMENTO, que é o elo preenchido
-        // sempre. Sem ele, uma nota viva de um faturamento já revertido não era
-        // conferida na prefeitura antes de desmontar o faturamento seguinte.
-        OR: [
-          { quoteId },
-          { invoice: this.invoicesOfQuote(quoteId, billingId) },
-          { task: { quoteId } },
-        ],
-      },
+      where: nfseWhere as any,
       select: { id: true, status: true, nfseNumber: true, elotechNfseId: true },
     });
     const label = (n: (typeof nfses)[number]) => `NFS-e ${n.nfseNumber ?? '(sem número)'}`;
@@ -4030,7 +4256,8 @@ export class TaskQuoteService {
     return {
       success: true,
       data: refreshed as any,
-      message: 'Faturamento revertido com sucesso. As cobranças voltaram para Pendente; o orçamento segue aprovado.',
+      message:
+        'Faturamento revertido com sucesso. As cobranças voltaram para Pendente; o orçamento segue aprovado.',
     };
   }
 
@@ -4808,33 +5035,35 @@ export class TaskQuoteService {
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
   ): Promise<void> {
-    const transition = `${currentStatus}->${newStatus}`;
+    // ⚠️ O DESTINO, NÃO A TRANSIÇÃO.
+    //
+    // Era `switch` sobre `PENDING->APPROVED`, e isso deixava passar o caminho que
+    // a assinatura eletrônica usa: `PENDING → SIGNED → APPROVED`. Chegando por
+    // ali, um orçamento sem pagador nenhum era aprovado sem nada conferir — e
+    // orçamento APROVADO sem pagador não pode ser faturado, não pode ser
+    // liquidado e não sai mais da fila. Há dois assim no acervo (nº 54 e nº 291).
+    //
+    // A pergunta não é de que estado se vem: é se este orçamento tem a quem
+    // cobrar. Ela vale para todo caminho que chegue em APROVADO.
+    if (newStatus === TASK_QUOTE_STATUS.APPROVED) {
+      // Must have at least one customerConfig with total > 0
+      const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+        where: { quoteId },
+        select: { total: true },
+      });
 
-    switch (transition) {
-      case `${TASK_QUOTE_STATUS.PENDING}->${TASK_QUOTE_STATUS.APPROVED}`: {
-        // Must have at least one customerConfig with total > 0
-        const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
-          where: { quoteId },
-          select: { total: true },
-        });
-
-        if (configs.length === 0) {
-          throw new BadRequestException(
-            'É necessário ter pelo menos uma configuração de cliente antes de avançar o status.',
-          );
-        }
-
-        const hasPositiveTotal = configs.some(c => Number(c.total) > 0);
-        if (!hasPositiveTotal) {
-          throw new BadRequestException(
-            'Pelo menos uma configuração de cliente deve ter um valor total maior que zero.',
-          );
-        }
-        break;
+      if (configs.length === 0) {
+        throw new BadRequestException(
+          'É necessário ter pelo menos uma configuração de cliente antes de avançar o status.',
+        );
       }
 
-      default:
-        break;
+      const hasPositiveTotal = configs.some(c => Number(c.total) > 0);
+      if (!hasPositiveTotal) {
+        throw new BadRequestException(
+          'Pelo menos uma configuração de cliente deve ter um valor total maior que zero.',
+        );
+      }
     }
   }
 
@@ -4853,13 +5082,29 @@ export class TaskQuoteService {
    * parcelas por `BillingStatusCascadeService`, e um estado derivado não precisa
    * ser autorizado, só calculado.
    */
-  private async validateBillingApprovalPrerequisites(quoteId: string): Promise<void> {
+  private async validateBillingApprovalPrerequisites(
+    quoteId: string,
+    /**
+     * OS PAGADORES DESTA APROVAÇÃO. Omitido = todos os do orçamento.
+     *
+     * A verificação era sempre do orçamento inteiro, e num orçamento faturado
+     * veículo a veículo isso significa recusar a aprovação do lote 1 por um CEP
+     * faltando no pagador do lote 3 — um erro impossível de obedecer sem mexer em
+     * quem não está sendo faturado agora.
+     */
+    onlyConfigIds?: readonly string[] | null,
+  ): Promise<void> {
+    const escopo =
+      onlyConfigIds && onlyConfigIds.length > 0
+        ? { quoteId, id: { in: [...onlyConfigIds] } }
+        : { quoteId };
     // Each customerConfig must have valid paymentCondition or paymentConfig; task must be finished
     const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
-      where: { quoteId },
+      where: escopo,
       select: {
         id: true,
         customerId: true,
+        total: true,
         paymentCondition: true,
         paymentConfig: true,
         customPaymentText: true,
@@ -4909,7 +5154,17 @@ export class TaskQuoteService {
     // ⚠️ Contando FATIAS, esta guarda recusava o orçamento `PER_TASK`
     // inteiro — e o erro era impossível de obedecer: "Faturar Para" só
     // aparece com mais de um CLIENTE, então não havia onde atribuir nada.
-    if (hasMultipleCustomers(configs)) {
+    //
+    // A pergunta é do ORÇAMENTO, não do escopo desta aprovação: "há mais de um
+    // cliente a repartir estes serviços?" não muda porque se está faturando um
+    // lote de cada vez. Lida do escopo, uma cobrança de um pagador só num
+    // orçamento de dois clientes pularia a guarda e faturaria serviço que
+    // pertence ao outro.
+    const quoteCustomers = await this.prisma.taskQuoteCustomerConfig.findMany({
+      where: { quoteId },
+      select: { customerId: true },
+    });
+    if (hasMultipleCustomers(quoteCustomers)) {
       const unassigned = services.filter(s => !s.invoiceToCustomerId);
       if (unassigned.length > 0) {
         throw new BadRequestException(
@@ -4924,17 +5179,44 @@ export class TaskQuoteService {
       const isCustomPayment = config.paymentCondition === 'CUSTOM';
       const hasPaymentConfig = !!(config as any).paymentConfig;
 
+      // ── A VALIDAÇÃO RECUSA EXATAMENTE O QUE O GERADOR NÃO SABE FAZER ───────
+      //
+      // Os geradores de parcela (`generateInstallmentsFromCondition` e
+      // `...FromPaymentConfig`) começam os dois por `if (total <= 0) return []`.
+      // Zero parcelas = nenhuma fatura para este pagador — e a aprovação seguia
+      // adiante e carimbava a cobrança assim mesmo. O acervo tem 11 pagadores
+      // pendentes nesse estado: aprová-los produz cobrança APROVADA sem fatura,
+      // sem boleto e sem nota, que não dá para faturar nem para liquidar.
+      //
+      // Recusar aqui, com nome, é a resposta honesta: um pagador de R$ 0,00 não
+      // é uma cobrança, é uma linha que alguém esqueceu de preencher.
+      if (Number(config.total ?? 0) <= 0) {
+        throw new BadRequestException(
+          `O faturamento do cliente "${customerName}" está com valor total de R$ 0,00. ` +
+            'Não há o que cobrar: defina o valor (ou remova este pagador) antes de aprovar.',
+        );
+      }
+
       if (!config.paymentCondition && !hasPaymentConfig) {
         throw new BadRequestException(
           `A condição de pagamento não foi definida para o cliente "${customerName}".`,
         );
       }
 
-      // Custom payment uses free-text description
+      // Custom payment uses free-text description.
+      //
+      // `CUSTOM` é ACEITO — e agora isso é verdade dos dois lados. O gerador
+      // passou a produzir UMA parcela no valor total para a condição
+      // personalizada (o combinado é sobre COMO se paga, não sobre SE se deve),
+      // então o que a validação exige é o mínimo que essa parcela precisa: o
+      // texto do combinado e um valor positivo (conferido acima). Antes a
+      // validação abençoava `CUSTOM` e o gerador devolvia zero parcelas — 41
+      // pagadores pendentes presos entre as duas respostas.
       if (isCustomPayment) {
         if (!config.customPaymentText?.trim()) {
           throw new BadRequestException(
-            `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem o texto de pagamento preenchido.`,
+            `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem o texto de pagamento preenchido. ` +
+              'Descreva o combinado (ex.: "à vista no PIX", "50% na entrega") — é ele que vira a parcela.',
           );
         }
         continue;

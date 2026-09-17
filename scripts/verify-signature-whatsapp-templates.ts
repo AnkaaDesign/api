@@ -22,11 +22,14 @@
  */
 import { config } from 'dotenv';
 import {
+  ankaaCountersignTemplate,
+  collectionPausedTemplate,
   expiredTemplate,
   invitationTemplate,
   otpTemplate,
   refusedTemplate,
   reminderTemplate,
+  voidedInternalTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
 } from '../src/modules/common/signature/signature-whatsapp-templates';
@@ -119,6 +122,33 @@ async function main(): Promise<void> {
         refusedByName: 'Kennedy de Campos Teixeira',
         budgetNumber: 1459,
         reason: 'O preço ficou acima do aprovado internamente.',
+      }),
+    },
+    // ── Acrescentados em 17/09, quando os três últimos envios em TEXTO LIVRE
+    // passaram a ter template. Até a Meta aprovar os três, ESTE SCRIPT REPROVA —
+    // e é o comportamento certo: o código já os envia, e um envio por template
+    // inexistente volta com 132001.
+    {
+      rotulo: 'coleta pausada por recusa (cliente)',
+      descritor: collectionPausedTemplate({
+        signerName: 'Sérgio Rodrigues',
+        budgetNumber: 1459,
+        refusedByName: 'Kennedy de Campos Teixeira',
+      }),
+    },
+    {
+      rotulo: 'contra-assinatura pendente (interno)',
+      descritor: ankaaCountersignTemplate({
+        signerName: 'Sérgio Rodrigues',
+        budgetNumber: 1459,
+      }),
+    },
+    {
+      rotulo: 'coleta anulada (interno)',
+      descritor: voidedInternalTemplate({
+        signerName: 'Sérgio Rodrigues',
+        budgetNumber: 1459,
+        reason: 'O valor do serviço de pintura foi corrigido de R$ 12.400,00 para R$ 13.900,00.',
       }),
     },
   ];

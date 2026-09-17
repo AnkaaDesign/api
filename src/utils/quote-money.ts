@@ -204,3 +204,92 @@ export function planCoverage(
 
   return [[...taskIds]];
 }
+
+/**
+ * O PLANO DE COBERTURA DE UM ORÇAMENTO INTEIRO — por CLIENTE, nunca por fatia.
+ *
+ * `planCoverage` responde por um cliente de cada vez, e responde ISOLANDO todo
+ * veículo que os lotes recebidos não reivindicaram. Isso a torna correta quando
+ * recebe TODOS os lotes daquele cliente e uma armadilha quando recebe um só: com
+ * um grupo na mão ela devolve aquele grupo mais um grupo para cada veículo que
+ * sobrou — os veículos dos OUTROS lotes.
+ *
+ * Foi exatamente isso que aconteceu na CRIAÇÃO de um orçamento em lotes: a
+ * chamada era por configuração, com um grupo cada, e cada fatia reivindicava os
+ * lotes das outras. Num orçamento de quatro caminhões em dois lotes, cada
+ * caminhão aparecia DUAS vezes no plano, e `BillingTask.@@unique([taskId])` —
+ * que é global — derrubava a criação inteira em P2002.
+ *
+ * A EDIÇÃO nunca teve o defeito porque `reconcileQuoteCustomerConfigs` agrupa por
+ * cliente antes de chamar. Esta função é essa mesma regra, escrita uma vez, para
+ * que os dois caminhos não possam divergir de novo.
+ *
+ * A PROPRIEDADE que ela garante, e que o teste verifica: **para cada cliente, os
+ * grupos devolvidos PARTICIONAM os veículos** — todo veículo aparece em
+ * exatamente um grupo daquele cliente. É essa partição que faz a soma das
+ * faturas reconstruir o valor do contrato.
+ *
+ * Um grupo recebe TODAS as configurações do cliente que o declararam; nenhuma o
+ * declarou, recebe todas as que delegaram ao modo (dois pagadores em `JOINT` são
+ * dois objetos sem cobertura para um grupo só, e ficar com um deles perderia um
+ * pagador); nenhuma das duas, a primeira do cliente.
+ */
+export function planCoverageByCustomer<
+  T extends {
+    // Opcional no tipo porque o objeto inferido pelo zod da criação traz todas as
+    // chaves opcionais; o valor é obrigatório e o zod já o exigiu.
+    customerId?: string | null;
+    taskIds?: readonly string[] | null;
+    taskId?: string | null;
+  },
+>(
+  configs: readonly T[],
+  taskIds: readonly string[],
+  billingSplit: QuoteBillingSplitValue | null | undefined,
+): Array<{ config: T; coverage: string[] }> {
+  const keyOf = (ids: readonly string[]) => [...ids].sort().join('|');
+  const declaredOf = (c: T): string[] | null => {
+    if (Array.isArray(c.taskIds)) return [...c.taskIds];
+    if (typeof c.taskId === 'string' && c.taskId) return [c.taskId];
+    return null;
+  };
+
+  const porCliente = new Map<string, T[]>();
+  for (const config of configs) {
+    const chave = String(config.customerId ?? '');
+    const lista = porCliente.get(chave) ?? [];
+    lista.push(config);
+    porCliente.set(chave, lista);
+  }
+
+  const plano: Array<{ config: T; coverage: string[] }> = [];
+  for (const [, doCliente] of porCliente) {
+    const declarados = doCliente.map(declaredOf).filter((g): g is string[] => g !== null);
+    const groups = planCoverage(
+      declarados.length > 0 ? 'CUSTOM' : billingSplit,
+      taskIds,
+      declarados.length > 0 ? declarados : null,
+    );
+
+    const porLote = new Map<string, T[]>();
+    const semCobertura: T[] = [];
+    for (const config of doCliente) {
+      const d = declaredOf(config);
+      if (d) {
+        const k = keyOf(d);
+        const lista = porLote.get(k) ?? [];
+        lista.push(config);
+        porLote.set(k, lista);
+      } else {
+        semCobertura.push(config);
+      }
+    }
+
+    for (const coverage of groups) {
+      const candidatos = porLote.get(keyOf(coverage)) ?? semCobertura;
+      const donos = candidatos.length > 0 ? candidatos : [doCliente[0]];
+      for (const config of donos) plano.push({ config, coverage });
+    }
+  }
+  return plano;
+}

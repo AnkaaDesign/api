@@ -60,6 +60,7 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
+import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
 import {
@@ -109,6 +110,7 @@ import {
   generateSignatureInvitationEmail,
   generateSignatureOtpEmail,
   generateAnkaaCountersignEmail,
+  generateAnkaaCountersignReminderEmail,
   generateCollectionPausedEmail,
   generateRefusalNoticeEmail,
   generateEnvelopeVoidedEmail,
@@ -119,6 +121,7 @@ import {
   generateSignatureInvitationWhatsApp,
   generateSignatureOtpWhatsApp,
   generateAnkaaCountersignWhatsApp,
+  generateAnkaaCountersignReminderWhatsApp,
   generateCollectionPausedWhatsApp,
   generateRefusalNoticeWhatsApp,
   generateEnvelopeVoidedWhatsApp,
@@ -146,14 +149,17 @@ import {
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
-import { isReminderDue, spDayDiff } from '../signature-reminder-cadence';
+import { customerSideCompletedAt, isReminderDue, spDayDiff } from '../signature-reminder-cadence';
 import {
+  ankaaCountersignTemplate,
+  collectionPausedTemplate,
   expiredTemplate,
   invitationTemplate,
   refusedTemplate,
   otpTemplate,
   reminderTemplate,
   resendTemplate,
+  voidedInternalTemplate,
   voidedTemplate,
   type SignatureWhatsAppTemplate,
 } from '../signature-whatsapp-templates';
@@ -254,12 +260,31 @@ function formatContactList(names: readonly string[]): string | null {
   return `${clean.slice(0, 2).join(', ')} e mais ${clean.length - 2}`;
 }
 
-function driftDetailOf(eventType: string, payload: unknown): string | null {
-  if (eventType !== 'SNAPSHOT_DRIFTED') return null;
+function eventDetailOf(eventType: string, payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
-  const changes = (payload as Record<string, unknown>).changes;
-  if (typeof changes !== 'string' || !changes.trim()) return null;
-  return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
+  const data = payload as Record<string, unknown>;
+
+  if (eventType === 'SNAPSHOT_DRIFTED') {
+    const changes = data.changes;
+    if (typeof changes !== 'string' || !changes.trim()) return null;
+    return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
+  }
+
+  // REDESIGNAÇÃO DO CONTRA-ASSINANTE. O documento está congelado e a linha de
+  // assinatura impressa continua nomeando o designado original; sem esta linha,
+  // quem abrisse o artefato leria "Contato do signatário alterado" e não teria
+  // como saber que o selo diz um nome porque o papel diz outro.
+  if (eventType === 'CONTACT_CHANGED' && data.kind === 'ankaa_signer_reassigned') {
+    const de = (data.de as { nome?: unknown } | null)?.nome;
+    const para = (data.para as { nome?: unknown } | null)?.nome;
+    if (typeof de !== 'string' || typeof para !== 'string') return null;
+    return (
+      `Representante da Ankaa: ${de} → ${para}. A linha de assinatura impressa neste ` +
+      `documento foi congelada em nome de ${de}.`
+    );
+  }
+
+  return null;
 }
 
 /** Como cada lacuna de cadastro tardio é chamada para o operador. */
@@ -446,8 +471,20 @@ export class SignatureEnvelopeService {
     sectionCatalog: Array<{ key: QuoteSection; label: string; description: string }>;
     ankaa: {
       name: string;
+      /**
+       * O cargo que vai ser IMPRESSO na linha de assinatura e gravado no selo —
+       * o mesmo valor nos dois, congelado na emissão. Ver `ankaaCargoOf`.
+       */
+      cargo: string;
       hasPhone: boolean;
       hasEmail: boolean;
+      /**
+       * CPF do representante no cadastro do DP. Não impede nada — a identidade
+       * do ato vem da sessão —, mas sem ele o selo da contra-assinatura sai sem
+       * documento do signatário, para sempre, e o operador tem direito de saber
+       * disso enquanto ainda dá para pedir ao DP que preencha.
+       */
+      hasCpf: boolean;
       /**
        * A Ankaa contra-assina no sistema, em sessão autenticada. O contato serve
        * só para o AVISO de que o cliente terminou, e por isso a falta dele deixou
@@ -492,6 +529,11 @@ export class SignatureEnvelopeService {
         id: true,
         expiresAt: true,
         commercialUserId: true,
+        // O portão de layout passou a valer na EMISSÃO (ver `createEnvelope`).
+        // O preflight existe justamente para dizer isso ANTES do clique: sem
+        // esta linha o operador escolheria canal, marcaria recortes, confirmaria
+        // e só então tomaria o 400.
+        layoutFiles: { select: { id: true }, take: 1 },
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -515,14 +557,32 @@ export class SignatureEnvelopeService {
 
     const blockers: string[] = [];
 
-    const running = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, status: EnvelopeStatus.RUNNING },
-      select: { id: true },
+    // Os MESMOS dois estados que `createEnvelope` recusa — viva e concluída. Um
+    // preflight que diz "pode" e um POST que responde 400 é pior que não ter
+    // preflight nenhum.
+    const previousLive = await this.prisma.signatureEnvelope.findFirst({
+      where: {
+        quoteId,
+        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+      },
+      select: { id: true, status: true, version: true },
     });
-    if (running) {
+    if (previousLive?.status === EnvelopeStatus.RUNNING) {
       blockers.push(
         'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
           'Cancele-a antes de emitir outra.',
+      );
+    } else if (previousLive) {
+      blockers.push(
+        `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${previousLive.version}). ` +
+          'Reemitir criaria um segundo contrato selado para o mesmo número.',
+      );
+    }
+
+    if (!quote.layoutFiles?.length) {
+      blockers.push(
+        'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
+          'Sem ele o orçamento não poderá ser aprovado depois que o cliente assinar.',
       );
     }
 
@@ -558,15 +618,24 @@ export class SignatureEnvelopeService {
     // um signatário que não conseguiu resolver.
     let ankaa: {
       name: string;
+      cargo: string;
       hasPhone: boolean;
       hasEmail: boolean;
+      hasCpf: boolean;
       reachable: boolean;
     } | null = null;
     try {
       const user = await this.resolveAnkaaSigner(quote as never);
       const hasPhone = onlyDigits(user.phone).length >= 10;
       const hasEmail = !!user.email?.includes('@');
-      ankaa = { name: user.name, hasPhone, hasEmail, reachable: hasPhone || hasEmail };
+      ankaa = {
+        name: user.name,
+        cargo: this.ankaaCargoOf(user),
+        hasPhone,
+        hasEmail,
+        hasCpf: !!onlyDigits(user.cpf ?? ''),
+        reachable: hasPhone || hasEmail,
+      };
     } catch {
       blockers.push(
         'Nenhum representante da Ankaa pôde ser resolvido para este orçamento. ' +
@@ -714,6 +783,32 @@ export class SignatureEnvelopeService {
   }
 
   /**
+   * O CLIENTE RECUSOU e não sobrou ninguém do lado dele para assinar.
+   *
+   * ⚠️ ESTE GANCHO NÃO EXISTIA, e a falta dele deixava o orçamento parado num
+   * estado que não descrevia mais a realidade: o envelope ia para `REFUSED` e o
+   * `TaskQuote` continuava `PENDING`, indistinguível de um criado naquela manhã.
+   * Em toda lista, filtro e relatório do comercial, um negócio que o cliente
+   * recusou aparecia como um negócio à espera de resposta. Medido no acervo:
+   * NOVE envelopes `REFUSED` com o orçamento em `PENDING`.
+   *
+   * É exatamente o buraco que `markExpiredBySignature` fechou no ramo do
+   * vencimento, e pelo mesmo raciocínio: a cerimônia sabe que a coleta morreu, e
+   * só o dono do orçamento sabe o que isso significa para o estado dele.
+   *
+   * O MOTIVO VAI JUNTO porque é a única informação que a recusa acrescenta — sem
+   * ele, quem recebe a notificação sabe que parou e não sabe o que negociar.
+   */
+  private onEnvelopeRefused:
+    | ((quoteId: string, envelopeId: string, reason: string) => Promise<void>)
+    | null = null;
+  setOnEnvelopeRefused(
+    cb: (quoteId: string, envelopeId: string, reason: string) => Promise<void>,
+  ): void {
+    this.onEnvelopeRefused = cb;
+  }
+
+  /**
    * Dispara o gancho de vencimento. Existe como método público para que a
    * varredura não precise alcançar o campo privado — e para que a ausência do
    * gancho (API subindo sem o módulo de orçamento, o que acontece em teste) seja
@@ -800,13 +895,73 @@ export class SignatureEnvelopeService {
     if (!loaded) throw new NotFoundException('Orçamento não encontrado.');
     const { quote, snapshot, hash, materialHash } = loaded;
 
+    // ── COLETA VIVA, OU COLETA JÁ CONCLUÍDA ──────────────────────────────────
+    //
+    // `RUNNING` sempre foi barrado. `COMPLETED` não era, e a rota aceitava
+    // reemitir por cima de um contrato JÁ ASSINADO E SELADO — a tela e o app
+    // escondem o botão, mas esconder não é impedir. O acervo mostra o resultado:
+    // o orçamento nº 591 tem TRÊS envelopes concluídos e selados, um por cima do
+    // outro, cada um com bytes diferentes e todos válidos aos olhos do PAdES.
+    // "Qual é o contrato?" deixa de ter resposta.
+    //
+    // O que existia no lugar da recusa era a SUBSTITUIÇÃO (o anterior virava
+    // `SUPERSEDED`). Ela resolvia o sintoma da lista — dois envelopes vivos —
+    // sem resolver o fato: o documento superado continua selado, continua
+    // verificável no portal público e continua sendo um instrumento assinado
+    // pelas duas partes. Um contrato não se revoga emitindo outro.
+    //
+    // Depois de selado, o caminho é o ADITIVO (identificação do veículo) ou um
+    // orçamento novo. Nunca uma segunda coleta sobre o mesmo número.
     const existing = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId: args.quoteId, status: EnvelopeStatus.RUNNING },
+      where: {
+        quoteId: args.quoteId,
+        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+      },
+      select: { id: true, status: true, version: true },
     });
-    if (existing) {
+    if (existing?.status === EnvelopeStatus.RUNNING) {
       throw new BadRequestException(
         'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
           'Cancele-a antes de emitir outra.',
+      );
+    }
+    if (existing) {
+      throw new BadRequestException(
+        `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${existing.version}). ` +
+          'Reemitir criaria um segundo contrato selado para o mesmo número. Para acrescentar a ' +
+          'identificação do veículo use o aditivo; para mudar as condições, abra um orçamento novo.',
+      );
+    }
+
+    // ── O LAYOUT APROVADO É CONDIÇÃO PARA EMITIR, NÃO PARA APROVAR ───────────
+    //
+    // O portão de layout mora em `TaskQuoteService.budgetApprove`, que é
+    // chamado DEPOIS de tudo: cliente assinou, Ankaa contra-assinou, PAdES
+    // aplicado, dossiê congelado. Ele estoura dentro do `try/catch`
+    // best-effort de `finalize`, que só loga — e o orçamento fica PENDING com um
+    // contrato assinado e selado em cima dele. `retryFinalize` recusa ("já tem o
+    // documento final emitido") e nenhuma outra rota reexecutava o gancho.
+    //
+    // Medido: o orçamento nº 591 tem três envelopes concluídos e selados, o
+    // orçamento em PENDING e ZERO layouts. Ninguém conseguiu aprová-lo, e a
+    // tentativa de contornar foi justamente reemitir — três vezes.
+    //
+    // O portão passa para cá porque é AQUI que corrigir ainda é barato: nada foi
+    // congelado, ninguém assinou, e o operador está na tela em que escolhe o
+    // layout. Depois do selo, o mesmo "não" custa um contrato.
+    //
+    // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
+    // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
+    // e o layout pode ser desvinculado entre a emissão e a conclusão.
+    const gate = await this.prisma.taskQuote.findUnique({
+      where: { id: args.quoteId },
+      select: { layoutFiles: { select: { id: true }, take: 1 } },
+    });
+    if (!gate?.layoutFiles?.length) {
+      throw new BadRequestException(
+        'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
+          'Sem ele o orçamento não pode ser aprovado depois que o cliente assinar, e a coleta ' +
+          'ficaria concluída com o orçamento parado.',
       );
     }
 
@@ -942,6 +1097,12 @@ export class SignatureEnvelopeService {
     // que faz a coleta comum — todo mundo COMERCIAL, todo mundo recebendo tudo —
     // continuar congelando UM arquivo, exatamente como antes deste recurso.
     const ankaaSignerId = randomUUID();
+    // ⚠️ RESOLVIDO UMA VEZ, aqui, e usado nos dois lugares que precisam dele: o
+    // subtítulo IMPRESSO na linha de assinatura do PDF que está prestes a ser
+    // congelado, e o `informedCargo` que a contra-assinatura vai gravar no selo.
+    // Enquanto eram duas expressões, o mesmo documento dizia dois cargos. Ver
+    // `ankaaCargoOf` e o uso do valor congelado em `countersign`.
+    const ankaaCargo = this.ankaaCargoOf(ankaaUser);
     const ankaaSeed = {
       id: ankaaSignerId,
       responsibleId: null as string | null,
@@ -949,14 +1110,32 @@ export class SignatureEnvelopeService {
       // aqui: o CPF do colaborador é gerido no DP, não numa cerimônia de
       // assinatura.
       cpf: ankaaUser.cpf ?? null,
+      cargo: ankaaCargo as string | null,
       userId: ankaaUser.id,
       name: ankaaUser.name,
       phone: onlyDigits(ankaaUser.phone ?? COMPANY.phoneClean),
       email: ankaaUser.email,
       orderGroup: 1,
       side: 'ANKAA' as const,
-      subtitle: `${COMPANY.directorTitle} — ${COMPANY.name}`,
+      subtitle: `${ankaaCargo} — ${COMPANY.name}`,
     };
+
+    // ⚠️ SEM CPF, O SELO DA ANKAA SAI SEM DOCUMENTO DO SIGNATÁRIO.
+    //
+    // Não barra: a identidade deste ato vem da sessão e do `userId` congelado, e
+    // travar o fechamento de um negócio por um campo vazio no cadastro do DP
+    // seria cobrar do cliente um problema nosso. Mas era um `logger.warn` no
+    // instante do clique e mais nada — o operador nunca via. Hoje o acervo
+    // INTEIRO de contra-assinaturas recentes sai sem CPF, porque o cadastro do
+    // representante está sem ele e ninguém foi avisado. O preflight passa a
+    // dizer isso na tela de envio, que é onde ainda dá para corrigir antes de
+    // congelar o documento.
+    if (!onlyDigits(ankaaUser.cpf ?? '')) {
+      this.logger.warn(
+        `O representante da Ankaa (${ankaaUser.name}) não tem CPF no cadastro: o selo da ` +
+          `contra-assinatura do orçamento ${args.quoteId} sairá sem o documento do signatário.`,
+      );
+    }
 
     const customerCompany =
       primaryTask(quote)?.customer?.corporateName ?? primaryTask(quote)?.customer?.fantasyName ?? '';
@@ -969,6 +1148,11 @@ export class SignatureEnvelopeService {
         id: string;
         responsibleId: string | null;
         cpf: string | null;
+        /**
+         * O cargo CONGELADO, e só do lado da Ankaa. O do cliente é digitado no
+         * ato (`informedCargo`, via `requestOtp`) e por isso nasce nulo aqui.
+         */
+        cargo: string | null;
         userId: string | null;
         name: string;
         phone: string;
@@ -1000,6 +1184,8 @@ export class SignatureEnvelopeService {
         // vale como conferência. Sem CPF cadastrado ele digita o número inteiro
         // — e a primeira assinatura o grava (ver `persistCpfToResponsible`).
         cpf: entry.responsible.cpf ?? null,
+        // O cliente declara o cargo dele no ato, na tela pública.
+        cargo: null,
         userId: null,
         name: entry.responsible.name,
         phone: onlyDigits(entry.responsible.phone),
@@ -1090,29 +1276,28 @@ export class SignatureEnvelopeService {
     const full = persisted.find(p => p.plan.isFull)!;
     const originalSha256 = full.sha256;
     const deadlineAt = quote.expiresAt;
-    const supersededIds: Array<{ id: string; version: number }> = [];
 
     const envelope = await this.prisma.$transaction(async tx => {
-      // Reemissão sobre um orçamento JÁ ASSINADO: o anterior passa a
-      // `SUPERSEDED`. Sem isto ficavam dois envelopes selados vivos para o mesmo
-      // número de orçamento, e `getPublicQuoteSummary` — que ordena por versão —
-      // passava a dizer "aguardando assinatura" ao cliente que já tinha
-      // assinado, convidando-o a assinar de novo. Se a v2 concluísse, existiriam
-      // DOIS artefatos selados com conteúdo diferente para o mesmo orçamento, e
-      // `budgetApprove` dispararia duas vezes.
+      // A MESMA PERGUNTA DO PORTÃO, AGORA DENTRO DA TRANSAÇÃO.
       //
-      // Nada é perdido: o artefato do superado continua no disco e todas as
-      // leituras de documento chaveiam por `finalFileId`, não por status.
-      const supersedable = await tx.signatureEnvelope.findMany({
-        where: { quoteId: args.quoteId, status: EnvelopeStatus.COMPLETED },
-        select: { id: true, version: true },
+      // O portão lá em cima roda antes do render e da escrita dos PDFs — dezenas
+      // de segundos antes desta linha. Nesse intervalo o último signatário do
+      // cliente pode assinar e a coleta anterior concluir, e aí a leitura do
+      // portão estaria obsoleta. Repetir aqui é o que impede que a corrida
+      // produza exatamente o que o portão existe para impedir: dois envelopes
+      // concluídos para o mesmo orçamento.
+      const live = await tx.signatureEnvelope.findFirst({
+        where: {
+          quoteId: args.quoteId,
+          status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+        },
+        select: { version: true, status: true },
       });
-      if (supersedable.length) {
-        await tx.signatureEnvelope.updateMany({
-          where: { id: { in: supersedable.map(e => e.id) } },
-          data: { status: EnvelopeStatus.SUPERSEDED },
-        });
-        supersededIds.push(...supersedable);
+      if (live) {
+        throw new BadRequestException(
+          `Outra coleta deste orçamento (versão ${live.version}) mudou de estado durante a ` +
+            'emissão. Recarregue a tela e confira antes de emitir novamente.',
+        );
       }
 
       // NOVA COLETA, NOVO DIREITO A UM AVISO DE VENCIMENTO.
@@ -1181,6 +1366,11 @@ export class SignatureEnvelopeService {
               documentId: document.id,
               responsibleId: seed.responsibleId,
               declaredCpf: seed.cpf ?? null,
+              // ⚠️ CARGO CONGELADO na emissão, só para a Ankaa — é o MESMO valor
+              // impresso na linha de assinatura do PDF congelado nesta mesma
+              // transação. A contra-assinatura o lê de volta em vez de recalcular
+              // do cadastro, que é o que fazia selo e papel divergirem.
+              informedCargo: seed.cargo ?? null,
               userId: seed.userId,
               orderGroup: seed.orderGroup,
               declaredName: seed.name,
@@ -1211,31 +1401,6 @@ export class SignatureEnvelopeService {
 
       return created;
     });
-
-    // Trilha do envelope SUPERADO, fora da transação: `SignatureAuditEvent` é
-    // append-only com trigger, e a cadeia de hash é encadeada por envelope — o
-    // registro pertence ao antigo, não ao novo. Best-effort: a substituição já
-    // está persistida, e falhar aqui não pode desfazer a emissão.
-    for (const old of supersededIds) {
-      try {
-        await this.audit.record(old.id, {
-          eventType: 'ENVELOPE_INVALIDATED',
-          actorType: 'SYSTEM',
-          payload: {
-            reason: 'superseded',
-            supersededBy: envelope.id,
-            supersededByVersion: envelope.version,
-            note: 'Nova coleta emitida para o mesmo orçamento. O artefato assinado deste envelope permanece íntegro e verificável.',
-          },
-        });
-      } catch (error) {
-        this.logger.warn(
-          `Envelope ${old.id} marcado SUPERSEDED, mas o evento de trilha falhou: ${
-            error instanceof Error ? error.message : error
-          }`,
-        );
-      }
-    }
 
     await this.audit.record(envelope.id, {
       eventType: 'ENVELOPE_CREATED',
@@ -1470,24 +1635,113 @@ export class SignatureEnvelopeService {
     }));
   }
 
+  /**
+   * O cargo que a Ankaa AFIRMA sobre o próprio representante.
+   *
+   * ⚠️ FONTE ÚNICA — é daqui que saem o SUBTÍTULO impresso na linha de
+   * assinatura do documento congelado e o `informedCargo` do selo. Eram duas
+   * expressões diferentes até 17/09: o PDF congelava
+   * `"${COMPANY.directorTitle} — ${COMPANY.name}"` e o selo gravava
+   * `position || sector || directorTitle`. Um comentário afirmava que o recuo
+   * impedia a divergência — e era falso sempre que a pessoa tinha posição ou
+   * setor preenchidos. Medido no acervo: a contra-assinatura mais recente tem
+   * `informedCargo = 'Comercial'` sobre um documento que diz "Diretor
+   * Comercial". Dois cargos, mesma pessoa, mesmo papel, no mesmo PDF.
+   *
+   * O SETOR SAIU DA CADEIA, e é ele o culpado do caso acima. Setor é o
+   * DEPARTAMENTO em que a pessoa trabalha ("Comercial", "Financeiro"), não o
+   * cargo que ela ocupa — e o que a linha de assinatura de um contrato declara é
+   * um cargo. Com a cadeia reduzida a posição → título institucional, o usuário
+   * do acervo (sem posição cadastrada) volta a render exatamente "Diretor
+   * Comercial", que é o que todos os documentos já impressos dizem.
+   */
+  private ankaaCargoOf(user: { position?: { name?: string | null } | null } | null): string {
+    return fitCargo(user?.position?.name ?? '') || COMPANY.directorTitle;
+  }
+
+  /**
+   * O cargo que as TELAS mostram para um signatário — painel, portal público de
+   * verificação e página pública do orçamento.
+   *
+   * ⚠️ A CASCATA DO LADO DA ANKAA MUDOU. Era `posição || setor`, lida do cadastro
+   * de AGORA, sobre um documento que imprimiu `COMPANY.directorTitle` no
+   * congelamento. A tela dizia um cargo, o papel dizia outro, e o portal público
+   * de verificação — cuja única razão de existir é confirmar o que o documento
+   * diz — dizia o da tela.
+   *
+   * Hoje a emissão congela o cargo em `informedCargo` (ver `ankaaCargoOf`), então
+   * o primeiro degrau responde por toda coleta nova. O recuo é o título
+   * institucional LITERAL, que é o que os documentos anteriores imprimem sem
+   * exceção. O lado do CLIENTE não muda: lá o recuo são as funções do contato,
+   * que é o que o documento dele imprime.
+   */
+  private displayCargoOf(s: {
+    orderGroup: number;
+    informedCargo?: string | null;
+    responsible?: { roles?: string[] | null } | null;
+    user?: {
+      position?: { name?: string | null } | null;
+      sector?: { name?: string | null } | null;
+    } | null;
+  }): string | null {
+    if (s.informedCargo?.trim()) return s.informedCargo.trim();
+    if (s.orderGroup === 1) return COMPANY.directorTitle;
+    return (
+      formatResponsibleRoles(s.responsible?.roles ?? []) ||
+      s.user?.position?.name?.trim() ||
+      s.user?.sector?.name?.trim() ||
+      null
+    );
+  }
+
+  /**
+   * Quem contra-assina pela Ankaa.
+   *
+   * ⚠️ SÓ VÍNCULO ATIVO, nas DUAS pontas. Nenhuma delas filtrava, e o
+   * `auth.guard` recusa quem não está `ACTIVE` (`isUserEmployed`): uma coleta
+   * nova congelava um usuário desligado como contra-assinante, imprimia o nome
+   * dele na linha de assinatura do documento e depois não deixava ninguém
+   * concluir — com o cliente já tendo assinado. A liberação para ADMIN (17/09)
+   * faz existir quem aperte o botão, mas não conserta a raiz: o documento
+   * continuaria nomeando um ex-colaborador como representante da empresa.
+   *
+   * Representante comercial desligado NÃO é erro: cai no diretor, como um
+   * orçamento sem representante nenhum. Fica o aviso no log, que é o que permite
+   * corrigir o cadastro do orçamento.
+   */
   private async resolveAnkaaSigner(quote: QuoteWithSnapshotGraph) {
+    const select = {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      cpf: true,
+      // Entram por causa do cargo: ele é resolvido AQUI, uma vez, e vale para o
+      // documento e para o selo. Ver `ankaaCargoOf`.
+      position: { select: { name: true } },
+    } as const;
+
     if (quote.commercialUserId) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: quote.commercialUserId },
-        select: { id: true, name: true, phone: true, email: true, cpf: true },
+      const user = await this.prisma.user.findFirst({
+        where: { id: quote.commercialUserId, ...EMPLOYED_USER_WHERE },
+        select,
       });
       if (user) return user;
+      this.logger.warn(
+        `O representante comercial do orçamento ${quote.id} (usuário ${quote.commercialUserId}) ` +
+          'não tem vínculo ativo — a coleta será emitida em nome do diretor.',
+      );
     }
     // Sem representante comercial atribuído, cai no diretor configurado. Não há
     // hoje nenhum campo de vendedor responsável em Task/TaskQuote além deste.
     const director = await this.prisma.user.findFirst({
-      where: { name: { contains: COMPANY.directorName, mode: 'insensitive' } },
-      select: { id: true, name: true, phone: true, email: true, cpf: true },
+      where: { name: { contains: COMPANY.directorName, mode: 'insensitive' }, ...EMPLOYED_USER_WHERE },
+      select,
     });
     if (!director) {
       throw new BadRequestException(
         'Não foi possível determinar o representante comercial da Ankaa para assinar. ' +
-          'Defina o responsável comercial no orçamento.',
+          'Defina um responsável comercial COM VÍNCULO ATIVO no orçamento.',
       );
     }
     return director;
@@ -1964,10 +2218,18 @@ export class SignatureEnvelopeService {
    * Roda pelo `SignatureReminderScheduler`. Devolve a contagem para o log — o
    * agendador não decide nada, só chama.
    *
-   * SÓ O GRUPO 0. O signatário da Ankaa não recebe lembrete por este caminho:
-   * ele não assina por link, e a cobrança interna de contra-assinatura é uma
-   * notificação do sistema, não um WhatsApp para o celular de quem já está
-   * sentado na frente da tela. Ver `TaskQuoteService.markSigned`.
+   * ⚠️ OS DOIS GRUPOS, desde 17/09. O grupo 1 — a nossa caneta — estava fora,
+   * com o argumento de que "a cobrança interna é uma notificação do sistema, não
+   * um WhatsApp para quem já está na frente da tela". O argumento supunha que o
+   * aviso tivesse chegado: ele sai UMA vez, sem `await`, best-effort, de dentro
+   * do POST de assinatura do cliente (`advanceEnvelope` → `notifyAnkaaSigner`).
+   * Se falhar — telefone errado, disjuntor do WhatsApp aberto, servidor de
+   * e-mail recusando —, ninguém cobra de novo e ninguém fica sabendo: a coleta
+   * para com o CLIENTE JÁ TENDO ASSINADO, que é o pior momento possível.
+   *
+   * A cadência do grupo 1 é a mesma do cliente, com outra ÂNCORA: conta do
+   * instante em que o último responsável do cliente assinou, e não da emissão.
+   * Ver `customerSideCompletedAt`.
    */
   async dispatchDueReminders(now: Date = new Date()): Promise<{ sent: number; failed: number }> {
     const envelopes = await this.prisma.signatureEnvelope.findMany({
@@ -1988,25 +2250,27 @@ export class SignatureEnvelopeService {
         id: true,
         createdAt: true,
         deadlineAt: true,
-        quote: { select: { budgetNumber: true } },
-        signers: {
-          where: {
-            orderGroup: 0,
-            // Quem já assinou, recusou, foi anulado ou perdeu o prazo não é
-            // cobrado. Escrito como exclusão e não como `status: PENDING`: um
-            // estado intermediário novo no enum deve continuar recebendo
-            // lembrete, que é a direção segura para uma cobrança.
-            status: {
-              notIn: [
-                EnvelopeSignerStatus.SIGNED,
-                EnvelopeSignerStatus.REFUSED,
-                EnvelopeSignerStatus.VOIDED,
-                EnvelopeSignerStatus.EXPIRED,
-              ],
+        quote: {
+          select: {
+            budgetNumber: true,
+            // O link da tela interna do aviso de contra-assinatura é chaveado
+            // pela tarefa. Ver `internalQuoteUrl`.
+            tasks: {
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, createdAt: true },
             },
           },
+        },
+        // TODOS os signatários, sem filtro no banco. O recorte deixou de ser
+        // "grupo 0 pendente": para decidir se o grupo 1 já pode ser cobrado é
+        // preciso saber se o grupo 0 INTEIRO assinou — e quando. Um `where` que
+        // some com quem já assinou apagaria justamente essa informação.
+        signers: {
           select: {
             id: true,
+            orderGroup: true,
+            status: true,
+            signedAt: true,
             declaredName: true,
             declaredEmail: true,
             declaredPhone: true,
@@ -2019,11 +2283,23 @@ export class SignatureEnvelopeService {
       },
     });
 
+    // Quem já assinou, recusou, foi anulado ou perdeu o prazo não é cobrado.
+    // Escrito como exclusão e não como `status: PENDING`: um estado
+    // intermediário novo no enum deve continuar recebendo lembrete, que é a
+    // direção segura para uma cobrança.
+    const aindaCobravel = (status: EnvelopeSignerStatus) =>
+      status !== EnvelopeSignerStatus.SIGNED &&
+      status !== EnvelopeSignerStatus.REFUSED &&
+      status !== EnvelopeSignerStatus.VOIDED &&
+      status !== EnvelopeSignerStatus.EXPIRED;
+
     let sent = 0;
     let failed = 0;
 
     for (const envelope of envelopes) {
-      for (const signer of envelope.signers) {
+      for (const signer of envelope.signers.filter(
+        sig => sig.orderGroup === 0 && aindaCobravel(sig.status),
+      )) {
         const due = isReminderDue(
           {
             lastReminderAt: signer.lastReminderAt,
@@ -2101,6 +2377,94 @@ export class SignatureEnvelopeService {
         if (delivery.ok) sent++;
         else failed++;
       }
+
+      // ── GRUPO 1: A NOSSA CANETA ────────────────────────────────────────────
+      //
+      // Cobrado só depois que o lado do cliente fechou INTEIRO — antes disso a
+      // ordem sequencial do envelope nem deixaria assinar (`assertSignable`), e
+      // cobrar seria pedir um ato impossível.
+      const fechouEm = customerSideCompletedAt(envelope.signers);
+      const ankaaSigner = envelope.signers.find(
+        sig => sig.orderGroup === 1 && aindaCobravel(sig.status),
+      );
+      if (!fechouEm || !ankaaSigner) continue;
+
+      const ankaaDue = isReminderDue(
+        {
+          lastReminderAt: ankaaSigner.lastReminderAt,
+          reminderCount: ankaaSigner.reminderCount,
+          // A ÂNCORA É O FECHAMENTO DO CLIENTE, não a emissão. Ver
+          // `customerSideCompletedAt`: numa coleta que levou doze dias, ancorar
+          // na emissão despejaria três cobranças de enfiada no dia seguinte ao
+          // aviso.
+          invitedAt: fechouEm,
+        },
+        now,
+      );
+      if (!ankaaDue) continue;
+
+      // O canal da COLETA, lido do lado do cliente — o `authMethod` da Ankaa é
+      // `INTERNAL_SESSION` e não descreve canal nenhum. Ver `noticeChannelOf`.
+      const ankaaChannel = this.noticeChannelOf(envelope.signers);
+      const quoteUrl = this.internalQuoteUrl(primaryTask(envelope.quote)?.id ?? null);
+      const daysPending = Math.max(0, spDayDiff(fechouEm, now));
+      const ankaaPayload = {
+        signerName: ankaaSigner.declaredName,
+        budgetNumber: envelope.quote.budgetNumber,
+        quoteUrl,
+        daysPending,
+      };
+
+      const ankaaDelivery = await this.deliverToSigner({
+        signer: ankaaSigner,
+        channel: ankaaChannel,
+        email: generateAnkaaCountersignReminderEmail(ankaaPayload),
+        whatsapp: generateAnkaaCountersignReminderWhatsApp(ankaaPayload),
+        whatsappPreview: this.signingLinkPreview(
+          envelope.quote.budgetNumber,
+          quoteUrl,
+          'countersign',
+        ),
+        // O MESMO template do aviso: o corpo aprovado diz "aguarda a
+        // contra-assinatura", que é verdade no primeiro dia e no décimo. O que
+        // distingue os dois momentos é o texto livre acima, que sai por e-mail e
+        // pelo Baileys e ali diz há quantos dias está parado.
+        whatsappTemplate: ankaaCountersignTemplate({
+          signerName: ankaaSigner.declaredName,
+          budgetNumber: envelope.quote.budgetNumber,
+        }),
+        kind: 'SIGNATURE_ANKAA_REMINDER',
+      });
+
+      // Mesmo carimbo-mesmo-falhando do lado do cliente, e pelo mesmo motivo:
+      // sem ele um representante com contato errado volta à fila todo dia útil
+      // até o orçamento vencer.
+      await this.prisma.envelopeSigner.update({
+        where: { id: ankaaSigner.id },
+        data: { lastReminderAt: now, reminderCount: { increment: 1 } },
+      });
+
+      await this.audit.recordBestEffort(envelope.id, {
+        eventType: ankaaDelivery.ok ? 'REMINDER_SENT' : 'REMINDER_FAILED',
+        actorType: 'SYSTEM',
+        actorId: ankaaSigner.id,
+        actorLabel: ankaaSigner.declaredName,
+        payload: {
+          stage: 'ankaa',
+          // Como o aviso: isto NÃO é cobrança de assinatura por link, e a trilha
+          // precisa dizê-lo para não ser lida como tal.
+          kind: 'countersign_reminder',
+          channel: auditChannelOf(ankaaChannel),
+          destination: this.maskContactFor(ankaaSigner, ankaaChannel),
+          reminderNumber: ankaaSigner.reminderCount + 1,
+          daysPending,
+          ...(ankaaDelivery.reason ? { failureReason: ankaaDelivery.reason } : {}),
+          ...(ankaaDelivery.code ? { failureCode: ankaaDelivery.code } : {}),
+        },
+      });
+
+      if (ankaaDelivery.ok) sent++;
+      else failed++;
     }
 
     return { sent, failed };
@@ -3315,6 +3679,34 @@ export class SignatureEnvelopeService {
       await this.challenges.supersedeAllForSigner(signer.id);
     }
 
+    // ── O ORÇAMENTO SAI DE "PENDENTE" ────────────────────────────────────────
+    //
+    // Só quando a coleta INTEIRA morreu. Uma recusa isolada, com colegas ainda
+    // podendo assinar, não move o orçamento: a bola continua com o cliente, e
+    // reabrir o recusante (`resendInvitation`) devolve a coleta ao curso normal.
+    //
+    // SEM `await`, como os dois avisos abaixo e pela mesma razão: isto roda
+    // dentro do POST do CLIENTE, que está com a tela do celular aberta. A recusa
+    // dele já está persistida e gravada na trilha encadeada; o rótulo da nossa
+    // lista interna não é motivo para segurar a resposta dele — nem para
+    // devolver erro se o domínio de orçamento recusar a transição.
+    if (envelopeRefused) {
+      if (this.onEnvelopeRefused) {
+        void this.onEnvelopeRefused(env.quoteId, env.id, reason).catch(error =>
+          this.logger.error(
+            `Envelope ${env.id} recusado, mas o orçamento ${env.quoteId} não pôde ser movido: ${
+              error instanceof Error ? error.message : error
+            }`,
+          ),
+        );
+      } else {
+        this.logger.warn(
+          `Envelope ${env.id} foi RECUSADO, mas nenhum ouvinte de recusa está registrado — ` +
+            `o orçamento ${env.quoteId} continua no estado em que estava.`,
+        );
+      }
+    }
+
     // O AVISO AO COMERCIAL — fora da transação e sem `await` que derrube o ato.
     //
     // A recusa é do CLIENTE e já está gravada; se o WhatsApp estiver fora do ar
@@ -3390,10 +3782,18 @@ export class SignatureEnvelopeService {
         channel,
         email: generateCollectionPausedEmail({ ...payload, signerName: peer.declaredName }),
         whatsapp: generateCollectionPausedWhatsApp({ ...payload, signerName: peer.declaredName }),
-        // Sem template do canal oficial: `sendWhatsApp` cai no texto livre do
-        // Baileys. Ver a nota no runbook — este aviso ainda não tem template
-        // aprovado, e inventar um nome aqui faria a Cloud API recusar o envio.
-        whatsappTemplate: null,
+        // ⚠️ ERA O ÚNICO AVISO A CLIENTE QUE SAÍA EM TEXTO LIVRE.
+        //
+        // Sem template, `sendWhatsApp` caía no Baileys — para o número de um
+        // responsável do CLIENTE, fora da janela de 24 h. É exatamente o envio
+        // que a Cloud API recusa por política e o que, pelo canal não oficial,
+        // derruba número. O template existe desde 17/09
+        // (`orcamento_assinatura_pausada`) e este é o caminho dele.
+        whatsappTemplate: collectionPausedTemplate({
+          signerName: peer.declaredName,
+          budgetNumber: payload.budgetNumber,
+          refusedByName: payload.refusedByName,
+        }),
         kind: 'SIGNATURE_COLLECTION_PAUSED',
       });
 
@@ -3660,36 +4060,43 @@ export class SignatureEnvelopeService {
     // Quem clicou é registrado à parte, em `executadoPor`.
     const user = await this.prisma.user.findUnique({
       where: { id: ankaa.userId ?? args.actorUserId },
-      select: {
-        id: true,
-        name: true,
-        cpf: true,
-        position: { select: { name: true } },
-        sector: { select: { name: true } },
-      },
+      select: { id: true, name: true, cpf: true },
     });
 
-    // O cargo vem do CADASTRO, nunca digitado. É o mesmo princípio do lado do
-    // cliente — o que a Ankaa afirma fica ao lado do que o signatário aceita —,
-    // e aqui a Ankaa afirma sobre o próprio colaborador, com o registro do DP
-    // atrás. `COMPANY.directorTitle` é o recuo para quem não tem posição nem
-    // setor preenchidos: é o cargo impresso na linha de assinatura do documento
-    // congelado, então o selo não passa a dizer outra coisa.
-    const cargo =
-      fitCargo(user?.position?.name ?? '') ||
-      fitCargo(user?.sector?.name ?? '') ||
-      COMPANY.directorTitle;
+    // ⚠️ O CARGO VEM DO DOCUMENTO, NÃO DO CADASTRO DE AGORA.
+    //
+    // Era `position || sector || directorTitle`, lido do cadastro no instante do
+    // clique, enquanto o PDF congelava `"${COMPANY.directorTitle} — ${COMPANY.name}"`.
+    // Um comentário aqui afirmava que o recuo impedia a divergência; ele só a
+    // impedia para quem NÃO tivesse posição nem setor. Quem tem — todo mundo —
+    // recebia um selo com um cargo e um papel com outro. Está no acervo.
+    //
+    // Agora a emissão resolve o cargo UMA vez (`ankaaCargoOf`), imprime-o no
+    // documento e o congela em `informedCargo` na mesma transação; aqui ele é
+    // lido de volta. O recuo é o `COMPANY.directorTitle` LITERAL, e não a cadeia
+    // do cadastro: nos envelopes anteriores a esta correção é exatamente isso
+    // que o papel diz, invariavelmente.
+    const cargo = fitCargo(ankaa.informedCargo ?? '') || COMPANY.directorTitle;
 
     // CPF ausente não barra. Ele reforça a evidência e sai no selo, mas a
     // identidade deste ato vem da sessão e do `userId` congelado no documento —
     // travar o fechamento de um negócio por um campo vazio no cadastro do DP
     // seria cobrar do cliente um problema que é nosso. Fica registrado que
     // faltou, que é o que permite corrigir.
+    //
+    // ⚠️ E fica registrado NA TRILHA, não só no log. Enquanto isto era um
+    // `logger.warn` solitário, o acervo inteiro de contra-assinaturas recentes
+    // saiu sem CPF sem que ninguém percebesse: o dado não existia em nenhuma
+    // tela, em nenhum evento e em nenhum relatório. Ver `semCpf` no payload do
+    // `SIGNATURE_APPLIED`, o aviso do preflight (`ankaa.hasCpf`) e o
+    // `cpfPendente` da listagem do painel.
     const cpf = onlyDigits(user?.cpf ?? '') || null;
     if (!cpf) {
       this.logger.warn(
-        `Contra-assinatura do envelope ${env.id} sem CPF: o usuário ${args.actorUserId} não tem ` +
-          'CPF no cadastro. O selo sai sem o documento do signatário.',
+        `Contra-assinatura do envelope ${env.id} SEM CPF: o representante ` +
+          `${user?.name ?? ankaa.declaredName} (usuário ${ankaa.userId ?? args.actorUserId}) não ` +
+          'tem CPF no cadastro do DP. O selo deste documento sai sem o documento do signatário, ' +
+          'e isso é definitivo — os bytes são congelados neste ato.',
       );
     }
 
@@ -3804,6 +4211,11 @@ export class SignatureEnvelopeService {
       payload: {
         evidenceHash,
         cargo,
+        // O que o selo NÃO pôde afirmar. Um documento selado sem o CPF do
+        // representante precisa carregar, na própria trilha, que a ausência foi
+        // do cadastro e não do ato — é o que separa "não tínhamos o dado" de
+        // "alguém omitiu o dado".
+        ...(cpf ? {} : { semCpf: true }),
         ...(executor ? { executadoPor: executor } : {}),
         ceremony: 'internal_session',
         countersigned: env.documents.map(d => d.variantKey),
@@ -3817,6 +4229,150 @@ export class SignatureEnvelopeService {
 
     const envelopeStatus = await this.advanceEnvelope(env.id);
     return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
+  }
+
+  /**
+   * Troca QUEM contra-assina numa coleta ainda em andamento.
+   *
+   * ⚠️ POR QUE PRECISA EXISTIR
+   *   O contra-assinante é congelado na EMISSÃO e a coleta vive semanas. Nesse
+   *   intervalo a pessoa sai de férias, adoece ou é desligada — e, desligada,
+   *   nem entra no sistema (`auth.guard` recusa quem não está `ACTIVE`). O filtro
+   *   de vínculo em `resolveAnkaaSigner` impede que uma coleta NOVA nasça assim;
+   *   ele não faz nada pelas que já estão de pé. A liberação para ADMIN (17/09)
+   *   garante que alguém consiga apertar o botão, mas o documento continuaria
+   *   nomeando o ex-colaborador como representante da empresa.
+   *
+   * ⚠️ O QUE ESTE MÉTODO NÃO PODE FAZER: reescrever o documento. Os bytes estão
+   *   congelados e assinados pelo cliente — a linha de assinatura impressa
+   *   continua com o nome de quem foi designado na emissão, e re-renderizar
+   *   invalidaria tudo o que já foi colhido.
+   *
+   *   Então o artefato final vai mostrar as duas coisas, e é assim que fica
+   *   honesto: a linha IMPRESSA nomeia o designado original, o SELO nomeia quem
+   *   de fato assinou, e a trilha — que viaja dentro do próprio PDF — registra a
+   *   substituição com data, ator e hash encadeado. É a mesma solução que o
+   *   `executadoPor` da contra-assinatura por administrador adota, e pelo mesmo
+   *   motivo: o problema não é alguém assinar no lugar de outro, é isso não
+   *   aparecer em lugar nenhum.
+   *
+   * SÓ ANTES DE ASSINAR. Depois do ato não há o que redesignar — o que existe é
+   * uma assinatura aplicada, e ela não se transfere.
+   */
+  async reassignAnkaaSigner(args: {
+    envelopeId: string;
+    newUserId: string;
+    actorUserId: string;
+    ctx: RequestContext;
+  }): Promise<{ signerId: string; de: string; para: string; cargo: string }> {
+    this.assertCeremonyConfigured();
+
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: args.envelopeId },
+      select: {
+        id: true,
+        status: true,
+        signers: {
+          select: {
+            id: true,
+            userId: true,
+            orderGroup: true,
+            status: true,
+            authMethod: true,
+            declaredName: true,
+            informedCargo: true,
+          },
+        },
+      },
+    });
+    if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
+    if (env.status !== EnvelopeStatus.RUNNING) {
+      throw new BadRequestException(
+        `Esta coleta está em ${env.status}. Só uma coleta em andamento pode ter o ` +
+          'contra-assinante redesignado.',
+      );
+    }
+
+    const ankaa = env.signers.find(
+      sig => sig.authMethod === SignatureAuthMethod.INTERNAL_SESSION || sig.orderGroup === 1,
+    );
+    if (!ankaa) {
+      throw new BadRequestException('Esta coleta não tem signatário da Ankaa a redesignar.');
+    }
+    if (ankaa.status === EnvelopeSignerStatus.SIGNED) {
+      throw new BadRequestException(
+        `${ankaa.declaredName} já contra-assinou esta coleta. Uma assinatura aplicada não se ` +
+          'transfere.',
+      );
+    }
+    if (ankaa.userId === args.newUserId) {
+      throw new BadRequestException(`${ankaa.declaredName} já é o contra-assinante desta coleta.`);
+    }
+
+    // Vínculo ATIVO, a mesma regra de `resolveAnkaaSigner` — redesignar para
+    // alguém desligado só trocaria um impedimento por outro.
+    const novo = await this.prisma.user.findFirst({
+      where: { id: args.newUserId, ...EMPLOYED_USER_WHERE },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        cpf: true,
+        position: { select: { name: true } },
+      },
+    });
+    if (!novo) {
+      throw new BadRequestException(
+        'O colaborador escolhido não existe ou não tem vínculo ativo — ele não conseguiria ' +
+          'sequer entrar no sistema para assinar.',
+      );
+    }
+
+    const cargo = this.ankaaCargoOf(novo);
+    const de = ankaa.declaredName;
+
+    // A TRILHA PRIMEIRO, como em todo ato probatório desta cerimônia: se a prova
+    // não puder ser gravada, a troca não acontece. `record` lança (ao contrário
+    // de `recordBestEffort`) exatamente para isso.
+    await this.audit.record(env.id, {
+      eventType: 'CONTACT_CHANGED',
+      actorType: 'OPERATOR',
+      actorId: args.actorUserId,
+      actorLabel: `${de} → ${novo.name}`,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: {
+        kind: 'ankaa_signer_reassigned',
+        de: { userId: ankaa.userId, nome: de, cargo: ankaa.informedCargo ?? null },
+        para: { userId: novo.id, nome: novo.name, cargo },
+        // ⚠️ O QUE O PAPEL CONTINUA DIZENDO. O documento está congelado e nomeia
+        // o designado original na linha de assinatura; quem ler o artefato tem de
+        // encontrar, na própria trilha impressa nele, por que o selo diz outro
+        // nome.
+        nomeImpressoNoDocumento: de,
+      },
+    });
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: ankaa.id },
+      data: {
+        userId: novo.id,
+        declaredName: novo.name,
+        declaredPhone: onlyDigits(novo.phone ?? COMPANY.phoneClean) || null,
+        declaredEmail: novo.email ?? null,
+        declaredCpf: novo.cpf ?? null,
+        // O cargo congela junto com a pessoa — é ele que o selo vai imprimir.
+        informedCargo: cargo,
+      },
+    });
+
+    this.logger.log(
+      `Contra-assinante do envelope ${env.id} redesignado de ${de} para ${novo.name} por ` +
+        `${args.actorUserId}.`,
+    );
+
+    return { signerId: ankaa.id, de, para: novo.name, cargo };
   }
 
   private normalizeGeo(
@@ -3949,9 +4505,9 @@ export class SignatureEnvelopeService {
       //
       // Este ramo só é alcançado com `pending.length > 0` — ou seja, sempre há
       // alguém do grupo 1 faltando. Quando NÃO há signatário da Ankaa, o bloco
-      // acima já finalizou e o orçamento vai direto a BUDGET_APPROVED, que é o
-      // certo: SIGNED quer dizer "espera por nós", e sem contraparte nossa não
-      // há espera nenhuma.
+      // acima já finalizou e o orçamento vai direto a APROVADO, que é o certo:
+      // ASSINADO quer dizer "espera por nós", e sem contraparte nossa não há
+      // espera nenhuma.
       //
       // SEM `await`, e best-effort, pela mesma razão do aviso à Ankaa logo
       // abaixo: isto roda dentro do POST do CLIENTE, que está com a tela do
@@ -4151,6 +4707,99 @@ export class SignatureEnvelopeService {
   }
 
   /**
+   * Reexecuta o gancho de CONCLUSÃO de um envelope já concluído e selado.
+   *
+   * ⚠️ O BURACO QUE ISTO FECHA
+   *   `finalize()` chama `onCompleted` dentro de um `try/catch` best-effort que
+   *   só LOGA — e tem de ser best-effort mesmo: assinaturas já coletadas e
+   *   seladas não podem ser desfeitas porque a aprovação do orçamento falhou.
+   *   Só que, falhando, não havia NENHUM caminho de volta. `retryFinalize`
+   *   recusa ("já tem o documento final emitido"), `cancel` recusa (só aceita
+   *   RUNNING), e nenhuma outra rota tocava no gancho. O orçamento ficava
+   *   PENDING com um contrato assinado e selado em cima dele, para sempre.
+   *
+   *   Medido: o orçamento nº 591 tem três envelopes concluídos e selados, todos
+   *   com o orçamento em PENDING. A causa foi o portão de layout — que agora
+   *   mora na EMISSÃO (ver `createEnvelope`) —, mas a causa é o de menos: o
+   *   gancho depende de rede, de outro domínio e de regras que mudam, e um
+   *   caminho de reexecução tem de existir independentemente de qual delas
+   *   falhou.
+   *
+   * IDEMPOTENTE. O gancho pode ser chamado quantas vezes for preciso: quando o
+   * orçamento já está aprovado, o método sai dizendo que não havia o que fazer,
+   * sem disparar notificação nem escrever changelog de novo.
+   *
+   * NÃO TOCA NO DOCUMENTO. Nada é re-selado, re-montado ou re-hasheado — o
+   * artefato já existe e é imutável. O que roda é só o efeito de DOMÍNIO que
+   * deveria ter rodado no momento da conclusão.
+   */
+  async replayCompletion(
+    envelopeId: string,
+    actorUserId: string,
+  ): Promise<{ executado: boolean; motivo: string | null }> {
+    this.assertCeremonyConfigured();
+
+    const env = await this.prisma.signatureEnvelope.findUnique({
+      where: { id: envelopeId },
+      select: {
+        id: true,
+        status: true,
+        finalFileId: true,
+        quoteId: true,
+        createdById: true,
+        quote: { select: { status: true, budgetNumber: true } },
+      },
+    });
+    if (!env) throw new NotFoundException('Envelope não encontrado.');
+
+    if (env.status !== EnvelopeStatus.COMPLETED) {
+      throw new BadRequestException(
+        `Esta coleta está em ${env.status}. A aprovação do orçamento só é disparada por uma ` +
+          'coleta CONCLUÍDA.',
+      );
+    }
+    // Conclusão sem artefato é a reivindicação interrompida que
+    // `releaseFinalizationClaim` desfaz — ali o caminho é `retry-finalize`, que
+    // MONTA o documento, e não este, que só reexecuta o efeito posterior.
+    if (!env.finalFileId) {
+      throw new BadRequestException(
+        'Esta coleta está marcada como concluída mas não tem documento final emitido. ' +
+          'Use "Reprocessar emissão" antes.',
+      );
+    }
+    if (!this.onCompleted) {
+      throw new ServiceUnavailableException(
+        'O módulo de orçamento não está registrado nesta instância — não há gancho de ' +
+          'conclusão a reexecutar.',
+      );
+    }
+
+    // A ÚNICA pergunta que este método faz ao domínio de orçamento, e ela existe
+    // para distinguir "não havia o que fazer" de "falhou". Sem ela, reexecutar
+    // um gancho já executado devolveria o 400 de transição inválida ("O status
+    // já é Aprovado") — tecnicamente inofensivo, e ilegível para quem apertou um
+    // botão chamado "Reexecutar aprovação".
+    if (env.quote?.status === 'APPROVED') {
+      return {
+        executado: false,
+        motivo: `O orçamento nº ${env.quote.budgetNumber} já está aprovado. Nada a reexecutar.`,
+      };
+    }
+
+    // O ATOR ORIGINAL, não quem apertou o botão agora: a aprovação pertence a
+    // quem emitiu a coleta, e é o nome dele que o changelog do orçamento tem de
+    // registrar — do mesmo modo que `finalize` passa `env.createdById`. Quem
+    // reexecutou fica no log, que é onde a operação de recuperação pertence.
+    await this.onCompleted(env.quoteId, env.id, env.createdById ?? actorUserId);
+
+    this.logger.log(
+      `Gancho de conclusão do envelope ${envelopeId} (orçamento nº ${env.quote?.budgetNumber}) ` +
+        `reexecutado por ${actorUserId}.`,
+    );
+    return { executado: true, motivo: null };
+  }
+
+  /**
    * Avisa o lado da Ankaa de que o cliente terminou.
    *
    * É AVISO, e não convite: a ação vive no painel do orçamento, atrás do login, e
@@ -4199,6 +4848,15 @@ export class SignatureEnvelopeService {
         quoteUrl,
         'countersign',
       ),
+      // Pelo número OFICIAL quando a Cloud API está ligada. O aviso é INTERNO e
+      // por isso vivia no Baileys — mas a decisão do dono (17/09) é que TUDO sai
+      // pela Meta, e um aviso que depende de uma sessão não oficial de pé é um
+      // aviso que some justamente no dia em que ela cai. Sem a Cloud API,
+      // `sendWhatsApp` continua caindo no texto livre acima.
+      whatsappTemplate: ankaaCountersignTemplate({
+        signerName: signer.declaredName,
+        budgetNumber: signer.envelope.quote.budgetNumber,
+      }),
       kind: 'SIGNATURE_ANKAA_NOTICE',
     });
 
@@ -4485,7 +5143,7 @@ export class SignatureEnvelopeService {
           // é aqui que "Placa do veículo: — → ABB8468" entra no artefato, já que
           // o corpo do documento está congelado desde antes de a placa existir.
           //
-          detail: driftDetailOf(e.eventType, e.payload),
+          detail: eventDetailOf(e.eventType, e.payload),
         })),
         budgetNumber: env.quote.budgetNumber,
         envelopeId: env.id,
@@ -4693,10 +5351,19 @@ export class SignatureEnvelopeService {
       try {
         await this.onCompleted(env.quoteId, envelopeId, env.createdById);
       } catch (error) {
+        // ⚠️ AQUI O ORÇAMENTO FICA PARA TRÁS DO DOCUMENTO — e agora há saída.
+        //
+        // Até 17/09 esta linha era o fim: o contrato ficava assinado e selado
+        // com o orçamento em PENDING, e nenhuma rota reexecutava o gancho. A
+        // saída é `replayCompletion` (POST :id/reexecutar-conclusao), e a
+        // mensagem tem de dizê-lo — um erro que descreve o problema sem dizer o
+        // que fazer produz um chamado, não um conserto.
         this.logger.error(
-          `Envelope ${envelopeId} concluído, mas a aprovação do orçamento falhou: ${
-            error instanceof Error ? error.message : error
-          }`,
+          `Envelope ${envelopeId} (orçamento nº ${env.quote.budgetNumber}) foi CONCLUÍDO e ` +
+            `SELADO, mas a aprovação do orçamento falhou: ${
+              error instanceof Error ? error.message : error
+            }. O documento está íntegro; corrija a causa e reexecute a aprovação em ` +
+            `POST /signature-envelopes/${envelopeId}/reexecutar-conclusao.`,
         );
       }
     }
@@ -5065,12 +5732,23 @@ export class SignatureEnvelopeService {
         channel,
         email: generateEnvelopeVoidedEmail(voidedPayload),
         whatsapp: generateEnvelopeVoidedWhatsApp(voidedPayload),
-        // O lado da Ankaa recebe o aviso pelo canal interno, em texto livre: o
-        // template é do CLIENTE, e a lista de mudanças que interessa a quem
-        // trabalha aqui não cabe num corpo aprovado com duas variáveis.
+        // DOIS TEMPLATES, um por destinatário. O do cliente diz que vem outro
+        // link; o nosso diz POR QUE a coleta caiu, que é a única informação
+        // acionável para quem trabalha aqui — e é por isso que o interno tem a
+        // variável do motivo e o do cliente não.
+        //
+        // O lado da Ankaa saía em texto livre pelo Baileys até 17/09, com o
+        // argumento de que "a lista de mudanças não cabe num corpo aprovado".
+        // Não cabe mesmo — e continua não cabendo: a lista item a item vai no
+        // E-MAIL, que não tem limite de formato. O que cabe no template é o
+        // motivo, que é o que se lê no celular.
         whatsappTemplate:
           this.ceremonyKindOf(s.authMethod) === 'INTERNAL'
-            ? null
+            ? voidedInternalTemplate({
+                signerName: voidedPayload.signerName,
+                budgetNumber: voidedPayload.budgetNumber,
+                reason: voidedPayload.reason,
+              })
             : voidedTemplate({
                 signerName: voidedPayload.signerName,
                 budgetNumber: voidedPayload.budgetNumber,
@@ -5857,15 +6535,7 @@ export class SignatureEnvelopeService {
       // CPF sempre MASCARADO aqui: esta página é pública e o orçamento contém preço.
       signers: env.signers.map(s => ({
         name: s.declaredName,
-        // Informado no ato > cargo do cadastro. Cliente vem das funções do
-        // contato; Ankaa, da posição do colaborador (ou do setor, quando a
-        // posição está vazia).
-        cargo:
-          s.informedCargo ||
-          formatResponsibleRoles(s.responsible?.roles ?? []) ||
-          s.user?.position?.name?.trim() ||
-          s.user?.sector?.name?.trim() ||
-          null,
+        cargo: this.displayCargoOf(s),
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
         status: s.status,
         signedAt: s.signedAt,
@@ -5970,14 +6640,7 @@ export class SignatureEnvelopeService {
         const acted = !!s.signedAt;
         return {
           name: s.declaredName,
-          // Informado no ato > funções do contato > posição/setor do colaborador
-          // — a mesma cascata do selo e da página de verificação.
-          cargo:
-            s.informedCargo ||
-            formatResponsibleRoles(s.responsible?.roles ?? []) ||
-            s.user?.position?.name?.trim() ||
-            s.user?.sector?.name?.trim() ||
-            null,
+          cargo: this.displayCargoOf(s),
           companyLabel: s.orderGroup === 1 ? COMPANY.name : customerLabel,
           cpfMasked: acted && s.informedCpf ? maskCpf(s.informedCpf) : null,
           phoneMasked: acted && s.declaredPhone ? maskPhone(s.declaredPhone) : null,
@@ -6177,12 +6840,24 @@ export class SignatureEnvelopeService {
   }
 
   /** Envelopes de um orçamento, do mais recente para o mais antigo. */
-  async listForQuote(quoteId: string) {
+  /**
+   * @param viewerUserId  Quem está OLHANDO. Opcional só para não quebrar
+   *   chamadas internas sem contexto de sessão — vindo da rota, vem sempre.
+   *
+   *   Existe por causa de `podeContraAssinar`: a permissão de contra-assinar não
+   *   é uma propriedade do envelope, é uma relação entre o envelope e QUEM
+   *   pergunta. Sem o viewer, a resposta seria a mesma para todo mundo e a tela
+   *   voltaria a oferecer o botão a quem leva 403.
+   */
+  async listForQuote(quoteId: string, viewerUserId?: string | null) {
     // O cadastro do veículo AGORA — é contra ele que as lacunas reservadas são
     // conferidas, para o painel poder avisar antes da contra-assinatura.
     const vehicle = await this.prisma.taskQuote.findUnique({
       where: { id: quoteId },
       select: {
+        // O estado do ORÇAMENTO, para o painel poder dizer que uma coleta
+        // concluída e selada não virou aprovação. Ver `aprovacaoPendente`.
+        status: true,
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -6282,6 +6957,26 @@ export class SignatureEnvelopeService {
 
     const changesByEnvelope = await this.changesSinceFrozen(quoteId, envelopes);
 
+    // ── QUEM PODE CONTRA-ASSINAR ────────────────────────────────────────────
+    //
+    // A regra é a MESMA de `countersign`, e tem de ser: a pessoa designada, ou
+    // um administrador em nome dela (decisão do dono, 17/09). Duas escritas da
+    // mesma regra divergiriam — e foi a ausência de qualquer resposta aqui que
+    // fazia a tela oferecer o botão a um COMMERCIAL qualquer, que então tomava
+    // 403 num orçamento que não é dele.
+    //
+    // Resolvida no SERVIDOR e não devolvida como matéria-prima ("aqui está o
+    // userId, compare aí") porque o cliente não tem como saber se quem está
+    // logado é ADMIN sem uma segunda chamada — e porque a regra vai mudar de
+    // novo, e não deve mudar em três lugares.
+    const viewer = viewerUserId
+      ? await this.prisma.user.findUnique({
+          where: { id: viewerUserId },
+          select: { id: true, sector: { select: { privileges: true } } },
+        })
+      : null;
+    const viewerEhAdmin = viewer?.sector?.privileges === 'ADMIN';
+
     return envelopes.map(env => ({
       id: env.id,
       version: env.version,
@@ -6300,6 +6995,27 @@ export class SignatureEnvelopeService {
        * operador precisa saber antes de mandar o dossiê ao cliente.
        */
       changes: changesByEnvelope.get(env.id) ?? [],
+      /**
+       * A COLETA CONCLUIU E O ORÇAMENTO NÃO APROVOU.
+       *
+       * O gancho de conclusão (`onCompleted` → `budgetApprove`) roda
+       * best-effort dentro de `finalize`: falhando, ele só logava, e o
+       * orçamento ficava PENDING com um contrato assinado e selado em cima.
+       * Aconteceu três vezes no orçamento nº 591 e ninguém viu, porque o fato
+       * não existia em nenhuma tela.
+       *
+       * CALCULADO NA LEITURA, como `changes`: é a comparação entre dois estados
+       * que já existem, e uma coluna gravada envelheceria errado no minuto em
+       * que alguém aprovasse o orçamento por outro caminho.
+       *
+       * A saída é `POST :id/reexecutar-conclusao` (`replayCompletion`).
+       */
+      aprovacaoPendente:
+        env.status === EnvelopeStatus.COMPLETED &&
+        !!env.finalFileId &&
+        !!vehicle &&
+        vehicle.status !== 'APPROVED' &&
+        vehicle.status !== 'CANCELLED',
       originalSha256: env.originalSha256,
       finalSha256: env.finalSha256,
       padesLevel: env.padesLevel,
@@ -6377,17 +7093,10 @@ export class SignatureEnvelopeService {
         // errado ou o servidor de e-mail recusa a entrega.
         signingUrl: this.signingUrl(s.accessToken),
         cpfMasked: s.informedCpf ? maskCpf(s.informedCpf) : null,
-        // Informado no ato > cargo do cadastro. Sem o fallback o painel dizia
-        // "Cargo não informado" para todo signatário que ainda não assinou —
-        // inclusive o da Ankaa, cujo cargo o sistema conhece desde sempre.
-        // Cliente vem das funções do contato; Ankaa, da posição do colaborador
-        // (ou do setor, quando a posição está vazia).
-        cargo:
-          s.informedCargo ||
-          formatResponsibleRoles(s.responsible?.roles ?? []) ||
-          s.user?.position?.name?.trim() ||
-          s.user?.sector?.name?.trim() ||
-          null,
+        // Sem o recuo o painel dizia "Cargo não informado" para todo signatário
+        // que ainda não assinou — inclusive o da Ankaa, cujo cargo o sistema
+        // conhece desde sempre. Ver `displayCargoOf`.
+        cargo: this.displayCargoOf(s),
         // A MESMA informação em lista, para o painel mostrar os dois primeiros
         // e um "+N". Um contato pode acumular nove funções, e a string pronta
         // não dá para cortar sem risco: o cargo informado no ato é texto livre
@@ -6399,11 +7108,47 @@ export class SignatureEnvelopeService {
             ? (s.responsible?.roles ?? []).map(
                 r => RESPONSIBLE_ROLE_LABELS[r as RESPONSIBLE_ROLE] ?? r,
               )
-            : [s.user?.position?.name?.trim() || s.user?.sector?.name?.trim() || ''].filter(
-                Boolean,
-              ),
+            : // Mesma regra de `displayCargoOf`: do lado da Ankaa o recuo é o
+              // título institucional, que é o que o documento congelado imprime.
+              [this.displayCargoOf(s) ?? ''].filter(Boolean),
         cpfMatch: s.cpfMatch,
         side: s.orderGroup === 1 ? 'ANKAA' : 'CUSTOMER',
+        /**
+         * O usuário Ankaa por trás deste signatário. Nulo do lado do cliente,
+         * que é `Responsible` e não `User`.
+         *
+         * Exposto para a tela poder DIZER de quem é a contra-assinatura ("cabe a
+         * Sergio Rodrigues") — não para decidir o botão. Essa decisão é
+         * `podeContraAssinar`, resolvida no servidor.
+         */
+        userId: s.userId,
+        /**
+         * ⚠️ O CAMPO QUE DECIDE O BOTÃO "Contra-assinar".
+         *
+         * `true` quando QUEM ESTÁ OLHANDO pode praticar o ato — a pessoa
+         * designada, ou um administrador em nome dela. Antes disto a tela não
+         * tinha como saber, oferecia o botão a todo mundo com acesso à página, e
+         * quem não fosse o designado tomava 403 depois de clicar.
+         *
+         * É só a dimensão de PERMISSÃO. Se o momento é oportuno — coleta em
+         * andamento, cliente já assinou, este signatário ainda pendente — a tela
+         * lê de `status` do envelope e dos signatários, que já vêm aqui.
+         */
+        podeContraAssinar:
+          s.orderGroup === 1 &&
+          this.ceremonyKindOf(s.authMethod) === 'INTERNAL' &&
+          !!viewer &&
+          (viewerEhAdmin || (!!s.userId && s.userId === viewer.id)),
+        /**
+         * O selo desta contra-assinatura vai sair (ou saiu) SEM CPF.
+         *
+         * Só do lado da Ankaa: o do cliente é digitado no ato e conferido contra
+         * o declarado. Aqui o CPF vem do cadastro do DP, e quando ele está vazio
+         * o selo sai sem o documento do signatário — em silêncio, até 17/09.
+         * Pendente, dá para corrigir o cadastro antes do clique; já assinado, é
+         * definitivo e o que resta é não repetir.
+         */
+        cpfPendente: s.orderGroup === 1 && !s.informedCpf && !s.declaredCpf,
         /**
          * Como esta pessoa assina. `INTERNAL` é o lado da Ankaa, que
          * contra-assina no painel — a tela usa para desenhar o botão em vez do

@@ -97,3 +97,33 @@ export function isReminderDue(state: ReminderState, now: Date): boolean {
   // se acomoda em torno da semana em vez de derrapar.
   return daysSinceAnchor >= REMINDER_INTERVAL_DAYS;
 }
+
+/**
+ * QUANDO o lado do cliente terminou — a âncora da cobrança da contra-assinatura.
+ *
+ * A cadência do grupo 1 não pode ser ancorada na EMISSÃO como a do cliente: numa
+ * coleta que levou doze dias para o cliente fechar, o primeiro lembrete interno
+ * nasceria "atrasado em doze dias" e três cobranças sairiam de enfiada no mesmo
+ * dia em que o aviso acabou de ser enviado. O relógio da nossa caneta começa a
+ * correr quando a bola passa para o nosso lado, e não antes.
+ *
+ * Devolve `null` enquanto houver QUALQUER responsável do cliente sem assinar —
+ * aí não há o que contra-assinar, e cobrar seria pedir um ato que a própria
+ * ordem sequencial do envelope recusaria (`assertSignable`).
+ *
+ * Função pura, aqui e não no serviço, pelo mesmo motivo do resto do arquivo:
+ * errar isto não quebra tipo nenhum e o sintoma aparece semanas depois, numa
+ * conversa.
+ */
+export function customerSideCompletedAt(
+  signers: ReadonlyArray<{ orderGroup: number; status: string; signedAt: Date | null }>,
+): Date | null {
+  const customers = signers.filter(s => s.orderGroup === 0);
+  if (customers.length === 0) return null;
+  let latest: Date | null = null;
+  for (const signer of customers) {
+    if (signer.status !== 'SIGNED' || !signer.signedAt) return null;
+    if (!latest || signer.signedAt.getTime() > latest.getTime()) latest = signer.signedAt;
+  }
+  return latest;
+}

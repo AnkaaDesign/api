@@ -301,3 +301,41 @@ export function generateAnkaaCountersignWhatsApp(data: WhatsAppAnkaaNoticeData):
     data.quoteUrl,
   ].join('\n');
 }
+
+/**
+ * A COBRANÇA da contra-assinatura — o gêmeo do lembrete do cliente, do nosso lado.
+ *
+ * O aviso (`generateAnkaaCountersignWhatsApp`) sai UMA vez, quando o cliente
+ * termina. Este sai enquanto a nossa caneta não sai, na mesma cadência do
+ * cliente (3 dias úteis, depois de 5 em 5).
+ *
+ * NÃO REPETE O AVISO. Quem recebe isto já recebeu aquele — reabrir com "todos
+ * já assinaram" faz a pessoa ler a mesma mensagem duas vezes e ensina a
+ * ignorá-la. A informação nova é o TEMPO parado, e a consequência dele.
+ *
+ * O template do canal oficial é o MESMO do aviso (`orcamento_contra_assinatura`):
+ * o corpo aprovado diz "aguarda a contra-assinatura", que é verdade nos dois
+ * momentos. É aqui, no texto livre, que a diferença cabe.
+ */
+export function generateAnkaaCountersignReminderWhatsApp(
+  data: WhatsAppAnkaaNoticeData & {
+    /** Dias civis desde que o último responsável do cliente assinou. */
+    daysPending: number;
+  },
+): string {
+  const tempo =
+    data.daysPending <= 0
+      ? 'hoje'
+      : data.daysPending === 1
+        ? '*desde ontem*'
+        : `*há ${data.daysPending} dias*`;
+  return [
+    `Olá, ${firstName(data.signerName)}.`,
+    '',
+    `O orçamento nº *${data.budgetNumber}* está assinado pelo cliente ${tempo} e ainda aguarda a contra-assinatura da ${COMPANY.name}.`,
+    '',
+    'Sem ela o documento final não é emitido e o orçamento não é aprovado.',
+    '',
+    data.quoteUrl,
+  ].join('\n');
+}

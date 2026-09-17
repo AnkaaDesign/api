@@ -38,7 +38,7 @@ const check = (name: string, ok: boolean, detail?: string) => {
 // Os dois construtores só guardam dependências; `buildBoletoLines` lê apenas o
 // argumento. Nenhum dublê aqui é chamado.
 const stub: any = {};
-const geracao = new InvoiceGenerationService(stub, stub, stub);
+const geracao = new InvoiceGenerationService(stub, stub, stub, stub);
 const varredura = new SicrediBoletoScheduler(
   stub, stub, stub, stub, stub, { get: (_k: string, d?: any) => d } as any, stub, stub, stub,
 );

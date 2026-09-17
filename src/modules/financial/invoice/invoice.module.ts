@@ -14,11 +14,14 @@ import { FilesStorageModule } from '@modules/common/file/services/files-storage.
 // so the pair is circular by design.
 import { TaskQuoteModule } from '@modules/production/task-quote/task-quote.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
+import { BillingStatusModule } from '@modules/financial/billing/billing-status.module';
 
 @Module({
   imports: [
     PrismaModule,
     ChangeLogModule,
+    // Só o Prisma por baixo — ver `BillingStatusModule`. Não fecha ciclo.
+    BillingStatusModule,
     SicrediModule,
     NfseModule,
     NotificationModule,

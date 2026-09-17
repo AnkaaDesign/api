@@ -2009,30 +2009,33 @@ model TaskQuoteCustomerConfig {
 
   customerId String
 
-  subtotal            Decimal       @default(0) @db.Decimal(10, 2)
-  total               Decimal       @default(0) @db.Decimal(10, 2)
-  discountType        DiscountType  @default(NONE)
-  discountValue       Decimal?      @db.Decimal(10, 2)
+  subtotal            Decimal        @default(0) @db.Decimal(10, 2)
+  total               Decimal        @default(0) @db.Decimal(10, 2)
+  discountType        DiscountType   @default(NONE)
+  discountValue       Decimal?       @db.Decimal(10, 2)
   discountReference   String?
   customPaymentText   String?
-  generateInvoice     Boolean       @default(true)
-  generateBankSlip    Boolean       @default(true)
+  generateInvoice     Boolean        @default(true)
+  generateBankSlip    Boolean        @default(true)
   responsibleId       String?
   paymentCondition    String?
   paymentConfig       Json?
   customerSignatureId String?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  quote               TaskQuote     @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
-  billing             Billing       @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
-  customer            Customer      @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  responsible         Responsible?  @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
-  customerSignature   File?         @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  quote               TaskQuote      @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
+  billing             Billing        @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
+  customer            Customer       @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  responsible         Responsible?   @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
+  customerSignature   File?          @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   /// 1:N, não 1:1. O banco permite uma fatura viva (índice parcial) MAIS as
   /// canceladas de ciclos anteriores. Tipar como to-one fazia o Prisma devolver
   /// uma linha arbitrária entre elas. Quem quer "a fatura viva" agora pergunta.
-  invoices            Invoice[]     @relation("InvoiceCustomerConfig")
-  installments        Installment[] @relation("CustomerConfigInstallments")
+  invoices            Invoice[]      @relation("InvoiceCustomerConfig")
+  installments        Installment[]  @relation("CustomerConfigInstallments")
+  /// AS NOTAS DESTE PAGADOR. Sobrevivem à remoção dele (`SetNull` do lado da
+  /// nota): nota emitida é histórico fiscal, não um filho descartável.
+  nfseDocuments       NfseDocument[] @relation("CustomerConfigNfse")
 
   // A COBERTURA NÃO MORA MAIS AQUI. Quais veículos são cobrados é propriedade do
   // FATURAMENTO (`Billing.tasks`), não do pagador: dois pagadores do mesmo
@@ -2061,12 +2064,13 @@ model TaskQuoteCustomerConfig {
 ///   PER_TASK  N faturamentos × 1 veículo cada
 ///   CUSTOM    K faturamentos, lotes livres        (1–20 | 21–60)
 ///
-/// `customerId` é desnormalizado de propósito: é ele que permite ao BANCO
-/// garantir a regra que realmente importa — um veículo é cobrado por exatamente
-/// um faturamento daquele cliente. Sem ele a unicidade só existiria em código, e
-/// o modo de falha seria cobrar o mesmo caminhão duas vezes. É seguro
-/// desnormalizar porque o cliente de um faturamento nunca muda no lugar: a
-/// reconciliação casa por cliente e troca de cliente é criação + remoção.
+/// A unicidade é do VEÍCULO, sem escopo de cliente: `@@unique([taskId])` na
+/// própria `BillingTask`. Um rascunho anterior desnormalizava `customerId` aqui
+/// para escrever `@@unique([taskId, customerId])`; a coluna nunca existiu no
+/// modelo final e a regra ficou MAIS forte sem ela — dois pagadores do mesmo
+/// recorte dividem o MESMO `Billing` (dois `customerConfigs` dentro dele), então
+/// o veículo continua aparecendo uma vez só.
+///
 /// O FATURAMENTO — uma entidade, não uma configuração do orçamento.
 ///
 /// POR QUE PRECISOU EXISTIR
@@ -2155,6 +2159,16 @@ model BillingTask {
   createdAt DateTime @default(now())
 
   billing Billing @relation("BillingCoverage", fields: [billingId], references: [id], onDelete: Cascade)
+  /// `Cascade` é o certo AQUI, e foi reexaminado junto com `Invoice.task`.
+  ///
+  /// A linha de cobertura afirma "este faturamento cobra este veículo". Sem o
+  /// veículo a afirmação não tem sujeito, e guardá-la seria guardar um ponteiro
+  /// para o nada. Trocar para `Restrict` só transformaria a recusa numa
+  /// mensagem de integridade referencial, mais tarde e pior.
+  ///
+  /// Quem impede que o veículo COBRADO seja apagado é a guarda de dinheiro
+  /// (`TaskService.findMoneyLockedTaskIds`) mais o `Restrict` de `Invoice.task`:
+  /// a cobertura só some quando a exclusão já foi julgada legítima.
   task    Task    @relation("TaskBillingEntity", fields: [taskId], references: [id], onDelete: Cascade)
 
   @@id([billingId, taskId])
@@ -4831,7 +4845,17 @@ model Invoice {
   /// `Restrict`, não `Cascade`: apagar uma fatia NÃO pode levar junto a fatura dela.
   /// Quem remove uma fatia agora decide explicitamente o que fazer com a fatura.
   customerConfig      TaskQuoteCustomerConfig? @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Restrict)
-  task                Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
+  /// `Restrict`, não `Cascade` — a mesma decisão que `customerConfig` acima e que
+  /// as demais FKs de dinheiro do P0. Apagar o VEÍCULO não pode levar junto a
+  /// fatura emitida sobre ele: eram 159 faturas vivas alcançáveis por um
+  /// `DELETE /tasks/:id`, com boleto registrado no Sicredi e NFS-e autorizada na
+  /// prefeitura, sumindo sem deixar linha. Quem exclui a tarefa decide
+  /// explicitamente o que fazer com a fatura (reverter o faturamento primeiro).
+  ///
+  /// A guarda em código (`TaskService.findMoneyLockedTaskIds`) recusa antes, com
+  /// uma frase que diz o que fazer; isto aqui é a rede que pega todo caminho que
+  /// não passe por ela.
+  task                Task?                    @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Restrict)
   externalOperation   ExternalOperation?       @relation("ExternalOperationInvoice", fields: [externalOperationId], references: [id], onDelete: Cascade)
   customer            Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
   createdBy           User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
@@ -4922,10 +4946,10 @@ model BankSlip {
 }
 
 model NfseDocument {
-  id            String     @id @default(uuid())
+  id               String     @id @default(uuid())
   // invoiceId is nullable + SetNull: a note must NEVER be unlinked/deleted just because its
   // invoice is removed (e.g. by a billing revert). It survives as task history instead.
-  invoiceId     String?
+  invoiceId        String?
   // Durable link to the task so the full NFS-e history (incl. cancelled/rejected/orphan
   // notes re-linked from Elotech) is always visible on the task quote page.
   //
@@ -4933,19 +4957,32 @@ model NfseDocument {
   // de uma tarefa): ali ela não é de UMA tarefa, e escolher uma das sessenta
   // faria as outras cinquenta e nove exibirem "sem nota" tendo sido faturadas.
   // Nesses casos quem liga é `quoteId`.
-  taskId        String?
+  taskId           String?
   /// Link durável ao ORÇAMENTO. Preenchido sempre — inclusive quando `taskId`
   /// está — porque é ele que sustenta a guarda de "nunca emitir uma segunda nota
   /// viva no mesmo ciclo" agora que um ciclo pode ter N tarefas.
-  quoteId       String?
-  elotechNfseId Int?
-  nfseNumber    Int?
-  status        NfseStatus @default(PENDING)
-  errorMessage  String?
-  errorCount    Int        @default(0)
-  retryAfter    DateTime?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  quoteId          String?
+  /// O PAGADOR de quem é esta nota. O elo que faltava, e o mais específico.
+  ///
+  /// `invoiceId` some na reversão (`SetNull`), `taskId` é NULO numa nota conjunta
+  /// ou de lote, e `quoteId` é grosso demais — ele não distingue duas notas de
+  /// DOIS PAGADORES da MESMA cobrança. Sem este campo, depois de uma reversão as
+  /// duas ficam idênticas aos olhos do código, e o pareamento
+  /// substituta↔substituída não tem como ser feito: a escolha conservadora
+  /// (`ElotechOxyNfseService.supersedePreviousNfses`) é deixar as duas VIVAS, e
+  /// notas vivas se acumulam na prefeitura.
+  ///
+  /// `SetNull`, como `invoiceId` e `taskId`: nota emitida é histórico fiscal e
+  /// sobrevive ao pagador. É preenchido no ponto de emissão.
+  customerConfigId String?
+  elotechNfseId    Int?
+  nfseNumber       Int?
+  status           NfseStatus @default(PENDING)
+  errorMessage     String?
+  errorCount       Int        @default(0)
+  retryAfter       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   // ── Cancellation request lifecycle (Elotech "solicitação de cancelamento") ──
   // Cancellation at Ibiporã/Elotech is asynchronous and fiscal-approved: submitting a
@@ -4975,19 +5012,21 @@ model NfseDocument {
   supersededByNfseNumber     Int? // denormalized — this number is what the fiscal demands
   supersededAt               DateTime? // when the replacement note reached AUTHORIZED
 
-  invoice        Invoice?        @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
-  task           Task?           @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
-  quote          TaskQuote?      @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
-  supersededBy   NfseDocument?   @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
-  supersedes     NfseDocument[]  @relation("NfseSupersede")
+  invoice        Invoice?                 @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: SetNull)
+  task           Task?                    @relation("TaskNfseDocuments", fields: [taskId], references: [id], onDelete: SetNull)
+  quote          TaskQuote?               @relation("QuoteNfseDocuments", fields: [quoteId], references: [id], onDelete: SetNull)
+  customerConfig TaskQuoteCustomerConfig? @relation("CustomerConfigNfse", fields: [customerConfigId], references: [id], onDelete: SetNull)
+  supersededBy   NfseDocument?            @relation("NfseSupersede", fields: [supersededByNfseDocumentId], references: [id], onDelete: SetNull)
+  supersedes     NfseDocument[]           @relation("NfseSupersede")
   // Back-relation to the SIEG-imported SAIDA FiscalDocument generated from this
   // emission (set on import by nfseNumber + our company CNPJ). FK lives on
   // FiscalDocument.nfseDocumentId (@unique).
-  fiscalDocument FiscalDocument? @relation("NfseFiscalDocument")
+  fiscalDocument FiscalDocument?          @relation("NfseFiscalDocument")
 
   @@index([invoiceId])
   @@index([taskId])
   @@index([quoteId])
+  @@index([customerConfigId])
   @@index([elotechNfseId])
   @@index([status])
   @@index([supersededByNfseDocumentId])

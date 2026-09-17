@@ -3,6 +3,7 @@ import { Prisma, ReconciliationMatchType, ReconciliationSource, ReconciliationSt
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { allocateBudgetNumber } from '@utils/budget-number';
 import { isDueDateOverdue } from '@utils/due-date.util';
@@ -1574,20 +1575,17 @@ export class ReceivableTaskMatchService {
     return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 
-  /** Copy of ReceivableMatchService.recalcInvoice — one behavior, two callers. */
+  /**
+   * Recalcula `paidAmount` + `status` da fatura a partir das parcelas.
+   *
+   * ⚠️ Era uma cópia da cópia — e trazia junto o mesmo defeito: decidia por
+   * dinheiro contra `Invoice.totalAmount` congelado. Ver `invoice-payment-state.ts`.
+   */
   private async recalcInvoice(db: Prisma.TransactionClient, invoiceId: string): Promise<void> {
     const invoice = await db.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice || invoice.status === 'CANCELLED') return;
     const installments = await db.installment.findMany({ where: { invoiceId } });
-    const totalPaid = installments.reduce(
-      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
-      new Decimal(0),
-    );
-    const status = totalPaid.gte(invoice.totalAmount)
-      ? 'PAID'
-      : totalPaid.gt(0)
-        ? 'PARTIALLY_PAID'
-        : 'ACTIVE';
+    const { paidAmount: totalPaid, status } = deriveInvoicePaymentState(installments);
     await db.invoice.update({ where: { id: invoiceId }, data: { paidAmount: totalPaid, status } });
   }
 

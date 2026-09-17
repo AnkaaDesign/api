@@ -8033,6 +8033,48 @@ const CONFIGS: ConfigDef[] = [
     },
   },
   {
+    // Espelha `task_quote.expired`: é a MESMA situação chegando por outra porta —
+    // a coleta morreu e o valor volta para o comercial. O que a recusa acrescenta
+    // é o MOTIVO, e é por isso que ele está em todos os corpos: sem ele quem
+    // recebe sabe que parou e não sabe o que negociar.
+    key: "task_quote.refused",
+    name: "Orçamento Recusado — Reanalisar",
+    notificationType: "GENERAL",
+    eventType: "task_quote.refused",
+    description: "O cliente recusou a proposta e não sobrou signatário do lado dele; o orçamento volta para reanálise comercial.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Orçamento Recusado — Reanalisar",
+        body: "O cliente recusou o orçamento {{quoteLabel}}. Motivo: {{reason}}. Revise o valor e reemita a proposta.",
+      },
+      push: {
+        title: "Orçamento Recusado",
+        body: "Orçamento {{quoteLabel}} recusado: {{reason}}",
+      },
+      whatsapp: {
+        body: "O cliente recusou o orçamento {{quoteLabel}}. Motivo: {{reason}}. Revise o valor e reemita a proposta.",
+      },
+    },
+    metadata: {
+      trigger: "SignatureEnvelopeService.refuse → TaskQuoteService.markRefusedBySignature",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
     key: "task_quote.signed",
     name: "Orçamento Assinado pelo Cliente",
     notificationType: "GENERAL",

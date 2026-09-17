@@ -200,11 +200,77 @@ export class SignatureController {
     res.send(pdf);
   }
 
+  /**
+   * As coletas do orçamento.
+   *
+   * `@UserId()` entra na chamada por causa de `podeContraAssinar`: a permissão de
+   * contra-assinar é uma relação entre o envelope e QUEM pergunta, e resolvê-la
+   * no servidor é o que impede a tela de oferecer um botão que responde 403.
+   */
   @Get('quote/:quoteId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
-  async listForQuote(@Param('quoteId', ParseUUIDPipe) quoteId: string) {
-    const data = await this.envelopes.listForQuote(quoteId);
+  async listForQuote(@Param('quoteId', ParseUUIDPipe) quoteId: string, @UserId() userId: string) {
+    const data = await this.envelopes.listForQuote(quoteId, userId);
     return { success: true, data };
+  }
+
+  /**
+   * Troca o contra-assinante de uma coleta EM ANDAMENTO.
+   *
+   * Para férias, afastamento e desligamento: o representante é congelado na
+   * emissão e a coleta vive semanas. O documento não muda (está congelado e o
+   * cliente já pode ter assinado) — o que muda é quem assina, e a trilha
+   * registra a substituição. Ver `reassignAnkaaSigner`.
+   *
+   * O id do novo representante vai no CAMINHO e não no corpo: é o único dado da
+   * requisição, é um UUID, e assim a rota não depende de um schema Zod novo.
+   */
+  @Post(':id/contra-assinante/:novoUserId')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async reassignCountersigner(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('novoUserId', ParseUUIDPipe) novoUserId: string,
+    @UserId() userId: string,
+    @Req() req: Request,
+  ) {
+    const data = await this.envelopes.reassignAnkaaSigner({
+      envelopeId: id,
+      newUserId: novoUserId,
+      actorUserId: userId,
+      ctx: ctxOf(req),
+    });
+    return {
+      success: true,
+      message:
+        `Contra-assinatura redesignada de ${data.de} para ${data.para}. ` +
+        'A linha de assinatura impressa no documento continua em nome de ' +
+        `${data.de} — o documento está congelado —, e a troca ficou registrada na trilha.`,
+      data,
+    };
+  }
+
+  /**
+   * Reexecuta a aprovação do orçamento de uma coleta já concluída e selada.
+   *
+   * Existe para o envelope cujo gancho de conclusão falhou: o contrato está
+   * assinado e selado, e o orçamento ficou para trás. A causa mais comum era o
+   * portão de layout — que hoje mora na emissão —, mas o gancho depende de outro
+   * domínio e de rede, e um caminho de volta tem de existir. Ver
+   * `replayCompletion`: idempotente, não toca no documento.
+   */
+  @Post(':id/reexecutar-conclusao')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async replayCompletion(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    const data = await this.envelopes.replayCompletion(id, userId);
+    return {
+      success: true,
+      message: data.executado
+        ? 'Orçamento aprovado a partir da coleta já concluída.'
+        : (data.motivo ?? 'Nada a reexecutar.'),
+      data,
+    };
   }
 
   @Get(':id/audit-trail')

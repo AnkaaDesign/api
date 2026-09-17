@@ -57,6 +57,7 @@ import {
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
 import {
+  BILLING_FROZEN_WHERE,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
@@ -9922,9 +9923,86 @@ export class TaskService {
   }
 
   /**
+   * OS VEÍCULOS QUE NÃO PODEM SER APAGADOS PORQUE JÁ FORAM COBRADOS.
+   *
+   * Devolve, dos ids recebidos, os que estão na cobertura de um faturamento
+   * CONGELADO — aprovado, ou em estado pós-aprovação sem carimbo (ver
+   * `isBillingFrozen`; as duas leituras são a mesma pergunta).
+   *
+   * ⚠️ POR QUE ISTO PRECISOU EXISTIR. A exclusão de tarefa consultava SÓ
+   * `findProtectedTaskIds` — a guarda de ASSINATURA. `isQuoteMoneyLocked` nunca
+   * era chamada em caminho de exclusão nenhum, e o banco apagava antes de
+   * qualquer código opinar: `BillingTask.task` e `Invoice.task` eram os dois
+   * `onDelete: Cascade`, de modo que apagar o caminhão levava junto a linha de
+   * cobertura E a fatura emitida sobre ele. A guarda `orphanedFrozen` da
+   * reconciliação — que existe exatamente para recusar isto — ficava cega,
+   * porque quando ela roda a linha de cobertura já não está mais lá. No acervo
+   * eram 159 veículos passando sem erro e levando 159 faturas vivas.
+   *
+   * O critério é a COBERTURA, não o orçamento inteiro, e é deliberado: a trava do
+   * dinheiro foi desenhada para NÃO travar os cinquenta e nove veículos que ainda
+   * não foram cobrados e cujo preço ainda pode mudar (ver o cabeçalho de
+   * `task-quote.guards.ts`). É o mesmo recorte de `orphanedFrozen`.
+   *
+   * A migração `2026091715..._fatura_nao_morre_com_o_veiculo` troca
+   * `Invoice.task` para `Restrict`, de modo que o banco também recusa. Esta
+   * função existe para recusar com uma frase que diga o que fazer, em vez de um
+   * erro de integridade referencial.
+   */
+  private async findMoneyLockedTaskIds(
+    taskIds: string[],
+  ): Promise<Array<{ taskId: string; label: string; budgetNumber: number | null }>> {
+    if (taskIds.length === 0) return [];
+    const cobertos = await (this.prisma as any).billingTask.findMany({
+      where: { taskId: { in: taskIds }, billing: BILLING_FROZEN_WHERE },
+      select: {
+        taskId: true,
+        task: { select: { serialNumber: true, name: true, truck: { select: { plate: true } } } },
+        billing: { select: { quote: { select: { budgetNumber: true } } } },
+      },
+    });
+    return cobertos.map((row: any) => ({
+      taskId: row.taskId,
+      label:
+        row.task?.serialNumber ??
+        row.task?.truck?.plate ??
+        row.task?.name ??
+        String(row.taskId).slice(0, 8),
+      budgetNumber: row.billing?.quote?.budgetNumber ?? null,
+    }));
+  }
+
+  /** A frase que a tela mostra quando a exclusão é recusada pelo dinheiro. */
+  private moneyLockedDeletionMessage(
+    bloqueados: Array<{ label: string; budgetNumber: number | null }>,
+  ): string {
+    const lista = bloqueados
+      .slice(0, 5)
+      .map(b => (b.budgetNumber ? `${b.label} (orçamento nº ${b.budgetNumber})` : b.label))
+      .join(', ');
+    return (
+      `Não é possível excluir ${bloqueados.length === 1 ? 'o veículo' : 'os veículos'} ` +
+      `${lista}${bloqueados.length > 5 ? ', …' : ''}: o faturamento que ${
+        bloqueados.length === 1 ? 'o cobre' : 'os cobre'
+      } já foi aprovado — há fatura emitida, e pode haver boleto registrado e NFS-e autorizada. ` +
+      'Use "Reverter Faturamento" na tela de Faturamento antes de excluir.'
+    );
+  }
+
+  /**
    * Delete a task
    */
   async delete(id: string, userId?: string): Promise<TaskDeleteResponse> {
+    // ── O DINHEIRO VEM ANTES DA ASSINATURA ────────────────────────────────────
+    //
+    // A assinatura DEGRADA para cancelamento (nada é apagado); o dinheiro RECUSA.
+    // Perguntar primeiro ao dinheiro é o que impede um veículo já faturado de
+    // entrar no caminho do cancelamento automático, que desmonta a cobrança.
+    const bloqueadosPorDinheiro = await this.findMoneyLockedTaskIds([id]);
+    if (bloqueadosPorDinheiro.length > 0) {
+      throw new BadRequestException(this.moneyLockedDeletionMessage(bloqueadosPorDinheiro));
+    }
+
     // Assinatura eletrônica: quando o orçamento da tarefa já tem assinatura
     // coletada ou envelope selado, a exclusão degrada para cancelamento
     // automático (nada é apagado). Fora do try porque erros do cancelamento
@@ -9995,6 +10073,21 @@ export class TaskService {
     data: TaskBatchDeleteFormData,
     userId?: string,
   ): Promise<TaskBatchDeleteResponse> {
+    // ── O DINHEIRO RECUSA O LOTE INTEIRO ──────────────────────────────────────
+    //
+    // Em lote a recusa é de tudo, de propósito: excluir "as outras" e recusar
+    // caladamente as faturadas deixaria o operador com um resumo em que a conta
+    // não fecha e, pior, com metade de um lote de sessenta apagada. A frase
+    // NOMEIA os veículos, então a ação seguinte (tirá-los da seleção, ou reverter
+    // o faturamento) é óbvia.
+    //
+    // Nada disto era verificado: `batchDelete` consultava só a guarda de
+    // ASSINATURA, e o `Cascade` do banco levava cobertura e fatura junto.
+    const bloqueadosPorDinheiro = await this.findMoneyLockedTaskIds(data.taskIds);
+    if (bloqueadosPorDinheiro.length > 0) {
+      throw new BadRequestException(this.moneyLockedDeletionMessage(bloqueadosPorDinheiro));
+    }
+
     // Tarefas com orçamento assinado não são excluídas: cada uma degrada para
     // cancelamento automático (tarefa + orçamento CANCELLED, envelope
     // preservado). As demais seguem para a exclusão normal, e o resumo final
@@ -10846,8 +10939,30 @@ export class TaskService {
 
           const rollbackData: any = { [fieldToRevert]: convertedValue };
           if (fieldToRevert === 'status' && convertedValue && typeof convertedValue === 'string') {
-            rollbackData.statusOrder =
-              TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS] ?? undefined;
+            // ── O ESTADO HISTÓRICO PODE NÃO EXISTIR MAIS ─────────────────────
+            //
+            // O ciclo do pagamento saiu do orçamento para a COBRANÇA, e com ele
+            // saíram seis valores do enum: `BUDGET_APPROVED`, `BILLING_APPROVED`,
+            // `COMMERCIAL_APPROVED`, `DRAFT`, `UPCOMING`, `DUE` e `PARTIAL`. O
+            // `ChangeLog` guarda 468 linhas com esses `oldValue` — é histórico
+            // legítimo, e nada nele está errado.
+            //
+            // O que estava errado era o reverter: `TASK_QUOTE_STATUS_ORDER[...]`
+            // dava `undefined` (então o espelho numérico nem era gravado) e o
+            // `status` inválido seguia para uma coluna ENUM. O usuário recebia o
+            // erro cru do Prisma sobre um valor de enum inexistente, na tela de
+            // histórico, sem nenhuma pista do que fazer.
+            //
+            // Recusar com nome é a resposta honesta: aquele estado não existe
+            // mais, e não há para onde reverter.
+            if (!(convertedValue in TASK_QUOTE_STATUS_ORDER)) {
+              throw new BadRequestException(
+                `Não é possível reverter para o status "${convertedValue}": ele não existe mais. ` +
+                  'O ciclo de pagamento deixou de ser status do orçamento e passou a ser estado da ' +
+                  'COBRANÇA (tela de Faturamento). Este registro do histórico é de antes dessa mudança.',
+              );
+            }
+            rollbackData.statusOrder = TASK_QUOTE_STATUS_ORDER[convertedValue as TASK_QUOTE_STATUS];
           }
           await tx.taskQuote.update({
             where: { id: changeLog.entityId },
@@ -13113,6 +13228,16 @@ export class TaskService {
         // state.
         status: TASK_QUOTE_STATUS.PENDING,
         statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
+        // JUNTO OU SEPARADO acompanha a cópia.
+        //
+        // Ficava de fora e caía no `@default('JOINT')` da coluna: duplicar um
+        // orçamento cobrado veículo a veículo (ou em lotes) produzia uma cópia
+        // que AFIRMAVA "uma fatura para todos". Num orçamento de um veículo —
+        // que é o que a cópia é no instante em que nasce — os três modos são
+        // indistinguíveis, então nada acusava; o estrago aparecia depois, quando
+        // a cópia recebia o segundo caminhão e a reconciliação fatiava pelo modo
+        // errado, emitindo UMA nota para os dois.
+        billingSplit: (sourceQuote as any).billingSplit,
         guaranteeYears: sourceQuote.guaranteeYears,
         customGuaranteeText: sourceQuote.customGuaranteeText,
         simultaneousTasks: sourceQuote.simultaneousTasks,

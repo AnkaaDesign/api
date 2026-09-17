@@ -11,6 +11,7 @@ import {
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
+import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { nameSimilarity } from './text-normalization';
 import { isDueDateOverdue } from '@utils/due-date.util';
 import { sliceTask } from '../../../utils/quote-tasks';
@@ -2536,21 +2537,19 @@ export class ReceivableMatchService {
     await this.cascadeService.cascadeFromInstallment(installmentId).catch(() => undefined);
   }
 
-  /** Recompute an invoice's paidAmount + status from its installments. Copied
-   *  from SicrediWebhookService.recalculateInvoice to keep one behavior. */
+  /**
+   * Recompute an invoice's paidAmount + status from its installments.
+   *
+   * ⚠️ Era uma CÓPIA da derivação, e decidia o estado comparando dinheiro com
+   * `Invoice.totalAmount` — um retrato congelado que não acompanha renegociação
+   * nem desconto. Fatura com todas as parcelas pagas ficava `PARTIALLY_PAID`
+   * para sempre. Agora chama a regra única; ver `invoice-payment-state.ts`.
+   */
   private async recalcInvoice(db: Prisma.TransactionClient, invoiceId: string): Promise<void> {
     const invoice = await db.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice || invoice.status === 'CANCELLED') return;
     const installments = await db.installment.findMany({ where: { invoiceId } });
-    const totalPaid = installments.reduce(
-      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
-      new Decimal(0),
-    );
-    const status = totalPaid.gte(invoice.totalAmount)
-      ? 'PAID'
-      : totalPaid.gt(0)
-        ? 'PARTIALLY_PAID'
-        : 'ACTIVE';
+    const { paidAmount: totalPaid, status } = deriveInvoicePaymentState(installments);
     await db.invoice.update({ where: { id: invoiceId }, data: { paidAmount: totalPaid, status } });
   }
 

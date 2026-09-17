@@ -151,7 +151,21 @@ export interface TaskQuoteIncludes {
           customerSignature?: boolean;
           responsible?: boolean;
           installments?: boolean | { orderBy?: { number?: 'asc' | 'desc' } };
+          /**
+           * O FATURAMENTO do pagador — dele vêm a COBERTURA e o estado.
+           *
+           * O zod (`taskQuoteIncludeSchema`) já aceitava esta chave; faltava
+           * aqui, e o tipo é o contrato que o servidor compila contra. Quem
+           * precisa saber quais veículos uma fatia cobre (a detecção de
+           * recomposição de lotes) não conseguia sequer pedir.
+           *
+           * Forma livre, como no zod: é a do Prisma (select/include aninhados), e
+           * reescrevê-la criaria um segundo contrato para divergir do primeiro.
+           */
+          billing?: boolean | Record<string, unknown>;
         };
+        /** Mesma razão, para quem monta o nó com `select` em vez de `include`. */
+        select?: Record<string, unknown>;
       };
   /**
    * OS FATURAMENTOS do orçamento.

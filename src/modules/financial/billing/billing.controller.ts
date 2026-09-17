@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Put,
@@ -14,7 +15,21 @@ import { BillingStatusCascadeService } from './billing-status-cascade.service';
 import { TaskQuoteService } from '@modules/production/task-quote/task-quote.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { SECTOR_PRIVILEGES } from '@constants';
+import { BILLING_STATUS, SECTOR_PRIVILEGES } from '@constants';
+
+/**
+ * OS ÚNICOS `orderBy` QUE ESTA ROTA ACEITA.
+ *
+ * A lista é curta de propósito: o valor vai direto para o `orderBy` do Prisma, e
+ * um nome de campo que não existe não vira 400 — vira 500, porque o erro nasce
+ * lá dentro do driver. Validar aqui é o que separa "pedido inválido" de "servidor
+ * quebrado", e é a mesma razão de `statuses` ser conferido contra o enum abaixo.
+ */
+const BILLING_ORDER_BY = ['statusOrder', 'createdAt', 'approvedAt'] as const;
+type BillingOrderBy = (typeof BILLING_ORDER_BY)[number];
+
+const BILLING_ORDER_DIR = ['asc', 'desc'] as const;
+type BillingOrderDir = (typeof BILLING_ORDER_DIR)[number];
 
 /**
  * O FATURAMENTO TEM ENDEREÇO PRÓPRIO.
@@ -62,6 +77,38 @@ export class BillingController {
     @Query('orderBy') orderBy?: string,
     @Query('orderDir') orderDir?: string,
   ) {
+    // Lista separada por vírgula, como o resto dos filtros da casa — e conferida
+    // contra o enum. Um estado inexistente ia cru para o `where.status.in` e o
+    // Prisma respondia com erro de validação de enum, que o filtro global traduz
+    // em 500: o cliente pedia errado e a culpa aparecia como se fosse do servidor.
+    const parsedStatuses = statuses
+      ? statuses
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean)
+      : undefined;
+    if (parsedStatuses?.length) {
+      const validos = Object.values(BILLING_STATUS) as string[];
+      const invalidos = parsedStatuses.filter(s => !validos.includes(s));
+      if (invalidos.length > 0) {
+        throw new BadRequestException(
+          `Estado de faturamento inválido: ${invalidos.join(', ')}. ` +
+            `Valores aceitos: ${validos.join(', ')}.`,
+        );
+      }
+    }
+
+    if (orderBy && !BILLING_ORDER_BY.includes(orderBy as BillingOrderBy)) {
+      throw new BadRequestException(
+        `Ordenação inválida: ${orderBy}. Valores aceitos: ${BILLING_ORDER_BY.join(', ')}.`,
+      );
+    }
+    if (orderDir && !BILLING_ORDER_DIR.includes(orderDir as BillingOrderDir)) {
+      throw new BadRequestException(
+        `Direção de ordenação inválida: ${orderDir}. Valores aceitos: ${BILLING_ORDER_DIR.join(', ')}.`,
+      );
+    }
+
     return this.billingService.findMany({
       page,
       limit,
@@ -69,10 +116,9 @@ export class BillingController {
       customerId: customerId || undefined,
       approved: approved === undefined || approved === '' ? undefined : approved === 'true',
       deliveredOnly: deliveredOnly === 'true',
-      // Lista separada por vírgula, como o resto dos filtros da casa.
-      statuses: statuses ? statuses.split(',').map(v => v.trim()).filter(Boolean) : undefined,
-      orderBy: (orderBy as any) || undefined,
-      orderDir: (orderDir as any) || undefined,
+      statuses: parsedStatuses,
+      orderBy: (orderBy as BillingOrderBy) || undefined,
+      orderDir: (orderDir as BillingOrderDir) || undefined,
     });
   }
 

@@ -81,6 +81,54 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
    * Categoria UTILITY: é atualização de uma transação em curso, não marketing.
    */
   REFUSED: 'orcamento_recusado',
+
+  /**
+   * COLETA PAUSADA — um responsável do cliente recusou e os COLEGAS dele são
+   * avisados. `{{1}}` nome de quem recebe · `{{2}}` orçamento · `{{3}}` quem
+   * recusou.
+   *
+   * ⚠️ DESTINATÁRIO É CLIENTE, e é por isso que este é o mais urgente dos três
+   * acrescentados em 17/09. Ele saía em TEXTO LIVRE pelo Baileys, para o número
+   * de um responsável do cliente, fora da janela de 24 h — exatamente o envio
+   * que a Cloud API recusa e que, pelo canal não oficial, é o que derruba número.
+   *
+   * SEM O MOTIVO da recusa, pela mesma razão do texto livre: o motivo é uma
+   * posição interna do cliente e repassá-la aos colegas dele, por um canal que
+   * nós escolhemos, é indiscrição. Quem precisa do motivo é o nosso comercial.
+   *
+   * Sem botão: o link pessoal de cada um continua valendo e já está na conversa
+   * dele, no convite. Um botão novo aqui convidaria a assinar agora, que é o
+   * contrário do que a mensagem diz.
+   */
+  COLLECTION_PAUSED: 'orcamento_assinatura_pausada',
+
+  /**
+   * CONTRA-ASSINATURA PENDENTE, para o lado da Ankaa. `{{1}}` nome · `{{2}}`
+   * orçamento.
+   *
+   * Serve os DOIS momentos: o aviso de que o cliente terminou
+   * (`notifyAnkaaSigner`) e a cobrança periódica que passou a existir na
+   * cadência (`dispatchDueReminders`, grupo 1). O corpo é verdadeiro nos dois —
+   * "aguarda a contra-assinatura" — e o que muda entre eles é o texto LIVRE, que
+   * sai por e-mail e pelo Baileys e ali diz há quantos dias está parado.
+   *
+   * Sem botão, como o `orcamento_recusado`: quem recebe é gente de casa, a tela
+   * exige login e o orçamento é achado pelo número. Um botão de URL para uma
+   * tela atrás de login só produziria uma ida ao login sem contexto.
+   */
+  ANKAA_COUNTERSIGN: 'orcamento_contra_assinatura',
+
+  /**
+   * COLETA ANULADA por alteração material — versão do lado da ANKAA. `{{1}}`
+   * nome · `{{2}}` orçamento · `{{3}}` motivo.
+   *
+   * Gêmeo interno de `VOIDED`, e separado dele porque o que os dois precisam
+   * dizer é diferente: o cliente precisa saber que vem outro link; quem trabalha
+   * aqui precisa saber POR QUE a coleta caiu, e é o motivo que diz isso. Mesmo
+   * tratamento do `orcamento_recusado` para a variável de texto livre
+   * (`cleanParam` + `clampParam`).
+   */
+  VOIDED_INTERNAL: 'orcamento_assinatura_cancelada_interna',
 } as const;
 
 /**
@@ -225,5 +273,67 @@ export function voidedTemplate(data: {
     name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.VOIDED,
     language: LANGUAGE,
     bodyParams: [cleanParam(firstName(data.signerName)), cleanParam(data.budgetNumber)],
+  };
+}
+
+/**
+ * Aviso aos DEMAIS responsáveis do cliente de que um colega recusou.
+ *
+ * Espelha `generateCollectionPausedWhatsApp` — os dois textos têm de dizer a
+ * mesma coisa, porque o mesmo responsável pode receber um hoje e o outro amanhã,
+ * se o canal oficial cair.
+ */
+export function collectionPausedTemplate(data: {
+  /** Quem RECEBE o aviso. */
+  signerName: string;
+  budgetNumber: string | number;
+  /** Quem recusou — outro responsável do mesmo cliente. */
+  refusedByName: string;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.COLLECTION_PAUSED,
+    language: LANGUAGE,
+    bodyParams: [
+      cleanParam(firstName(data.signerName)),
+      cleanParam(data.budgetNumber),
+      // Nome COMPLETO de quem recusou, como no `orcamento_recusado`: num cadastro
+      // com dois "Carlos" o primeiro nome não diz qual dos colegas foi.
+      cleanParam(data.refusedByName),
+    ],
+  };
+}
+
+/**
+ * O cliente terminou (ou continua terminado) e falta a nossa caneta.
+ *
+ * O MESMO template serve o aviso e o lembrete — ver a nota em
+ * `ANKAA_COUNTERSIGN`. Quem distingue os dois momentos é o texto livre.
+ */
+export function ankaaCountersignTemplate(data: {
+  signerName: string;
+  budgetNumber: string | number;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.ANKAA_COUNTERSIGN,
+    language: LANGUAGE,
+    bodyParams: [cleanParam(firstName(data.signerName)), cleanParam(data.budgetNumber)],
+  };
+}
+
+/** A coleta caiu por alteração material — o que o lado da ANKAA recebe. */
+export function voidedInternalTemplate(data: {
+  signerName: string;
+  budgetNumber: string | number;
+  /** Por que a coleta foi anulada. Texto nosso, mas de tamanho livre. */
+  reason: string;
+}): SignatureWhatsAppTemplate {
+  return {
+    name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.VOIDED_INTERNAL,
+    language: LANGUAGE,
+    bodyParams: [
+      cleanParam(firstName(data.signerName)),
+      cleanParam(data.budgetNumber),
+      clampParam(cleanParam(data.reason), 320),
+    ],
   };
 }

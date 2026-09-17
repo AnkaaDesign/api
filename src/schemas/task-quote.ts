@@ -701,8 +701,25 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z
      */
     orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
     responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
-    // Direct installments (alternative to paymentCondition-based generation)
-    installments: z.array(installmentInputSchema).optional(),
+    /**
+     * ⚠️ `installments` NÃO EXISTE AQUI, e a remoção é a correção.
+     *
+     * A chave era aceita — "parcelas diretas, alternativa à geração por condição
+     * de pagamento" — e NUNCA foi lida por ninguém: nem a criação, nem a
+     * reconciliação de pagadores, nem a geração de faturas a consultam. Quem
+     * mandasse um plano de parcelas explícito recebia 200 e um orçamento em que
+     * nada tinha acontecido, e as parcelas que apareciam depois eram as que a
+     * `paymentCondition` derivou — outro plano, com outras datas e outros valores.
+     *
+     * Um campo aceito e ignorado é pior do que um campo recusado: o cliente da
+     * API não tem como descobrir que o pedido dele evaporou. Agora o zod o
+     * descarta (o objeto não é `.strict()`), e quem precisa de parcelas fora do
+     * padrão usa `paymentConfig` (`CASH`/`INSTALLMENTS` com dias e passo) ou a
+     * condição personalizada (`paymentCondition: 'CUSTOM'` + `customPaymentText`).
+     *
+     * O SCHEMA `installmentInputSchema` continua exportado: ele descreve a forma
+     * de uma parcela e é usado fora deste objeto.
+     */
   })
   .superRefine((data, ctx) => {
     // A PERCENTAGE discount must be within 0–100. Without this guard a value > 100
@@ -900,7 +917,24 @@ export const taskQuoteUpdateSchema = z.object({
     .date({ errorMap: () => ({ message: 'Data de validade invalida' }) })
     .optional(),
   status: taskQuoteStatusSchema.optional(),
-  taskId: z.string().uuid('Tarefa invalida').optional(),
+  /**
+   * ⚠️ `taskId` NÃO EXISTE AQUI, e a ausência é deliberada.
+   *
+   * `TaskQuote` não tem essa coluna — a FK mudou de lado e hoje mora em
+   * `Task.quoteId` —, mas o campo continuava declarado neste update e a tela
+   * continuava mandando. Como o objeto não é `.strict()`, o zod agora o DESCARTA,
+   * que é exatamente o que se quer: nada lê `data.taskId` no caminho de
+   * atualização, e aceitá-lo produzia um 400 em toda gravação de orçamento com
+   * cobrança aprovada. `isScalarChanged(undefined, "<uuid>")` responde sempre
+   * "mudou", então a chave nunca era filtrada, e a trava do dinheiro recusava a
+   * requisição inteira — inclusive prorrogar `expiresAt`, que a trava existe para
+   * PERMITIR.
+   *
+   * Quem muda o conjunto de veículos usa `taskIds` (abaixo), que é lido.
+   *
+   * (Na CRIAÇÃO `taskId` continua aceito e é LIDO — ver
+   * `taskQuoteCreateBaseSchema`: o app Flutter instalado manda o singular.)
+   */
   /**
    * O CONJUNTO de tarefas do orçamento. Ausente = não mexe; presente =
    * reconcilia (vincula as novas, desvincula as que saíram).

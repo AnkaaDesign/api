@@ -25,8 +25,10 @@ import { BillingStatusModule } from '@modules/financial/billing/billing-status.m
  *
  * Features:
  * - CRUD operations for task quotes
- * - Status management (PENDING → BUDGET_APPROVED → BILLING_APPROVED → UPCOMING → DUE → PARTIAL → SETTLED)
- * - Approval workflow with automatic invoice generation on BILLING_APPROVED
+ * - Status management (PENDING → SIGNED → APPROVED; EXPIRED e CANCELLED à parte)
+ * - Approval workflow with automatic invoice generation quando a COBRANÇA é
+ *   aprovada (PUT /billings/:id/approve). O ciclo do pagamento
+ *   (APROVADO/PARCIAL/VENCIDO/LIQUIDADO) é do `Billing`, não do orçamento.
  * - Automated status cascade from payment events
  * - Change logging
  * - Payment reminder notifications
@@ -91,6 +93,16 @@ export class TaskQuoteModule implements OnModuleInit {
     // para o comercial reanalisar o valor.
     this.signatureEnvelopes.setOnEnvelopeExpired(async quoteId => {
       await this.taskQuoteService.markExpiredBySignature(quoteId);
+    });
+
+    // O cliente recusou e não sobrou ninguém do lado dele para assinar: o valor
+    // volta para o comercial reanalisar, como no ramo do vencimento.
+    //
+    // O gancho já existia e já era disparado; faltava OUVINTE — e sem ouvinte a
+    // cerimônia só logava um aviso. Nove envelopes `REFUSED` no acervo têm o
+    // orçamento parado em `PENDING`, indistinguível de um criado naquela manhã.
+    this.signatureEnvelopes.setOnEnvelopeRefused(async (quoteId, _envelopeId, reason) => {
+      await this.taskQuoteService.markRefusedBySignature(quoteId, reason);
     });
   }
 }

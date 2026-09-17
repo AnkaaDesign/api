@@ -72,6 +72,7 @@ import {
   SERVICE_DESCRIPTIONS_BY_TYPE,
 } from '../../../constants/service-descriptions';
 import { calculateWorkingSeconds } from '../../../utils/working-hours';
+import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
 
 @Injectable()
 export class ServiceOrderService {
@@ -82,6 +83,12 @@ export class ServiceOrderService {
     private readonly serviceOrderRepository: ServiceOrderRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly eventEmitter: EventEmitter2,
+    // QUEM ESCREVE `Billing.status`. Cancelar ou restaurar um orçamento muda o
+    // que as cobranças dele valem, e o estado delas é DERIVADO — sem recalcular
+    // aqui, o cancelamento deixava a cobrança no estado anterior e a restauração
+    // a deixava CANCELADA para sempre (a varredura diária não varre orçamento
+    // cancelado). `BillingStatusModule` só depende do Prisma; não fecha ciclo.
+    private readonly billingStatusCascade: BillingStatusCascadeService,
   ) {
     // Let the Em Negociação sync util (plain function, no DI) emit
     // service_order.status.changed for its automatic transitions.
@@ -110,7 +117,17 @@ export class ServiceOrderService {
     taskId: string,
     commercialServiceOrderId: string,
     userId: string | null,
-  ): Promise<void> {
+  ): Promise<string[]> {
+    /**
+     * Os ORÇAMENTOS que voltaram do CANCELADO nesta restauração.
+     *
+     * Devolvidos porque as COBRANÇAS deles continuam CANCELADAS até alguém
+     * recalcular, e ninguém recalculava: `Billing.status` é derivado do status
+     * do orçamento, a varredura diária não varre orçamento cancelado, e este
+     * método roda dentro de uma transação — a cascata tem de rodar depois do
+     * commit, no chamador.
+     */
+    const orcamentosRestaurados: string[] = [];
     // Entrada da TAREFA gerada pela cascata: âncora temporal do lote.
     const taskCascadeEntry = await tx.changeLog.findFirst({
       where: {
@@ -207,14 +224,56 @@ export class ServiceOrderService {
           userId: userId || '',
           transaction: tx,
         });
+
+        orcamentosRestaurados.push(current.id);
       }
     }
 
     if (cascadeEntries.length > 0) {
       this.logger.log(
-        `[COMMERCIAL ROLLBACK] Restored ${cascadeEntries.length} cascade-cancelled records for task ${taskId}`,
+        `[COMMERCIAL ROLLBACK] Restored ${cascadeEntries.length} cascade-cancelled records for task ${taskId}` +
+          (orcamentosRestaurados.length > 0
+            ? ` (${orcamentosRestaurados.length} orçamento(s) — cobranças serão recalculadas após o commit)`
+            : ''),
       );
     }
+
+    return orcamentosRestaurados;
+  }
+
+  /**
+   * EXISTE FATURAMENTO VIVO NESTE ORÇAMENTO?
+   *
+   * ⚠️ A pergunta é do ORÇAMENTO, nunca da TAREFA. A guarda perguntava
+   * `invoice.findFirst({ taskId })` — e `Invoice.taskId` é NULO de propósito
+   * numa fatura CONJUNTA ou de LOTE (ela não é de nenhum dos sessenta caminhões
+   * em particular, ver `sliceAnchorTaskId`). Resultado: no caso mais caro —
+   * orçamento conjunto, fatura emitida, boletos registrados, NFS-e autorizada —
+   * a guarda não encontrava nada e o cancelamento em cascata passava por cima de
+   * tudo, deixando documento fiscal vivo pendurado em tarefa CANCELADA.
+   *
+   * É o mesmo buraco que `cancelQuote` já fechou trocando o escopo por tarefa
+   * pelo escopo por orçamento (`invoicesOfQuote` em `task-quote.service.ts`), e
+   * a forma aqui é a mesma: pela COBERTURA (`customerConfig.quoteId`) com o ramo
+   * por `task` mantido para a fatura de acervo, anterior ao `customerConfigId`.
+   */
+  private async hasLiveBillingForTask(tx: PrismaTransaction, taskId: string): Promise<boolean> {
+    const quoteRow = await tx.task.findUnique({
+      where: { id: taskId },
+      select: { quoteId: true },
+    });
+
+    const live = await tx.invoice.findFirst({
+      where: {
+        status: { not: 'CANCELLED' },
+        ...(quoteRow?.quoteId
+          ? { OR: [{ customerConfig: { quoteId: quoteRow.quoteId } }, { taskId }] }
+          : { taskId }),
+      },
+      select: { id: true },
+    });
+
+    return !!live;
   }
 
   /**
@@ -590,6 +649,19 @@ export class ServiceOrderService {
         oldStatus: TASK_STATUS;
         newStatus: TASK_STATUS;
       } | null = null;
+      // ORÇAMENTOS CUJAS COBRANÇAS PRECISAM SER RECALCULADAS depois do commit.
+      //
+      // `Billing.status` é DERIVADO do status do orçamento e das parcelas, e
+      // cancelar ou restaurar um orçamento muda a primeira metade dessa conta.
+      // Nada aqui recalculava: cancelar deixava as cobranças no estado anterior,
+      // e restaurar as deixava CANCELADAS PARA SEMPRE — a varredura diária
+      // (`task-quote-payment.scheduler.ts`) não varre orçamento cancelado, então
+      // não havia nem caminho lento que consertasse depois.
+      //
+      // Depois do COMMIT, e não dentro da transação: a cascata lê por outra
+      // conexão e enxergaria o status ANTIGO do orçamento, devolvendo exatamente
+      // o estado que acabamos de mudar.
+      const billingQuotesToRecompute = new Set<string>();
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
@@ -1035,11 +1107,8 @@ export class ServiceOrderService {
               // task. Block and require the operator to revert the billing first —
               // never destroy fiscal documents as a side effect of cancelling a
               // negotiation service order.
-              const liveBillingInvoice = await tx.invoice.findFirst({
-                where: { taskId: task.id, status: { not: 'CANCELLED' } },
-                select: { id: true },
-              });
-              if (liveBillingInvoice) {
+              // Escopo por ORÇAMENTO — ver `hasLiveBillingForTask`.
+              if (await this.hasLiveBillingForTask(tx, task.id)) {
                 throw new BadRequestException(
                   'Não é possível cancelar a tarefa: o faturamento já foi aprovado (existem faturas, boletos ou NFS-e ativos). Reverta o faturamento antes de cancelar as ordens de serviço comerciais.',
                 );
@@ -1074,6 +1143,9 @@ export class ServiceOrderService {
                   userId: userId || '',
                   transaction: tx,
                 });
+                // Orçamento cancelado cancela as cobranças dele — mas quem
+                // escreve `Billing.status` é a cascata, depois do commit.
+                billingQuotesToRecompute.add(qfc.id);
               }
 
               const oldTaskStatus = task.status as TASK_STATUS;
@@ -1165,7 +1237,15 @@ export class ServiceOrderService {
           if (task && task.status === TASK_STATUS.CANCELLED) {
             // Desfaz o RESTO da cascata (orçamento + demais OSs) antes de
             // recalcular: o status correto da tarefa depende das OSs restauradas.
-            await this.restoreCascadeFromCommercialCancel(tx, task.id, id, userId || null);
+            const orcamentosRestaurados = await this.restoreCascadeFromCommercialCancel(
+              tx,
+              task.id,
+              id,
+              userId || null,
+            );
+            // O orçamento voltou do CANCELADO; as cobranças dele não voltam
+            // sozinhas. Ver `billingQuotesToRecompute`.
+            for (const qid of orcamentosRestaurados) billingQuotesToRecompute.add(qid);
 
             // Get all service orders for this task to calculate correct status
             const allServiceOrders = await tx.serviceOrder.findMany({
@@ -1528,6 +1608,20 @@ export class ServiceOrderService {
         return updated;
       });
 
+      // AGORA o orçamento já está commitado, e a cascata lê a verdade nova.
+      // Best-effort: recalcular estado derivado nunca pode derrubar a resposta
+      // de uma atualização de O.S. que já foi gravada.
+      for (const quoteId of billingQuotesToRecompute) {
+        try {
+          await this.billingStatusCascade.recomputeForQuote(quoteId);
+        } catch (cascadeError) {
+          this.logger.error(
+            `[BILLING CASCADE] Falha ao recalcular as cobranças do orçamento ${quoteId}:`,
+            cascadeError,
+          );
+        }
+      }
+
       // Emit events after successful update
       // Check if status changed
       if (serviceOrderExists.status !== serviceOrder.status) {
@@ -1817,6 +1911,9 @@ export class ServiceOrderService {
               id: true,
               status: true,
               layoutFiles: { select: { id: true } },
+              // ⚠️ O PAGADOR. Sem ele esta aprovação automática produz orçamento
+              // APROVADO sem ninguém a quem cobrar — ver a guarda abaixo.
+              customerConfigs: { select: { id: true, total: true } },
             },
           },
         },
@@ -1835,6 +1932,27 @@ export class ServiceOrderService {
       if ((quote.layoutFiles || []).length === 0) {
         this.logger.log(
           `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: budget-approve skipped — no approved layout selected on quote ${quote.id}.`,
+        );
+        return;
+      }
+
+      // ⚠️ E TEM DE HAVER A QUEM COBRAR.
+      //
+      // `validateStatusPrerequisites` exige, em `PENDING → APPROVED`, pelo menos
+      // um pagador com total maior que zero. Esta aprovação automática grava o
+      // status DIRETO no Prisma, então passava por fora dessa exigência — era a
+      // única porta do sistema capaz de produzir orçamento aprovado sem pagador
+      // nenhum, e o acervo tem dois assim (54 e 291), um deles sem nem tarefa de
+      // onde inferir o cliente.
+      //
+      // Mesma forma da guarda de layout acima: não aprova e explica no log. O
+      // `syncEmNegociacaoForTask` do chamador então devolve a O.S. recém-concluída
+      // para EM ANDAMENTO, que é o que faz o comercial perceber que falta algo.
+      const pagadores = (quote.customerConfigs ?? []) as Array<{ total: unknown }>;
+      if (!pagadores.some(c => Number(c.total ?? 0) > 0)) {
+        this.logger.log(
+          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: aprovação automática ignorada — ` +
+            `o orçamento ${quote.id} não tem nenhum pagador com valor maior que zero.`,
         );
         return;
       }
@@ -2842,6 +2960,9 @@ export class ServiceOrderService {
         oldStatus: TASK_STATUS;
         newStatus: TASK_STATUS;
       }> = [];
+      // Paridade com o caminho de atualização única: orçamentos cujas cobranças
+      // precisam ser recalculadas DEPOIS do commit. Ver o comentário de lá.
+      const billingQuotesToRecompute = new Set<string>();
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
@@ -3158,11 +3279,8 @@ export class ServiceOrderService {
                     );
 
                     // I18: never strand live billing (parity with single update).
-                    const liveBillingInvoice = await tx.invoice.findFirst({
-                      where: { taskId: task.id, status: { not: 'CANCELLED' } },
-                      select: { id: true },
-                    });
-                    if (liveBillingInvoice) {
+                    // Escopo por ORÇAMENTO — ver `hasLiveBillingForTask`.
+                    if (await this.hasLiveBillingForTask(tx, task.id)) {
                       throw new BadRequestException(
                         'Não é possível cancelar a tarefa: o faturamento já foi aprovado (existem faturas, boletos ou NFS-e ativos). Reverta o faturamento antes de cancelar as ordens de serviço comerciais.',
                       );
@@ -3197,6 +3315,9 @@ export class ServiceOrderService {
                         userId: userId || '',
                         transaction: tx,
                       });
+                      // As cobranças deste orçamento caem junto — a cascata
+                      // escreve o estado delas depois do commit.
+                      billingQuotesToRecompute.add(qfc.id);
                     }
 
                     const oldTaskStatus = task.status as TASK_STATUS;
@@ -3634,6 +3755,19 @@ export class ServiceOrderService {
 
         return batchResult;
       });
+
+      // Commitado: as cobranças dos orçamentos cancelados neste lote podem ser
+      // recalculadas com a verdade nova. Best-effort, como no caminho único.
+      for (const quoteId of billingQuotesToRecompute) {
+        try {
+          await this.billingStatusCascade.recomputeForQuote(quoteId);
+        } catch (cascadeError) {
+          this.logger.error(
+            `[BILLING CASCADE] Falha ao recalcular as cobranças do orçamento ${quoteId} (batch):`,
+            cascadeError,
+          );
+        }
+      }
 
       // Emit events for successful updates
       for (const serviceOrder of result.success) {

@@ -8,6 +8,29 @@ import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
 import { formatDueDateYMD, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 import { coveredTaskIds, orderNumberLabel, sliceAnchorTaskId } from '../../../utils/quote-tasks';
 import { deleteInstallmentsWithSlips } from '../../../utils/billing-teardown';
+import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
+
+/**
+ * UM PAGADOR QUE NÃO GEROU FATURA — e por quê.
+ *
+ * Existe para que o chamador possa RECUSAR a aprovação. Sem isto o gerador
+ * pulava o pagador em silêncio e devolvia só os ids dos que deram certo.
+ */
+export type SkippedBillingConfig = {
+  /** `TaskQuoteCustomerConfig.id` — o pagador. */
+  configId: string;
+  /** Nome de fantasia do cliente, para a mensagem de erro dizer de quem é. */
+  customerName: string;
+  /** O valor que ficaria sem cobrança. */
+  total: number;
+  /** Frase pronta em português, já explicando o que falta. */
+  reason: string;
+};
+
+export type InvoiceGenerationOutcome = {
+  invoiceIds: string[];
+  skippedConfigs: SkippedBillingConfig[];
+};
 
 /**
  * Service responsible for auto-generating invoices from approved task quotes.
@@ -21,6 +44,9 @@ export class InvoiceGenerationService {
     private readonly prisma: PrismaService,
     private readonly sicrediService: SicrediService,
     private readonly sicrediAuthService: SicrediAuthService,
+    // A cascata que recalcula `Billing.status`. Vem de `BillingStatusModule`,
+    // que só depende do Prisma — importá-lo não fecha ciclo com nada.
+    private readonly billingStatusCascade: BillingStatusCascadeService,
   ) {}
 
   /**
@@ -38,8 +64,45 @@ export class InvoiceGenerationService {
    * @param taskId - UUID of the task whose quote to generate invoices for
    * @param userId - UUID of the user triggering the generation
    * @returns Array of created invoice IDs
+   *
+   * ⚠️ Esta forma devolve SÓ os ids e por isso não sabe dizer quem ficou de
+   * fora. Quem precisa decidir se a aprovação pode prosseguir deve chamar
+   * {@link generateInvoicesForTaskDetailed}, que devolve também `skippedConfigs`.
    */
   async generateInvoicesForTask(
+    taskId: string,
+    userId: string,
+    approvalDate?: Date,
+    options?: {
+      skipBankSlips?: boolean;
+      skipNfse?: boolean;
+      onlyTaskIds?: readonly string[] | null;
+      onlyConfigIds?: readonly string[] | null;
+    },
+  ): Promise<string[]> {
+    const { invoiceIds } = await this.generateInvoicesForTaskDetailed(
+      taskId,
+      userId,
+      approvalDate,
+      options,
+    );
+    return invoiceIds;
+  }
+
+  /**
+   * A MESMA GERAÇÃO, DIZENDO QUEM FICOU DE FORA.
+   *
+   * O gerador tinha um `continue` mudo: um pagador cujas parcelas não puderam
+   * ser calculadas (condição `CUSTOM`, valor zero, condição em branco) era
+   * PULADO, sem fatura, sem parcela, sem boleto e sem nota — e a aprovação
+   * seguia adiante porque os OUTROS pagadores geraram fatura. Bastava um
+   * `invoiceIds.length > 0` para a cobrança inteira ser carimbada de APROVADA
+   * com um pagador nunca cobrado dentro dela.
+   *
+   * `skippedConfigs` é o que faltava para o chamador poder falhar: quem não
+   * gerou, de quem é, quanto era e por quê.
+   */
+  async generateInvoicesForTaskDetailed(
     taskId: string,
     userId: string,
     approvalDate?: Date,
@@ -77,7 +140,7 @@ export class InvoiceGenerationService {
        */
       onlyConfigIds?: readonly string[] | null;
     },
-  ): Promise<string[]> {
+  ): Promise<InvoiceGenerationOutcome> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
     // Load the task with its quote, customer configs, and finishedAt for due date calculation
@@ -170,10 +233,13 @@ export class InvoiceGenerationService {
       this.logger.warn(
         `[INVOICE_GEN] No customer configs found for task ${taskId}, skipping invoice generation.`,
       );
-      return [];
+      return { invoiceIds: [], skippedConfigs: [] };
     }
 
     const invoiceIds: string[] = [];
+    // QUEM NÃO GEROU — preenchido em cada `continue` do laço abaixo. Ver
+    // `SkippedBillingConfig`: sem esta lista o pulo era mudo.
+    const skippedConfigs: SkippedBillingConfig[] = [];
     // Track NfseDocument ids already claimed (reused or minted) earlier in THIS
     // approval run. A multi-config quote creates one invoice per config in the
     // same loop; without this guard the taskId-scoped reuse lookup below would
@@ -275,8 +341,26 @@ export class InvoiceGenerationService {
             );
 
         if (generatedInstallments.length === 0) {
-          this.logger.warn(
-            `[INVOICE_GEN] No installments generated for customerConfig ${config.id} (condition=${config.paymentCondition}, paymentConfig=${JSON.stringify(paymentConfig)}), skipping invoice generation.`,
+          // NÃO É MAIS UM PULO MUDO. Depois de `CUSTOM` passar a gerar parcela
+          // única, sobram dois motivos reais: valor não positivo e condição de
+          // pagamento em branco. Nos dois casos este pagador fica SEM cobrança —
+          // e quem chamou precisa saber para poder recusar a aprovação inteira,
+          // em vez de carimbá-la porque os OUTROS pagadores geraram fatura.
+          const motivo =
+            !Number.isFinite(totalAmount) || totalAmount <= 0
+              ? `valor de cobrança inválido (R$ ${Number(totalAmount).toFixed(2)})`
+              : 'forma de pagamento não definida';
+          skippedConfigs.push({
+            configId: config.id,
+            customerName: config.customer?.fantasyName ?? 'cliente sem nome',
+            total: Number(totalAmount),
+            reason: motivo,
+          });
+          this.logger.error(
+            `[INVOICE_GEN] NENHUMA PARCELA gerada para o pagador ${config.id} ` +
+              `(${config.customer?.fantasyName ?? '?'}): ${motivo}. ` +
+              `condition=${config.paymentCondition}, paymentConfig=${JSON.stringify(paymentConfig)}. ` +
+              `Este pagador fica SEM fatura.`,
           );
           continue;
         }
@@ -488,10 +572,15 @@ export class InvoiceGenerationService {
     });
 
     this.logger.log(
-      `[INVOICE_GEN] ====== Invoice generation complete for task ${taskId}: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}] ======`,
+      `[INVOICE_GEN] ====== Invoice generation complete for task ${taskId}: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}]` +
+        (skippedConfigs.length > 0
+          ? ` — ${skippedConfigs.length} pagador(es) SEM fatura: ` +
+            skippedConfigs.map(s => `${s.customerName} (${s.reason})`).join('; ')
+          : '') +
+        ' ======',
     );
 
-    return invoiceIds;
+    return { invoiceIds, skippedConfigs };
   }
 
   /**
@@ -1025,6 +1114,17 @@ export class InvoiceGenerationService {
             where: { id: installment.id },
             data: { dueDate: effectiveDueDate },
           });
+
+          // MOVER O VENCIMENTO MUDA O ESTADO DA COBRANÇA. A parcela estava
+          // vencida (foi por isso que a data foi empurrada) e agora vence hoje
+          // ou depois — a cobrança precisa sair de VENCIDO. O recálculo é pelo
+          // PAGADOR, que é o dado em mão aqui: recalcular o orçamento inteiro
+          // custaria N vezes mais e responderia a mesma coisa.
+          if (installment.customerConfigId) {
+            await this.billingStatusCascade
+              .recomputeForCustomerConfig(installment.customerConfigId)
+              .catch(() => undefined);
+          }
         }
 
         this.logger.log(
@@ -1315,6 +1415,10 @@ export class InvoiceGenerationService {
     total: number,
     approvalDate?: Date,
   ): { number: number; dueDate: Date; amount: number }[] {
+    // Mesma decisão do gerador por condição: valor não positivo NÃO gera parcela
+    // (boleto e NFS-e de R$ 0,00 são documentos impagáveis na mão do cliente), e
+    // quem recusa é a validação da aprovação. Ver o comentário em
+    // `generateInstallmentsFromCondition`.
     if (!Number.isFinite(total) || total <= 0) return [];
 
     // Use the billing approval date as the anchor so "first payment in N days" means
@@ -1386,7 +1490,18 @@ export class InvoiceGenerationService {
       });
     }
 
-    return [];
+    // QUALQUER OUTRO `type` (hoje `CUSTOM`, amanhã o que for) cai numa parcela
+    // ÚNICA no valor total, pelo mesmo motivo do `CUSTOM` do gerador por
+    // condição: combinar o pagamento à parte não apaga a dívida, e devolver
+    // lista vazia aqui fazia a cobrança ser aprovada sem parcela, sem boleto e
+    // sem nada que vencesse.
+    return [
+      {
+        number: 1,
+        dueDate: nextBrazilianBusinessDay(resolveFirstDueDate()),
+        amount: total,
+      },
+    ];
   }
 
   /**
@@ -1402,8 +1517,64 @@ export class InvoiceGenerationService {
     total: number,
     approvalDate?: Date,
   ): { number: number; dueDate: Date; amount: number }[] {
+    // VALOR NÃO POSITIVO NÃO GERA PARCELA — e isso é decisão, não omissão.
+    //
+    // Uma parcela de R$ 0,00 produziria um boleto de R$ 0,00 no Sicredi e uma
+    // NFS-e de R$ 0,00 na prefeitura: dois documentos que o cliente recebe e
+    // ninguém consegue baixar. Cobrança de valor zero (retrabalho em garantia,
+    // cortesia) não é dívida, e o lugar de dizer isso é a APROVAÇÃO, que deve
+    // RECUSAR antes de chegar aqui — o gerador não tem como distinguir "de
+    // graça" de "alguém esqueceu de preencher o valor".
+    //
+    // ⚠️ Enquanto a validação não recusa, quem não gerou aparece em
+    // `skippedConfigs` (ver `generateInvoicesForTaskDetailed`) e o chamador
+    // falha em voz alta em vez de aprovar uma cobrança sem fatura.
     if (!Number.isFinite(total) || total <= 0) return [];
-    if (!paymentCondition || paymentCondition === 'CUSTOM') return [];
+    if (!paymentCondition) return [];
+
+    // `CUSTOM` = "combinado à parte" — texto livre é FORMA DE PAGAMENTO, não
+    // ausência de dívida. Gerava ZERO parcelas, e o efeito era exatamente o
+    // defeito que esta correção fecha: a fatura nascia sem parcela nenhuma (ou
+    // nem nascia), o boleto não saía, nada vencia, e a cobrança se declarava
+    // aprovada sobre dinheiro que ninguém ia cobrar.
+    //
+    // Uma parcela ÚNICA no valor total, com o vencimento à vista da casa
+    // (5 dias do âncora), é a leitura conservadora: existe a dívida, existe a
+    // data, e o financeiro ajusta vencimento e instrumento pela tela de
+    // faturamento como faz em qualquer outra parcela.
+    if (paymentCondition === 'CUSTOM') {
+      const anchorCustom = approvalDate ?? finishedAt;
+      const baseCustom = new Date(
+        Date.UTC(
+          anchorCustom.getUTCFullYear(),
+          anchorCustom.getUTCMonth(),
+          anchorCustom.getUTCDate() + 5,
+          12,
+          0,
+          0,
+        ),
+      );
+      const nowCustom = new Date();
+      const floorCustom = nextBrazilianBusinessDay(
+        new Date(
+          Date.UTC(
+            nowCustom.getUTCFullYear(),
+            nowCustom.getUTCMonth(),
+            nowCustom.getUTCDate() + 3,
+            12,
+            0,
+            0,
+          ),
+        ),
+      );
+      return [
+        {
+          number: 1,
+          dueDate: nextBrazilianBusinessDay(baseCustom < floorCustom ? floorCustom : baseCustom),
+          amount: total,
+        },
+      ];
+    }
 
     // Use the billing approval date as anchor — same rationale as generateInstallmentsFromPaymentConfig:
     // "first payment in N days" means N days from billing approval, not from a possibly stale finishedAt

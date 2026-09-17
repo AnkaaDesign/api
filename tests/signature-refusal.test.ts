@@ -46,7 +46,12 @@ async function main() {
   const envelopes = app.get(SignatureEnvelopeService);
   const challenges = app.get(SigningChallengeService);
 
-  const criados = { quoteId: '', taskIds: [] as string[], respIds: [] as string[] };
+  const criados = {
+    quoteId: '',
+    taskIds: [] as string[],
+    respIds: [] as string[],
+    layoutFileId: '',
+  };
 
   try {
     const customer = await prisma.customer.findFirst({ select: { id: true } });
@@ -99,6 +104,27 @@ async function main() {
     criados.quoteId = (created as any)?.data?.quote?.id;
     criados.taskIds = ((created as any)?.data?.tasks ?? []).map((t: any) => t.id);
     if (!criados.quoteId) { check('orçamento criado', false); return; }
+
+    // ── LAYOUT APROVADO, sem o qual a emissão RECUSA (17/09) ────────────────
+    //
+    // O portão de layout morava em `budgetApprove` e estourava DEPOIS de tudo:
+    // cliente assinado, Ankaa contra-assinada, PAdES aplicado — dentro de um
+    // `try/catch` que só logava. O orçamento ficava PENDING com um contrato
+    // selado em cima. Ele passou para `createEnvelope`, que é quando corrigir
+    // ainda é barato, e por isso toda coleta (inclusive as deste arquivo) precisa
+    // de um layout antes de sair.
+    const layout = await prisma.file.create({
+      data: {
+        filename: `zz-layout-recusa-${SUFFIX}.pdf`,
+        originalName: 'Layout aprovado (teste).pdf',
+        mimetype: 'application/pdf',
+        path: `/tmp/zz-layout-recusa-${SUFFIX}.pdf`,
+        size: 1,
+        quoteLayoutId: criados.quoteId,
+      },
+      select: { id: true },
+    });
+    criados.layoutFileId = layout.id;
 
     console.log('\nColeta com dois responsáveis');
     await envelopes.createEnvelope({
@@ -193,7 +219,23 @@ async function main() {
     const env3: any = await prisma.signatureEnvelope.findUnique({ where: { id: env0.id } });
     check('com TODOS recusando, o envelope vai a REFUSED', env3.status === 'REFUSED', env3.status);
   } finally {
-    // Limpeza. O envelope cai por cascade do orçamento.
+    // ⚠️ O ARQUIVO SAI PRIMEIRO, e desvinculado antes de apagado.
+    //
+    // Dois gatilhos do banco conspiram contra a ordem ingênua:
+    // `file_block_referenced_delete` recusa apagar arquivo ainda apontado por
+    // `File.quoteLayoutId`, e `signature_audit_append_only` faz o cascade do
+    // orçamento estourar assim que existe um evento de trilha — ou seja, o
+    // `deleteMany` do orçamento abaixo FALHA sempre que houve coleta, e o
+    // `.catch` engole. Desvincular e apagar o arquivo aqui é o que impede que
+    // cada execução deste arquivo deixe um `File` órfão no banco.
+    if (criados.layoutFileId) {
+      await prisma.file
+        .updateMany({ where: { id: criados.layoutFileId }, data: { quoteLayoutId: null } })
+        .catch(() => {});
+      await prisma.file.deleteMany({ where: { id: criados.layoutFileId } }).catch(() => {});
+    }
+    // Limpeza. O envelope cairia por cascade do orçamento — ver acima por que
+    // isso não acontece quando a coleta chegou a gravar trilha.
     if (criados.quoteId) {
       await prisma.taskQuote.deleteMany({ where: { id: criados.quoteId } }).catch(() => {});
     }

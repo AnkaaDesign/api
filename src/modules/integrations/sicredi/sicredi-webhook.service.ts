@@ -6,6 +6,7 @@ import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/ta
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
+import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 
 // Thrown when the webhook references a nossoNumero that does not exist in our DB
 // (pre-migration boletos, manual boletos outside the system). Retrying will never
@@ -669,20 +670,19 @@ export class SicrediWebhookService {
 
     const installments = await tx.installment.findMany({ where: { invoiceId } });
 
-    // Null-guard: paidAmount is nullable in the schema (0 on creation, but defensive)
-    const totalPaid = installments.reduce(
-      (sum, inst) => sum.add(inst.paidAmount ?? new Decimal(0)),
-      new Decimal(0),
-    );
-
-    let status: 'PAID' | 'PARTIALLY_PAID' | 'ACTIVE';
-    if (totalPaid.gte(invoice.totalAmount)) {
-      status = 'PAID';
-    } else if (totalPaid.gt(0)) {
-      status = 'PARTIALLY_PAID';
-    } else {
-      status = 'ACTIVE';
-    }
+    // ⚠️ AQUI MORAVA A CAUSA DAS FATURAS DE CABEÇALHO VELHO.
+    //
+    // Este método decidia o estado por DINHEIRO — `totalPaid.gte(invoice.totalAmount)` —
+    // e `Invoice.totalAmount` é um retrato CONGELADO de `config.total` na emissão.
+    // Toda vez que a soma das parcelas deixa de bater com esse retrato (renegociação,
+    // desconto no fechamento, parcela removida), a fatura nunca mais chegava a `PAID`:
+    // ficava `PARTIALLY_PAID` com TODAS as parcelas quitadas, para sempre. É o estado
+    // em que os orçamentos 47 (R$ 10.000,00 contra R$ 12.594,80) e 70 (R$ 16.187,50
+    // contra R$ 16.500,00) estavam em produção. E somava o `paidAmount` de parcela
+    // CANCELADA junto, que não é receita desta fatura.
+    //
+    // A derivação agora é a mesma de todo mundo: pergunta por ESTADO DE PARCELA.
+    const { paidAmount: totalPaid, status } = deriveInvoicePaymentState(installments);
 
     await tx.invoice.update({
       where: { id: invoiceId },

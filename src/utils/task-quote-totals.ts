@@ -21,6 +21,7 @@
  * same transaction right after mutating a quote's services.
  */
 import { PrismaTransaction } from '../modules/common/base/base.repository';
+import { isBillingFrozen } from '../modules/production/task-quote/task-quote.guards';
 import { computeQuoteMoney, round2 } from './quote-money';
 
 export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string): Promise<void> {
@@ -30,7 +31,11 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   // e cobertura vazia numa conta de dinheiro é R$ 0,00 numa fatura que tem valor.
   const allConfigs = await tx.taskQuoteCustomerConfig.findMany({
     where: { quoteId },
-    include: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
+    include: {
+      billing: {
+        select: { id: true, approvedAt: true, status: true, tasks: { select: { taskId: true } } },
+      },
+    },
   });
 
   // QUANTOS VEÍCULOS o orçamento cobre — o "× N" do documento e o multiplicador
@@ -62,6 +67,25 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
   let aggregateTotal = 0;
 
   for (const config of allConfigs) {
+    // ── O PAGADOR JÁ FATURADO NÃO É RECALCULADO ──────────────────────────────
+    //
+    // `approvedAt` estava na consulta e não era usado por ninguém — a função
+    // reescrevia `subtotal`/`total` de TODA fatia, inclusive as que sustentam
+    // `Invoice.totalAmount`, parcelas geradas, boleto registrado no Sicredi e
+    // NFS-e autorizada na prefeitura. E ela roda em caminhos que não passam por
+    // guarda nenhuma: apagar um dos sessenta caminhões ou mover uma tarefa de
+    // orçamento chama-a direto do repositório de tarefas.
+    //
+    // O número de uma cobrança congelada é o número que saiu no documento. Ele
+    // entra no agregado COMO ESTÁ — somar o recalculado no lugar faria o total do
+    // contrato divergir da soma das faturas emitidas, que é justamente a
+    // invariante que o agregado existe para afirmar.
+    if (isBillingFrozen((config as any).billing ?? { approvedAt: null })) {
+      aggregateSubtotal += Number(config.subtotal || 0);
+      aggregateTotal += Number(config.total || 0);
+      continue;
+    }
+
     const assignedServices = isSingleConfig
       ? allItems
       : allItems.filter(s => s.invoiceToCustomerId === config.customerId);
@@ -87,9 +111,11 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
 
     // Somar as fatias dá o total do CONTRATO nos três modos, porque as coberturas
     // PARTICIONAM os veículos: em `JOINT` uma fatia cobre os N; em `PER_TASK` são
-    // N fatias de um; num lote, K fatias que somam N. É o índice único
-    // `(taskId, customerId)` que sustenta essa soma — sem ele, uma sobreposição
-    // faria o total do orçamento passar do contrato sem nada acusar.
+    // N fatias de um; num lote, K fatias que somam N. É `BillingTask.@@unique([taskId])`
+    // — um veículo, UM faturamento, sem escopo de cliente — que sustenta essa
+    // soma; sem ele, uma sobreposição faria o total do orçamento passar do
+    // contrato sem nada acusar. (O índice antigo era `(taskId, customerId)`, e
+    // foi substituído por este, mais forte, na migração do faturamento-entidade.)
     aggregateSubtotal += money.configSubtotal;
     aggregateTotal += money.configTotal;
   }

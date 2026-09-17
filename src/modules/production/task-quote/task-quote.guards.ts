@@ -25,9 +25,9 @@ import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants
  * travava o orçamento inteiro — inclusive os cinquenta e nove veículos que ainda
  * não tinham sido cobrados e cujo preço ainda podia mudar.
  *
- * O critério é o mesmo de `BillingService.isFrozen`: aprovada. Parcela só existe
- * depois da aprovação, então `approvedAt` cobre também PARTIAL, OVERDUE e
- * SETTLED sem precisar enumerá-los.
+ * O critério está em `isBillingFrozen`, logo abaixo, e é UM SÓ para todo o
+ * sistema: carimbo de aprovação OU estado pós-aprovação. O carimbo sozinho não
+ * basta — ver a nota de `isPostApprovalBillingStatus`.
  *
  * ⚠️ Quem chama TEM de carregar `billings` — sem o include a função devolve
  * `false` e a trava do dinheiro simplesmente não acontece.
@@ -35,7 +35,29 @@ import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants
 export function isQuoteMoneyLocked(
   billings: Array<{ approvedAt: Date | string | null; status?: string | null }> | null | undefined,
 ): boolean {
-  return !!billings && billings.some(b => !!b.approvedAt || isPostApprovalBillingStatus(b.status));
+  return !!billings && billings.some(isBillingFrozen);
+}
+
+/**
+ * UMA COBRANÇA ESTÁ CONGELADA? — o predicado, para UMA cobrança.
+ *
+ * Extraído de `isQuoteMoneyLocked` porque existiam QUATRO definições de
+ * "congelado" espalhadas (a trava do orçamento, a reconciliação de pagadores, a
+ * guarda de troca de modo e a exclusão do orçamento) e três delas não conheciam
+ * o estado pós-aprovação SEM CARIMBO. Há duas cobranças reais assim no acervo
+ * (orçamentos 309 e 216): liquidadas por conciliação bancária, sem fatura de
+ * onde derivar `approvedAt`. Para as três definições antigas elas eram
+ * editáveis.
+ *
+ * Quatro leituras de "o dinheiro já saiu?" são quatro respostas diferentes
+ * esperando para divergir. Agora é uma, e quem pergunta em SQL usa
+ * `BILLING_FROZEN_WHERE`, que diz o mesmo.
+ */
+export function isBillingFrozen(billing: {
+  approvedAt: Date | string | null;
+  status?: string | null;
+}): boolean {
+  return !!billing.approvedAt || isPostApprovalBillingStatus(billing.status);
 }
 
 /**
@@ -46,7 +68,7 @@ export function isQuoteMoneyLocked(
  * carimbo deixava essas editáveis, e uma delas tem duas parcelas vencidas. O
  * estado sabe o que o carimbo esqueceu.
  */
-function isPostApprovalBillingStatus(status?: string | null): boolean {
+export function isPostApprovalBillingStatus(status?: string | null): boolean {
   return (
     status === BILLING_STATUS.APPROVED ||
     status === BILLING_STATUS.PARTIAL ||
@@ -54,6 +76,26 @@ function isPostApprovalBillingStatus(status?: string | null): boolean {
     status === BILLING_STATUS.SETTLED
   );
 }
+
+/** Os estados de `Billing` que, sozinhos, já significam "o dinheiro saiu". */
+export const POST_APPROVAL_BILLING_STATUSES = [
+  BILLING_STATUS.APPROVED,
+  BILLING_STATUS.PARTIAL,
+  BILLING_STATUS.OVERDUE,
+  BILLING_STATUS.SETTLED,
+] as const;
+
+/**
+ * O MESMO predicado, em `where` do Prisma — para quem conta em vez de carregar.
+ *
+ * Aplica-se sobre um `Billing`. Quem filtra PAGADORES o encaixa em
+ * `{ billing: BILLING_FROZEN_WHERE }`.
+ */
+export const BILLING_FROZEN_WHERE: {
+  OR: Array<{ approvedAt?: { not: null } } | { status?: { in: BILLING_STATUS[] } }>;
+} = {
+  OR: [{ approvedAt: { not: null } }, { status: { in: [...POST_APPROVAL_BILLING_STATUSES] } }],
+};
 
 /** O include mínimo que `isQuoteMoneyLocked` exige. */
 export const QUOTE_MONEY_LOCK_INCLUDE = {
@@ -93,9 +135,13 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
  * (PUT /task-quotes/:id or a nested quote write through the task endpoints),
  * mirroring the roles of the dedicated transition endpoints
  * (task-quote.controller.ts):
- * - BILLING_APPROVED      → never via generic update; only internalApprove (ADMIN/FINANCIAL).
- * - BUDGET_APPROVED       → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)
- * - all other statuses    → ADMIN, FINANCIAL, COMMERCIAL (PUT /:id/status)
+ * - APPROVED           → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)
+ * - todos os demais    → ADMIN, FINANCIAL, COMMERCIAL (PUT /:id/status)
+ *
+ * ⚠️ `BILLING_APPROVED` NÃO está nesta lista porque não é mais status de
+ * orçamento: aprovar cobrança virou `PUT /billings/:id/approve` e mora em
+ * `Billing.approvedAt`. Enumerá-lo aqui descrevia uma máquina de estados que o
+ * zod já não aceita.
  *
  * Unknown/missing actor privilege = deny (least privilege).
  */
