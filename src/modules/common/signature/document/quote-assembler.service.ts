@@ -38,6 +38,23 @@ import { resolve } from 'path';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { LateSlotAnchor, LateSlotAnchorMap, SignatureAnchorMap } from './quote-renderer.service';
 import { PAGE_MARGINS_MM, PX_TO_PT, mmToPt } from './quote-html.builder';
+
+/**
+ * As margens com que ESTA âncora foi medida.
+ *
+ * Gravadas junto com ela desde 17/09/2026 (`SignatureAnchor.marginTopMm`). O
+ * recuo para `PAGE_MARGINS_MM` serve às âncoras anteriores, e é correto para
+ * elas: a constante é justamente o valor com que foram medidas.
+ */
+function anchorMargins(a: { marginTopMm?: number; marginLeftMm?: number }): {
+  top: number;
+  left: number;
+} {
+  return {
+    top: a.marginTopMm ?? PAGE_MARGINS_MM.top,
+    left: a.marginLeftMm ?? PAGE_MARGINS_MM.left,
+  };
+}
 import { formatDateTimeBR } from './quote-text';
 import { maskCpf, maskPhone, formatCpf } from '../utils/identity';
 
@@ -373,12 +390,24 @@ export class QuoteAssemblerService {
     value: string,
     fontBold: PDFFont,
   ): void {
+    const anchorLike = slot;
     const { height: pageHeightPt } = page.getSize();
     // Mesma conversão do selo: as medidas são relativas à caixa de conteúdo, e
     // as margens da @page entram como deslocamento.
     const scale = PX_TO_PT;
-    const offsetX = mmToPt(PAGE_MARGINS_MM.left);
-    const offsetY = mmToPt(PAGE_MARGINS_MM.top);
+    // ⚠️ A MARGEM VEM DA ÂNCORA quando ela a tem, e só então da constante.
+    //
+    // A âncora foi medida dentro da caixa de conteúdo de um render específico, e
+    // a margem daquele render é o que fecha a conta. Ler a constante aqui era ler
+    // o valor de HOJE para converter uma medida de MESES ATRÁS: no dia em que a
+    // margem mudar, todo envelope congelado antes e selado depois sai com selo e
+    // lacuna deslocados sobre bytes que não mudaram — e ninguém percebe até
+    // alguém abrir um contrato assinado.
+    //
+    // Envelopes anteriores a esta gravação não têm o campo, e para eles a
+    // constante é exatamente o valor com que foram medidos.
+    const offsetX = mmToPt(anchorMargins(anchorLike).left);
+    const offsetY = mmToPt(anchorMargins(anchorLike).top);
 
     const x = offsetX + slot.x * scale;
     const w = slot.width * scale;
@@ -433,6 +462,7 @@ export class QuoteAssemblerService {
     helvBold: PDFFont,
     verificationCode: string,
   ): void {
+    const anchorLike = anchor;
     const { height: pageHeightPt } = page.getSize();
 
     // As âncoras são medidas dentro de `.page-signatures`, que é a CAIXA DE
@@ -442,8 +472,19 @@ export class QuoteAssemblerService {
     // em vez de 0,75 e ignoraria o deslocamento de 25mm, jogando os selos para
     // fora da margem esquerda.
     const scale = PX_TO_PT;
-    const offsetX = mmToPt(PAGE_MARGINS_MM.left);
-    const offsetY = mmToPt(PAGE_MARGINS_MM.top);
+    // ⚠️ A MARGEM VEM DA ÂNCORA quando ela a tem, e só então da constante.
+    //
+    // A âncora foi medida dentro da caixa de conteúdo de um render específico, e
+    // a margem daquele render é o que fecha a conta. Ler a constante aqui era ler
+    // o valor de HOJE para converter uma medida de MESES ATRÁS: no dia em que a
+    // margem mudar, todo envelope congelado antes e selado depois sai com selo e
+    // lacuna deslocados sobre bytes que não mudaram — e ninguém percebe até
+    // alguém abrir um contrato assinado.
+    //
+    // Envelopes anteriores a esta gravação não têm o campo, e para eles a
+    // constante é exatamente o valor com que foram medidos.
+    const offsetX = mmToPt(anchorMargins(anchorLike).left);
+    const offsetY = mmToPt(anchorMargins(anchorLike).top);
 
     const x = offsetX + anchor.x * scale;
     const w = anchor.width * scale;

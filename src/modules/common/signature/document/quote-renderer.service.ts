@@ -23,7 +23,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { chromium, Browser } from 'playwright';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, resolve } from 'path';
-import { buildQuoteHtml, QuoteHtmlInput } from './quote-html.builder';
+import { buildQuoteHtml, QuoteHtmlInput,
+  PAGE_MARGINS_MM,
+} from './quote-html.builder';
 import { FULL_SECTIONS } from '../quote-sections';
 
 /** O que o chamador fornece; fonte e logo são resolvidas aqui dentro. */
@@ -49,9 +51,45 @@ export interface SignatureAnchor {
   /** Dimensões da página em px CSS — permitem derivar a escala px→pt sem supor DPI. */
   pageWidthCss: number;
   pageHeightCss: number;
+  /**
+   * AS MARGENS DA @page DESTE RENDER, em mm — gravadas JUNTO com a âncora.
+   *
+   * A âncora é medida dentro da caixa de conteúdo, então converter para
+   * coordenada de página exige somar a margem. Até aqui essa margem vinha de
+   * `PAGE_MARGINS_MM`, uma constante de módulo LIDA NA HORA DO SELO — que pode
+   * ser meses depois do congelamento.
+   *
+   * Enquanto a constante nunca mudou, isso funcionou. No instante em que o
+   * documento ganhar cabeçalho e rodapé correntes (que exigem margens maiores),
+   * todo envelope congelado antes e selado depois teria os selos e as lacunas
+   * deslocados sobre bytes que não mudaram — e ninguém perceberia até alguém
+   * abrir um contrato assinado e ver o selo fora do lugar.
+   *
+   * Opcional porque os envelopes já congelados não a têm: o leitor recua para a
+   * constante, que é exatamente o valor com que ELES foram medidos.
+   */
+  marginTopMm?: number;
+  marginLeftMm?: number;
 }
 
 export type SignatureAnchorMap = Record<string, SignatureAnchor>;
+
+/**
+ * Carimba nas âncoras a GEOMETRIA DESTE RENDER.
+ *
+ * Roda no único lugar que sabe com que margens o PDF acabou de ser gerado. Ver o
+ * comentário em `SignatureAnchor.marginTopMm` para o que isso evita.
+ */
+function withPageGeometry<T extends SignatureAnchor>(
+  anchors: Record<string, T>,
+  margins: { top: number; left: number },
+): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [id, a] of Object.entries(anchors)) {
+    out[id] = { ...a, marginTopMm: margins.top, marginLeftMm: margins.left };
+  }
+  return out;
+}
 
 /**
  * Retângulo de uma lacuna de cadastro tardio (série, placa, chassi), medido no
@@ -500,8 +538,8 @@ export class QuoteRendererService {
 
       return {
         pdf,
-        anchors: resolved,
-        lateSlots: this.resolveLateSlots(lateSlotsRaw),
+        anchors: withPageGeometry(resolved, PAGE_MARGINS_MM),
+        lateSlots: withPageGeometry(this.resolveLateSlots(lateSlotsRaw), PAGE_MARGINS_MM),
         fitIterations: sig.iterations,
         overflowed: sig.overflowed,
         contentPages,
@@ -664,7 +702,8 @@ export class QuoteRendererService {
         fuseIterations = i + 1;
       }
 
-      const anchors = (await page.evaluate(JS_MEASURE_ANCHORS)) as SignatureAnchorMap;
+      const anchorsRaw = (await page.evaluate(JS_MEASURE_ANCHORS)) as SignatureAnchorMap;
+      const anchors = withPageGeometry(anchorsRaw, PAGE_MARGINS_MM);
       const lateSlotsRaw = (await page.evaluate(JS_MEASURE_LATE_SLOTS)) as LateSlotAnchorMap;
       const pdf = Buffer.from(await page.pdf({ printBackground: true, preferCSSPageSize: true }));
 
