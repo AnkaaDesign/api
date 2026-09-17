@@ -2907,6 +2907,18 @@ export class TaskQuoteService {
    *   fecha — é ele que significa "este orçamento está inteiramente faturado", e
    *   `Billing.approvedAt` responde faturamento a faturamento.
    */
+  /**
+   * Quantas cobranças deste orçamento ainda não foram aprovadas.
+   *
+   * Existe para a rota "aprovar tudo" saber se há o que desambiguar: com UMA
+   * pendente, aprovar tudo e aprovar aquela são o mesmo ato.
+   */
+  async countPendingBillings(quoteId: string): Promise<number> {
+    return (this.prisma as any).billing.count({
+      where: { quoteId, approvedAt: null },
+    });
+  }
+
   async internalApprove(
     id: string,
     userId: string,
@@ -3043,7 +3055,23 @@ export class TaskQuoteService {
     const approvalDate = new Date();
 
     // O orçamento estará INTEIRAMENTE faturado ao fim desta aprovação?
-    const closesQuote = targetBillings.length === quoteBillings.filter(b => !b.approvedAt).length;
+    // ⚠️ NÃO calcule aqui se esta aprovação FECHA o orçamento.
+    //
+    // A conta óbvia — "os alvos são todos os que faltavam" — é lida ANTES do claim,
+    // e duas aprovações simultâneas de cobranças DIFERENTES do mesmo orçamento leem
+    // as duas o mesmo "faltam dois". As duas concluem que não fecham, as duas
+    // gravam o seu carimbo, e o orçamento termina INTEIRAMENTE faturado com
+    // `billingApprovedAt` nulo — o carimbo do contrato se perde sem que nenhuma das
+    // duas tenha errado. É janela estreita (exige simultaneidade real), mas o
+    // prejuízo é silencioso: `avgSalesCycleDays` e os filtros por período de
+    // faturamento passam a ignorar aquele contrato para sempre.
+    //
+    // A pergunta é respondida DEPOIS do claim, contando quem sobrou — e aí a
+    // resposta é a mesma independentemente da ordem em que as duas terminem.
+    const fechaOOrcamento = async (): Promise<boolean> =>
+      (await (this.prisma as any).billing.count({
+        where: { quoteId: id, approvedAt: null },
+      })) === 0;
 
     const targetBillingIds = targetBillings.map(b => b.id);
 
@@ -3078,7 +3106,7 @@ export class TaskQuoteService {
     // e continua sendo do orçamento, porque é sobre o contrato, não sobre uma
     // cobrança. Num orçamento de sessenta caminhões ele é gravado quando o
     // sexagésimo fecha.
-    if (closesQuote) {
+    if (await fechaOOrcamento()) {
       await this.prisma.taskQuote.update({
         where: { id },
         data: { billingApprovedAt: approvalDate } as any,
@@ -3295,7 +3323,11 @@ export class TaskQuoteService {
         // escreveu: deixá-lo de pé afirmaria que os sessenta caminhões estão
         // faturados por causa de uma emissão que não aconteceu, e envenenaria
         // `avgSalesCycleDays`.
-        if (closesQuote) {
+        // O carimbo do contrato é RE-DERIVADO, não desfeito. Zerá-lo porque "esta
+        // tentativa o escreveu" apagaria o carimbo que uma aprovação simultânea
+        // acabou de gravar legitimamente; o que vale é a pergunta de agora, com o
+        // claim desta tentativa já levantado.
+        if (!(await fechaOOrcamento())) {
           await this.prisma.taskQuote.update({
             where: { id },
             data: { billingApprovedAt: null } as any,

@@ -3581,16 +3581,36 @@ export class SignatureEnvelopeService {
       );
     }
 
-    // SÓ A PESSOA DESIGNADA. Um administrador contra-assinando no lugar dela
-    // gravaria o nome dela num ato que ela não praticou — que é falsidade, não
-    // conveniência. Trocar quem assina exige reemitir a coleta com outro
-    // responsável comercial no orçamento.
-    if (!ankaa.userId || ankaa.userId !== args.actorUserId) {
-      throw new ForbiddenException(
-        `A contra-assinatura deste orçamento cabe a ${ankaa.declaredName}. ` +
-          'Para que outra pessoa assine, altere o responsável comercial do orçamento e emita ' +
-          'uma nova coleta.',
-      );
+    // A PESSOA DESIGNADA — OU UM ADMINISTRADOR EM NOME DELA.
+    //
+    // A trava era "só a pessoa designada", e o argumento contra o administrador
+    // era bom: assinar no lugar de alguém gravaria o nome dela num ato que ela não
+    // praticou. O que o argumento não via é que o contra-assinante é UMA PESSOA em
+    // todo o sistema — `TaskQuote.commercialUserId` é nulo em todo o acervo, e
+    // `resolveAnkaaSigner` cai sempre no diretor. Com um contra-assinante único, a
+    // trava não protegia a verdade do documento: ela transformava férias, doença ou
+    // desligamento em coleta impossível de concluir, com o cliente já tendo
+    // assinado e o contrato parado.
+    //
+    // A decisão do dono (17/09) é que o administrador PODE contra-assinar sem
+    // trocar o responsável. A falsidade que o argumento temia é evitada de outro
+    // jeito, e melhor: o documento continua dizendo o que sempre disse — a
+    // identidade congelada no envelope —, e a TRILHA registra quem de fato
+    // executou. Ver `executadoPor` na evidência e no evento de auditoria.
+    const atorEhODesignado = !!ankaa.userId && ankaa.userId === args.actorUserId;
+    let executor: { id: string; name: string | null } | null = null;
+    if (!atorEhODesignado) {
+      const ator = await this.prisma.user.findUnique({
+        where: { id: args.actorUserId },
+        select: { id: true, name: true, sector: { select: { privileges: true } } },
+      });
+      if (ator?.sector?.privileges !== 'ADMIN') {
+        throw new ForbiddenException(
+          `A contra-assinatura deste orçamento cabe a ${ankaa.declaredName}. ` +
+            'Apenas ela ou um administrador podem assiná-la.',
+        );
+      }
+      executor = { id: ator.id, name: ator.name };
     }
 
     // Mesma porta de todos os atos: status, prazo, já-assinou, e a ordem —
@@ -3629,8 +3649,17 @@ export class SignatureEnvelopeService {
       }
     }
 
+    // ⚠️ A IDENTIDADE DO DOCUMENTO É A DO DESIGNADO, não a de quem clicou.
+    //
+    // Quando um administrador contra-assina em nome do responsável, o cargo, o CPF
+    // e as declarações têm de continuar sendo os DELE — é o nome dele que está
+    // congelado no envelope e impresso na linha de assinatura do PDF. Puxar o
+    // cargo de quem clicou faria o selo dizer "Sergio Rodrigues" com o cargo do
+    // administrador, que é exatamente a mistura que se quer evitar.
+    //
+    // Quem clicou é registrado à parte, em `executadoPor`.
     const user = await this.prisma.user.findUnique({
-      where: { id: args.actorUserId },
+      where: { id: ankaa.userId ?? args.actorUserId },
       select: {
         id: true,
         name: true,
@@ -3714,6 +3743,14 @@ export class SignatureEnvelopeService {
       authMethod: SignatureAuthMethod.INTERNAL_SESSION,
       // A prova de identidade DESTE ato: a sessão autenticada, e não um código.
       sessionUserId: args.actorUserId,
+      // ⚠️ QUANDO PRESENTE, O ATO NÃO FOI PRATICADO PELO DESIGNADO.
+      //
+      // A contra-assinatura é da EMPRESA, e o nome que ela leva é o do
+      // representante congelado no envelope. Um administrador pode executá-la em
+      // nome dele (decisão do dono, 17/09) — mas quem executou fica gravado aqui,
+      // no mesmo objeto que entra no hash e no HMAC. Sem este campo o selo diria
+      // que o designado assinou, e não haveria como saber que não foi ele.
+      ...(executor ? { executadoPor: executor } : {}),
       ipAddress: args.ctx.ipAddress,
       userAgent: args.ctx.userAgent,
       serverTimestamp: serverTimestamp.toISOString(),
@@ -3756,13 +3793,18 @@ export class SignatureEnvelopeService {
       eventType: 'SIGNATURE_APPLIED',
       actorType: 'SIGNER',
       actorId: ankaa.id,
-      actorLabel: ankaa.declaredName,
+      // Quem o ato ATRIBUI, e — quando diferente — quem o EXECUTOU. Um rótulo só
+      // com o nome do designado esconderia que outra pessoa apertou o botão.
+      actorLabel: executor
+        ? `${ankaa.declaredName} (executado por ${executor.name ?? executor.id})`
+        : ankaa.declaredName,
       ipAddress: args.ctx.ipAddress,
       userAgent: args.ctx.userAgent,
       documentHash: ankaa.document?.originalSha256 ?? env.originalSha256,
       payload: {
         evidenceHash,
         cargo,
+        ...(executor ? { executadoPor: executor } : {}),
         ceremony: 'internal_session',
         countersigned: env.documents.map(d => d.variantKey),
         // O QUE O SELO CONGELOU EM BRANCO. Um documento que diz "a registrar"

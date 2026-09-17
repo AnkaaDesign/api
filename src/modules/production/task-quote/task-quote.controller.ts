@@ -239,10 +239,21 @@ export class TaskQuoteController {
     @UserId() userId: string,
     @Body('aprovarTudo') aprovarTudo?: boolean,
   ) {
-    if (aprovarTudo !== true) {
+    // ⚠️ A CONFIRMAÇÃO SÓ FAZ SENTIDO QUANDO HÁ O QUE DESAMBIGUAR.
+    //
+    // Exigi-la sempre foi erro meu: com UMA cobrança pendente, "aprovar tudo" e
+    // "aprovar esta" são o mesmo ato, e não há sessenta notas para sair por
+    // engano. O app cai nesta rota justamente no caso de fatura única e de
+    // veículo único — `_billingSliceTaskId` devolve nulo nos dois — e passou a
+    // levar 400 no fluxo mais comum que existe.
+    //
+    // A pergunta certa é sobre a PLURALIDADE, e ela é do serviço, não da rota.
+    const pendentes = await this.taskQuoteService.countPendingBillings(id);
+    if (pendentes > 1 && aprovarTudo !== true) {
       throw new BadRequestException(
-        'Esta rota aprova TODAS as cobranças pendentes do orçamento. Para aprovar uma, use ' +
-          'PUT /billings/:id/approve. Para aprovar todas mesmo, mande { "aprovarTudo": true }.',
+        `Este orçamento tem ${pendentes} cobranças pendentes, e esta rota aprovaria TODAS. ` +
+          'Para aprovar uma, use PUT /billings/:id/approve. Para aprovar as ' +
+          `${pendentes} mesmo, mande { "aprovarTudo": true }.`,
       );
     }
     return this.taskQuoteService.internalApprove(id, userId);

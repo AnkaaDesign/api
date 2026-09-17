@@ -97,6 +97,66 @@ console.log('Nada mudou');
   check('snapshots idênticos não produzem linha alguma', changes.length === 0, `${changes.length}`);
 }
 
+{
+  // ⚠️ O SNAPSHOT ANTIGO NÃO SABE RESPONDER — e não saber não é ter mudado.
+  //
+  // `billingSplit` entrou na v3 do snapshot e `billingGroups` na v4. Os 26
+  // contratos CONCLUÍDOS em produção estão congelados na v2, sem nenhum dos
+  // dois. As guardas do diff usavam `||`, que dispara quando SÓ UM lado tem a
+  // chave — exatamente esse caso —, e os 26 exibiam "O orçamento mudou depois de
+  // assinado" com duas alterações que nunca aconteceram.
+  const antigo = clone(baseSnapshot());
+  delete (antigo as Record<string, unknown>).billingSplit;
+  delete (antigo as Record<string, unknown>).billingGroups;
+  const atual = clone(baseSnapshot());
+  (atual as Record<string, unknown>).billingSplit = 'JOINT';
+  (atual as Record<string, unknown>).billingGroups = [['t1']];
+
+  const changes = diffQuoteSnapshots(antigo, atual);
+  const pagamento = changes.filter(c => c.key === 'billingSplit' || c.key === 'billingGroups');
+  check(
+    'snapshot congelado antes da feature NÃO vira alteração de faturamento',
+    pagamento.length === 0,
+    JSON.stringify(pagamento.map(c => `${c.key}: ${c.before} → ${c.after}`)),
+  );
+}
+
+{
+  // TROCAR O NOME DO MODO SEM MUDAR O AGRUPAMENTO não é alteração material.
+  // Num orçamento de um veículo, "fatura única para todos" e "um lote cobrindo
+  // um veículo" produzem a MESMA fatura, o mesmo boleto e a mesma nota.
+  const antes = clone(baseSnapshot());
+  (antes as Record<string, unknown>).billingSplit = 'JOINT';
+  (antes as Record<string, unknown>).billingGroups = [['t1']];
+  const depois = clone(baseSnapshot());
+  (depois as Record<string, unknown>).billingSplit = 'CUSTOM';
+  (depois as Record<string, unknown>).billingGroups = [['t1']];
+
+  const changes = diffQuoteSnapshots(antes, depois);
+  check(
+    'mudar o rótulo do modo sem mudar o agrupamento não é material',
+    changes.filter(c => c.key === 'billingSplit').length === 0,
+    JSON.stringify(changes.map(c => c.key)),
+  );
+}
+
+{
+  // Mas REAGRUPAR de verdade continua sendo material.
+  const antes = clone(baseSnapshot());
+  (antes as Record<string, unknown>).billingSplit = 'JOINT';
+  (antes as Record<string, unknown>).billingGroups = [['t1', 't2']];
+  const depois = clone(baseSnapshot());
+  (depois as Record<string, unknown>).billingSplit = 'PER_TASK';
+  (depois as Record<string, unknown>).billingGroups = [['t1'], ['t2']];
+
+  const changes = diffQuoteSnapshots(antes, depois);
+  check(
+    'separar uma fatura em duas CONTINUA sendo material',
+    changes.some(c => c.key === 'billingSplit') && changes.some(c => c.key === 'billingGroups'),
+    JSON.stringify(changes.map(c => c.key)),
+  );
+}
+
 // ---------------------------------------------------------------------------
 console.log('\nPreço de um serviço');
 {

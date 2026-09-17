@@ -583,11 +583,19 @@ const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
       billingApprovedAt: true,
       customerConfigs: {
         select: {
-          installments: { select: { number: true, dueDate: true } },
+          // ⚠️ `billingId` e `status` da parcela NÃO são decoração: sem eles
+          // `resolveCurrentInstallmentDueDate` não sabe de qual cobrança é a linha
+          // nem se a parcela já foi paga, e volta a devolver a primeira parcela do
+          // orçamento inteiro. `select` sem a chave não dá erro — dá silêncio.
+          billingId: true,
+          installments: { select: { number: true, dueDate: true, status: true } },
         },
       },
     },
   },
+  // A cobrança DESTA linha. A lista é por VEÍCULO, e o vencimento que interessa é
+  // o da cobrança que cobra este veículo — não o do orçamento.
+  billingEntry: { select: { billingId: true } },
   customer: { select: { fantasyName: true, corporateName: true } },
 };
 
@@ -629,32 +637,49 @@ function flattenOrderBy(orderBy: any): FlatSortEntry[] {
 }
 
 /**
- * Due date of the FIRST installment (parcela nº 1) across every customer config of
- * the quote, falling back to the earliest due date when parcelas aren't numbered
- * from 1. Mirrors `findFirstInstallmentDueDate` in the web billing columns so the
- * rendered value and the sort key never disagree.
+ * O VENCIMENTO QUE INTERESSA: a parcela EM ABERTO mais antiga da cobrança desta
+ * linha. Sem nenhuma em aberto, a última — a data em que o contrato terminou de
+ * ser pago.
+ *
+ * ⚠️ Era "a parcela nº 1, qualquer que fosse o estado dela", e isso produzia uma
+ * mentira exatamente na linha que mais precisa da verdade. Caso real, orçamento
+ * 903 (KI Distribuidora): parcela 1 vence 27/08 e está PAGA, parcela 2 vence
+ * 16/09 e está VENCIDA. A linha vinha marcada "Vencido" e mostrava 27/08 — uma
+ * data que ninguém deve, ao lado de um selo dizendo que se deve.
+ *
+ * ⚠️ E varria os pagadores do ORÇAMENTO inteiro. Num orçamento de sessenta
+ * caminhões faturados um a um, as sessenta linhas mostravam o mesmo vencimento —
+ * o da primeira parcela de quem calhasse de ter a parcela nº 1.
+ *
+ * Espelhado em `findFirstInstallmentDueDate` no web (colunas de faturamento). Os
+ * dois TÊM de concordar, senão a data desenhada e a ordenação discordam.
  */
-function resolveFirstInstallmentDueDate(row: any): Date | null {
+function resolveCurrentInstallmentDueDate(row: any): Date | null {
   const configs = row?.quote?.customerConfigs;
   if (!Array.isArray(configs) || configs.length === 0) return null;
 
-  let best: { number: number; due: Date } | null = null;
-  for (const config of configs) {
+  // A cobrança desta linha. Sem ela (orçamento de acervo, sem cobertura), cai no
+  // orçamento inteiro — que é o comportamento antigo, e o melhor disponível ali.
+  const billingId = row?.billingEntry?.billingId ?? null;
+  const doRecorte = billingId
+    ? configs.filter((c: any) => c?.billingId === billingId)
+    : configs;
+  const escopo = doRecorte.length > 0 ? doRecorte : configs;
+
+  let emAberto: Date | null = null;
+  let ultima: Date | null = null;
+  for (const config of escopo) {
     for (const installment of config?.installments || []) {
       if (!installment?.dueDate) continue;
       const due = new Date(installment.dueDate);
       if (Number.isNaN(due.getTime())) continue;
-      const number = installment.number ?? Number.MAX_SAFE_INTEGER;
-      if (
-        !best ||
-        number < best.number ||
-        (number === best.number && due.getTime() < best.due.getTime())
-      ) {
-        best = { number, due };
-      }
+      if (!ultima || due.getTime() > ultima.getTime()) ultima = due;
+      // Cancelada não se deve; paga já se pagou. Nenhuma das duas é "vencimento".
+      if (installment.status === 'PAID' || installment.status === 'CANCELLED') continue;
+      if (!emAberto || due.getTime() < emAberto.getTime()) emAberto = due;
     }
   }
-  return best?.due ?? null;
+  return emAberto ?? ultima;
 }
 
 function resolveSortValue(row: any, path: string): any {
@@ -2105,7 +2130,7 @@ export class TaskPrismaRepository
 
     const rows = scanned.map(row => ({
       row,
-      dueDate: resolveFirstInstallmentDueDate(row),
+      dueDate: resolveCurrentInstallmentDueDate(row),
     }));
 
     rows.sort((a, b) => {

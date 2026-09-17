@@ -114,9 +114,27 @@ export class BillingStatusCascadeService {
     const all = billing.customerConfigs.flatMap(c => c.installments);
     const active = all.filter(i => i.status !== 'CANCELLED');
 
-    // NUNCA teve parcela: a cobrança ainda não saiu do papel, então quem responde
-    // é a aprovação.
+    // NUNCA teve parcela. Quem responde é a aprovação — MENOS quando a cobrança já
+    // está num estado terminal, e aí ela é preservada.
+    //
+    // ⚠️ Sem essa ressalva a cascata REBAIXA liquidação silenciosamente. Há
+    // cobrança liquidada por CONCILIAÇÃO, sem fatura e sem parcela nenhuma: o
+    // dinheiro entrou pelo extrato e foi casado à mão. Para esta função ela é
+    // indistinguível de uma cobrança que nunca saiu do papel — as duas têm zero
+    // parcelas e `approvedAt` nulo —, e a primeira cascata que tocasse o orçamento
+    // devolveria um contrato pago para a fila de "a faturar". Cinco linhas do
+    // acervo estão exatamente nesse estado (orçamentos 34, 216, 287, 347 e 351).
+    //
+    // Preservar é a leitura certa pelo mesmo motivo da regra de baixo: o estado
+    // gravado carrega uma informação que as parcelas não têm, e um derivador não
+    // deve apagar o que não sabe reproduzir.
     if (all.length === 0) {
+      if (
+        billing.status === BILLING_STATUS.SETTLED ||
+        billing.status === BILLING_STATUS.CANCELLED
+      ) {
+        return billing.status as BILLING_STATUS;
+      }
       return billing.approvedAt ? BILLING_STATUS.APPROVED : BILLING_STATUS.PENDING;
     }
 

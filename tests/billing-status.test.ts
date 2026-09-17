@@ -121,6 +121,21 @@ check(
   BILLING_STATUS.PENDING,
 );
 check(
+  'LIQUIDADO sem parcela nenhuma é PRESERVADO (liquidação por conciliação)',
+  svc.resolve(billing([], { approvedAt: null, status: BILLING_STATUS.SETTLED })),
+  BILLING_STATUS.SETTLED,
+);
+check(
+  'mas PENDENTE sem parcela continua PENDENTE (cobrança que não saiu do papel)',
+  svc.resolve(billing([], { approvedAt: null, status: BILLING_STATUS.PENDING })),
+  BILLING_STATUS.PENDING,
+);
+check(
+  'e APROVADO sem parcela segue a aprovação, não o estado gravado',
+  svc.resolve(billing([], { approvedAt: HOJE, status: BILLING_STATUS.PENDING })),
+  BILLING_STATUS.APPROVED,
+);
+check(
   'orçamento cancelado cancela a cobrança',
   svc.resolve(
     billing([{ status: 'PAID', dueDate: ONTEM }], {

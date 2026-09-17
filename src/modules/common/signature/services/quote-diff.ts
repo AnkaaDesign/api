@@ -768,6 +768,31 @@ function billingSplitLabel(value: string | null | undefined): string | null {
 }
 
 /**
+ * OS DOIS LADOS COBRAM O MESMO CONJUNTO, DO MESMO JEITO?
+ *
+ * A identidade de um faturamento é QUEM está com QUEM — quantas faturas, de que
+ * tamanho —, não o nome do modo. `JOINT` num orçamento de um veículo e um lote
+ * `CUSTOM` cobrindo esse mesmo veículo produzem a MESMA fatura, o mesmo boleto e
+ * a mesma nota; chamar isso de alteração material invalidaria assinatura por uma
+ * troca de rótulo.
+ *
+ * Compara os grupos normalizados (ordem não importa, dentro nem fora). Quando um
+ * dos lados não tem `billingGroups` — snapshot anterior à v4 —, não há como
+ * responder, e aí o modo volta a decidir sozinho.
+ */
+function mesmoAgrupamento(
+  before: { billingGroups?: string[][] },
+  after: { billingGroups?: string[][] },
+): boolean {
+  const norm = (g?: string[][]): string | null =>
+    g ? JSON.stringify(g.map(inner => [...inner].sort()).sort()) : null;
+  const a = norm(before.billingGroups);
+  const b = norm(after.billingGroups);
+  if (a === null || b === null) return false;
+  return a === b;
+}
+
+/**
  * Os LOTES, em uma frase.
  *
  * "Faturamento em lotes" sozinho não diz o que mudou: três faturas de vinte e
@@ -921,10 +946,23 @@ export function diffQuoteSnapshots(
   // diferentes, com prazos diferentes, e a frase impressa no documento muda
   // junto — quem assinou uma não assinou a outra.
   //
-  // Sai só quando um dos lados existe: snapshot congelado antes desta feature
-  // não tem a chave, e comparar `undefined` com `'JOINT'` marcaria como alterado
-  // todo orçamento anterior a ela.
-  if (before.billingSplit || after.billingSplit) {
+  // ⚠️ `&&`, NÃO `||` — a guarda estava invertida e o comentário dela descrevia
+  // exatamente o defeito que ela causava.
+  //
+  // A intenção sempre foi: snapshot congelado antes desta feature não tem a
+  // chave, e comparar `undefined` com `'JOINT'` marcaria como alterado todo
+  // orçamento anterior a ela. Mas `||` passa justamente quando SÓ UM lado tem a
+  // chave, que é esse caso. Em produção, os 26 contratos concluídos estão
+  // congelados na v2 do snapshot, sem `billingSplit` nem `billingGroups`: os 26
+  // exibiam "o orçamento mudou depois de assinado" com duas alterações que nunca
+  // aconteceram. Com `&&`, só se compara quando os dois lados sabem responder.
+  //
+  // ⚠️ E a MUDANÇA DE MODO só é material quando muda o AGRUPAMENTO. Num orçamento
+  // de um veículo, "fatura única para todos" e "um lote cobrindo um veículo" são
+  // a mesma obrigação escrita com dois nomes; o que o cliente assina é quantas
+  // faturas de que tamanho, não o nome do enum. `billingGroups`, logo abaixo,
+  // responde isso — e responde para qualquer número de veículos.
+  if (before.billingSplit && after.billingSplit && !mesmoAgrupamento(before, after)) {
     scalar(out, {
       key: 'billingSplit',
       severity: 'MATERIAL',
@@ -938,10 +976,11 @@ export function diffQuoteSnapshots(
   // cada fatura sem mexer em nenhum outro campo do recorte — "três de vinte"
   // para "duas de trinta" é o mesmo `CUSTOM` e outro boleto.
   //
-  // Sai só quando um dos lados tem a chave: snapshot congelado antes da v4 não
-  // a tem, e comparar `undefined` com a lista marcaria como alterado todo
-  // orçamento anterior a esta feature.
-  if (before.billingGroups || after.billingGroups) {
+  // Mesma correção da guarda acima: `&&`. Com `||`, todo snapshot anterior à v4
+  // — que é a totalidade dos contratos concluídos em produção — aparecia como
+  // "lotes alterados" por ter ganhado um campo que não existia quando foi
+  // congelado.
+  if (before.billingGroups && after.billingGroups) {
     scalar(out, {
       key: 'billingGroups',
       severity: 'MATERIAL',
