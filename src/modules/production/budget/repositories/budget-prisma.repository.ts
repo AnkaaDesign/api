@@ -261,30 +261,34 @@ export class BudgetPrismaRepository
       // Task will be connected separately via one-to-one relationship (Task.quoteId FK)
     };
 
-    // Handle customerConfigs
+    // ─── OS PAGADORES NÃO CABEM NESTE MAPEADOR ───────────────────────
+    //
+    // Aqui havia um `customerConfigs: { create: [...] }` aninhado no
+    // `budget.create`. Essa é a forma de ANTES de o faturamento existir como
+    // entidade: hoje `BudgetPayer.billingId` é OBRIGATÓRIO, o pagador mora
+    // dentro de um `Billing`, e o `Billing` precisa declarar quais veículos
+    // cobre — veículos que, na criação, ainda não existem quando este mapeador
+    // roda. O Prisma respondia "Argument `billing` is missing" e derrubava a
+    // gravação inteira em 500. Foi exatamente esse o defeito que a criação de
+    // tarefa a partir do histórico sofreu em `task-prisma.repository.ts`.
+    //
+    // Um mapeador síncrono que devolve UM `BudgetCreateInput` não tem como
+    // exprimir isso: faturamento, cobertura e pagador são três gravações
+    // ordenadas, e a do meio depende de tarefas que nascem depois. Quem sabe
+    // fazê-lo é `reconcileQuoteCustomerConfigs`, chamado DEPOIS do vínculo com
+    // as tarefas — é o que a transação inline de `BudgetService` faz, e por
+    // isso ela, e não este mapeador, é o caminho do controller.
+    //
+    // Recusar é deliberado, e em voz alta: engolir as fatias em silêncio criaria
+    // um orçamento sem pagador — sem fatura, sem boleto, sem cerimônia de
+    // assinatura — que só apareceria lá na frente, no faturamento vazio.
     if ((formData as any).customerConfigs && (formData as any).customerConfigs.length > 0) {
-      (createInput as any).customerConfigs = {
-        create: (formData as any).customerConfigs.map((config: any) => ({
-          customer: { connect: { id: config.customerId } },
-          subtotal: config.subtotal || 0,
-          total: config.total || 0,
-          discountType: config.discountType || 'NONE',
-          discountValue: config.discountValue ?? null,
-          discountReference: config.discountReference ?? null,
-          customPaymentText: config.customPaymentText || null,
-          generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
-          generateBankSlip: config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-          // ⚠️ SEM `orderNumber`. A coluna foi dropada em `20260909170000`; a
-          // chave emitida aqui (e ela era emitida SEMPRE, pelo `|| null`) faria o
-          // Prisma recusar a criação inteira com "Unknown argument 'orderNumber'".
-          // Hoje ninguém chama este mapeador — o controller roteia para a
-          // transação inline do serviço —, o que significa que a mina estava
-          // armada para o primeiro que religasse o caminho.
-          paymentCondition: config.paymentCondition || null,
-          paymentConfig: (config as any).paymentConfig ?? null,
-          responsibleId: config.responsibleId || null,
-        })),
-      };
+      throw new Error(
+        'BudgetPrismaRepository.mapCreateFormDataToDatabaseCreateInput não cria pagadores: ' +
+          '`BudgetPayer` exige um `Billing`, que exige a cobertura de tarefas. ' +
+          'Use a transação de criação de `BudgetService` (que chama ' +
+          '`reconcileQuoteCustomerConfigs` após vincular as tarefas).',
+      );
     }
 
     // Handle services if provided

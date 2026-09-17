@@ -1902,37 +1902,23 @@ export class TaskPrismaRepository
             customGuaranteeText: quoteData.customGuaranteeText || null,
             customForecastDays: quoteData.customForecastDays || null,
             simultaneousTasks: quoteData.simultaneousTasks ?? null,
+            ...(quoteData.billingSplit && { billingSplit: quoteData.billingSplit }),
             ...layoutFileConnect,
-            ...(quoteData.customerConfigs &&
-              quoteData.customerConfigs.length > 0 && {
-                customerConfigs: {
-                  create: quoteData.customerConfigs.map((config: any) => ({
-                    customerId: config.customerId,
-                    subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                    total: config.total !== undefined ? Number(config.total) : 0,
-                    discountType: config.discountType || 'NONE',
-                    discountValue: config.discountValue ?? null,
-                    discountReference: config.discountReference ?? null,
-                    customPaymentText: config.customPaymentText || null,
-                    generateInvoice:
-                      config.generateInvoice !== undefined ? config.generateInvoice : true,
-                    generateBankSlip:
-                      config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                    // ⚠️ `orderNumber` NÃO entra aqui. A coluna saiu do modelo na
-                    // migração `20260909170000` — o pedido de compra é do VEÍCULO
-                    // (`Task.customerOrderNumber`) — e `x ?? null` emitia a chave
-                    // SEMPRE, mesmo quando o cliente não a mandava: o Prisma
-                    // respondia "Unknown argument `orderNumber`" e TODA criação de
-                    // tarefa com orçamento aninhado morria em 500. É o caminho que
-                    // o app instalado usa. O valor legado desce para a tarefa
-                    // (`legacyOrderNumber`, mais abaixo).
-                    responsibleId: config.responsibleId || null,
-                    paymentCondition: config.paymentCondition || null,
-                    paymentConfig: (config as any).paymentConfig ?? null,
-                    customerSignatureId: config.customerSignatureId ?? null,
-                  })),
-                },
-              }),
+            // ⚠️ OS PAGADORES NÃO NASCEM AQUI — ver `reconcileQuoteCustomerConfigs`
+            // logo após a criação da tarefa.
+            //
+            // `customerConfigs` aninhado em `budget.create` é a forma de ANTES do
+            // `Billing`: desde a migração que introduziu o faturamento como
+            // entidade, `BudgetPayer.billingId` é OBRIGATÓRIO, e um pagador criado
+            // por esta relação não tem faturamento a que pertencer. O Prisma
+            // respondia "Argument `billing` is missing" e TODA criação de tarefa
+            // com orçamento aninhado morria em 500 — o caminho de "criar a partir
+            // de uma tarefa do histórico", que é justamente o que manda as fatias
+            // já preenchidas.
+            //
+            // O pagador mora DENTRO de um faturamento, e o faturamento precisa da
+            // cobertura (`BillingTask` → `Task`), que só existe depois que a
+            // tarefa nasce. Por isso a reconciliação é feita lá, e não aqui.
             services: {
               create: quoteData.services.map((item: any) => ({
                 description: item.description,
@@ -1972,8 +1958,26 @@ export class TaskPrismaRepository
       });
 
       if (createdPricingId) {
-        // ─── A COBERTURA, agora que o veículo existe ─────────────────────────
+        // ─── OS PAGADORES E OS FATURAMENTOS, agora que o veículo existe ─────
         //
+        // Aqui, e não dentro do `budget.create`: o pagador pertence a um
+        // `Billing`, o `Billing` declara quais veículos cobre, e o veículo acabou
+        // de nascer na linha acima. `reconcileQuoteCustomerConfigs` é o MESMO
+        // caminho que a edição usa — um código só para os dois, para que não
+        // possam divergir de novo.
+        //
+        // `taskIds` é passado explicitamente: o vínculo tarefa↔orçamento acabou
+        // de ser gravado nesta transação, e deixar a função ler do banco a
+        // devolveria vazia num caminho ou outro conforme a visibilidade.
+        if (Array.isArray(quoteData?.customerConfigs) && quoteData.customerConfigs.length > 0) {
+          await reconcileQuoteCustomerConfigs(
+            transaction,
+            createdPricingId,
+            quoteData.customerConfigs as any,
+            { billingSplit: quoteData.billingSplit ?? null, taskIds: [result.id] },
+          );
+        }
+
         // O orçamento nasce ANTES da tarefa neste caminho (o id dele é o
         // `connect` da tarefa), então as faturas nasceram sem cobertura. Sem esta
         // chamada elas ficariam sem resposta para "de qual veículo é isto?" — e a
@@ -2425,31 +2429,14 @@ export class TaskPrismaRepository
                 customGuaranteeText: quoteData.customGuaranteeText || null,
                 customForecastDays: quoteData.customForecastDays || null,
                 simultaneousTasks: quoteData.simultaneousTasks ?? null,
+                ...(quoteData.billingSplit && { billingSplit: quoteData.billingSplit }),
                 ...layoutFileConnect,
-                ...(quoteData.customerConfigs &&
-                  quoteData.customerConfigs.length > 0 && {
-                    customerConfigs: {
-                      create: quoteData.customerConfigs.map((config: any) => ({
-                        customerId: config.customerId,
-                        subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                        total: config.total !== undefined ? Number(config.total) : 0,
-                        discountType: config.discountType || 'NONE',
-                        discountValue: config.discountValue ?? null,
-                        discountReference: config.discountReference ?? null,
-                        customPaymentText: config.customPaymentText || null,
-                        generateInvoice:
-                          config.generateInvoice !== undefined ? config.generateInvoice : true,
-                        generateBankSlip:
-                          config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                        // Ver a nota gêmea no caminho de criação: a coluna não
-                        // existe mais, e emiti-la matava a gravação em 500.
-                        responsibleId: config.responsibleId || null,
-                        paymentCondition: config.paymentCondition || null,
-                        paymentConfig: (config as any).paymentConfig ?? null,
-                        customerSignatureId: config.customerSignatureId ?? null,
-                      })),
-                    },
-                  }),
+                // ⚠️ OS PAGADORES NÃO NASCEM AQUI — ver a nota gêmea no caminho de
+                // criação. `BudgetPayer.billingId` é obrigatório desde que o
+                // faturamento virou entidade, e aninhar `customerConfigs` em
+                // `budget.create` pedia um pagador sem faturamento: "Argument
+                // `billing` is missing", 500 na gravação inteira. A reconciliação
+                // é feita abaixo, depois que a tarefa está vinculada.
                 services: {
                   create: quoteData.services.map((item: any, index: number) => ({
                     description: item.description,
@@ -2470,6 +2457,18 @@ export class TaskPrismaRepository
             // atualizando), então basta declará-la aqui para que as faturas
             // nasçam cobrindo-a e os totais saiam certos de primeira.
             await transaction.task.update({ where: { id }, data: { quoteId: newQuote.id } });
+
+            // Os pagadores e seus faturamentos, agora que o veículo pertence a
+            // este orçamento — o mesmo caminho da edição, logo acima.
+            if (Array.isArray(quoteData.customerConfigs) && quoteData.customerConfigs.length > 0) {
+              await reconcileQuoteCustomerConfigs(
+                transaction,
+                newQuote.id,
+                quoteData.customerConfigs as any,
+                { billingSplit: quoteData.billingSplit ?? null, taskIds: [id] },
+              );
+            }
+
             await resliceQuoteCoverage(transaction, newQuote.id);
             await recalcQuoteTotals(transaction, newQuote.id);
 

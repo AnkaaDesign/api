@@ -106,6 +106,7 @@
     "test:e2e-troca-de-modo": "tsx tests/e2e-ui/fase6-troca-de-modo.ts",
     "test:faturamento-separado": "tsx tests/e2e-ui/check-faturamento-separado.ts",
     "test:billing-entity": "tsx tests/billing-entity.test.ts",
+    "test:billing-payer-guard": "tsx tests/budget-payer-needs-billing.test.ts",
     "test:billing-status": "tsx tests/billing-status.test.ts",
     "test:invoice-payment-state": "tsx tests/invoice-payment-state.test.ts",
     "test:parcelas-custom": "tsx tests/parcelas-custom.test.ts",
