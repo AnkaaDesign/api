@@ -164,7 +164,9 @@ async function mkBilledQuote(taskId: string, customerId: string, total: number, 
     data: {
       budgetNumber: (max._max.budgetNumber ?? 0) + 1,
       subtotal: total, total, expiresAt: D('2026-12-31'),
-      status: 'BILLING_APPROVED' as any, statusOrder: 4, billingApprovedAt: new Date(),
+      // `APPROVED` é o ÚLTIMO estado do ORÇAMENTO. O ciclo do pagamento é do
+      // `Billing` criado abaixo, que nasce carimbado (faturado de verdade).
+      status: 'APPROVED' as any, statusOrder: 4, billingApprovedAt: new Date(),
       services: { create: [{ description: 'Serviço comercial', amount: total, position: 0 }] },
     },
   });
@@ -211,9 +213,29 @@ async function mkUnbilledQuote(taskId: string, customerId: string, total: number
     data: {
       budgetNumber: (max._max.budgetNumber ?? 0) + 1,
       subtotal: total, total, expiresAt: D('2026-12-31'),
-      status: 'BUDGET_APPROVED' as any, statusOrder: 3,
+      status: 'APPROVED' as any, statusOrder: 4,
       services: { create: [{ description: 'Serviço orçado', amount: total, position: 0 }] },
-      customerConfigs: { create: [{ customerId, subtotal: total, total }] },
+    },
+  });
+  // A COBRANÇA EXISTE, SÓ NÃO FOI APROVADA — é isso que "orçamento aprovado e não
+  // faturado" quer dizer agora. O pagador não pode mais ser criado solto: a FK
+  // `TaskQuoteCustomerConfig.billingId` é NOT NULL, então o `create` aninhado no
+  // orçamento (como estava aqui) estoura em runtime.
+  await prisma.billing.create({
+    data: {
+      quote: { connect: { id: quote.id } },
+      approvedAt: null,
+      tasks: { create: [{ task: { connect: { id: taskId } } }] },
+      customerConfigs: {
+        create: [
+          {
+            quote: { connect: { id: quote.id } },
+            customer: { connect: { id: customerId } },
+            subtotal: total,
+            total,
+          },
+        ],
+      },
     },
   });
   await prisma.task.update({ where: { id: taskId }, data: { quoteId: quote.id } });
@@ -223,9 +245,21 @@ async function mkUnbilledQuote(taskId: string, customerId: string, total: number
 async function quoteOf(taskId: string) {
   const t = await prisma.task.findUniqueOrThrow({
     where: { id: taskId },
-    select: { quoteId: true, quote: { select: { id: true, status: true, total: true, subtotal: true, budgetNumber: true, services: true, customerConfigs: { select: { id: true, total: true, subtotal: true, installments: true, invoices: true } } } } },
+    select: { quoteId: true, quote: { select: { id: true, status: true, total: true, subtotal: true, budgetNumber: true, services: true, billings: { select: { id: true, status: true, approvedAt: true } }, customerConfigs: { select: { id: true, total: true, subtotal: true, installments: true, invoices: true } } } } },
   });
   return t.quote;
+}
+
+/**
+ * O ESTADO DO PAGAMENTO — que é da COBRANÇA, não do orçamento.
+ *
+ * Estas asserções liam `quote.status` e esperavam `SETTLED`/`DUE`/`PARTIAL`.
+ * Esses valores saíram de `TASK_QUOTE_STATUS` em 16/09/2026: com 1..N cobranças
+ * por orçamento a pergunta "este orçamento está pago?" não tinha resposta
+ * possível. Aqui cada orçamento tem uma cobrança só, então a leitura é direta.
+ */
+function billingStatusOf(q: { billings: Array<{ status: string }> } | null): string | undefined {
+  return q?.billings?.[0]?.status;
 }
 
 async function main() {
@@ -260,8 +294,9 @@ async function main() {
     check('1 parcela criada', q!.customerConfigs[0].installments.length === 1);
     check('parcela quitada', q!.customerConfigs[0].installments[0].status === 'PAID');
 
-    // O ponto que o usuário levantou: a conciliação liquida o orçamento sozinha.
-    check('orçamento LIQUIDADO pelo cascade', q!.status === 'SETTLED', q?.status);
+    // O ponto que o usuário levantou: a conciliação liquida a cobrança sozinha.
+    check('cobrança LIQUIDADA pelo cascade', billingStatusOf(q) === 'SETTLED', billingStatusOf(q));
+    check('orçamento permanece APPROVED (não é ele que paga)', q!.status === 'APPROVED', q?.status);
 
     const txAfter = await prisma.bankTransaction.findUniqueOrThrow({ where: { id: tx.id } });
     check('crédito RECONCILED', txAfter.reconciliationStatus === 'RECONCILED');
@@ -301,8 +336,8 @@ async function main() {
     check('preços independentes e corretos',
       money(q1!.total) === 4000 && money(q2!.total) === 3000 && money(q3!.total) === 2000,
       `${q1?.total}/${q2?.total}/${q3?.total}`);
-    check('os três liquidados',
-      [q1, q2, q3].every(q => q!.status === 'SETTLED'));
+    check('as três cobranças liquidadas',
+      [q1, q2, q3].every(q => billingStatusOf(q) === 'SETTLED'));
     check('budgetNumbers distintos',
       new Set([q1!.budgetNumber, q2!.budgetNumber, q3!.budgetNumber]).size === 3);
 
@@ -327,7 +362,7 @@ async function main() {
     await svc.matchTasks(tx1.id, [{ taskId: task.id, amount: 3000 }], USER_ID);
     let q = await quoteOf(task.id);
     check('após 1º crédito: total 3000', money(q!.total) === 3000);
-    check('após 1º crédito: SETTLED', q!.status === 'SETTLED');
+    check('após 1º crédito: cobrança SETTLED', billingStatusOf(q) === 'SETTLED', billingStatusOf(q));
 
     // Orçamento quitado (sem parcela em aberto) CONTINUA na lista por identidade:
     // é exatamente o caso em que só este fluxo pode absorver mais dinheiro.
@@ -368,7 +403,7 @@ async function main() {
         return money(m.allocatedAmount) === money(inst.amount);
       }));
     check('ambas quitadas', q!.customerConfigs[0].installments.every(i => i.status === 'PAID'));
-    check('continua SETTLED', q!.status === 'SETTLED');
+    check('cobrança continua SETTLED', billingStatusOf(q) === 'SETTLED', billingStatusOf(q));
 
     const inv = await prisma.invoice.findFirstOrThrow({ where: { taskId: task.id } });
     check('UMA única fatura (índice parcial respeitado)',
@@ -406,10 +441,11 @@ async function main() {
     const insts = q!.customerConfigs[0].installments.sort((a, b) => a.number - b.number);
     check('FIFO: parcela 1 (mais antiga/menor nº) quitada', insts[0].status === 'PAID');
     check('parcela 2 NÃO foi quitada', insts[1].status !== 'PAID', insts[1].status);
-    // Precedência real do cascade: SETTLED > DUE > PARTIAL > UPCOMING. Como a
-    // parcela restante está vencida (venc. 20/07, hoje 02/08), DUE ganha de
-    // PARTIAL — e é a informação mais útil: o cliente ainda deve, e está atrasado.
-    check('vencida em aberto ⇒ orçamento em DUE', q!.status === 'DUE', q?.status);
+    // Precedência real do cascade: SETTLED > OVERDUE > PARTIAL. Como a parcela
+    // restante está vencida (venc. 20/07, hoje 02/08), OVERDUE ganha de PARTIAL —
+    // e é a informação mais útil: o cliente ainda deve, e está atrasado.
+    // (Era `DUE` num status de ORÇAMENTO; hoje é `BILLING_STATUS.OVERDUE`.)
+    check('vencida em aberto ⇒ cobrança em OVERDUE', billingStatusOf(q) === 'OVERDUE', billingStatusOf(q));
 
     const inv = await prisma.invoice.findFirstOrThrow({ where: { taskId: task.id } });
     check('fatura PARCIALMENTE PAGA', inv.status === 'PARTIALLY_PAID', inv.status);
@@ -425,7 +461,7 @@ async function main() {
     const tx2 = await mkCredit(4000, '77888999000155', 'TRANSPORTES DELTA', 'FIT-4B');
     await svc.matchTasks(tx2.id, [{ taskId: task2.id, amount: 4000 }], USER_ID);
     const q2 = await quoteOf(task2.id);
-    check('a vencer + parcial ⇒ orçamento em PARTIAL', q2!.status === 'PARTIAL', q2?.status);
+    check('a vencer + parcial ⇒ cobrança em PARTIAL', billingStatusOf(q2) === 'PARTIAL', billingStatusOf(q2));
   }
 
   // =========================================================================
@@ -459,8 +495,11 @@ async function main() {
       q?.customerConfigs[0].installments[0].status);
     check('paidAmount da parcela = 3000',
       money(q!.customerConfigs[0].installments[0].paidAmount) === 3000);
-    check('quote elevado do BUDGET_APPROVED para o ciclo de recebíveis',
-      ['UPCOMING', 'PARTIAL', 'DUE'].includes(q!.status), q?.status);
+    // A conciliação carimba a COBRANÇA (`approvedAt`) e a cascata deriva o estado
+    // das parcelas. O ORÇAMENTO não se move: `APPROVED` já era o fim da linha dele.
+    check('cobrança carimbada como aprovada', !!q!.billings[0]?.approvedAt);
+    check('cobrança entrou no ciclo de recebíveis',
+      ['APPROVED', 'PARTIAL', 'OVERDUE'].includes(billingStatusOf(q) ?? ''), billingStatusOf(q));
 
     const txAfter = await prisma.bankTransaction.findUniqueOrThrow({ where: { id: tx.id } });
     check('crédito totalmente alocado ⇒ RECONCILED', txAfter.reconciliationStatus === 'RECONCILED');
@@ -518,7 +557,7 @@ async function main() {
     check('parcela reaberta', q!.customerConfigs[0].installments[0].status !== 'PAID',
       q?.customerConfigs[0].installments[0].status);
     check('paidAmount zerado', money(q!.customerConfigs[0].installments[0].paidAmount) === 0);
-    check('orçamento sai de SETTLED', q!.status !== 'SETTLED', q?.status);
+    check('cobrança sai de SETTLED', billingStatusOf(q) !== 'SETTLED', billingStatusOf(q));
   }
 
   // =========================================================================

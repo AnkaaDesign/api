@@ -97,9 +97,9 @@ async function main() {
 
       await openQuoteDetail(page, tasks[0].id);
       await goToLastStep(page);
-      await setQuoteStatus(page, /Or.amento Aprovado/);
+      await setQuoteStatus(page, /^Aprovado$/);
       const st = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { status: true } });
-      check(`${c.tag}: orçamento ficou BUDGET_APPROVED`, st?.status === 'BUDGET_APPROVED', `status=${st?.status}`);
+      check(`${c.tag}: orçamento ficou APROVADO`, st?.status === 'APPROVED', `status=${st?.status}`);
     });
 
     await scenario(`${c.tag} · aprovar FATURAMENTO pela tela`, page, async () => {
@@ -147,19 +147,24 @@ async function main() {
           customerConfigs: {
             select: {
               id: true, total: true,
-              billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
+              billing: { select: { id: true, status: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
             },
           },
         },
       });
-      // Depois de aprovado o orçamento anda sozinho na esteira (BILLING_APPROVED
-      // → UPCOMING quando a tarefa entra na fila), então o que se afirma é o
-      // CARIMBO da aprovação, não um estado instantâneo.
+      // O CARIMBO é o que se afirma: `Billing.status` é DERIVADO das parcelas
+      // (`BillingStatusCascadeService`) e anda sozinho conforme elas vencem e são
+      // pagas, então prendê-lo a um valor instantâneo seria testar o relógio.
       check(`${c.tag}: todos os faturamentos ficaram aprovados`,
         (q?.customerConfigs ?? []).every(x => !!x.billing?.approvedAt),
         JSON.stringify((q?.customerConfigs ?? []).map(x => !!x.billing?.approvedAt)));
-      check(`${c.tag}: o orçamento saiu de BUDGET_APPROVED`,
-        ['BILLING_APPROVED', 'UPCOMING', 'DUE', 'PARTIAL', 'SETTLED'].includes(q?.status ?? ''), `status=${q?.status}`);
+      // E O ORÇAMENTO NÃO SE MOVE. `APPROVED` é o último estado dele; aprovar a
+      // COBRANÇA não o empurra para lugar nenhum — era `BILLING_APPROVED` e o
+      // ciclo depois dele, que mudaram de entidade em 16/09/2026.
+      check(`${c.tag}: o orçamento continua APROVADO`, q?.status === 'APPROVED', `status=${q?.status}`);
+      const estadosCobranca = (q?.customerConfigs ?? []).map(x => x.billing?.status);
+      check(`${c.tag}: nenhuma cobrança ficou PENDENTE depois de aprovada`,
+        estadosCobranca.every(st => st !== 'PENDING'), JSON.stringify(estadosCobranca));
       const tamanhos = (q?.customerConfigs ?? []).map(x => (x.billing?.tasks ?? []).length).sort();
       check(`${c.tag}: cobertura ${JSON.stringify(c.coberturaEsperada)}`,
         JSON.stringify(tamanhos) === JSON.stringify([...c.coberturaEsperada].sort()), JSON.stringify(tamanhos));

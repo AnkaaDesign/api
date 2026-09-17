@@ -342,7 +342,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
 
     // ── O RESUMO DO FATURAMENTO DIZ O MESMO QUE O DO ORÇAMENTO? ────────────
     //
@@ -415,7 +415,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await openBillingDetail(page, vs[0].id);
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
@@ -433,7 +433,7 @@ async function main() {
       where: { id: quoteId },
       select: {
         status: true, billingApprovedAt: true,
-        customerConfigs: { select: { id: true, billing: { select: { approvedAt: true } } } },
+        customerConfigs: { select: { id: true, billing: { select: { status: true, approvedAt: true } } } },
       },
     });
     const faturasVivas = await prisma.invoice.count({
@@ -442,12 +442,21 @@ async function main() {
     const parcelasVivas = await prisma.installment.count({
       where: { invoice: { OR: [{ customerConfig: { quoteId } }, { task: { quoteId } }] } },
     });
-    check('C2: o orçamento voltou para Orçamento Aprovado', depois?.status === 'BUDGET_APPROVED', `status=${depois?.status}`);
+    // O ORÇAMENTO NÃO SE MEXE: reverter é desfazer a COBRANÇA, e `APPROVED` é o
+    // último estado do orçamento — ele já estava ali antes e continua depois.
+    check('C2: o orçamento continua Aprovado', depois?.status === 'APPROVED', `status=${depois?.status}`);
     check('C2: a FATURA do ciclo anterior foi apagada', faturasVivas === 0, `${faturasVivas} fatura(s) de pé`);
     check('C2: as PARCELAS do ciclo anterior foram apagadas', parcelasVivas === 0, `${parcelasVivas} parcela(s) de pé`);
     check('C2: o carimbo de aprovação de cada fatia foi limpo',
       (depois?.customerConfigs ?? []).every(c => !c.billing?.approvedAt),
       JSON.stringify((depois?.customerConfigs ?? []).map(c => !!c.billing?.approvedAt)));
+    // E o ESTADO da cobrança acompanha o carimbo. Sem fatura, sem parcela e sem
+    // `approvedAt`, `BillingStatusCascadeService` só pode responder PENDENTE —
+    // uma cobrança lendo "Aprovado" depois da reversão é o estado derivado que
+    // ficou para trás, e a tela de Faturamento pagina por ele.
+    check('C2: nenhuma cobrança continua aprovada',
+      (depois?.customerConfigs ?? []).every(c => c.billing?.status === 'PENDING'),
+      JSON.stringify((depois?.customerConfigs ?? []).map(c => c.billing?.status)));
 
     // ── REAPROVAR ─────────────────────────────────────────────────────────
     const marcador2 = await seq();
@@ -523,7 +532,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
 
     // ── LOTE 1 ────────────────────────────────────────────────────────────
     await openBillingDetail(page, vs[0].id);
@@ -616,7 +625,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await openBillingDetail(page, vs[0].id);
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
@@ -684,7 +693,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
 
     // As duas chaves ficam no passo do CLIENTE do assistente de Faturamento.
     await openBillingDetail(page, vs[0].id);
@@ -758,7 +767,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await openBillingDetail(page, vs[0].id);
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
@@ -852,7 +861,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await openBillingDetail(page, vs[0].id);
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
@@ -927,7 +936,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
 
     // ── APROVAR O PRIMEIRO CAMINHÃO ───────────────────────────────────────
     //
@@ -1014,7 +1023,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await openBillingDetail(page, vs[0].id);
     await goToLastStep(page);
     await approveBillingForOpenVehicle(page);
@@ -1039,7 +1048,7 @@ async function main() {
     const faturas = await prisma.invoice.count({
       where: { OR: [{ customerConfig: { quoteId } }, { task: { quoteId } }] },
     });
-    check('CA: o orçamento voltou para Orçamento Aprovado', depois?.status === 'BUDGET_APPROVED',
+    check('CA: o orçamento continua Aprovado', depois?.status === 'APPROVED',
       `status=${depois?.status}`);
     check('CA: não sobrou fatura nenhuma', faturas === 0, `${faturas}`);
     check('CA: nenhuma fatia ficou carimbada',

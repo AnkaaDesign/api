@@ -143,7 +143,7 @@ async function main() {
   console.log('\nO defeito: reconciliar só a primeira tarefa');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: true,
     });
     // Exatamente o que o código fazia: uma tarefa, sorteada.
@@ -164,7 +164,7 @@ async function main() {
   console.log('\nAprovar o orçamento fecha a Em Negociação de TODOS os veículos');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: true,
     });
     await syncEmNegociacaoForQuote(db.prisma, QUOTE_ID);
@@ -179,7 +179,7 @@ async function main() {
   console.log('\nSem layout, as quatro esperam a arte — nenhuma fica "Em Andamento"');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: false,
     });
     await syncEmNegociacaoForQuote(db.prisma, QUOTE_ID);
@@ -215,7 +215,7 @@ async function main() {
   console.log('\nConcluir a O.S. de UM veículo alcança as irmãs do mesmo orçamento');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: true,
     });
     // O gatilho nasce numa tarefa (a O.S. concluída na mão), mas a aprovação que
@@ -232,7 +232,7 @@ async function main() {
   console.log('\nO que é manual continua manual, em todos os veículos');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: true,
       initial: {
         1: SERVICE_ORDER_STATUS.PAUSED,
@@ -276,7 +276,7 @@ async function main() {
   console.log('\nIdempotência: rodar duas vezes não muda nada');
   {
     const db = makeDb({
-      quoteStatus: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+      quoteStatus: TASK_QUOTE_STATUS.APPROVED,
       quoteHasLayoutFile: true,
     });
     await syncEmNegociacaoForQuote(db.prisma, QUOTE_ID);

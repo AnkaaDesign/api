@@ -237,7 +237,7 @@ async function main(): Promise<void> {
         `${timeOnly.length} time normalise ══════════════════`,
     );
 
-    // Invoices whose quote status must be re-derived once the dates are truthful.
+    // Faturas cuja COBRANÇA precisa ter o estado re-derivado quando as datas ficarem verdadeiras.
     const invoiceIdsToCascade = new Set<string>();
 
     for (const r of toFix) {
@@ -293,13 +293,14 @@ async function main(): Promise<void> {
       });
     }
 
-    // ── Re-derive quote statuses ──────────────────────────────────────────
-    // A quote sitting at DUE only because a parcela was wrongly past-due must fall back
-    // to UPCOMING/PARTIAL now that the dates are truthful. The cascade recomputes
-    // Invoice + TaskQuote from the corrected installments.
+    // ── Re-derive billing statuses ────────────────────────────────────────
+    // Uma COBRANÇA em `OVERDUE` só porque a parcela estava com data errada tem de
+    // cair para `APPROVED`/`PARTIAL` agora que as datas são verdadeiras. A cascata
+    // recalcula Invoice + `Billing.status` a partir das parcelas corrigidas — o
+    // estado de pagamento é do `Billing`, não do orçamento.
     out('');
     out(
-      `══════════════════ ${APPLY ? 'CASCADING' : 'WOULD CASCADE'} quote status for ` +
+      `══════════════════ ${APPLY ? 'CASCADING' : 'WOULD CASCADE'} billing status for ` +
         `${invoiceIdsToCascade.size} invoice(s) ══════════════════`,
     );
 

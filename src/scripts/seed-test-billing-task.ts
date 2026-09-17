@@ -16,6 +16,7 @@ import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../app.module';
 import { PrismaService } from '../modules/common/prisma/prisma.service';
+import { TASK_QUOTE_STATUS, TASK_QUOTE_STATUS_ORDER } from '@constants';
 
 const KENNEDY_CUSTOMER_ID = 'b593f440-9f00-4c85-93ef-54bf5a9eef37';
 const COMERCIAL_SECTOR_ID = 'd8968b27-350a-453d-9c7e-6d83c350622e';
@@ -60,8 +61,11 @@ async function main(): Promise<void> {
           subtotal: 2,
           total: 2,
           expiresAt,
-          status: 'PENDING',
-          statusOrder: 8,
+          status: TASK_QUOTE_STATUS.PENDING,
+          // Do mapa, não à mão: o literal era `8`, que sobrou da época em que
+          // este enum carregava também os cinco estados de pagamento. Hoje
+          // PENDENTE é 3, e um `statusOrder` mentiroso desordena a lista inteira.
+          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
           services: {
             create: [
               {

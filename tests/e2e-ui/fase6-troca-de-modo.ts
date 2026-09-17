@@ -131,7 +131,7 @@ async function main() {
     await trocarModo(page, v[0].id, /Uma fatura por ve.culo/);
     await openQuoteDetail(page, v[0].id);
     await goToLastStep(page);
-    await setQuoteStatus(page, /Or.amento Aprovado/);
+    await setQuoteStatus(page, /^Aprovado$/);
     await pause(page, 2500);
 
     await openBillingDetail(page, v[0].id);

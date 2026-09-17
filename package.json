@@ -103,7 +103,8 @@
     "test:orcamento-faturamento-p0": "tsx tests/orcamento-faturamento-p0.test.ts",
     "test:e2e-troca-de-modo": "tsx tests/e2e-ui/fase6-troca-de-modo.ts",
     "test:faturamento-separado": "tsx tests/e2e-ui/check-faturamento-separado.ts",
-    "test:billing-entity": "tsx tests/billing-entity.test.ts"
+    "test:billing-entity": "tsx tests/billing-entity.test.ts",
+    "test:billing-status": "tsx tests/billing-status.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

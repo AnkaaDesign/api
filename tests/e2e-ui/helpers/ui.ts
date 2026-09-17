@@ -444,13 +444,31 @@ export async function goToLastStep(page: Page) {
   }
 }
 
+/**
+ * OS RÓTULOS DO SELETOR DE STATUS DO **ORÇAMENTO** — os cinco de
+ * `TASK_QUOTE_STATUS_LABELS`, e só eles.
+ *
+ * Encolheu em 16/09/2026: "Faturamento Aprovado", "A Vencer", "Parcial" e
+ * "Liquidado" eram estados do PAGAMENTO morando no enum da venda, e mudaram de
+ * entidade (`BILLING_STATUS`). "Orçamento Aprovado" perdeu o prefixo e é só
+ * "Aprovado" — a tela já se chama Orçamentos.
+ */
+const ROTULOS_ORCAMENTO =
+  /Pendente|Assinado|Aguardando Reanálise|Aprovado|Cancelado/;
+
+/**
+ * OS RÓTULOS DO SELETOR DE STATUS DO **FATURAMENTO** — `BILLING_STATUS_LABELS`.
+ *
+ * ⚠️ "A Vencer" NÃO EXISTE. Aprovado já quer dizer "cobrado, esperando pagar";
+ * um estado a mais só para dizer "ainda não venceu" separava duas linhas que o
+ * operador trata igual.
+ */
+const ROTULOS_FATURAMENTO = /Vencido|Pendente|Aprovado|Parcial|Liquidado|Cancelado/;
+
 /** Troca o status do orçamento pelo seletor do painel e grava. */
 export async function setQuoteStatus(page: Page, option: RegExp) {
-  // Todos os rótulos de TASK_QUOTE_STATUS: depois da primeira aprovação o
-  // seletor passa a dizer "A Vencer", e um filtro com três rótulos não o achava
-  // mais — a segunda fatia ficava sem aprovar por um detalhe de locator.
   const combo = page.locator('[role="combobox"]').filter({
-    hasText: /Pendente|Assinado|Aguardando Reanálise|Or.amento Aprovado|Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado|Cancelado/,
+    hasText: ROTULOS_ORCAMENTO,
   }).first();
   await combo.scrollIntoViewIfNeeded();
   await combo.click();
@@ -582,7 +600,7 @@ export async function setPaymentCondition(page: Page, option: RegExp) {
  */
 export async function revertBilling(page: Page) {
   const combo = page.locator('[role="combobox"]').filter({
-    hasText: /Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+    hasText: ROTULOS_FATURAMENTO,
   }).first();
   await combo.scrollIntoViewIfNeeded();
   await combo.click();
@@ -605,16 +623,17 @@ export async function revertBilling(page: Page) {
 }
 
 /**
- * APROVAR O FATURAMENTO DO VEÍCULO ABERTO, seja qual for o status do orçamento.
+ * APROVAR O FATURAMENTO DO VEÍCULO ABERTO, seja qual for o estado da cobrança.
  *
- * Antes da primeira fatia isso é a transição BUDGET_APPROVED → "Aprovar
- * Faturamento"; depois dela é a ação sintética "(este veículo)", que não mexe no
- * status. As duas saem do MESMO seletor e abrem a MESMA confirmação, então o
- * teste percorre o caminho do operador sem saber qual das duas é.
+ * Na primeira fatia isso é a transição "Aprovar Faturamento" da cobrança
+ * PENDENTE; depois dela é a ação sintética "(este veículo)". As duas saem do
+ * MESMO seletor e abrem a MESMA confirmação, então o teste percorre o caminho do
+ * operador sem saber qual das duas é. Nenhuma das duas mexe no ORÇAMENTO, que
+ * fica em "Aprovado" do começo ao fim.
  */
 export async function approveBillingForOpenVehicle(page: Page) {
   const combo = page.locator('[role="combobox"]').filter({
-    hasText: /Pendente|Assinado|Or.amento Aprovado|Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+    hasText: ROTULOS_FATURAMENTO,
   }).first();
   await combo.scrollIntoViewIfNeeded();
   await combo.click();
@@ -650,7 +669,7 @@ export async function approveBillingForOpenVehicle(page: Page) {
 /** O texto do diálogo de confirmação — para conferir a PRÉVIA antes de aprovar. */
 export async function readApprovalDialog(page: Page): Promise<string> {
   const combo = page.locator('[role="combobox"]').filter({
-    hasText: /Pendente|Or.amento Aprovado|Faturamento Aprovado|A Vencer|Vencido|Parcial|Liquidado/,
+    hasText: ROTULOS_FATURAMENTO,
   }).first();
   await combo.scrollIntoViewIfNeeded();
   await combo.click();

@@ -321,7 +321,7 @@ async function main() {
     const env = await prisma.signatureEnvelope.findFirst({ where: { quoteId }, select: { status: true, completedAt: true } });
     const q = await prisma.taskQuote.findUnique({ where: { id: quoteId }, select: { status: true } });
     check('S5: o envelope concluiu', env?.status === 'COMPLETED', `status=${env?.status}`);
-    check('S5: o orçamento ficou BUDGET_APPROVED', q?.status === 'BUDGET_APPROVED', `status=${q?.status}`);
+    check('S5: o orçamento ficou APROVADO', q?.status === 'APPROVED', `status=${q?.status}`);
 
     const docs = await prisma.envelopeDocument.findMany({
       where: { envelope: { quoteId } },

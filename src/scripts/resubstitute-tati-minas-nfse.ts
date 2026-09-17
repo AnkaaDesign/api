@@ -21,8 +21,8 @@
  *      como substituta.
  *   4. Audita o resultado final: nota nova, boletos registrados, estado da 3199.
  *
- * Idempotente o bastante para ser reexecutado: se o orçamento já estiver em BUDGET_APPROVED
- * ele pula o revert; se já houver nota nova autorizada ele só audita.
+ * Idempotente o bastante para ser reexecutado: se o FATURAMENTO já estiver sem carimbo
+ * de aprovação ele pula o revert; se já houver nota nova autorizada ele só audita.
  *
  * Run:
  *   NODE_ENV=production npx tsx -r tsconfig-paths/register src/scripts/resubstitute-tati-minas-nfse.ts          # dry-run
@@ -160,13 +160,18 @@ async function main() {
     }
 
     // ── 1. Revert ────────────────────────────────────────────────────────────
-    const quote = await prisma.taskQuote.findUnique({
-      where: { id: QUOTE_ID },
-      select: { status: true },
+    //
+    // ⚠️ A CONDIÇÃO É DO FATURAMENTO, NÃO DO ORÇAMENTO. Isto perguntava
+    // `quote.status === 'BUDGET_APPROVED'`, o que hoje é SEMPRE verdade: o
+    // orçamento não sai mais de `APPROVED` depois de aprovado, então o script
+    // pularia o revert toda vez e reaprovaria por cima de uma nota viva. Quem
+    // sabe se o faturamento foi revertido é o carimbo da cobrança.
+    const cobrancasAprovadas = await prisma.billing.count({
+      where: { quoteId: QUOTE_ID, approvedAt: { not: null } },
     });
 
-    if (quote?.status === 'BUDGET_APPROVED') {
-      console.log('\n▸ Orçamento já está em BUDGET_APPROVED — revert já feito, pulando.');
+    if (cobrancasAprovadas === 0) {
+      console.log('\n▸ Nenhuma cobrança carimbada — revert já feito, pulando.');
     } else {
       console.log('\n▸ Revertendo o faturamento...');
       await taskQuoteService.revertBillingApproval(QUOTE_ID, ACTING_USER_ID);
