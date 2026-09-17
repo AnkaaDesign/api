@@ -110,6 +110,7 @@ import {
   isBillingFrozen,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
+  QUOTE_MONEY_LOCK_INCLUDE,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
 } from './budget.guards';
@@ -2245,8 +2246,28 @@ export class BudgetService {
         // síncrono; a medição fica para que a próxima regressão apareça no log
         // em vez de ser deduzida.
         const startedAt = Date.now();
-        await this.signatureEnvelopes.onQuoteContentChanged(id, userId || null);
+        const invalidated = await this.signatureEnvelopes.onQuoteContentChanged(id, userId || null);
         const elapsed = Date.now() - startedAt;
+
+        // ── A RESPOSTA PRECISA CARREGAR O STATUS NOVO ───────────────────────
+        //
+        // `updated` foi montado DENTRO da transação, antes de a invalidação
+        // existir. Quando ela derruba a coleta, o gancho devolve o orçamento a
+        // PENDENTE por uma segunda escrita — e sem esta releitura o PUT
+        // responderia "Aprovado" para a tela que acabou de salvar. O status
+        // certo só apareceria no próximo refresh, que é como se descobre um
+        // defeito, não como se aplica uma regra.
+        //
+        // Reler os três campos, e não o grafo inteiro: a reversão só toca
+        // status, ordem e carimbo. Uma segunda leitura com o `include` completo
+        // custaria o dobro e ainda poderia divergir do que foi montado acima.
+        if (invalidated) {
+          const fresh = await this.prisma.budget.findUnique({
+            where: { id },
+            select: { status: true, statusOrder: true, updatedAt: true },
+          });
+          if (fresh) Object.assign(updated as any, fresh);
+        }
         if (elapsed > 1500) {
           this.logger.warn(
             `Reavaliação de assinaturas do orçamento ${id} levou ${elapsed} ms — ` +
@@ -3443,6 +3464,93 @@ export class BudgetService {
     } catch (error) {
       this.logger.error('Falha ao notificar orçamento recusado (task_quote.refused):', error);
     }
+  }
+
+  /**
+   * AS ASSINATURAS CAÍRAM PORQUE O ORÇAMENTO MUDOU — ele volta para pendente.
+   *
+   * Um orçamento APROVADO ou ASSINADO afirma que alguém concordou com AQUELE
+   * documento. Quando uma alteração material derruba a coleta, o documento
+   * aceito deixou de existir — e o status ficava de pé. A tela mostrava
+   * "Aprovado" ao lado do aviso "as assinaturas foram invalidadas porque o
+   * orçamento mudou": duas frases contraditórias no mesmo cartão, e a de cima
+   * era a que o resto do sistema lia.
+   *
+   * ⚠️ POR QUE NÃO BASTAVA O AUTO-REVERT QUE JÁ EXISTIA em `update()`: aquele
+   * dispara por `hasValueAffectingChange` — lista de serviços e campos de
+   * dinheiro do pagador. Trocar o LAYOUT não mexe em valor nenhum e mesmo assim
+   * é material para a assinatura: é a imagem que o cliente aprovou. Foi
+   * exatamente o nº 973, em 17/09/2026. As duas regras convivem porque
+   * respondem a perguntas diferentes — "o preço mudou?" e "o documento aceito
+   * mudou?" — e esta segunda tem a autoridade certa, que é o próprio motor de
+   * assinatura dizendo que invalidou.
+   *
+   * A LISTA DE ESTADOS É A MESMA (`QUOTE_VALUE_REVERTABLE_STATUSES`), de
+   * propósito: o destino é o mesmo, só o gatilho difere. Duas listas para a
+   * mesma regra divergiriam na primeira edição.
+   *
+   * ⚠️ NÃO REVERTE COM O DINHEIRO TRAVADO. Uma cobrança aprovada tem NFS-e na
+   * prefeitura e boleto no Sicredi emitidos contra este orçamento; devolvê-lo a
+   * PENDENTE afirmaria que nada foi acordado enquanto os títulos seguem
+   * pagáveis. Aí a saída é `revertBilling`, que desmonta os artefatos, e o log
+   * sai como aviso porque é uma situação que alguém precisa olhar.
+   *
+   * Sem recursão: `update` reavalia as assinaturas ao final, mas o envelope já
+   * é `INVALIDATED` quando esta linha roda, e `onQuoteContentChanged` só procura
+   * `RUNNING` e `COMPLETED`.
+   */
+  async markInvalidatedBySignature(
+    quoteId: string,
+    reason: string,
+    userId: string = 'system',
+  ): Promise<void> {
+    const existing = await this.prisma.budget.findUnique({
+      where: { id: quoteId },
+      select: { status: true, ...QUOTE_MONEY_LOCK_INCLUDE },
+    });
+    if (!existing) return;
+
+    const currentStatus = existing.status as TASK_QUOTE_STATUS;
+    if (!QUOTE_VALUE_REVERTABLE_STATUSES.includes(currentStatus)) {
+      this.logger.log(
+        `Orçamento ${quoteId} seguiu em ${currentStatus} após a invalidação das assinaturas: ` +
+          'o estado não regride a partir daí.',
+      );
+      return;
+    }
+
+    if (isQuoteMoneyLocked(existing.billings)) {
+      this.logger.warn(
+        `Orçamento ${quoteId} teve as assinaturas invalidadas mas CONTINUA em ${currentStatus}: ` +
+          'há cobrança aprovada. Reverta o faturamento antes de reemitir a proposta.',
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.PENDING }, userId, true);
+
+    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
+
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TASK_QUOTE,
+      entityId: quoteId,
+      action: CHANGE_ACTION.ROLLBACK,
+      field: 'status',
+      oldValue: currentStatus,
+      newValue: TASK_QUOTE_STATUS.PENDING,
+      // O motivo do motor de assinatura, palavra por palavra: é a mesma frase
+      // que o signatário recebeu por e-mail e que a tela mostra. Reescrevê-la
+      // aqui faria a trilha e o aviso contarem histórias parecidas mas
+      // diferentes sobre o mesmo ato.
+      reason: `Assinaturas invalidadas — ${reason}`,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      triggeredById: userId,
+      userId,
+    });
+
+    this.logger.log(
+      `Orçamento ${quoteId} voltou de ${currentStatus} para PENDENTE: as assinaturas foram invalidadas.`,
+    );
   }
 
   /**

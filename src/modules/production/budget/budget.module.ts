@@ -104,5 +104,21 @@ export class BudgetModule implements OnModuleInit {
     this.signatureEnvelopes.setOnEnvelopeRefused(async (quoteId, _envelopeId, reason) => {
       await this.budgetService.markRefusedBySignature(quoteId, reason);
     });
+
+    // O orçamento MUDOU e derrubou a coleta: ele não pode continuar aprovado.
+    //
+    // O caso que abriu isto: trocaram o LAYOUT de um orçamento assinado. As
+    // assinaturas foram invalidadas — corretamente, é a imagem que o cliente
+    // aprovou — e o orçamento seguiu "Aprovado". A tela mostrava as duas coisas
+    // lado a lado, e o resto do sistema lia a primeira.
+    //
+    // O auto-revert que já existia em `update()` não alcança este caso: ele
+    // dispara por mudança de VALOR (serviços, dinheiro do pagador), e layout não
+    // é valor. Aqui a autoridade é o próprio motor de assinatura dizendo que
+    // invalidou — que é a pergunta certa: não "o preço mudou?", mas "o documento
+    // que foi aceito mudou?".
+    this.signatureEnvelopes.setOnEnvelopeInvalidated(async (quoteId, _envelopeId, reason) => {
+      await this.budgetService.markInvalidatedBySignature(quoteId, reason);
+    });
   }
 }

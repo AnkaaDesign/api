@@ -800,6 +800,10 @@ export class SignatureEnvelopeService {
    * O MOTIVO VAI JUNTO porque é a única informação que a recusa acrescenta — sem
    * ele, quem recebe a notificação sabe que parou e não sabe o que negociar.
    */
+  private onEnvelopeInvalidated:
+    | ((quoteId: string, envelopeId: string, reason: string) => Promise<void>)
+    | null = null;
+
   private onEnvelopeRefused:
     | ((quoteId: string, envelopeId: string, reason: string) => Promise<void>)
     | null = null;
@@ -807,6 +811,27 @@ export class SignatureEnvelopeService {
     cb: (quoteId: string, envelopeId: string, reason: string) => Promise<void>,
   ): void {
     this.onEnvelopeRefused = cb;
+  }
+
+  /**
+   * A COLETA CAIU PORQUE O ORÇAMENTO MUDOU — e o orçamento não pode continuar
+   * aprovado.
+   *
+   * Um orçamento APROVADO ou ASSINADO afirma que alguém concordou com AQUELE
+   * documento. Quando uma alteração material derruba a coleta, o documento que
+   * foi aceito deixou de existir — mas o status ficava de pé, e a tela seguia
+   * dizendo "Aprovado" ao lado do aviso de que as assinaturas foram anuladas.
+   * Duas frases contraditórias no mesmo cartão.
+   *
+   * ⚠️ O gancho é DAQUI e o ouvinte é do orçamento, como os outros quatro: é o
+   * domínio do `Budget` que sabe o que "voltar para pendente" implica (a O.S.
+   * "Em Negociação", a trilha, a trava do dinheiro). O motor de assinatura sabe
+   * apenas que o documento aceito morreu.
+   */
+  setOnEnvelopeInvalidated(
+    cb: (quoteId: string, envelopeId: string, reason: string) => Promise<void>,
+  ): void {
+    this.onEnvelopeInvalidated = cb;
   }
 
   /**
@@ -5762,6 +5787,28 @@ export class SignatureEnvelopeService {
         cosmeticChanges: changes.cosmetic.join(' | ') || undefined,
       },
     });
+
+    // ── O ORÇAMENTO VOLTA PARA PENDENTE ─────────────────────────────────────
+    //
+    // AWAIT, ao contrário do aviso logo abaixo. O status é ESTADO do orçamento,
+    // e quem acabou de salvar precisa receber a resposta já com ele — um
+    // `void` aqui devolveria "Aprovado" para a tela e a corrigiria no próximo
+    // refresh, que é como se descobre um bug em vez de uma regra.
+    //
+    // Envolvido porque não pode desfazer o que já está gravado: quando esta
+    // linha começa, o envelope JÁ é INVALIDATED e a trilha já registrou. Falhar
+    // aqui deixa o status desatualizado — ruim, e ainda assim melhor do que
+    // derrubar a invalidação, que é a parte que protege o documento.
+    if (this.onEnvelopeInvalidated) {
+      try {
+        await this.onEnvelopeInvalidated(quoteId, running.id, reason);
+      } catch (error) {
+        this.logger.error(
+          `Envelope ${running.id} invalidado, mas o orçamento ${quoteId} não voltou para ` +
+            `pendente: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
 
     // Avisa TODOS os signatários ainda ativos, não só quem já tinha assinado.
     //
