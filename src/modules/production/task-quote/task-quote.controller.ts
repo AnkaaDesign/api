@@ -170,7 +170,10 @@ export class TaskQuoteController {
    * Update quote status
    *
    * Access: FINANCIAL, ADMIN, COMMERCIAL
-   * Note: COMMERCIAL cannot set BILLING_APPROVED (only ADMIN/FINANCIAL can)
+   *
+   * ⚠️ Aqui só passam estados do ORÇAMENTO. Aprovar cobrança deixou de ser um
+   * status deste endpoint e virou `PUT /billings/:id/approve` — inclusive a
+   * permissão, que lá é `@Roles(ADMIN, FINANCIAL)` na porta.
    */
   @Put(':id/status')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
@@ -185,23 +188,23 @@ export class TaskQuoteController {
       throw new BadRequestException('Status inválido');
     }
 
-    // COMMERCIAL cannot set BILLING_APPROVED — only ADMIN/FINANCIAL can
-    if (status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
-      const userPrivilege = (req as any).user?.role;
-      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
-        throw new BadRequestException(
-          'Setor comercial não pode aprovar faturamento. Apenas Admin ou Financeiro.',
-        );
-      }
-      return this.taskQuoteService.internalApprove(id, userId);
-    }
-
+    // O RAMO QUE APROVAVA FATURAMENTO SAIU DAQUI.
+    //
+    // Mandar `status: 'BILLING_APPROVED'` neste endpoint disparava
+    // `internalApprove` — emitia fatura, NFS-e e boletos por via de um campo de
+    // status. Com o faturamento virando entidade isso deixou de fazer sentido:
+    // `BILLING_APPROVED` não é estado do orçamento, e a cobrança a aprovar
+    // precisa ser IDENTIFICADA, coisa que um status do orçamento não faz num
+    // orçamento com várias. O endereço é `PUT /billings/:id/approve`.
+    //
+    // Chamadas antigas caem no `Status inválido` acima, que é o correto: o valor
+    // não existe mais no contrato.
     return this.taskQuoteService.updateStatus(id, status as TASK_QUOTE_STATUS, userId);
   }
 
   /**
    * PUT /task-quotes/:id/budget-approve
-   * Commercial approves the budget (PENDING → BUDGET_APPROVED).
+   * Commercial approves the budget (PENDING → APPROVED).
    * This is the single commercial approval gate — there is no separate
    * second commercial double-check before billing.
    *
@@ -215,15 +218,33 @@ export class TaskQuoteController {
 
   /**
    * PUT /task-quotes/:id/internal-approve
-   * Financial/admin final approval → triggers invoices + NFS-e (BUDGET_APPROVED → BILLING_APPROVED).
-   * Does NOT require the linked task to be finished — installment due dates anchor on the
-   * approval moment, so billing can be approved at any gate once the budget is approved.
+   * Aprova TODAS as cobranças pendentes do orçamento de uma vez.
+   *
+   * ⚠️ SEM ENDEREÇO, ESTA ROTA FATURA TUDO. Num orçamento de sessenta caminhões
+   * cobrados um a um, ela emite as sessenta notas e os sessenta boletos. Era o
+   * comportamento silencioso de antes, quando o faturamento não era entidade e
+   * "aprovar o faturamento do orçamento" tinha um sentido só — e o app ainda cai
+   * nela como fallback quando não tem `billingId` nem `sliceTaskId`.
+   *
+   * Agora exige `{ "aprovarTudo": true }` no corpo. Não é burocracia: quem quer
+   * uma cobrança tem `PUT /billings/:id/approve`, e quem chega aqui sem dizer
+   * nada quase sempre queria uma e vai receber sessenta.
    *
    * Access: FINANCIAL, ADMIN
    */
   @Put(':id/internal-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
-  async internalApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+  async internalApprove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @Body('aprovarTudo') aprovarTudo?: boolean,
+  ) {
+    if (aprovarTudo !== true) {
+      throw new BadRequestException(
+        'Esta rota aprova TODAS as cobranças pendentes do orçamento. Para aprovar uma, use ' +
+          'PUT /billings/:id/approve. Para aprovar todas mesmo, mande { "aprovarTudo": true }.',
+      );
+    }
     return this.taskQuoteService.internalApprove(id, userId);
   }
 

@@ -64,11 +64,15 @@ export class TaskQuotePaymentScheduler {
             gte: startOfYesterday,
             lte: endOfYesterday,
           },
+          // O RECORTE É DA COBRANÇA, não do orçamento.
+          //
+          // Era `quote.status in (UPCOMING, DUE, PARTIAL)`. Aquele filtro tinha um
+          // buraco por construção: num orçamento com duas cobranças, o status era
+          // um só — se ele estivesse LIQUIDADO porque a primeira fatia fechou, as
+          // parcelas da segunda, vencendo ontem, não entravam no lembrete.
           customerConfig: {
-            quote: {
-              status: { in: ['UPCOMING', 'DUE', 'PARTIAL'] },
-              tasks: { some: { status: { not: 'CANCELLED' } } },
-            },
+            billing: { status: { in: ['PENDING', 'APPROVED', 'PARTIAL', 'OVERDUE'] } },
+            quote: { tasks: { some: { status: { not: 'CANCELLED' } } } },
           },
         },
         include: {
@@ -219,8 +223,16 @@ export class TaskQuotePaymentScheduler {
       // spam reminders for already-settled quotes): cascadeFromQuote permits a
       // SETTLED → reopen when an active, unpaid installment exists, so a quote that
       // was prematurely/wrongly settled gets re-opened by this self-heal pass.
+      // A varredura diária de autocorreção: todo orçamento com cobrança VIVA.
+      // `SETTLED` entra de propósito — uma cobrança marcada como paga por engano
+      // volta a abrir quando a cascata encontra parcela ativa em aberto, e é esta
+      // passagem que lhe dá a chance.
       const activeQuotes = await this.prisma.taskQuote.findMany({
-        where: { status: { in: ['UPCOMING', 'DUE', 'PARTIAL', 'SETTLED'] } },
+        where: {
+          billings: {
+            some: { status: { in: ['PENDING', 'APPROVED', 'PARTIAL', 'OVERDUE', 'SETTLED'] } },
+          },
+        },
         select: { id: true },
       });
       const quotesToCascade = new Set<string>([

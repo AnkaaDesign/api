@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   TASK_QUOTE_STATUS,
@@ -25,6 +26,7 @@ export class TaskQuoteStatusCascadeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly dispatchService: NotificationDispatchService,
+    private readonly billingStatusCascade: BillingStatusCascadeService,
   ) {}
 
   /**
@@ -297,158 +299,38 @@ export class TaskQuoteStatusCascadeService {
   /**
    * Recalculate TaskQuote status from all its invoices/installments.
    */
+  /**
+   * RECALCULA O ESTADO DAS COBRANÇAS DE UM ORÇAMENTO.
+   *
+   * Este método calculava o status do ORÇAMENTO a partir das parcelas — e era o
+   * lugar onde o modelo antigo doía mais. Num orçamento faturado veículo a
+   * veículo ele tinha de espremer N cobranças num campo só, e o resultado
+   * dependia da ordem: uma fatia paga e outra vencida escreviam por cima uma da
+   * outra.
+   *
+   * Agora ele delega: cada `Billing` recebe o seu estado, calculado das suas
+   * próprias parcelas. O que sobrou aqui é o que é mesmo do ORÇAMENTO — a
+   * reconciliação da O.S. "Em Negociação" e o aviso de contrato quitado, que só
+   * dispara quando TODAS as cobranças fecharam.
+   */
   async cascadeFromQuote(quoteId: string): Promise<void> {
     try {
-      const quote = await this.prisma.taskQuote.findUnique({
-        where: { id: quoteId },
-        include: {
-          // OS FATURAMENTOS: é deles a resposta a "tudo já foi faturado?".
-          billings: { select: { id: true, approvedAt: true } },
-          customerConfigs: {
-            include: {
-              installments: {
-                include: {
-                  // Bank slip status is needed to tell a genuinely-overdue installment
-                  // apart from one whose charge instrument (boleto) was CANCELLED.
-                  bankSlip: { select: { status: true } },
-                },
-              },
-            },
-          },
-        },
-      });
+      const antesTodasPagas = await this.billingStatusCascade.isQuoteFullyPaid(quoteId);
 
-      if (!quote) {
-        this.logger.warn(`Quote ${quoteId} not found for cascade`);
-        return;
-      }
+      await this.billingStatusCascade.recomputeForQuote(quoteId);
 
-      // Cascade for quotes already in the receivables lifecycle, PLUS BILLING_APPROVED.
-      //
-      // BILLING_APPROVED belongs here because it is meant to be transient: `internalApprove`
-      // generates the invoice, registers the boletos and only THEN flips the quote to
-      // UPCOMING ("A Vencer"). If the process dies in between — a deploy, a restart, a
-      // Sicredi timeout — the quote is left reading "Faturamento Aprovado" forever, with
-      // installments already issued and nothing able to move it: this guard used to skip
-      // it, so no cascade, no recovery, no button. Including it lets any later cascade
-      // finish the transition the interrupted approval never got to.
-      const cascadableStatuses = [
-        TASK_QUOTE_STATUS.BILLING_APPROVED,
-        TASK_QUOTE_STATUS.UPCOMING,
-        TASK_QUOTE_STATUS.DUE,
-        TASK_QUOTE_STATUS.PARTIAL,
-        TASK_QUOTE_STATUS.SETTLED,
-      ];
-      if (!cascadableStatuses.includes(quote.status as TASK_QUOTE_STATUS)) {
-        return;
-      }
+      // Reconcilia "Em Negociação" em TODAS as tarefas do orçamento: a O.S. é por
+      // tarefa, e num orçamento de sessenta caminhões reconciliar só a primeira
+      // deixaria as outras cinquenta e nove com a O.S. de negociação aberta
+      // depois de o contrato estar fechado.
+      await syncEmNegociacaoForQuote(this.prisma, quoteId);
 
-      // Collect all installments across all customer configs
-      const allInstallments = quote.customerConfigs.flatMap(
-        config => (config as any).installments || [],
-      );
-
-      if (allInstallments.length === 0) {
-        return; // No installments, keep current status
-      }
-
-      const today = todayInSaoPauloAtNoonUtc();
-      const paidCount = allInstallments.filter(inst => inst.status === 'PAID').length;
-      const cancelledInstallments = allInstallments.filter(inst => inst.status === 'CANCELLED');
-      const activeInstallments = allInstallments.filter(inst => inst.status !== 'CANCELLED');
-      // A past-due installment that is neither PAID nor CANCELLED is money still
-      // owed, full stop.
-      //
-      // This used to also skip an installment whose boleto was CANCELLED, on the
-      // reasoning that "the charge no longer exists". That conflates two opposite
-      // situations. When a charge is genuinely abandoned, `cancelBoleto` cancels
-      // the INSTALLMENT too, and the `status === 'CANCELLED'` test above already
-      // excludes it. When only the rail changes — the customer will pay by PIX,
-      // so `markBoletoAsPaid` cancels the slip — the debt is still owed, and if
-      // that payment never arrives the parcela stays open. Skipping those made
-      // the quote report "a vencer" forever: RKO budget 273 sat at UPCOMING with
-      // three parcelas and R$13.850,60 unpaid, 104 days past the first due date.
-      const overdueCount = allInstallments.filter(inst => {
-        if (inst.status === 'PAID' || inst.status === 'CANCELLED') return false;
-        // Calendar-day comparison in SP: a parcela due TODAY is not overdue. Comparing raw
-        // instants flipped the quote to DUE at 09:00 SP on the parcela's own due date
-        // (stored noon UTC), before the customer could possibly have missed it.
-        return isDueDateOverdue(new Date(inst.dueDate), today);
-      }).length;
-
-      // Guard: if all installments were cancelled (e.g. after invoice cancellation)
-      // there is nothing to evaluate — keep the current status unchanged.
-      if (activeInstallments.length === 0) {
-        return;
-      }
-
-      // ═══════════════════════════════════════════════════════════════════════
-      // LIQUIDADO EXIGE QUE TUDO ESTEJA FATURADO
-      // ═══════════════════════════════════════════════════════════════════════
-      //
-      // ⚠️ Sem esta guarda, o faturamento veículo a veículo produz o pior erro
-      // possível nesta tela. Cenário medido no orçamento do Marquespan (sessenta
-      // caminhões, R$ 730.224,00, `PER_TASK`):
-      //
-      //   · o caminhão 1 é entregue e faturado → 4 parcelas de R$ 3.042,60;
-      //   · o cliente paga as quatro;
-      //   · os caminhões 2 a 60 ainda não foram faturados, então não têm parcela;
-      //   · `paidCount (4) === activeInstallments.length (4)`  ⇒  **SETTLED**.
-      //
-      // O orçamento se declararia LIQUIDADO com R$ 718.053,60 ainda a faturar, o
-      // aviso de "Pagamento Liquidado" iria para o comercial e o financeiro, e o
-      // registro sairia de toda tela de cobrança. Uma fatia paga não é um
-      // contrato quitado.
-      //
-      // A pergunta que decide é: TODAS as fatias já foram faturadas? Em `JOINT`
-      // existe uma fatia só e a resposta é sim desde a primeira aprovação, então
-      // nada muda para os orçamentos de sempre.
-      const billingsList = ((quote as any).billings ?? []) as Array<{ approvedAt: Date | null }>;
-      const everySliceBilled =
-        billingsList.length > 0 && billingsList.every(b => !!b.approvedAt);
-      // COMPATIBILIDADE: um orçamento cujo faturamento não deixou marcador em
-      // lugar nenhum — nem no `Billing`, nem em fatura viva de onde o backfill
-      // pudesse derivá-lo. Sem este ramo, ele voltaria de SETTLED para PARTIAL na
-      // primeira cascata. O marcador que esses têm é o do ORÇAMENTO.
-      const noSliceMarkers = billingsList.every(b => !b.approvedAt);
-      const fullyBilled =
-        everySliceBilled || (noSliceMarkers && !!(quote as any).billingApprovedAt);
-
-      let newStatus: TASK_QUOTE_STATUS;
-      if (paidCount === activeInstallments.length && fullyBilled) {
-        newStatus = TASK_QUOTE_STATUS.SETTLED;
-      } else if (overdueCount > 0) {
-        newStatus = TASK_QUOTE_STATUS.DUE;
-      } else if (paidCount > 0) {
-        newStatus = TASK_QUOTE_STATUS.PARTIAL;
-      } else {
-        newStatus = TASK_QUOTE_STATUS.UPCOMING;
-      }
-
-      if (newStatus !== quote.status) {
-        await this.prisma.taskQuote.update({
-          where: { id: quoteId },
-          data: {
-            status: newStatus as any,
-            statusOrder: TASK_QUOTE_STATUS_ORDER[newStatus as TASK_QUOTE_STATUS] || 1,
-          },
-        });
-
-        this.logger.log(`Cascaded TaskQuote ${quoteId} status: ${quote.status} → ${newStatus}`);
-
-        // Reconcile Em Negociação. Cascades stay within ≥ BUDGET_APPROVED so this
-        // is normally a no-op, but kept for symmetry with other status paths.
-        // Reconcilia "Em Negociação" em TODAS as tarefas do orçamento: a O.S. é
-        // por tarefa, e num orçamento de sessenta caminhões reconciliar só a
-        // primeira deixaria as outras cinquenta e nove com a O.S. de negociação
-        // aberta depois de o contrato estar fechado.
-        await syncEmNegociacaoForQuote(this.prisma, quoteId);
-
-        // Notify when the quote becomes fully settled via cascade (webhook/reconciliation
-        // payment paths). Mirrors the task_quote.settled key emitted by manual settlement.
-        if (newStatus === TASK_QUOTE_STATUS.SETTLED) {
-          await this.dispatchSettledNotification(quoteId);
-        }
+      // O aviso de "Pagamento Liquidado" é do CONTRATO, não de uma cobrança: só
+      // sai quando a última fecha, e só na transição — sem o `antesTodasPagas`
+      // ele seria reemitido a cada cascata sobre um orçamento já quitado.
+      const depoisTodasPagas = await this.billingStatusCascade.isQuoteFullyPaid(quoteId);
+      if (!antesTodasPagas && depoisTodasPagas) {
+        await this.dispatchSettledNotification(quoteId);
       }
     } catch (error) {
       this.logger.error(`Error cascading quote status for ${quoteId}: ${error}`);

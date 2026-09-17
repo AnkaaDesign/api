@@ -57,7 +57,7 @@ import {
 import { TASK_QUOTE_STATUS_ORDER } from '@constants';
 import { validateSectorFieldAccess } from './task.permissions';
 import {
-  QUOTE_STATUS_LOCKED,
+  isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
@@ -740,16 +740,14 @@ export class TaskService {
   ): void {
     const currentStatus = existingQuote.status as TASK_QUOTE_STATUS;
 
-    // BILLING_APPROVED only via internalApprove() — never a nested task write.
-    if (quoteData.status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
-      throw new BadRequestException(
-        'A aprovação de faturamento deve ser realizada pelo endpoint dedicado.',
-      );
-    }
+    // A guarda contra "aprovar faturamento por escrita aninhada de tarefa" perdeu
+    // o alvo: aprovação de cobrança não é mais um status do orçamento, é `PUT
+    // /billings/:id/approve`. O schema do status já recusa qualquer valor fora
+    // do ciclo do orçamento.
 
-    // Locked quotes (BILLING_APPROVED+): only safe metadata fields may change;
-    // status changes must use the dedicated status endpoints.
-    if (QUOTE_STATUS_LOCKED.includes(currentStatus)) {
+    // Orçamento travado pelo DINHEIRO (alguma cobrança já aprovada): só metadados
+    // seguros mudam; status vai pelos endpoints dedicados.
+    if (isQuoteMoneyLocked(existingQuote?.billings)) {
       for (const key of Object.keys(quoteData)) {
         if (quoteData[key] === undefined) continue;
         if (!QUOTE_SAFE_AFTER_BILLING_FIELDS.has(key)) {
@@ -798,11 +796,10 @@ export class TaskService {
     userPrivilege: SECTOR_PRIVILEGES | string | undefined,
   ): void {
     if (!quoteData?.status || quoteData.status === TASK_QUOTE_STATUS.PENDING) return;
-    if (QUOTE_STATUS_LOCKED.includes(quoteData.status as TASK_QUOTE_STATUS)) {
-      throw new BadRequestException(
-        'Um orçamento não pode ser criado já em estágio de faturamento.',
-      );
-    }
+    // A checagem "não pode nascer em estágio de faturamento" perdeu o objeto: os
+    // estados de cobrança não existem mais neste enum, e o zod recusa o valor
+    // antes de chegar aqui. Um orçamento novo não tem cobrança nenhuma.
+
     if (userPrivilege !== SECTOR_PRIVILEGES.ADMIN) {
       validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
     }
@@ -2472,7 +2469,15 @@ export class TaskService {
                 checkoutFiles: { select: { id: true } },
               },
             }, // Include for services field changelog tracking (with checkin/checkout files for validation)
-            quote: { include: { services: { orderBy: { position: 'asc' } } } }, // Include for quote changelog tracking
+            // ⚠️ `billings` é obrigatório: `isQuoteMoneyLocked` responde `false`
+            // sem ele, e a trava do dinheiro deixa de existir na escrita
+            // aninhada de tarefa — que é justamente o caminho que o app usa.
+            quote: {
+              include: {
+                services: { orderBy: { position: 'asc' } },
+                billings: { select: { approvedAt: true, status: true } },
+              },
+            }, // Include for quote changelog tracking
           },
         });
 
@@ -7592,6 +7597,10 @@ export class TaskService {
                     include: {
                       services: { orderBy: { position: 'asc' } },
                       customerConfigs: true,
+                      // ⚠️ Sem `billings` a trava do dinheiro não acontece — ver
+                      // `isQuoteMoneyLocked`. Vale para o caminho em lote tanto
+                      // quanto para o individual.
+                      billings: { select: { approvedAt: true, status: true } },
                     },
                   });
                   if (existingQuote) {

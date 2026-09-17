@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY } from '@config/company';
-import { TASK_QUOTE_STATUS } from '@constants';
+import { BILLING_STATUS } from '@constants';
 import {
   buildTaskQuoteReceiptHtml,
   formatDocument,
@@ -50,15 +50,25 @@ export class TaskQuoteReceiptService {
         },
         services: { orderBy: { position: 'asc' } },
         customerConfigs: { include: { customer: true, installments: true } },
+        // O recibo é do CONTRATO, então a pergunta "está pago?" é sobre TODAS as
+        // cobranças dele — não sobre o orçamento, que não guarda mais isso.
+        billings: { select: { status: true } },
       },
     });
 
     if (!quote) {
       throw new NotFoundException('Orçamento não encontrado.');
     }
-    if (quote.status !== TASK_QUOTE_STATUS.SETTLED) {
+    // LIQUIDADO É DO FATURAMENTO, e o recibo é do contrato inteiro: só sai
+    // quando TODAS as cobranças estão pagas. Antes isto lia `quote.status ===
+    // SETTLED`, um campo que num orçamento de sessenta caminhões faturados um a
+    // um respondia por todos ao mesmo tempo.
+    const billings = (quote as any).billings as Array<{ status: string }> | undefined;
+    const todasLiquidadas =
+      !!billings && billings.length > 0 && billings.every(b => b.status === BILLING_STATUS.SETTLED);
+    if (!todasLiquidadas) {
       throw new BadRequestException(
-        'O recibo só fica disponível depois que o orçamento é marcado como Liquidado.',
+        'O recibo só fica disponível depois que todos os faturamentos deste orçamento estiverem liquidados.',
       );
     }
 

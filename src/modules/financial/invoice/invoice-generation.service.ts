@@ -59,6 +59,23 @@ export class InvoiceGenerationService {
        * NFS-e e seus boletos, com o vencimento contado dali.
        */
       onlyTaskIds?: readonly string[] | null;
+      /**
+       * OS PAGADORES a faturar, pelo id — o endereçamento EXATO, e o que tem
+       * precedência quando vem.
+       *
+       * `onlyTaskIds` chega ao pagador dando a volta pela cobertura, e essa volta
+       * tem dois buracos que não se fecham de dentro dela: uma cobrança SEM
+       * cobertura declarada passa sempre (a regra abaixo a deixava passar para não
+       * faturar nada), e quem chama precisa desistir do filtro inteiro se QUALQUER
+       * alvo estiver descoberto. Os dois são alcançáveis em produção: a migration
+       * do faturamento-entidade criou `Billing` sem `BillingTask` para todo
+       * orçamento anterior à cobertura explícita, de 13/09.
+       *
+       * Quem aprova já sabe exatamente quais pagadores está aprovando — são os
+       * `customerConfigs` dos faturamentos alvo. Dizer isso direto dispensa a
+       * inferência e fecha os dois buracos de uma vez.
+       */
+      onlyConfigIds?: readonly string[] | null;
     },
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
@@ -126,8 +143,12 @@ export class InvoiceGenerationService {
     // ⚠️ Antes a regra era `taskId === null || onlyTaskIds.has(taskId)`, com o
     // nulo significando "cobre tudo". Um lote teria `taskId` nulo por não caber
     // numa coluna, e a regra o faturaria a cada aprovação de qualquer veículo.
+    const onlyConfigIds = options?.onlyConfigIds ? new Set(options.onlyConfigIds) : null;
     const onlyTaskIds = options?.onlyTaskIds ? new Set(options.onlyTaskIds) : null;
     const customerConfigs = (quote.customerConfigs ?? []).filter(config => {
+      // O endereçamento EXATO vence: sem volta pela cobertura, sem exceção para
+      // cobrança descoberta.
+      if (onlyConfigIds) return onlyConfigIds.has(config.id);
       if (!onlyTaskIds) return true;
       const covered = ((config as any).billing?.tasks ?? []) as Array<{ taskId: string }>;
       // Fatia sem cobertura é o orçamento que ainda não tem veículo vinculado:
@@ -138,7 +159,11 @@ export class InvoiceGenerationService {
 
     this.logger.log(
       `[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)` +
-        (onlyTaskIds ? ` (fatia restrita a ${onlyTaskIds.size} tarefa(s))` : ''),
+        (onlyConfigIds
+          ? ` (restrita a ${onlyConfigIds.size} pagador(es) da cobrança)`
+          : onlyTaskIds
+            ? ` (fatia restrita a ${onlyTaskIds.size} tarefa(s))`
+            : ''),
     );
 
     if (!customerConfigs || customerConfigs.length === 0) {

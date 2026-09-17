@@ -675,7 +675,19 @@ export class TaskQuotePrismaRepository
   }
 
   /**
-   * Find expired quotes (expiresAt < now)
+   * Os orçamentos que passaram da validade e ainda esperam alguma coisa.
+   *
+   * A VALIDADE É A JANELA EM QUE A PROPOSTA PODE SER ACEITA, e só isso — por
+   * isso a lista encolheu:
+   *   - `SIGNED` sai: o cliente aceitou dentro do prazo e o relógio parou. O que
+   *     falta é a contra-assinatura da Ankaa, atraso NOSSO (ver
+   *     `SignatureExpiryScheduler`).
+   *   - `APPROVED` sai: é o ÚLTIMO estado do orçamento, negócio fechado. Vencer
+   *     a validade de um contrato fechado não quer dizer nada.
+   *   - o que era `BILLING_APPROVED` sai por não existir mais: cobrança vencida
+   *     é `BILLING_STATUS.OVERDUE`, mora em `Billing` e se consulta por lá.
+   * Fica `PENDING` (passou do prazo sem todas as assinaturas) e `EXPIRED` (a
+   * varredura já marcou e o comercial ainda não reanalisou).
    */
   async findExpired(): Promise<TaskQuote[]> {
     const now = new Date();
@@ -683,11 +695,7 @@ export class TaskQuotePrismaRepository
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [
-            TASK_QUOTE_STATUS.PENDING,
-            TASK_QUOTE_STATUS.BUDGET_APPROVED,
-            TASK_QUOTE_STATUS.BILLING_APPROVED,
-          ],
+          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.EXPIRED],
         },
       },
       include: {
@@ -718,20 +726,24 @@ export class TaskQuotePrismaRepository
   }
 
   /**
-   * Find approved quote for a task
+   * O orçamento de um veículo cuja COBRANÇA já foi aprovada.
+   *
+   * "Aprovado" aqui sempre quis dizer FATURAMENTO aprovado — a lista era
+   * `BILLING_APPROVED`..`SETTLED`, cinco estados que hoje são um só fato do
+   * `Billing`: ter `approvedAt`. E a pergunta é do VEÍCULO, não do contrato: num
+   * orçamento de sessenta caminhões faturados um a um, o caminhão 7 pode estar
+   * cobrado e o 8 não. Por isso a condição é sobre a cobrança QUE COBRE ESTA
+   * TAREFA, e não sobre qualquer cobrança do orçamento.
    */
   async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
     const quote = await this.prisma.taskQuote.findFirst({
       where: {
         tasks: { some: { id: taskId } },
-        status: {
-          in: [
-            TASK_QUOTE_STATUS.BILLING_APPROVED,
-            TASK_QUOTE_STATUS.UPCOMING,
-            TASK_QUOTE_STATUS.DUE,
-            TASK_QUOTE_STATUS.PARTIAL,
-            TASK_QUOTE_STATUS.SETTLED,
-          ],
+        billings: {
+          some: {
+            approvedAt: { not: null },
+            tasks: { some: { taskId } },
+          },
         },
       },
       include: {

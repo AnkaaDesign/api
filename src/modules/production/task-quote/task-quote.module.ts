@@ -17,6 +17,7 @@ import { TaskQuotePrismaRepository } from './repositories/task-quote-prisma.repo
 import { TaskQuotePaymentScheduler } from './task-quote-payment.scheduler';
 import { TaskQuoteStatusCascadeService } from './task-quote-status-cascade.service';
 import { TaskQuoteReceiptService } from './task-quote-receipt.service';
+import { BillingStatusModule } from '@modules/financial/billing/billing-status.module';
 
 /**
  * TaskQuote Module
@@ -37,7 +38,7 @@ import { TaskQuoteReceiptService } from './task-quote-receipt.service';
  * - InvoiceModule: Auto-generate invoices on approval
  */
 @Module({
-  imports: [
+  imports: [BillingStatusModule, 
     PrismaModule,
     ChangeLogModule,
     NotificationModule,
