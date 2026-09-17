@@ -30,7 +30,7 @@ import { DossierAssemblerService } from '../dossier/dossier-assembler.service';
 import { join, resolve as resolvePath, dirname, basename } from 'path';
 import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { COMPANY } from '@/config/company';
+import { COMPANY, receivingAccountFor } from '@/config/company';
 import {
   formatResponsibleRoles,
   pickPrimaryResponsible,
@@ -146,6 +146,7 @@ import {
   formatBillingLocalityLine,
   formatBillingStreetLine,
   formatCurrencyBRL,
+  formatDateBR,
   generateGuaranteeText,
   generatePaymentText,
 } from '../document/quote-text';
@@ -1764,9 +1765,18 @@ export class SignatureEnvelopeService {
     customerId?: string | null,
     channel?: SignatureDeliveryChannel,
     sections?: readonly QuoteSection[],
+    withPaymentSchedule = false,
   ) {
     return this.renderer.render(
-      this.buildRenderInput(quote, signers, verificationCode, customerId, channel, sections),
+      this.buildRenderInput(
+        quote,
+        signers,
+        verificationCode,
+        customerId,
+        channel,
+        sections,
+        withPaymentSchedule,
+      ),
     );
   }
 
@@ -1793,6 +1803,20 @@ export class SignatureEnvelopeService {
       parseSignatureDeliveryMode(process.env.SIGNATURE_DELIVERY_CHANNEL).mode,
     ),
     sections: readonly QuoteSection[] = FULL_SECTIONS,
+    /**
+     * IMPRIMIR AS PARCELAS EMITIDAS e a chave Pix que as recebe.
+     *
+     * `false` em todo caminho que CONGELA bytes, e é aí que está a razão: as
+     * parcelas não entram no hash do snapshot, então elas podem mudar depois da
+     * assinatura sem que nada perceba. Pôr no papel selado um número que se move
+     * por baixo dele é o oposto do que o selo promete.
+     *
+     * `true` só no corpo legível do dossiê, que é montado AGORA, a partir dos
+     * dados de agora — e onde as datas são a única informação verdadeira que o
+     * cliente tem quando o pagamento é por Pix (com boleto ele as recebe nos
+     * PDFs anexados; com Pix não há anexo nenhum, e o dossiê saía sem data).
+     */
+    withPaymentSchedule = false,
   ): RenderInput {
     const segment = customerId
       ? (quote.customerConfigs.find(c => c.customerId === customerId) ?? null)
@@ -1992,6 +2016,64 @@ export class SignatureEnvelopeService {
       });
     };
 
+    // ── AS PARCELAS EMITIDAS, com data e valor ───────────────────────────────
+    //
+    // A frase acima descreve o ACORDO ("em 4 parcelas de R$ 5.374,60, com entrada
+    // em 21/09"); esta tabela descreve a DÍVIDA ("1/4 vence em 21/09, 2/4 em
+    // 13/10"). Não são a mesma coisa, e a diferença é a que o cliente precisa:
+    // o gerador rola cada vencimento para o próximo dia útil e põe o resto dos
+    // centavos na última parcela, então as datas e o último valor NÃO saem da
+    // aritmética da frase.
+    //
+    // Por que faltava: com boleto o cliente recebia as datas nos PDFs dos boletos
+    // anexados ao dossiê. Com Pix não há anexo nenhum — e o documento saía sem
+    // uma única data de vencimento.
+    //
+    // ⚠️ NADA É PROJETADO AQUI. A tabela sai das parcelas que EXISTEM; sem
+    // faturamento aprovado ela simplesmente não aparece, e a frase do acordo
+    // continua sozinha, como sempre esteve. Projetar seria reimplementar
+    // `generateInstallmentsFromPaymentConfig` — que ancora no dia da aprovação —
+    // e publicar datas que a aprovação depois mudaria.
+    //
+    // UM BLOCO POR FATIA, não por grupo de cláusula: os grupos existem para não
+    // repetir a mesma FRASE sessenta vezes, mas cada fatia tem as SUAS parcelas,
+    // com as suas datas (em `PER_TASK` o financeiro aprova veículo a veículo e
+    // cada uma ganha o seu calendário). Uma fatia só — 722 dos 722 orçamentos em
+    // produção — sai sem rótulo, exatamente como o documento de referência.
+    const paymentSchedule = !withPaymentSchedule
+      ? []
+      : slices
+          .map(slice => {
+            const installments = (slice.installments ?? [])
+              .filter((i: any) => i.status !== 'CANCELLED')
+              .sort((a: any, b: any) => a.number - b.number);
+            if (!installments.length) return null;
+            // A FORMA REAL vem da parcela, não do combinado: o `paymentConfig`
+            // diz o que foi acertado, a parcela diz como está sendo cobrada — e
+            // é a segunda que determina para qual conta o cliente vai pagar.
+            const method =
+              installments.find((i: any) => i.paymentMethod)?.paymentMethod ??
+              ((slice.paymentConfig as any)?.method ?? null);
+            return {
+              label:
+                slices.length > 1
+                  ? coverageSummary(
+                      { tasks: (slice as any).billing?.tasks ?? [] } as any,
+                      vehicleTasks.length,
+                      vehicleTasks as any,
+                    )
+                  : null,
+              installments: installments.map((i: any) => ({
+                number: i.number,
+                dueDate: formatDateBR(i.dueDate),
+                amount: formatCurrencyBRL(Number(i.amount)),
+                paid: i.status === 'PAID',
+              })),
+              pix: receivingAccountFor(method),
+            };
+          })
+          .filter((b): b is NonNullable<typeof b> => b !== null);
+
     const paymentText = clauseGroups
       .map(group => {
         const text = clauseForGroup(group, clauseGroups.length === 1);
@@ -2082,6 +2164,7 @@ export class SignatureEnvelopeService {
       deliveryDays: quote.customForecastDays ?? null,
       simultaneousTasks: quote.simultaneousTasks ?? null,
       paymentText,
+      paymentSchedule,
       // O QUADRO DO TOMADOR — o cadastro que a prefeitura vai exigir na NFS-e,
       // posto no documento para o cliente conferir na aprovação. Sai do cliente
       // do RECORTE (a configuração), não do cliente da tarefa: no faturamento
@@ -6830,7 +6913,17 @@ export class SignatureEnvelopeService {
 
     // Código vazio: sem envelope não há o que verificar, e imprimir um código
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
-    const rendered = await this.renderQuoteDocument(quote, seeds, '', customerId);
+    // `withPaymentSchedule: true` — este é o CORPO LEGÍVEL, montado agora e
+    // nunca selado. É o único caminho que imprime as parcelas e a chave Pix.
+    const rendered = await this.renderQuoteDocument(
+      quote,
+      seeds,
+      '',
+      customerId,
+      undefined,
+      undefined,
+      true,
+    );
     // SEM faixa de rodapé. Ela existia para dar número de página ao orçamento
     // entregue solto, mas o documento já termina no rodapé da Ankaa (endereço,
     // telefone, site) — e uma linha de paginação DEPOIS dele fazia o último

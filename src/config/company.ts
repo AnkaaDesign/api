@@ -45,6 +45,97 @@ export const COMPANY = {
   signatureLocation: 'Ibiporã-PR, Brasil',
 } as const;
 
+/**
+ * AS CONTAS QUE RECEBEM — de quem é a chave Pix impressa no dossiê.
+ *
+ * Não existia. O documento dizia "via depósito em conta" e parava aí: quem
+ * recebia o dossiê não tinha para onde pagar, e a chave viajava por WhatsApp,
+ * digitada à mão, uma vez por cobrança.
+ *
+ * A CHAVE DE SELEÇÃO é `Installment.paymentMethod`, que já distingue as contas
+ * (`ACCOUNT_GENIVALDO`, `ACCOUNT_SERGIO`) do Pix da empresa (`PIX`). Em produção,
+ * 17/09/2026: 85 parcelas `PIX`, 35 `ACCOUNT_SERGIO`, 9 `ACCOUNT_GENIVALDO` — as
+ * três formas são usadas de verdade, e o enum já sabia de qual conta se trata.
+ * O que faltava era ligá-lo a um cadastro.
+ *
+ * `BANK_SLIP` NÃO tem entrada aqui, e a ausência é a regra: o boleto carrega a
+ * própria linha digitável e vai anexado ao dossiê. Imprimir uma chave Pix ao lado
+ * de um boleto é convidar ao pagamento em duplicidade.
+ */
+export interface ReceivingAccount {
+  /** A chave, já formatada para leitura humana — é para ser copiada do papel. */
+  key: string;
+  /** O TIPO, impresso entre parênteses: o pagador confere antes de colar. */
+  keyKind: 'CNPJ' | 'CPF' | 'E-mail' | 'Telefone' | 'Aleatória';
+  /** O favorecido que o app do banco vai mostrar na confirmação. */
+  holder: string;
+}
+
+export const RECEIVING_ACCOUNTS: Record<string, ReceivingAccount> = {
+  /** O padrão: a conta da empresa, chave CNPJ. */
+  PIX: {
+    key: COMPANY.cnpjFormatted,
+    keyKind: 'CNPJ',
+    holder: COMPANY.corporateName,
+  },
+  /**
+   * Conta do sócio. A chave é o CPF dele — a mesma que o dossiê do orçamento
+   * nº 0904 já trazia impressa.
+   */
+  ACCOUNT_GENIVALDO: {
+    key: '073.329.609-23',
+    keyKind: 'CPF',
+    holder: 'Genivaldo Rodrigues',
+  },
+  /**
+   * ⚠️ CHAVE DERIVADA DO CADASTRO, não confirmada pelo dono.
+   *
+   * O CPF é o de `User.cpf` do Sergio em produção (06856214995). O do Genivaldo
+   * veio de um dossiê real; este não — se a conta dele usar outra chave (e-mail,
+   * telefone, aleatória), é aqui que se troca, numa linha.
+   */
+  ACCOUNT_SERGIO: {
+    key: '068.562.149-95',
+    keyKind: 'CPF',
+    holder: 'Sergio Rodrigues',
+  },
+};
+
+/** A conta desta forma de pagamento, ou nulo quando a forma não é Pix. */
+export function receivingAccountFor(method: string | null | undefined): ReceivingAccount | null {
+  if (!method) return null;
+  return RECEIVING_ACCOUNTS[method] ?? null;
+}
+
+/**
+ * QUEM RECEBE O COMPROVANTE.
+ *
+ * O dossiê pede que o comprovante do Pix seja encaminhado, e até aqui não dizia
+ * a quem — a frase morria em "encaminhe o comprovante". É uma pessoa, com nome e
+ * WhatsApp, e o número é impresso como LINK: no PDF do Chrome um `<a href>`
+ * sobrevive ao `printToPDF`, então o cliente toca no número e cai na conversa.
+ *
+ * ⚠️ `phoneClean` tem o NONO DÍGITO. O número circula escrito como
+ * "43 8834-9545", com oito dígitos, e o `wa.me` montado assim não abre conversa
+ * nenhuma — celular de DDD 43 tem nove. Confirmado pelo dono em 17/09/2026.
+ */
+export const BILLING_CONTACT = {
+  name: 'Grasiele',
+  role: 'Faturamento',
+  phone: '+55 43 9 8834-9545',
+  phoneClean: '5543988349545',
+} as const;
+
+/**
+ * O link do WhatsApp de um número já limpo (só dígitos, com DDI).
+ *
+ * Existe porque `https://wa.me/${x}` estava copiado em mais de dez arquivos
+ * entre api e web, cada um com a sua ideia de normalização.
+ */
+export function whatsappLinkFor(phoneClean: string): string {
+  return `https://wa.me/${phoneClean.replace(/\D/g, '')}`;
+}
+
 export const BRAND_COLORS = {
   primaryGreen: '#0a5c1e',
   textDark: '#1a1a1a',

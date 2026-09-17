@@ -24,7 +24,7 @@
  * Nada aqui depende do relógio: todas as datas vêm do snapshot.
  */
 
-import { COMPANY, BRAND_COLORS } from '@/config/company';
+import { COMPANY, BRAND_COLORS, BILLING_CONTACT, whatsappLinkFor } from '@/config/company';
 import { FULL_SECTIONS, hasSection, type QuoteSection } from '../quote-sections';
 import {
   composeDiscountLabel,
@@ -181,6 +181,33 @@ export interface QuoteHtmlSignerSlot {
   side: 'ANKAA' | 'CUSTOMER';
 }
 
+/** Uma parcela emitida — o que o boleto ou o Pix daquele mês vai cobrar. */
+export interface QuoteHtmlInstallment {
+  number: number;
+  /** `DD/MM/AAAA`, já no fuso de Brasília. */
+  dueDate: string;
+  /** Já formatado em BRL: o builder não faz aritmética de dinheiro. */
+  amount: string;
+  /** Quitada. Sai como uma marca discreta, não como uma coluna a mais. */
+  paid: boolean;
+}
+
+/**
+ * O PLANO DE PAGAMENTO DE UM FATURAMENTO — as parcelas e para onde pagar.
+ *
+ * Um bloco por cobrança. Com um faturamento (o caso de 722 dos 722 orçamentos em
+ * produção) o `label` é nulo e o bloco não se anuncia; com lotes, cada um diz
+ * quais veículos cobre, senão as duas tabelas de quatro linhas leriam como uma
+ * de oito.
+ */
+export interface QuoteHtmlPaymentSchedule {
+  /** "Veículos 1 a 20", ou nulo quando é o orçamento inteiro. */
+  label: string | null;
+  installments: QuoteHtmlInstallment[];
+  /** A conta Pix que recebe — nula quando a cobrança é por boleto. */
+  pix: { key: string; keyKind: string; holder: string } | null;
+}
+
 export interface QuoteHtmlInput {
   budgetNumber: number;
   issuedAt: Date;
@@ -244,6 +271,20 @@ export interface QuoteHtmlInput {
    * só a frase das parcelas, como antes.
    */
   billing: QuoteHtmlBilling | null;
+
+  /**
+   * AS PARCELAS EMITIDAS, com data e valor — e a conta que as recebe.
+   *
+   * Vazio (ou ausente) na esmagadora maioria dos caminhos, e é assim que tem de
+   * ser: só o CORPO LEGÍVEL do dossiê o preenche. Ver `buildRenderInput`.
+   *
+   * ⚠️ NUNCA vai para o documento SELADO. As parcelas não entram no hash do
+   * snapshot (`quote-snapshot.service.ts`), então imprimi-las no PDF assinado
+   * poria no papel um dado que pode mudar sem que a assinatura sequer perceba —
+   * e o dossiê, que é montado agora, tem exatamente a propriedade oposta: ele
+   * mostra o estado de hoje, e é onde a informação é verdadeira.
+   */
+  paymentSchedule?: QuoteHtmlPaymentSchedule[];
   guaranteeText: string;
 
   /** data:image/... das imagens de layout já resolvidas em disco. */
@@ -614,6 +655,64 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     )
     .join('');
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // AS PARCELAS E A CHAVE PIX
+  //
+  // Sai só quando `paymentSchedule` vem preenchido, e só o corpo legível do
+  // dossiê o preenche. Ver `QuoteHtmlInput.paymentSchedule` para por que isto
+  // nunca entra no PDF selado.
+  // ─────────────────────────────────────────────────────────────────────────
+  const scheduleBlocks = (data.paymentSchedule ?? []).filter(b => b.installments.length > 0);
+
+  const scheduleRowsHtml = (block: QuoteHtmlPaymentSchedule): string => {
+    const total = block.installments.length;
+    return block.installments
+      .map(
+        inst => `<tr>
+             <td>Parcela ${inst.number}/${total} – vencimento em ${escapeHtml(inst.dueDate)}${
+               inst.paid ? ' <span class="schedule-paid">· paga</span>' : ''
+             }</td>
+             <td class="schedule-amount">${escapeHtml(inst.amount)}</td>
+           </tr>`,
+      )
+      .join('');
+  };
+
+  const scheduleHtml = scheduleBlocks
+    .map(
+      block => `<div class="schedule">
+           ${block.label ? `<div class="schedule-label">${escapeHtml(block.label)}</div>` : ''}
+           <table class="schedule-table">${scheduleRowsHtml(block)}</table>
+         </div>`,
+    )
+    .join('');
+
+  // UMA CAIXA POR CONTA, não uma por cobrança: com vinte lotes pagos na mesma
+  // chave, vinte caixas idênticas seriam ruído. Deduplica pela chave.
+  const pixAccounts = scheduleBlocks
+    .map(b => b.pix)
+    .filter((p): p is NonNullable<QuoteHtmlPaymentSchedule['pix']> => !!p)
+    .filter((p, i, all) => all.findIndex(o => o.key === p.key) === i);
+
+  const pixHtml = pixAccounts.length
+    ? `<div class="pix-box">
+         <div class="pix-title">Pagamento via Pix</div>
+         ${pixAccounts
+           .map(
+             p => `<div class="pix-line">
+                  <strong>Chave Pix (${escapeHtml(p.keyKind)}):</strong> ${escapeHtml(p.key)}<br />
+                  <strong>Favorecido:</strong> ${escapeHtml(p.holder)}
+                </div>`,
+           )
+           .join('')}
+         <div class="pix-note">
+           Ao pagar, informe o orçamento Nº ${data.budgetNumber} na descrição e encaminhe o
+           comprovante para o ${escapeHtml(BILLING_CONTACT.role)} – ${escapeHtml(BILLING_CONTACT.name)},
+           <a href="${whatsappLinkFor(BILLING_CONTACT.phoneClean)}">${escapeHtml(BILLING_CONTACT.phone)}</a>.
+         </div>
+       </div>`
+    : '';
+
   const headerBlock = `
     <header class="header">
       ${data.logoDataUri ? `<img src="${data.logoDataUri}" alt="Ankaa Design" class="logo" />` : '<div class="logo-fallback">ANKAA DESIGN</div>'}
@@ -952,6 +1051,45 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
     border-top: .5px solid #ddd; padding-top: 2mm;
   }
 
+  /* AS PARCELAS EMITIDAS. A frase acima diz o ACORDO ("quatro parcelas de
+     R$ 5.374,60"); esta tabela diz a DIVIDA ("1/4 vence em 21/09"). Com boleto o
+     cliente tinha as datas nos boletos anexados; com Pix nao ha anexo nenhum, e
+     o dossie saia sem uma unica data. */
+  .schedule { margin-top: 3mm; }
+  .schedule-label {
+    font-size: 8.5pt; font-weight: 600; color: var(--gray);
+    margin-bottom: 1.2mm;
+  }
+  .schedule-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 9pt; line-height: 1.45;
+    break-inside: avoid;
+  }
+  .schedule-table td { padding: 1.1mm 0; border-bottom: .5px dotted #ccc; }
+  .schedule-table td.schedule-amount {
+    text-align: right; font-weight: 600; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .schedule-paid { color: var(--green); font-size: 8pt; font-weight: 600; }
+
+  /* PARA ONDE PAGAR. Sai so quando a forma e Pix: ao lado de um boleto, uma
+     chave Pix convida ao pagamento em duplicidade. */
+  .pix-box {
+    margin-top: 3mm; padding-top: 2mm; border-top: .5px solid #ddd;
+  }
+  .pix-title {
+    font-size: 9.5pt; font-weight: 700; color: var(--green); margin-bottom: 1.2mm;
+  }
+  .pix-line { font-size: 9pt; line-height: 1.5; }
+  .pix-line strong { font-weight: 600; }
+  .pix-note { font-size: 8.5pt; line-height: 1.5; margin-top: 1.5mm; }
+  /* O numero do Faturamento e um LINK de verdade: a ancora sobrevive ao
+     printToPDF do Chrome, entao o cliente toca nele e cai na conversa. Sem
+     sublinhado e na cor do texto — o documento nao e uma pagina web.
+     (E sem CRASE neste comentario: ele mora dentro de um template literal, e uma
+     crase aqui fecha a string com um erro a centenas de linhas daqui.) */
+  .pix-note a { color: inherit; text-decoration: none; font-weight: 600; }
+
   /* Sem regua sob o titulo: a unica divisoria horizontal do documento e a do
      cabecalho (e a do rodape, que a espelha). Titulos de secao se distinguem
      pelo peso e pela cor. */
@@ -1224,7 +1362,7 @@ ${part === 'content' || part === 'fused' ? `
     }
 
     ${
-      showPayment && (data.paymentText || billingRowsHtml)
+      showPayment && (data.paymentText || billingRowsHtml || scheduleHtml)
         ? `<div class="page-content-gap"></div>
            <section class="terms-section">
              <h2 class="terms-title">Faturamento</h2>
@@ -1254,6 +1392,8 @@ ${part === 'content' || part === 'fused' ? `
                      .join('')
                  : ''
              }
+             ${scheduleHtml}
+             ${pixHtml}
            </section>`
         : ''
     }
