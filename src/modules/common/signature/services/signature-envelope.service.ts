@@ -5528,12 +5528,42 @@ export class SignatureEnvelopeService {
    * modificações importa nova proposta).
    */
   async onQuoteContentChanged(quoteId: string, actorUserId: string | null): Promise<boolean> {
-    const running = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, status: EnvelopeStatus.RUNNING },
-      // `quote` entra aqui porque o aviso de invalidação identifica o orçamento
-      // pelo número; sem o include ele sairia com um travessão no lugar.
-      include: { signers: true, quote: true },
-    });
+    // ⚠️ COLETA CONCLUÍDA TAMBÉM ENTRA AQUI, e essa é a correção de 17/09/2026.
+    //
+    // O `where` era `status: RUNNING` e só. Uma alteração MATERIAL num orçamento
+    // já assinado e selado não produzia nada: nem invalidação, nem sequer linha
+    // de deriva — `diffEnvelopes` só registra deriva quando NENHUMA mudança é
+    // material, então justamente a mudança que importa saía sem rastro.
+    //
+    // O incidente: 17/09/2026 12:47, o comercial trocou o layout do orçamento
+    // nº 973, assinado e selado em 08/09. A imagem que o cliente aprovou deixou
+    // de ser a que o sistema guarda, o envelope continuou CONCLUÍDO — e, porque
+    // `createEnvelope` recusa emitir sobre uma coleta concluída, não havia como
+    // recolher a assinatura do layout novo. O documento e o cadastro divergiam,
+    // em silêncio e sem saída.
+    //
+    // Concluída é o SEGUNDO lugar procurado, não o primeiro: com uma coleta viva
+    // é ela que governa, e tratar as duas juntas faria uma reemissão pendente
+    // derrubar o contrato anterior por tabela. Só existe uma de cada por
+    // orçamento (`createEnvelope` recusa a segunda), então a busca é determinada.
+    //
+    // As TOLERÂNCIAS seguem valendo sem uma linha de mudança, e são elas que
+    // tornam isto seguro: `matchesFrozenTerms` continua aceitando o cadastro
+    // tardio do veículo (chassi e placa que chegam depois — é para isso que
+    // existe o aditivo) e o elenco de signatários já resolvido. Só a divergência
+    // MATERIAL chega ao ponto de invalidar.
+    const running =
+      (await this.prisma.signatureEnvelope.findFirst({
+        where: { quoteId, status: EnvelopeStatus.RUNNING },
+        // `quote` entra aqui porque o aviso de invalidação identifica o orçamento
+        // pelo número; sem o include ele sairia com um travessão no lugar.
+        include: { signers: true, quote: true },
+      })) ??
+      (await this.prisma.signatureEnvelope.findFirst({
+        where: { quoteId, status: EnvelopeStatus.COMPLETED },
+        orderBy: { version: 'desc' },
+        include: { signers: true, quote: true },
+      }));
     if (!running) return false;
 
     const loaded = await this.snapshots.buildForQuote(quoteId);
@@ -5938,8 +5968,16 @@ export class SignatureEnvelopeService {
       env.documents.length > 1 ? variantFilenameSuffix(docSections) : '',
     );
 
-    // Concluído: serve o artefato selado, nunca uma remontagem.
-    if (env.status === EnvelopeStatus.COMPLETED && doc.finalFile) {
+    // Há artefato selado: serve os BYTES, nunca uma remontagem.
+    //
+    // ⚠️ A condição era `status === COMPLETED && doc.finalFile`. Desde que uma
+    // alteração material passou a invalidar também a coleta CONCLUÍDA, o status
+    // deixou de ser o teste certo: o envelope invalidado continua tendo o PDF
+    // assinado em disco, e remontá-lo entregaria uma reconstrução no lugar do
+    // que foi de fato assinado — perdendo o selo PAdES e a trilha que ele cobre.
+    // Quem decide é a EXISTÊNCIA do arquivo final, que é o mesmo critério que o
+    // montador do dossiê já usava (`assinado = Boolean(envelope?.finalFile)`).
+    if (doc.finalFile) {
       const pdf = readFileSync(doc.finalFile.path);
       return { pdf, etag: `"${doc.finalSha256}"`, filename };
     }

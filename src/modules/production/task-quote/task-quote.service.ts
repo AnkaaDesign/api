@@ -991,6 +991,33 @@ export class TaskQuoteService {
         if (this.servicesMateriallyChanged(existing.services || [], value)) {
           filtered[key] = value;
         }
+      } else if (key === 'taskIds' || key === 'layoutFileIds') {
+        // ⚠️ ESTES DOIS NÃO SÃO COLUNAS — são a projeção de uma RELAÇÃO, e por
+        // isso `existing['taskIds']` é `undefined` SEMPRE.
+        //
+        // Caindo no ramo escalar abaixo, `isScalarChanged(undefined, [...])`
+        // respondia "mudou" em toda gravação, para qualquer valor, inclusive o
+        // idêntico. Como `taskIds` também não está em
+        // `QUOTE_SAFE_AFTER_BILLING_FIELDS`, a trava do dinheiro via uma chave
+        // fora da lista segura e recusava a requisição INTEIRA: reenviar os
+        // mesmos 60 veículos só para prorrogar `expiresAt` levava 400 num
+        // orçamento com cobrança aprovada. É o defeito do `taskId` singular
+        // (documentado em `NON_QUOTE_UPDATE_KEYS`) reencarnado no plural — e,
+        // com `layoutFileIds`, o efeito irmão: toda gravação parecia trocar o
+        // layout, e desde 17/09 isso derruba a coleta de assinaturas.
+        //
+        // A comparação é por CONJUNTO, não por ordem: nenhuma das duas relações
+        // tem posição significativa (a de veículos é ordenada por `createdAt` na
+        // leitura, a de layout por `createdAt` na exibição).
+        const current: string[] =
+          key === 'taskIds'
+            ? ((existing as any).tasks ?? []).map((t: any) => t.id)
+            : ((existing as any).layoutFiles ?? []).map((f: any) => f.id);
+        const incoming: string[] = Array.isArray(value) ? value : [];
+        const same =
+          current.length === incoming.length &&
+          [...current].sort().join('|') === [...incoming].sort().join('|');
+        if (!same) filtered[key] = value;
       } else {
         if (this.isScalarChanged((existing as any)[key], value)) {
           filtered[key] = value;
@@ -1399,6 +1426,28 @@ export class TaskQuoteService {
           }
         }
 
+        // O número pedido já é de outro orçamento? Diga QUAL, antes de escrever.
+        //
+        // `budgetNumber` é `@unique`, então o banco recusaria de qualquer jeito —
+        // mas com um P2002 que vira "Já existe um registro com o mesmo valor
+        // único (budgetNumber)". Quem está renumerando precisa saber para onde o
+        // número foi, não que ele "existe". Dentro da transação porque fora dela
+        // a checagem é um palpite: duas renumerações simultâneas passariam as
+        // duas pela leitura e uma morreria no INSERT.
+        if ((data as any).budgetNumber !== undefined) {
+          const taken = await tx.taskQuote.findFirst({
+            where: { budgetNumber: (data as any).budgetNumber, id: { not: id } },
+            select: { id: true, tasks: { select: { serialNumber: true }, take: 1 } },
+          });
+          if (taken) {
+            const serial = taken.tasks[0]?.serialNumber;
+            throw new BadRequestException(
+              `O número ${(data as any).budgetNumber} já é de outro orçamento` +
+                `${serial ? ` (veículo ${serial})` : ''}. Escolha um número livre.`,
+            );
+          }
+        }
+
         const updatedQuote = await tx.taskQuote.update({
           where: { id },
           data: {
@@ -1434,6 +1483,24 @@ export class TaskQuoteService {
                   )
                 ).map((fid: string) => ({ id: fid })),
               },
+            }),
+            // O NÚMERO DO ORÇAMENTO, corrigível à mão.
+            //
+            // Nasce de `allocateBudgetNumber` (MAX+1, denso) e quase nunca se
+            // mexe — mas "quase nunca" não é "nunca": a numeração já saiu
+            // torta, e o número é a referência que o cliente usa no e-mail, no
+            // pedido de compra e no comprovante do Pix. Sem esta linha o campo
+            // era rastreado no changelog (`fieldsToTrack`, abaixo) e não tinha
+            // como mudar — a tela oferecia uma correção que o servidor
+            // descartava.
+            //
+            // NÃO entra em `QUOTE_SAFE_AFTER_BILLING_FIELDS` de propósito: a
+            // NFS-e e o boleto emitidos CITAM este número, e renumerar depois
+            // deles faria o documento fiscal apontar para um orçamento que não
+            // existe mais. Com cobrança aprovada, a trava do dinheiro recusa —
+            // e é o que se quer.
+            ...((data as any).budgetNumber !== undefined && {
+              budgetNumber: (data as any).budgetNumber,
             }),
             ...(data.simultaneousTasks !== undefined && {
               simultaneousTasks: data.simultaneousTasks,

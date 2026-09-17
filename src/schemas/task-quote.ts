@@ -913,6 +913,25 @@ export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit
 export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
+  /**
+   * O NÚMERO DO ORÇAMENTO — corrigível, e só por quem a rota já deixa entrar.
+   *
+   * `PUT /task-quotes/:id` é `@Roles(ADMIN, FINANCIAL, COMMERCIAL)`, que é
+   * exatamente quem pode renumerar. Não há gate extra aqui porque não há
+   * ninguém a mais para barrar.
+   *
+   * Sem esta declaração o campo era rastreado no changelog e inalcançável pela
+   * API: `fieldsToTrack` listava `budgetNumber` e nenhuma rota o escrevia.
+   *
+   * `@unique` no banco — colisão volta como P2002 e é traduzida em
+   * `describePrismaFailure` para a frase que nomeia o número ocupado.
+   */
+  budgetNumber: z
+    .number({ invalid_type_error: 'Número do orçamento deve ser um número' })
+    .int('Número do orçamento deve ser inteiro')
+    .positive('Número do orçamento deve ser maior que zero')
+    .max(999999, 'Número do orçamento fora da faixa')
+    .optional(),
   expiresAt: z.coerce
     .date({ errorMap: () => ({ message: 'Data de validade invalida' }) })
     .optional(),

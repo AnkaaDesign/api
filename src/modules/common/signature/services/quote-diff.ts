@@ -1037,6 +1037,25 @@ export function diffQuoteSnapshots(
     after: formatDate(after.expiresAt),
   });
 
+  // ---- Número do orçamento ------------------------------------------------
+  // MATERIAL, e não cosmético: o número é impresso no cabeçalho de toda folha,
+  // é a referência que o cliente cita no pedido de compra e na descrição do Pix,
+  // e é por ele que a NFS-e e o boleto amarram a cobrança ao contrato. Um
+  // documento assinado como "Orçamento Nº 0973" não é o mesmo documento depois
+  // de virar 0912 — quem assinou aceitou uma proposta identificada.
+  //
+  // Entrou junto com a possibilidade de renumerar (`taskQuoteUpdateSchema`):
+  // antes o campo estava no snapshot e não era comparado por ninguém, então uma
+  // renumeração mudaria o hash SEM produzir uma linha que a explicasse.
+  scalar(out, {
+    key: 'budgetNumber',
+    severity: 'MATERIAL',
+    group: 'DOCUMENT',
+    label: 'Número do orçamento',
+    before: before.budgetNumber != null ? String(before.budgetNumber).padStart(4, '0') : '',
+    after: after.budgetNumber != null ? String(after.budgetNumber).padStart(4, '0') : '',
+  });
+
   // ---- Layout -------------------------------------------------------------
   // Ids de arquivo não dizem nada a ninguém; o que o leitor precisa saber é que
   // a imagem impressa no orçamento não é mais a mesma. A contagem dá a dimensão
