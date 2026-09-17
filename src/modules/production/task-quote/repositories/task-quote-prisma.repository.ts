@@ -232,7 +232,12 @@ export class TaskQuotePrismaRepository
           customPaymentText: config.customPaymentText || null,
           generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
           generateBankSlip: config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-          orderNumber: config.orderNumber || null,
+          // ⚠️ SEM `orderNumber`. A coluna foi dropada em `20260909170000`; a
+          // chave emitida aqui (e ela era emitida SEMPRE, pelo `|| null`) faria o
+          // Prisma recusar a criação inteira com "Unknown argument 'orderNumber'".
+          // Hoje ninguém chama este mapeador — o controller roteia para a
+          // transação inline do serviço —, o que significa que a mina estava
+          // armada para o primeiro que religasse o caminho.
           paymentCondition: config.paymentCondition || null,
           paymentConfig: (config as any).paymentConfig ?? null,
           responsibleId: config.responsibleId || null,

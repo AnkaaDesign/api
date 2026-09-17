@@ -106,6 +106,7 @@ import {
   type SyncQuoteItem,
 } from '../../../utils/task-quote-service-order-sync';
 import { recalcQuoteTotals } from '../../../utils/task-quote-totals';
+import { reconcileQuoteCustomerConfigs } from '../../../utils/task-quote-customer-config-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -219,7 +220,15 @@ export class TaskService {
       customPaymentText: c.customPaymentText ?? null,
       generateInvoice: c.generateInvoice !== false,
       generateBankSlip: c.generateBankSlip !== false,
-      orderNumber: c.orderNumber ?? null,
+      // ⚠️ `orderNumber` NÃO ENTRA NA CANONICALIZAÇÃO, e a gêmea em
+      // `TaskQuoteService.canonicalizeQuoteCustomerConfig` já o excluía por este
+      // exato motivo. A coluna foi DROPADA em `20260909170000` e o número do
+      // pedido virou `Task.customerOrderNumber` — o que está gravado nunca tem a
+      // chave, e um cliente antigo (app instalado, aba aberta desde ontem) manda
+      // a string. Comparar os dois respondia "mudou" em TODA gravação de tarefa
+      // com bloco `quote`: em APPROVED/SIGNED isso revertia o orçamento para
+      // PENDING em silêncio, e com cobrança aprovada devolvia 400 pela trava do
+      // dinheiro, porque `customerConfigs` não está na lista segura.
       responsibleId: c.responsibleId ?? null,
       paymentConfig: c.paymentConfig ?? null,
     });
@@ -11448,30 +11457,63 @@ export class TaskService {
                   // subset silently dropped the discount + billing settings on
                   // restore — the exact aggregate/discount drift this rollback is
                   // supposed to undo.
-                  ...(quoteData.customerConfigs?.length > 0 && {
-                    customerConfigs: {
-                      create: quoteData.customerConfigs.map((config: any) => ({
-                        customerId: config.customerId,
-                        subtotal: config.subtotal || 0,
-                        total: config.total || 0,
-                        discountType: config.discountType || 'NONE',
-                        discountValue: config.discountValue ?? null,
-                        discountReference: config.discountReference ?? null,
-                        customPaymentText: config.customPaymentText ?? null,
-                        generateInvoice:
-                          config.generateInvoice !== undefined ? config.generateInvoice : true,
-                        generateBankSlip:
-                          config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                        orderNumber: config.orderNumber ?? null,
-                        responsibleId: config.responsibleId ?? null,
-                        paymentCondition: config.paymentCondition ?? null,
-                        paymentConfig: config.paymentConfig ?? null,
-                        customerSignatureId: config.customerSignatureId ?? null,
-                      })),
-                    },
-                  }),
+                  // ⚠️ OS PAGADORES NÃO NASCEM AQUI, e não podem.
+                  //
+                  // Um `customerConfigs.create` aninhado esbarra em duas coisas
+                  // que mudaram por baixo dele: `orderNumber` foi DROPADO em
+                  // `20260909170000` (a chave sozinha derruba a criação inteira
+                  // com "Unknown argument"), e `billingId` virou `NOT NULL` em
+                  // `20260916120000_billing_entity` — sem faturamento, o pagador
+                  // não tem onde nascer. As duas juntas faziam TODO rollback de
+                  // campo que recria orçamento morrer em 500, e o rollback é
+                  // justamente a rota de quem já está consertando algo.
+                  //
+                  // `reconcileQuoteCustomerConfigs`, logo abaixo, cria o
+                  // `Billing` e os pagadores na ordem certa — é a mesma função
+                  // que a gravação normal usa.
                 },
               });
+
+              if (quoteData.customerConfigs?.length > 0) {
+                await reconcileQuoteCustomerConfigs(
+                  tx,
+                  recreatedQuote.id,
+                  quoteData.customerConfigs.map((config: any) => ({
+                    customerId: config.customerId,
+                    subtotal: config.subtotal ?? 0,
+                    total: config.total ?? 0,
+                    discountType: config.discountType || 'NONE',
+                    discountValue: config.discountValue ?? null,
+                    discountReference: config.discountReference ?? null,
+                    customPaymentText: config.customPaymentText ?? null,
+                    generateInvoice:
+                      config.generateInvoice !== undefined ? config.generateInvoice : true,
+                    generateBankSlip:
+                      config.generateBankSlip !== undefined ? config.generateBankSlip : true,
+                    // Aceito e TRADUZIDO — ver o bloco logo abaixo. O snapshot de
+                    // um orçamento antigo ainda carrega o número no pagador, e
+                    // descartá-lo aqui perderia o dado que o rollback restaura.
+                    orderNumber: config.orderNumber ?? null,
+                    responsibleId: config.responsibleId ?? null,
+                    paymentCondition: config.paymentCondition ?? null,
+                    paymentConfig: config.paymentConfig ?? null,
+                    customerSignatureId: config.customerSignatureId ?? null,
+                  })),
+                );
+
+                // O número do pedido do SNAPSHOT desce para a tarefa, que é onde
+                // ele mora agora. Primeiro valor não vazio; vazio não apaga o que
+                // a tarefa já tem — a mesma regra de compat das outras portas.
+                const legacyOrderNumber = quoteData.customerConfigs
+                  .map((c: any) => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+                  .find((v: string) => v.length > 0);
+                if (legacyOrderNumber) {
+                  await tx.task.updateMany({
+                    where: { quoteId: recreatedQuote.id },
+                    data: { customerOrderNumber: legacyOrderNumber },
+                  });
+                }
+              }
 
               this.logger.log(`[Rollback] Recreated TaskQuote ${recreatedQuote.id}`);
 

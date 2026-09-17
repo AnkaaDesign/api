@@ -40,12 +40,14 @@ import {
   taskQuoteGetManySchema,
   taskQuoteQuerySchema,
   taskQuoteMergeSchema,
+  customerConfigOrderNumberSchema,
 } from '@schemas/task-quote';
 import type {
   TaskQuoteCreateFormData,
   TaskQuoteUpdateFormData,
   TaskQuoteGetManyFormData,
   TaskQuoteMergeFormData,
+  CustomerConfigOrderNumberFormData,
 } from '@schemas/task-quote';
 
 /**
@@ -404,16 +406,19 @@ export class TaskQuoteController {
   @HttpCode(HttpStatus.OK)
   async updateCustomerConfigOrderNumber(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { customerId?: string; taskId?: string; orderNumber: string | null },
+    @Body(new ZodValidationPipe(customerConfigOrderNumberSchema))
+    body: CustomerConfigOrderNumberFormData,
   ) {
     // `customerId` deixou de ser obrigatório e `taskId` entrou: o número do
     // pedido é do VEÍCULO desde a migração `20260909170000`, e num orçamento de
     // sessenta caminhões escrever nos sessenta a cada edição é o defeito que a
     // mudança de dono existe para acabar. Sem `taskId` o comportamento antigo
     // (todos) é mantido — é o que o app instalado pede.
-    if (!body.customerId && !body.taskId) {
-      throw new BadRequestException('Informe o veículo (taskId) ou o cliente (customerId).');
-    }
+    //
+    // ⚠️ A exigência de um dos dois mora no zod agora, junto com o resto: esta
+    // era a única rota de escrita do módulo com `@Body()` cru, e a validação à
+    // mão cobria só essa regra — não o tipo, não o tamanho, não o formato dos
+    // ids.
     return this.taskQuoteService.updateCustomerConfigOrderNumber(
       id,
       body.customerId ?? null,

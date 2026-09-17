@@ -724,7 +724,13 @@ export function withCoverageInclude(node: unknown): unknown {
  * pergunta. Quem consome usa `coveredTaskIds()` / `billingApprovedAtOf()`, que
  * leem do lugar novo.
  */
-const RETIRED_CONFIG_KEYS = ['coveredTasks', 'billingApprovedAt'] as const;
+// `orderNumber` está aqui pela MESMA razão das outras duas: a coluna foi dropada
+// em `20260909170000` e o número do pedido virou `Task.customerOrderNumber`. Um
+// `select: { orderNumber: true }` de bundle em cache derruba a lista inteira com
+// "Unknown field 'orderNumber' for select statement" — que é literalmente o
+// acidente que este helper existe para impedir, e ele não cobria o campo que mais
+// recentemente mudou de lugar.
+const RETIRED_CONFIG_KEYS = ['coveredTasks', 'billingApprovedAt', 'orderNumber'] as const;
 
 function withoutRetiredCoverageKeys(
   node: Record<string, unknown>,

@@ -2351,7 +2351,7 @@ export class TaskPrismaRepository
 
             // Configs: non-destructive upsert by (quoteId, customerId) — preserves
             // issued Invoice/Installments and DB-owned fields (customerSignatureId,
-            // orderNumber, paymentConfig) the task form never resends, and never
+            // paymentConfig) the task form never resends, and never
             // cascade-deletes an issued invoice.
             if (hasConfigs) {
               await reconcileQuoteCustomerConfigs(
@@ -2359,6 +2359,29 @@ export class TaskPrismaRepository
                 currentTask.quoteId,
                 quoteData.customerConfigs as any,
               );
+
+              // ⚠️ O PEDIDO DE COMPRA LEGADO DESCE PARA O VEÍCULO — e faltava
+              // aqui, no caminho de UPDATE, enquanto o de CREATE (logo acima)
+              // sempre o fez.
+              //
+              // `reconcileQuoteCustomerConfigs` DESCARTA `orderNumber` de
+              // propósito: a coluna foi dropada em `20260909170000` e o número é
+              // do veículo. Quem manda a forma antiga — o app instalado, uma aba
+              // aberta desde ontem — recebia 200 e nada era gravado. É a falha
+              // silenciosa que `tests/task-order-number.test.ts` existe para
+              // impedir, aberta na rota irmã.
+              //
+              // Primeiro valor não vazio; vazio NÃO apaga, e o campo próprio da
+              // tarefa manda quando ele veio no mesmo corpo.
+              const legacyConfigOrderNumber = (quoteData.customerConfigs as any[])
+                .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
+                .find(v => v.length > 0);
+              if (legacyConfigOrderNumber && (data as any).customerOrderNumber === undefined) {
+                await transaction.task.updateMany({
+                  where: { quoteId: currentTask.quoteId },
+                  data: { customerOrderNumber: legacyConfigOrderNumber },
+                });
+              }
             }
 
             // Authoritative, discount-aware recompute from the persisted services +

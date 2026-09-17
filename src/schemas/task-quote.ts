@@ -921,6 +921,37 @@ export const taskQuoteCreateNestedInBatchSchema = taskQuoteCreateBaseSchema.omit
  * simplificação e vira uma migração — e migração se faz por script, com alguém
  * olhando. O maior grupo real em produção tem trinta.
  */
+/**
+ * O corpo de `PATCH /task-quotes/:id/customer-config-order-number`.
+ *
+ * Era `@Body()` CRU — a única rota de escrita do módulo sem zod, e justamente a
+ * que ainda aceita o formato antigo. Sem validação: `orderNumber: 123` chegava a
+ * `prisma.task.update` e virava 500, o limite de 100 caracteres da coluna não
+ * valia, e `taskId`/`customerId` entravam sem serem UUID.
+ *
+ * ⚠️ `orderNumber` é `nullable` mas NÃO aceita string vazia: `''` virava `null`
+ * pelo `||` do controller e o `updateMany` APAGAVA o pedido de todos os veículos
+ * do orçamento — o oposto exato do contrato de compat, que diz que valor vazio
+ * não apaga. Quem quer apagar manda `null` explícito.
+ */
+export const customerConfigOrderNumberSchema = z
+  .object({
+    customerId: z.string().uuid('Cliente inválido').optional(),
+    taskId: z.string().uuid('Veículo inválido').optional(),
+    orderNumber: z
+      .string()
+      .max(100, 'Máximo de 100 caracteres')
+      .nullable()
+      .refine(v => v === null || v.trim().length > 0, {
+        message: 'Informe o número do pedido ou envie null para apagar.',
+      }),
+  })
+  .refine(b => !!b.customerId || !!b.taskId, {
+    message: 'Informe o veículo (taskId) ou o cliente (customerId).',
+  });
+
+export type CustomerConfigOrderNumberFormData = z.infer<typeof customerConfigOrderNumberSchema>;
+
 export const taskQuoteMergeSchema = z.object({
   taskIds: z
     .array(z.string().uuid('Veículo inválido'))
