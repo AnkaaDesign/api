@@ -226,6 +226,11 @@ export const budgetOrderBySchema = z
         expiresAt: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
+        // A FILA. Coluna gerada pelo banco: o instante de criação em segundos,
+        // negado para APPROVED e CANCELLED. Ordenar por `statusOrder` e depois
+        // por ela, ambas `asc`, dá pendente mais ANTIGO primeiro e aprovado mais
+        // RECENTE primeiro — é a ordenação padrão da lista.
+        queueRank: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
         budgetNumber: orderByDirectionSchema.optional(),
         simultaneousTasks: orderByDirectionSchema.optional(),
@@ -266,6 +271,12 @@ export const budgetOrderBySchema = z
           expiresAt: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
+          // Ver o ramo de objeto acima. `subtotal` e `vehicleCount` faltavam
+          // SÓ aqui — e a lista manda ORDENAÇÃO EM ARRAY, então era este ramo
+          // que os apagava.
+          subtotal: orderByDirectionSchema.optional(),
+          vehicleCount: orderByDirectionSchema.optional(),
+          queueRank: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
           budgetNumber: orderByDirectionSchema.optional(),
           simultaneousTasks: orderByDirectionSchema.optional(),

@@ -39,6 +39,7 @@ import type {
 } from '@types';
 import {
   TASK_QUOTE_STATUS,
+  TASK_STATUS,
   TASK_QUOTE_STATUS_LABELS,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
@@ -189,6 +190,20 @@ export class BudgetService {
         ...query,
         take: limit,
         skip: query.skip ?? (page - 1) * limit,
+        // A FILA, quando ninguém pediu outra coisa.
+        //
+        // "Primeiro os mais antigos pendentes, depois os mais novos aprovados."
+        // As duas metades correm em DIREÇÕES OPOSTAS: um pendente antigo é uma
+        // proposta esquecida (o mais velho é o mais urgente), um aprovado é
+        // trabalho resolvido (interessa o que acabou de entrar). `queueRank` é a
+        // coluna gerada que carrega essa inversão — o instante de criação em
+        // segundos, negado para APPROVED e CANCELLED — e é por isso que as duas
+        // chaves podem ser `asc`.
+        //
+        // O padrão mora AQUI, e não só na tela, porque sem ele o Postgres
+        // devolve a ordem física do heap: o app, a página pública e qualquer
+        // chamada direta veriam uma lista embaralhada que muda a cada `UPDATE`.
+        orderBy: query.orderBy ?? [{ statusOrder: 'asc' }, { queueRank: 'asc' }],
       };
       const result = await this.budgetRepository.findMany(paginated);
 
@@ -4748,6 +4763,30 @@ export class BudgetService {
     if (existing.status === TASK_QUOTE_STATUS.CANCELLED) {
       await this.cancelRunningEnvelopes(id, userId);
       return; // idempotent
+    }
+
+    // ── SÓ QUANDO FOI O ÚLTIMO VEÍCULO ATIVO ─────────────────────────────────
+    //
+    // A cascata dispara quando UMA tarefa entra em CANCELADA, e isso era correto
+    // enquanto um orçamento tinha uma tarefa. Com o multitarefa virou defeito:
+    // cancelar o caminhão 1 de quatro cancelava o ORÇAMENTO INTEIRO — e com ele o
+    // desmonte da cobrança dos outros três, que ninguém pediu para cancelar.
+    //
+    // A pergunta certa é "sobrou algum veículo ATIVO?". Tarefa apagada nem conta
+    // (sumiu da tabela), e é por isso que a mesma guarda serve ao caminho da
+    // exclusão: zero tarefas também é zero tarefas ativas.
+    //
+    // Sai em silêncio de propósito: não é erro nem recusa, é a cascata
+    // concluindo que ainda não é hora. Quem cancelou o caminhão não precisa ser
+    // avisado de que o orçamento dos outros três segue de pé.
+    const veiculosAtivos = await this.prisma.task.count({
+      where: { quoteId: id, status: { not: TASK_STATUS.CANCELLED } },
+    });
+    if (veiculosAtivos > 0) {
+      this.logger.log(
+        `[CANCEL_QUOTE] Orçamento ${id} mantido: ${veiculosAtivos} veículo(s) ainda ativo(s).`,
+      );
+      return;
     }
 
     const task = await this.prisma.task.findFirst({

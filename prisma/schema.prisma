@@ -1890,6 +1890,18 @@ model Budget {
   status      BudgetStatus @default(PENDING)
   statusOrder Int             @default(1)
 
+  /// A FILA: o que espera ação vem primeiro, e do mais antigo.
+  ///
+  /// Coluna GERADA pelo banco (ver `20260917210000_fila_do_orcamento`) — o
+  /// instante de criação em segundos, NEGADO para APPROVED e CANCELLED. Ordenar
+  /// por `statusOrder` e depois por ela, as duas ascendentes, dá pendente mais
+  /// ANTIGO primeiro e aprovado mais RECENTE primeiro. Duas direções opostas numa
+  /// ordenação só, que é o que o Prisma não sabe expressar de outro jeito.
+  ///
+  /// ⚠️ NUNCA a escreva: o Postgres recusa `INSERT`/`UPDATE` em coluna gerada. Os
+  /// mapeadores desestruturam campo a campo, então ela não vaza para um payload.
+  queueRank   Float?          @map("queueRank")
+
   /// Quando o cliente foi avisado de que a validade venceu sem todas as
   /// assinaturas. Existe para que a varredura horária avise UMA vez: sem ele,
   /// uma falha parcial no meio do laço faria a rodada seguinte remandar o aviso
@@ -1965,6 +1977,7 @@ model Budget {
 
   @@index([status])
   @@index([statusOrder])
+  @@index([statusOrder, queueRank])
   @@index([expiresAt])
   @@index([commercialUserId])
 }
