@@ -27,7 +27,7 @@ const HOJE = new Date();
 const ONTEM = new Date(HOJE.getTime() - 3 * 24 * 60 * 60 * 1000);
 const AMANHA = new Date(HOJE.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-type Parcela = { status: string; dueDate: Date };
+type Parcela = { status: string; dueDate: Date; amount?: number; paidAmount?: number };
 const billing = (
   parcelas: Parcela[],
   opts: { approvedAt?: Date | null; quoteStatus?: string; status?: string } = {},
@@ -92,13 +92,30 @@ check(
   BILLING_STATUS.APPROVED,
 );
 check(
-  'canceladas não contam: paga + cancelada → LIQUIDADO',
+  'cancelada JÁ RECEBIDA não impede liquidar (só o instrumento mudou)',
   svc.resolve(
-    billing([{ status: 'PAID', dueDate: ONTEM }, { status: 'CANCELLED', dueDate: ONTEM }], {
-      approvedAt: HOJE,
-    }),
+    billing(
+      [
+        { status: 'PAID', dueDate: ONTEM, amount: 100, paidAmount: 100 },
+        { status: 'CANCELLED', dueDate: ONTEM, amount: 100, paidAmount: 100 },
+      ],
+      { approvedAt: HOJE },
+    ),
   ),
   BILLING_STATUS.SETTLED,
+);
+check(
+  'cancelada EM ABERTO impede liquidar — falta dinheiro entrar',
+  svc.resolve(
+    billing(
+      [
+        { status: 'PAID', dueDate: ONTEM, amount: 100, paidAmount: 100 },
+        { status: 'CANCELLED', dueDate: ONTEM, amount: 100, paidAmount: 0 },
+      ],
+      { approvedAt: HOJE },
+    ),
+  ),
+  BILLING_STATUS.PARTIAL,
 );
 check(
   'TODAS canceladas preserva o estado (não apaga um pagamento que houve)',

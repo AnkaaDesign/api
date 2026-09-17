@@ -41,7 +41,7 @@ export class BillingStatusCascadeService {
         quote: { select: { status: true } },
         customerConfigs: {
           select: {
-            installments: { select: { status: true, dueDate: true } },
+            installments: { select: { status: true, dueDate: true, amount: true, paidAmount: true } },
           },
         },
       },
@@ -104,7 +104,14 @@ export class BillingStatusCascadeService {
     status: string;
     approvedAt: Date | null;
     quote: { status: string } | null;
-    customerConfigs: Array<{ installments: Array<{ status: string; dueDate: Date }> }>;
+    customerConfigs: Array<{
+      installments: Array<{
+        status: string;
+        dueDate: Date;
+        amount?: unknown;
+        paidAmount?: unknown;
+      }>;
+    }>;
   }): BILLING_STATUS {
     // O orçamento cancelado cancela as suas cobranças. É o único estado do
     // orçamento que ainda atravessa a fronteira, e atravessa porque cancelar a
@@ -170,7 +177,23 @@ export class BillingStatusCascadeService {
       i => i.status !== 'PAID' && isDueDateOverdue(new Date(i.dueDate), today),
     ).length;
 
-    if (paid === active.length) return BILLING_STATUS.SETTLED;
+    // ⚠️ LIQUIDADO É SOBRE DINHEIRO RECEBIDO, não sobre linhas restantes.
+    //
+    // `active` exclui as canceladas, então "todas as ativas pagas" dava verdadeiro
+    // com uma parcela CANCELADA e não recebida ao lado. E o caminho para isso é
+    // ordinário: `cancelInvoice` cancela EM BLOCO toda parcela não paga, de modo
+    // que cancelar a fatura de uma cobrança parcialmente paga a PROMOVIA a
+    // liquidada — declarando quitado um contrato do qual faltou dinheiro entrar.
+    //
+    // Hoje não há nenhum caso assim em produção (conferido), o que torna esta uma
+    // correção barata: fecha a porta antes de alguém passar por ela. A cobrança
+    // com saldo cancelado em aberto lê PARCIAL, que é o que a própria fatura diz.
+    const canceladaEmAberto = all.some(
+      i =>
+        i.status === 'CANCELLED' &&
+        Number(i.amount ?? 0) > Number(i.paidAmount ?? 0),
+    );
+    if (paid === active.length && !canceladaEmAberto) return BILLING_STATUS.SETTLED;
     if (overdue > 0) return BILLING_STATUS.OVERDUE;
     if (paid > 0) return BILLING_STATUS.PARTIAL;
     return billing.approvedAt ? BILLING_STATUS.APPROVED : BILLING_STATUS.PENDING;
