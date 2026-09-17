@@ -96,7 +96,7 @@ import {
   calculateCorrectTaskStatus,
   areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
-import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
+import { getServiceOrderStatusOrder, getTaskQuoteStatusOrder } from '../../../utils/sortOrder';
 import {
   getBidirectionalSyncActions,
   combineServiceOrderToQuoteDescription,
@@ -10054,6 +10054,62 @@ export class TaskService {
         });
 
         await this.tasksRepository.deleteWithTransaction(tx, id);
+
+        // ── O ORÇAMENTO QUE FICOU SEM NENHUM VEÍCULO ─────────────────────────
+        //
+        // A chave estrangeira mora do lado da TAREFA (`Task.quoteId`), então
+        // apagar a tarefa não toca no orçamento: ele simplesmente fica sem
+        // veículo. Em produção, 17/09/2026, há 105 assim — o mais antigo de
+        // janeiro, todos com serviços, 32 marcados como APROVADOS. Nenhum tem
+        // fatura viva nem um centavo recebido: são resíduo, não valor perdido.
+        //
+        // Eles eram INVISÍVEIS enquanto a lista consultava tarefas. Quando ela
+        // passou a consultar orçamentos, apareceram de uma vez e ocuparam a
+        // primeira página com linhas sem logomarca, sem identificador e sem
+        // veículo — e a tela parecia quebrada.
+        //
+        // CANCELA, não apaga. Um orçamento sem veículo não pode ser cotado,
+        // assinado nem cobrado: está morto. Mas apagá-lo destruiria o número, o
+        // histórico e a lista de serviços que alguém escreveu — e o número é o
+        // que o cliente tem no e-mail. Cancelar tira das telas operacionais (que
+        // filtram por estado), preserva o registro e é reversível.
+        //
+        // Só quando foi o ÚLTIMO: num orçamento de quatro caminhões, apagar um
+        // deixa três, e aí o que cabe é recalcular — que é o que
+        // `deleteWithTransaction` já faz.
+        if (task.quoteId) {
+          const restantes = await tx.task.count({ where: { quoteId: task.quoteId } });
+          if (restantes === 0) {
+            const orcamento = await tx.budget.findUnique({
+              where: { id: task.quoteId },
+              select: { id: true, budgetNumber: true, status: true },
+            });
+            if (orcamento && orcamento.status !== TASK_QUOTE_STATUS.CANCELLED) {
+              await tx.budget.update({
+                where: { id: orcamento.id },
+                data: {
+                  status: TASK_QUOTE_STATUS.CANCELLED,
+                  statusOrder: getTaskQuoteStatusOrder(TASK_QUOTE_STATUS.CANCELLED),
+                },
+              });
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK_QUOTE,
+                entityId: orcamento.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: orcamento.status,
+                newValue: TASK_QUOTE_STATUS.CANCELLED,
+                reason:
+                  `Cancelado automaticamente: o último veículo do orçamento nº ` +
+                  `${orcamento.budgetNumber} foi excluído.`,
+                userId: userId || '',
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM as any,
+                triggeredById: userId || null,
+                transaction: tx,
+              });
+            }
+          }
+        }
 
         return purgeResult;
       });
