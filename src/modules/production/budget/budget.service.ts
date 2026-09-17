@@ -4404,8 +4404,21 @@ export class BudgetService {
     const blockers: string[] = [];
 
     // ─── Boletos ───────────────────────────────────────────────────────────
+    // Mesmo escopo de `baixarBoletosAndConfirm`: a parcela SEM fatura (pendurada
+    // direto no pagador, como a conciliação as cria) também tem boleto, e um
+    // título em voo ali ficava invisível para esta asserção.
     const slips = await this.prisma.bankSlip.findMany({
-      where: { installment: { invoice: this.invoicesOfQuote(quoteId, billingId) } },
+      where: {
+        installment: {
+          OR: [
+            { invoice: this.invoicesOfQuote(quoteId, billingId) },
+            {
+              invoiceId: null,
+              customerConfig: { quoteId, ...(billingId ? { billingId } : {}) },
+            },
+          ],
+        },
+      },
       select: {
         nossoNumero: true,
         status: true,
@@ -4584,9 +4597,30 @@ export class BudgetService {
     /** A cobrança, quando a baixa é de uma só. Ausente = todos os boletos do orçamento. */
     billingId?: string | null,
   ): Promise<Array<{ nossoNumero: string; detail: string }>> {
+    // ⚠️ O ESCOPO TEM DE ALCANÇAR A PARCELA SEM FATURA.
+    //
+    // `invoicesOfQuote` pergunta pelo lado da FATURA, e há parcela pendurada
+    // direto no pagador (`invoiceId` nulo) — é assim que a conciliação as cria.
+    // O orçamento 309, em produção, tem duas dessas com dois boletos OVERDUE
+    // VIVOS no Sicredi: pelo escopo antigo a baixa não os encontrava, e o
+    // cancelamento seguia adiante deixando dois títulos pagáveis no banco.
+    //
+    // Quando `billingId` é dito, o recorte da cobrança vale para os dois lados —
+    // baixar o boleto de outro faturamento seria o defeito oposto.
     const activeSlips = await this.prisma.bankSlip.findMany({
       where: {
-        installment: { invoice: this.invoicesOfQuote(quoteId, billingId) },
+        installment: {
+          OR: [
+            { invoice: this.invoicesOfQuote(quoteId, billingId) },
+            {
+              invoiceId: null,
+              customerConfig: {
+                quoteId,
+                ...(billingId ? { billingId } : {}),
+              },
+            },
+          ],
+        },
         status: { notIn: [BANK_SLIP_STATUS.CANCELLED, BANK_SLIP_STATUS.PAID] },
       },
       select: { id: true, nossoNumero: true, status: true },
@@ -4989,7 +5023,21 @@ export class BudgetService {
     });
     const taskId = task?.id ?? null;
 
-    if (taskId) {
+    // ── O DESMONTE É DO ORÇAMENTO, NÃO DA TAREFA ─────────────────────────────
+    //
+    // Este bloco inteiro vivia dentro de `if (taskId)` — e NADA dentro dele
+    // precisa da tarefa: `assertBillingArtifactsConfirmed`, a guarda de parcela
+    // paga, `baixarBoletosAndConfirm` e a varredura de NFS-e são todas escopadas
+    // pelo ORÇAMENTO (`invoicesOfQuote`). O `taskId` só serve de contexto para o
+    // `syncEmNegociacaoForTask` lá embaixo.
+    //
+    // ⚠️ E o orçamento SEM veículo é exatamente o caso que a condição excluía.
+    // Medido em produção (17/09/2026): dos 105 órfãos, 104 estão limpos — mas o
+    // nº 309 tem DUAS parcelas com DOIS boletos OVERDUE, vivos no Sicredi. Pelo
+    // caminho antigo ele seria carimbado CANCELADO com os dois títulos ainda
+    // pagáveis no banco, que é precisamente o desfecho que este método existe
+    // para impedir. Sem artefato nenhum, tudo aqui é no-op.
+    {
       // Every boleto must be registered at Sicredi and every NFS-e emitted at Elotech before
       // anything is torn down — an artifact still in flight would go live after we delete the
       // row that points at it. Subsumes the old PROCESSING/PENDING NFS-e check.
@@ -5000,10 +5048,18 @@ export class BudgetService {
       // por tarefa deixava passar um orçamento com parcela PAGA.
       // Mesma regra da reversão: pagamento PARCIAL também é dinheiro recebido.
       // Ver a nota em `revert`.
+      //
+      // ⚠️ E ALCANÇA A PARCELA SEM FATURA. `invoicesOfQuote` é escopo por FATURA,
+      // e há parcela pendurada direto no pagador (`invoiceId` nulo) — é assim que
+      // a conciliação as cria, e é a forma do orçamento 309. Perguntar só pelo
+      // lado da fatura deixava essas invisíveis para a guarda.
       const paidInstallments = await this.prisma.installment.findMany({
         where: {
-          invoice: this.invoicesOfQuote(id),
-          OR: [{ status: { in: ['PAID'] } }, { paidAmount: { gt: 0 } }],
+          OR: [
+            { invoice: this.invoicesOfQuote(id) },
+            { customerConfig: { quoteId: id } },
+          ],
+          AND: [{ OR: [{ status: { in: ['PAID'] } }, { paidAmount: { gt: 0 } }] }],
         },
         select: { id: true },
       });
@@ -5060,13 +5116,23 @@ export class BudgetService {
     }
 
     await this.prisma.$transaction(async tx => {
-      if (taskId) {
-        // Delete installments (cascades bank slips) + invoices. NfseDocuments are
-        // NOT cascaded — invoiceId is SetNull and they remain linked to the task
-        // as permanent fiscal history. Escopo pela COBERTURA: ver `invoicesOfQuote`.
-        await deleteInstallmentsWithSlips(tx, { invoice: this.invoicesOfQuote(id) });
-        await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
-      }
+      // Delete installments (cascades bank slips) + invoices. NfseDocuments are
+      // NOT cascaded — invoiceId is SetNull and they remain linked to the task
+      // as permanent fiscal history. Escopo pela COBERTURA: ver `invoicesOfQuote`.
+      //
+      // ⚠️ SEM `if (taskId)`, e alcançando a parcela SEM FATURA — pela mesma razão
+      // do bloco de guardas acima: o desmonte é do ORÇAMENTO. O nº 309, sem
+      // veículo e com duas parcelas penduradas direto no pagador, ficava com as
+      // parcelas em aberto depois de o orçamento ser carimbado como cancelado.
+      //
+      // A guarda de dinheiro já rodou e já recusou se houvesse pagamento; o
+      // predicado é repetido aqui pelo mesmo motivo de sempre — a consulta que
+      // APAGA usa o mesmo critério da que RECUSA.
+      await deleteInstallmentsWithSlips(tx, {
+        OR: [{ invoice: this.invoicesOfQuote(id) }, { customerConfig: { quoteId: id } }],
+        AND: [{ status: { not: 'PAID' }, paidAmount: { lte: 0 } }],
+      });
+      await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
       // O carimbo de cada faturamento volta a zero — mesma razão da reversão.
       await (tx as any).billing.updateMany({
         where: { quoteId: id },
