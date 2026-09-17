@@ -89,6 +89,7 @@
     "seed:painting": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/seed-painting-config.ts",
     "test:quote-list-query": "tsx tests/quote-list-query.test.ts",
     "test:quote-vehicle-share": "tsx tests/quote-vehicle-share.test.ts",
+    "test:quote-merge": "tsx tests/quote-merge-rules.test.ts",
     "test:task-order-number": "tsx tests/task-order-number.test.ts",
     "test:signature-reminders": "tsx tests/signature-reminders.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
