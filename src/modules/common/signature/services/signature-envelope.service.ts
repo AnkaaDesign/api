@@ -2013,6 +2013,23 @@ export class SignatureEnvelopeService {
           head.installments?.find(i => i.number === 1)?.dueDate ??
           head.installments?.[0]?.dueDate ??
           null,
+        // ⚠️ A FORMA SAI DA PARCELA, pela mesma razão da data logo acima: o
+        // `paymentConfig` guarda o que foi COMBINADO e a parcela guarda o que
+        // está sendo COBRADO, e os dois divergem em massa — em produção,
+        // 17/09/2026, há 8 orçamentos com config `BANK_SLIP` cobrando em `PIX`,
+        // 6 com config `PIX` cobrando na conta do Sergio, 4 na do Genivaldo, e
+        // 277 sem método nenhum no config cobrando em boleto.
+        //
+        // O defeito que isto conserta é o documento SE CONTRADIZENDO: o dossiê
+        // do orçamento nº 0915 saiu com a frase "4 parcelas de R$ 6.075,30 via
+        // boleto" e, três linhas abaixo, o bloco "Pagamento via Pix" com a chave
+        // — porque a frase lia o config e o bloco lia a parcela. Quem recebe não
+        // tem como saber em qual acreditar.
+        //
+        // Sem parcela (antes da assinatura) fica `undefined` e a frase continua
+        // saindo do config, byte a byte como antes.
+        paymentMethod:
+          head.installments?.find(i => i.paymentMethod)?.paymentMethod ?? undefined,
       });
     };
 

@@ -700,7 +700,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
          ${pixAccounts
            .map(
              p => `<div class="pix-line">
-                  <strong>Chave Pix (${escapeHtml(p.keyKind)}):</strong> ${escapeHtml(p.key)}<br />
+                  <strong>Chave Pix (${escapeHtml(p.keyKind)}):</strong> <span class="pix-key">${escapeHtml(p.key)}</span><br />
                   <strong>Favorecido:</strong> ${escapeHtml(p.holder)}
                 </div>`,
            )
@@ -1033,6 +1033,9 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   .billing-table {
     width: 100%; border-collapse: collapse; font-size: 8.5pt; line-height: 1.4;
     margin-bottom: 2.5mm;
+    /* O quadro do tomador e conferido linha a linha contra o cadastro da
+       prefeitura: parti-lo entre duas folhas e o que faz alguem conferir metade. */
+    break-inside: avoid;
   }
   .billing-table th {
     text-align: left; font-weight: 600; color: var(--gray);
@@ -1059,12 +1062,20 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   .schedule-label {
     font-size: 8.5pt; font-weight: 600; color: var(--gray);
     margin-bottom: 1.2mm;
+    /* O rotulo do lote nao fica sozinho no pe da folha. */
+    break-after: avoid;
   }
+  /* A TABELA PODE PARTIR; a LINHA, nao.
+     Evitar quebra na tabela inteira era o erro de escala: com quatro parcelas
+     ele empurra a secao toda para a folha seguinte, e com sessenta veiculos
+     seria impossivel de satisfazer. O que nao pode partir e a LINHA — uma
+     parcela com o vencimento numa folha e o valor na outra.
+     (Sem crase neste comentario: ele mora num template literal.) */
   .schedule-table {
     width: 100%; border-collapse: collapse;
     font-size: 9pt; line-height: 1.45;
-    break-inside: avoid;
   }
+  .schedule-table tr { break-inside: avoid; }
   .schedule-table td { padding: 1.1mm 0; border-bottom: .5px dotted #ccc; }
   .schedule-table td.schedule-amount {
     text-align: right; font-weight: 600; white-space: nowrap;
@@ -1074,8 +1085,11 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
 
   /* PARA ONDE PAGAR. Sai so quando a forma e Pix: ao lado de um boleto, uma
      chave Pix convida ao pagamento em duplicidade. */
+  /* A caixa do Pix e ATOMICA: chave, favorecido e a instrucao do comprovante
+     sao uma coisa so, e sao quatro linhas — cabem em qualquer sobra. */
   .pix-box {
     margin-top: 3mm; padding-top: 2mm; border-top: .5px solid #ddd;
+    break-inside: avoid;
   }
   .pix-title {
     font-size: 9.5pt; font-weight: 700; color: var(--green); margin-bottom: 1.2mm;
@@ -1088,7 +1102,16 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      sublinhado e na cor do texto — o documento nao e uma pagina web.
      (E sem CRASE neste comentario: ele mora dentro de um template literal, e uma
      crase aqui fecha a string com um erro a centenas de linhas daqui.) */
-  .pix-note a { color: inherit; text-decoration: none; font-weight: 600; }
+  /* O NUMERO NAO PARTE NO MEIO. Sem isto o dossie 0915 saiu com "+55 43 9" no
+     fim de uma linha e "8834-9545." no comeco da seguinte — um telefone partido
+     nao se le como telefone, e este e clicavel. */
+  .pix-note a {
+    color: inherit; text-decoration: none; font-weight: 600;
+    white-space: nowrap;
+  }
+  /* Chave e favorecido tambem sao indivisiveis: sao os dois dados que o pagador
+     copia para o aplicativo do banco. */
+  .pix-line strong + * , .pix-key { white-space: nowrap; }
 
   /* Sem regua sob o titulo: a unica divisoria horizontal do documento e a do
      cabecalho (e a do rodape, que a espelha). Titulos de secao se distinguem
@@ -1159,6 +1182,19 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
      de uma folha, com o texto na seguinte, e um defeito de leitura num
      documento contratual. */
   .terms-section { break-inside: avoid; }
+  /* (*) A SECAO DE FATURAMENTO FLUI, e as outras nao.
+     Evitar quebra foi escrito para um bloco de tres linhas ("Garantias",
+     "Prazo de entrega"), onde manter tudo junto custa nada. A secao Faturamento
+     deixou de ser desse tamanho: quadro do tomador + clausula + tabela de
+     parcelas + caixa do Pix passam de vinte linhas, e evitar a quebra fazia o
+     conjunto inteiro PULAR para a folha seguinte quando nao cabia no que
+     restava — deixando dois tercos da folha anterior em branco. Foi o corte
+     incoerente que o dono viu no dossie 0915.
+     Deixar fluir sem mais nada seria trocar um defeito por outro (tabela partida
+     no meio de uma linha, "Favorecido" orfao). Entao a secao flui e os ATOMOS
+     abaixo e que sao indivisiveis: o que precisa ser lido junto continua junto,
+     o resto acompanha a folha. */
+  .terms-section--flow { break-inside: auto; }
   .terms-title {
     font-size: 10pt; font-weight: 700; color: var(--green); margin-bottom: 1mm;
     break-after: avoid;
@@ -1364,7 +1400,7 @@ ${part === 'content' || part === 'fused' ? `
     ${
       showPayment && (data.paymentText || billingRowsHtml || scheduleHtml)
         ? `<div class="page-content-gap"></div>
-           <section class="terms-section">
+           <section class="terms-section${scheduleHtml || pixHtml ? ' terms-section--flow' : ''}">
              <h2 class="terms-title">Faturamento</h2>
              ${
                billingRowsHtml
