@@ -15,7 +15,31 @@ desligar.
 | Token | usuário de sistema, `expires_at: 0` (permanente), com `whatsapp_business_messaging` e `_management` |
 | Webhook | `https://api.ankaadesign.com.br/webhooks/whatsapp` ativo, campos `messages` e `message_template_status_update`; handshake testado |
 | Meio de pagamento | adicionado |
-| `WHATSAPP_CLOUD_ENABLED` em produção | `false` — **canal do cliente desligado de propósito** |
+| `WHATSAPP_CLOUD_ENABLED` em produção | **`true` desde 17/09** — canal do cliente LIGADO (conferido direto no `.env` do servidor) |
+
+> ⚠️ Esta linha dizia `false` até 17/09 e estava DESATUALIZADA. Quem ler o runbook
+> para decidir se pode contar com o canal precisa do estado real — a auditoria do
+> portal do cliente tomou a decisão errada por um momento por causa dela.
+
+### O canal também entrega CÓDIGO DE ACESSO desde 17/09
+
+O OTP de autenticação deixou de sair por SMS (Twilio) e passa por aqui:
+
+- **funcionário** — recuperação de senha, primeiro acesso e código de verificação
+  (`AuthService.dispatchCode`, `VerificationService`);
+- **contato de cliente** — login no portal (`ResponsibleAuthService`).
+
+O módulo Twilio foi **removido do código** (`src/modules/common/sms/`), junto com
+a dependência `twilio` do `package.json`. Sobrou apenas `TWILIO_PHONE_NUMBER`
+sendo lido pelos templates de e-mail como telefone de suporte
+(`mailer/services/email.service.ts:241` e `email-template.service.ts:48`) — é
+exibição, não envio, e vale trocar por uma variável com nome honesto.
+
+Template usado: `AUTH_OTP_WHATSAPP_TEMPLATE`, que por ora cai em
+`orcamento_codigo` (APPROVED). O template próprio `ankaa_codigo_acesso`
+(AUTHENTICATION, `code_expiration_minutes: 10`, `add_security_recommendation:
+true`) **ainda precisa ser submetido** — quando aprovar, basta preencher a
+variável, sem deploy.
 
 ### O nome em revisão não impede nada
 

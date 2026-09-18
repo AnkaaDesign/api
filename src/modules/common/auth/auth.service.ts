@@ -15,7 +15,7 @@ import { SectorRepository } from '@modules/people/sector/repositories/sector.rep
 import { SectorService } from '@modules/people/sector/sector.service';
 import { HashService } from './../hash/hash.service';
 import { VerificationService } from '../verification/verification.service';
-import { SmsService } from '../sms/sms.service';
+import { AuthOtpDeliveryService } from '../auth-otp/auth-otp-delivery.service';
 import { EmailService } from '../mailer/services/email.service';
 import {
   CONTRACT_TYPE,
@@ -67,7 +67,10 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly changeLogService: ChangeLogService,
     private readonly verificationService: VerificationService,
-    private readonly smsService: SmsService,
+    // `SmsService` saiu daqui: a perna do telefone deixou de ser SMS Twilio e
+    // passou a ser o canal oficial de WhatsApp. O SMS segue existindo no
+    // sistema para outros usos — so nao e' mais caminho de autenticacao.
+    private readonly authOtp: AuthOtpDeliveryService,
     private readonly emailService: EmailService,
     private readonly prisma: PrismaService,
   ) {}
@@ -171,7 +174,7 @@ export class AuthService {
     if (!user.verified) {
       if (user.phone && isValidPhone(user.phone)) {
         throw new UnauthorizedException(
-          `Conta ainda não verificada. Use o código de verificação enviado por SMS.`,
+          `Conta ainda não verificada. Use o código de verificação enviado por WhatsApp.`,
         );
       } else {
         throw new UnauthorizedException(
@@ -556,22 +559,22 @@ export class AuthService {
       });
     }
 
-    const { emailSent, smsSent } = await this.dispatchCode(user, contact, resetCode, {
+    const { emailSent, phoneSent } = await this.dispatchCode(user, contact, resetCode, {
       purpose: 'password reset',
       sendEmail: (email, userName, code) => this.sendPasswordResetEmail(email, userName, code),
-      sendSms: (phone, userName, code) => this.sendPasswordResetSms(phone, userName, code),
+      sendPhone: (phone, userName, code) => this.sendPasswordResetWhatsApp(phone, userName, code),
     });
 
     // Return appropriate message based on what was sent
-    if (emailSent && smsSent) {
+    if (emailSent && phoneSent) {
       return {
         success: true,
-        message: 'Código de verificação enviado por email e SMS.',
+        message: 'Código de verificação enviado por e-mail e WhatsApp.',
       };
-    } else if (smsSent) {
+    } else if (phoneSent) {
       return {
         success: true,
-        message: 'Código de verificação enviado por SMS.',
+        message: 'Código de verificação enviado por WhatsApp.',
       };
     } else if (emailSent) {
       return {
@@ -853,17 +856,17 @@ export class AuthService {
       userId: user.id,
     });
 
-    const { emailSent, smsSent } = await this.dispatchCode(user, contact, accessCode, {
+    const { emailSent, phoneSent } = await this.dispatchCode(user, contact, accessCode, {
       purpose: 'first access',
       sendEmail: (email, userName, code) => this.sendFirstAccessEmail(email, userName, code),
-      sendSms: (phone, userName, code) => this.sendFirstAccessSms(phone, userName, code),
+      sendPhone: (phone, userName, code) => this.sendFirstAccessWhatsApp(phone, userName, code),
     });
 
-    if (emailSent && smsSent) {
-      return { success: true, message: 'Código de primeiro acesso enviado por email e SMS.' };
+    if (emailSent && phoneSent) {
+      return { success: true, message: 'Código de primeiro acesso enviado por e-mail e WhatsApp.' };
     }
-    if (smsSent) {
-      return { success: true, message: 'Código de primeiro acesso enviado por SMS.' };
+    if (phoneSent) {
+      return { success: true, message: 'Código de primeiro acesso enviado por WhatsApp.' };
     }
     if (emailSent) {
       return { success: true, message: 'Código de primeiro acesso enviado por email.' };
@@ -1032,10 +1035,17 @@ export class AuthService {
     );
   }
 
-  async sendFirstAccessSms(phone: string, userName: string, code: string): Promise<void> {
+  /** A perna do TELEFONE do primeiro acesso. Ver `sendPasswordResetWhatsApp`. */
+  async sendFirstAccessWhatsApp(phone: string, userName: string, code: string): Promise<void> {
     const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
-    const message = `Olá ${userName}! Seu código de primeiro acesso no Ankaa é: ${code}`;
-    await this.smsService.sendSms(normalizedPhone, message);
+    const result = await this.authOtp.deliverVia(
+      'WHATSAPP',
+      { name: userName, email: null, phone: normalizedPhone },
+      code,
+    );
+    if (!result.ok) {
+      throw new Error(result.reason ?? 'WhatsApp indisponível');
+    }
   }
 
   async sendFirstAccessEmail(email: string, userName: string, code: string): Promise<void> {
@@ -1297,13 +1307,30 @@ export class AuthService {
     return await this.verificationService.sendVerificationCode(contact, ip);
   }
 
-  async sendPasswordResetSms(phone: string, userName: string, resetCode?: string): Promise<void> {
-    // Normalize the phone number before sending
+  /**
+   * A perna do TELEFONE da recuperacao de senha.
+   *
+   * Era SMS pela Twilio. Passou a ser WhatsApp pelo canal oficial da Meta, que
+   * esta ligado em producao desde 16/09 (`WHATSAPP_CLOUD_ENABLED=true`). Nao e'
+   * preferencia: o envio devolve um `wamid` e a Meta manda webhooks
+   * `sent -> delivered -> read`, entao a entrega passa a ser atestada por um
+   * terceiro em vez de afirmada por nos; e chega, que e' o que o SMS deixou de
+   * fazer de forma confiavel.
+   *
+   * LANCA em caso de falha, de proposito: `dispatchCode` captura, marca esta
+   * perna como nao enviada e tenta a outra. Devolver silenciosamente deixaria a
+   * pessoa esperando um codigo que nunca saiu.
+   */
+  async sendPasswordResetWhatsApp(phone: string, userName: string, code: string): Promise<void> {
     const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
-    this.logger.debug(`Sending password reset SMS to normalized phone: ${normalizedPhone}`);
-    const code = resetCode || this.generateSixDigitCode();
-    const message = `Olá ${userName}! Seu código para redefinir a senha do Ankaa é: ${code}`;
-    await this.smsService.sendSms(normalizedPhone, message);
+    const result = await this.authOtp.deliverVia(
+      'WHATSAPP',
+      { name: userName, email: null, phone: normalizedPhone },
+      code,
+    );
+    if (!result.ok) {
+      throw new Error(result.reason ?? 'WhatsApp indisponível');
+    }
   }
 
   async sendPasswordResetEmail(email: string, userName: string, resetCode: string): Promise<void> {
@@ -1327,9 +1354,13 @@ export class AuthService {
   }
 
   /**
-   * Delivers a 6-digit code over whichever channel the user actually typed,
-   * falling back to the other one. Sending is best-effort by design: a dead SMS
-   * gateway must not abort a ceremony the e-mail can still complete.
+   * Entrega um codigo de 6 digitos pelo canal que a pessoa DIGITOU, caindo para
+   * o outro. O envio e' best-effort de proposito: um canal morto nao pode
+   * abortar uma cerimonia que o outro ainda consegue concluir.
+   *
+   * A perna do telefone era SMS (Twilio) e passou a ser WHATSAPP pelo canal
+   * oficial da Meta. A logica de prioridade nao mudou — so a implementacao de
+   * uma das pernas. Ver `sendPasswordResetWhatsApp`.
    */
   private async dispatchCode(
     user: { name: string; email: string | null; phone: string | null },
@@ -1338,24 +1369,26 @@ export class AuthService {
     senders: {
       purpose: string;
       sendEmail: (email: string, userName: string, code: string) => Promise<void>;
-      sendSms: (phone: string, userName: string, code: string) => Promise<void>;
+      sendPhone: (phone: string, userName: string, code: string) => Promise<void>;
     },
-  ): Promise<{ emailSent: boolean; smsSent: boolean }> {
+  ): Promise<{ emailSent: boolean; phoneSent: boolean }> {
     // What the user INPUT decides the priority — not what the record happens to
     // have. Someone who typed their phone expects the code on that phone.
     const inputContactType = detectContactMethod(contact);
     this.logger.log(`${senders.purpose} requested via ${inputContactType} for contact: ${contact}`);
 
     let emailSent = false;
-    let smsSent = false;
+    let phoneSent = false;
 
-    const trySms = async (phone: string | null, label: string) => {
-      if (smsSent || !phone || !isValidPhone(phone)) return;
+    const tryPhone = async (phone: string | null, label: string) => {
+      if (phoneSent || !phone || !isValidPhone(phone)) return;
       try {
-        await senders.sendSms(phone, user.name, code);
-        smsSent = true;
+        await senders.sendPhone(phone, user.name, code);
+        phoneSent = true;
       } catch (error) {
-        this.logger.error(`Failed to send ${senders.purpose} SMS${label}: ${error.message}`);
+        // O CODIGO jamais entra no log — e' o defeito que desqualifica o
+        // `VerificationService`, que imprime o codigo esperado ate em `warn`.
+        this.logger.error(`Failed to send ${senders.purpose} via WhatsApp${label}: ${error.message}`);
       }
     };
 
@@ -1372,18 +1405,18 @@ export class AuthService {
     if (inputContactType === 'phone') {
       // Normalize what was typed so the code goes to the number the user knows,
       // even when the record stores it in another format.
-      await trySms(normalizeBrazilianPhone(contact) || user.phone, '');
+      await tryPhone(normalizeBrazilianPhone(contact) || user.phone, '');
       await tryEmail(user.email, ' (fallback)');
     } else if (inputContactType === 'email') {
       await tryEmail(user.email, '');
-      await trySms(user.phone, ' (fallback)');
+      await tryPhone(user.phone, ' (fallback)');
     } else {
       // Unrecognizable input: try both, e-mail first.
       await tryEmail(user.email, '');
-      await trySms(user.phone, '');
+      await tryPhone(user.phone, '');
     }
 
-    return { emailSent, smsSent };
+    return { emailSent, phoneSent };
   }
 
   private generateSixDigitCode(): string {

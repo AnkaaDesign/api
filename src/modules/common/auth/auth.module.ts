@@ -10,7 +10,7 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { HashModule } from '@modules/common/hash/hash.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { VerificationModule } from '@modules/common/verification/verification.module';
-import { SmsModule } from '@modules/common/sms/sms.module';
+import { AuthOtpModule } from '@modules/common/auth-otp/auth-otp.module';
 import { MailerModule } from '@modules/common/mailer/mailer.module';
 
 @Module({
@@ -21,7 +21,9 @@ import { MailerModule } from '@modules/common/mailer/mailer.module';
     HashModule,
     ChangeLogModule,
     VerificationModule,
-    SmsModule,
+    // Entrega de codigo de acesso. Substituiu `SmsModule` no caminho de
+    // autenticacao: a perna do telefone agora e' WhatsApp oficial, nao SMS.
+    AuthOtpModule,
     MailerModule,
     JwtModule.register({
       global: true,

@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { UserRepository } from '../../people/user/repositories/user.repository';
-import { SmsService } from '../sms/sms.service';
+import { AuthOtpDeliveryService } from '../auth-otp/auth-otp-delivery.service';
 import { MailerRepository } from '../mailer/repositories/mailer.repository';
 import { EmailService } from '../mailer/services/email.service';
 import { ChangeLogService } from '../changelog/changelog.service';
@@ -29,7 +29,8 @@ export class VerificationService {
 
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly smsService: SmsService,
+    // `SmsService` saiu: a perna do telefone e' WhatsApp oficial.
+    private readonly authOtp: AuthOtpDeliveryService,
     private readonly mailerRepository: MailerRepository,
     private readonly emailService: EmailService,
     private readonly changeLogService: ChangeLogService,
@@ -83,7 +84,7 @@ export class VerificationService {
     // Send verification code
     try {
       if (verificationType === VERIFICATION_TYPE.PHONE) {
-        await this.sendVerificationSms(contact, user.name, verificationCode);
+        await this.sendVerificationWhatsApp(contact, user.name, verificationCode);
       } else if (verificationType === VERIFICATION_TYPE.EMAIL) {
         await this.sendVerificationEmail(contact, user.name, verificationCode);
       }
@@ -284,12 +285,27 @@ export class VerificationService {
     throw new BadRequestException(VERIFICATION_ERROR_CODE.INVALID_CONTACT_FORMAT);
   }
 
-  private async sendVerificationSms(phone: string, userName: string, code: string): Promise<void> {
-    // Normalize the phone number before sending
+  /**
+   * A perna do TELEFONE do codigo de verificacao.
+   *
+   * Era SMS pela Twilio; passou a ser o canal oficial de WhatsApp da Meta, que
+   * esta ligado em producao. Foi a ultima dependencia de `SmsService` no
+   * sistema — o modulo inteiro saiu junto.
+   */
+  private async sendVerificationWhatsApp(
+    phone: string,
+    userName: string,
+    code: string,
+  ): Promise<void> {
     const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
-    this.logger.debug(`Sending verification SMS to normalized phone: ${normalizedPhone}`);
-    const message = `Olá ${userName}! Seu código de verificação do Ankaa é: ${code}`;
-    await this.smsService.sendSms(normalizedPhone, message);
+    const result = await this.authOtp.deliverVia(
+      'WHATSAPP',
+      { name: userName, email: null, phone: normalizedPhone },
+      code,
+    );
+    if (!result.ok) {
+      throw new Error(result.reason ?? 'WhatsApp indisponível');
+    }
   }
 
   private async sendVerificationEmail(
