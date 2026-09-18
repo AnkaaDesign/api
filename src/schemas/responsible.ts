@@ -108,7 +108,10 @@ export const responsibleCreateObjectSchema = z.object({
   // Âncora de identidade da assinatura eletrônica. Opcional: contato sem CPF
   // continua valendo, e a primeira assinatura preenche o campo.
   cpf: cpfSchema.optional().nullable(),
-  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional().nullable(), // Optional if no system access needed
+  // `password` foi removido do modelo. Continua aceito no corpo e DESCARTADO,
+  // para que um cliente antigo que ainda o envie receba 200 em vez de 400 —
+  // mas nada e' gravado, e o campo nao existe mais na tabela.
+  password: z.string().optional().nullable().transform(() => undefined),
   companyId: z.string().uuid('ID da empresa inválido').optional().nullable(), // Optional - can create responsible without company
   roles: responsibleRolesSchema,
   isActive: z.boolean().optional().default(true),
@@ -133,28 +136,12 @@ export const responsibleUpdateObjectSchema = z.object({
 
 export const responsibleUpdateSchema = withLegacyRole(responsibleUpdateObjectSchema);
 
-export const responsibleLoginSchema = z.object({
-  contact: z.string().min(1, 'Email ou telefone obrigatório'),
-  password: z.string().min(1, 'Senha obrigatória'),
-});
-
-export const responsibleRegisterSchema = withLegacyRole(
-  z
-    .object({
-      name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-      email: z.string().email('Email inválido'), // Required for registration
-      phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
-      password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'), // Required for registration
-      passwordConfirmation: z.string().min(6),
-      companyId: z.string().uuid('ID da empresa inválido'),
-      roles: responsibleRolesSchema,
-      isActive: z.boolean().optional().default(true),
-    })
-    .refine(data => data.password === data.passwordConfirmation, {
-      message: 'Senhas não coincidem',
-      path: ['passwordConfirmation'],
-    }),
-);
+// `responsibleLoginSchema` e `responsibleRegisterSchema` foram REMOVIDOS com as
+// rotas que os usavam. O register era @Public() e recebia `companyId` e `roles`
+// do CORPO: qualquer um na internet se cadastrava como contato do cliente que
+// quisesse, com o papel que quisesse. Era a fronteira de tenant do sistema, e
+// nao existia. Contato de cliente agora nasce so por convite de quem ja esta
+// dentro (POST /responsibles, @Roles(ADMIN, COMMERCIAL)).
 
 export const responsibleIncludeSchema = z.object({
   company: z.boolean().optional(),
@@ -284,5 +271,3 @@ export const responsibleBatchUpdateSchema = z.object({
 // Type exports
 export type ResponsibleCreateFormData = z.infer<typeof responsibleCreateSchema>;
 export type ResponsibleUpdateFormData = z.infer<typeof responsibleUpdateSchema>;
-export type ResponsibleLoginFormData = z.infer<typeof responsibleLoginSchema>;
-export type ResponsibleRegisterFormData = z.infer<typeof responsibleRegisterSchema>;

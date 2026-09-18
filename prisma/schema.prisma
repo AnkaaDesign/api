@@ -3493,35 +3493,38 @@ model Backup {
 }
 
 model Responsible {
-  id                    String            @id @default(uuid())
-  name                  String
-  email                 String?           @unique
-  phone                 String            @unique
+  id                 String                     @id @default(uuid())
+  name               String
+  email              String?                    @unique
+  phone              String                     @unique
   /// Âncora de identidade da assinatura eletrônica. NÃO é @unique: a unicidade
   /// da pessoa já vem do telefone, e o CPF passa a ser gravado durante a
   /// cerimônia — uma colisão ali derrubaria a assinatura do cliente.
-  cpf                   String?
-  password              String?
+  cpf                String?
   /// A contact can hold SEVERAL roles at once (e.g. OWNER + FINANCIAL), so
   /// employees know which areas that contact actually handles. Always kept
   /// non-empty by the validation layer and sorted in enum-declaration order
   /// (see responsibleRolesSchema) so changelog diffs stay stable.
-  roles                 ResponsibleRole[] @default([])
-  companyId             String?           @map("customerId")
-  isActive              Boolean           @default(true)
-  verified              Boolean           @default(false)
-  verificationCode      String?
-  verificationExpiresAt DateTime?
-  sessionToken          String?           @unique
-  resetToken            String?           @unique
-  resetTokenExpiry      DateTime?
-  lastLoginAt           DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  company               Customer?         @relation("CompanyResponsibles", fields: [companyId], references: [id])
-  tasks                 Task[]            @relation("TaskResponsibles")
-  customerConfigs       BudgetPayer[]     @relation("CUSTOMER_CONFIG_RESPONSIBLE")
-  envelopeSignatures    EnvelopeSigner[]  @relation("ENVELOPE_SIGNER_RESPONSIBLE")
+  ///
+  /// Desde 17/09 esta lista tambem e' o EIXO DE PRIVILEGIO do portal do
+  /// cliente, como `Sector.privileges` e' o do funcionario — a diferenca e' que
+  /// aqui e' LISTA: o portao pergunta "tem algum destes?", nao "e' igual a".
+  roles              ResponsibleRole[]          @default([])
+  companyId          String?                    @map("customerId")
+  isActive           Boolean                    @default(true)
+  /// Marcado na primeira sessao concluida por OTP. NAO e' mais pre-requisito de
+  /// login (o OTP ja prova posse do canal); e' registro de que este contato ja
+  /// entrou alguma vez.
+  verified           Boolean                    @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  company            Customer?                  @relation("CompanyResponsibles", fields: [companyId], references: [id])
+  tasks              Task[]                     @relation("TaskResponsibles")
+  customerConfigs    BudgetPayer[]              @relation("CUSTOMER_CONFIG_RESPONSIBLE")
+  envelopeSignatures EnvelopeSigner[]           @relation("ENVELOPE_SIGNER_RESPONSIBLE")
+  authChallenges     ResponsibleAuthChallenge[] @relation("RESPONSIBLE_AUTH_CHALLENGES")
+  sessions           ResponsibleSession[]       @relation("RESPONSIBLE_SESSIONS")
 
   cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -9016,4 +9019,114 @@ model PaintingProcessParameter {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   paintType      PaintType? @relation("PAINTING_PROCESS_PARAM_TYPE", fields: [paintTypeId], references: [id], onDelete: Cascade)
+}
+
+/// ============================================================================
+/// PORTAL DO CLIENTE — autenticacao do `Responsible`
+/// ============================================================================
+///
+/// O responsavel NAO tem senha. Nunca teve que funcionasse: o login antigo
+/// emitia JWT sem `sub` (nenhuma guarda o aceitava), nunca enviava o codigo de
+/// verificacao (dois `TODO: Send verification email`) e exigia `verified` para
+/// entrar — um circulo fechado. A producao confirmou: 183 contatos, ZERO com
+/// senha, sessao, reset ou login.
+///
+/// O que o sistema JA FAZIA bem, e que estas duas tabelas generalizam, e' a
+/// cerimonia de assinatura: provar posse de um canal (WhatsApp/e-mail) com um
+/// codigo de uso unico, e entregar uma capability opaca por pessoa, com prazo e
+/// revogacao. Aqui isso deixa de valer para UM envelope e passa a valer para
+/// uma SESSAO.
+///
+/// Por que tabela irma, e nao reaproveitar `SigningChallenge`: aquela tabela
+/// sustenta prova juridica (`documentSha256`, dossie, trilha encadeada) e seu
+/// dono e' FK dura para `EnvelopeSigner`. Torna-la polimorfica seria migration
+/// de risco desproporcional sobre a evidencia. O ALGORITMO e' compartilhado
+/// (mesmos helpers de `signature/utils/canonical.ts`); a tabela, nao.
+
+/// Desafio de OTP para autenticar um responsavel. Mesmos parametros do
+/// `SigningChallenge` (OWASP ASVS v5.0 §6.5/6.6 + NIST SP 800-63B §5.1.3.2):
+/// 6 digitos por CSPRNG, HMAC com pepper, TTL curto, tentativas contadas NO
+/// DESAFIO com incremento atomico, uso unico.
+model ResponsibleAuthChallenge {
+  id            String @id @default(uuid())
+  responsibleId String
+
+  /// 'WHATSAPP' | 'EMAIL' — o canal por onde o codigo saiu.
+  channel         String
+  /// O destino ja mascarado, para a tela poder dizer "enviamos para (43) 9****-**57"
+  /// sem que a resposta carregue o contato inteiro.
+  destinationMask String
+
+  /// HMAC-SHA256(codigo, RESPONSIBLE_OTP_PEPPER). O codigo em claro nunca e'
+  /// persistido nem logado. bcrypt/argon2 seria inutil aqui: 10^6 e' forca
+  /// bruta instantanea — o que protege e' o pepper fora do banco.
+  codeHash String
+
+  status      ResponsibleAuthChallengeStatus @default(PENDING)
+  attempts    Int                            @default(0)
+  maxAttempts Int                            @default(5)
+  expiresAt   DateTime
+
+  /// Telemetria de entrega. Um comprovante (`wamid` da Meta) e' o que permite
+  /// dizer depois "o codigo saiu, e chegou".
+  providerMessageId String?
+  providerStatus    String?
+  deliveredAt       DateTime?
+
+  /// Contexto do pedido, para a trilha de acesso.
+  ipAddress String?
+  userAgent String?
+
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  responsible Responsible @relation("RESPONSIBLE_AUTH_CHALLENGES", fields: [responsibleId], references: [id], onDelete: Cascade)
+
+  @@index([responsibleId, status])
+  @@index([expiresAt])
+}
+
+enum ResponsibleAuthChallengeStatus {
+  PENDING
+  CONSUMED
+  LOCKED
+  EXPIRED
+  SUPERSEDED
+}
+
+/// Sessao do portal do cliente.
+///
+/// E' entidade, nao coluna. O desenho anterior guardava `sessionToken` na ficha
+/// do contato: um valor por pessoa (logo, um aparelho so), em claro, sem prazo,
+/// e que NENHUMA guarda lia — `findBySessionToken` nunca teve um chamador. Aqui
+/// o token vive hasheado, tem prazo proprio, sabe de que aparelho veio e pode
+/// ser revogado um a um.
+///
+/// O token e' opaco (256 bits), nao JWT: o portador nao precisa ler nada dele,
+/// e um segredo compartilhado a menos e' um caminho de escalada a menos. Foi
+/// justamente assinar o token do responsavel com o `JWT_SECRET` da casa que
+/// abriu o furo de destravar orcamento vencido de qualquer cliente.
+model ResponsibleSession {
+  id            String @id @default(uuid())
+  responsibleId String
+
+  /// SHA-256 do token opaco. O banco nunca ve o valor que o navegador guarda,
+  /// entao um dump nao da' sessao a ninguem.
+  tokenHash String @unique
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  /// De onde a sessao nasceu e onde foi usada pela ultima vez — o minimo para
+  /// o cliente poder olhar "meus acessos" e para nos investigarmos um abuso.
+  ipAddress  String?
+  userAgent  String?
+  lastSeenAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  responsible Responsible @relation("RESPONSIBLE_SESSIONS", fields: [responsibleId], references: [id], onDelete: Cascade)
+
+  @@index([responsibleId, revokedAt])
+  @@index([expiresAt])
 }

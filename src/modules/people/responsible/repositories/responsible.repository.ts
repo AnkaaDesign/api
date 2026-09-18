@@ -76,15 +76,12 @@ export abstract class ResponsibleRepository {
   // Count
   abstract count(where?: ResponsibleWhere, tx?: PrismaTransaction): Promise<number>;
 
-  // Session management
-  abstract findBySessionToken(
-    sessionToken: string,
-    tx?: PrismaTransaction,
-  ): Promise<Responsible | null>;
-
-  abstract updateSessionToken(
-    id: string,
-    sessionToken: string | null,
-    tx?: PrismaTransaction,
-  ): Promise<Responsible>;
+  // A gestao de sessao (findBySessionToken/updateSessionToken) saiu daqui.
+  // `findBySessionToken` nunca teve um unico chamador, e `Responsible.sessionToken`
+  // era escrito no login e jamais lido por guarda nenhuma. A sessao de
+  // responsavel agora e' uma entidade propria (ResponsibleSession), com hash,
+  // prazo e revogacao — nao uma coluna na ficha do contato.
+  //
+  // `lastLoginAt` continua existindo e passa a ser carimbado por
+  // ResponsibleAuthService.
 }

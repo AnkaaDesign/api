@@ -492,10 +492,22 @@ export class BudgetController {
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
-        await this.jwtService.verifyAsync(token, {
+        const payload = await this.jwtService.verifyAsync(token, {
           secret: process.env.JWT_SECRET,
         });
-        isAuthenticated = true;
+        // Conferir a ASSINATURA nao basta: qualquer JWT emitido com `JWT_SECRET`
+        // passava aqui, e ate 17/09 o login de responsavel assinava com essa
+        // mesma chave — um contato de cliente destravava orcamento VENCIDO de
+        // qualquer UUID. Aquele assinador foi removido; esta checagem e' a
+        // segunda tranca, para que a rota nunca mais confie so no segredo.
+        //
+        // "Autenticado" aqui significa FUNCIONARIO, e funcionario tem `sub`
+        // (auth.service.ts assina `{ sub, email, phone, role }`). Um token de
+        // outro sujeito nao tem, e se um dia tiver, carregara `type`.
+        isAuthenticated =
+          typeof payload?.sub === 'string' &&
+          payload.sub.length > 0 &&
+          (payload.type === undefined || payload.type === 'user');
       } catch {
         // Invalid token, treat as unauthenticated
       }

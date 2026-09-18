@@ -17,21 +17,16 @@ import { ResponsibleService } from './responsible.service';
 import { AuthGuard } from '@/modules/common/auth/auth.guard';
 import { Roles } from '@/modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@/constants/enums';
-import { Public } from '@/modules/common/auth/decorators/public.decorator';
 import { ZodValidationPipe } from '@/modules/common/pipes/zod-validation.pipe';
 import {
   responsibleCreateSchema,
   responsibleUpdateSchema,
-  responsibleLoginSchema,
-  responsibleRegisterSchema,
   responsibleGetManySchema,
   responsibleRoleSchema,
   responsibleBatchCreateSchema,
   responsibleBatchUpdateSchema,
   ResponsibleCreateFormData,
   ResponsibleUpdateFormData,
-  ResponsibleLoginFormData,
-  ResponsibleRegisterFormData,
 } from '@/schemas/responsible';
 
 @Controller('responsibles')
@@ -158,70 +153,19 @@ export class ResponsibleController {
     await this.service.batchDelete(data.ids);
   }
 
-  @Post('login')
-  @Public()
-  async login(
-    @Body(new ZodValidationPipe(responsibleLoginSchema))
-    data: ResponsibleLoginFormData,
-  ) {
-    return await this.service.login(data);
-  }
-
-  @Post('register')
-  @Public()
-  async register(
-    @Body(new ZodValidationPipe(responsibleRegisterSchema))
-    data: ResponsibleRegisterFormData,
-  ) {
-    return await this.service.register(data);
-  }
-
-  @Post('logout')
-  @UseGuards(AuthGuard)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async logout(@Body('responsibleId') responsibleId: string) {
-    await this.service.logout(responsibleId);
-  }
-
-  @Post('verify-email')
-  @Public()
-  async verifyEmail(@Body() data: { responsibleId: string; verificationCode: string }) {
-    return await this.service.verifyEmail(data.responsibleId, data.verificationCode);
-  }
-
-  @Post('reset-password')
-  @Public()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async resetPassword(@Body('email') email: string) {
-    await this.service.resetPassword(email);
-  }
-
-  @Post('confirm-reset-password')
-  @Public()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async confirmResetPassword(@Body() data: { resetToken: string; newPassword: string }) {
-    await this.service.confirmResetPassword(data.resetToken, data.newPassword);
-  }
-
-  @Post(':id/change-password')
-  @UseGuards(AuthGuard)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async changePassword(
-    @Param('id') id: string,
-    @Body()
-    data: {
-      oldPassword: string;
-      newPassword: string;
-    },
-  ) {
-    await this.service.changePassword(id, data.oldPassword, data.newPassword);
-  }
-
-  @Post(':id/set-password')
-  @UseGuards(AuthGuard)
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async setPassword(@Param('id') id: string, @Body('password') password: string) {
-    await this.service.setPassword(id, password);
-  }
+  // As rotas de senha (login/register/verify-email/reset-password/
+  // confirm-reset-password/change-password/set-password) foram REMOVIDAS.
+  //
+  // Elas nunca funcionaram: o JWT era assinado sem claim `sub`, e o AuthGuard
+  // resolve o sujeito por `payload.sub` — nenhum token emitido ali passou em
+  // guarda nenhuma. Os dois `TODO: Send verification email` garantiam que
+  // nenhum codigo saisse, e `login` exigia `verified`. A producao confirmou:
+  // 183 responsaveis, ZERO com senha, sessao, reset, verificacao ou login.
+  //
+  // O que sobrava era superficie de ataque: `register` era @Public() e aceitava
+  // `companyId` e `roles` do CORPO — qualquer um se anexava ao cliente que
+  // quisesse, com o papel que quisesse. Nada disso tinha throttle.
+  //
+  // A autenticacao de responsavel agora vive em ResponsibleAuthController
+  // (`/cliente/auth/*`): sessao por OTP, sem credencial em repouso.
 }

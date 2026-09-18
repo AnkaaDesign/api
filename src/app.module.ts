@@ -39,6 +39,7 @@ import { PositionModule } from './modules/people/position/position.module';
 import { PreferencesModule } from './modules/people/preferences/preferences.module';
 import { StatisticsPreferencesModule } from './modules/people/statistics-preferences/statistics-preferences.module';
 import { ResponsibleModule } from './modules/people/responsible/responsible.module';
+import { ResponsibleAuthModule } from './modules/people/responsible-auth/responsible-auth.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
 import { SectorModule } from './modules/people/sector/sector.module';
@@ -138,6 +139,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     PreferencesModule,
     StatisticsPreferencesModule,
     ResponsibleModule,
+    ResponsibleAuthModule,
     PrismaModule,
     WarningModule,
     SectorModule,

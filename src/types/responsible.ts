@@ -26,15 +26,6 @@ export interface ResponsibleUpdateFormData {
   companyId?: string | null;
 }
 
-export interface ResponsibleLoginFormData {
-  contact: string; // email or phone
-  password: string;
-}
-
-export interface ResponsibleRegisterFormData extends ResponsibleCreateFormData {
-  passwordConfirmation: string;
-}
-
 export interface ResponsibleInclude {
   company?:
     | boolean

@@ -219,29 +219,4 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     return await client.responsible.count({ where: prismaWhere });
   }
 
-  async findBySessionToken(
-    sessionToken: string,
-    tx?: PrismaTransaction,
-  ): Promise<Responsible | null> {
-    const client = tx || this.prisma;
-    return await client.responsible.findUnique({
-      where: { sessionToken },
-      include: { company: true },
-    });
-  }
-
-  async updateSessionToken(
-    id: string,
-    sessionToken: string | null,
-    tx?: PrismaTransaction,
-  ): Promise<Responsible> {
-    const client = tx || this.prisma;
-    return await client.responsible.update({
-      where: { id },
-      data: {
-        sessionToken,
-        lastLoginAt: sessionToken ? new Date() : undefined,
-      },
-    });
-  }
 }

@@ -2,10 +2,8 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ResponsibleRepository } from './repositories/responsible.repository';
-import { HashService } from '@/modules/common/hash/hash.service';
 import { ChangeLogService } from '@/modules/common/changelog/changelog.service';
 import {
   Responsible,
@@ -17,8 +15,6 @@ import {
 import {
   ResponsibleCreateFormData,
   ResponsibleUpdateFormData,
-  ResponsibleLoginFormData,
-  ResponsibleRegisterFormData,
 } from '@/schemas/responsible';
 import {
   ENTITY_TYPE,
@@ -29,8 +25,6 @@ import {
 } from '@/constants/enums';
 import { ResponsibleRole } from '@prisma/client';
 import { PrismaService } from '@/modules/common/prisma/prisma.service';
-import { v4 as uuidv4 } from 'uuid';
-import { JwtService } from '@nestjs/jwt';
 
 // Re-exported for backwards compatibility. The values and labels live in
 // @/constants/enums; this file used to keep a second copy that shadowed the
@@ -41,10 +35,8 @@ export { RESPONSIBLE_ROLE, RESPONSIBLE_ROLE_LABELS, formatResponsibleRoles };
 export class ResponsibleService {
   constructor(
     private readonly repository: ResponsibleRepository,
-    private readonly hashService: HashService,
     private readonly changelogService: ChangeLogService,
     private readonly prisma: PrismaService,
-    private readonly jwtService: JwtService,
   ) {}
 
   async create(data: ResponsibleCreateFormData): Promise<ResponsibleResponse> {
@@ -62,17 +54,18 @@ export class ResponsibleService {
       throw new BadRequestException('Telefone já cadastrado');
     }
 
-    // Hash password if provided (only required for system access)
-    let hashedPassword: string | undefined;
-    if (data.password) {
-      hashedPassword = await this.hashService.hash(data.password);
-    }
+    // `password` saiu do cadastro. O acesso do responsavel ao portal e' por OTP
+    // (ResponsibleAuthService); nao ha credencial a definir no momento em que o
+    // comercial cadastra o contato — e nao havia mesmo: das 183 fichas em
+    // producao, nenhuma tinha senha.
+    const { password: _ignoredLegacyPassword, ...payload } = data as typeof data & {
+      password?: string;
+    };
 
     // Create responsible
     const responsible = await this.repository.create(
       {
-        ...data,
-        password: hashedPassword,
+        ...payload,
       } as any,
       {
         include: { company: { include: { logo: true } } },
@@ -357,213 +350,13 @@ export class ResponsibleService {
     }
   }
 
-  async login(data: ResponsibleLoginFormData): Promise<{
-    responsible: ResponsibleResponse;
-    token: string;
-  }> {
-    // Find responsible by email or phone
-    let responsible: Responsible | null = null;
-
-    if (data.contact.includes('@')) {
-      responsible = await this.repository.findByEmail(data.contact);
-    } else {
-      responsible = await this.repository.findByPhone(data.contact);
-    }
-
-    if (!responsible) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    // Check if responsible has password (required for login)
-    if (!responsible.password) {
-      throw new UnauthorizedException(
-        'Este responsável não possui acesso ao sistema. Entre em contato com o administrador.',
-      );
-    }
-
-    // Check password
-    const isPasswordValid = await this.hashService.compare(data.password, responsible.password);
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Credenciais inválidas');
-    }
-
-    // Check if active
-    if (!responsible.isActive) {
-      throw new UnauthorizedException('Conta desativada');
-    }
-
-    // Check if email is verified (only if email exists)
-    if (responsible.email && !responsible.verified) {
-      throw new UnauthorizedException('Conta não verificada');
-    }
-
-    // Generate session token
-    const sessionToken = uuidv4();
-    await this.repository.updateSessionToken(responsible.id, sessionToken);
-
-    // Generate JWT
-    // Deliberately claimed as `roles`, not `role`: AuthGuard reads a `role`
-    // claim as a User SECTOR_PRIVILEGES value, and ResponsibleRole shares the
-    // literal COMMERCIAL/FINANCIAL with that enum.
-    const token = this.jwtService.sign({
-      id: responsible.id,
-      email: responsible.email,
-      roles: responsible.roles,
-      companyId: responsible.companyId,
-      type: 'responsible',
-    });
-
-    return {
-      responsible: await this.findById(responsible.id, {
-        include: { company: { include: { logo: true } } },
-      }),
-      token,
-    };
-  }
-
-  async logout(responsibleId: string): Promise<void> {
-    await this.repository.updateSessionToken(responsibleId, null);
-  }
-
-  async register(data: ResponsibleRegisterFormData): Promise<ResponsibleResponse> {
-    const { passwordConfirmation, ...createData } = data;
-
-    // Email is required for registration (system access)
-    if (!createData.email) {
-      throw new BadRequestException('Email é obrigatório para registro no sistema');
-    }
-
-    // Password is required for registration
-    if (!createData.password) {
-      throw new BadRequestException('Senha é obrigatória para registro no sistema');
-    }
-
-    // Create responsible with system access
-    const responsible = await this.create(createData);
-
-    // Generate verification code
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificationExpiresAt = new Date();
-    verificationExpiresAt.setHours(verificationExpiresAt.getHours() + 1);
-
-    await this.repository.update(responsible.id, {
-      verificationCode,
-      verificationExpiresAt,
-    } as any);
-
-    // TODO: Send verification email
-
-    return responsible;
-  }
-
-  async verifyEmail(responsibleId: string, verificationCode: string): Promise<ResponsibleResponse> {
-    const responsible = await this.findById(responsibleId);
-
-    if (responsible.verified) {
-      throw new BadRequestException('Conta já verificada');
-    }
-
-    if (responsible.verificationCode !== verificationCode) {
-      throw new BadRequestException('Código de verificação inválido');
-    }
-
-    if (responsible.verificationExpiresAt && responsible.verificationExpiresAt < new Date()) {
-      throw new BadRequestException('Código de verificação expirado');
-    }
-
-    return await this.repository.update(responsibleId, {
-      verified: true,
-      verificationCode: null,
-      verificationExpiresAt: null,
-    } as any);
-  }
-
-  async changePassword(
-    responsibleId: string,
-    oldPassword: string,
-    newPassword: string,
-  ): Promise<void> {
-    const responsible = await this.findById(responsibleId);
-
-    if (!responsible.password) {
-      throw new BadRequestException('Este responsável não possui senha definida');
-    }
-
-    // Verify old password
-    const isOldPasswordValid = await this.hashService.compare(oldPassword, responsible.password);
-
-    if (!isOldPasswordValid) {
-      throw new BadRequestException('Senha atual incorreta');
-    }
-
-    // Hash new password
-    const hashedPassword = await this.hashService.hash(newPassword);
-
-    await this.repository.update(responsibleId, {
-      password: hashedPassword,
-    } as any);
-  }
-
-  async setPassword(responsibleId: string, password: string): Promise<void> {
-    const responsible = await this.findById(responsibleId);
-
-    if (responsible.password) {
-      throw new BadRequestException(
-        'Este responsável já possui senha. Use a opção de alterar senha.',
-      );
-    }
-
-    // Hash password
-    const hashedPassword = await this.hashService.hash(password);
-
-    await this.repository.update(responsibleId, {
-      password: hashedPassword,
-    } as any);
-  }
-
-  async resetPassword(email: string): Promise<void> {
-    const responsible = await this.repository.findByEmail(email);
-    if (!responsible) {
-      // Don't reveal if email exists
-      return;
-    }
-
-    // Generate reset token
-    const resetToken = uuidv4();
-    const resetTokenExpiry = new Date();
-    resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1);
-
-    await this.repository.update(responsible.id, {
-      resetToken,
-      resetTokenExpiry,
-    } as any);
-
-    // TODO: Send reset email
-  }
-
-  async confirmResetPassword(resetToken: string, newPassword: string): Promise<void> {
-    const responsible = await this.prisma.responsible.findUnique({
-      where: { resetToken },
-    });
-
-    if (!responsible) {
-      throw new BadRequestException('Token inválido');
-    }
-
-    if (responsible.resetTokenExpiry && responsible.resetTokenExpiry < new Date()) {
-      throw new BadRequestException('Token expirado');
-    }
-
-    // Hash new password
-    const hashedPassword = await this.hashService.hash(newPassword);
-
-    await this.repository.update(responsible.id, {
-      password: hashedPassword,
-      resetToken: null,
-      resetTokenExpiry: null,
-    } as any);
-  }
+  // Os metodos de senha (login/logout/register/verifyEmail/changePassword/
+  // setPassword/resetPassword/confirmResetPassword) foram REMOVIDOS junto
+  // com suas rotas. Nunca funcionaram e nunca foram usados: a producao
+  // tinha 183 responsaveis e ZERO com senha, sessao, reset ou login.
+  //
+  // A autenticacao de responsavel vive agora em ResponsibleAuthService:
+  // sessao por OTP, sem credencial em repouso.
 
   private getRoleLabel(role: string): string {
     return RESPONSIBLE_ROLE_LABELS[role as RESPONSIBLE_ROLE] || role;

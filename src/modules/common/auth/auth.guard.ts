@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { ROLES_KEY } from './decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
+import { RESPONSIBLE_ROUTE_KEY } from './decorators/responsible-route.decorator';
 import { IS_ADMIN_ONLY_KEY } from './decorators/admin-only.decorator';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -58,6 +59,28 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) {
+      return true;
+    }
+
+    // Rota do PORTAL DO CLIENTE: quem autentica é o `ResponsibleAuthGuard`, e
+    // esta guarda cede passagem sem conferir nada.
+    //
+    // Ceder aqui NÃO abre a rota: `ResponsibleAuthGuard` está declarado no
+    // controller e recusa qualquer requisição sem sessão válida de responsável.
+    // A marca é exigida lá também, então uma rota que perca este metadado falha
+    // fechada dos dois lados.
+    //
+    // E a recíproca é estrutural, não uma lista a manter: o token do portal é
+    // OPACO (256 bits aleatórios), não um JWT. `verifyAccessToken` abaixo o
+    // rejeita em toda rota de funcionário — inclusive nos ~466 handlers que não
+    // declaram `@Roles` e aceitariam qualquer identidade autenticada. Os dois
+    // sujeitos carregam credenciais de formatos incompatíveis, e é isso que faz
+    // a negação ser o padrão.
+    const isResponsibleRoute = this.reflector.getAllAndOverride<boolean>(
+      RESPONSIBLE_ROUTE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (isResponsibleRoute) {
       return true;
     }
 
