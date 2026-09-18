@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { INSTALLMENT_STATUS, INVOICE_STATUS } from '@constants';
+import { isBillingFrozen } from '@modules/production/budget/budget.guards';
 import {
   documentSearchDigits,
   normalizeSearchTerm,
@@ -731,16 +732,22 @@ export class BillingService {
   }
 
   /**
-   * ESTE FATURAMENTO ESTÁ CONGELADO? — aprovado, ou com fatura viva.
+   * ESTE FATURAMENTO ESTÁ CONGELADO? — a pergunta da TELA, respondida pelo
+   * MESMO predicado que o servidor usa para recusar.
    *
-   * O critério é o mesmo do reconciliador (`hasLiveInvoice || approvedAt`), e está
-   * aqui para a TELA poder desabilitar o que o servidor vai recusar, em vez de
-   * deixar o usuário descobrir pelo toast.
+   * ⚠️ O doc-block anterior afirmava ser "o mesmo critério" do reconciliador e
+   * NÃO era: aqui a conta era `approvedAt || fatura viva` e lá é
+   * `approvedAt || estado pós-aprovação`. As duas discordavam exatamente no
+   * resíduo de uma aprovação que falhou no meio — esta dizia CONGELADO (trava a
+   * tela) e `recalcQuoteTotals` dizia que não, e reescrevia os valores do pagador
+   * por cima da fatura já emitida. Agora as duas chamam `isBillingFrozen`, que
+   * tem os TRÊS braços, e a afirmação do comentário passou a ser verdadeira.
    */
   async isFrozen(billingId: string): Promise<boolean> {
-    const [approved, live] = await Promise.all([
-      (this.prisma as any).billing.count({
-        where: { id: billingId, approvedAt: { not: null } },
+    const [billing, live] = await Promise.all([
+      (this.prisma as any).billing.findUnique({
+        where: { id: billingId },
+        select: { approvedAt: true, status: true },
       }),
       this.prisma.invoice.count({
         where: {
@@ -749,6 +756,11 @@ export class BillingService {
         },
       }),
     ]);
-    return approved > 0 || live > 0;
+    if (!billing) return false;
+    return isBillingFrozen({
+      approvedAt: billing.approvedAt,
+      status: billing.status,
+      hasLiveInvoice: live > 0,
+    });
   }
 }

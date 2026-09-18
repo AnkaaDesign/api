@@ -35,6 +35,18 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
       billing: {
         select: { id: true, approvedAt: true, status: true, tasks: { select: { taskId: true } } },
       },
+      // AS FATURAS DO PAGADOR — o TERCEIRO braço de `isBillingFrozen`.
+      //
+      // Sem elas o congelamento era respondido só pelo carimbo e pelo estado, e o
+      // caso que escapava é o que mais dói aqui: o resíduo de uma aprovação que
+      // falhou no meio tem FATURA VIVA (com parcelas, boleto no Sicredi e nota na
+      // prefeitura) e `approvedAt` nulo com estado PENDENTE. Para o predicado de
+      // dois braços isso era "editável", e o laço abaixo reescrevia
+      // `subtotal`/`total` do pagador por cima do que a fatura já afirma.
+      //
+      // `invoices` no plural e SEM filtro: a relação é 1:N (índice único PARCIAL,
+      // só entre as não canceladas) e quem escolhe a viva é `liveInvoiceOf`.
+      invoices: { select: { status: true } },
     },
   });
 
@@ -76,11 +88,20 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     // guarda nenhuma: apagar um dos sessenta caminhões ou mover uma tarefa de
     // orçamento chama-a direto do repositório de tarefas.
     //
+    // A pergunta é `isBillingFrozen` com os TRÊS braços — carimbo, estado
+    // pós-aprovação e FATURA VIVA. O terceiro é o que fecha o resíduo do rollback
+    // de aprovação, onde a fatura existe e o carimbo não.
+    //
     // O número de uma cobrança congelada é o número que saiu no documento. Ele
     // entra no agregado COMO ESTÁ — somar o recalculado no lugar faria o total do
     // contrato divergir da soma das faturas emitidas, que é justamente a
     // invariante que o agregado existe para afirmar.
-    if (isBillingFrozen((config as any).billing ?? { approvedAt: null })) {
+    if (
+      isBillingFrozen({
+        ...((config as any).billing ?? { approvedAt: null }),
+        invoices: (config as any).invoices,
+      })
+    ) {
       aggregateSubtotal += Number(config.subtotal || 0);
       aggregateTotal += Number(config.total || 0);
       continue;

@@ -11,6 +11,7 @@
 
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
+import { hasLiveInvoice } from '@utils/billing-invoice';
 
 /**
  * O ORÇAMENTO ESTÁ TRAVADO PELO DINHEIRO?
@@ -38,8 +39,82 @@ export function isQuoteMoneyLocked(
   return !!billings && billings.some(isBillingFrozen);
 }
 
+/** A fatura, como as três formas de perguntar por ela a entregam. */
+type InvoiceLike = { status: string } | null | undefined;
+
+/** Um pagador, do qual só interessam as faturas. */
+type BillingPayerLike = { invoices?: readonly InvoiceLike[] | null; [key: string]: unknown };
+
 /**
- * UMA COBRANÇA ESTÁ CONGELADA? — o predicado, para UMA cobrança.
+ * O QUE `isBillingFrozen` PRECISA SABER — e as três formas de contar a fatura viva.
+ *
+ * Os dois primeiros braços se respondem com a linha do `Billing`. O terceiro
+ * precisa das FATURAS, e quem pergunta as tem de três jeitos diferentes: já
+ * contadas no banco (`hasLiveInvoice`), penduradas no PAGADOR
+ * (`BudgetPayer.invoices`) ou nos pagadores do faturamento (`customerConfigs`).
+ * Aceitar as três é o que permite haver um predicado só — a alternativa é cada
+ * chamador escrever o seu `|| temFatura`, que foi exatamente como as definições
+ * divergiram.
+ *
+ * ⚠️ NUNCA `invoice` no singular. `Invoice.customerConfigId` é único só entre as
+ * NÃO canceladas (índice parcial), então a relação é 1:N e a to-one devolvia uma
+ * linha arbitrária — ver `utils/billing-invoice.ts`.
+ */
+export type BillingFrozenInput = {
+  approvedAt: Date | string | null;
+  status?: string | null;
+  /** Braço 3, já respondido: quem contou no banco passa o booleano. */
+  hasLiveInvoice?: boolean | null;
+  /** Braço 3, pelo PAGADOR: `BudgetPayer.invoices`. */
+  invoices?: readonly InvoiceLike[] | null;
+  /**
+   * Braço 3, pelo FATURAMENTO: os pagadores, cada um com as suas faturas.
+   *
+   * A assinatura do índice existe porque quem passa `customerConfigs` quase sempre
+   * o carrega para OUTRA coisa (os ids, o desconto) e traz campos a mais. Sem ela,
+   * a detecção de "weak type" do TypeScript recusa `{ id: string }[]` por não ter
+   * propriedade em comum — recusando o chamador certo pelo motivo errado.
+   */
+  customerConfigs?: readonly (BillingPayerLike | null | undefined)[] | null;
+};
+
+/** O braço 3 isolado: existe fatura viva pendurada neste faturamento? */
+function billingHasLiveInvoice(billing: BillingFrozenInput): boolean {
+  if (billing.hasLiveInvoice) return true;
+  if (hasLiveInvoice({ invoices: billing.invoices as any })) return true;
+  const configs = billing.customerConfigs;
+  if (Array.isArray(configs)) {
+    return configs.some(c => hasLiveInvoice({ invoices: (c?.invoices ?? null) as any }));
+  }
+  return false;
+}
+
+/**
+ * ESTA COBRANÇA JÁ FOI APROVADA? — os dois braços que a linha do `Billing` responde.
+ *
+ * Carimbo OU estado pós-aprovação. É a pergunta que os gates de EMISSÃO fazem
+ * (nota fiscal, boleto): "existe aprovação por trás disto?". O gêmeo em SQL é
+ * `BILLING_FROZEN_WHERE`, e os dois TÊM de continuar dizendo o mesmo.
+ *
+ * ⚠️ NÃO inclui "tem fatura viva", e isso é decisão, não esquecimento: a fatura
+ * pode existir SEM aprovação — é exatamente o resíduo que o rollback de
+ * `internalApprove` deixa (fatura + `NfseDocument` PENDENTE + `approvedAt` nulo).
+ * Um gate de emissão que aceitasse o braço da fatura emitiria nota municipal
+ * sobre cobrança que a tela acabou de dizer que NÃO foi aprovada.
+ */
+export function isBillingApproved(billing: {
+  approvedAt: Date | string | null;
+  status?: string | null;
+}): boolean {
+  return !!billing.approvedAt || isPostApprovalBillingStatus(billing.status);
+}
+
+/**
+ * UMA COBRANÇA ESTÁ CONGELADA? — o predicado, para UMA cobrança. TRÊS braços.
+ *
+ *   1. `approvedAt` — o carimbo;
+ *   2. estado pós-aprovação — ver `isPostApprovalBillingStatus`;
+ *   3. FATURA VIVA — o dinheiro saiu em documento, com ou sem carimbo.
  *
  * Extraído de `isQuoteMoneyLocked` porque existiam QUATRO definições de
  * "congelado" espalhadas (a trava do orçamento, a reconciliação de pagadores, a
@@ -49,15 +124,20 @@ export function isQuoteMoneyLocked(
  * onde derivar `approvedAt`. Para as três definições antigas elas eram
  * editáveis.
  *
- * Quatro leituras de "o dinheiro já saiu?" são quatro respostas diferentes
- * esperando para divergir. Agora é uma, e quem pergunta em SQL usa
- * `BILLING_FROZEN_WHERE`, que diz o mesmo.
+ * O TERCEIRO BRAÇO entrou em 18/09/2026 e fechou a última divergência, que era a
+ * pior porque escrevia: `GET /billings/:id/frozen` respondia pela fatura viva e
+ * travava a tela, enquanto `recalcQuoteTotals` respondia só pelo carimbo e
+ * REESCREVIA `BudgetPayer.subtotal`/`total` por cima de fatura já emitida, boleto
+ * registrado e nota autorizada. As duas leituras discordavam exatamente no
+ * resíduo do rollback de aprovação — fatura viva, carimbo nulo, estado PENDENTE.
+ *
+ * ⚠️ QUEM PERGUNTA PELO BRAÇO 3 TEM DE TRAZÊ-LO. Sem `invoices` /
+ * `customerConfigs` / `hasLiveInvoice` no argumento, a função responde pelos dois
+ * primeiros braços e a fatura viva simplesmente não é vista — é o mesmo contrato
+ * de `isQuoteMoneyLocked` com o seu include.
  */
-export function isBillingFrozen(billing: {
-  approvedAt: Date | string | null;
-  status?: string | null;
-}): boolean {
-  return !!billing.approvedAt || isPostApprovalBillingStatus(billing.status);
+export function isBillingFrozen(billing: BillingFrozenInput): boolean {
+  return isBillingApproved(billing) || billingHasLiveInvoice(billing);
 }
 
 /**
@@ -86,10 +166,19 @@ export const POST_APPROVAL_BILLING_STATUSES = [
 ] as const;
 
 /**
- * O MESMO predicado, em `where` do Prisma — para quem conta em vez de carregar.
+ * `isBillingApproved` em `where` do Prisma — para quem conta em vez de carregar.
  *
  * Aplica-se sobre um `Billing`. Quem filtra PAGADORES o encaixa em
  * `{ billing: BILLING_FROZEN_WHERE }`.
+ *
+ * ⚠️ SÃO OS DOIS PRIMEIROS BRAÇOS, de propósito — o gêmeo em SQL de
+ * `isBillingApproved`, não de `isBillingFrozen`. O terceiro braço ("tem fatura
+ * viva") existiria como
+ * `{ customerConfigs: { some: { invoices: { some: { status: { not: 'CANCELLED' } } } } } }`,
+ * e acrescentá-lo aqui reabriria o buraco que este filtro fecha nos gates de
+ * emissão: o resíduo de uma aprovação que falhou no meio TEM fatura e NÃO tem
+ * aprovação, e passaria a emitir nota fiscal e boleto sozinho. Quem precisa dos
+ * três braços em SQL escreve o `OR` no seu próprio `where`, com esta nota à vista.
  */
 export const BILLING_FROZEN_WHERE: {
   OR: Array<{ approvedAt?: { not: null } } | { status?: { in: BILLING_STATUS[] } }>;

@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
   ForbiddenException,
   Logger,
+  forwardRef,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { assertCanUpdateServiceOrder } from './service-order.permissions';
@@ -73,6 +75,7 @@ import {
 } from '../../../constants/service-descriptions';
 import { calculateWorkingSeconds } from '../../../utils/working-hours';
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
+import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 
 @Injectable()
 export class ServiceOrderService {
@@ -89,6 +92,21 @@ export class ServiceOrderService {
     // a deixava CANCELADA para sempre (a varredura diária não varre orçamento
     // cancelado). `BillingStatusModule` só depende do Prisma; não fecha ciclo.
     private readonly billingStatusCascade: BillingStatusCascadeService,
+    // QUEM SABE SE O DOCUMENTO ASSINADO AINDA DESCREVE ESTE ORÇAMENTO.
+    //
+    // Este arquivo ESPELHA a O.S. de produção na lista de serviços do orçamento
+    // — cria, renomeia e apaga `BudgetItem`, e recalcula os totais. Até
+    // 18/09/2026 fazia tudo isso sem dizer uma palavra ao motor de assinatura:
+    // renomear a O.S. "Pintura lateral" para "Pintura lateral e traseira" num
+    // orçamento ASSINADO E SELADO reescrevia a linha (a descrição e o subtotal
+    // estão dentro do recorte material), e o envelope continuava CONCLUÍDO. O
+    // PDF selado e o banco passavam a descrever contratos diferentes, sem uma
+    // linha na trilha.
+    //
+    // `forwardRef` dos dois lados: `SignatureModule` puxa integrações grandes
+    // (NFS-e, Sicredi) e o custo de um ciclo futuro é um boot quebrado.
+    @Inject(forwardRef(() => SignatureEnvelopeService))
+    private readonly signatureEnvelopes: SignatureEnvelopeService,
   ) {
     // Let the Em Negociação sync util (plain function, no DI) emit
     // service_order.status.changed for its automatic transitions.
@@ -345,6 +363,10 @@ export class ServiceOrderService {
         }
       }
 
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
+
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get task's current service orders before creating new one
         const taskWithServices = await tx.task.findUnique({
@@ -518,6 +540,7 @@ export class ServiceOrderService {
                 // subtotal=total=sum here wiped customer discounts and left the
                 // configs drifting from the aggregate.
                 await recalcQuoteTotals(tx, taskWithQuote.quote.id);
+                quotesContentChanged.add(taskWithQuote.quote.id);
 
                 this.logger.log(
                   `[SO→QUOTE SYNC] Quote item created. Recalculated totals for quote ${taskWithQuote.quote.id}`,
@@ -536,6 +559,10 @@ export class ServiceOrderService {
 
         return created;
       });
+
+      // Commitado: o orçamento já tem a linha nova, então o motor de assinatura
+      // lê a verdade e não a lista anterior.
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
 
       // Emit events after successful creation
       this.eventEmitter.emit('service_order.created', {
@@ -662,6 +689,9 @@ export class ServiceOrderService {
       // conexão e enxergaria o status ANTIGO do orçamento, devolvendo exatamente
       // o estado que acabamos de mudar.
       const billingQuotesToRecompute = new Set<string>();
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
@@ -1591,13 +1621,18 @@ export class ServiceOrderService {
             data.observation !== undefined
               ? data.observation
               : (serviceOrderExists as any).observation;
-          await this.syncQuoteServiceForUpdatedSO(tx, serviceOrderExists as any, {
-            id,
-            taskId: (updated as any).taskId,
-            type: newType,
-            description: newDescription ?? null,
-            observation: newObservation ?? null,
-          });
+          await this.syncQuoteServiceForUpdatedSO(
+            tx,
+            serviceOrderExists as any,
+            {
+              id,
+              taskId: (updated as any).taskId,
+              type: newType,
+              description: newDescription ?? null,
+              observation: newObservation ?? null,
+            },
+            quotesContentChanged,
+          );
         } catch (syncError) {
           this.logger.error(
             `[SO→Quote sync] Failed to sync quote line for updated SO ${id} (non-fatal):`,
@@ -1607,6 +1642,11 @@ export class ServiceOrderService {
 
         return updated;
       });
+
+      // A lista de serviços mudou? Então o documento que o cliente assinou pode
+      // já não descrever este orçamento. Antes do recálculo das cobranças, que é
+      // best-effort e não deve atrasar esta pergunta.
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
 
       // AGORA o orçamento já está commitado, e a cascata lê a verdade nova.
       // Best-effort: recalcular estado derivado nunca pode derrubar a resposta
@@ -2075,6 +2115,36 @@ export class ServiceOrderService {
   }
 
   /**
+   * AVISA O MOTOR DE ASSINATURA DE QUE A LISTA DE SERVIÇOS MUDOU.
+   *
+   * Chamado DEPOIS DO COMMIT, sempre — `onQuoteContentChanged` remonta o recorte
+   * canônico do orçamento lendo o banco por outra conexão, e de dentro da
+   * transação ele enxergaria a lista ANTIGA e concluiria que nada mudou. É o
+   * mesmo motivo (e o mesmo desenho) de `billingQuotesToRecompute`.
+   *
+   * Best-effort, como os demais ganchos pós-commit deste arquivo: a O.S. já está
+   * gravada, e uma falha aqui não pode derrubar a resposta. O que se perde no
+   * pior caso é a invalidação — que a próxima escrita no orçamento reavalia,
+   * porque a comparação é contra o hash congelado e não contra um evento.
+   */
+  private async notifyQuoteContentChanged(
+    quoteIds: Iterable<string>,
+    userId?: string | null,
+  ): Promise<void> {
+    for (const quoteId of quoteIds) {
+      try {
+        await this.signatureEnvelopes.onQuoteContentChanged(quoteId, userId || null);
+      } catch (error) {
+        this.logger.error(
+          `[SO→Quote sync] Falha ao reavaliar as assinaturas do orçamento ${quoteId} ` +
+            '(a linha de serviço JÁ foi gravada):',
+          error,
+        );
+      }
+    }
+  }
+
+  /**
    * I11: When a PRODUCTION service order is DELETED directly via the SO module
    * (not through the task form), keep its mirrored priced BudgetItem line in
    * sync. Without this the quote line is orphaned and the quote totals keep
@@ -2094,6 +2164,8 @@ export class ServiceOrderService {
       description: string | null;
       observation?: string | null;
     },
+    /** Orçamentos escritos aqui, para o gancho de assinatura pós-commit. */
+    touched?: Set<string>,
   ): Promise<void> {
     if (
       deletedSO.type !== SERVICE_ORDER_TYPE.PRODUCTION ||
@@ -2164,6 +2236,7 @@ export class ServiceOrderService {
       where: { id: { in: toDelete.map((s: any) => s.id) } },
     });
     await recalcQuoteTotals(tx, task.quote.id);
+    touched?.add(task.quote.id);
     this.logger.log(
       `[SO→Quote sync] Removed ${toDelete.length} orphaned quote service line(s) after deleting PRODUCTION SO ${deletedSO.id}; recomputed totals.`,
     );
@@ -2194,6 +2267,8 @@ export class ServiceOrderService {
       description: string | null;
       observation?: string | null;
     },
+    /** Orçamentos escritos aqui, para o gancho de assinatura pós-commit. */
+    touched?: Set<string>,
   ): Promise<void> {
     if (!updatedSO.taskId) return;
     const wasProduction = oldSO.type === SERVICE_ORDER_TYPE.PRODUCTION;
@@ -2253,6 +2328,7 @@ export class ServiceOrderService {
             where: { id: { in: matches.map((m: any) => m.id) } },
           });
           await recalcQuoteTotals(tx, task.quote.id);
+          touched?.add(task.quote.id);
         }
         return;
       }
@@ -2261,6 +2337,7 @@ export class ServiceOrderService {
         data: { description: newDescription, observation: newObservation },
       });
       await recalcQuoteTotals(tx, task.quote.id);
+      touched?.add(task.quote.id);
       this.logger.log(
         `[SO→Quote sync] Renamed ${matches.length} quote service line(s) to match updated PRODUCTION SO ${updatedSO.id}.`,
       );
@@ -2288,6 +2365,7 @@ export class ServiceOrderService {
         where: { id: { in: matches.map((m: any) => m.id) } },
       });
       await recalcQuoteTotals(tx, task.quote.id);
+      touched?.add(task.quote.id);
       return;
     }
 
@@ -2305,6 +2383,7 @@ export class ServiceOrderService {
         },
       });
       await recalcQuoteTotals(tx, task.quote.id);
+      touched?.add(task.quote.id);
       return;
     }
   }
@@ -2320,6 +2399,10 @@ export class ServiceOrderService {
           'Ordem de serviço não encontrada. Verifique se o ID está correto.',
         );
       }
+
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Delete the service order
@@ -2342,7 +2425,11 @@ export class ServiceOrderService {
         // a PRODUCTION SO is deleted directly. Non-fatal — a sync hiccup must not
         // block the deletion.
         try {
-          await this.cascadeRemoveQuoteServiceForDeletedSO(tx, serviceOrderExists as any);
+          await this.cascadeRemoveQuoteServiceForDeletedSO(
+            tx,
+            serviceOrderExists as any,
+            quotesContentChanged,
+          );
         } catch (syncError) {
           this.logger.error(
             `[SO→Quote sync] Failed to remove quote line for deleted SO ${id} (non-fatal):`,
@@ -2350,6 +2437,8 @@ export class ServiceOrderService {
           );
         }
       });
+
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
 
       return {
         success: true,
@@ -2516,6 +2605,10 @@ export class ServiceOrderService {
         }
       }
 
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Convert all descriptions to Title Case and add createdById
         // Auto-complete SOs for COMPLETED tasks
@@ -2658,6 +2751,7 @@ export class ServiceOrderService {
                 // BudgetPayer consistent (a naive subtotal=total=sum
                 // wiped discounts and drifted the configs).
                 await recalcQuoteTotals(tx, quoteId);
+                quotesContentChanged.add(quoteId);
 
                 this.logger.log(
                   `[SO→QUOTE SYNC] Batch: Quote item created. Recalculated totals for quote ${quoteId}`,
@@ -2679,6 +2773,8 @@ export class ServiceOrderService {
 
         return batchResult;
       });
+
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
 
       // Emit events for all successfully created service orders
       // This must happen AFTER the transaction completes successfully
@@ -2963,6 +3059,9 @@ export class ServiceOrderService {
       // Paridade com o caminho de atualização única: orçamentos cujas cobranças
       // precisam ser recalculadas DEPOIS do commit. Ver o comentário de lá.
       const billingQuotesToRecompute = new Set<string>();
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
@@ -3003,13 +3102,18 @@ export class ServiceOrderService {
             // I11: keep the mirrored priced quote line in sync with this SO's
             // description/observation/type edit (parity with single update).
             try {
-              await this.syncQuoteServiceForUpdatedSO(tx, oldData as any, {
-                id: serviceOrder.id,
-                taskId: (serviceOrder as any).taskId,
-                type: (serviceOrder as any).type,
-                description: (serviceOrder as any).description ?? null,
-                observation: (serviceOrder as any).observation ?? null,
-              });
+              await this.syncQuoteServiceForUpdatedSO(
+                tx,
+                oldData as any,
+                {
+                  id: serviceOrder.id,
+                  taskId: (serviceOrder as any).taskId,
+                  type: (serviceOrder as any).type,
+                  description: (serviceOrder as any).description ?? null,
+                  observation: (serviceOrder as any).observation ?? null,
+                },
+                quotesContentChanged,
+              );
             } catch (syncError) {
               this.logger.error(
                 `[SO→Quote sync] Failed to sync quote line for batch-updated SO ${serviceOrder.id} (non-fatal):`,
@@ -3756,6 +3860,8 @@ export class ServiceOrderService {
         return batchResult;
       });
 
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
+
       // Commitado: as cobranças dos orçamentos cancelados neste lote podem ser
       // recalculadas com a verdade nova. Best-effort, como no caminho único.
       for (const quoteId of billingQuotesToRecompute) {
@@ -4073,6 +4179,10 @@ export class ServiceOrderService {
         );
       }
 
+      // ORÇAMENTOS CUJA LISTA DE SERVIÇOS FOI REESCRITA por este espelho. O motor
+      // de assinatura precisa saber — ver `notifyQuoteContentChanged`.
+      const quotesContentChanged = new Set<string>();
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.deleteManyWithTransaction(
           tx,
@@ -4098,7 +4208,11 @@ export class ServiceOrderService {
             // I11: remove the orphaned mirrored quote line + recompute totals for
             // each batch-deleted PRODUCTION SO (parity with single delete).
             try {
-              await this.cascadeRemoveQuoteServiceForDeletedSO(tx, oldData as any);
+              await this.cascadeRemoveQuoteServiceForDeletedSO(
+                tx,
+                oldData as any,
+                quotesContentChanged,
+              );
             } catch (syncError) {
               this.logger.error(
                 `[SO→Quote sync] Failed to remove quote line for batch-deleted SO ${id} (non-fatal):`,
@@ -4110,6 +4224,8 @@ export class ServiceOrderService {
 
         return batchResult;
       });
+
+      await this.notifyQuoteContentChanged(quotesContentChanged, userId);
 
       // Convert BatchDeleteResult to BatchOperationResult
       const batchOperationResult = {

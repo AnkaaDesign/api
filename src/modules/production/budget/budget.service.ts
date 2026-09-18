@@ -107,6 +107,7 @@ import {
 } from '../../../utils/budget-customer-config-sync';
 import {
   BILLING_FROZEN_WHERE,
+  isBillingApproved,
   isBillingFrozen,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
@@ -118,7 +119,10 @@ import { LIVE_INVOICE_WHERE } from '../../../utils/billing-invoice';
 import { deriveInvoicePaymentState } from '@modules/financial/invoice/invoice-payment-state';
 import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
-import { deleteInstallmentsWithSlips } from '@utils/billing-teardown';
+import {
+  abandonUnmintedNfseDocuments,
+  deleteInstallmentsWithSlips,
+} from '@utils/billing-teardown';
 import { reconcileBillingsForQuote } from '@utils/budget-customer-config-sync';
 
 /**
@@ -2389,7 +2393,13 @@ export class BudgetService {
         paymentCondition: c.paymentCondition ?? null,
         customPaymentText: c.customPaymentText ?? null,
         paymentConfig: c.paymentConfig ?? null,
-        billingFrozen: isBillingFrozen(c.billing ?? { approvedAt: null, status: null }),
+        // Os TRÊS braços: a consulta acima já traz `invoices`, e sem passá-las o
+        // pagador com fatura viva e carimbo levantado (resíduo de uma aprovação
+        // que falhou no meio) aparecia como editável para a mescla.
+        billingFrozen: isBillingFrozen({
+          ...(c.billing ?? { approvedAt: null, status: null }),
+          invoices: c.invoices,
+        }),
         // DINHEIRO VIVO sem cobrança congelada: fatura não cancelada, nota não
         // cancelada, ou qualquer centavo recebido. São três perguntas porque são
         // três sistemas — o nosso, a prefeitura e o banco — e cada um deixa um
@@ -3744,7 +3754,8 @@ export class BudgetService {
     // CONCILIAÇÃO, que nunca teve fatura de onde derivar a data (orçamentos 34,
     // 216, 287, 347, 351 e 309 do acervo). O contador alimenta o "aprovar tudo",
     // então a conta mentia e a aprovação tentava refaturar dinheiro já recebido.
-    // `BILLING_FROZEN_WHERE` é o MESMO predicado que `isBillingFrozen`, em SQL.
+    // `BILLING_FROZEN_WHERE` é `isBillingApproved` em SQL — os dois braços que a
+    // linha do `Billing` responde, que é o que "pendente para aprovar" quer dizer.
     return (this.prisma as any).billing.count({
       where: { quoteId, NOT: BILLING_FROZEN_WHERE },
     });
@@ -3792,7 +3803,7 @@ export class BudgetService {
         approvedAt: true,
         // ⚠️ O ESTADO VEM JUNTO, e não é enfeite: há cobrança LIQUIDADA sem
         // carimbo (conciliação bancária, sem fatura de onde derivar a data). Sem
-        // `status` no select, `isBillingFrozen` responderia pelo carimbo apenas —
+        // `status` no select, `isBillingApproved` responderia pelo carimbo apenas —
         // que é exatamente a cegueira que fazia "Aprovar" emitir NFS-e e boleto
         // novos sobre dinheiro já recebido.
         status: true,
@@ -3821,10 +3832,14 @@ export class BudgetService {
     //   · SEM ENDEREÇO — todos os faturamentos ainda pendentes. É o "faturar os
     //     sessenta de uma vez".
     const targetBillings = quoteBillings.filter(b => {
-      // Congelada não entra — nem por carimbo, nem por ESTADO pós-aprovação. É o
-      // mesmo predicado da trava do dinheiro (`isBillingFrozen`), e usá-lo aqui é
-      // o que impede reaprovar uma cobrança liquidada por conciliação.
-      if (isBillingFrozen(b)) return false;
+      // Já aprovada não entra — nem por carimbo, nem por ESTADO pós-aprovação. É
+      // `isBillingApproved`, os dois braços que a linha do `Billing` responde, e
+      // usá-lo aqui é o que impede reaprovar uma cobrança liquidada por
+      // conciliação. NÃO é `isBillingFrozen`: o terceiro braço daquele ("tem
+      // fatura viva") transformaria o resíduo de uma aprovação que falhou no meio
+      // — fatura viva, carimbo levantado — em cobrança inaprovável, que é
+      // exatamente o beco que a pessoa precisa sair clicando "Aprovar" de novo.
+      if (isBillingApproved(b)) return false;
       if (billingId) return b.id === billingId;
       if (!sliceTaskId) return true;
       // Faturamento sem cobertura é o orçamento que nasceu antes do vínculo das
@@ -3838,7 +3853,7 @@ export class BudgetService {
 
     if (targetBillings.length === 0) {
       const jaAprovado =
-        billingId && quoteBillings.some(b => b.id === billingId && isBillingFrozen(b));
+        billingId && quoteBillings.some(b => b.id === billingId && isBillingApproved(b));
       if (billingId && !jaAprovado) {
         throw new NotFoundException(`Faturamento ${billingId} não pertence ao orçamento ${id}.`);
       }
@@ -3880,6 +3895,55 @@ export class BudgetService {
         `Não é possível faturar um orçamento em "${this.getStatusLabel(
           existing.status as TASK_QUOTE_STATUS,
         )}". Aprove o orçamento antes de aprovar o faturamento.`,
+      );
+    }
+
+    // ── E A COLETA DE ASSINATURAS AINDA VALE? ────────────────────────────────
+    //
+    // O status do orçamento NÃO responde isso, e é aqui que a diferença aparece.
+    // A guarda que conhece a assinatura mora na transição `→ APPROVED`
+    // (`validateStatusPrerequisites`) — e ela é pulada exatamente onde importa:
+    // `markInvalidatedBySignature` NÃO devolve a PENDENTE um orçamento com
+    // dinheiro travado (só emite um aviso no log, de propósito, porque há NFS-e
+    // e boleto na rua). Então o orçamento permanece APPROVED, nenhuma transição
+    // acontece, e a guarda nunca roda de novo.
+    //
+    // O caso que abriu isto: orçamento PER_TASK de 60 veículos, lote 1 aprovado
+    // (dinheiro travado). Trocam o layout → envelope INVALIDATED → o orçamento
+    // continua APPROVED → os lotes 2..60 seguem aprováveis, cada um emitindo
+    // nota municipal e boleto contra um contrato cujas assinaturas foram
+    // anuladas. Faturar é ATO NOVO, e cada ato novo precisa perguntar de novo.
+    //
+    // RUNNING também barra: uma coleta EM ANDAMENTO é o orçamento dizendo que
+    // ainda está colhendo a aceitação: emitir nota no meio da cerimônia fatura
+    // um contrato que ninguém terminou de aceitar.
+    //
+    // SÓ MORDE QUEM TEVE COLETA. Orçamento que nunca foi à assinatura — a maioria
+    // — não tem envelope nenhum e continua faturável como hoje.
+    const ultimoEnvelope = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId: id },
+      orderBy: { createdAt: 'desc' },
+      select: { status: true, invalidatedReason: true },
+    });
+    if (
+      ultimoEnvelope &&
+      (ultimoEnvelope.status === 'INVALIDATED' ||
+        ultimoEnvelope.status === 'REFUSED' ||
+        ultimoEnvelope.status === 'RUNNING')
+    ) {
+      const motivo =
+        ultimoEnvelope.status === 'INVALIDATED'
+          ? 'As assinaturas deste orçamento foram invalidadas por uma alteração' +
+            (ultimoEnvelope.invalidatedReason
+              ? ` (${ultimoEnvelope.invalidatedReason.replace(/^Alteração em:\s*/, '')})`
+              : '') +
+            '.'
+          : ultimoEnvelope.status === 'REFUSED'
+            ? 'A coleta de assinaturas deste orçamento foi RECUSADA pelo cliente.'
+            : 'A coleta de assinaturas deste orçamento ainda está em andamento.';
+      throw new BadRequestException(
+        `${motivo} Não é possível emitir nota fiscal e boleto contra um contrato sem aceitação ` +
+          'válida. Conclua (ou reemita) a assinatura antes de aprovar o faturamento.',
       );
     }
     // Os pré-requisitos da COBRANÇA — condição de pagamento, dados do pagador,
@@ -4928,6 +4992,22 @@ export class BudgetService {
       // SetNull) and they remain linked to the task as permanent NFS-e history. Only notes
       // confirmed CANCELLED at the prefeitura reach this point (the guard above blocks revert
       // while any note is still active), so no active fiscal document is ever stranded.
+      // A nota que NUNCA foi cunhada morre com a fatura — ver
+      // `abandonUnmintedNfseDocuments`. Sem isto, um `NfseDocument` PENDENTE
+      // criado entre a guarda de artefatos e esta transação (um clique em "Emitir
+      // NFS-e") perde a fatura por `SetNull` e some para sempre num beco: a
+      // varredura não o emite, o vigia de notas órfãs não o vê, e o histórico
+      // fiscal da tarefa o mostra "Pendente" eternamente.
+      const abandonadas = await abandonUnmintedNfseDocuments(
+        tx,
+        this.invoicesOfQuote(id, billingId),
+        'Faturamento revertido antes de a nota ser emitida — nenhuma NFS-e chegou a existir na prefeitura.',
+      );
+      if (abandonadas > 0) {
+        this.logger.log(
+          `[REVERT_BILLING] ${abandonadas} NFS-e pendente(s) sem nota na prefeitura marcada(s) como cancelada(s).`,
+        );
+      }
       await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id, billingId) });
       // ── O CARIMBO DE CADA FATURAMENTO VOLTA A ZERO ──────────────────────
       //
@@ -5171,6 +5251,20 @@ export class BudgetService {
         OR: [{ invoice: this.invoicesOfQuote(id) }, { customerConfig: { quoteId: id } }],
         AND: [{ status: { not: 'PAID' }, paidAmount: { lte: 0 } }],
       });
+      // Mesmo gesto da reversão: a nota que nunca foi cunhada não sobrevive à
+      // fatura. As AUTORIZADAS já foram tratadas acima (cancelamento na Elotech) e
+      // não entram aqui — a dupla trava `nfseNumber`/`elotechNfseId` as protege.
+      const abandonadasNoCancelamento = await abandonUnmintedNfseDocuments(
+        tx,
+        this.invoicesOfQuote(id),
+        'Orçamento cancelado antes de a nota ser emitida — nenhuma NFS-e chegou a existir na prefeitura.',
+      );
+      if (abandonadasNoCancelamento > 0) {
+        this.logger.log(
+          `[CANCEL_QUOTE] ${abandonadasNoCancelamento} NFS-e pendente(s) sem nota na prefeitura ` +
+            `marcada(s) como cancelada(s).`,
+        );
+      }
       await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
       // O carimbo de cada faturamento volta a zero — mesma razão da reversão.
       await (tx as any).billing.updateMany({
@@ -6058,8 +6152,9 @@ export class BudgetService {
 
       // ── A VALIDAÇÃO RECUSA EXATAMENTE O QUE O GERADOR NÃO SABE FAZER ───────
       //
-      // Os geradores de parcela (`generateInstallmentsFromCondition` e
-      // `...FromPaymentConfig`) começam os dois por `if (total <= 0) return []`.
+      // Os geradores de parcela vivem em `InvoiceGenerationService`
+      // (`generateInstallmentsFromCondition` e `...FromPaymentConfig`) e começam
+      // os dois por `if (total <= 0) return []`.
       // Zero parcelas = nenhuma fatura para este pagador — e a aprovação seguia
       // adiante e carimbava a cobrança assim mesmo. O acervo tem 11 pagadores
       // pendentes nesse estado: aprová-los produz cobrança APROVADA sem fatura,
@@ -6162,87 +6257,5 @@ export class BudgetService {
    */
   private getStatusOrder(status: TASK_QUOTE_STATUS): number {
     return TASK_QUOTE_STATUS_ORDER[status] || 1;
-  }
-
-  /**
-   * Convert paymentCondition + finishedAt + total into installment records.
-   * Due dates are calculated from task.finishedAt:
-   * - CASH_5: 1 payment, 5 days from finishedAt
-   * - CASH_40: 1 payment, 40 days from finishedAt
-   * - INSTALLMENTS_N: first at 5 days from finishedAt, subsequent +20 days each
-   */
-  generateInstallmentsFromCondition(
-    paymentCondition: string | null,
-    finishedAt: Date,
-    total: number,
-  ): { number: number; dueDate: Date; amount: number }[] {
-    this.logger.log(
-      `[INSTALLMENTS] generateInstallmentsFromCondition: condition=${paymentCondition}, finishedAt=${finishedAt}, total=${total}`,
-    );
-
-    // Validate total: must be a finite positive number
-    if (!Number.isFinite(total) || total <= 0) {
-      this.logger.log(`[INSTALLMENTS] Skipping: total is invalid (${total})`);
-      return [];
-    }
-
-    if (!paymentCondition || paymentCondition === 'CUSTOM') {
-      this.logger.log(`[INSTALLMENTS] Skipping: condition is ${paymentCondition}`);
-      return [];
-    }
-
-    const baseDate = new Date(finishedAt);
-
-    // CASH_5: single payment, 5 days from finishedAt
-    if (paymentCondition === 'CASH_5') {
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + 5);
-      return [{ number: 1, dueDate, amount: total }];
-    }
-
-    // CASH_40: single payment, 40 days from finishedAt
-    if (paymentCondition === 'CASH_40') {
-      const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + 40);
-      return [{ number: 1, dueDate, amount: total }];
-    }
-
-    // INSTALLMENTS_N: first at 5 days, subsequent +20 days each
-    const conditionMap: Record<string, number> = {
-      INSTALLMENTS_2: 2,
-      INSTALLMENTS_3: 3,
-      INSTALLMENTS_4: 4,
-      INSTALLMENTS_5: 5,
-      INSTALLMENTS_6: 6,
-      INSTALLMENTS_7: 7,
-    };
-
-    const totalInstallments = conditionMap[paymentCondition] || 1;
-
-    // Use integer math (cents) to avoid floating point rounding errors
-    const totalCents = Math.round(total * 100);
-    const baseCents = Math.floor(totalCents / totalInstallments);
-    const installmentAmount = baseCents / 100;
-
-    const installments: { number: number; dueDate: Date; amount: number }[] = [];
-    for (let i = 0; i < totalInstallments; i++) {
-      const dueDate = new Date(baseDate);
-      // First installment: 5 days from finishedAt; subsequent: +20 days each
-      dueDate.setDate(dueDate.getDate() + 5 + i * 20);
-
-      // Put remainder on the LAST installment so sum equals exactly the total
-      const isLast = i === totalInstallments - 1;
-      const amount = isLast
-        ? (totalCents - baseCents * (totalInstallments - 1)) / 100
-        : installmentAmount;
-
-      installments.push({
-        number: i + 1,
-        dueDate,
-        amount,
-      });
-    }
-
-    return installments;
   }
 }

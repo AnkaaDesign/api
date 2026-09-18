@@ -4,6 +4,7 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { InvoiceRepository } from './repositories/invoice.repository';
 import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
 import { deriveInvoicePaymentState } from './invoice-payment-state';
+import { billingDeepLinkForInvoice } from '@utils/billing-links';
 
 /**
  * Minimal Prisma transaction-client shape needed by recalcInvoicePaymentState.
@@ -19,7 +20,13 @@ import type {
   InvoiceGetManyFormData,
   InvoiceGetManyResponse,
 } from '@types';
-import { INVOICE_STATUS, BANK_SLIP_STATUS, NFSE_STATUS } from '@constants';
+import {
+  INVOICE_STATUS,
+  BANK_SLIP_STATUS,
+  NFSE_STATUS,
+  BILLING_STATUS,
+  BILLING_STATUS_ORDER,
+} from '@constants';
 
 /**
  * Service for managing Invoice entities.
@@ -64,12 +71,19 @@ export class InvoiceService {
       const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
       const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
 
+      // A fatura conjunta e o lote têm `Invoice.taskId` NULO por construção
+      // (`sliceAnchorTaskId` só o preenche quando a cobertura tem UM veículo), e o
+      // link ia para `/detalhes/null` — tela morta. `billingDeepLinkForInvoice`
+      // resolve pela COBERTURA e nunca devolve nulo.
+      const billingLink = withdrawalId
+        ? null
+        : await billingDeepLinkForInvoice(this.prisma as any, invoice.id);
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined;
-      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
+        : billingLink!.web;
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : billingLink!.mobile;
 
       await this.dispatchService.dispatchByConfiguration('invoice.cancelled', 'system', {
         entityType: 'Invoice',
@@ -311,7 +325,29 @@ export class InvoiceService {
         if (liveOnBilling === 0) {
           const cleared = await this.prisma.billing.updateMany({
             where: { id: billingId, approvedAt: { not: null } },
-            data: { approvedAt: null },
+            data: {
+              approvedAt: null,
+              // ── O ESTADO VAI JUNTO COM O CARIMBO, NA MESMA ESCRITA ──────────
+              //
+              // Era só `approvedAt: null`. A cascata logo abaixo REALMENTE roda
+              // (`cascadeFromQuote` → `recomputeForQuote`) e devolveria a cobrança
+              // a PENDENTE — mas ela roda FORA desta escrita, depois de duas
+              // consultas e um `budget.updateMany`, e engole erro por cobrança.
+              // Morrer nesse intervalo deixava `status` pós-aprovação com
+              // `approvedAt` nulo, e essa combinação fecha as TRÊS portas de uma
+              // vez: não é alvo de aprovação (o carimbo sumiu), não é revertível
+              // (não há fatura), e não volta a Pendente sozinha. A tela mostra
+              // "Aprovado"/"Vencido" sem cobrança nenhuma por trás e o dinheiro do
+              // orçamento segue travado por `isBillingFrozen`.
+              //
+              // É a mesma escrita que `revertBilling` e o cancelamento do orçamento
+              // fazem (`budget.service.ts`): PENDENTE aqui deixa um estado COERENTE
+              // mesmo se a cascata falhar, e a cascata só REFINA depois — devolvendo
+              // PARCIAL/LIQUIDADO quando sobrou parcela paga, que é o único caso em
+              // que PENDENTE estaria por baixo da verdade.
+              status: BILLING_STATUS.PENDING as any,
+              statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+            },
           });
           if (cleared.count > 0) {
             this.logger.log(

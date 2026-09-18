@@ -7,8 +7,10 @@ import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { buildNfseCustomer, NFSE_CUSTOMER_SELECT } from './nfse-tomador.mapper';
 import { NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
-import { coveredTaskIds, orderNumberLabel } from '../../../utils/quote-tasks';
+import { orderNumberLabel } from '../../../utils/quote-tasks';
+import { missingCoverageError, resolveCoveredVehicles } from '../../../utils/nfse-coverage';
 import { BILLING_FROZEN_WHERE } from '../../../modules/production/budget/budget.guards';
+import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
 
 /**
  * Scheduler for automatic NFS-e emission.
@@ -74,33 +76,6 @@ const resolveGlobalDiscount = (
   return { type: 'FIXED_VALUE', value: gap };
 };
 
-/**
- * OS VEÍCULOS QUE ESTA NOTA COBRE, na ordem canônica do orçamento.
- *
- * Era `customerConfig.taskId` — preenchido querendo dizer "um veículo", nulo
- * querendo dizer "todos". A coluna SAIU em `20260913120000_billing_coverage` e a
- * leitura antiga continuou compilando porque passava por `as any`: a condição
- * era sempre falsa, e toda nota que não tivesse `Invoice.taskId` caía no ramo
- * "os veículos do orçamento". Para a nota de um LOTE — vinte dos sessenta — isso
- * é declarar à prefeitura quarenta caminhões que ela não cobra.
- *
- * A resposta é a COBERTURA (`BillingTask`), e é a cobertura inteira: a
- * âncora (`sliceTask`) seria uma afirmação falsa sobre os outros dezenove.
- *
- * O recuo para `Invoice.task` — e, na falta dele, para o orçamento todo — é o
- * que sustenta o acervo: fatura antiga, emitida antes da migração, sem linha de
- * cobertura nenhuma.
- */
-const coveredVehicleRows = (
-  customerConfig: unknown,
-  quoteTaskRows: Array<{ id: string }>,
-  fallbackTask: { id: string } | null | undefined,
-): Array<any> => {
-  const covered = new Set(coveredTaskIds(customerConfig as any));
-  const own = covered.size > 0 ? quoteTaskRows.filter(t => covered.has(t.id)) : [];
-  if (own.length > 0) return own as Array<any>;
-  return (fallbackTask ? [fallbackTask] : quoteTaskRows) as Array<any>;
-};
 
 @Injectable()
 export class NfseEmissionScheduler {
@@ -115,6 +90,26 @@ export class NfseEmissionScheduler {
     private readonly municipalNfseService: ElotechOxyNfseService,
     private readonly dispatchService: NotificationDispatchService,
   ) {}
+
+  /**
+   * PARA a emissão deste documento com uma recusa DEFINITIVA.
+   *
+   * `retryAfter: null` porque o motivo não se resolve sozinho — é o mesmo
+   * protocolo da recusa por cadastro incompleto do tomador
+   * (`elotech-oxy-nfse.service.ts`). Sem parar aqui, o documento voltaria PENDENTE
+   * à varredura das 09:00 todos os dias, para falhar pela mesma razão.
+   */
+  private async parkNfseDocumentAsError(docId: string, errorMessage: string): Promise<void> {
+    await this.prisma.nfseDocument.update({
+      where: { id: docId },
+      data: {
+        status: NfseStatus.ERROR,
+        errorMessage: errorMessage.slice(0, 1000),
+        errorCount: { increment: 1 },
+        retryAfter: null,
+      },
+    });
+  }
 
   /**
    * Emit nfse.issued (AUTHORIZED) or nfse.rejected (ERROR) to FINANCIAL/ADMIN.
@@ -144,16 +139,19 @@ export class NfseEmissionScheduler {
       // "da tarefa X" for task-backed invoices, "da operação externa" for withdrawal-backed.
       const refLabel = isWithdrawal ? 'da operação externa' : `da tarefa ${taskName}`;
 
+      // A fatura conjunta e o lote têm `Invoice.taskId` NULO por construção
+      // (`sliceAnchorTaskId` só o preenche quando a cobertura tem UM veículo), e o
+      // link ia para `/detalhes/null` — tela morta. `billingDeepLinkForInvoice`
+      // resolve pela COBERTURA e nunca devolve nulo.
+      const billingLink = isWithdrawal
+        ? null
+        : await billingDeepLinkForInvoice(this.prisma as any, invoice.id);
       const webUrl = isWithdrawal
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined;
-      // Mobile billing detail screen is keyed by the TASK id
-      // (src/app/(tabs)/financeiro/faturamento/detalhes/[id].tsx). Omit when
-      // there is no task (withdrawal-backed invoices have no mobile screen).
-      const mobileUrl =
-        !isWithdrawal && taskId ? `/(tabs)/financeiro/faturamento/detalhes/${taskId}` : undefined;
+        : billingLink!.web;
+      const mobileUrl = isWithdrawal
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : billingLink!.mobile;
 
       if (outcome === 'AUTHORIZED') {
         await this.dispatchService.dispatchByConfiguration('nfse.issued', 'system', {
@@ -589,11 +587,26 @@ export class NfseEmissionScheduler {
             // usados por tudo o que fala deles: a discriminação, o nº do pedido
             // e a âncora do rótulo.
             const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
-            const coveredRows = coveredVehicleRows(
+            const coverage = resolveCoveredVehicles(
               (invoice as any).customerConfig,
               quoteTaskRows,
               task as any,
             );
+            // Cobertura que FALTA não vira "todos os veículos" — ver
+            // `missingCoverageError`. A nota não sai; o documento para em ERROR.
+            const coverageError = missingCoverageError(customerConfig, coverage);
+            if (coverageError) {
+              errors++;
+              this.logger.error(
+                `NfseDocument ${doc.id} recusado — ${coverageError} (fatura ${invoice.id})`,
+              );
+              await this.parkNfseDocumentAsError(doc.id, coverageError);
+              await this.dispatchNfseOutcomeNotification(invoice.id, 'ERROR', {
+                errorMessage: coverageError,
+              });
+              continue;
+            }
+            const coveredRows = coverage.rows;
             // A tarefa da FATIA: a PRIMEIRA que esta nota cobre. Serve de
             // contexto (rótulo de fallback, placa do cabeçalho); quais veículos a
             // nota cobre é `emitVehicles`, abaixo. Era `quoteTaskRows[0]` — o
@@ -624,6 +637,9 @@ export class NfseEmissionScheduler {
               chassisNumber: t.truck?.chassisNumber ?? null,
               category: t.truck?.category ?? null,
               implementType: t.truck?.implementType ?? null,
+              // O pedido de compra é DA TAREFA: numa fatura conjunta os veículos
+              // podem ter pedidos diferentes, e a discriminação cita o de cada um.
+              orderNumber: t.customerOrderNumber ?? null,
             }));
             emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
 
@@ -730,6 +746,36 @@ export class NfseEmissionScheduler {
       where: {
         invoiceId: { in: invoiceIds },
         status: { in: [NfseStatus.PENDING, NfseStatus.ERROR] },
+        // ── SÓ SOBRE COBRANÇA QUE DE FATO FOI APROVADA ────────────────────────
+        //
+        // O MESMO predicado da varredura das 09:00 (ver o `where` de
+        // `processNfseEmissions`), e pela mesma razão — que aqui era mais grave,
+        // porque este caminho é o do BOTÃO.
+        //
+        // `generateInvoicesForTaskDetailed` COMMITA a própria transação, e só
+        // depois dela as guardas de `internalApprove` podem lançar (pagador sem
+        // condição de pagamento, divergência de valor, falha da cascata). O
+        // rollback de lá levanta o CARIMBO e grava PENDENTE — não apaga a fatura
+        // nem este `NfseDocument`. O resíduo é exatamente: fatura viva + nota
+        // PENDENTE + cobrança NÃO aprovada. O operador clicava "Emitir NFS-e" e
+        // nascia nota municipal VIVA de uma cobrança que a tela acabara de dizer
+        // que não foi aprovada — desfazer custa cancelamento + substituição, com
+        // o fiscal da prefeitura no meio.
+        //
+        // A aprovação legítima carimba `Billing.approvedAt` ANTES de gerar as
+        // faturas e de chamar este método, então o caminho feliz passa por aqui
+        // sem mudança nenhuma.
+        //
+        // A retirada externa ("Operação Externa") não tem `Billing` e continua
+        // passando pelo ramo dela — daí o OR, e não um AND direto.
+        invoice: {
+          is: {
+            OR: [
+              { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+              { externalOperationId: { not: null } },
+            ],
+          },
+        },
       },
       include: {
         invoice: {
@@ -825,6 +871,17 @@ export class NfseEmissionScheduler {
     });
 
     this.logger.log(`[NFSE_TARGETED] Found ${docs.length} NfSe document(s) to emit`);
+
+    // O filtro acima pode ter engolido documentos, e engolir em silêncio é o que
+    // faria o operador ficar esperando por uma nota que nunca vai sair.
+    if (docs.length < invoiceIds.length) {
+      const encontrados = new Set(docs.map(d => d.invoiceId));
+      const ausentes = invoiceIds.filter(id => !encontrados.has(id));
+      this.logger.warn(
+        `[NFSE_TARGETED] ${ausentes.length} fatura(s) sem documento emissível — nota já emitida, ` +
+          `em emissão, ou cobrança NÃO aprovada: [${ausentes.join(', ')}]`,
+      );
+    }
 
     let emitted = 0;
     let errors = 0;
@@ -929,7 +986,22 @@ export class NfseEmissionScheduler {
           const quoteTaskRows = (nfseQuote?.tasks ?? []) as Array<any>;
           // Mesma leitura do caminho agendado: a cobertura, uma vez. A âncora é
           // o primeiro veículo DESTA nota, não o primeiro do orçamento.
-          const coveredRows = coveredVehicleRows(customerConfig, quoteTaskRows, task as any);
+          const coverage = resolveCoveredVehicles(customerConfig, quoteTaskRows, task as any);
+          // E a MESMA recusa: cobertura que falta não vira "todos os veículos".
+          const coverageError = missingCoverageError(customerConfig, coverage);
+          if (coverageError) {
+            errors++;
+            this.logger.error(
+              `[NFSE_TARGETED] NfseDocument ${doc.id} recusado — ${coverageError} ` +
+                `(fatura ${invoice.id})`,
+            );
+            await this.parkNfseDocumentAsError(doc.id, coverageError);
+            await this.dispatchNfseOutcomeNotification(invoice.id, 'ERROR', {
+              errorMessage: coverageError,
+            });
+            continue;
+          }
+          const coveredRows = coverage.rows;
           const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
           const truck = sliceTask?.truck;
           emitTask = {
@@ -951,6 +1023,8 @@ export class NfseEmissionScheduler {
             chassisNumber: t.truck?.chassisNumber ?? null,
             category: t.truck?.category ?? null,
             implementType: t.truck?.implementType ?? null,
+            // Ver o irmão acima: o pedido de compra mora na tarefa.
+            orderNumber: t.customerOrderNumber ?? null,
           }));
           emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
           // Mesmo teto do caminho agendado — ver a nota lá.
@@ -1080,13 +1154,22 @@ export class NfseEmissionScheduler {
         ? 'Operação Externa'
         : invoice?.task?.name || fallbackTask?.name || 'N/A';
       const refLabel = isWithdrawal ? 'da operação externa' : `da tarefa ${taskName}`;
+      // Mesmo link da emissão — com uma ressalva: aqui a FATURA costuma já não
+      // existir (o cancelamento na Elotech é assíncrono e a reversão apaga a
+      // fatura no mesmo gesto, `invoiceId` vira nulo por `SetNull`). Com fatura,
+      // pergunta-se à cobertura; sem ela, sobra a tarefa durável da nota.
+      const billingLink =
+        invoice && !isWithdrawal
+          ? await billingDeepLinkForInvoice(this.prisma as any, invoice.id)
+          : null;
       const webUrl = isWithdrawal
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined;
-      const mobileUrl =
-        !isWithdrawal && taskId ? `/(tabs)/financeiro/faturamento/detalhes/${taskId}` : undefined;
+        : (billingLink?.web ??
+          (taskId ? `/financeiro/faturamento/detalhes/${taskId}` : undefined));
+      const mobileUrl = isWithdrawal
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : (billingLink?.mobile ??
+          (taskId ? `/(tabs)/financeiro/faturamento/detalhes/${taskId}` : undefined));
 
       const numero = detail.nfseNumber ? ` Nº ${detail.nfseNumber}` : '';
       const isCancelled = outcome === 'CANCELLED';

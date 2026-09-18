@@ -696,6 +696,14 @@ export class QuoteSnapshotService {
         reconciled.push(this.tolerateSettledRoster(snapshot, frozen, pendingSignerIds));
         reconciled.push(this.tolerateSettledRoster(late, frozen, pendingSignerIds));
       }
+      // PRORROGAÇÃO DA VALIDADE — incide sobre QUALQUER um dos candidatos acima,
+      // porque dar mais prazo e cadastrar a placa do implemento são coisas
+      // independentes que acontecem na mesma semana. A cópia (`[...]`) existe
+      // porque o laço escreve no array que percorre.
+      for (const base of [snapshot, ...reconciled]) {
+        const estendido = this.tolerateExtendedValidity(base, frozen);
+        if (estendido !== base) reconciled.push(estendido);
+      }
     }
     for (const version of SUPPORTED_MATERIAL_VERSIONS) {
       if (this.materialHash(snapshot, version) === frozenHash) return version;
@@ -831,6 +839,37 @@ export class QuoteSnapshotService {
           }
         : {}),
     };
+  }
+
+  /**
+   * O snapshot atual com a VALIDADE devolvida ao valor congelado — mas só quando
+   * a data nova é MAIOR que a antiga.
+   *
+   * A PERGUNTA QUE ESTA FUNÇÃO RESPONDE
+   *   "Dar mais prazo para aceitar muda o que está sendo aceito?" Não muda: os
+   *   serviços, o preço, o desconto, a garantia e o prazo de entrega continuam
+   *   os mesmos, e quem já assinou assinou exatamente isso.
+   *
+   * O CASO REAL
+   *   Faltam duas das três assinaturas, o cliente pede três dias. O operador
+   *   estende `Budget.expiresAt` — e, até esta tolerância existir, o envelope era
+   *   invalidado, os signatários viravam VOIDED e a assinatura já colhida era
+   *   jogada fora. O gesto legítimo de dar mais tempo era o que destruía o
+   *   trabalho feito.
+   *
+   * ANTECIPAR NÃO PASSA POR AQUI. Encurtar a janela tira de quem ainda não
+   * respondeu tempo que ele tinha quando o documento foi congelado — isso é
+   * mudar a proposta debaixo dele, e continua derrubando a coleta.
+   *
+   * Devolve o MESMO objeto quando não há o que tolerar; `matchesFrozenTerms`
+   * usa a identidade para não hashear candidato repetido.
+   */
+  private tolerateExtendedValidity(current: QuoteSnapshot, frozen: QuoteSnapshot): QuoteSnapshot {
+    const antes = Date.parse(frozen.expiresAt);
+    const depois = Date.parse(current.expiresAt);
+    if (!Number.isFinite(antes) || !Number.isFinite(depois)) return current;
+    if (depois <= antes) return current;
+    return { ...current, expiresAt: frozen.expiresAt };
   }
 
   /** Carrega, monta e hasheia num passo — o caminho usado pela detecção de mudança. */

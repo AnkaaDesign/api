@@ -26,6 +26,7 @@ import {
 } from '@utils/due-date.util';
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 import { BILLING_FROZEN_WHERE } from '../../production/budget/budget.guards';
+import { billingDeepLinkForInvoice } from '@utils/billing-links';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -883,7 +884,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     // Era `cfgForOrder?.taskId` — a coluna que SAIU em
     // `20260913120000_billing_coverage`. Passando por `as any`, a condição virou
     // sempre falsa e o boleto de um LOTE citava o pedido de compra dos SESSENTA.
-    // É a mesma leitura que a NFS-e já faz (`coveredVehicleRows`): a cobertura
+    // É a mesma leitura que a NFS-e já faz (`resolveCoveredVehicles`): a cobertura
     // inteira, com recuo para a tarefa da fatura e daí para o orçamento todo
     // (fatura antiga, anterior à migração).
     const quoteTaskRows: any[] = cfgForOrder?.quote?.tasks ?? [];
@@ -2077,6 +2078,16 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       invoice.externalOperation?.id ?? invoice.externalOperationId ?? null;
     const isWithdrawal = !!externalOperationId;
 
+    // A fatura conjunta e o lote têm `Invoice.taskId` NULO por construção
+    // (`sliceAnchorTaskId` só o preenche quando a cobertura tem UM veículo), e o
+    // link ia para `/detalhes/null` — tela morta, no exato momento em que o
+    // financeiro tem dinheiro para conferir. `billingDeepLinkForInvoice` resolve
+    // pela COBERTURA e nunca devolve nulo. Três despachantes deste arquivo
+    // (vencido, registro falhado, liquidado) leem daqui.
+    const billingLink = isWithdrawal
+      ? null
+      : await billingDeepLinkForInvoice(this.prisma as any, invoice.id);
+
     return {
       taskId,
       taskName: isWithdrawal ? 'Operação Externa' : invoice.task?.name || 'N/A',
@@ -2085,10 +2096,10 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       refLabel: isWithdrawal ? 'da operação externa' : `da tarefa ${invoice.task?.name || 'N/A'}`,
       webUrl: isWithdrawal
         ? `/estoque/operacoes-externas/detalhes/${externalOperationId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined,
-      mobileUrl: !isWithdrawal && taskId ? `financial/${taskId}` : undefined,
+        : billingLink!.web,
+      mobileUrl: isWithdrawal
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${externalOperationId}`
+        : billingLink!.mobile,
     };
   }
 
@@ -2295,12 +2306,19 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         timeZone: 'America/Sao_Paulo',
       }).format(dueDate);
 
+      // ⚠️ Era `/detalhes/${invoice.taskId}` CRU, sem sequer o guarda de nulo dos
+      // outros despachantes: em toda cobrança conjunta ou de lote o aviso de
+      // "boleto pago" mandava o financeiro para `/detalhes/null` — literalmente a
+      // string "null" na URL. `billingDeepLinkForInvoice` resolve pela COBERTURA.
+      const billingLink = withdrawalId
+        ? null
+        : await billingDeepLinkForInvoice(this.prisma as any, invoice.id);
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `/financeiro/faturamento/detalhes/${invoice.taskId}`;
+        : billingLink!.web;
       const mobileUrl = withdrawalId
         ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : `financial/${invoice.taskId}`;
+        : billingLink!.mobile;
       const actionUrl = JSON.stringify({ web: webUrl, mobile: mobileUrl });
 
       await this.notificationDispatchService.dispatchByConfiguration('bank_slip.paid', 'system', {

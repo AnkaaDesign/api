@@ -1044,9 +1044,33 @@ export function diffQuoteSnapshots(
   });
 
   // ---- Validade -----------------------------------------------------------
+  //
+  // PRORROGAR NÃO É MUDAR A PROPOSTA — ANTECIPAR É.
+  //
+  // A severidade aqui não pode olhar só para "a data mudou": ela tem de olhar
+  // para o SENTIDO da mudança. Faltam duas das três assinaturas, o cliente pede
+  // três dias a mais, o operador estende a validade — e, com `MATERIAL` fixo, o
+  // envelope era invalidado, TODOS os signatários viravam VOIDED e as
+  // assinaturas já colhidas iam para o lixo. O gesto legítimo de dar mais prazo
+  // era exatamente o que apagava o trabalho feito.
+  //
+  // Dar mais tempo para aceitar não altera nenhuma condição do que se aceita: os
+  // serviços, o preço, o desconto, a garantia e o prazo de entrega continuam os
+  // mesmos, e quem já assinou assinou isso. É COSMÉTICO — consta na trilha e o
+  // novo prazo é propagado para o envelope (ver `onQuoteContentChanged`).
+  //
+  // ANTECIPAR continua MATERIAL: encurtar a janela tira do signatário pendente
+  // tempo que ele tinha quando o documento foi congelado, e isso é mudar a
+  // proposta debaixo de quem ainda não respondeu.
+  const validadeAntes = Date.parse(before.expiresAt);
+  const validadeDepois = Date.parse(after.expiresAt);
+  const prorrogacao =
+    Number.isFinite(validadeAntes) &&
+    Number.isFinite(validadeDepois) &&
+    validadeDepois > validadeAntes;
   scalar(out, {
     key: 'expiresAt',
-    severity: 'MATERIAL',
+    severity: prorrogacao ? 'COSMETIC' : 'MATERIAL',
     group: 'VALIDITY',
     label: 'Validade da proposta',
     before: formatDate(before.expiresAt),

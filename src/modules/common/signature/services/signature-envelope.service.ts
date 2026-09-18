@@ -541,6 +541,11 @@ export class SignatureEnvelopeService {
         // esta linha o operador escolheria canal, marcaria recortes, confirmaria
         // e só então tomaria o 400.
         layoutFiles: { select: { id: true }, take: 1 },
+        // Os PAGADORES, pelo mesmo motivo do layout: `createEnvelope` recusa dois
+        // (o documento congelado descreveria um só) e o preflight existe para
+        // dizer isso ANTES do clique. Sem esta linha o operador escolhia canal,
+        // marcava recortes, confirmava — e só então tomava o 400.
+        customerConfigs: { select: { customerId: true } },
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
@@ -583,6 +588,20 @@ export class SignatureEnvelopeService {
       blockers.push(
         `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${previousLive.version}). ` +
           'Reemitir criaria um segundo contrato selado para o mesmo número.',
+      );
+    }
+
+    // O MESMO recorte que `createEnvelope` recusa: um documento só não descreve
+    // dois pagadores. Ver a nota longa lá.
+    const pagadoresPreflight = new Set(
+      (quote.customerConfigs ?? []).map((c: { customerId: string }) => c.customerId),
+    );
+    if (pagadoresPreflight.size > 1) {
+      blockers.push(
+        `Este orçamento fatura para ${pagadoresPreflight.size} clientes, e a cerimônia de ` +
+          'assinatura ainda não recorta o documento por pagador — todos assinariam um instrumento ' +
+          'com os serviços, o desconto e as cláusulas de apenas um deles. Separe em um orçamento ' +
+          'por cliente antes de enviar para assinatura.',
       );
     }
 
@@ -1836,6 +1855,13 @@ export class SignatureEnvelopeService {
     channel?: SignatureDeliveryChannel,
     sections?: readonly QuoteSection[],
     withPaymentSchedule = false,
+    /**
+     * OMITE as linhas de assinatura em branco (a folha e a arte continuam).
+     * Ver `QuoteHtmlInput.hideSignatureBlock`: vale só para a cópia legível do
+     * dossiê de um orçamento JÁ assinado, onde o documento assinado viaja no
+     * mesmo PDF.
+     */
+    hideSignatureBlock = false,
   ) {
     // ── A TARJA DE DOCUMENTO SEM VALOR ───────────────────────────────────────
     //
@@ -1870,6 +1896,7 @@ export class SignatureEnvelopeService {
         withPaymentSchedule,
       ),
       voidLabel,
+      hideSignatureBlock,
     });
   }
 
@@ -4655,7 +4682,22 @@ export class SignatureEnvelopeService {
     if (env.status !== EnvelopeStatus.RUNNING) {
       throw new ForbiddenException('Esta coleta de assinaturas não está mais ativa.');
     }
-    if (env.deadlineAt.getTime() < Date.now()) {
+    // ── O PRAZO É O RELÓGIO DO CLIENTE, E SÓ DELE ────────────────────────────
+    //
+    // `SignatureExpiryScheduler` já afirma isto e age de acordo: um envelope em
+    // que TODOS os responsáveis do cliente assinaram continua vivo depois do
+    // prazo, "à espera da contra-assinatura da Ankaa". Aqui, porém, o prazo
+    // recusava QUALQUER assinatura — inclusive a nossa, que é a única que ainda
+    // falta. O resultado era uma trava morta: o cliente aceita no último dia, a
+    // Ankaa contra-assina na manhã seguinte e toma 403 para sempre, e a única
+    // saída (cancelar e reemitir) joga fora uma aceitação válida.
+    //
+    // `orderGroup > 0` é o nosso lado. A validade limita a janela em que a
+    // PROPOSTA pode ser aceita; aceita ela, o relógio parou e o que falta é
+    // burocracia nossa. A ordem sequencial logo abaixo garante que este desvio
+    // não abre nada: o grupo 1 só assina depois do grupo 0, e o grupo 0 continua
+    // preso ao prazo.
+    if (signer.orderGroup === 0 && env.deadlineAt.getTime() < Date.now()) {
       throw new ForbiddenException('O prazo para assinatura deste orçamento expirou.');
     }
     if (signer.status === EnvelopeSignerStatus.SIGNED) {
@@ -5845,6 +5887,11 @@ export class SignatureEnvelopeService {
       if (changes.cosmetic.length) {
         await this.recordDriftOnce(running.id, loaded.hash, changes.cosmetic, actorUserId);
       }
+      // E se o que mudou foi a VALIDADE para mais longe, o envelope tem de
+      // aprender a data nova — senão o gesto de dar mais prazo não daria prazo
+      // nenhum: o relógio que barra a assinatura é `deadlineAt`, e ele continuaria
+      // no dia de ontem. Ver `tolerateExtendedValidity`.
+      await this.propagateExtendedDeadline(running, loaded.snapshot.expiresAt, actorUserId);
       return false;
     }
 
@@ -5946,6 +5993,54 @@ export class SignatureEnvelopeService {
 
     this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
     return true;
+  }
+
+  /**
+   * PRORROGAR A VALIDADE MOVE O PRAZO DO ENVELOPE JUNTO.
+   *
+   * `Budget.expiresAt` é copiado para `SignatureEnvelope.deadlineAt` numa linha
+   * só — em `createEnvelope` — e nunca mais. Enquanto prorrogar era MATERIAL isso
+   * não aparecia, porque a coleta morria antes de a data nova valer para alguma
+   * coisa. Agora que prorrogar é cosmético (ver `tolerateExtendedValidity`), não
+   * propagar seria pior que o defeito antigo: a coleta continuaria viva, o
+   * operador teria dito ao cliente "tem até sexta", e `assertSignable` recusaria
+   * pelo prazo de terça.
+   *
+   * O TOKEN DE CADA LINK anda junto — `assertTokenFresh` lê `tokenExpiresAt`, que
+   * nasce igual ao prazo. Só sobem os que ainda estão EXATAMENTE no prazo antigo:
+   * um link revogado individualmente teve o `tokenExpiresAt` ENCURTADO de
+   * propósito, e reerguê-lo aqui seria desfazer a revogação por tabela.
+   *
+   * Só para coleta VIVA. Num envelope concluído o prazo já não decide nada, e
+   * mexer nele reescreveria um dado do contrato selado.
+   */
+  private async propagateExtendedDeadline(
+    env: { id: string; status: EnvelopeStatus; deadlineAt: Date },
+    newExpiresAtIso: string,
+    actorUserId: string | null,
+  ): Promise<void> {
+    if (env.status !== EnvelopeStatus.RUNNING) return;
+    const nova = new Date(newExpiresAtIso);
+    if (Number.isNaN(nova.getTime())) return;
+    const antiga = env.deadlineAt;
+    if (nova.getTime() <= antiga.getTime()) return;
+
+    await this.prisma.$transaction(async tx => {
+      await tx.signatureEnvelope.update({
+        where: { id: env.id },
+        data: { deadlineAt: nova },
+      });
+      await tx.envelopeSigner.updateMany({
+        where: { envelopeId: env.id, tokenExpiresAt: antiga },
+        data: { tokenExpiresAt: nova },
+      });
+    });
+
+    this.logger.log(
+      `Envelope ${env.id}: prazo prorrogado de ${antiga.toISOString()} para ` +
+        `${nova.toISOString()}${actorUserId ? ` por ${actorUserId}` : ''} — ` +
+        'assinaturas coletadas preservadas.',
+    );
   }
 
   /**
@@ -7036,7 +7131,17 @@ export class SignatureEnvelopeService {
    *   É AQUI que o recorte por cliente é possível, e só aqui — não há bytes
    *   assinados a preservar, o documento é montado agora a partir dos dados.
    */
-  async renderUnsignedQuoteDocument(quoteId: string, customerId?: string | null): Promise<Buffer> {
+  async renderUnsignedQuoteDocument(
+    quoteId: string,
+    customerId?: string | null,
+    /**
+     * `true` troca os traços em branco por um aviso de que o orçamento foi
+     * assinado eletronicamente. Só o dossiê de um orçamento assinado pede isso —
+     * ver `DossierAssemblerService`. O avulso, impresso para assinar à mão,
+     * mantém o bloco: ali ele é o ponto do documento.
+     */
+    hideSignatureBlock = false,
+  ): Promise<Buffer> {
     // `buildForQuote` devolve null para orçamento inexistente; desestruturar
     // direto virava `TypeError` — 500 opaco onde cabe um 404 honesto.
     const loaded = await this.snapshots.buildForQuote(quoteId);
@@ -7101,6 +7206,7 @@ export class SignatureEnvelopeService {
       undefined,
       undefined,
       true,
+      hideSignatureBlock,
     );
     // SEM faixa de rodapé. Ela existia para dar número de página ao orçamento
     // entregue solto, mas o documento já termina no rodapé da Ankaa (endereço,

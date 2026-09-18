@@ -51,7 +51,6 @@ import { BadRequestException } from '@nestjs/common';
 import { planCoverage } from './quote-money';
 import { PrismaTransaction } from '../modules/common/base/base.repository';
 import { isBillingFrozen } from '../modules/production/budget/budget.guards';
-import { hasLiveInvoice } from './billing-invoice';
 import { deleteInstallmentsWithSlips } from './billing-teardown';
 import { Logger } from '@nestjs/common';
 
@@ -283,12 +282,18 @@ export async function reconcileQuoteCustomerConfigs(
     rawCoverage: ((c as any).billing?.tasks ?? []).map((r: { taskId: string }) => r.taskId),
     // CONGELADO: já faturado, ou com fatura viva. Cobertura imutável.
     //
-    // `isBillingFrozen` é o MESMO predicado da trava do orçamento — carimbo OU
-    // estado pós-aprovação. Aqui só o carimbo era lido, e isso deixava passar a
-    // cobrança liquidada por conciliação bancária (sem fatura, sem carimbo, com
-    // estado SETTLED): a reconciliação a tratava como recorte livre e podia
-    // reescrever a cobertura de um contrato já pago.
-    frozen: isBillingFrozen((c as any).billing ?? { approvedAt: null }) || hasLiveInvoice(c as any),
+    // `isBillingFrozen` é o MESMO predicado da trava do orçamento, com os TRÊS
+    // braços — carimbo, estado pós-aprovação e fatura viva. Aqui só o carimbo era
+    // lido, e isso deixava passar a cobrança liquidada por conciliação bancária
+    // (sem fatura, sem carimbo, com estado SETTLED): a reconciliação a tratava
+    // como recorte livre e podia reescrever a cobertura de um contrato já pago.
+    //
+    // O `|| hasLiveInvoice(c)` que ficava aqui era a QUARTA definição de
+    // "congelado" do sistema; hoje a fatura entra pelo próprio predicado.
+    frozen: isBillingFrozen({
+      ...((c as any).billing ?? { approvedAt: null }),
+      invoices: (c as any).invoices,
+    }),
   }));
 
   const existingByCustomer = new Map<string, ExistingConfig[]>();

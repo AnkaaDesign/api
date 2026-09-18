@@ -524,12 +524,19 @@ export class SicrediWebhookService {
       const taskName = withdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
       const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
 
+      // A fatura conjunta e o lote têm `Invoice.taskId` NULO por construção
+      // (`sliceAnchorTaskId` só o preenche quando a cobertura tem UM veículo), e o
+      // link ia para `/detalhes/null` — tela morta. `billingDeepLinkForInvoice`
+      // resolve pela COBERTURA e nunca devolve nulo.
+      const billingLink = withdrawalId
+        ? null
+        : await billingDeepLinkForInvoice(this.prismaService as any, invoice.id);
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined;
-      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
+        : billingLink!.web;
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : billingLink!.mobile;
 
       await this.notificationDispatchService.dispatchByConfiguration(
         'bank_slip.reversed',

@@ -295,6 +295,26 @@ export interface QuoteHtmlInput {
   signers: QuoteHtmlSignerSlot[];
 
   /**
+   * OMITE as linhas de assinatura em branco — mantendo a FOLHA e a arte.
+   *
+   * Vale num único caso: a cópia legível do orçamento dentro do dossiê de um
+   * orçamento que JÁ foi assinado eletronicamente. Ali o documento assinado
+   * viaja no mesmo PDF, com os selos reais e a trilha de auditoria, e imprimir
+   * ao lado dele três traços em branco para assinar à mão convida o cliente a
+   * refazer à caneta um ato que já foi praticado — e sugere que a coleta não
+   * valeu.
+   *
+   * Não é o mesmo que passar `signers: []`: a folha continua existindo com os
+   * seus signatários (é o que o renderizador usa para medir a partição e a
+   * altura da arte), e o que sai dela é o aviso no lugar dos traços. Zerar a
+   * lista faria `renderSignatureSheets` particionar uma lista vazia.
+   *
+   * O orçamento AVULSO — não assinado, impresso para assinar à mão — nunca
+   * passa por aqui: ali o bloco em branco é o ponto do documento.
+   */
+  hideSignatureBlock?: boolean;
+
+  /**
    * Como os signatários se distribuem pelas FOLHAS de assinatura.
    *
    * A folha de assinaturas tem altura fixa — é dela que saem as âncoras dos
@@ -813,6 +833,30 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
       </div>`,
       )
       .join('');
+
+  /**
+   * A seção de assinaturas de uma folha — ou o aviso que a substitui.
+   *
+   * Um lugar só para as duas formas de imprimir o bloco (a folha própria e a
+   * fundida), porque `hideSignatureBlock` tem de valer nas duas: o caminho
+   * fundido é escolhido por MEDIDA, não por configuração, e um orçamento curto
+   * cai nele sem avisar ninguém.
+   */
+  const signaturesSectionHtml = (sheet: QuoteHtmlSignerSlot[], counter: string) =>
+    data.hideSignatureBlock
+      ? `<section class="signatures-section">
+      <h2 class="signatures-title">Assinaturas</h2>
+      <p style="margin:6px 0 0;font-size:10.5px;line-height:1.45;color:#444;">
+        Este orçamento foi <strong>assinado eletronicamente</strong>. O documento
+        assinado — com os selos de cada signatário e a trilha de auditoria da
+        cerimônia — acompanha este dossiê nas páginas seguintes. Não há
+        assinatura a colher à mão.
+      </p>
+    </section>`
+      : `<section class="signatures-section">
+      <h2 class="signatures-title">Assinaturas${counter}</h2>
+      <div class="${gridClassFor(sheet)}">${signersHtmlFor(sheet)}</div>
+    </section>`;
 
   // Uma folha por grupo. Sem `signerPages` é o comportamento de sempre: um
   // grupo com todo mundo, uma folha só.
@@ -1490,10 +1534,7 @@ ${part === 'content' || part === 'fused' ? `
     ${
       part === 'fused'
         ? `<div class="page-content-gap"></div>
-    <section class="signatures-section">
-      <h2 class="signatures-title">Assinaturas</h2>
-      <div class="${gridClassFor(data.signers)}">${signersHtmlFor(data.signers)}</div>
-    </section>`
+    ${signaturesSectionHtml(data.signers, '')}`
         : ''
     }
     <div class="footer-spacer"></div>
@@ -1516,10 +1557,7 @@ ${part === 'content' || part === 'fused' ? `
   ${headerBlock}
   <div class="signatures-content${layoutHere ? ' has-layout' : ''}" id="signatures-content${suffix}">
     ${layoutHere}
-    <section class="signatures-section">
-      <h2 class="signatures-title">Assinaturas${counter}</h2>
-      <div class="${gridClassFor(sheet)}">${signersHtmlFor(sheet)}</div>
-    </section>
+    ${signaturesSectionHtml(sheet, counter)}
   </div>
   ${footerBlock}
 </div>`;

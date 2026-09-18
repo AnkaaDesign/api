@@ -5,6 +5,7 @@ import { ElotechOxyAuthService, ElotechCity } from './elotech-oxy-auth.service';
 import axios from 'axios';
 import { FiscalDocumentStatus, NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
+import { buildDiscriminacao } from './nfse-discriminacao';
 
 export interface MunicipalEmitNfseInput {
   id: string;
@@ -59,6 +60,14 @@ export interface MunicipalEmitNfseInput {
     chassisNumber?: string | null;
     category?: string | null;
     implementType?: string | null;
+    /**
+     * O pedido de compra DESTE veículo — mora na tarefa, não no pagador.
+     *
+     * Numa fatura conjunta os veículos podem ter pedidos diferentes; quando
+     * têm, a discriminação os cita veículo a veículo em vez de amontoá-los no
+     * cabeçalho, onde ninguém sabe qual pedido é de qual caminhão.
+     */
+    orderNumber?: string | null;
   }>;
   /** Nº do orçamento, para a discriminação citá-lo quando os veículos são muitos. */
   budgetNumber?: number | null;
@@ -1413,13 +1422,11 @@ export class ElotechOxyNfseService {
     // discriminação precisa dizer isso. Faturado veículo a veículo, cada nota
     // fala de um — e sai exatamente com o texto de sempre.
     //
-    // ⚠️ O TETO É RÍGIDO: `DISCRIMINACAO_MAX_LINES = 11`, e o cabeçalho (pedido +
-    // veículo) disputa essas linhas com a lista de serviços. Sessenta veículos
-    // por extenso comeriam a discriminação inteira e a lista de serviços — que é
-    // o que o fiscal e o cliente de fato leem — sumiria. A partir de quatro
-    // veículos, portanto, a nota declara a CONTAGEM e a FAIXA de séries, e cita o
-    // orçamento: quem precisa do veículo por veículo tem o orçamento assinado e o
-    // dossiê, ambos com a tabela completa.
+    // Como esse texto é ORGANIZADO — lista veículo a veículo, colapso para
+    // contagem + faixa quando não cabe no teto de 11 linhas, pedidos de compra
+    // divergentes citados em cada linha — é regra pura, mora em
+    // `nfse-discriminacao.ts` e está travada em `tests/nfse-discriminacao.test.ts`.
+    // A prévia do web espelha o mesmo módulo.
     const vehicleList =
       invoice.vehicles && invoice.vehicles.length > 0
         ? invoice.vehicles
@@ -1432,47 +1439,6 @@ export class ElotechOxyNfseService {
               implementType: invoice.truck?.implementType ?? null,
             },
           ];
-
-    /** "Caminhão Carga seca de n série: X, placa: Y, chassi: Z" para um veículo. */
-    const describeOneVehicle = (v: (typeof vehicleList)[number]): string => {
-      const typeParts: string[] = [];
-      if (v.category) typeParts.push(this.TRUCK_CATEGORY_LABELS[v.category] ?? v.category);
-      if (v.implementType) {
-        typeParts.push(this.IMPLEMENT_TYPE_LABELS[v.implementType] ?? v.implementType);
-      }
-      const idParts: string[] = [];
-      if (v.serialNumber) idParts.push(`n série: ${v.serialNumber}`);
-      if (v.plate) idParts.push(`placa: ${v.plate}`);
-      if (v.chassisNumber) idParts.push(`chassi: ${v.chassisNumber}`);
-      const typePart = typeParts.join(' ');
-      const idPart = idParts.join(', ');
-      if (typePart && idPart) return `${typePart} de ${idPart}`;
-      return typePart || idPart;
-    };
-
-    const described = vehicleList.map(describeOneVehicle).filter(Boolean);
-    const budgetRef = invoice.budgetNumber ? ` Orçamento nº ${invoice.budgetNumber}.` : '';
-
-    let vehicleRef: string;
-    if (described.length === 0) {
-      vehicleRef = `Ref. OS ${serialNumber}`;
-    } else if (described.length === 1) {
-      vehicleRef = `Referente aos serviços executados no veículo ${described[0]}.`;
-    } else if (described.length <= 3) {
-      // Dois ou três cabem por extenso e é o que o cliente prefere ler.
-      vehicleRef = `Referente aos serviços executados nos veículos ${described.join('; ')}.`;
-    } else {
-      const serials = vehicleList
-        .map(v => v.serialNumber)
-        .filter((n): n is string => Boolean(n))
-        .sort();
-      const range =
-        serials.length > 1
-          ? ` (séries ${serials[0]} a ${serials[serials.length - 1]})`
-          : '';
-      vehicleRef =
-        `Referente aos serviços executados em ${vehicleList.length} veículos${range}.` + budgetRef;
-    }
 
     // Build line items — must use exact field names from Elotech portal
     const services = invoice.services;
@@ -1603,24 +1569,20 @@ export class ElotechOxyNfseService {
         buildItem(svc.description, svc.amount, i, serviceQuantity),
       );
 
-      const DISCRIMINACAO_MAX_LINES = 11;
-      const headerLines: string[] = [];
-      if (cleanOrderNumber) headerLines.push(`Pedido: ${cleanOrderNumber}`);
-      if (vehicleRef) headerLines.push(vehicleRef);
-
-      const availableLines = Math.max(1, DISCRIMINACAO_MAX_LINES - headerLines.length);
-      const packedServices = this.packServiceLines(
-        services.map(s => s.description),
-        availableLines,
-      );
-
-      // Uma `description` explícita substitui só o CORPO. O cabeçalho (pedido + veículo)
-      // é sempre preservado: perder o número do pedido invalida a nota para o cliente e
-      // obriga a cancelar e reemitir — foi por isso que a NF 3199 ("Tati Minas 8,50")
-      // precisou ser substituída. `||` sobre a string inteira descartava o cabeçalho junto.
-      discriminacaoServico = invoice.description
-        ? [...headerLines, invoice.description].join('\n')
-        : [...headerLines, ...packedServices].join('\n');
+      // Uma `description` explícita substitui só o CORPO. A identificação (pedido,
+      // orçamento, veículos) é sempre preservada: perder o número do pedido invalida
+      // a nota para o cliente e obriga a cancelar e reemitir — foi por isso que a NF
+      // 3199 ("Tati Minas 8,50") precisou ser substituída.
+      discriminacaoServico = buildDiscriminacao({
+        orderNumber: cleanOrderNumber,
+        budgetNumber: invoice.budgetNumber ?? null,
+        vehicles: vehicleList,
+        services: services.map(s => s.description),
+        description: invoice.description ?? null,
+        fallbackLabel: `Ref. OS ${serialNumber}`,
+        categoryLabels: this.TRUCK_CATEGORY_LABELS,
+        implementLabels: this.IMPLEMENT_TYPE_LABELS,
+      });
     } else {
       const header = cleanOrderNumber ? `Pedido: ${cleanOrderNumber}\n` : '';
       const fallbackDesc = invoice.description
@@ -2125,22 +2087,4 @@ export class ElotechOxyNfseService {
     }
   }
 
-  private packServiceLines(descriptions: string[], maxLines: number): string[] {
-    const lines: string[] = [];
-    let current = '';
-    for (const desc of descriptions) {
-      if (lines.length >= maxLines) break;
-      if (current === '') {
-        current = desc;
-      } else if (current.length + 2 + desc.length <= 255) {
-        current += `, ${desc}`;
-      } else {
-        lines.push(current);
-        if (lines.length >= maxLines) break;
-        current = desc;
-      }
-    }
-    if (current && lines.length < maxLines) lines.push(current);
-    return lines;
-  }
 }

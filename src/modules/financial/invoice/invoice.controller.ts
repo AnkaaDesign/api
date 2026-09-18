@@ -44,6 +44,7 @@ import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@ut
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 import { sliceTask } from '../../../utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
+import { isBillingApproved } from '../../production/budget/budget.guards';
 
 /**
  * Controller for Invoice endpoints.
@@ -212,12 +213,20 @@ export class InvoiceController {
       }
 
       const refLabel = withdrawalId ? 'da operação externa' : `da tarefa ${taskName}`;
+      // A fatura conjunta e o lote têm `Invoice.taskId` NULO por construção
+      // (`sliceAnchorTaskId` só o preenche quando a cobertura tem UM veículo), e o
+      // link ia para `/detalhes/null` — tela morta. `billingDeepLinkForInvoice`
+      // resolve pela COBERTURA e nunca devolve nulo.
+      const billingLink =
+        invoiceId && !withdrawalId
+          ? await billingDeepLinkForInvoice(this.prisma as any, invoiceId)
+          : null;
       const webUrl = withdrawalId
         ? `/estoque/operacoes-externas/detalhes/${withdrawalId}`
-        : taskId
-          ? `/financeiro/faturamento/detalhes/${taskId}`
-          : undefined;
-      const mobileUrl = !withdrawalId && taskId ? `financial/${taskId}` : undefined;
+        : (billingLink?.web ?? undefined);
+      const mobileUrl = withdrawalId
+        ? `/(tabs)/estoque/operacoes-externas/detalhes/${withdrawalId}`
+        : (billingLink?.mobile ?? undefined);
 
       await this.dispatchService.dispatchByConfiguration('bank_slip.cancelled', 'system', {
         entityType: 'BankSlip',
@@ -1817,7 +1826,14 @@ export class InvoiceController {
         externalOperationId: true,
         // I21: the opt-out flag lives on the customerConfig (task-backed invoices) or on
         // the externalOperation itself (withdrawal-backed invoices). Load both.
-        customerConfig: { select: { generateInvoice: true } },
+        customerConfig: {
+          select: {
+            generateInvoice: true,
+            // A COBRANÇA — para responder "isto foi aprovado?" com uma mensagem,
+            // em vez de deixar a emissão direcionada engolir o pedido em silêncio.
+            billing: { select: { approvedAt: true, status: true } },
+          },
+        },
         externalOperation: { select: { generateInvoice: true } },
       },
     });
@@ -1840,6 +1856,30 @@ export class InvoiceController {
         'Este cliente está configurado para NÃO emitir NFS-e (geração de nota desabilitada). ' +
           'Ative a emissão de nota fiscal na configuração de faturamento antes de emitir.',
       );
+    }
+
+    // ── A NOTA SÓ NASCE SOBRE COBRANÇA APROVADA ──────────────────────────────
+    //
+    // `emitNfseForInvoices` já filtra por isto (mesmo predicado da varredura das
+    // 09:00), mas o filtro lá é mudo: a rota responderia "NFS-e será emitida em
+    // instantes" e nada aconteceria. Aqui a recusa tem NOME.
+    //
+    // O caso real: a aprovação do faturamento falha no meio — a geração de faturas
+    // já commitou, uma guarda posterior lança, o rollback levanta o carimbo. Sobra
+    // fatura viva + `NfseDocument` PENDENTE + cobrança NÃO aprovada. Um clique em
+    // "Emitir NFS-e" mintava nota municipal viva sobre essa cobrança.
+    //
+    // A "Operação Externa" não tem `Billing` e não passa por aqui — a aprovação
+    // dela é o próprio ato de retirar.
+    if (!invoice.externalOperationId) {
+      const billing = (invoice as any).customerConfig?.billing ?? null;
+      if (!billing || !isBillingApproved(billing)) {
+        throw new BadRequestException(
+          'O faturamento desta fatura não está aprovado — não é possível emitir NFS-e. ' +
+            'Aprove o faturamento (a nota é emitida junto) ou verifique se a aprovação ' +
+            'anterior falhou e deixou esta fatura para trás.',
+        );
+      }
     }
 
     // Check existing NFS-e state for this invoice

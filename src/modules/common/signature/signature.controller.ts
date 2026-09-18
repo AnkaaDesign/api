@@ -208,7 +208,19 @@ export class SignatureController {
    * no servidor é o que impede a tela de oferecer um botão que responde 403.
    */
   @Get('quote/:quoteId')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  // ACCOUNTING entra na LEITURA — e só nela. A tela de Faturamento é dela
+  // (`navigation.ts` e `GET /billings/:id` já a aceitam), e o cartão de
+  // assinatura vive dentro dessa tela: sem esta linha a contabilidade abria a
+  // página pela porta da frente e o cartão respondia 403, sem explicação. Ver a
+  // nota de `reassignCountersigner` logo abaixo e as demais rotas deste
+  // controller: ENVIAR, CANCELAR e CONTRA-ASSINAR continuam fora do alcance
+  // dela — quem confere o que foi faturado não pratica o ato que fatura.
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ACCOUNTING,
+  )
   async listForQuote(@Param('quoteId', ParseUUIDPipe) quoteId: string, @UserId() userId: string) {
     const data = await this.envelopes.listForQuote(quoteId, userId);
     return { success: true, data };
@@ -396,11 +408,12 @@ export class SignatureController {
     @Query('cliente') cliente: string | undefined,
     @Res() res: Response,
   ) {
-    // `?anexo=0` gera o dossiê SEM o PDF assinado embutido. Vale quando não se
-    // quer que a trilha de auditoria viaje junto — o preço é o dossiê ficar sem
-    // nenhuma assinatura digital (ver `build()`).
-    // `?trilha=0` omite as páginas de trilha das cópias legíveis. O anexo
-    // continua com ela: é um artefato assinado, e tirar um byte quebra o A1.
+    // `?anexo=0` gera o dossiê SEM o PDF assinado EMBUTIDO. O preço é o dossiê
+    // ficar sem nenhuma assinatura digital validável — as páginas do documento
+    // assinado e a trilha continuam saindo, porque são leitura, não prova (ver
+    // `build()`, decisões 3 e 4).
+    // `?trilha=0` não tem mais efeito; segue aceito para não quebrar links
+    // salvos e o app instalado.
     // `?cliente=<uuid>` recorta nota e boleto para um dos clientes do
     // faturamento. SEM `ParseUUIDPipe`: o id é conferido contra as configurações
     // do próprio orçamento no montador, que é a validação que importa aqui, e o

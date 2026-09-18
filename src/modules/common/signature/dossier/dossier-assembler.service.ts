@@ -22,38 +22,57 @@
  *    Logo o dossiê inteiro NÃO é selado: ele é um invólucro de transmissão, e o
  *    instrumento jurídico é o anexo do item 1.
  *
- * 3. **O corpo legível é uma RENDERIZAÇÃO PRÓPRIA do orçamento, não o PDF
- *    congelado.** Um anexo não é exibido ao abrir o PDF na maioria dos
- *    visualizadores — menos ainda no celular, que é onde o cliente abre o que
- *    chega por WhatsApp. Um dossiê em que o orçamento só existe como anexo
- *    seria, na prática, um dossiê sem orçamento.
+ * 3. **O documento assinado VIRA PÁGINA, e a cópia legível continua ao lado
+ *    dele.** Um anexo não é exibido ao abrir o PDF na maioria dos visualizadores
+ *    — menos ainda no celular, que é onde o cliente abre o que chega por
+ *    WhatsApp. Um dossiê em que o orçamento assinado só existe como anexo é, na
+ *    prática, um dossiê que não mostra a assinatura: foi o que se viu no
+ *    orçamento nº 0984, cuja página do layout exibia três traços em branco para
+ *    assinar à mão num documento que já tinha sido assinado eletronicamente.
  *
- *    Copiar as páginas do documento assinado resolvia isso, mas parou de
- *    resolver quando a coleta passou a congelar VÁRIOS recortes: não existe mais
- *    "as páginas do documento assinado" no singular, e escolher um dos recortes
- *    para ser a cópia legível faria o dossiê exibir o que aquele signatário viu
- *    em vez do orçamento. Além disso a cópia arrastava junto os selos e a trilha
- *    de auditoria, que são peça de disputa e não de comunicação comercial.
+ *    São DUAS peças, e nenhuma substitui a outra:
  *
- *    Então o corpo volta a ser uma página NÃO RELACIONADA à cerimônia: o
- *    orçamento renderizado agora, com as linhas de assinatura em branco e sem
- *    selo nenhum. Ele não pode divergir do que foi assinado porque qualquer
- *    alteração material do orçamento INVALIDA a coleta e obriga a recolher as
- *    assinaturas — o que sobra são correções cosméticas, que o dossiê passa a
- *    refletir, e é o que se quer. A prova continua inteira, byte a byte, nos
- *    anexos.
+ *    · O ARTEFATO SELADO, copiado página a página — um por recorte, o completo
+ *      primeiro. Copiar todos resolve a objeção que antes impedia copiar
+ *      qualquer um: escolher um recorte para representar o orçamento exibiria o
+ *      que aquele signatário viu no lugar do documento. A cópia perde o A1 (é
+ *      uma cópia), e é por isso que o anexo do item 1 continua existindo.
  *
- * 4. **Sem capa e sem trilha de auditoria.** O que o cliente recebe é orçamento,
- *    fotos, nota e boleto. A trilha é instrumento de disputa judicial, não de
- *    comunicação comercial: ela permanece no artefato assinado que fica no
- *    servidor — e, quando o anexo é incluído, viaja dentro dele de qualquer
- *    forma, porque remover um byte do assinado quebraria o A1. Só existe a
- *    partir do selo: o `original.pdf` congelado nunca a teve. O manifesto é
- *    calculado e volta na resposta HTTP, mas não vira página.
+ *    · A CÓPIA LEGÍVEL renderizada agora, que é a única que imprime as PARCELAS
+ *      emitidas e a chave Pix — o documento foi congelado antes de existir
+ *      cobrança, e nunca as teve. Quando o assinado vai junto, ela sai SEM as
+ *      linhas de assinatura em branco (`hideSignatureBlock`): colher à caneta um
+ *      ato já praticado não é redundância, é sugerir que a coleta não valeu.
+ *      Sem envelope selado, o bloco continua ali — é o ponto do documento.
  *
- * 5. **Ordem: orçamento, dossiê fotográfico, boletos, notas.** É a ordem da
+ *    Elas não podem divergir no que é material: qualquer alteração material do
+ *    orçamento INVALIDA a coleta e obriga a recolher as assinaturas. O que sobra
+ *    são correções cosméticas, que só a cópia legível reflete.
+ *
+ * 4. **Sem capa, COM trilha de auditoria.** O que o cliente recebe é orçamento,
+ *    fotos, nota e boleto — nada de sumário administrativo. Mas a trilha deixou
+ *    de ser tratada como peça exclusiva de disputa judicial: quem recebe o
+ *    dossiê de um orçamento assinado é PARTE da cerimônia, e a pergunta que ele
+ *    faz ao abrir o PDF — quem assinou, quando, autenticado como — não pode
+ *    exigir extrair um anexo e abri-lo noutro programa.
+ *
+ *    Ela entra duas vezes, e as duas têm função:
+ *
+ *    · CONGELADA dentro de cada artefato selado (o `finalize` funde as páginas
+ *      de trilha ao documento antes do PAdES). É prova: não se toca.
+ *    · CONSOLIDADA no fim do dossiê, montada agora — um bloco por recorte, com o
+ *      hash do arquivo SELADO e as partes daquele documento, mais o log
+ *      encadeado do envelope inteiro. É o índice que a congelada não pode ser,
+ *      porque ela é anterior ao próprio hash final e se repete N vezes num
+ *      envelope de N recortes.
+ *
+ *    O manifesto de componentes continua sendo calculado e voltando na resposta
+ *    HTTP, sem virar página.
+ *
+ * 5. **Ordem: orçamento, dossiê fotográfico, boletos, notas, trilha.** É a ordem da
  *    conversa com o cliente — o que foi combinado, o que foi feito, como pagar e,
- *    por último, o documento fiscal que fica para a contabilidade dele.
+ *    por último, o documento fiscal que fica para a contabilidade dele. A trilha
+ *    fecha o maço como anexo: ela não se interpõe entre o cliente e o boleto.
  *
  *    O boleto vem ANTES da nota porque é a única página do dossiê sobre a qual o
  *    cliente precisa AGIR, e num PDF longo o que se procura primeiro tem de estar
@@ -76,10 +95,17 @@
  *    total e condição de pagamento daquela configuração), porém SOMENTE no
  *    caminho não assinado, onde o documento é montado agora a partir dos dados.
  *
- *    O corpo legível agora é sempre renderizado, então o recorte por cliente
- *    vale para ele em qualquer caso. Os ANEXOS continuam saindo inteiros: um PDF
+ *    O corpo legível é sempre renderizado, então o recorte por cliente vale
+ *    para ele em qualquer caso. Os ANEXOS continuam saindo inteiros: um PDF
  *    assinado não se recorta — remover uma página quebra o A1 —, e o que foi
  *    assinado é o instrumento com o escopo inteiro.
+ *
+ *    E é exatamente por isso que as PÁGINAS do assinado ficam de fora quando o
+ *    recorte por cliente está em vigor num faturamento com mais de um pagador:
+ *    exibir o instrumento inteiro na fatia do cliente A mostraria a ele os
+ *    serviços, o total e a condição de pagamento do cliente B. Ali o corpo
+ *    segmentado MANTÉM as linhas de assinatura, porque nenhuma outra prova da
+ *    coleta acompanha aquele PDF.
  */
 
 import {
@@ -101,7 +127,9 @@ import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
 import { canonicalSections, describeSections, variantFilenameSuffix } from '../quote-sections';
 import { dossierPdfFilename } from '../document/document-filename';
-import { formatDateBR } from '../document/quote-text';
+import { formatDateBR, formatDateTimeBR } from '../document/quote-text';
+import { maskCpf, maskEmail, maskPhone } from '../utils/identity';
+import { AUTH_METHOD_LABELS, EVENT_DESCRIPTIONS } from '../signature.constants';
 import { SignatureEnvelopeService } from '../services/signature-envelope.service';
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
@@ -112,13 +140,85 @@ const MM_TO_PT = 72 / 25.4;
 /** Como cada componente se chama no pé da folha — curto, porque divide a linha. */
 const DOSSIER_KIND_LABEL: Record<string, string> = {
   ORCAMENTO: 'Orçamento',
+  ORCAMENTO_ASSINADO: 'Orçamento assinado',
   FOTOS: 'Dossiê fotográfico',
   ADITIVO: 'Aditivo de identificação',
   BOLETO: 'Boleto',
   NFSE: 'NFS-e',
+  TRILHA: 'Trilha de auditoria',
 };
 
-export type DossierComponentKind = 'ORCAMENTO' | 'ADITIVO' | 'FOTOS' | 'NFSE' | 'BOLETO';
+export type DossierComponentKind =
+  | 'ORCAMENTO'
+  | 'ORCAMENTO_ASSINADO'
+  | 'ADITIVO'
+  | 'FOTOS'
+  | 'NFSE'
+  | 'BOLETO'
+  | 'TRILHA';
+
+/**
+ * O que a trilha do dossiê lê de cada signatário.
+ *
+ * Um só objeto para os dois lugares que o consultam (o recorte e o recuo pelo
+ * envelope): divergir as duas listas faria a trilha de um envelope antigo
+ * imprimir menos do que a de um novo, em silêncio.
+ */
+const DOSSIER_SIGNER_SELECT = {
+  declaredName: true,
+  declaredCpf: true,
+  declaredEmail: true,
+  declaredPhone: true,
+  informedCpf: true,
+  informedCargo: true,
+  orderGroup: true,
+  status: true,
+  authMethod: true,
+  signedAt: true,
+  refusedAt: true,
+  refusalReason: true,
+  ipAddress: true,
+  userAgent: true,
+} as const;
+
+/** O signatário como a trilha do dossiê precisa dele. */
+interface DossierSignerRow {
+  declaredName: string;
+  declaredCpf: string | null;
+  declaredEmail: string | null;
+  declaredPhone: string | null;
+  informedCpf: string | null;
+  informedCargo: string | null;
+  orderGroup: number;
+  status: string;
+  authMethod: string;
+  signedAt: Date | null;
+  refusedAt: Date | null;
+  refusalReason: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+/**
+ * Um recorte SELADO, já normalizado.
+ *
+ * Envelope anterior à assinatura diversificada não tem linha em
+ * `EnvelopeDocument`: ali o próprio envelope é o recorte completo. Normalizar na
+ * entrada é o que permite a um único laço servir as páginas, os anexos e a
+ * trilha sem repetir o recuo três vezes.
+ */
+interface SealedArtifact {
+  isFull: boolean;
+  sections: string[];
+  path: string;
+  finalSha256: string | null;
+  sealedAt: Date | null;
+  padesLevel: string | null;
+  certSubject: string | null;
+  certCnpj: string | null;
+  tsaGenTime: Date | null;
+  signers: DossierSignerRow[];
+}
 
 export interface DossierComponent {
   kind: DossierComponentKind;
@@ -166,22 +266,27 @@ export class DossierAssemblerService {
   /**
    * @param options.attachSigned  Anexar os PDFs assinados (padrão: sim).
    *
-   *   ESCOLHA EXCLUSIVA, sem meio-termo possível: a trilha de auditoria foi
-   *   selada JUNTO do orçamento, então o anexo que preserva o A1 carrega a
-   *   trilha por construção — remover qualquer byte dela quebraria a assinatura.
-   *   Com anexo, o cliente recebe a prova completa (e a trilha junto). Sem
-   *   anexo, o dossiê vira um pacote apenas legível, sem nenhuma assinatura
-   *   digital, e a prova fica só no servidor.
+   *   Governa o ANEXO (`/EmbeddedFiles`), e só ele. As PÁGINAS do documento
+   *   assinado entram de qualquer modo (decisão 3): são o que o leitor vê ao
+   *   abrir o PDF, e foi a falta delas que fez o dossiê de um orçamento assinado
+   *   parecer não assinado. O que muda com `false` é a prova: sem o anexo, o
+   *   dossiê passa a ser um pacote apenas legível — nenhuma assinatura digital
+   *   validável viaja nele, e o instrumento fica só no servidor.
+   *
+   *   Ele também deixou de ser a chave da trilha. Ela era carregada pelo anexo
+   *   por construção (selada junto do orçamento, indivisível dele); agora o
+   *   dossiê monta a sua própria, consolidada, no fim do maço.
    *
    * @param options.customerId  Segmenta o orçamento, a nota e o boleto por cliente
    *   do faturamento (ver decisão 7). Omitido = dossiê completo, que é o que o
    *   congelamento no selo e a tela da tarefa pedem.
    *
-   * @param options.dropAuditTrail  @deprecated Sem efeito desde que o corpo
-   *   legível deixou de copiar as páginas do documento assinado (decisão 3): a
-   *   renderização própria nunca teve trilha para cortar. Mantido na assinatura
-   *   para que a rota `?trilha=0`, que existe em links salvos e no app instalado,
-   *   não passe a devolver 400.
+   * @param options.dropAuditTrail  @deprecated Sem efeito. Nunca houve como
+   *   cortar a trilha do que importa: dentro do artefato selado ela é indivisível
+   *   do documento (tirar um byte quebra o A1), e a consolidada existe
+   *   justamente para ser lida. Mantido na assinatura para que a rota
+   *   `?trilha=0`, que existe em links salvos e no app instalado, não passe a
+   *   devolver 400.
    */
   async build(
     quoteId: string,
@@ -242,17 +347,30 @@ export class DossierAssemblerService {
       select: {
         id: true,
         version: true,
+        status: true,
         verificationCode: true,
+        originalSha256: true,
         finalSha256: true,
         sealedAt: true,
         padesLevel: true,
+        certSubject: true,
+        certCnpj: true,
+        tsaGenTime: true,
         finalFile: { select: { path: true, filename: true } },
         originalFile: { select: { path: true } },
         // O ADITIVO de identificação do veículo, quando já emitido.
         addendumSha256: true,
         addendumSealedAt: true,
         addendumFile: { select: { path: true } },
-        // Os RECORTES selados — um anexo cada. Ver a decisão 1 no cabeçalho.
+        // Os SIGNATÁRIOS do envelope. Servem ao RECUO dos envelopes anteriores
+        // à assinatura diversificada, que não têm linha em `EnvelopeDocument` e
+        // por isso também não têm signatários pendurados num recorte.
+        signers: {
+          orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+          select: DOSSIER_SIGNER_SELECT,
+        },
+        // Os RECORTES selados — uma seção de páginas, um anexo e um bloco de
+        // trilha cada. Ver as decisões 1 e 3 no cabeçalho.
         documents: {
           where: { finalFileId: { not: null } },
           orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
@@ -261,7 +379,15 @@ export class DossierAssemblerService {
             sections: true,
             finalSha256: true,
             sealedAt: true,
+            padesLevel: true,
+            certSubject: true,
+            certCnpj: true,
+            tsaGenTime: true,
             finalFile: { select: { path: true } },
+            signers: {
+              orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+              select: DOSSIER_SIGNER_SELECT,
+            },
           },
         },
       },
@@ -273,32 +399,65 @@ export class DossierAssemblerService {
     // que não está assinado, e não há anexo a preservar.
     const assinado = Boolean(envelope?.finalFile);
 
-    // O CORPO LEGÍVEL é sempre renderizado agora — ver a decisão 3. Os bytes
-    // assinados nunca viram página: eles vão como anexo, intactos, e é isso que
-    // preserva o selo A1 e a trilha que ele cobre.
-    //
-    // O recorte por cliente passa a valer também no caminho assinado, porque não
-    // há mais um PDF congelado sendo copiado: o orçamento é montado agora, a
-    // partir dos dados, com as condições daquela configuração.
-    const readablePdf = await this.envelopes.renderUnsignedQuoteDocument(quoteId, customerId);
-
-    // Os artefatos selados a anexar. Um por recorte; o completo primeiro.
+    // Os artefatos selados, normalizados. Um por recorte; o completo primeiro.
     // Recuo para envelopes anteriores ao recurso, que não têm linha em
     // `EnvelopeDocument`: ali o próprio envelope é o recorte completo.
-    const signedArtifacts = assinado
+    const signedArtifacts: SealedArtifact[] = assinado
       ? (envelope!.documents.length
-          ? envelope!.documents
+          ? envelope!.documents.map(d => ({
+              isFull: d.isFull,
+              sections: d.sections,
+              path: d.finalFile?.path ?? '',
+              finalSha256: d.finalSha256,
+              sealedAt: d.sealedAt,
+              padesLevel: d.padesLevel,
+              certSubject: d.certSubject,
+              certCnpj: d.certCnpj,
+              tsaGenTime: d.tsaGenTime,
+              signers: d.signers,
+            }))
           : [
               {
                 isFull: true,
                 sections: [] as string[],
+                path: envelope!.finalFile?.path ?? '',
                 finalSha256: envelope!.finalSha256,
                 sealedAt: envelope!.sealedAt,
-                finalFile: envelope!.finalFile!,
+                padesLevel: envelope!.padesLevel,
+                certSubject: envelope!.certSubject,
+                certCnpj: envelope!.certCnpj,
+                tsaGenTime: envelope!.tsaGenTime,
+                signers: envelope!.signers,
               },
             ]
-        ).filter(d => !!d.finalFile?.path)
+        ).filter(a => !!a.path)
       : [];
+
+    // ── AS PÁGINAS DO DOCUMENTO ASSINADO ENTRAM NO DOSSIÊ ────────────────────
+    //
+    // Menos num caso: o RECORTE POR CLIENTE de um faturamento com mais de um
+    // pagador. O artefato assinado é o instrumento INTEIRO e não se recorta —
+    // tirar uma página quebra o A1 —, então exibi-lo na fatia do cliente A
+    // mostraria a ele os serviços, o total e a condição de pagamento do cliente
+    // B. Ali o corpo continua sendo a renderização segmentada, e é ela que
+    // mantém as linhas de assinatura, porque nenhuma outra prova da coleta
+    // acompanha aquele PDF.
+    //
+    // Com um pagador só, `customerId` não recorta nada: o gate não vale.
+    const segmentado = Boolean(customerId) && quote.customerConfigs.length > 1;
+    const showSignedPages = assinado && signedArtifacts.length > 0 && !segmentado;
+
+    // O CORPO LEGÍVEL continua sendo renderizado — é ele que imprime as PARCELAS
+    // e a chave Pix, que o documento congelado nunca teve (ele foi assinado
+    // antes de existir cobrança emitida). Quando o assinado vai junto, ele perde
+    // as linhas de assinatura em branco: três traços para assinar à mão ao lado
+    // do documento que JÁ foi assinado convidam o cliente a refazer à caneta um
+    // ato praticado, e sugerem que a coleta eletrônica não valeu.
+    const readablePdf = await this.envelopes.renderUnsignedQuoteDocument(
+      quoteId,
+      customerId,
+      showSignedPages,
+    );
 
     const components: DossierComponent[] = [];
     const bodies: Array<{ bytes: Buffer; component: DossierComponent }> = [];
@@ -306,15 +465,67 @@ export class DossierAssemblerService {
     // ---- 1. Orçamento (cópia legível, sem selos) ----
     const budgetComponent: DossierComponent = {
       kind: 'ORCAMENTO',
-      label: assinado
-        ? `Orçamento nº ${quote.budgetNumber} — cópia legível; o documento assinado vai anexado`
-        : `Orçamento nº ${quote.budgetNumber} — SEM assinatura eletrônica`,
+      label: showSignedPages
+        ? `Orçamento nº ${quote.budgetNumber} — cópia legível, com as condições de pagamento`
+        : assinado
+          ? `Orçamento nº ${quote.budgetNumber} — cópia legível; o documento assinado vai anexado`
+          : `Orçamento nº ${quote.budgetNumber} — SEM assinatura eletrônica`,
       sha256: sha256(readablePdf),
       pages: 0,
       included: true,
     };
     bodies.push({ bytes: readablePdf, component: budgetComponent });
     components.push(budgetComponent);
+
+    // ---- 1b. O ORÇAMENTO ASSINADO, como saiu da cerimônia ----
+    //
+    // As páginas do artefato selado: os selos de cada signatário no lugar onde
+    // ele assinou e, logo depois, a trilha de auditoria que o `finalize` fundiu
+    // ao documento antes do PAdES. É esta cópia que responde "o que foi
+    // assinado" LENDO — o anexo (item 6, abaixo) continua sendo o instrumento,
+    // porque só ele preserva os bytes e o selo A1.
+    //
+    // UM POR RECORTE. Escolher um deles seria exibir o que aquele signatário viu
+    // no lugar do orçamento; omitir os demais esconderia justamente a prova de
+    // quem assinou um recorte. Vão todos, o completo primeiro.
+    //
+    // Os bytes lidos aqui são MEMORIZADOS: o anexo do item 6 quer os mesmos
+    // arquivos, e reler significa reconferir o hash contra um disco que pode ter
+    // mudado no meio da montagem — o dossiê passaria a exibir uma página e
+    // anexar outra, sem ninguém perceber.
+    const sealedBytes = new Map<string, Buffer>();
+    let anySignedPage = false;
+    if (showSignedPages) {
+      for (const artifact of signedArtifacts) {
+        const variante = artifact.isFull
+          ? 'documento completo'
+          : describeSections(canonicalSections(artifact.sections));
+        const component: DossierComponent = {
+          kind: 'ORCAMENTO_ASSINADO',
+          label: `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ${variante}`,
+          sha256: artifact.finalSha256,
+          pages: 0,
+          included: false,
+        };
+        components.push(component);
+        try {
+          const bytes = this.readSignedDocument(artifact.path, artifact.finalSha256);
+          sealedBytes.set(artifact.path, bytes);
+          component.included = true;
+          anySignedPage = true;
+          bodies.push({ bytes, component });
+        } catch (error) {
+          // Um recorte ilegível não derruba o dossiê: os demais, a cópia legível,
+          // a nota e o boleto continuam valendo, e a falta aparece no rótulo e no
+          // cabeçalho `X-Dossie-Incompleto`.
+          component.note = `PDF assinado indisponível (${msg(error)})`;
+          this.logger.warn(
+            `Recorte assinado do orçamento ${quote.budgetNumber} fora das páginas ` +
+              `do dossiê: ${msg(error)}`,
+          );
+        }
+      }
+    }
 
     // ---- 2. Dossiê fotográfico ----
     const dossierTaskIds = (quote.tasks ?? []).map(t => t.id);
@@ -410,6 +621,78 @@ export class DossierAssemblerService {
       }
     }
 
+    // ---- 4c. Trilha de auditoria da coleta (ANEXO, no fim) ----
+    //
+    // A decisão 4 deste arquivo dizia que a trilha não vira página: instrumento
+    // de disputa, não de comunicação comercial. Ela foi REVISTA — quem recebe o
+    // dossiê de um orçamento assinado é parte da cerimônia, e a pergunta que ele
+    // faz ao abrir o PDF ("quem assinou isto, quando, e como foi autenticado?")
+    // não pode exigir extrair um anexo.
+    //
+    // POR QUE TAMBÉM AQUI, se cada artefato selado já traz a sua. A trilha
+    // impressa DENTRO do artefato foi congelada no selo: ela não pode ganhar o
+    // hash final do arquivo (que só existe depois dela) nem o user-agent, e num
+    // envelope de vários recortes ela se repete N vezes sem nunca dizer o
+    // conjunto. Esta é o ÍNDICE consolidado: um bloco por recorte, com o hash do
+    // arquivo selado e as partes daquele documento, mais o log encadeado do
+    // envelope inteiro. Uma é prova congelada, a outra é leitura.
+    //
+    // NO FIM de propósito: a ordem da decisão 5 é a da conversa comercial — o que
+    // foi combinado, o que foi feito, como pagar, a nota. A trilha é anexo, e
+    // anexo não se interpõe entre o cliente e o boleto.
+    //
+    // FORA do recorte por cliente, pelo mesmo motivo das páginas: a trilha lista
+    // as partes de TODOS os recortes, e o contato do cliente B não é assunto do
+    // cliente A. Ali o dossiê segue exatamente como era.
+    if (assinado && !segmentado && signedArtifacts.length) {
+      const events = await this.prisma.signatureAuditEvent.findMany({
+        where: { envelopeId: envelope!.id },
+        orderBy: { sequence: 'asc' },
+        select: {
+          sequence: true,
+          occurredAt: true,
+          eventType: true,
+          actorLabel: true,
+          ipAddress: true,
+          hash: true,
+        },
+      });
+      const component: DossierComponent = {
+        kind: 'TRILHA',
+        label: `Trilha de auditoria — envelope ${envelope!.verificationCode}`,
+        sha256: null,
+        pages: 0,
+        included: false,
+      };
+      components.push(component);
+      try {
+        const bytes = await this.renderAuditTrail({
+          budgetNumber: quote.budgetNumber,
+          envelopeId: envelope!.id,
+          version: envelope!.version,
+          verificationCode: envelope!.verificationCode,
+          originalSha256: envelope!.originalSha256,
+          artifacts: signedArtifacts,
+          events,
+          /**
+           * O documento assinado veio junto? Muda uma frase, e a frase importa:
+           * sem as páginas seladas no maço, esta é a ÚNICA prova da coleta que
+           * o leitor tem em mãos, e dizer "ver o documento assinado adiante"
+           * apontaria para algo que não está ali.
+           */
+          signedPagesIncluded: anySignedPage,
+        });
+        component.sha256 = sha256(bytes);
+        component.included = true;
+        bodies.push({ bytes, component });
+      } catch (error) {
+        component.note = `não foi possível montar a trilha (${msg(error)})`;
+        this.logger.warn(
+          `Trilha do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`,
+        );
+      }
+    }
+
     // ---- 5. Montagem ----
     const container = await PDFDocument.create();
     container.setTitle(`Dossiê do Orçamento nº ${quote.budgetNumber}`);
@@ -482,7 +765,9 @@ export class DossierAssemblerService {
       for (const artifact of signedArtifacts) {
         let bytes: Buffer;
         try {
-          bytes = this.readSignedDocument(artifact.finalFile.path, artifact.finalSha256);
+          bytes =
+            sealedBytes.get(artifact.path) ??
+            this.readSignedDocument(artifact.path, artifact.finalSha256);
         } catch (error) {
           // Um anexo que falta não pode derrubar o dossiê inteiro: as páginas
           // legíveis, a nota e o boleto continuam valendo. Fica no log e o nome
@@ -829,6 +1114,221 @@ export class DossierAssemblerService {
     }
 
     return Buffer.from(await doc.save({ useObjectStreams: false }));
+  }
+
+  /**
+   * A TRILHA DE AUDITORIA CONSOLIDADA — um bloco por recorte, mais o log.
+   *
+   * PDFKit e não pdf-lib, como em `buildAuditPages`: isto é texto corrido de
+   * altura imprevisível (o log de um envelope reaberto passa de cem linhas), e
+   * paginar texto à mão com `drawText` é escrever um motor de fluxo.
+   *
+   * CPF MASCARADO (`***.999.999-**`, a convenção do repositório). O número
+   * inteiro não se perde: ele está impresso na trilha SELADA dentro de cada
+   * artefato assinado, que viaja neste mesmo PDF e é a peça probatória. Esta
+   * página é índice de leitura, e um índice não precisa multiplicar cópias do
+   * documento de ninguém.
+   *
+   * O HASH que sai aqui é o `finalSha256` do arquivo SELADO, gravado no momento
+   * do selo — nunca um hash calculado agora sobre o que o dossiê montou. Este
+   * PDF carimba o pé de cada folha nossa (`stampDossierPages`), e um hash
+   * recalculado depois do carimbo descreveria bytes que ninguém assinou.
+   */
+  private async renderAuditTrail(input: {
+    budgetNumber: number;
+    envelopeId: string;
+    version: number;
+    verificationCode: string;
+    originalSha256: string;
+    artifacts: SealedArtifact[];
+    events: Array<{
+      sequence: number;
+      occurredAt: Date;
+      eventType: string;
+      actorLabel: string | null;
+      ipAddress: string | null;
+      hash: string;
+    }>;
+    signedPagesIncluded: boolean;
+  }): Promise<Buffer> {
+    // Margem inferior alta de propósito: o pé desta folha recebe o carimbo do
+    // dossiê ("Dossiê · Orçamento nº … · Página N de M"), e texto que descesse
+    // até a margem padrão colidiria com ele.
+    const doc = new PDFKitDocument({
+      size: 'A4',
+      margins: { top: 48, bottom: 60, left: 50, right: 50 },
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    const done = new Promise<Buffer>(resolve =>
+      doc.on('end', () => resolve(Buffer.concat(chunks))),
+    );
+
+    const green = BRAND_COLORS.primaryGreen;
+    const gray = BRAND_COLORS.textGray;
+    const dark = '#1a1a1a';
+    /** Piso a partir do qual a folha vira. O carimbo do pé começa logo abaixo. */
+    const PAGE_BREAK_Y = 748;
+    const breakIfNeeded = (needed: number) => {
+      if (doc.y + needed > PAGE_BREAK_Y) doc.addPage();
+    };
+
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(green).text('Trilha de auditoria');
+    doc.moveDown(0.2);
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor(gray)
+      .text(
+        winAnsi(
+          'Datas e horários em GMT-03:00 (Brasília). ' +
+            (input.signedPagesIncluded
+              ? 'Os documentos assinados que esta trilha descreve estão nas páginas ' +
+                'anteriores deste dossiê e, byte a byte, nos anexos do PDF.'
+              : 'Os documentos assinados que esta trilha descreve permanecem no ' +
+                'servidor da Ankaa e podem ser obtidos pelo código de verificação abaixo.'),
+        ),
+      );
+    doc.moveDown(0.8);
+
+    doc.font('Helvetica').fontSize(9).fillColor(dark);
+    doc.text(winAnsi(`Orçamento nº ${input.budgetNumber}`));
+    doc.text(winAnsi(`Envelope ${input.envelopeId} (versão ${input.version})`));
+    doc.text(winAnsi(`Código de verificação: ${input.verificationCode}`));
+    doc.font('Helvetica').fontSize(7.5).fillColor(gray);
+    doc.text(winAnsi(`Hash SHA-256 do documento original: ${input.originalSha256}`));
+    if (input.events.length) {
+      doc.text(
+        winAnsi(`Hash final da cadeia de auditoria: ${input.events[input.events.length - 1].hash}`),
+      );
+    }
+    doc.moveDown(1);
+
+    // ---- Um bloco por documento selado ----
+    for (const artifact of input.artifacts) {
+      breakIfNeeded(90);
+      const variante = artifact.isFull
+        ? 'documento completo (o instrumento)'
+        : describeSections(canonicalSections(artifact.sections));
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(green);
+      doc.text(winAnsi(`Documento assinado — ${variante}`));
+      doc.moveDown(0.25);
+
+      doc.font('Helvetica').fontSize(7.5).fillColor(gray);
+      if (artifact.finalSha256) {
+        doc.text(winAnsi(`SHA-256 do arquivo selado: ${artifact.finalSha256}`));
+      }
+      const selo: string[] = [];
+      if (artifact.sealedAt) selo.push(`Selado em ${formatDateTimeBR(artifact.sealedAt)}`);
+      if (artifact.padesLevel) selo.push(`PAdES ${artifact.padesLevel}`);
+      if (artifact.tsaGenTime) {
+        selo.push(`Carimbo do tempo ${formatDateTimeBR(artifact.tsaGenTime)}`);
+      }
+      if (selo.length) doc.text(winAnsi(selo.join('  |  ')));
+      if (artifact.certSubject) {
+        doc.text(
+          winAnsi(
+            `Certificado ICP-Brasil: ${artifact.certSubject}` +
+              (artifact.certCnpj ? ` — CNPJ ${artifact.certCnpj}` : ''),
+          ),
+        );
+      }
+      doc.moveDown(0.5);
+
+      if (!artifact.signers.length) {
+        doc.font('Helvetica-Oblique').fontSize(8).fillColor(gray);
+        doc.text(winAnsi('Sem signatários registrados para este documento.'), { indent: 10 });
+        doc.moveDown(0.6);
+        continue;
+      }
+
+      for (const signer of artifact.signers) {
+        breakIfNeeded(56);
+        // O ESTADO vem do carimbo de tempo, não só do `status`: um signatário
+        // reaberto depois de recusar volta a PENDING e continua tendo recusado
+        // antes — a trilha tem de narrar os dois fatos.
+        const estado = signer.signedAt
+          ? '[ASSINADO]'
+          : signer.refusedAt
+            ? '[RECUSOU]'
+            : `[${signer.status}]`;
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(dark);
+        doc.text(winAnsi(`${estado} ${signer.declaredName}`));
+
+        doc.font('Helvetica').fontSize(7.5).fillColor(gray);
+        const identidade: string[] = [];
+        identidade.push(`CPF: ${maskCpf(signer.informedCpf ?? signer.declaredCpf)}`);
+        if (signer.informedCargo) identidade.push(`Cargo: ${signer.informedCargo}`);
+        identidade.push(signer.orderGroup === 1 ? 'Parte: Ankaa' : 'Parte: cliente');
+        doc.text(winAnsi(identidade.join('  |  ')), { indent: 10 });
+
+        const canal: string[] = [];
+        canal.push(`Autenticação: ${AUTH_METHOD_LABELS[signer.authMethod] ?? signer.authMethod}`);
+        if (signer.declaredEmail) canal.push(`E-mail: ${maskEmail(signer.declaredEmail)}`);
+        if (signer.declaredPhone) canal.push(`Telefone: ${maskPhone(signer.declaredPhone)}`);
+        doc.text(winAnsi(canal.join('  |  ')), { indent: 10 });
+
+        const ato: string[] = [];
+        if (signer.signedAt) ato.push(`Assinou em ${formatDateTimeBR(signer.signedAt)}`);
+        if (signer.refusedAt) ato.push(`Recusou em ${formatDateTimeBR(signer.refusedAt)}`);
+        if (signer.ipAddress) ato.push(`IP ${signer.ipAddress}`);
+        if (ato.length) doc.text(winAnsi(ato.join('  |  ')), { indent: 10 });
+        if (signer.refusalReason) {
+          doc.text(winAnsi(`Motivo da recusa: ${signer.refusalReason}`), { indent: 10 });
+        }
+        if (signer.userAgent) {
+          // Truncado: o user-agent é uma linha de diagnóstico, e um Chrome de
+          // Android passa de 180 caracteres e rouba três linhas da folha.
+          const ua =
+            signer.userAgent.length > 120
+              ? `${signer.userAgent.slice(0, 117)}...`
+              : signer.userAgent;
+          doc.fontSize(6.5).text(winAnsi(`Navegador: ${ua}`), { indent: 10 });
+          doc.fontSize(7.5);
+        }
+        doc.moveDown(0.5);
+      }
+      doc.moveDown(0.4);
+    }
+
+    // ---- Log encadeado do envelope ----
+    if (input.events.length) {
+      breakIfNeeded(70);
+      doc.font('Helvetica-Bold').fontSize(11).fillColor(green).text('Log de eventos');
+      doc.moveDown(0.3);
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .fillColor(gray)
+        .text(
+          winAnsi(
+            'O log é do ENVELOPE, não de um recorte: ele narra a cerimônia inteira. Cada ' +
+              'evento carrega o hash do anterior — remover, reordenar ou editar qualquer ' +
+              'linha quebra todos os elos seguintes, e a quebra é verificável de forma ' +
+              'independente.',
+          ),
+        );
+      doc.moveDown(0.5);
+
+      for (const event of input.events) {
+        breakIfNeeded(14);
+        doc.font('Helvetica').fontSize(7.5).fillColor(dark);
+        const quem = event.actorLabel ? `  ${event.actorLabel}` : '';
+        const ip = event.ipAddress ? `  IP ${event.ipAddress}` : '';
+        doc.text(
+          winAnsi(
+            `${String(event.sequence).padStart(3, '0')}  ` +
+              `${formatDateTimeBR(event.occurredAt)}  ` +
+              `${EVENT_DESCRIPTIONS[event.eventType] ?? event.eventType}${quem}${ip}`,
+          ),
+        );
+        doc.fontSize(6).fillColor(gray);
+        doc.text(winAnsi(`hash ${event.hash}`), { indent: 10 });
+      }
+    }
+
+    doc.end();
+    return done;
   }
 
   /** Logo da empresa em `assets/logo.png`, a mesma que o orçamento usa. */

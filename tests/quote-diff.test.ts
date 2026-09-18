@@ -534,6 +534,68 @@ console.log('\nFrase de resumo');
   check('termina em ponto', reason.endsWith('.'), reason);
 }
 
+// ---------------------------------------------------------------------------
+// PRORROGAR A VALIDADE NÃO PODE CUSTAR AS ASSINATURAS JÁ COLHIDAS.
+//
+// O caso: faltam duas das três assinaturas, o cliente pede três dias, o operador
+// estende `Budget.expiresAt`. Enquanto `expiresAt` era MATERIAL sem olhar o
+// SENTIDO da mudança, o envelope era invalidado, todos os signatários viravam
+// VOIDED e a assinatura já dada ia para o lixo — o gesto legítimo de dar mais
+// prazo era exatamente o que apagava o trabalho feito.
+//
+// Duas camadas respondem por isso e as duas são verificadas aqui: a LEITURA
+// (`diffQuoteSnapshots`, que classifica a severidade) e a DECISÃO
+// (`matchesFrozenTerms`, que é quem de fato derruba ou não a coleta).
+console.log('\nValidade: prorrogar é cosmético, antecipar é material');
+{
+  const before = baseSnapshot();
+
+  const prorrogado = clone(baseSnapshot());
+  prorrogado.expiresAt = '2026-08-04T12:00:00.000Z';
+  check(
+    'prorrogação sai COSMETIC',
+    find(diffQuoteSnapshots(before, prorrogado), 'expiresAt')?.severity === 'COSMETIC',
+    find(diffQuoteSnapshots(before, prorrogado), 'expiresAt')?.severity,
+  );
+  check(
+    'e continua constando na lista — a trilha tem de dizer que a data mudou',
+    find(diffQuoteSnapshots(before, prorrogado), 'expiresAt') !== undefined,
+  );
+
+  const antecipado = clone(baseSnapshot());
+  antecipado.expiresAt = '2026-07-20T12:00:00.000Z';
+  check(
+    'antecipação continua MATERIAL',
+    find(diffQuoteSnapshots(before, antecipado), 'expiresAt')?.severity === 'MATERIAL',
+    find(diffQuoteSnapshots(before, antecipado), 'expiresAt')?.severity,
+  );
+
+  // A DECISÃO: o hash material congelado tem de continuar casando depois da
+  // prorrogação, e tem de DEIXAR de casar depois da antecipação.
+  const frozenHash = snapshots.materialHash(before);
+  check(
+    'prorrogação NÃO derruba a coleta (o recorte material segue reconhecido)',
+    snapshots.matchesFrozenTerms(prorrogado, frozenHash, before, []) !== null,
+  );
+  check(
+    'antecipação derruba a coleta',
+    snapshots.matchesFrozenTerms(antecipado, frozenHash, before, []) === null,
+  );
+  check(
+    'sem o snapshot congelado em mãos o comportamento segue estrito',
+    snapshots.matchesFrozenTerms(prorrogado, frozenHash) === null,
+  );
+
+  // E a tolerância é CIRÚRGICA: prorrogar junto com mexer no preço continua
+  // derrubando, porque o preço é o que se aceita.
+  const prorrogadoEReprecificado = clone(prorrogado);
+  prorrogadoEReprecificado.services[0].amount = '13500.00';
+  check(
+    'prorrogar não perdoa uma reprecificação na mesma gravação',
+    snapshots.matchesFrozenTerms(prorrogadoEReprecificado, frozenHash, before, []) === null,
+  );
+}
+
 console.log(
   failures === 0 ? '\n✅ Todas as verificações passaram.\n' : `\n❌ ${failures} verificação(ões) falharam.\n`,
 );

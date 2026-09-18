@@ -124,6 +124,7 @@ import {
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import { BudgetService } from '../budget/budget.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
+import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { describePrismaFailure } from '../../../utils/quote-tasks';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
@@ -181,6 +182,11 @@ export class TaskService {
     private readonly budgetService: BudgetService,
     @Inject(forwardRef(() => SignatureDeletionService))
     private readonly signatureDeletion: SignatureDeletionService,
+    // O "Desfazer" do Histórico reescreve `BudgetItem` e recalcula totais por
+    // fora de `BudgetService.update` — então tem de fazer a mesma pergunta que
+    // ela faz ao final: o documento assinado ainda descreve este orçamento?
+    @Inject(forwardRef(() => SignatureEnvelopeService))
+    private readonly signatureEnvelopes: SignatureEnvelopeService,
   ) {}
 
   /**
@@ -10834,7 +10840,13 @@ export class TaskService {
    * Reverts the specified field to its previous value from the changelog
    */
   async rollbackFieldChange(changeLogId: string, userId: string): Promise<TaskUpdateResponse> {
-    return await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+    // ORÇAMENTOS REESCRITOS POR ESTE DESFAZER.
+    //
+    // O gancho de assinatura roda DEPOIS do commit: `onQuoteContentChanged`
+    // remonta o recorte canônico lendo o banco por outra conexão e, de dentro da
+    // transação, enxergaria a lista anterior e concluiria que nada mudou.
+    const quotesContentChanged = new Set<string>();
+    const rollbackResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // 1. Get the changelog entry
       const changeLog = await tx.changeLog.findUnique({
         where: { id: changeLogId },
@@ -10985,6 +10997,36 @@ export class TaskService {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
         }
 
+        // ── DINHEIRO NA RUA NÃO SE DESFAZ PELO HISTÓRICO ───────────────────────
+        //
+        // Este caminho escreve `Budget` e `BudgetItem` direto pelo `tx`: não passa
+        // por `BudgetService.update`, então nenhuma das duas guardas dela roda.
+        // Com NFS-e autorizada na prefeitura e boleto registrado no Sicredi, o
+        // admin clicava "Desfazer" numa alteração de preço e a tela passava a
+        // mostrar um valor que nenhum documento emitido conhece.
+        //
+        // A lista de exceções é a MESMA de `BudgetService.update`
+        // (`QUOTE_SAFE_AFTER_BILLING_FIELDS`) — validade, texto de garantia,
+        // layout, status e os campos de prazo continuam reversíveis, porque não
+        // são o valor cobrado. Duas listas para a mesma regra divergiriam na
+        // primeira edição. `items`/`items_snapshot` não estão nela, e é isso que
+        // barra o desfazer em lote da lista de serviços.
+        const quoteMoneyLock = await tx.budget.findUnique({
+          where: { id: changeLog.entityId },
+          select: { billings: { select: { approvedAt: true, status: true } } },
+        });
+        if (
+          isQuoteMoneyLocked(quoteMoneyLock?.billings) &&
+          !QUOTE_SAFE_AFTER_BILLING_FIELDS.has(fieldToRevert)
+        ) {
+          throw new BadRequestException(
+            `Não é possível desfazer a alteração de "${translateFieldName(fieldToRevert)}": este ` +
+              'orçamento já tem cobrança aprovada, com nota fiscal e boleto emitidos sobre o valor ' +
+              'atual. Para mexer no valor, reverta o faturamento primeiro (tela de Faturamento → ' +
+              'Reverter).',
+          );
+        }
+
         // Legacy bulk items rollback
         if (fieldToRevert === 'items' || fieldToRevert === 'items_snapshot') {
           let parsedOldValue: any = changeLog.oldValue;
@@ -11023,6 +11065,7 @@ export class TaskService {
             // the stale per-config subtotal/total snapshots here re-introduced
             // the aggregate-vs-config drift / dropped-discount bug.
             await this.recalcQuoteTotals(tx, changeLog.entityId);
+            quotesContentChanged.add(changeLog.entityId);
           }
         } else {
           // Scalar field rollback
@@ -11076,6 +11119,7 @@ export class TaskService {
             where: { id: changeLog.entityId },
             data: rollbackData,
           });
+          quotesContentChanged.add(changeLog.entityId);
         }
 
         const fieldNamePt = translateFieldName(fieldToRevert);
@@ -11109,6 +11153,21 @@ export class TaskService {
         const metadata = changeLog.metadata as any;
         const itemDescription = metadata?.itemDescription;
 
+        // ⛔ A MESMA TRAVA DO RAMO ACIMA, e aqui sem exceções: tudo o que este
+        // ramo faz é apagar, recriar ou reprecificar uma LINHA DE SERVIÇO, que é
+        // exatamente o que a nota fiscal descreve e o boleto cobra.
+        const serviceMoneyLock = await tx.budget.findUnique({
+          where: { id: quoteId },
+          select: { billings: { select: { approvedAt: true, status: true } } },
+        });
+        if (isQuoteMoneyLocked(serviceMoneyLock?.billings)) {
+          throw new BadRequestException(
+            'Não é possível desfazer alterações nos serviços deste orçamento: já há cobrança ' +
+              'aprovada, com nota fiscal e boleto emitidos sobre a lista atual. Reverta o ' +
+              'faturamento primeiro (tela de Faturamento → Reverter).',
+          );
+        }
+
         if (!itemDescription) {
           throw new BadRequestException(
             'Não é possível reverter: descrição do item não encontrada nos metadados',
@@ -11119,6 +11178,7 @@ export class TaskService {
           // Authoritative discount-aware recompute (per-config + aggregate +
           // unassigned fold) — never sum stale per-config snapshots.
           await this.recalcQuoteTotals(tx, quoteId);
+          quotesContentChanged.add(quoteId);
         };
 
         if (changeLog.action === 'CREATE') {
@@ -11172,6 +11232,9 @@ export class TaskService {
               where: { id: item.id },
               data: { [field]: convertedValue },
             });
+            // Marca SEMPRE, não só quando o valor muda: a DESCRIÇÃO da linha está
+            // no recorte material do documento assinado tanto quanto o preço.
+            quotesContentChanged.add(quoteId);
             if (field === 'amount') {
               await recalculateTotals();
             }
@@ -11657,6 +11720,7 @@ export class TaskService {
 
                 // Authoritative discount-aware recompute from the restored rows.
                 await this.recalcQuoteTotals(tx, quoteIdToRestore);
+                quotesContentChanged.add(quoteIdToRestore);
               }
             }
           } else if (typeof parsedValue === 'string') {
@@ -12169,6 +12233,24 @@ export class TaskService {
         data: updatedTask,
       };
     });
+
+    // Commitado. O "Desfazer" pode ter reescrito preço, descrição ou a lista de
+    // serviços — e o documento que o cliente assinou pode já não descrever este
+    // orçamento. É a mesma pergunta que `BudgetService.update` faz ao final de
+    // toda gravação; este caminho simplesmente não a fazia.
+    for (const quoteId of quotesContentChanged) {
+      try {
+        await this.signatureEnvelopes.onQuoteContentChanged(quoteId, userId || null);
+      } catch (error) {
+        this.logger.error(
+          `[Rollback] Falha ao reavaliar as assinaturas do orçamento ${quoteId} ` +
+            '(a reversão JÁ foi gravada):',
+          error,
+        );
+      }
+    }
+
+    return rollbackResult;
   }
 
   // =====================
