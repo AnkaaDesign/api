@@ -65,24 +65,27 @@ export class SicrediWebhookController {
   private verifySignature(req: any): void {
     const secret = this.configService.get<string>('SICREDI_WEBHOOK_SECRET');
 
-    if (!secret) {
-      // Missing secret = reject, never process unverifiable payloads (decision 9)
-      this.logger.error(
-        'SICREDI_WEBHOOK_SECRET not set — rejecting webhook (signature cannot be verified)',
-      );
-      throw new UnauthorizedException('Webhook signature verification is not configured');
-    }
-
     const signature: string | undefined =
       req.headers?.['x-signature'] || req.headers?.['x-sicredi-signature'];
 
-    if (!signature) {
+    // A API de Cobrança do Sicredi NÃO assina o webhook: o registro do contrato não
+    // estabelece segredo compartilhado e a documentação não descreve header de
+    // assinatura. Exigir assinatura rejeitava TODO evento real — foi o que quebrou
+    // silenciosamente em 2026-06-11 (fail-open → fail-closed sem secret) e derrubou
+    // ~3 meses de notificações de pagamento. Então: sem secret configurado OU sem
+    // header de assinatura (o comportamento real do Sicredi) → aceita. A garantia
+    // de autenticidade sobre dinheiro é a jusante: handleLiquidation reconsulta o
+    // Sicredi (queryBoleto) e só liquida o boleto que o próprio banco reporta como
+    // LIQUIDADO — um POST forjado/sem verificação não consegue baixar parcela.
+    if (!secret || !signature) {
       this.logger.warn(
-        'Sicredi webhook request missing signature header (x-signature / x-sicredi-signature)',
+        'Sicredi webhook aceito sem verificação HMAC (sem secret/assinatura — esperado para o Sicredi). ' +
+          'A liquidação é reconfirmada contra o Sicredi antes de qualquer baixa.',
       );
-      throw new UnauthorizedException('Missing webhook signature');
+      return;
     }
 
+    // Secret E assinatura presentes: verifica (defesa caso o Sicredi passe a assinar).
     // Raw body captured by main.ts middleware before JSON parsing
     const rawBody: Buffer | undefined = req.rawBody;
     if (!rawBody) {

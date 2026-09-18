@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { BudgetStatusCascadeService } from '@modules/production/budget/budget-status-cascade.service';
+import { SicrediService } from './sicredi.service';
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
@@ -77,6 +78,7 @@ export class SicrediWebhookService {
     private readonly cascadeService: BudgetStatusCascadeService,
     private readonly notificationDispatchService: NotificationDispatchService,
     private readonly events: EventEmitter2,
+    private readonly sicrediService: SicrediService,
   ) {}
 
   async processEvent(payload: WebhookEventDto): Promise<void> {
@@ -227,6 +229,31 @@ export class SicrediWebhookService {
     if (bankSlip.status === 'PAID') {
       this.logger.log(`BankSlip ${bankSlip.id} is already PAID, skipping liquidation`);
       return;
+    }
+
+    // RECONFIRMAÇÃO ANTES DE MEXER EM DINHEIRO.
+    // O webhook de cobrança do Sicredi não é assinado (não há segredo compartilhado),
+    // então o POST é inautenticado. Antes de baixar, reconsulta o próprio Sicredi e só
+    // segue se o banco reportar o boleto como LIQUIDADO. Qualquer outro estado
+    // (EM CARTEIRA, lag da consulta, ou um payload forjado) NÃO liquida: lança erro
+    // transitório e o cron de retry (sicredi-webhook-retry) tenta de novo — cobre o lag
+    // sem nunca liquidar sobre um evento não confirmado.
+    try {
+      const live = await this.sicrediService.queryBoleto(nossoNumero);
+      const situacao = String((live as { situacao?: string } | null)?.situacao ?? '').toUpperCase();
+      if (!situacao.includes('LIQUID')) {
+        throw new Error(
+          `Liquidação não confirmada no Sicredi para nossoNumero=${nossoNumero} ` +
+            `(situacao="${situacao || 'desconhecida'}"). Não liquidando; será retentado.`,
+        );
+      }
+      this.logger.log(
+        `[LIQUIDATION] Reconfirmado no Sicredi: ${nossoNumero} situacao=${situacao}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`[LIQUIDATION] Reconfirmação falhou para ${nossoNumero}: ${msg}`);
+      throw err instanceof Error ? err : new Error(msg);
     }
 
     // Locally CANCELLED is the OPPOSITE of idempotency and used to share the branch

@@ -624,6 +624,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 txid: boletoResponse.txid || null,
                 dueDate: effectiveDueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
+                // Registrado no Sicredi agora. Marca o campo já no registro para
+                // ele nunca nascer NULL (o daily sync depois grava o situacao real).
+                sicrediStatus: 'REGISTRADO',
                 errorMessage: null,
                 errorCount: 0,
                 lastSyncAt: new Date(),
@@ -644,6 +647,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 amount: installment.amount,
                 dueDate: effectiveDueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
+                // Ver nota no branch de update acima.
+                sicrediStatus: 'REGISTRADO',
                 lastSyncAt: new Date(),
                 ...(pdfFileId && { pdfFileId }),
               },
@@ -1024,7 +1029,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
   // ─── Job 2: Boleto Reconciliation ───────────────────────────────────────────
 
-  @Cron('0 10 * * *', {
+  @Cron('0 8 * * *', {
     name: 'sicredi-boleto-reconciliation',
     timeZone: 'America/Sao_Paulo',
   })
@@ -1709,7 +1714,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   // directly in Sicredi's portal, or seuNumero was updated after an NF-e
   // regeneration) we update BankSlip + Installment and cascade the quote status.
 
-  @Cron('0 9 * * *', {
+  @Cron('0 8 * * *', {
     name: 'sicredi-boleto-due-date-sync',
     timeZone: 'America/Sao_Paulo',
   })
@@ -1828,7 +1833,13 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   }): Promise<{ dueDateChanged: boolean; seuNumeroChanged: boolean; newDueDate?: Date }> {
     const sicrediData = await this.sicrediService.queryBoleto(bankSlip.nossoNumero);
 
-    const bankSlipUpdates: Record<string, unknown> = { lastSyncAt: new Date() };
+    // Grava o situacao REAL do Sicredi a cada sync — este é o ponto autoritativo
+    // que mantém sicrediStatus fiel ao banco (antes ninguém escrevia este campo
+    // fora do webhook, então boleto registrado ficava com sicrediStatus NULL).
+    const bankSlipUpdates: Record<string, unknown> = {
+      lastSyncAt: new Date(),
+      sicrediStatus: sicrediData.situacao ?? null,
+    };
     let dueDateChanged = false;
     let seuNumeroChanged = false;
     let newParsedDate: Date | undefined;

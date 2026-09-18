@@ -1144,6 +1144,9 @@ export class InvoiceGenerationService {
             txid: (boletoResponse as any).txid || null,
             dueDate: effectiveDueDate,
             status: 'ACTIVE',
+            // Registrado no Sicredi: marca sicrediStatus já no registro para não
+            // nascer NULL (o daily sync grava depois o situacao real do banco).
+            sicrediStatus: 'REGISTRADO',
             errorMessage: null,
             errorCount: 0,
             lastSyncAt: new Date(),
