@@ -24,6 +24,13 @@ import { RESPONSIBLE_ROUTE_KEY } from '@/modules/common/auth/decorators/responsi
 /**
  * Marca uma rota como pertencente ao portal do cliente.
  *
+ * ESTA MARCA BASTA. `ResponsibleAuthGuard` é global (`APP_GUARD`), então marcar
+ * a rota já a entrega a ele — não existe um `@UseGuards` a lembrar. Houve, e era
+ * um furo: a marca sozinha fazia o `AuthGuard` global CEDER, e se o
+ * `@UseGuards(ResponsibleAuthGuard)` do handler faltasse, ninguém assumia e a
+ * rota ficava pública. Hoje as duas guardas são globais e se dividem por este
+ * mesmo metadado, com respostas invertidas: nenhuma requisição cai no vão.
+ *
  * Sem esta marca, uma sessão de responsável NÃO entra em lugar nenhum — e isso
  * é estrutural, não uma lista que alguém precisa manter: o token de sessão é
  * OPACO, não um JWT, então `AuthGuard.verifyAccessToken` o rejeita em qualquer

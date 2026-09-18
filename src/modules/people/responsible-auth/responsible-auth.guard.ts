@@ -9,6 +9,22 @@
 // perguntas se aplica a ele, e esticar a guarda para tolerar um payload de
 // formato diferente é exatamente o movimento que deixaria os 827 `@UserId()`
 // devolverem o id errado.
+//
+// É GLOBAL (`APP_GUARD` em `responsible-auth.module.ts`), como o `AuthGuard`, e
+// isso é o que fecha o único furo que este desenho ainda tinha.
+//
+// ANTES: `@ResponsibleOnly()` fazia o `AuthGuard` global ceder passagem só pelo
+// metadado, e quem autenticava de verdade era um `@UseGuards(ResponsibleAuthGuard)`
+// escrito à mão em cada handler. Uma rota que ganhasse a marca e esquecesse o
+// `@UseGuards` ficava ABERTA — o `AuthGuard` já tinha cedido e ninguém assumia.
+// Segurança que depende de alguém lembrar de uma segunda linha não é estrutura,
+// é sorte.
+//
+// AGORA as duas guardas são globais e se dividem pelo MESMO metadado, em espelho:
+//   • rota marcada  → `AuthGuard` cede, esta autentica;
+//   • rota sem marca → esta cede, o `AuthGuard` autentica.
+// Nenhuma requisição passa sem que exatamente uma das duas tenha decidido, e
+// marcar a rota É guardá-la: não há segunda linha a lembrar.
 import {
   CanActivate,
   ExecutionContext,
@@ -21,13 +37,24 @@ import type { ResponsibleRole } from '@prisma/client';
 import { ResponsibleAuthService } from './responsible-auth.service';
 import { IS_RESPONSIBLE_ROUTE, RESPONSIBLE_ROLES_KEY } from './responsible-auth.decorators';
 
-/** O que fica em `request.responsible`. NUNCA em `request.user`. */
+/**
+ * O que fica em `request.responsible`. NUNCA em `request.user`.
+ *
+ * Carrega o cadastro inteiro que a tela do portal precisa — e não só o id —
+ * porque `GET /cliente/auth/eu` é a porta que o portal usa para se re-hidratar
+ * num F5. Com um recorte menor aqui, a tela voltava do recarregamento sem o
+ * nome da empresa no cabeçalho, e a única forma de recuperá-lo era um login
+ * novo.
+ */
 export interface ResponsiblePrincipal {
   sessionId: string;
   id: string;
   name: string;
+  email: string | null;
+  phone: string;
   roles: ResponsibleRole[];
   companyId: string | null;
+  companyName: string | null;
 }
 
 @Injectable()
@@ -38,19 +65,29 @@ export class ResponsibleAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
-
-    if (request.method === 'OPTIONS') return true;
-
-    // A marca é obrigatória. Uma rota que esqueça `@ResponsibleOnly()` não
-    // "abre por omissão": ela recusa.
+    // O reflector vem ANTES de tocar na requisição, de propósito: sendo uma
+    // guarda global, ela é chamada em todo contexto que o Nest conhece,
+    // inclusive os que não são HTTP (websocket, microserviço), onde
+    // `switchToHttp().getRequest()` não devolve uma requisição de verdade.
+    // Decidindo "não é minha rota" primeiro, ela sai antes de olhar para algo
+    // que pode não existir.
     const isResponsibleRoute = this.reflector.getAllAndOverride<boolean>(IS_RESPONSIBLE_ROUTE, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!isResponsibleRoute) {
-      throw new UnauthorizedException('Rota indisponível para o portal do cliente.');
-    }
+
+    // Rota que não é do portal: não é da conta desta guarda. Quem decide é o
+    // `AuthGuard`, que autentica funcionário e recusa o token opaco do portal.
+    //
+    // Ceder aqui NÃO abre nada — é a metade complementar da divisão descrita no
+    // cabeçalho. As duas guardas são globais e leem o MESMO metadado com
+    // respostas invertidas, então toda requisição é decidida por exatamente uma
+    // delas, e nenhuma cai no vão entre as duas.
+    if (!isResponsibleRoute) return true;
+
+    const request = context.switchToHttp().getRequest();
+
+    if (request.method === 'OPTIONS') return true;
 
     const token = this.extractToken(request);
     if (!token) {
@@ -69,8 +106,11 @@ export class ResponsibleAuthGuard implements CanActivate {
       sessionId: resolved.sessionId,
       id: resolved.responsible.id,
       name: resolved.responsible.name,
+      email: resolved.responsible.email,
+      phone: resolved.responsible.phone,
       roles: resolved.responsible.roles as ResponsibleRole[],
       companyId: resolved.responsible.companyId,
+      companyName: resolved.responsible.companyName,
     };
 
     // Escrito em `request.responsible`, JAMAIS em `request.user`.

@@ -36,6 +36,19 @@ const check = (nome: string, ok: boolean, detalhe?: string) => {
   if (!ok) falhas++;
 };
 
+/**
+ * Os MESMOS prazos que `ResponsibleAuthService` le, com os MESMOS padroes.
+ *
+ * Estavam escritos a mao aqui (179, 180, 200) e o teste quebrou no dia em que o
+ * teto subiu de 180 para 365 — quebrou dizendo "restaram 90 dias, esperado ~1",
+ * que descreve o teste desatualizado e nao um defeito do sistema. Derivando da
+ * mesma fonte, o teste passa a afirmar a REGRA ("o empurrao para no teto") em
+ * vez de um numero, e acompanha qualquer reconfiguracao futura sozinho.
+ */
+const IDLE_DAYS = Number(process.env.RESPONSIBLE_SESSION_IDLE_DAYS ?? 90);
+const MAX_DAYS = Number(process.env.RESPONSIBLE_SESSION_MAX_DAYS ?? 365);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 async function main() {
   const prisma = new PrismaService();
   await prisma.$connect();
@@ -152,25 +165,27 @@ async function main() {
       });
       check('uso logo em seguida NAO gera escrita (throttle de 1h)', terceiro!.expiresAt.getTime() === marca);
 
-      // O teto: uma sessao nascida ha 179 dias so pode ser empurrada ate 180.
-      const quaseNoTeto = new Date(Date.now() - 179 * 24 * 60 * 60 * 1000);
+      // O teto: uma sessao nascida a (MAX_DAYS - 1) dias so pode ser empurrada
+      // ate MAX_DAYS — ou seja, resta ~1 dia, e NAO os IDLE_DAYS inteiros que o
+      // empurrao pediria. A afirmacao e' sobre a regra, nao sobre o numero.
+      const quaseNoTeto = new Date(Date.now() - (MAX_DAYS - 1) * DAY_MS);
       await auth.touchSession(antes!.id, null, { createdAt: quaseNoTeto, lastSeenAt: velho });
       const noTeto = await prisma.responsibleSession.findUnique({
         where: { id: antes!.id }, select: { expiresAt: true },
       });
-      const restaDias = (noTeto!.expiresAt.getTime() - Date.now()) / 86400000;
+      const restaDias = (noTeto!.expiresAt.getTime() - Date.now()) / DAY_MS;
       check(
         'o TETO ABSOLUTO limita o empurrao',
         restaDias > 0 && restaDias < 2,
-        `restaram ${restaDias.toFixed(2)} dias (esperado ~1)`,
+        `restaram ${restaDias.toFixed(2)} dias (o empurrao pediria ${IDLE_DAYS}, o teto deu ~1)`,
       );
 
       // E passado o teto, nao resolve mais, por mais recente que seja o uso.
       await prisma.responsibleSession.update({
         where: { id: antes!.id },
         data: {
-          createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
-          expiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+          createdAt: new Date(Date.now() - (MAX_DAYS + 20) * DAY_MS),
+          expiresAt: new Date(Date.now() + IDLE_DAYS * DAY_MS),
           lastSeenAt: new Date(),
         },
       });
@@ -214,6 +229,40 @@ async function main() {
       'apos desativar, a MESMA sessao deixa de resolver',
       (await auth.resolveSession(viva.token)) === null,
       'a sessao sobreviveu a desativacao do cadastro',
+    );
+
+    // ---------------------------------------------------------------------
+    // Trocar o CANAL derruba as sessoes abertas.
+    //
+    // O telefone e' o que prova a identidade aqui: o codigo de acesso vai para
+    // ele. Troca-lo significa, quase sempre, que a pessoa saiu e outra assumiu
+    // o contato. Sem revogacao, quem entrou com o numero antigo seguiria lendo
+    // os orcamentos do cliente por ate um ano — agora que o teto e' 365 dias,
+    // esse "ate" e' longo o bastante para importar.
+    //
+    // Quem dispara em producao e' `ResponsibleService.update`; aqui chamamos
+    // `revokeAll` direto porque este teste nao sobe o modulo de CRUD.
+    // ---------------------------------------------------------------------
+    console.log('\nTrocar o canal de contato derruba as sessoes abertas');
+    await prisma.responsible.update({ where: { id: alvo.id }, data: { isActive: true } });
+    await prisma.responsibleAuthChallenge.deleteMany({ where: { responsibleId: alvo.id } });
+
+    const p3 = await auth.requestCode({ contact: alvo.email! });
+    const antesDaTroca = await auth.verifyCode({
+      contact: alvo.email!, challengeId: p3.challengeId, code: ultimoCodigo,
+    });
+    check('a sessao resolve antes da troca', (await auth.resolveSession(antesDaTroca.token)) !== null);
+
+    await prisma.responsible.update({
+      where: { id: alvo.id },
+      data: { phone: alvo.phone.slice(0, -1) + (alvo.phone.endsWith('9') ? '8' : '9') },
+    });
+    await auth.revokeAll(alvo.id);
+
+    check(
+      'apos trocar o telefone, a sessao do dono anterior morre',
+      (await auth.resolveSession(antesDaTroca.token)) === null,
+      'o canal mudou de dono e a sessao antiga continuou valendo',
     );
   } finally {
     await prisma.responsibleAuthChallenge.deleteMany({ where: { responsibleId: alvo.id } });

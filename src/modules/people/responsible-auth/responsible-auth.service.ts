@@ -44,7 +44,7 @@ import {
  *
  * OCIOSIDADE (`IDLE_DAYS`) — "quanto tempo sem aparecer até eu esquecer você?"
  *   Renovado a cada uso. Na prática: quem usa o portal com alguma regularidade
- *   NUNCA mais faz login. Quem sumiu por dois meses entra de novo, o que custa
+ *   NUNCA mais faz login. Quem sumiu por três meses entra de novo, o que custa
  *   um código que chega em segundos.
  *
  * TETO ABSOLUTO (`MAX_DAYS`) — "por quanto tempo esta sessão pode existir?"
@@ -52,10 +52,18 @@ import {
  *   copiado de um aparelho emprestado se renovaria para sempre, sozinho. É a
  *   diferença entre "não incomodar quem usa" e "nunca mais conferir quem é".
  *
- * O resultado para o cliente: re-autentica no máximo ~2x por ano, e só isso.
+ * O resultado para o cliente: quem usa com alguma regularidade re-autentica UMA
+ * vez por ano, quando o teto absoluto vence — e mais nada. Quem some por três
+ * meses entra de novo.
+ *
+ * E há uma segunda tranca, que é a que torna um prazo longo aceitável: trocar o
+ * telefone ou o e-mail do contato, ou desativá-lo, REVOGA as sessões na hora
+ * (`ResponsibleService.revokePortalSessions`). O prazo longo vale para a mesma
+ * pessoa no mesmo canal; no instante em que o canal muda de dono, o prazo deixa
+ * de valer.
  */
-const SESSION_IDLE_DAYS = Number(process.env.RESPONSIBLE_SESSION_IDLE_DAYS ?? 60);
-const SESSION_MAX_DAYS = Number(process.env.RESPONSIBLE_SESSION_MAX_DAYS ?? 180);
+const SESSION_IDLE_DAYS = Number(process.env.RESPONSIBLE_SESSION_IDLE_DAYS ?? 90);
+const SESSION_MAX_DAYS = Number(process.env.RESPONSIBLE_SESSION_MAX_DAYS ?? 365);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -192,11 +200,23 @@ export class ResponsibleAuthService {
     );
 
     if (!result.ok) {
-      // Aqui SIM falamos claro: a pessoa existe, pediu, e não conseguimos
-      // entregar. Esconder isso a deixaria esperando um código que não vem.
-      // O cooldown já foi instruído a não punir esta falha.
+      // Aqui SIM dizemos que falhou: a pessoa existe, pediu, e não conseguimos
+      // entregar. Esconder isso a deixaria esperando um código que não vem. O
+      // cooldown já foi instruído a não punir esta falha.
+      //
+      // O MOTIVO, porém, fica no log. `result.reason` vem da Meta ou do SMTP e
+      // descreve a NOSSA infraestrutura — "canal oficial desligado", "sem
+      // telefone no cadastro", códigos de erro da Cloud API. Para quem está do
+      // lado de fora não é acionável, e "sem telefone no cadastro" ainda conta
+      // que aquele contato existe, desfazendo a resposta genérica que o caminho
+      // de enfeite acabou de construir. Quem precisa do motivo é o operador.
+      this.logger.error(
+        `Falha ao entregar código de acesso ao responsável ${responsible.id} ` +
+          `(canal ${preferred}): ${result.reason}`,
+      );
       throw new BadRequestException(
-        `Não foi possível enviar o código (${result.reason}). Procure o comercial.`,
+        'Não foi possível enviar o código agora. Tente novamente em alguns minutos ' +
+          'ou fale com o comercial.',
       );
     }
 
@@ -324,8 +344,11 @@ export class ResponsibleAuthService {
     responsible: {
       id: string;
       name: string;
+      email: string | null;
+      phone: string;
       roles: string[];
       companyId: string | null;
+      companyName: string | null;
     };
   } | null> {
     const tokenHash = ResponsibleAuthChallengeService.hashSessionToken(rawToken);
@@ -339,7 +362,22 @@ export class ResponsibleAuthService {
         revokedAt: true,
         lastSeenAt: true,
         responsible: {
-          select: { id: true, name: true, roles: true, companyId: true, isActive: true },
+          // O recorte é o do CADASTRO INTEIRO que a tela usa, e não só o
+          // identificador, porque `GET /cliente/auth/eu` é a única fonte da
+          // sessão depois de um F5. Com um recorte menor, o portal voltava do
+          // recarregamento sem o nome da empresa no cabeçalho e só um login novo
+          // o trazia de volta. É uma linha a mais no `select` de uma consulta que
+          // já acontece, por índice único, uma vez por requisição.
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            roles: true,
+            companyId: true,
+            isActive: true,
+            company: { select: { fantasyName: true } },
+          },
         },
       },
     });
@@ -362,8 +400,11 @@ export class ResponsibleAuthService {
       responsible: {
         id: session.responsible.id,
         name: session.responsible.name,
+        email: session.responsible.email,
+        phone: session.responsible.phone,
         roles: session.responsible.roles,
         companyId: session.responsible.companyId,
+        companyName: session.responsible.company?.fantasyName ?? null,
       },
     };
   }
@@ -448,12 +489,29 @@ export class ResponsibleAuthService {
     }
 
     // O telefone é gravado em formatos variados ao longo dos anos; comparar por
-    // dígitos é o que faz "(43) 98863-5657" e "43988635657" serem a mesma pessoa.
+    // dígitos é o que faz "(43) 98863-5657" e "43988635657" serem a mesma
+    // pessoa. Casamos pelos ÚLTIMOS 10 dígitos para que quem digita com código
+    // de país ("5543988635657") encontre o cadastro que o guarda sem ele.
+    //
+    // ERA UM `findFirst` SEM `orderBy`, E ISSO É UM DEFEITO LATENTE, NÃO
+    // COSMÉTICO. O sufixo de 10 dígitos descarta o primeiro dígito do DDD, então
+    // duas pessoas PODEM colidir (DDD 43 e DDD 13 com o mesmo número). O Postgres
+    // não garante ordem sem `ORDER BY`, e este método é chamado DUAS VEZES em
+    // instantes diferentes: uma ao pedir o código e outra ao resgatá-lo. Se as
+    // duas chamadas resolvessem pessoas diferentes, o desafio seria emitido para
+    // uma e conferido contra a outra — login impossível, com a mensagem genérica
+    // "código inválido" e nada no log explicando.
+    //
+    // Medi a produção antes de mexer: 181 contatos ativos, ZERO colisões de
+    // sufixo hoje. Isto é blindagem, e o `warn` abaixo é para a colisão aparecer
+    // no dia em que nascer, em vez de virar um chamado de "não consigo entrar".
     const digits = onlyDigits(contact);
     if (digits.length < 10) return null;
 
-    return this.prisma.responsible.findFirst({
+    const candidates = await this.prisma.responsible.findMany({
       where: { phoneNormalized: { endsWith: digits.slice(-10) } },
+      // Ordem estável: as duas chamadas do fluxo enxergam a mesma lista.
+      orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         name: true,
@@ -462,5 +520,23 @@ export class ResponsibleAuthService {
         isActive: true,
       },
     });
+
+    if (candidates.length <= 1) return candidates[0] ?? null;
+
+    // Houve colisão de sufixo. Quem casar EXATO no que foi digitado ganha — é a
+    // resposta certa e determinística para o caso comum de alguém ter digitado o
+    // número inteiro.
+    const exact = candidates.filter(c => onlyDigits(c.phone) === digits);
+    if (exact.length === 1) return exact[0];
+
+    // Ambíguo de verdade: não dá para escolher, e ESCOLHER ERRADO mandaria o
+    // código para o telefone de outra pessoa. Recusa — e grita no log, sem o
+    // número em claro.
+    this.logger.warn(
+      `Contato por telefone ambíguo: ${candidates.length} cadastros casam o mesmo ` +
+        `sufixo de 10 dígitos e nenhum casa exato. Login recusado; ` +
+        `ids: ${candidates.map(c => c.id).join(', ')}`,
+    );
+    return null;
   }
 }

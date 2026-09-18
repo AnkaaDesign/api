@@ -11,16 +11,17 @@
 //
 // Aqui: pedir código e trocar código por sessão são PÚBLICAS (ninguém tem sessão
 // antes de entrar); tudo o mais exige a sessão.
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+//
+// Não há `@UseGuards` nenhum neste arquivo, e isso é a estrutura funcionando.
+// `ResponsibleAuthGuard` é GLOBAL (`APP_GUARD`), como o `AuthGuard`, e as duas
+// se dividem pelo mesmo metadado: `@ResponsibleOnly()` manda o `AuthGuard`
+// ceder e esta assumir. Marcar a rota É guardá-la.
+//
+// O desenho anterior pedia as duas linhas — a marca E o `@UseGuards` — e uma
+// rota que ganhasse só a primeira ficava ABERTA: o `AuthGuard` já tinha cedido e
+// ninguém assumia. Uma linha esquecida não pode ser a diferença entre uma rota
+// autenticada e uma pública.
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { Public } from '@/modules/common/auth/decorators/public.decorator';
@@ -30,7 +31,7 @@ import {
   VerificationSendRateLimit,
 } from '@/modules/common/throttler/throttler.decorators';
 import { ResponsibleAuthService } from './responsible-auth.service';
-import { ResponsibleAuthGuard, type ResponsiblePrincipal } from './responsible-auth.guard';
+import { type ResponsiblePrincipal } from './responsible-auth.guard';
 import { ResponsibleOnly } from './responsible-auth.decorators';
 import { CurrentResponsible } from './current-responsible.decorator';
 
@@ -95,13 +96,19 @@ export class ResponsibleAuthController {
    */
   @Get('eu')
   @ResponsibleOnly()
-  @UseGuards(ResponsibleAuthGuard)
   async me(@CurrentResponsible() responsible: ResponsiblePrincipal) {
+    // MESMA forma que `entrar` devolve em `responsible`. Não é simetria
+    // estética: esta é a única fonte da sessão depois de um recarregamento de
+    // página, e enquanto ela devolvia um recorte menor o portal voltava do F5
+    // sem o nome da empresa no cabeçalho — e só um login novo o trazia de volta.
     return {
       id: responsible.id,
       name: responsible.name,
+      email: responsible.email,
+      phone: responsible.phone,
       roles: responsible.roles,
       companyId: responsible.companyId,
+      companyName: responsible.companyName,
     };
   }
 
@@ -112,7 +119,6 @@ export class ResponsibleAuthController {
    */
   @Post('sair')
   @ResponsibleOnly()
-  @UseGuards(ResponsibleAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(@Req() req: Request) {
     const header = req.headers.authorization;

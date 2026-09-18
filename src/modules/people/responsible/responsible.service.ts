@@ -2,8 +2,10 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { ResponsibleRepository } from './repositories/responsible.repository';
+import { ResponsibleAuthService } from '@/modules/people/responsible-auth/responsible-auth.service';
 import { ChangeLogService } from '@/modules/common/changelog/changelog.service';
 import {
   Responsible,
@@ -33,11 +35,46 @@ export { RESPONSIBLE_ROLE, RESPONSIBLE_ROLE_LABELS, formatResponsibleRoles };
 
 @Injectable()
 export class ResponsibleService {
+  private readonly logger = new Logger(ResponsibleService.name);
+
   constructor(
     private readonly repository: ResponsibleRepository,
     private readonly changelogService: ChangeLogService,
     private readonly prisma: PrismaService,
+    private readonly responsibleAuth: ResponsibleAuthService,
   ) {}
+
+  /**
+   * Derruba as sessões abertas do portal deste contato.
+   *
+   * Chamado quando o CANAL muda de dono — telefone ou e-mail trocado — e quando
+   * o cadastro é desativado.
+   *
+   * O telefone é o que prova a identidade no portal: o código de acesso vai para
+   * ele. Trocá-lo significa, quase sempre, que a pessoa saiu e outra assumiu o
+   * contato. Sem esta revogação, quem entrou com o número antigo continuaria com
+   * a sessão viva — por até um ano, agora que o teto subiu — lendo os orçamentos
+   * de um cliente para o qual já não trabalha.
+   *
+   * A desativação já era coberta de outro jeito (`resolveSession` relê
+   * `isActive` a cada requisição), mas revogar aqui também é barato e deixa o
+   * banco contando a mesma história que a guarda conta.
+   *
+   * BEST-EFFORT de propósito: o cadastro já foi gravado quando isto roda, e uma
+   * falha ao revogar não pode desfazer nem derrubar o que o funcionário acabou
+   * de salvar. Falha vira log, não exceção.
+   */
+  private async revokePortalSessions(id: string, reason: string): Promise<void> {
+    try {
+      await this.responsibleAuth.revokeAll(id);
+      this.logger.log(`Sessões do portal revogadas para o responsável ${id}: ${reason}.`);
+    } catch (error) {
+      this.logger.error(
+        `Falha ao revogar sessões do portal do responsável ${id} (${reason}): ` +
+          `${(error as Error).message}`,
+      );
+    }
+  }
 
   async create(data: ResponsibleCreateFormData): Promise<ResponsibleResponse> {
     // Check if email is provided and already exists
@@ -226,6 +263,22 @@ export class ResponsibleService {
       include: { company: { include: { logo: true } } },
     });
 
+    // O canal mudou de dono, ou o cadastro foi desativado: as sessões abertas do
+    // portal morrem. Comparamos com o que estava no banco ANTES do update — um
+    // `data.phone` igual ao atual não é troca de dono e não derruba ninguém.
+    const phoneChanged = Boolean(data.phone) && data.phone !== existing.phone;
+    const emailChanged = data.email !== undefined && data.email !== existing.email;
+    const deactivated = data.isActive === false && existing.isActive;
+
+    if (phoneChanged || emailChanged || deactivated) {
+      const reasons = [
+        phoneChanged ? 'telefone alterado' : null,
+        emailChanged ? 'e-mail alterado' : null,
+        deactivated ? 'cadastro desativado' : null,
+      ].filter(Boolean);
+      await this.revokePortalSessions(id, reasons.join(' + '));
+    }
+
     // Log changes
     const changes = this.getChangedFields(existing, updated);
     for (const change of changes) {
@@ -277,6 +330,13 @@ export class ResponsibleService {
         include: { company: { include: { logo: true } } },
       },
     );
+
+    // Desativar tira de dentro na hora. A guarda já releria `isActive` a cada
+    // requisição, mas revogar aqui deixa a tabela de sessões contando a mesma
+    // história — e uma reativação futura não ressuscita a sessão antiga.
+    if (!newStatus) {
+      await this.revokePortalSessions(id, 'cadastro desativado');
+    }
 
     // Log status change
     await this.changelogService.logChange({

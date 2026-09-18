@@ -6,6 +6,7 @@ import { ResponsiblePrismaRepository } from './repositories/responsible-prisma.r
 import { ChangeLogModule } from '@/modules/common/changelog/changelog.module';
 import { PrismaModule } from '@/modules/common/prisma/prisma.module';
 import { UserModule } from '../user/user.module';
+import { ResponsibleAuthModule } from '../responsible-auth/responsible-auth.module';
 
 // O `JwtModule` daqui foi REMOVIDO. Ele registrava um assinador com o MESMO
 // `JWT_SECRET` do access token de funcionario, e era com ele que
@@ -25,6 +26,10 @@ import { UserModule } from '../user/user.module';
     PrismaModule,
     ChangeLogModule,
     UserModule, // Import UserModule to provide UserRepository for AuthGuard
+    // Para revogar as sessões do portal quando o CANAL muda de dono (telefone ou
+    // e-mail trocado) ou o cadastro é desativado. Sem isto, quem entrou com o
+    // número antigo seguia lendo os orçamentos do cliente por até um ano.
+    ResponsibleAuthModule,
   ],
   controllers: [ResponsibleController],
   providers: [
