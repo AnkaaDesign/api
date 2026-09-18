@@ -52,10 +52,29 @@ export class ResponsibleAuthController {
   /**
    * Passo 1 — pede o código.
    *
-   * `@VerificationSendRateLimit()` é o balde mais apertado que existe (2 por 5
-   * min em produção, bloqueio de 30 min) e é o mesmo que `/auth/send-verification`
-   * usa. Vale notar que o controller ANTIGO de responsáveis não tinha throttle
-   * nenhum: `POST /responsibles/login` aceitava chute de senha ilimitado.
+   * `@VerificationSendRateLimit()` declara o balde mais apertado que existe (2
+   * por 5 min) e é o mesmo que `/auth/send-verification` usa.
+   *
+   * ⚠️ MAS NÃO CONTE COM ELE. Produção roda com `DISABLE_RATE_LIMITING=true`
+   * (nos DOIS arquivos de env), e `CustomThrottlerGuard.canActivate` devolve
+   * `true` na primeira linha quando essa flag está ligada — em TODA a API. Este
+   * decorador é, hoje, decoração: o throttle existe no código e não existe no
+   * deploy.
+   *
+   * Por isso as travas que importam aqui são as do BANCO, não as do Redis, e
+   * elas seguem valendo com a flag ligada:
+   *   • 5 tentativas POR DESAFIO, com incremento atômico no `WHERE`;
+   *   • UM desafio vivo por pessoa (`issue` supersede os PENDING);
+   *   • cooldown de 120s e teto de 5 desafios/hora POR RESPONSÁVEL — é isto que
+   *     impede usar a rota para mandar mensagem sem fim para um contato.
+   *
+   * O que fica DESPROTEGIDO enquanto a flag estiver ligada é o volume bruto de
+   * requisições e o caminho de enfeite (contato inexistente), que não escreve
+   * no banco e portanto não tem limite nenhum.
+   *
+   * Vale notar que o controller ANTIGO de responsáveis não tinha throttle
+   * nenhum nem trava de banco: `POST /responsibles/login` aceitava chute de
+   * senha ilimitado.
    */
   @Post('codigo')
   @Public()
