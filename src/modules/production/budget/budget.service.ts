@@ -59,7 +59,6 @@ import {
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
-import { pickPrimaryResponsible } from '@constants/enums';
 import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
@@ -382,30 +381,12 @@ export class BudgetService {
 
       const task = tasks[0];
 
-      // Default each customerConfig's responsibleId to the best task responsible if missing.
-      // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt. The old
-      // criterion was `roles.includes('OWNER')`, and that role no longer exists —
-      // the successor rule lives in one place and is shared with task.service and
-      // with the public budget page.
-      // União dos responsáveis das N tarefas, deduplicada — o mesmo conjunto que
-      // vira signatário do documento assinado.
-      const seenRespIds = new Set<string>();
-      const taskResponsibles = tasks
-        .flatMap(t => (t as any).responsibles ?? [])
-        .filter((r: any) => {
-          if (seenRespIds.has(r.id)) return false;
-          seenRespIds.add(r.id);
-          return true;
-        });
-      const defaultResponsibleId =
-        pickPrimaryResponsible<{ id: string; roles?: string[] }>(taskResponsibles)?.id || null;
-      if (defaultResponsibleId) {
-        for (const config of data.customerConfigs) {
-          if (!config.responsibleId) {
-            config.responsibleId = defaultResponsibleId;
-          }
-        }
-      }
+      // O PAGADOR NÃO ELEGE MAIS UM RESPONSÁVEL. Havia aqui um bloco que
+      // escolhia "o melhor" responsável da tarefa e o gravava em cada fatia de
+      // faturamento, para o documento ter um "À fulano". Quem responde pelo
+      // orçamento é `Task.responsibles`, inteira; quem ASSINA se decide no envio
+      // para assinatura. Eleger um segundo dono aqui criava uma cópia que
+      // divergia da lista em silêncio.
 
       // Validate customerConfigs customer IDs.
       //
@@ -688,9 +669,6 @@ export class BudgetService {
                   // respondia "Unknown argument `orderNumber`" e TODA criação de
                   // orçamento morria em 500. O valor legado é traduzido para as
                   // tarefas mais abaixo (`legacyOrderNumber`).
-                  ...(config.responsibleId && {
-                    responsible: { connect: { id: config.responsibleId } },
-                  }),
                   paymentCondition: config.paymentCondition || null,
                   paymentConfig: (config as any).paymentConfig ?? null,
                 })),
@@ -847,7 +825,6 @@ export class BudgetService {
                   select: { id: true, fantasyName: true, cnpj: true },
                 },
                 installments: { orderBy: { number: 'asc' } },
-                responsible: { select: { id: true, name: true, roles: true } },
                 customerSignature: true,
               },
             },
@@ -967,7 +944,6 @@ export class BudgetService {
       // antigo que ainda a manda faria todo salvamento parecer MATERIALMENTE
       // alterado — disparando o delete+recreate destrutivo das configurações e,
       // em `BILLING_APPROVED`+, batendo na trava de status.
-      responsibleId: config.responsibleId ?? null,
       paymentConfig: config.paymentConfig ?? null,
     });
   }
@@ -1313,29 +1289,7 @@ export class BudgetService {
           );
         }
 
-        // Default each customerConfig's responsibleId to the best task responsible if missing.
-        // Priority: `RESPONSIBLE_ROLE_PRIMARY_PRIORITY` > first by createdAt (mirrors
-        // create() and the public budget page).
-        // The Budget↔Task relation lives on Task.quoteId — query via that side.
-        // Âncora na ordem canônica: o responsável herdado tem de ser sempre o do
-        // MESMO veículo, não o de qualquer um que o banco devolva primeiro.
-        const taskWithResp = await this.prisma.task.findFirst({
-          where: { quoteId: id },
-          orderBy: QUOTE_TASKS_ORDER_BY,
-          include: {
-            responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } },
-          },
-        });
-        const taskWithRespList = (taskWithResp as any)?.responsibles ?? [];
-        const defaultResponsibleId =
-          pickPrimaryResponsible<{ id: string; roles?: string[] }>(taskWithRespList)?.id || null;
-        if (defaultResponsibleId) {
-          for (const config of data.customerConfigs) {
-            if (!config.responsibleId) {
-              config.responsibleId = defaultResponsibleId;
-            }
-          }
-        }
+        // Sem herança de responsável — ver o mesmo corte em `create()`.
       }
 
       // ═══════════════════════════════════════════════════════════════════════
@@ -1743,7 +1697,6 @@ export class BudgetService {
                 customPaymentText: c.customPaymentText,
                 generateInvoice: c.generateInvoice,
                 generateBankSlip: c.generateBankSlip,
-                responsibleId: c.responsibleId,
                 paymentCondition: c.paymentCondition,
                 paymentConfig: c.paymentConfig,
               })),
@@ -2239,7 +2192,6 @@ export class BudgetService {
                   select: { id: true, fantasyName: true, cnpj: true },
                 },
                 installments: { orderBy: { number: 'asc' } },
-                responsible: { select: { id: true, name: true, roles: true } },
                 customerSignature: true,
               },
             },
@@ -5580,9 +5532,6 @@ export class BudgetService {
               generateBankSlip: true,
               paymentCondition: true,
               paymentConfig: true,
-              responsible: {
-                select: { id: true, name: true, roles: true },
-              },
               customer: {
                 // O QUADRO DO TOMADOR. Não é só nome e documento: a seção
                 // "Faturamento" imprime inscrição estadual, municipal e o
@@ -5828,7 +5777,6 @@ export class BudgetService {
             include: {
               customer: { select: { id: true, fantasyName: true, cnpj: true } },
               customerSignature: true,
-              responsible: true,
             },
           },
           tasks: {

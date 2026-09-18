@@ -278,7 +278,6 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
             include: { bankSlip: true },
             orderBy: { number: 'asc' as const },
           },
-          responsible: { select: { id: true, name: true, roles: true } },
         },
       },
     },

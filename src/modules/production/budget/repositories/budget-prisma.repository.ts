@@ -421,9 +421,6 @@ export class BudgetPrismaRepository
                     streetType: true,
                   },
                 },
-                responsible: {
-                  select: { id: true, name: true, roles: true },
-                },
               },
             }
           : (include as any).customerConfigs,
@@ -462,9 +459,6 @@ export class BudgetPrismaRepository
           billing: QUOTE_BILLING_INCLUDE,
           customer: {
             select: { id: true, fantasyName: true, cnpj: true },
-          },
-          responsible: {
-            select: { id: true, name: true, roles: true },
           },
           installments: {
             include: {
@@ -689,9 +683,6 @@ export class BudgetPrismaRepository
                 streetType: true,
               },
             },
-            responsible: {
-              select: { id: true, name: true, roles: true },
-            },
             installments: {
               orderBy: { number: 'asc' },
             },
@@ -724,9 +715,6 @@ export class BudgetPrismaRepository
             billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
-            },
-            responsible: {
-              select: { id: true, name: true, roles: true },
             },
           },
         },
@@ -777,9 +765,6 @@ export class BudgetPrismaRepository
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
-            responsible: {
-              select: { id: true, name: true, roles: true },
-            },
           },
         },
       },
@@ -823,9 +808,6 @@ export class BudgetPrismaRepository
             billing: QUOTE_BILLING_INCLUDE,
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
-            },
-            responsible: {
-              select: { id: true, name: true, roles: true },
             },
           },
         },

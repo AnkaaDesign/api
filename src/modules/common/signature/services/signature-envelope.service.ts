@@ -2250,19 +2250,23 @@ export class SignatureEnvelopeService {
         : (customer?.cpf ?? null),
       // A QUEM ESTE DOCUMENTO É ENDEREÇADO.
       //
-      // Ordem: o contato da configuração (faturamento dividido) > os
-      // SIGNATÁRIOS DESTE RECORTE > o responsável principal da tarefa.
+      // Ordem: os SIGNATÁRIOS DESTE RECORTE > o responsável principal da tarefa.
       //
-      // O segundo degrau é o conserto de um defeito medido: cada recorte é um
+      // O primeiro degrau é o conserto de um defeito medido: cada recorte é um
       // documento diferente, com signatários diferentes, e o "À <fulano>" saía de
       // `responsibles[0]` em todos eles. No orçamento nº 956 o PDF do Kennedy
       // abria com "À Beatriz" — o documento cumprimentava outra pessoa que não
       // quem ia assiná-lo. Endereçar a quem tem a caneta na mão é o mínimo.
       //
-      // O terceiro degrau cobre o recorte completo que existe só para a
+      // O segundo degrau cobre o recorte completo que existe só para a
       // contra-assinatura da Ankaa, sem nenhum contato do cliente nele.
+      //
+      // O degrau que SAIU era o contato eleito no pagador (`responsibleId`).
+      // Ele vinha ANTES dos signatários, então um recorte endereçava o documento
+      // a quem a tela de faturamento tinha escolhido em vez de a quem ia
+      // assiná-lo — exatamente o defeito que o degrau seguinte existe para
+      // corrigir, reintroduzido por outra porta.
       contactName:
-        segment?.responsible?.name ??
         formatContactList(signers.filter(x => x.side === 'CUSTOMER').map(x => x.name)) ??
         pickPrimaryResponsible(
           // O responsável PRINCIPAL sai da união das tarefas, não da primeira:
@@ -7159,15 +7163,25 @@ export class SignatureEnvelopeService {
       (segment?.customer ?? primaryTask(quote)?.customer)?.fantasyName ??
       '';
 
-    // No recorte, quem assina pelo cliente é o contato DAQUELA configuração —
-    // uma linha só. Repetir os responsáveis da tarefa poria o contato de um
-    // cliente assinando embaixo da razão social do outro (a tarefa costuma ter
-    // um responsável só, o do cliente principal). Sem contato na configuração,
-    // segue a regra de sempre.
-    const responsibles =
-      segment?.responsible != null
-        ? [segment.responsible]
-        : dedupeResponsibles(quoteTasks(quote as any).flatMap((t: any) => t.responsibles ?? []));
+    // No recorte, quem assina pelo cliente são os contatos DAQUELE cliente —
+    // não todos os responsáveis da tarefa. Repetir a lista inteira poria o
+    // contato de um cliente assinando embaixo da razão social do outro.
+    //
+    // O vínculo sai de `Responsible.companyId`, e não mais de um contato eleito
+    // no pagador: o eleito era UM, então o recorte de um cliente com dois
+    // contatos mostrava uma linha de assinatura onde deveria haver duas — e
+    // mantê-lo em dia era trabalho manual que ninguém fazia.
+    //
+    // Sem nenhum contato vinculado àquele cliente, segue a regra de sempre (a
+    // lista inteira): é o que já acontecia quando o campo eleito estava vazio, e
+    // um documento sem linha de assinatura nenhuma seria pior.
+    const todosOsContatos = dedupeResponsibles(
+      quoteTasks(quote as any).flatMap((t: any) => t.responsibles ?? []),
+    );
+    const contatosDoSegmento = segment
+      ? todosOsContatos.filter((r: any) => r.companyId === segment.customerId)
+      : [];
+    const responsibles = contatosDoSegmento.length ? contatosDoSegmento : todosOsContatos;
     const seeds: Array<{
       id: string;
       name: string;

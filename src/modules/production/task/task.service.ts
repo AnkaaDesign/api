@@ -238,7 +238,6 @@ export class TaskService {
       // com bloco `quote`: em APPROVED/SIGNED isso revertia o orçamento para
       // PENDING em silêncio, e com cobrança aprovada devolvia 400 pela trava do
       // dinheiro, porque `customerConfigs` não está na lista segura.
-      responsibleId: c.responsibleId ?? null,
       paymentConfig: c.paymentConfig ?? null,
     });
   }
@@ -3544,21 +3543,12 @@ export class TaskService {
         delete (updateData as any).newLayoutStatuses;
         delete (updateData as any).fileIds; // Legacy field name for layoutIds
 
-        // Capture the task's current primary responsible before the update changes the relation.
-        // Used below to sync the quote's responsibleId when the primary responsible changes.
-        let oldBestResponsibleId: string | null = null;
-        if (data.responsibleIds !== undefined && existingTask.quote?.id) {
-          const oldResps = await tx.responsible.findMany({
-            where: { tasks: { some: { id } } },
-            select: { id: true, roles: true },
-            orderBy: { createdAt: 'asc' },
-          });
-          // `pickPrimaryResponsible` substitui o antigo `roles.includes('OWNER')`:
-          // a função PROPRIETÁRIO deixou de existir e a eleição do principal
-          // passou a seguir uma ordem de preferência única, compartilhada com
-          // budget.service e com a página pública do orçamento.
-          oldBestResponsibleId = pickPrimaryResponsible(oldResps)?.id ?? null;
-        }
+        // NÃO HÁ MAIS RESPONSÁVEL A SINCRONIZAR. O pagador do orçamento tinha
+        // um `responsibleId` eleito, e este bloco existia para persegui-lo:
+        // lia o principal ANTES do update, o principal DEPOIS, e reescrevia as
+        // fatias que ainda apontavam para o antigo. Duas listas, um mecanismo de
+        // sincronia, e uma divergência silenciosa sempre que ele não rodava.
+        // Agora quem responde pelo orçamento é `Task.responsibles`, e ponto.
 
         // Update the task - always include customer for file organization
         // Also include file relations for changelog tracking
@@ -3596,32 +3586,6 @@ export class TaskService {
           },
           userId,
         );
-
-        // Sync quote customerConfig responsibleId when the task's primary responsible changes.
-        // Only updates configs that were tracking the old primary (same id) — intentional
-        // overrides on individual configs are preserved.
-        if (data.responsibleIds !== undefined && existingTask.quote?.id) {
-          const newRespIds = data.responsibleIds ?? [];
-          const newResps =
-            newRespIds.length > 0
-              ? await tx.responsible.findMany({
-                  where: { id: { in: newRespIds } },
-                  select: { id: true, roles: true },
-                  orderBy: { createdAt: 'asc' },
-                })
-              : [];
-          const newBestId = pickPrimaryResponsible(newResps)?.id ?? null;
-
-          if (oldBestResponsibleId !== newBestId) {
-            await tx.budgetPayer.updateMany({
-              where: {
-                quoteId: existingTask.quote.id,
-                responsibleId: oldBestResponsibleId,
-              },
-              data: { responsibleId: newBestId },
-            });
-          }
-        }
 
         // Handle service orders explicitly if provided
         // Migrate files when customer changes
@@ -6600,7 +6564,6 @@ export class TaskService {
                   discountValue: c.discountValue,
                   total: c.total,
                   customPaymentText: c.customPaymentText,
-                  responsibleId: c.responsibleId,
                   discountReference: c.discountReference,
                 })),
               };
@@ -6645,7 +6608,6 @@ export class TaskService {
                   discountValue: c.discountValue,
                   total: c.total,
                   customPaymentText: c.customPaymentText,
-                  responsibleId: c.responsibleId,
                   discountReference: c.discountReference,
                 })),
               };
@@ -11656,7 +11618,6 @@ export class TaskService {
                     // um orçamento antigo ainda carrega o número no pagador, e
                     // descartá-lo aqui perderia o dado que o rollback restaura.
                     orderNumber: config.orderNumber ?? null,
-                    responsibleId: config.responsibleId ?? null,
                     paymentCondition: config.paymentCondition ?? null,
                     paymentConfig: config.paymentConfig ?? null,
                     customerSignatureId: config.customerSignatureId ?? null,
@@ -13404,7 +13365,6 @@ export class TaskService {
             discountValue: true,
             discountReference: true,
             customPaymentText: true,
-            responsibleId: true,
             paymentCondition: true,
             paymentConfig: true,
             generateInvoice: true,
@@ -13513,7 +13473,6 @@ export class TaskService {
               discountValue: c.discountValue,
               discountReference: c.discountReference,
               customPaymentText: c.customPaymentText,
-              ...(c.responsibleId ? { responsible: { connect: { id: c.responsibleId } } } : {}),
               paymentCondition: c.paymentCondition,
               paymentConfig: (c as any).paymentConfig ?? null,
               generateInvoice: c.generateInvoice,

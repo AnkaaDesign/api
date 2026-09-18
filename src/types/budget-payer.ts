@@ -51,7 +51,6 @@ export interface BudgetPayer extends BaseEntity {
   generateBankSlip?: boolean;
   /** @deprecated Mora em `Task.customerOrderNumber` — o pedido é por veículo. */
   orderNumber?: string | null;
-  responsibleId?: string | null;
   paymentCondition?: string | null;
   paymentConfig?: {
     type: 'CASH' | 'INSTALLMENTS';

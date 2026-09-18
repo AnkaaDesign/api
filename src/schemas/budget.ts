@@ -797,7 +797,16 @@ export const budgetPayerCreateNestedSchema = z
      * aparelho mandou some entre o botão e o banco.
      */
     orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
-    responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
+    /**
+     * `responsibleId` SAIU, e aqui a regra do `orderNumber` acima se INVERTE.
+     *
+     * Aquele campo continua aceito porque o valor ainda tem destino: o serviço o
+     * traduz para as tarefas. Este não tem — a coluna do pagador foi dropada, e
+     * quem responde pelo orçamento é `Task.responsibles`. Sem a chave, o zod
+     * APAGA o que um app antigo mandar, que é exatamente o desejado: o valor
+     * seria descartado de qualquer forma, e deixá-lo passar faria o Prisma
+     * responder "Unknown argument `responsibleId`" e derrubar a gravação inteira.
+     */
     /**
      * ⚠️ `installments` NÃO EXISTE AQUI, e a remoção é a correção.
      *

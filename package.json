@@ -98,6 +98,7 @@
     "test:portal-cliente:boot": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-boot.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
     "test:dossier-signed-trail": "tsx tests/dossier-signed-trail.test.ts",
+    "test:dossier-paginacao": "tsx tests/dossier-paginacao.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
     "whatsapp:submit-template": "tsx scripts/submit-signature-whatsapp-template.ts",
     "test:signature-refusal": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/signature-refusal.test.ts",

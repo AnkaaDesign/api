@@ -606,6 +606,27 @@ export class QuoteAssemblerService {
     const green = BRAND_COLORS.primaryGreen;
     const gray = BRAND_COLORS.textGray;
 
+    /** Base da caixa de texto — abaixo disto o PDFKit vira a folha sozinho. */
+    const contentBottom = doc.page.height - doc.page.margins.bottom;
+
+    /**
+     * QUEBRA SÓ O QUE SERIA VIÚVA, e nunca o bloco inteiro.
+     *
+     * Os limiares que estavam aqui (`doc.y > 660` antes da cláusula de
+     * aceitação, `doc.y > 690` antes do rodapé jurídico) eram tudo-ou-nada:
+     * passando deles, TODO o bloco pulava de folha, mesmo com espaço de sobra.
+     * No orçamento nº 0984 o log terminou em `doc.y ≈ 700` com 100pt livres, e
+     * as duas folhas de cláusula saíram 85% em branco — uma por recorte.
+     *
+     * Texto corrido não precisa de guarda: o PDFKit pagina parágrafo sozinho e
+     * cláusula contratual partida entre duas folhas é o normal de um contrato.
+     * O que ele NÃO evita é o título órfão no pé da página, e é só isso que se
+     * reserva aqui: o cabeçalho mais as primeiras linhas do que vem sob ele.
+     */
+    const breakIfWidowed = (needed: number) => {
+      if (doc.y + needed > contentBottom) doc.addPage();
+    };
+
     doc.font('Helvetica-Bold').fontSize(14).fillColor(green).text('Trilha de Auditoria');
     doc.moveDown(0.2);
     doc
@@ -677,7 +698,8 @@ export class QuoteAssemblerService {
     doc.moveDown(0.5);
 
     for (const e of input.events) {
-      if (doc.y > 760) doc.addPage();
+      // O evento e o hash dele são UMA unidade: linha de 7,5pt + linha de 6pt.
+      breakIfWidowed(18);
       doc.font('Helvetica').fontSize(7.5).fillColor('#1a1a1a');
       const when = formatDateTimeBR(e.occurredAt);
       const ip = e.ipAddress ? `  IP ${e.ipAddress}` : '';
@@ -697,7 +719,8 @@ export class QuoteAssemblerService {
     // art. 10, §2º da MP 2.200-2/2001 ("admitido pelas partes como válido"), e a
     // trilha de auditoria é justamente a peça probatória entregue às partes.
     if (input.acceptanceClause) {
-      if (doc.y > 660) doc.addPage();
+      // Título (9pt) + respiro + duas linhas do parágrafo (7,5pt). O resto flui.
+      breakIfWidowed(42);
       doc.moveDown(0.8);
       doc.font('Helvetica-Bold').fontSize(9).fillColor(green).text('Aceitacao do meio eletronico');
       doc.moveDown(0.2);
@@ -712,7 +735,8 @@ export class QuoteAssemblerService {
     }
 
     // ---- Rodapé jurídico ----
-    if (doc.y > 690) doc.addPage();
+    // Duas linhas de 7pt bastam para o parágrafo começar na folha certa.
+    breakIfWidowed(30);
     doc.moveDown(1);
     doc.font('Helvetica').fontSize(7).fillColor(gray);
     doc.text(

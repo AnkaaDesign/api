@@ -393,7 +393,6 @@ export class NfseEmissionScheduler {
                 select: {
                   discountType: true,
                   discountValue: true,
-                  responsible: { select: { email: true, phone: true, roles: true } },
                   // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
                   //
                   // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
@@ -669,7 +668,7 @@ export class NfseEmissionScheduler {
           const emitInput = {
             id: invoice.id,
             totalAmount: Number(invoice.totalAmount),
-            customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
+            customer: buildNfseCustomer(customer),
             task: emitTask,
             truck: emitTruck,
             vehicles: emitVehicles,
@@ -815,7 +814,6 @@ export class NfseEmissionScheduler {
               select: {
                 discountType: true,
                 discountValue: true,
-                responsible: { select: { email: true, phone: true, roles: true } },
                 // A COBERTURA DESTA FATURA — de quais VEÍCULOS ela é.
                 //
                 // Era a coluna `taskId` da fatia, nula querendo dizer "todos". Virou
@@ -1043,7 +1041,7 @@ export class NfseEmissionScheduler {
         const targetedResult = await this.municipalNfseService.emitNfse({
           id: invoice.id,
           totalAmount: Number(invoice.totalAmount),
-          customer: buildNfseCustomer(customer, (invoice as any).customerConfig?.responsible),
+          customer: buildNfseCustomer(customer),
           task: emitTask,
           truck: emitTruck,
           vehicles: emitVehicles,

@@ -92,18 +92,23 @@ function normalizePhone(raw: string | null | undefined): string | undefined {
  * Build the tomador block of an emission input from a Customer loaded with
  * {@link NFSE_CUSTOMER_SELECT}.
  */
+/**
+ * There used to be a second argument here: the responsável elected for that
+ * billing (`BudgetPayer.responsibleId`), which jumped the queue below because
+ * "somebody chose that person for this note".
+ *
+ * That column is gone. It was a hand-maintained second copy of who the customer's
+ * contacts are, and it drifted from `Task.responsibles` with nothing to flag it.
+ * The role ordering that remains is the rule we wanted all along: the customer's
+ * own cadastro first, then the FINANCIAL contact — which is who a nota fiscal
+ * should reach anyway, and needs nobody to keep it current.
+ */
 export function buildNfseCustomer(
   customer: NfseCustomerSource,
-  /**
-   * The responsável picked for THIS billing (BudgetPayer.responsible), when there
-   * is one. It outranks the role ordering below — somebody chose that person for this note.
-   */
-  preferredContact?: ResponsibleContact | null,
 ): MunicipalEmitNfseInput['customer'] {
   const contacts = [...(customer.responsibles ?? [])].sort(
     (a, b) => rolePriority(a.roles) - rolePriority(b.roles),
   );
-  if (preferredContact) contacts.unshift(preferredContact);
 
   const email =
     customer.email?.trim() || contacts.find(c => c.email?.trim())?.email?.trim() || undefined;

@@ -2030,7 +2030,6 @@ model BudgetPayer {
   customPaymentText   String?
   generateInvoice     Boolean        @default(true)
   generateBankSlip    Boolean        @default(true)
-  responsibleId       String?
   paymentCondition    String?
   paymentConfig       Json?
   customerSignatureId String?
@@ -2039,7 +2038,6 @@ model BudgetPayer {
   quote               Budget         @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
   billing             Billing        @relation("BillingCustomerConfigs", fields: [billingId], references: [id], onDelete: Cascade)
   customer            Customer       @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
-  responsible         Responsible?   @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
   customerSignature   File?          @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   /// 1:N, não 1:1. O banco permite uma fatura viva (índice parcial) MAIS as
   /// canceladas de ciclos anteriores. Tipar como to-one fazia o Prisma devolver
@@ -2058,7 +2056,6 @@ model BudgetPayer {
   @@index([quoteId])
   @@index([billingId])
   @@index([customerId])
-  @@index([responsibleId])
   @@index([customerSignatureId])
 }
 
@@ -3521,7 +3518,6 @@ model Responsible {
   updatedAt          DateTime                   @updatedAt
   company            Customer?                  @relation("CompanyResponsibles", fields: [companyId], references: [id])
   tasks              Task[]                     @relation("TaskResponsibles")
-  customerConfigs    BudgetPayer[]              @relation("CUSTOMER_CONFIG_RESPONSIBLE")
   envelopeSignatures EnvelopeSigner[]           @relation("ENVELOPE_SIGNER_RESPONSIBLE")
   authChallenges     ResponsibleAuthChallenge[] @relation("RESPONSIBLE_AUTH_CHALLENGES")
   sessions           ResponsibleSession[]       @relation("RESPONSIBLE_SESSIONS")

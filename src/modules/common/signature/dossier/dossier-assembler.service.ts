@@ -32,11 +32,17 @@
  *
  *    São DUAS peças, e nenhuma substitui a outra:
  *
- *    · O ARTEFATO SELADO, copiado página a página — um por recorte, o completo
- *      primeiro. Copiar todos resolve a objeção que antes impedia copiar
- *      qualquer um: escolher um recorte para representar o orçamento exibiria o
- *      que aquele signatário viu no lugar do documento. A cópia perde o A1 (é
- *      uma cópia), e é por isso que o anexo do item 1 continua existindo.
+ *    · O CORPO DO ARTEFATO SELADO, copiado página a página — um por recorte, o
+ *      completo primeiro. Copiar todos resolve a objeção que antes impedia
+ *      copiar qualquer um: escolher um recorte para representar o orçamento
+ *      exibiria o que aquele signatário viu no lugar do documento. A cópia
+ *      perde o A1 (é uma cópia), e é por isso que o anexo do item 1 continua
+ *      existindo.
+ *
+ *      O CORPO, e não o artefato inteiro: a trilha que o `finalize` fundiu ao
+ *      recorte fica FORA das páginas do dossiê. Ela não some — segue dentro do
+ *      anexo selado, sob o mesmo PAdES, que é onde ela é prova —, e o item 4
+ *      explica por que a versão consolidada do fim é a que se lê.
  *
  *    · A CÓPIA LEGÍVEL renderizada agora, que é a única que imprime as PARCELAS
  *      emitidas e a chave Pix — o documento foi congelado antes de existir
@@ -56,15 +62,22 @@
  *    faz ao abrir o PDF — quem assinou, quando, autenticado como — não pode
  *    exigir extrair um anexo e abri-lo noutro programa.
  *
- *    Ela entra duas vezes, e as duas têm função:
+ *    Ela existe em dois lugares, e cada um tem função:
  *
  *    · CONGELADA dentro de cada artefato selado (o `finalize` funde as páginas
- *      de trilha ao documento antes do PAdES). É prova: não se toca.
+ *      de trilha ao documento antes do PAdES). É prova: não se toca. Fica no
+ *      ANEXO, e só nele — as páginas do dossiê copiam o corpo do recorte e
+ *      param onde a trilha começa (ver a decisão 3 e `bodyPageCount`).
  *    · CONSOLIDADA no fim do dossiê, montada agora — um bloco por recorte, com o
  *      hash do arquivo SELADO e as partes daquele documento, mais o log
  *      encadeado do envelope inteiro. É o índice que a congelada não pode ser,
  *      porque ela é anterior ao próprio hash final e se repete N vezes num
  *      envelope de N recortes.
+ *
+ *    Copiar a congelada TAMBÉM para o corpo era imprimir o mesmo log encadeado
+ *    N+1 vezes. No dossiê do orçamento nº 0984, 31 eventos saíram três vezes em
+ *    quatro folhas, com hashes idênticos. Redundância desse tamanho não reforça
+ *    a prova — ela esconde a peça que alguém deveria ler.
  *
  *    O manifesto de componentes continua sendo calculado e voltando na resposta
  *    HTTP, sem virar página.
@@ -134,8 +147,14 @@ import { SignatureEnvelopeService } from '../services/signature-envelope.service
 import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
 
-/** Milímetros → pontos PostScript (72 pt por polegada). */
-const MM_TO_PT = 72 / 25.4;
+/**
+ * Altura do carimbo de paginação do dossiê, em pontos, medida da borda inferior.
+ *
+ * ACIMA da faixa de verificação que o documento assinado traz a 12pt (corpo 6),
+ * e não sobre ela. Ver `stampDossierPages` para o histórico — este número já
+ * custou duas rodadas de rodapé ilegível.
+ */
+const DOSSIER_STAMP_Y = 24;
 
 /** Como cada componente se chama no pé da folha — curto, porque divide a linha. */
 const DOSSIER_KIND_LABEL: Record<string, string> = {
@@ -211,6 +230,16 @@ interface SealedArtifact {
   isFull: boolean;
   sections: string[];
   path: string;
+  /**
+   * O PDF CONGELADO deste recorte — o que foi assinado, antes dos selos e antes
+   * da trilha que o `finalize` fundiu a ele.
+   *
+   * Serve a uma coisa só: contar folhas. `stampSeals` desenha SOBRE as páginas
+   * do congelado e não cria nenhuma, e `mergeWithAudit` só acrescenta a trilha
+   * no fim — logo o nº de páginas deste arquivo é exatamente onde o CORPO do
+   * artefato selado termina e a trilha começa. Ver `bodyPageCount`.
+   */
+  originalPath: string;
   finalSha256: string | null;
   sealedAt: Date | null;
   padesLevel: string | null;
@@ -384,6 +413,8 @@ export class DossierAssemblerService {
             certCnpj: true,
             tsaGenTime: true,
             finalFile: { select: { path: true } },
+            // Onde o CORPO deste recorte termina — ver `SealedArtifact.originalPath`.
+            originalFile: { select: { path: true } },
             signers: {
               orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
               select: DOSSIER_SIGNER_SELECT,
@@ -408,6 +439,7 @@ export class DossierAssemblerService {
               isFull: d.isFull,
               sections: d.sections,
               path: d.finalFile?.path ?? '',
+              originalPath: d.originalFile?.path ?? '',
               finalSha256: d.finalSha256,
               sealedAt: d.sealedAt,
               padesLevel: d.padesLevel,
@@ -421,6 +453,7 @@ export class DossierAssemblerService {
                 isFull: true,
                 sections: [] as string[],
                 path: envelope!.finalFile?.path ?? '',
+                originalPath: envelope!.originalFile?.path ?? '',
                 finalSha256: envelope!.finalSha256,
                 sealedAt: envelope!.sealedAt,
                 padesLevel: envelope!.padesLevel,
@@ -460,7 +493,12 @@ export class DossierAssemblerService {
     );
 
     const components: DossierComponent[] = [];
-    const bodies: Array<{ bytes: Buffer; component: DossierComponent }> = [];
+    const bodies: Array<{
+      bytes: Buffer;
+      component: DossierComponent;
+      /** Quantas folhas copiar. Ausente = o arquivo inteiro. */
+      maxPages?: number;
+    }> = [];
 
     // ---- 1. Orçamento (cópia legível, sem selos) ----
     const budgetComponent: DossierComponent = {
@@ -489,6 +527,18 @@ export class DossierAssemblerService {
     // no lugar do orçamento; omitir os demais esconderia justamente a prova de
     // quem assinou um recorte. Vão todos, o completo primeiro.
     //
+    // SÓ O CORPO, sem a trilha que o `finalize` fundiu a cada recorte. A trilha
+    // congelada continua onde ela é PROVA — dentro do anexo selado, byte a byte,
+    // sob o mesmo PAdES — e o dossiê já fecha com a trilha consolidada (item 4
+    // do cabeçalho), que descreve TODOS os recortes com o hash de cada arquivo
+    // selado e o log encadeado do envelope inteiro.
+    //
+    // Copiá-la aqui imprimia o mesmo log uma vez por recorte MAIS uma no fim: no
+    // dossiê do orçamento nº 0984 os 31 eventos saíram TRÊS vezes, com os mesmos
+    // hashes, em quatro folhas — duas delas 85% em branco, porque a cláusula de
+    // aceitação de cada recorte pulava de página sozinha. Repetição não é prova;
+    // é o que faz ninguém ler nenhuma das cópias.
+    //
     // Os bytes lidos aqui são MEMORIZADOS: o anexo do item 6 quer os mesmos
     // arquivos, e reler significa reconferir o hash contra um disco que pode ter
     // mudado no meio da montagem — o dossiê passaria a exibir uma página e
@@ -513,7 +563,7 @@ export class DossierAssemblerService {
           sealedBytes.set(artifact.path, bytes);
           component.included = true;
           anySignedPage = true;
-          bodies.push({ bytes, component });
+          bodies.push({ bytes, component, maxPages: await this.bodyPageCount(artifact) });
         } catch (error) {
           // Um recorte ilegível não derruba o dossiê: os demais, a cópia legível,
           // a nota e o boleto continuam valendo, e a falta aparece no rótulo e no
@@ -708,7 +758,12 @@ export class DossierAssemblerService {
     const placed: Array<{ component: DossierComponent; firstPage: number; ours: boolean }> = [];
     for (const body of bodies) {
       const firstPage = container.getPageCount();
-      const pageCount = await this.appendPdf(container, body.bytes, body.component);
+      const pageCount = await this.appendPdf(
+        container,
+        body.bytes,
+        body.component,
+        body.maxPages,
+      );
       body.component.pages = pageCount;
       if (pageCount > 0) {
         placed.push({
@@ -828,6 +883,42 @@ export class DossierAssemblerService {
    * Divergir significa que o artefato não é mais aquele que foi assinado — e
    * seguir montando o dossiê distribuiria um documento que a trilha não cobre.
    */
+  /**
+   * ONDE O CORPO DE UM RECORTE SELADO TERMINA — em folhas.
+   *
+   * O artefato final é `congelado + selos + trilha`, nesta ordem e sem exceção:
+   * `stampSeals` desenha SOBRE as páginas do congelado (selo, valor tardio,
+   * faixa de verificação) e não cria nenhuma; `mergeWithAudit` acrescenta a
+   * trilha ao FIM. Logo o nº de páginas do congelado é o índice exato da
+   * primeira folha de trilha, e contá-las é medir o documento, não adivinhar.
+   *
+   * Derivado do arquivo em vez de gravado numa coluna de propósito: isto vale
+   * RETROATIVAMENTE, para todo envelope já selado, sem migração e sem um campo
+   * que envelopes antigos teriam nulo — e o dossiê que o cliente rebaixa hoje é
+   * justamente o de um envelope antigo.
+   *
+   * `null` quando não dá para saber (arquivo ausente, ilegível, ou uma contagem
+   * que não faz sentido contra o selado). Aí copia-se o artefato INTEIRO: uma
+   * trilha repetida é feia, uma página de documento faltando é grave.
+   */
+  private async bodyPageCount(artifact: SealedArtifact): Promise<number | undefined> {
+    if (!artifact.originalPath || !existsSync(artifact.originalPath)) return undefined;
+    try {
+      const frozen = await PDFDocument.load(readFileSync(artifact.originalPath), {
+        updateMetadata: false,
+        ignoreEncryption: true,
+      });
+      const pages = frozen.getPageCount();
+      return pages > 0 ? pages : undefined;
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível contar as folhas do congelado (${artifact.originalPath}): ${msg(error)}` +
+          ' — o recorte selado entra no dossiê inteiro, com a trilha congelada junto.',
+      );
+      return undefined;
+    }
+  }
+
   private readSignedDocument(path: string, expectedSha256: string | null): Buffer {
     if (!existsSync(path)) {
       throw new BadRequestException(
@@ -1152,8 +1243,10 @@ export class DossierAssemblerService {
     signedPagesIncluded: boolean;
   }): Promise<Buffer> {
     // Margem inferior alta de propósito: o pé desta folha recebe o carimbo do
-    // dossiê ("Dossiê · Orçamento nº … · Página N de M"), e texto que descesse
-    // até a margem padrão colidiria com ele.
+    // dossiê ("Dossiê · Orçamento nº … · Página N de M", em `DOSSIER_STAMP_Y`),
+    // e texto que descesse até a margem padrão colidiria com ele. 60pt contra os
+    // ~31pt que o carimbo ocupa deixa quase 30pt de respiro — e é a MARGEM que
+    // reserva o espaço, não um limiar solto (ver logo abaixo).
     const doc = new PDFKitDocument({
       size: 'A4',
       margins: { top: 48, bottom: 60, left: 50, right: 50 },
@@ -1167,8 +1260,19 @@ export class DossierAssemblerService {
     const green = BRAND_COLORS.primaryGreen;
     const gray = BRAND_COLORS.textGray;
     const dark = '#1a1a1a';
-    /** Piso a partir do qual a folha vira. O carimbo do pé começa logo abaixo. */
-    const PAGE_BREAK_Y = 748;
+    /**
+     * O piso é o da CAIXA DE TEXTO, e não um número escolhido à parte.
+     *
+     * Era 748 fixo — 33,89pt acima da margem que a própria folha declara
+     * (841,89 − 60 = 781,89). Cada folha da trilha perdia essa faixa sem que
+     * nada a ocupasse, e a conta ainda ficava errada duas vezes: quem mexesse na
+     * margem não mexeria no limiar, e o limiar não sabia dizer de onde veio.
+     *
+     * Derivando da margem, "cabe nesta folha?" passa a ser a mesma pergunta que
+     * o PDFKit faz sozinho, e a reserva para o carimbo do dossiê fica onde
+     * deveria estar desde o começo: na margem inferior.
+     */
+    const PAGE_BREAK_Y = doc.page.height - doc.page.margins.bottom;
     const breakIfNeeded = (needed: number) => {
       if (doc.y + needed > PAGE_BREAK_Y) doc.addPage();
     };
@@ -1483,6 +1587,26 @@ export class DossierAssemblerService {
    *
    * A contagem é a do DOSSIÊ inteiro ("Página 7 de 19"), não a do componente: o
    * que se procura ao folhear é onde se está no maço.
+   *
+   * ⚠️ A ALTURA NÃO É LIVRE — a folha do assinado JÁ TEM um rodapé.
+   *
+   * O montador do documento assinado escreve a faixa de verificação (envelope,
+   * SHA-256, `pag. i/n`) a 12pt da borda, em corpo 6. Este carimbo estava a 5mm
+   * = 14,17pt, em corpo 7: 2,17pt de distância para dois textos que precisam de
+   * ~6. No orçamento nº 0984 as duas linhas saíram impressas UMA SOBRE A OUTRA,
+   * ilegíveis, nas páginas 3 e 4.
+   *
+   * É a segunda vez que este bug aparece, e por caminhos diferentes — ver o
+   * bloco "A PAGINAÇÃO NÃO É CARIMBADA AQUI" em `quote-renderer.service.ts`,
+   * que o corrigiu no orçamento nº 0594 removendo um carimbo do RENDERIZADOR.
+   * O dossiê depois acrescentou o seu na mesma altura e o reintroduziu. Daí a
+   * constante nomeada: quem for mexer no pé de uma folha nossa precisa esbarrar
+   * no motivo antes de escolher um número.
+   *
+   * 24pt deixa ~6pt de respiro sobre a faixa e continua dentro da margem
+   * inferior de TODO componente nosso — 25mm no orçamento renderizado pelo
+   * Chromium, 50pt nas folhas de pdf-lib (fotos, aditivo), 60pt na trilha
+   * consolidada.
    */
   private async stampDossierPages(
     container: PDFDocument,
@@ -1510,7 +1634,7 @@ export class DossierAssemblerService {
         const width = font.widthOfTextAtSize(label, size);
         page.drawText(label, {
           x: (page.getWidth() - width) / 2,
-          y: 5 * MM_TO_PT,
+          y: DOSSIER_STAMP_Y,
           size,
           font,
           color: gray,
@@ -1571,6 +1695,12 @@ export class DossierAssemblerService {
     container: PDFDocument,
     bytes: Buffer,
     component: DossierComponent,
+    /**
+     * Copiar só as N PRIMEIRAS folhas. Usado pelo recorte selado, cujo fim é a
+     * trilha congelada — ver `bodyPageCount`. Ausente ou maior que o arquivo
+     * copia tudo: cortar é decisão de quem chama, e o piso é o arquivo inteiro.
+     */
+    maxPages?: number,
   ): Promise<number> {
     try {
       const src = await PDFDocument.load(bytes, {
@@ -1579,7 +1709,12 @@ export class DossierAssemblerService {
         // (sem senha de abertura). Sem isto o pdf-lib recusa o arquivo inteiro.
         ignoreEncryption: true,
       });
-      const pages = await container.copyPages(src, src.getPageIndices());
+      const indices = src.getPageIndices();
+      const wanted =
+        maxPages && maxPages > 0 && maxPages < indices.length
+          ? indices.slice(0, maxPages)
+          : indices;
+      const pages = await container.copyPages(src, wanted);
       for (const page of pages) {
         stripSignatureWidgets(page.node);
         container.addPage(page);

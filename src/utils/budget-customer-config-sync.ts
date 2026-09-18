@@ -94,7 +94,6 @@ export interface IncomingCustomerConfig {
   generateBankSlip?: boolean;
   /** @deprecated O pedido é do VEÍCULO (`Task.customerOrderNumber`). Aceito e traduzido pelo serviço. */
   orderNumber?: string | null;
-  responsibleId?: string | null;
   paymentCondition?: string | null;
   paymentConfig?: unknown;
   customerSignatureId?: string | null;
@@ -121,7 +120,6 @@ function buildConfigWriteData(config: IncomingCustomerConfig): Record<string, un
   // VEÍCULO (`Task.customerOrderNumber`), porque um orçamento cobre N caminhões e
   // o pedido é por entrega. O campo continua aceito no payload (o app instalado o
   // manda) e quem o traduz para as tarefas é `BudgetService`.
-  if (config.responsibleId !== undefined) d.responsibleId = config.responsibleId ?? null;
   if (config.paymentCondition !== undefined) d.paymentCondition = config.paymentCondition ?? null;
   if (config.paymentConfig !== undefined) d.paymentConfig = (config.paymentConfig ?? null) as any;
   if (config.customerSignatureId !== undefined)
