@@ -116,7 +116,8 @@
     "test:signature-whatsapp-templates": "tsx tests/signature-whatsapp-templates.test.ts",
     "test:orcamento-faturamento-a": "tsx tests/orcamento-faturamento-a.test.ts",
     "test:orcamento-faturamento-a:db": "tsx tests/orcamento-faturamento-a-db.test.ts",
-    "repair:billing-residue": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/repair-billing-residue.ts"
+    "repair:billing-residue": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/repair-billing-residue.ts",
+    "test:portal-cliente:http": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-http.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
