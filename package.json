@@ -95,6 +95,7 @@
     "test:signature-reminders": "tsx tests/signature-reminders.test.ts",
     "test:responsible-otp": "tsx tests/responsible-auth-otp.test.ts",
     "test:portal-cliente:db": "tsx -r tsconfig-paths/register tests/portal-cliente-auth-db.test.ts",
+    "test:portal-cliente:boot": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-boot.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
     "whatsapp:submit-template": "tsx scripts/submit-signature-whatsapp-template.ts",

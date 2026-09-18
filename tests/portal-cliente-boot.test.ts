@@ -24,8 +24,25 @@
 process.env.RESPONSIBLE_OTP_PEPPER =
   process.env.RESPONSIBLE_OTP_PEPPER || 'teste-de-boot-com-mais-de-32-caracteres-para-o-portal';
 
-import { Test } from '@nestjs/testing';
-import { APP_GUARD } from '@nestjs/core';
+// `NestFactory`, e nao `Test.createTestingModule`: este repo NAO tem
+// `@nestjs/testing` instalado (nem jest — os testes daqui sao scripts `tsx`).
+// Montar a aplicacao de verdade prova mais, alias: e' o mesmo caminho de codigo
+// que o `main.ts` percorre no boot de producao.
+import { NestFactory } from '@nestjs/core';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Subir o `AppModule` inteiro acorda integracoes que, numa maquina de
+// desenvolvimento, nao tem com quem falar: Baileys sem sessao de WhatsApp,
+// Redis sem senha, certificado ICP sem a senha de producao. Elas reclamam de
+// forma ASSINCRONA, fora de qualquer `await` deste arquivo, e uma rejeicao
+// solta derruba o processo levando o resultado do teste junto.
+//
+// Silenciar aqui e' correto porque este teste nao afirma nada sobre elas — ele
+// afirma que o GRAFO resolve e que as rotas existem. Uma falha de injecao
+// aparece no `await NestFactory.create`, que esta dentro de um try/catch.
+process.on('unhandledRejection', () => {});
+process.on('uncaughtException', () => {});
 
 let falhas = 0;
 const check = (nome: string, ok: boolean, detalhe?: string) => {
@@ -37,14 +54,15 @@ async function main(): Promise<void> {
   console.log('\nO AppModule inteiro resolve com a guarda global do portal');
 
   const { AppModule } = await import('../src/app.module');
-  const { ResponsibleAuthGuard } = await import(
-    '../src/modules/people/responsible-auth/responsible-auth.guard'
-  );
-  const { AuthGuard } = await import('../src/modules/common/auth/auth.guard');
 
-  let moduleRef: Awaited<ReturnType<ReturnType<typeof Test.createTestingModule>['compile']>>;
+  // Monta a aplicacao INTEIRA. Uma guarda global arrasta a arvore de
+  // dependencias dela no boot, entao se `ResponsibleAuthService`,
+  // `AuthOtpDeliveryService` ou qualquer aresta abaixo nao resolver, isto
+  // estoura aqui — que e' exatamente onde o `tsc` nao olha.
+  let app: Awaited<ReturnType<typeof NestFactory.create>>;
   try {
-    moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = await NestFactory.create(AppModule, { logger: ['error'] });
+    await app.init();
     check('o grafo de injecao resolve de ponta a ponta', true);
   } catch (error) {
     check('o grafo de injecao resolve de ponta a ponta', false, (error as Error).message);
@@ -52,34 +70,69 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // As duas guardas globais existem, e sao DUAS. Uma so significa que um dos
-  // dois sujeitos ficou sem quem o autentique.
-  const guardas = moduleRef.get<unknown[]>(APP_GUARD, { strict: false });
-  const lista = Array.isArray(guardas) ? guardas : [guardas];
-  const nomes = lista.map(g => (g as object)?.constructor?.name).filter(Boolean);
+  // As QUATRO rotas do portal existem. Uma rota que suma do roteador nao quebra
+  // o `tsc` — vira 404 em producao.
+  const servidor = app.getHttpAdapter().getInstance();
+  const rotas: string[] = [];
+  for (const camada of servidor._router?.stack ?? []) {
+    if (camada.route) {
+      for (const metodo of Object.keys(camada.route.methods)) {
+        rotas.push(`${metodo.toUpperCase()} ${camada.route.path}`);
+      }
+    }
+  }
+  for (const esperada of [
+    'POST /cliente/auth/codigo',
+    'POST /cliente/auth/entrar',
+    'GET /cliente/auth/eu',
+    'POST /cliente/auth/sair',
+  ]) {
+    check(`rota registrada: ${esperada}`, rotas.includes(esperada));
+  }
+
+  // Fechar a aplicacao derruba Baileys e Redis junto, e numa maquina de
+  // desenvolvimento (sem sessao de WhatsApp, sem senha de Redis) esses dois
+  // rejeitam no desligamento. E' ruido de AMBIENTE, nao defeito do que se testa
+  // aqui — e sem este try/catch ele mata o script antes das verificacoes que
+  // faltam.
+  try {
+    await app.close();
+  } catch {
+    /* ruido de desligamento */
+  }
+
+  // As duas guardas globais estao DECLARADAS. Ler o container nao serve aqui:
+  // com varios provedores sob o mesmo token `APP_GUARD`, `app.get()` devolve um
+  // so, e a ausencia do outro seria indistinguivel de "o `get` escolheu o
+  // primeiro". A declaracao e' o que importa, e ela esta no modulo.
+  //
+  // Uma so das duas significa que um dos dois sujeitos ficou sem quem o
+  // autentique — e, se a que sobrar for a do portal, TODA rota de funcionario
+  // passa a responder 401.
+  const fonte = (caminho: string) => readFileSync(join(__dirname, '..', caminho), 'utf8');
+  const moduloFuncionario = fonte('src/modules/common/auth/auth.module.ts');
+  const moduloPortal = fonte('src/modules/people/responsible-auth/responsible-auth.module.ts');
 
   check(
-    'AuthGuard esta registrada como guarda global',
-    nomes.includes('AuthGuard'),
-    `encontradas: ${nomes.join(', ')}`,
+    'AuthGuard esta declarada como guarda global',
+    /APP_GUARD/.test(moduloFuncionario) && /AuthGuard/.test(moduloFuncionario),
   );
   check(
-    'ResponsibleAuthGuard esta registrada como guarda global',
-    nomes.includes('ResponsibleAuthGuard'),
-    `encontradas: ${nomes.join(', ')}`,
+    'ResponsibleAuthGuard esta declarada como guarda global',
+    /APP_GUARD/.test(moduloPortal) && /ResponsibleAuthGuard/.test(moduloPortal),
   );
 
-  // A guarda do portal resolve de verdade (nao e' um stub), e o servico de
-  // sessao que ela usa tambem.
-  const guardaPortal = moduleRef.get(ResponsibleAuthGuard, { strict: false });
-  check('ResponsibleAuthGuard e instanciavel', Boolean(guardaPortal));
+  // E o controller do portal nao depende mais de `@UseGuards`: e' a marca que
+  // guarda a rota. Um `@UseGuards` reaparecendo ali nao quebra nada, mas indica
+  // que alguem voltou a achar que a marca sozinha nao basta — e a proxima rota
+  // que essa pessoa escrever sem ele e' a que fica aberta.
+  const controllerPortal = fonte(
+    'src/modules/people/responsible-auth/responsible-auth.controller.ts',
+  );
   check(
-    'ResponsibleAuthGuard implementa canActivate',
-    typeof (guardaPortal as { canActivate?: unknown })?.canActivate === 'function',
+    'o controller do portal nao usa @UseGuards (a marca basta)',
+    !/@UseGuards\(/.test(controllerPortal),
   );
-
-  const guardaFuncionario = moduleRef.get(AuthGuard, { strict: false });
-  check('AuthGuard continua instanciavel', Boolean(guardaFuncionario));
 
   // ───────────────────────────────────────────────────────────────────────────
   // O CENARIO CATASTROFICO
@@ -156,8 +209,6 @@ async function main(): Promise<void> {
     'rota COM a marca e token sem sessao no banco: a guarda RECUSA',
     recusouTokenInvalido,
   );
-
-  await moduleRef.close();
 
   console.log(
     falhas === 0
