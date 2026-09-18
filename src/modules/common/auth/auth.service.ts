@@ -581,12 +581,25 @@ export class AuthService {
         success: true,
         message: 'Código de verificação enviado por email.',
       };
-    } else {
-      return {
-        success: true,
-        message: 'Erro ao enviar código. Entre em contato com o administrador.',
-      };
     }
+
+    // Nenhum canal entregou.
+    //
+    // Isto devolvia `success: true` com a mensagem "Erro ao enviar código" — um
+    // contrato que se contradiz na mesma resposta. O cliente ramifica por
+    // `success`, então ele AVANÇAVA para a tela de digitar o código, e a pessoa
+    // ficava esperando um código que nunca saiu.
+    //
+    // O primeiro acesso, irmão deste fluxo e neste mesmo arquivo, já decidiu a
+    // questão do jeito certo e diz por quê: "falha de entrega é erro de verdade,
+    // não um 200 com aviso". Os dois discordavam; agora não mais.
+    //
+    // Ficou muito mais alcançável desde que a Twilio saiu: a perna do telefone
+    // virou WhatsApp, e quem não tem WhatsApp no número E não tem e-mail no
+    // cadastro cai exatamente aqui.
+    throw new ServiceUnavailableException(
+      'Não foi possível enviar o código. Verifique seus dados de contato com o administrador.',
+    );
   }
 
   async resetPasswordWithCode(contact: string, code: string, newPassword: string): Promise<any> {

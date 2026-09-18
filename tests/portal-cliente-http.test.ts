@@ -161,7 +161,17 @@ async function main(): Promise<void> {
   );
   check('POST /auth/login nao e' + ' 500', publica !== 500, `status ${publica}`);
 
-  await app.close();
+  // `app.close()` derruba Baileys e Redis juntos, e nesta maquina o Redis do
+  // Baileys morre com "Connection is closed". Sem este try/catch, a excecao do
+  // ENCERRAMENTO sequestra o resultado: as 11 verificacoes passavam, o processo
+  // saia 1, e a suite ficava vermelha por um motivo que nao tem nada a ver com
+  // o que ela afirma. Um teste que fica vermelho sozinho e' um teste em que
+  // ninguem acredita quando fica vermelho de verdade.
+  try {
+    await app.close();
+  } catch (error) {
+    console.error(`  (encerramento) ${(error as Error).message}`);
+  }
   console.log(
     falhas === 0
       ? '\n✓ TODAS as verificacoes passaram\n'

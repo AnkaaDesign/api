@@ -117,7 +117,9 @@
     "test:orcamento-faturamento-a": "tsx tests/orcamento-faturamento-a.test.ts",
     "test:orcamento-faturamento-a:db": "tsx tests/orcamento-faturamento-a-db.test.ts",
     "repair:billing-residue": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/repair-billing-residue.ts",
-    "test:portal-cliente:http": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-http.test.ts"
+    "test:portal-cliente:http": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-http.test.ts",
+    "test:portal-cliente:fluxo": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-fluxo.test.ts",
+    "test:auth-entrega": "tsx tests/auth-entrega-codigo.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
