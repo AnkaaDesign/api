@@ -1125,6 +1125,11 @@ export class ItemService {
           await tx.monetaryValue.deleteMany({ where: { itemId: id } });
         }
 
+        // OrderSchedule.items is a plain String[] with no FK to Item, so it
+        // isn't cascade-cleaned by the delete below and would otherwise keep
+        // a dangling id that blocks future edits of the schedule.
+        await tx.$executeRaw`UPDATE "OrderSchedule" SET "items" = array_remove("items", ${id}) WHERE ${id} = ANY("items")`;
+
         await this.itemRepository.deleteWithTransaction(tx, id);
 
         // Log deletion
@@ -3651,6 +3656,19 @@ export class ItemService {
       // and step 4's re-pointing of the source price history both fire the
       // totalPrice DB triggers (item_total_price_trigger migration), on the
       // survivor and on each drained source alike.
+
+      // 14d. Re-point OrderSchedule.items away from the merged-away source
+      // items and onto the survivor. This array has no FK to Item, so unlike
+      // every other relation above it won't be cleaned up or re-pointed on
+      // its own, and would otherwise leave a dangling id that blocks future
+      // edits of the schedule once step 15 deletes the source below.
+      for (const sourceItemId of data.sourceItemIds) {
+        await tx.$executeRaw`
+          UPDATE "OrderSchedule"
+          SET "items" = ARRAY(SELECT DISTINCT unnest(array_replace("items", ${sourceItemId}, ${data.targetItemId})))
+          WHERE ${sourceItemId} = ANY("items")
+        `;
+      }
 
       // 15. Delete source items
       await tx.item.deleteMany({
