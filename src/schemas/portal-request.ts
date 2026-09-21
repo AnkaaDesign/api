@@ -38,6 +38,7 @@
 import { z } from 'zod';
 import { cleanCNPJ, cleanCPF, isValidCNPJ, isValidCPF } from '@utils';
 import { PAINT_FINISH } from '@constants';
+import { ImplementType, TruckCategory } from '@prisma/client';
 import { chassisNumberSchema, hexColorSchema, plateSchema } from './common';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -428,6 +429,20 @@ export const portalVeiculoSchema = z.object({
   plate: plateSchema,
   /** `chassisNumberSchema` — 17 caracteres, sem I/O/Q. */
   chassisNumber: chassisNumberSchema,
+  /**
+   * CATEGORIA E IMPLEMENTO — na PORTA, e não só depois.
+   *
+   * ⚠️ São dado do cliente, e ele os conhece no momento em que pede o
+   * orçamento: pedi-los aqui evita a ida e volta de "qual é o implemento?" que
+   * o comercial fazia por telefone antes de precificar — pintura de baú
+   * frigorífico não custa o mesmo que a de um sider.
+   *
+   * Opcionais de propósito: quem não souber deixa em branco, e o campo continua
+   * corrigível no portal (`PATCH …/identificacao`) até a assinatura congelar a
+   * folha.
+   */
+  category: z.nativeEnum(TruckCategory).nullable().optional(),
+  implementType: z.nativeEnum(ImplementType).nullable().optional(),
   /** ⚠️ EM CENTÍMETROS. O serviço divide por 100 antes de gravar. */
   medidas: portalMedidasSchema.nullable().optional(),
 });

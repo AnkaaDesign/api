@@ -113,6 +113,25 @@ export const VEHICLE_IDENTITY_FIELDS = [
   'plate',
   'chassisNumber',
   'orderNumber',
+  // ── CATEGORIA E IMPLEMENTO ENTRAM AQUI, e não numa rota à parte ──────────
+  //
+  // Eles são do CLIENTE tanto quanto a placa: quem sabe se o caminhão é um
+  // truck ou um bitrem, e se o baú é frigorífico ou sider, é quem opera a
+  // frota — a Ankaa só repete o que lhe disseram. Até aqui o portal os MOSTRAVA
+  // e não deixava corrigir, o que é a pior das combinações: o erro fica à
+  // vista do dono do dado e a correção depende de telefonar para o comercial.
+  //
+  // ⚠️ E ENTRAM NESTA LISTA, que é a lista da GUARDA DO DOCUMENTO CONGELADO,
+  // porque `quote-html.builder.ts` IMPRIME os dois na folha que o cliente
+  // assina (`categoryLabel`, `implementLabel`) e o snapshot já os congela
+  // (`QuoteSnapshotVehicle.category/implementType`). Sem isso, mudar "Sider"
+  // para "Frigorífico" depois da assinatura passaria em silêncio e o cadastro
+  // divergiria do documento — exatamente o buraco que a guarda existe para
+  // fechar na placa e no chassi. Com isso, o comportamento é o mesmo e de
+  // graça: em branco na folha → preenchimento tardio, permitido; impresso e
+  // diferente → 409, com a frase que nomeia o campo.
+  'category',
+  'implementType',
 ] as const;
 
 export type VehicleIdentityField = (typeof VEHICLE_IDENTITY_FIELDS)[number];
@@ -123,6 +142,8 @@ export const VEHICLE_IDENTITY_LABELS: Record<VehicleIdentityField, string> = {
   plate: 'placa',
   chassisNumber: 'chassi',
   orderNumber: 'número do pedido de compra',
+  category: 'categoria do veículo',
+  implementType: 'tipo de implemento',
 };
 
 /** O que o documento CONGELADO diz sobre um veículo. */
@@ -131,6 +152,9 @@ export interface FrozenVehicleIdentity {
   plate: string | null;
   chassisNumber: string | null;
   orderNumber: string | null;
+  /** Valores de enum, crus — a comparação é de IGUALDADE, não de rótulo. */
+  category: string | null;
+  implementType: string | null;
 }
 
 /**
@@ -212,6 +236,10 @@ export function frozenIdentityOf(
     plate: v.plate ?? null,
     chassisNumber: v.chassisNumber ?? null,
     orderNumber: v.orderNumber ?? null,
+    // ⚠️ Já vinham no snapshot desde sempre (o documento os imprime); o que
+    // faltava era alguém compará-los.
+    category: v.category ?? null,
+    implementType: v.implementType ?? null,
   };
 }
 

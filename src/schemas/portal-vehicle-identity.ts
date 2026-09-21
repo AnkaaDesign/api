@@ -53,7 +53,8 @@
 
 import { z } from 'zod';
 import { chassisNumberSchema, plateSchema } from './common';
-import { desempacotarPayload, portalSerialSchema } from './portal-request';
+import { desempacotarPayload, portalMedidasSchema, portalSerialSchema } from './portal-request';
+import { ImplementType, TruckCategory } from '@prisma/client';
 
 /** O mesmo teto de `Task.customerOrderNumber` (`String?`, máx. 100 no schema). */
 export const PEDIDO_MAXIMO = 100;
@@ -84,6 +85,24 @@ const textoOpcional = (max: number, rotulo: string) =>
  * que é a propriedade de que `test:portal-identificacao` depende para rodar sem
  * banco e sem Nest.
  */
+/**
+ * O par do `textoOpcional`, para coluna de ENUM.
+ *
+ * O mesmo desembrulho (`''`/`'null'` → `null`) e a mesma opcionalidade: campo
+ * ausente é "não mexa", `null` é "apague".
+ */
+const enumOpcional = <T extends Record<string, string>>(valores: T, rotulo: string) =>
+  z.preprocess(
+    valor => {
+      if (typeof valor !== 'string') return valor;
+      const texto = valor.trim();
+      return texto === '' || texto === 'null' ? null : texto;
+    },
+    z.nativeEnum(valores, { errorMap: () => ({ message: `${rotulo}: valor desconhecido` }) })
+      .nullable()
+      .optional(),
+  );
+
 export const portalIdentificacaoCorpoSchema = z
   .object({
     /**
@@ -138,6 +157,67 @@ export const portalIdentificacaoCorpoSchema = z
      * campo de texto que ninguém preenchia — o que a produção precisa é da foto
      * legível". Quem mandar texto aqui recebe "uuid inválido", que é honesto.
      */
+    /**
+     * A CATEGORIA E O IMPLEMENTO — dado do cliente, e enum.
+     *
+     * ⚠️ `''` e `'null'` viram `null`, como nos demais: o contato que LIMPA a
+     * escolha está dizendo "não sei", e isso é uma resposta legítima — o
+     * cadastro nasce sem os dois e a folha os imprime em branco.
+     *
+     * ⚠️ `z.nativeEnum` e não `z.string()`: o que chega aqui vai direto para
+     * uma coluna de enum do Postgres. String livre passaria pela borda e
+     * estouraria no Prisma como erro de servidor, que é a forma mais cara de
+     * dizer "esse valor não existe".
+     *
+     * ⛔ Os dois passam pela MESMA guarda de documento congelado da placa
+     * (`VEHICLE_IDENTITY_FIELDS`), porque a folha assinada os imprime.
+     */
+    category: enumOpcional(TruckCategory, 'Categoria do veículo'),
+    implementType: enumOpcional(ImplementType, 'Tipo de implemento'),
+
+    /**
+     * A PREVISÃO DE LIBERAÇÃO — quando o CLIENTE entrega o veículo à Ankaa.
+     *
+     * ⚠️ É `Task.forecastDate`, o mesmo campo que o quadro de preparação
+     * interno mostra como "Previsão". Quem sabe a data é o cliente: o caminhão
+     * está rodando na frota dele até o dia em que ele o libera, e hoje essa
+     * data chegava por telefone ao comercial, que a digitava do lado de cá.
+     *
+     * ⚠️ NÃO É a previsão de ENTREGA (quando a Ankaa devolve o veículo pronto),
+     * e o rótulo no portal diz isso com todas as letras.
+     *
+     * ⛔ Fora da guarda do documento congelado: não é impressa na folha nem
+     * guardada no snapshot.
+     */
+    forecastDate: z.preprocess(
+      valor => {
+        if (typeof valor !== 'string') return valor;
+        const texto = valor.trim();
+        return texto === '' || texto === 'null' ? null : texto;
+      },
+      z.coerce.date({ invalid_type_error: 'Data de liberação inválida' }).nullable().optional(),
+    ),
+
+    /**
+     * AS MEDIDAS DO IMPLEMENTO — em CENTÍMETROS, como na requisição.
+     *
+     * ⛔ O cliente DESENHA o implemento no assistente de requisição e, até
+     * aqui, não tinha como corrigi-lo depois: o portal mostrava três tabelas de
+     * leitura. Medida errada trava o layout e a pintura, e quem a conhece é
+     * quem opera o caminhão.
+     *
+     * ⚠️ MESMA UNIDADE DA REQUISIÇÃO (centímetros na borda; o serviço divide
+     * por 100). Duas rotas do mesmo portal falando unidades diferentes sobre a
+     * mesma coisa seria a forma mais barata de produzir um implemento de 7,8
+     * centímetros.
+     *
+     * ⚠️ E NÃO ENTRA NA GUARDA DO DOCUMENTO CONGELADO: ao contrário de placa,
+     * chassi, categoria e implemento, a medida NÃO é impressa na folha
+     * assinada nem guardada no snapshot (conferido em `quote-snapshot.service`
+     * e `quote-html.builder`). Não há o que contradizer.
+     */
+    medidas: portalMedidasSchema.nullable().optional(),
+
     vinPlateFileId: z.preprocess(
       valor => {
         if (typeof valor !== 'string') return valor;
@@ -167,10 +247,14 @@ export type PortalIdentificacaoFormData = z.infer<typeof portalIdentificacaoSche
 
 /** As chaves de corpo que, presentes, significam uma escrita. */
 export const CAMPOS_DE_IDENTIFICACAO = [
+  'forecastDate',
+  'medidas',
   'serialNumber',
   'plate',
   'chassisNumber',
   'purchaseOrderNumber',
+  'category',
+  'implementType',
   'vinPlateFileId',
 ] as const;
 

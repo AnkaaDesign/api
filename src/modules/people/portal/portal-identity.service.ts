@@ -99,6 +99,7 @@ import { PortalReadService } from './portal-read.service';
 import { commercialTaskLink, PortalScopeService } from './portal-scope.service';
 import { hasCapability, PORTAL_CAPABILITY } from './portal-capabilities';
 import { assertIdentidadeNaoContradizDocumento } from './portal-frozen-document';
+import { medidaParaPrisma } from '@/schemas/portal-request';
 import {
   VEHICLE_IDENTITY_FIELDS,
   type DesiredVehicleIdentity,
@@ -127,9 +128,21 @@ const taskSelectFor = (customerId: string) =>
     serialNumber: true,
     customerOrderNumber: true,
     purchaseOrderId: true,
+    // A previsão de liberação — o cliente a edita pelo portal.
+    forecastDate: true,
     customer: { select: { id: true, fantasyName: true, corporateName: true } },
     truck: {
-      select: { id: true, plate: true, chassisNumber: true, vinPlateId: true },
+      select: {
+        id: true,
+        plate: true,
+        chassisNumber: true,
+        category: true,
+        implementType: true,
+        leftSideMeasureId: true,
+        rightSideMeasureId: true,
+        backSideMeasureId: true,
+        vinPlateId: true,
+      },
     },
     billingEntry: {
       select: {
@@ -139,6 +152,13 @@ const taskSelectFor = (customerId: string) =>
       },
     },
   }) as const;
+
+/** Os três lados de `ImplementMeasure` e a coluna de `Truck` de cada um. */
+const LADOS_DA_MEDIDA = [
+  { chave: 'esquerda', coluna: 'leftSideMeasureId' },
+  { chave: 'direita', coluna: 'rightSideMeasureId' },
+  { chave: 'traseira', coluna: 'backSideMeasureId' },
+] as const;
 
 @Injectable()
 export class PortalIdentityService {
@@ -305,7 +325,12 @@ export class PortalIdentityService {
     task: {
       serialNumber?: string | null;
       customerOrderNumber?: string | null;
-      truck?: { plate?: string | null; chassisNumber?: string | null } | null;
+      truck?: {
+        plate?: string | null;
+        chassisNumber?: string | null;
+        category?: string | null;
+        implementType?: string | null;
+      } | null;
     },
     dados: PortalIdentificacaoFormData,
     pedido: string | null | undefined,
@@ -315,12 +340,16 @@ export class PortalIdentityService {
       plate: task.truck?.plate ?? null,
       chassisNumber: task.truck?.chassisNumber ?? null,
       orderNumber: task.customerOrderNumber ?? null,
+      category: task.truck?.category ?? null,
+      implementType: task.truck?.implementType ?? null,
     };
     const pedidos: DesiredVehicleIdentity = {
       serialNumber: dados?.serialNumber,
       plate: dados?.plate,
       chassisNumber: dados?.chassisNumber,
       orderNumber: pedido,
+      category: dados?.category,
+      implementType: dados?.implementType,
     };
 
     const out: DesiredVehicleIdentity = {};
@@ -435,12 +464,31 @@ export class PortalIdentityService {
     const placa = dados?.plate;
     const chassi = dados?.chassisNumber;
     const plaquetaId = dados?.vinPlateFileId;
+    // Categoria e implemento moram no MESMO `Truck` da placa e do chassi, e
+    // seguem o mesmo par de regras: `undefined` é "não mexa", `null` é "apague".
+    const categoria = dados?.category;
+    const implemento = dados?.implementType;
+    const previsao = dados?.forecastDate;
+    const medidas = dados?.medidas;
 
     // Precisa existir uma linha de `Truck`? Só quando algo do CAMINHÃO chega.
     // A série mora em `Task` e não justifica criar caminhão nenhum.
+    //
+    // ⛔ CATEGORIA E IMPLEMENTO ENTRAM NESTA CONTA, e esquecê-los custou um
+    // `200 OK` que não gravou nada: a rota aceitava os dois, a guarda do
+    // documento os classificava, e então este `false` pulava o bloco inteiro do
+    // caminhão em silêncio. Um "salvo com sucesso" que não salvou é pior do que
+    // um erro — o cliente fecha a tela achando que corrigiu o cadastro.
     const mexeNoCaminhao =
       placa !== undefined ||
       chassi !== undefined ||
+      categoria !== undefined ||
+      implemento !== undefined ||
+      // ⚠️ A MEDIDA TAMBÉM É DO CAMINHÃO: as três colunas de `ImplementMeasure`
+      // penduram em `Truck`, e sem passar por aqui o `truckId` fica nulo e o
+      // bloco das medidas é pulado — 200 sem gravar, o mesmo defeito que
+      // categoria e implemento tiveram antes de entrarem nesta conta.
+      medidas !== undefined ||
       plaquetaId !== undefined ||
       Boolean(plaqueta);
 
@@ -449,6 +497,28 @@ export class PortalIdentityService {
     // criado com a placa e a série antiga na tarefa, ou um `File` gravado sem
     // ninguém apontando para ele.
     await this.prisma.$transaction(async tx => {
+      // ── A PREVISÃO DE LIBERAÇÃO, em `Task` ────────────────────────────────
+      //
+      // Mesma coluna que o quadro de preparação interno usa. Quem sabe quando o
+      // caminhão sai da frota é o cliente; até aqui a data entrava por telefone.
+      if (previsao !== undefined) {
+        const antes = task.forecastDate ?? null;
+        const depois = previsao ?? null;
+        const mudou =
+          (antes?.getTime?.() ?? null) !== (depois instanceof Date ? depois.getTime() : null);
+        if (mudou) {
+          await tx.task.update({ where: { id: task.id }, data: { forecastDate: depois } });
+          await this.auditar(tx, {
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            field: 'forecastDate',
+            oldValue: antes,
+            newValue: depois,
+            responsibleId,
+          });
+        }
+      }
+
       // ── A SÉRIE, em `Task` ────────────────────────────────────────────────
       if (serie !== undefined && (serie ?? null) !== (task.serialNumber ?? null)) {
         await tx.task.update({ where: { id: task.id }, data: { serialNumber: serie ?? null } });
@@ -478,6 +548,8 @@ export class PortalIdentityService {
       const anterior = {
         plate: task.truck?.plate ?? null,
         chassisNumber: task.truck?.chassisNumber ?? null,
+        category: task.truck?.category ?? null,
+        implementType: task.truck?.implementType ?? null,
         vinPlateId: task.truck?.vinPlateId ?? null,
       };
 
@@ -487,6 +559,8 @@ export class PortalIdentityService {
             taskId: task.id,
             plate: placa ?? null,
             chassisNumber: chassi ?? null,
+            category: categoria ?? null,
+            implementType: implemento ?? null,
             // A plaqueta enviada por id entra já na criação; a que sobe por
             // multipart precisa do `truckId` para o contexto do arquivo e é
             // ligada logo abaixo.
@@ -501,7 +575,12 @@ export class PortalIdentityService {
           entityId: truckId,
           field: null,
           oldValue: null,
-          newValue: { plate: placa ?? null, chassisNumber: chassi ?? null },
+          newValue: {
+            plate: placa ?? null,
+            chassisNumber: chassi ?? null,
+            category: categoria ?? null,
+            implementType: implemento ?? null,
+          },
           action: CHANGE_ACTION.CREATE,
           responsibleId,
           reason: 'Caminhão criado pelo cliente ao informar a identificação no portal',
@@ -514,6 +593,12 @@ export class PortalIdentityService {
         if (chassi !== undefined && (chassi ?? null) !== anterior.chassisNumber) {
           mudancas.chassisNumber = chassi ?? null;
         }
+        if (categoria !== undefined && (categoria ?? null) !== anterior.category) {
+          mudancas.category = categoria ?? null;
+        }
+        if (implemento !== undefined && (implemento ?? null) !== anterior.implementType) {
+          mudancas.implementType = implemento ?? null;
+        }
         if (plaquetaId !== undefined && (plaquetaId ?? null) !== anterior.vinPlateId) {
           mudancas.vinPlate = plaquetaId ? { connect: { id: plaquetaId } } : { disconnect: true };
         }
@@ -524,6 +609,8 @@ export class PortalIdentityService {
           for (const [campo, antes, depois] of [
             ['plate', anterior.plate, placa],
             ['chassisNumber', anterior.chassisNumber, chassi],
+            ['category', anterior.category, categoria],
+            ['implementType', anterior.implementType, implemento],
             ['vinPlateId', anterior.vinPlateId, plaquetaId],
           ] as const) {
             if (depois === undefined || (depois ?? null) === antes) continue;
@@ -536,6 +623,88 @@ export class PortalIdentityService {
               responsibleId,
             });
           }
+        }
+      }
+
+      // ── AS MEDIDAS DO IMPLEMENTO ──────────────────────────────────────────
+      //
+      // ⛔ O cliente DESENHA o implemento ao pedir o orçamento e, até aqui, não
+      // tinha como corrigi-lo: o portal mostrava tabelas de leitura. Medida
+      // errada trava o layout e a pintura, e quem a conhece é quem opera o
+      // caminhão.
+      //
+      // ⚠️ CENTÍMETROS ENTRAM, METROS SÃO GRAVADOS — `medidaParaPrisma` é a
+      // MESMA função da requisição, e a conversão acontece num lugar só nas
+      // duas rotas. Ver a armadilha 3 de `portal-request.service.ts`.
+      //
+      // ⚠️ SUBSTITUI a medida do lado, não acumula: a face tem UMA medida
+      // corrente. Existindo linha, ela é atualizada e as seções são refeitas —
+      // manter as antigas somaria vãos que o desenho não tem.
+      if (medidas && truckId) {
+        for (const lado of LADOS_DA_MEDIDA) {
+          const entrada = (medidas as Record<string, unknown>)?.[lado.chave];
+          if (entrada === undefined) continue;
+
+          const atualId = (task.truck as Record<string, any> | null | undefined)?.[lado.coluna] ?? null;
+
+          // `null` explícito = apagar a face.
+          if (entrada === null) {
+            if (atualId) {
+              await tx.truck.update({ where: { id: truckId }, data: { [lado.coluna]: null } });
+              await tx.implementMeasure.delete({ where: { id: atualId } }).catch(() => undefined);
+            }
+            continue;
+          }
+
+          const emMetros = medidaParaPrisma(entrada as never);
+
+          if (atualId) {
+            // ⚠️ A CHAVE É `implementMeasureId`, não `measureId` — o nome curto
+            // devolve 400 do Prisma em runtime.
+            await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: atualId } });
+            await tx.implementMeasure.update({
+              where: { id: atualId },
+              data: {
+                height: emMetros.height,
+                sections: {
+                  create: emMetros.sections.map(secao => ({
+                    width: secao.width,
+                    isDoor: secao.isDoor,
+                    doorHeight: secao.doorHeight,
+                    position: secao.position,
+                  })),
+                },
+              },
+            });
+          } else {
+            const criada = await tx.implementMeasure.create({
+              data: {
+                height: emMetros.height,
+                sections: {
+                  create: emMetros.sections.map(secao => ({
+                    width: secao.width,
+                    isDoor: secao.isDoor,
+                    doorHeight: secao.doorHeight,
+                    position: secao.position,
+                  })),
+                },
+              },
+              select: { id: true },
+            });
+            await tx.truck.update({
+              where: { id: truckId },
+              data: { [lado.coluna]: criada.id },
+            });
+          }
+
+          await this.auditar(tx, {
+            entityType: ENTITY_TYPE.TRUCK,
+            entityId: truckId,
+            field: lado.coluna,
+            oldValue: atualId,
+            newValue: 'atualizada pelo cliente no portal',
+            responsibleId,
+          });
         }
       }
 

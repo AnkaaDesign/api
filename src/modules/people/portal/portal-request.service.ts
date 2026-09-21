@@ -896,6 +896,10 @@ export class PortalRequestService {
           create: {
             plate: veiculo.plate ?? null,
             chassisNumber: veiculo.chassisNumber ?? null,
+            // O que o cliente informou na porta. Ausente = ausente: o comercial
+            // pergunta, e o próprio cliente pode completar depois no portal.
+            category: veiculo.category ?? null,
+            implementType: veiculo.implementType ?? null,
           },
         },
       },
