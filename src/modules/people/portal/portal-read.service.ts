@@ -145,7 +145,18 @@ const FILE_SELECT = {
   thumbnailUrl: true,
 } as const;
 
-const PAINT_SELECT = { id: true, name: true, hex: true, finish: true } as const;
+// ⚠️ O TIPO DA TINTA VEM JUNTO (`paintType.name`: "Poliéster", "Acrílica", …).
+// Acabamento e tipo respondem coisas diferentes e o cliente precisa dos dois
+// para levar a cor ao funileiro dele: "Perolizado" diz como reflete, "Poliéster"
+// diz do que é feita. A relação é obrigatória no schema, então não há ramo nulo
+// a tratar além do próprio recorte.
+const PAINT_SELECT = {
+  id: true,
+  name: true,
+  hex: true,
+  finish: true,
+  paintType: { select: { name: true } },
+} as const;
 
 const MEASURE_SELECT = {
   height: true,
@@ -479,6 +490,53 @@ export class PortalReadService {
     return out;
   }
 
+  /**
+   * QUANDO O ORÇAMENTO FOI APROVADO — a data, não só o fato.
+   *
+   * ⛔ O marco "Orçamento aprovado" vinha SEM DATA ("data não registrada") em
+   * todo orçamento do sistema, e não por falta de evidência: `statusHistory` já
+   * provava que a transição aconteceu — ela só descartava o `createdAt` da
+   * linha do changelog ao achatar tudo num array de strings. O fato chegava, a
+   * data ficava para trás.
+   *
+   * ⚠️ NÃO EXISTE COLUNA para isto. `Budget.billingApprovedAt` é a aprovação do
+   * FATURAMENTO, outro ato e outro momento; inventar uma coluna nova exigiria
+   * backfill de 9 mil orçamentos a partir deste mesmo changelog. Ler daqui é
+   * ler a fonte, não uma cópia.
+   *
+   * ⚠️ A MAIS ANTIGA, e `SIGNED` conta junto: um orçamento que foi assinado,
+   * cancelado e reaprovado tem duas entradas, e a que interessa é a primeira —
+   * é a data em que o acordo passou a existir para o cliente.
+   */
+  private async quoteApprovalDates(ids: readonly string[]): Promise<Map<string, Date>> {
+    const out = new Map<string, Date>();
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return out;
+
+    // ⛔ O FILTRO DE `newValue` NÃO VAI NO `where`, e a tentativa custou um 500:
+    // `ChangeLog.newValue` é `Json?`, e `in` de string não existe para Json
+    // ("Unknown argument `in`. Did you mean `lt`?"). É a mesma razão pela qual
+    // `statusHistory`, logo acima, também traz os valores e peneira em JS.
+    const rows = await this.prisma.changeLog.findMany({
+      where: {
+        entityType: ENTITY_TYPE.TASK_QUOTE as any,
+        entityId: { in: unique },
+        field: 'status',
+      },
+      select: { entityId: true, newValue: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const aprovacoes = new Set<string>([TASK_QUOTE_STATUS.APPROVED, TASK_QUOTE_STATUS.SIGNED]);
+    for (const row of rows) {
+      if (!row.createdAt) continue;
+      const valor = typeof row.newValue === 'string' ? row.newValue : null;
+      if (!valor || !aprovacoes.has(valor)) continue;
+      if (!out.has(row.entityId)) out.set(row.entityId, row.createdAt);
+    }
+    return out;
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // A PROJEÇÃO MONOTÔNICA
   // ═════════════════════════════════════════════════════════════════════════
@@ -495,6 +553,8 @@ export class PortalReadService {
     serviceOrders: readonly { startedAt?: Date | null; finishedAt?: Date | null; status?: string }[],
     history: readonly string[],
     quoteHistory: readonly string[],
+    /** Ver `quoteApprovalDates`. `null` = o changelog não guarda a transição. */
+    quoteApprovedAt: Date | null,
   ): {
     milestone: PortalMilestoneKey;
     milestoneLabel: string;
@@ -532,6 +592,11 @@ export class PortalReadService {
       quoteHistory.includes(TASK_QUOTE_STATUS.SIGNED)
     ) {
       evidence[1] = true;
+      // ⚠️ A DATA VEM DO CHANGELOG, e pode faltar: orçamento aprovado antes de
+      // o changelog existir chega aqui sem carimbo. `null` num marco atingido é
+      // exatamente o caso que a tela já sabe dizer ("data não registrada") — e
+      // é mais honesto do que carimbar `updatedAt`, que muda a cada toque.
+      at[1] = quoteApprovedAt;
     }
 
     // 2 — Veículo recebido.
@@ -642,6 +707,7 @@ export class PortalReadService {
     taskHistory: Map<string, string[]>,
     soHistory: Map<string, string[]>,
     quoteHistory: Map<string, string[]>,
+    quoteApprovals: Map<string, Date>,
   ) {
     const { status: _regressiveTaskStatus, ...rest } = view ?? {};
 
@@ -656,6 +722,7 @@ export class PortalReadService {
       serviceOrders,
       taskHistory.get(raw?.id) ?? [],
       (quote?.id && quoteHistory.get(quote.id)) || [],
+      (quote?.id && quoteApprovals.get(quote.id)) || null,
     );
 
     const progress = rest.progress
@@ -1058,6 +1125,26 @@ export class PortalReadService {
           id: true,
           customerId: true,
           customer: { select: { id: true, fantasyName: true, corporateName: true } },
+          // ── A CONFIGURAÇÃO DE PAGAMENTO ────────────────────────────────────
+          //
+          // O portal mostrava as PARCELAS e nada do acordo que as gerou: forma
+          // de pagamento, condição, desconto, se sai nota e se sai boleto. O
+          // cliente via "3 parcelas de R$ X" sem saber se paga em boleto ou Pix,
+          // a partir de quando conta o prazo, nem por que o total difere da soma
+          // dos serviços. É o mesmo conjunto que o documento impresso já cita —
+          // esconder aqui não protege nada, só obriga a procurar o PDF.
+          //
+          // ⚠️ Continua DENTRO do `payerScopeSelect`: é o acordo DESTE pagador,
+          // e num orçamento de dois pagadores cada um só enxerga o seu.
+          subtotal: true,
+          total: true,
+          discountType: true,
+          discountValue: true,
+          paymentCondition: true,
+          paymentConfig: true,
+          customPaymentText: true,
+          generateInvoice: true,
+          generateBankSlip: true,
           installments: {
             orderBy: { number: 'asc' as const },
             select: {
@@ -1175,7 +1262,7 @@ export class PortalReadService {
     // NOME do modelo e deixou os 3.863 valores de changelog como estavam. Quem
     // procurar por 'BUDGET' aqui não acha linha nenhuma — e o marco "Orçamento
     // aprovado" simplesmente nunca acenderia, sem erro.
-    const [taskHistory, soHistory, quoteHistory] = podeTrack
+    const [taskHistory, soHistory, quoteHistory, quoteApprovals] = podeTrack
       ? await Promise.all([
           this.statusHistory(ENTITY_TYPE.TASK, allTaskIds),
           this.statusHistory(ENTITY_TYPE.SERVICE_ORDER, allSoIds),
@@ -1183,8 +1270,15 @@ export class PortalReadService {
             ENTITY_TYPE.TASK_QUOTE,
             rows.map(b => b.id),
           ),
+          // A DATA da aprovação — mesma consulta de changelog, outra coluna.
+          this.quoteApprovalDates(rows.map(b => b.id)),
         ])
-      : [new Map<string, string[]>(), new Map<string, string[]>(), new Map<string, string[]>()];
+      : [
+          new Map<string, string[]>(),
+          new Map<string, string[]>(),
+          new Map<string, string[]>(),
+          new Map<string, Date>(),
+        ];
 
     const assinatura = await this.signatureFacts(
       rows.map(b => b.id),
@@ -1205,6 +1299,7 @@ export class PortalReadService {
           taskHistory,
           soHistory,
           quoteHistory,
+          quoteApprovals,
         ),
       );
 
@@ -1430,7 +1525,7 @@ export class PortalReadService {
     sections: readonly QuoteSection[],
   ) {
     const podeTrack = this.canSeeProgress(sections);
-    const [taskHistory, soHistory, quoteHistory] = podeTrack
+    const [taskHistory, soHistory, quoteHistory, quoteApprovals] = podeTrack
       ? await Promise.all([
           this.statusHistory(
             ENTITY_TYPE.TASK,
@@ -1445,8 +1540,14 @@ export class PortalReadService {
             ENTITY_TYPE.TASK_QUOTE,
             rows.map(t => t.quote?.id).filter(Boolean),
           ),
+          this.quoteApprovalDates(rows.map(t => t.quote?.id).filter(Boolean) as string[]),
         ])
-      : [new Map<string, string[]>(), new Map<string, string[]>(), new Map<string, string[]>()];
+      : [
+          new Map<string, string[]>(),
+          new Map<string, string[]>(),
+          new Map<string, string[]>(),
+          new Map<string, Date>(),
+        ];
 
     return rows.map(row => ({
       ...this.overlayVehicle(
@@ -1459,6 +1560,7 @@ export class PortalReadService {
         taskHistory,
         soHistory,
         quoteHistory,
+        quoteApprovals,
       ),
       sections,
       budget: row.quote

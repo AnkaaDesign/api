@@ -138,6 +138,9 @@ export interface PortalPaintRow {
   name?: string;
   hex?: string;
   finish?: string;
+  /** Relação obrigatória no schema; o portal a recebe achatada em `type`. */
+  paintType?: { name?: string | null } | null;
+  type?: string | null;
 }
 
 export interface PortalFileRow {
@@ -245,6 +248,15 @@ export interface PortalBudgetRow {
     id?: string;
     customerId?: string;
     customer?: { id?: string; fantasyName?: string | null; corporateName?: string | null } | null;
+    subtotal?: unknown;
+    total?: unknown;
+    discountType?: string | null;
+    discountValue?: unknown;
+    paymentCondition?: string | null;
+    paymentConfig?: unknown;
+    customPaymentText?: string | null;
+    generateInvoice?: boolean | null;
+    generateBankSlip?: boolean | null;
     installments?: Array<{
       id?: string;
       number?: number;
@@ -519,6 +531,16 @@ export interface PortalBudgetView {
       id: string;
       customerId: string;
       customerName: string | null;
+      /** O ACORDO que gerou as parcelas — ver o `select` em `portal-read.service.ts`. */
+      subtotal: number | null;
+      total: number | null;
+      discountType: string | null;
+      discountValue: number | null;
+      paymentCondition: string | null;
+      paymentConfig: unknown;
+      customPaymentText: string | null;
+      generateInvoice: boolean | null;
+      generateBankSlip: boolean | null;
       installments: Array<{
         id: string;
         number: number | null;
@@ -715,6 +737,15 @@ export class PortalProjectionService {
           id: c.id ?? null,
           customerId: c.customerId ?? null,
           customerName: c.customer?.fantasyName ?? c.customer?.corporateName ?? null,
+          subtotal: toPortalNumber(c.subtotal),
+          total: toPortalNumber(c.total),
+          discountType: c.discountType ?? null,
+          discountValue: toPortalNumber(c.discountValue),
+          paymentCondition: c.paymentCondition ?? null,
+          paymentConfig: c.paymentConfig ?? null,
+          customPaymentText: c.customPaymentText ?? null,
+          generateInvoice: c.generateInvoice ?? null,
+          generateBankSlip: c.generateBankSlip ?? null,
           installments: (c.installments ?? []).map(i => ({
             id: i.id ?? null,
             number: i.number ?? null,
@@ -908,6 +939,9 @@ export class PortalProjectionService {
       name: paint.name ?? null,
       hex: paint.hex ?? null,
       finish: paint.finish ?? null,
+      // ACHATADO: a tela quer "Poliéster", não um objeto com uma chave. O
+      // aninhamento só existe porque o Prisma o traz assim.
+      type: paint.paintType?.name ?? null,
     };
   }
 
