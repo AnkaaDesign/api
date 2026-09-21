@@ -643,6 +643,72 @@ export class BonusService {
   }
 
   /**
+   * AS LINHAS QUE A CONTA VIVA PRODUZ — e que só viram registro no banco quando
+   * a folha fecha.
+   *
+   * São três, e todas derivam da base do período: o extra de assiduidade do
+   * ponto, o desconto das tarefas suspensas e as faltas (atestado e sem
+   * justificativa, em cascata). Enquanto o mês está aberto elas existem apenas
+   * aqui — o período corrente não tem nenhum `Bonus` gravado —, e é por isso
+   * que quem lê só o banco vê "ajustes R$ 0,00" num mês inteiro de descontos.
+   *
+   * Um lugar só porque são três consumidores: a sobreposição do bônus salvo, a
+   * lista do DP e a SIMULAÇÃO. Quando cada um montava as suas, a mesma pessoa
+   * aparecia com dois líquidos.
+   */
+  private buildLiveModifierLines(
+    live: {
+      bonusExtraPercentage?: number;
+      bonusExtraValue?: number;
+      suspendedTasksDiscount?: number;
+      secullumAnalysis?: SecullumBonusAnalysis;
+    },
+    bonusId: string,
+    userId: string,
+  ): { extras: any[]; discounts: any[] } {
+    const extras: any[] = [];
+    const discounts: any[] = [];
+
+    if (live.bonusExtraValue && live.bonusExtraValue > 0) {
+      extras.push({
+        id: `live-extra-ponto-${userId}`,
+        bonusId,
+        reference: 'Assiduidade do Ponto Eletrônico',
+        percentage: live.bonusExtraPercentage,
+        value: live.bonusExtraValue,
+        calculationOrder: 1,
+      });
+    }
+    if (live.suspendedTasksDiscount && live.suspendedTasksDiscount > 0) {
+      discounts.push({
+        id: `live-discount-suspended-${userId}`,
+        bonusId,
+        reference: 'Tarefas Suspensas',
+        value: live.suspendedTasksDiscount,
+        percentage: null,
+        calculationOrder: 1,
+      });
+    }
+    if (live.secullumAnalysis) {
+      for (const line of buildAbsenceDiscountLines(live.secullumAnalysis)) {
+        discounts.push({
+          id: `live-discount-${line.kind}-${userId}`,
+          bonusId,
+          reference: line.reference,
+          ruleReference: line.ruleReference,
+          dates: line.dates,
+          percentage: line.percentage,
+          value: line.value,
+          ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+          calculationOrder: line.calculationOrder,
+        });
+      }
+    }
+
+    return { extras, discounts };
+  }
+
+  /**
    * Aplica extras e descontos sobre uma base, na ordem de cálculo. Extraído
    * para que a LISTA e o DETALHE cheguem ao mesmo líquido a partir da mesma
    * base — as duas telas divergirem em centavos é bug de confiança.
@@ -767,41 +833,9 @@ export class BonusService {
         !String(d.reference || '').startsWith('Faltas - Atestado') &&
         !String(d.reference || '').startsWith('Faltas - Sem Justificativa'),
     );
-    if (live.bonusExtraValue && live.bonusExtraValue > 0) {
-      extras.push({
-        id: `live-extra-ponto-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-        bonusId: savedBonus.id,
-        reference: 'Assiduidade do Ponto Eletrônico',
-        percentage: live.bonusExtraPercentage,
-        value: live.bonusExtraValue,
-        calculationOrder: 1,
-      });
-    }
-    if (live.suspendedTasksDiscount > 0) {
-      discounts.push({
-        id: `live-discount-suspended-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-        bonusId: savedBonus.id,
-        reference: 'Tarefas Suspensas',
-        value: live.suspendedTasksDiscount,
-        percentage: null,
-        calculationOrder: 1,
-      });
-    }
-    if (live.secullumAnalysis) {
-      for (const line of buildAbsenceDiscountLines(live.secullumAnalysis)) {
-        discounts.push({
-          id: `live-discount-${line.kind}-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-          bonusId: savedBonus.id,
-          reference: line.reference,
-          ruleReference: line.ruleReference,
-          dates: line.dates,
-          percentage: line.percentage,
-          value: line.value,
-          ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
-          calculationOrder: line.calculationOrder,
-        });
-      }
-    }
+    const liveLines = this.buildLiveModifierLines(live, savedBonus.id, savedBonus.userId);
+    extras.push(...liveLines.extras);
+    discounts.push(...liveLines.discounts);
 
     return {
       ...savedBonus,
@@ -4764,6 +4798,46 @@ export class BonusService {
       });
       for (const b of periodBonuses) {
         ledgerByUserId.set(b.userId, { extras: b.bonusExtras, discounts: b.bonusDiscounts });
+      }
+
+      /**
+       * O PERÍODO ABERTO NÃO TEM BÔNUS GRAVADO — e é justamente ele que se
+       * simula. Assiduidade do ponto, atestado, falta sem justificativa e
+       * tarefa suspensa só viram linha no banco quando a folha fecha; até lá
+       * moram na conta VIVA, que é o que a tela de Bônus mostra. Lendo só o
+       * gravado, a simulação do mês corrente dizia "ajustes R$ 0,00" para
+       * todo mundo — o líquido saía igual ao bruto, que é a resposta errada
+       * com cara de resposta certa.
+       *
+       * A ordem é a mesma que `calculateLiveBonusForUser` usa: o gravado manda
+       * quando existe (foi ele que a folha pagou), o vivo entra para quem
+       * ainda não tem. `calculateLiveBonuses` é SWR com cache de período — a
+       * mesma chamada que a lista de bônus já faz o tempo todo.
+       */
+      const missing = simulatedUserIds.filter(id => !ledgerByUserId.has(id));
+      if (missing.length > 0) {
+        try {
+          const live = await this.calculateLiveBonuses(input.year, input.month);
+          const wanted = new Set(missing);
+          for (const lb of live.bonuses) {
+            if (!wanted.has(lb.userId)) continue;
+            // As linhas do período aberto são SINTETIZADAS (ponto, tarefas
+            // suspensas, faltas) — o `bonusExtras`/`bonusDiscounts` da linha
+            // viva vem vazio, porque não há registro no banco para relacionar.
+            const lines = this.buildLiveModifierLines(lb, `live-${lb.userId}`, lb.userId);
+            const extras = [...(lb.bonusExtras ?? []), ...lines.extras];
+            const discounts = [...(lb.bonusDiscounts ?? []), ...lines.discounts];
+            if (extras.length || discounts.length) {
+              ledgerByUserId.set(lb.userId, { extras, discounts });
+            }
+          }
+        } catch (error) {
+          // Simulação não pode morrer por causa do Secullum: sem a conta viva
+          // o líquido vira o bruto, que é o que ela mostrava antes.
+          this.logger.warn(
+            `Simulação sem lançamentos do período vivo ${input.month}/${input.year}: ${(error as Error)?.message}`,
+          );
+        }
       }
     }
 
