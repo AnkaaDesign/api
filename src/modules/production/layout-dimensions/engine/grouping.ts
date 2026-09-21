@@ -182,6 +182,38 @@ export interface GroupingParams {
    */
   stackWidthCoverFrac: number;
   /**
+   * Razão entre as ALTURAS TÍPICAS de duas peças para elas serem o mesmo
+   * adesivo.
+   *
+   * A régua de largura responde por duas linhas empilhadas; esta responde pelo
+   * PORTE, no eixo que faltava, e a diferença entre as duas é que a altura tem
+   * de ser medida na subforma e não na caixa. A caixa de uma palavra é esticada
+   * pelo acento e pela perna do "g": em `amigão` ela mede 104 cm enquanto a
+   * letra mediana tem 54. Ao lado do coração, de 116, a caixa diz "mesmo porte"
+   * (0,90) e a letra diz o que o olho vê (0,46) — por isso o coração e a
+   * palavra saíam num item só, com a cota ancorada no til do "ã" (67 cm) em vez
+   * do topo do coração (75), que é onde o projetista cotou.
+   *
+   * Medido nos casos que o dono mostrou: coração/`amigão` 0,46 e
+   * `comércio de frutas`/`FRUTASMETZ` 0,35 são peças separadas; as letras de
+   * uma mesma palavra ficam acima de 0,6 e os três crescentes do coração, que
+   * se ENCOSTAM, saem pela escapatória do contato antes de chegar aqui —
+   * o par mais apertado deles dá 0,52.
+   */
+  typicalHeightRatio: number;
+  /**
+   * Piso de porte para a regra de altura típica valer, em razão de áreas.
+   *
+   * O pingo do "i", a vírgula e o til são baixos por natureza e não são peça
+   * nenhuma: soltos viram item órfão, ou somem no piso de área e levam com eles
+   * um pedaço do desenho. O miúdo escapa por dois caminhos — a área absoluta
+   * abaixo do piso de adesivo (`minAreaCm2`, quem não vira item não pode ser
+   * separado) e esta fração, para o acento que é grande em cm² só porque a
+   * letra dele é gigante. Os pares que a régua PRECISA separar estão uma ordem
+   * de grandeza acima: coração/`amigão` 0,44 e a cursiva do FRUTAS METZ 0,43.
+   */
+  typicalHeightMinAreaFrac: number;
+  /**
    * Marca multicor: razão de ÁREAS para duas formas serem a mesma peça.
    *
    * Razão de DIAGONAIS não serve de porteiro — o "FRIGORÍFICO" do Carajás passa
@@ -407,6 +439,8 @@ export const DEFAULT_GROUPING: GroupingParams = {
   maxLineStackCm: 8,
   weldHeightRatio: 0.5,
   stackWidthCoverFrac: 0.8,
+  typicalHeightRatio: 0.5,
+  typicalHeightMinAreaFrac: 0.05,
   overlapMergeAreaRatio: 0.4,
   overlapMergeGapCm: 8,
   overlapMergeShareFrac: 0.02,
@@ -818,6 +852,162 @@ function onSameLine(a: Rect, b: Rect, params: GroupingParams): boolean {
   if (ha <= 0 || hb <= 0) return false;
   if (Math.min(ha, hb) / Math.max(ha, hb) < params.weldHeightRatio) return false;
   return gapsBetween(a, b).y <= 0;
+}
+
+/** Teto de comparações da união de subformas: acima dele, vale a caixa crua. */
+const TYPICAL_UNION_BUDGET = 200_000;
+
+/**
+ * A altura TÍPICA de um desenho: a mediana das subformas, não a caixa.
+ *
+ * A caixa mede o extremo, e o extremo de uma palavra é o acento ou a perna do
+ * "g" — dois traços finos que dizem pouco sobre o corpo do texto. A mediana das
+ * subformas mede a LETRA, que é o que o olho compara quando decide se duas
+ * coisas são do mesmo tamanho.
+ *
+ * Uma ressalva, e ela é o que faz a conta servir para desenho e não só para
+ * texto: SUBFORMAS QUE SE SOBREPÕEM SÃO UMA SÓ. O coração do `amigão` são três
+ * crescentes empilhados de 60, 65 e 116 cm — pela mediana crua ele teria 65, o
+ * porte de uma letra, e a marca inteira passaria por texto. Unidos, os três
+ * dizem 116, que é o que se vê. Letras não se sobrepõem entre si; o contorno
+ * interno de um glifo se sobrepõe ao glifo e volta para dentro dele, que é
+ * exatamente onde ele deve estar.
+ */
+function typicalHeightOf(polys: Pt[][], box: Rect): number {
+  const boxes: Rect[] = [];
+  for (const poly of polys) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const p of poly) {
+      if (p.x < x0) x0 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.x > x1) x1 = p.x;
+      if (p.y > y1) y1 = p.y;
+    }
+    if (y1 > y0) boxes.push({ x0, y0, x1, y1 });
+  }
+  if (!boxes.length) return box.y1 - box.y0;
+  const heights = unionOverlapping(boxes).map((r) => r.y1 - r.y0);
+  heights.sort((a, b) => a - b);
+  return heights[heights.length >> 1];
+}
+
+/**
+ * Funde as caixas que se sobrepõem, por varredura em x.
+ *
+ * O orçamento existe porque a fusão é, no pior caso, quadrática: o fundo
+ * d'água do MAR & RIO chega com 299 polígonos que se cruzam todos. Estourado
+ * ele, devolve as caixas como vieram — arte desse porte não é um logotipo com
+ * assinatura, que é o par que esta medida existe para julgar.
+ */
+function unionOverlapping(boxes: Rect[]): Rect[] {
+  const order = boxes.map((_, i) => i).sort((a, b) => boxes[a].x0 - boxes[b].x0);
+  const merged: Rect[] = [];
+  const active: number[] = [];
+  let work = 0;
+  for (const i of order) {
+    const r = boxes[i];
+    let host = -1;
+    for (let k = active.length - 1; k >= 0; k -= 1) {
+      const j = active[k];
+      const q = merged[j];
+      if (q.x1 < r.x0) {
+        active.splice(k, 1);
+        continue;
+      }
+      work += 1;
+      if (work > TYPICAL_UNION_BUDGET) return boxes;
+      if (q.y1 < r.y0 || r.y1 < q.y0) continue;
+      if (host < 0) {
+        merged[j] = union(q, r);
+        host = j;
+        continue;
+      }
+      // a caixa nova encosta em dois blocos: eles viram um
+      merged[host] = union(merged[host], q);
+      merged[j] = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+      active.splice(k, 1);
+    }
+    if (host < 0) {
+      merged.push(r);
+      active.push(merged.length - 1);
+    }
+  }
+  return merged.filter((r) => r.x1 >= r.x0);
+}
+
+/** Um lado do par, como a régua de PORTE precisa dele. */
+interface SizedSide {
+  box: Rect;
+  /** altura da subforma mediana, com as sobrepostas já unidas */
+  typical: number;
+  /** quantas subformas o lado tem — é o que distingue linha de ornamento */
+  shapes: number;
+}
+
+/**
+ * Um ícone POUSADO na linha de texto — o selo do WhatsApp ao lado do telefone,
+ * o círculo do Instagram antes do @.
+ *
+ * É só a geometria da coisa; cor e natureza (fundo, sangria) ficam com quem
+ * chama. Serve a dois senhores: a regra do satélite, que junta o ícone de cor
+ * diferente que o vinil separaria, e a régua de PORTE, que precisa saber que
+ * este par — miúdo ao lado de linha — é o par que ela NÃO pode separar. Sem
+ * essa ressalva o rodapé do GRUPO VERDÃO saía em três, com os selos de rede
+ * social soltos no meio da linha de contato.
+ */
+function iconOnTextLine(
+  small: Rect,
+  host: Rect,
+  hostShapes: number,
+  params: GroupingParams,
+  ptPerCm: number,
+): boolean {
+  if (rectArea(small) > 0.3 * rectArea(host)) return false;
+  const sW = rectW(small) / ptPerCm;
+  const sH = rectH(small) / ptPerCm;
+  const hH = rectH(host) / ptPerCm;
+  const hW = rectW(host) / ptPerCm;
+  /**
+   * O SELO É MAIS ALTO QUE A LETRA, e medi-lo pela altura da linha era pedir
+   * o impossível.
+   *
+   * A caixa de uma linha de texto é a altura de MAIÚSCULA — 15 cm no bloco de
+   * contato do Adel Coco. O selo redondo do WhatsApp ao lado dela tem 26 cm,
+   * porque um selo abraça a linha inteira, ascendente e descendente, e ainda
+   * sobra. Pela diagonal contra uma altura e meia (22,5 cm) ele era grande
+   * demais e o ícone ficava órfão: 62 pares do acervo, o padrão isolado mais
+   * comum de falha desta regra. No Norte Minas o mesmo desenho junta, e junta
+   * só porque ali o ícone é menor que a linha — a diferença entre "junta" e
+   * "não junta" era o desenho do selo, não a relação entre as duas peças.
+   *
+   * O limite é por LADO, não pela diagonal: nenhum dos dois lados do selo pode
+   * passar de duas alturas da linha. Bloqueia a régua deitada de 60 × 5 cm, que
+   * a diagonal deixava passar, e aceita o selo quadrado.
+   */
+  if (Math.max(sW, sH) > 60 || Math.max(sW, sH) > params.iconSatelliteSizeRatio * hH) {
+    return false;
+  }
+  if (hH > 50 || hW < 2 * hH) return false;
+  if (hostShapes < 6) return false;
+  /**
+   * "Está na linha" mede-se pela MENOR das duas alturas. Contra a altura do
+   * satélite, um selo que abraça a linha por fora se reprovava sozinho — a
+   * sobreposição é a linha inteira (15 de 15), mas dividida pelos 26 cm do
+   * selo dava 0,58. Pela menor, um selo que engole a linha dá 1,0 e um ícone
+   * numa fileira acima ou abaixo continua dando 0.
+   */
+  const bandOv =
+    Math.max(0, Math.min(small.y1, host.y1) - Math.max(small.y0, host.y0)) /
+    Math.max(1e-6, Math.min(rectH(small), rectH(host)));
+  if (bandOv < 0.8) return false;
+  const g = gapsBetween(small, host);
+  const reachPt =
+    Math.min(params.maxPartGapCm, Math.max(params.partGapCm, params.textGapFactor * hH)) *
+    ptPerCm;
+  return Math.max(g.x, g.y) <= reachPt;
 }
 
 /**
@@ -1552,8 +1742,48 @@ export function buildItems(
   });
   const boxes = pool.map((p, i) => trimmedRects[i] ?? p.obj.bbox);
   const objColors = elements.map((o) => o.fill ?? o.stroke ?? null);
+  const objTypicalH = elements.map((o, i) => typicalHeightOf(o.outline, boxes[i]));
+  const sizedPart = (i: number): SizedSide => ({
+    box: boxes[i],
+    typical: objTypicalH[i],
+    shapes: elements[i].outline.length,
+  });
   const touchTol = params.partGapCm * scale.ptPerCm;
   const lineReach = params.maxLineGapCm * scale.ptPerCm;
+
+  /**
+   * DUAS ALTURAS DE TEXTO, DOIS ADESIVOS.
+   *
+   * Cor igual não prova recorte igual — o vinil é cortado por cor E por porte,
+   * e a assinatura miúda embaixo do letreiro sai numa peça própria mesmo sendo
+   * da mesma tinta. A régua de largura (`stackWidthCoverFrac`) já dizia isto
+   * para quem está EMPILHADO; esta diz para quem está ao lado, que é como o
+   * coração do `amigão` se juntava à palavra.
+   *
+   * O porte é medido na subforma (ver `typicalHeightOf`) e a exceção é o
+   * miúdo: acento e pingo são baixos de nascença e minúsculos de área, e
+   * separá-los deixa item órfão e cota sem dono. Quem não alcança o piso de
+   * adesivo (`minAreaCm2`) nem vira item se for separado — some.
+   */
+  const stickerFloorPt = params.minAreaCm2 * scale.ptPerCm * scale.ptPerCm;
+  const sameSizeClass = (a: SizedSide, b: SizedSide): boolean => {
+    if (a.typical <= 0 || b.typical <= 0) return true;
+    if (Math.min(a.typical, b.typical) / Math.max(a.typical, b.typical) >= params.typicalHeightRatio) {
+      return true;
+    }
+    const areaA = rectArea(a.box);
+    const areaB = rectArea(b.box);
+    const small = Math.min(areaA, areaB);
+    const big = Math.max(areaA, areaB);
+    if (big <= 0) return true;
+    if (small < stickerFloorPt || small / big < params.typicalHeightMinAreaFrac) return true;
+    // O selo ao lado do telefone é miúdo por natureza e pertence à linha: a
+    // régua de porte pararia de juntá-lo, que é a falha que a regra do
+    // satélite existe para consertar (62 pares do acervo).
+    const [s, h] = areaA <= areaB ? [a, b] : [b, a];
+    return iconOnTextLine(s.box, h.box, h.shapes, params, scale.ptPerCm);
+  };
+
   const workAtStart = contourWork;
   /**
    * Acabou o orçamento desta face.
@@ -1698,6 +1928,36 @@ export function buildItems(
       colorDistance(objColors[a], objColors[b]) <= params.colorMergeDelta &&
       (!guessedColor ||
         contourDistance(elements[a].outline, elements[b].outline, touchTol) <= touchTol);
+
+    /**
+     * DUAS ALTURAS DE TEXTO, DOIS ADESIVOS — o porte, antes das regras de cor,
+     * porque nenhuma delas pergunta por ele com a régua certa.
+     *
+     * A de mesma cor não pergunta nada: cor igual não prova recorte igual, e a
+     * palavra `amigão` estava saindo dentro do coração, 20,7 cm ao lado dela e
+     * do mesmo vermelho — com a cota ancorada no til do "ã" (67 cm) em vez do
+     * topo do coração (75), que é o número que o projetista escreveu.
+     *
+     * A marca multicor pergunta pela ÁREA das caixas, e a caixa de uma cursiva
+     * é quase toda ar: o `comércio de frutas` do FRUTAS METZ passa por 0,43 num
+     * piso de 0,40 e entra nas letras do `METZ`, 5,7 cm acima dele. Mas ali a
+     * régua de porte só vale EMPILHADO — peça que corre AO LADO com folga
+     * vertical zero é metade de um degradê ou pedaço de um desenho (a laranja
+     * do mesmo arquivo dá catorze pares assim), e separá-las despedaça o
+     * desenho.
+     * Assinatura fica EMBAIXO do letreiro; metade de degradê fica ao lado.
+     *
+     * A escapatória é a mesma da régua de largura: quem se ENCOSTA é um
+     * logotipo só, tenha o porte que tiver — é por ela que os três crescentes
+     * do coração (60, 65 e 116 cm) continuam sendo uma peça.
+     */
+    if (
+      (sameColour || gap.y > 0) &&
+      !sameSizeClass(sizedPart(a), sizedPart(b)) &&
+      contourDistance(elements[a].outline, elements[b].outline, touchTol) > touchTol
+    ) {
+      return false;
+    }
 
     // marca multicor: formas de cores diferentes que se encostam e têm porte
     // comparável são a mesma peça, impressa de uma vez. The bypass sits behind
@@ -1878,6 +2138,8 @@ export function buildItems(
     axes: BleedAxes;
     /** Aggregate made only of evidence-less background images. */
     imageBackdrop: boolean;
+    /** Altura da subforma mediana — o porte, medido na letra e não na caixa. */
+    typicalH: number;
   }
 
   /** Background/wrap-like hosts never swallow the art drawn over them. */
@@ -1966,49 +2228,7 @@ export function buildItems(
     if (colorDistance(s.color, h.color) <= params.colorMergeDelta) return false;
     if (s.axes.edges.length || h.axes.edges.length) return false;
     if (wrapLikeAgg(h) || wrapLikeAgg(s)) return false;
-    if (rectArea(s.bbox) > 0.3 * rectArea(h.bbox)) return false;
-    const cm = scale.ptPerCm;
-    const sW = rectW(s.bbox) / cm;
-    const sH = rectH(s.bbox) / cm;
-    const hH = rectH(h.bbox) / cm;
-    const hW = rectW(h.bbox) / cm;
-    /**
-     * O SELO É MAIS ALTO QUE A LETRA, e medi-lo pela altura da linha era pedir
-     * o impossível.
-     *
-     * A caixa de uma linha de texto é a altura de MAIÚSCULA — 15 cm no bloco de
-     * contato do Adel Coco. O selo redondo do WhatsApp ao lado dela tem 26 cm,
-     * porque um selo abraça a linha inteira, ascendente e descendente, e ainda
-     * sobra. Pela diagonal contra uma altura e meia (22,5 cm) ele era grande
-     * demais e o ícone ficava órfão: 62 pares do acervo, o padrão isolado mais
-     * comum de falha desta regra. No Norte Minas o mesmo desenho junta, e junta
-     * só porque ali o ícone é menor que a linha — a diferença entre "junta" e
-     * "não junta" era o desenho do selo, não a relação entre as duas peças.
-     *
-     * O limite passa a ser por LADO, não pela diagonal: nenhum dos dois lados
-     * do selo pode passar de duas alturas da linha. Bloqueia a régua deitada de
-     * 60 × 5 cm, que a diagonal deixava passar, e aceita o selo quadrado.
-     */
-    if (Math.max(sW, sH) > 60 || Math.max(sW, sH) > params.iconSatelliteSizeRatio * hH) {
-      return false;
-    }
-    if (hH > 50 || hW < 2 * hH) return false;
-    if (h.outline.length < 6) return false;
-    /**
-     * "Está na linha" mede-se pela MENOR das duas alturas. Contra a altura do
-     * satélite, um selo que abraça a linha por fora se reprovava sozinho — a
-     * sobreposição é a linha inteira (15 de 15), mas dividida pelos 26 cm do
-     * selo dava 0,58. Pela menor, um selo que engole a linha dá 1,0 e um ícone
-     * numa fileira acima ou abaixo continua dando 0.
-     */
-    const bandOv =
-      Math.max(0, Math.min(s.bbox.y1, h.bbox.y1) - Math.max(s.bbox.y0, h.bbox.y0)) /
-      Math.max(1e-6, Math.min(rectH(s.bbox), rectH(h.bbox)));
-    if (bandOv < 0.8) return false;
-    const g = gapsBetween(s.bbox, h.bbox);
-    const reachPt =
-      Math.min(params.maxPartGapCm, Math.max(params.partGapCm, params.textGapFactor * hH)) * cm;
-    return Math.max(g.x, g.y) <= reachPt;
+    return iconOnTextLine(s.bbox, h.bbox, h.outline.length, params, scale.ptPerCm);
   };
 
   /**
@@ -2068,6 +2288,20 @@ export function buildItems(
     // physically connected art is one piece regardless — so it only vetoes
     // non-touching aggregate unions.
     if (guarded && !touching && monsterUnion(union(a.bbox, b.bbox))) return false;
+    // A régua de PORTE, irmã da de largura e com as mesmas duas ressalvas do
+    // estágio de peça: quem se encosta é um logotipo só, e entre cores
+    // diferentes ela só vale para quem está EMPILHADO. Precisa existir aqui
+    // também porque o conjunto reencontra o par que a peça recusou.
+    if (
+      !touching &&
+      (colorDistance(a.color, b.color) <= params.colorMergeDelta || boxGap.y > 0) &&
+      !sameSizeClass(
+        { box: a.bbox, typical: a.typicalH, shapes: a.outline.length },
+        { box: b.bbox, typical: b.typicalH, shapes: b.outline.length },
+      )
+    ) {
+      return false;
+    }
     if (colorDistance(a.color, b.color) <= params.colorMergeDelta) {
       if (
         boxGap.y > 0 &&
@@ -2133,12 +2367,14 @@ export function buildItems(
     );
   };
 
+  const partTypicalH = partClusters.map((_, i) => typicalHeightOf(partOutlines[i], parts[i]));
   const partAggs: LockupAgg[] = partClusters.map((_, i) => ({
     bbox: parts[i],
     outline: partOutlines[i],
     color: partColors[i],
     axes: partAxes[i],
     imageBackdrop: partImageBackdrop[i],
+    typicalH: partTypicalH[i],
   }));
   let lockups = cluster(
     parts,
@@ -2165,12 +2401,14 @@ export function buildItems(
           color = partColors[i];
         }
       }
+      const outline = idx.flatMap((i) => partOutlines[i]);
       return {
         bbox,
-        outline: idx.flatMap((i) => partOutlines[i]),
+        outline,
         color,
         axes: unionAxes(idx.map((i) => partAxes[i])),
         imageBackdrop: idx.every((i) => partImageBackdrop[i]),
+        typicalH: typicalHeightOf(outline, bbox),
       };
     });
     const merged = cluster(

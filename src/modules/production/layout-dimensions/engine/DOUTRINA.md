@@ -212,6 +212,27 @@ para menos: item grande demais engole o vizinho e a cota fica sem dono.
   a linha dá 1,0, um ícone numa fileira acima continua dando 0.
 - **Cor separa.** Vinil é cortado por cor: "GRESPAN" vermelho e "Pães
   congelados" preto são duas peças, mesmo coladas uma na outra no desenho.
+- **PORTE separa, e o porte se mede na LETRA, não na caixa.** A caixa de uma
+  palavra é esticada pelo acento e pela perna do "g": a de `amigão` mede 104 cm
+  e a letra mediana tem 54. Ao lado do coração, de 116, a caixa dizia "mesmo
+  porte" (0,90) e soldava os dois num item de 550 × 124 — com a cota vertical
+  ancorada no til do "ã", 67 cm, quando o projetista escreveu 75, que é o topo
+  do coração. Pela letra o par dá 0,46 e se separa; então a marca sai com
+  145 e 75 e a palavra com 144 e 91, que são quatro dos cinco números do
+  desenho dele. A altura típica é a mediana das subformas **depois de unir as
+  que se sobrepõem** — sem isso o coração seria três crescentes de 60, 65 e
+  116 cm e passaria por texto de 65. O limiar é 0,5: letras de uma palavra
+  ficam acima de 0,6, e o par mais apertado do próprio coração dá 0,52.
+  Duas ressalvas: **quem se ENCOSTA é um logotipo só** (é por ela que os
+  crescentes continuam juntos), e entre CORES diferentes a régua só vale para
+  quem está EMPILHADO — assinatura fica embaixo do letreiro, metade de degradê
+  fica ao lado, e separar quem corre ao lado despedaça desenho (a laranja do
+  FRUTAS METZ tem catorze pares assim). O miúdo — pingo, vírgula, acento — é
+  exceção pelos dois lados, área abaixo do piso de adesivo ou fração
+  desprezível do parceiro: separá-lo deixa órfão ou o faz sumir.
+  Foi esta régua que tirou `comércio de frutas` de dentro do `FRUTASMETZ`
+  (0,35 de porte, e a caixa da cursiva é quase toda ar — 0,43 de área, acima
+  do piso de 0,40 da marca multicor, era o que a deixava entrar).
 - **Cores diferentes só se juntam quando as FORMAS se encostam.** A caixa não
   decide: "HORTIFRUTI" cai 99% dentro da caixa da maçã sem tocar nela — a maçã
   é um traço em C e o texto vive no vão. Já o "Ki" branco encosta no círculo
@@ -294,37 +315,49 @@ Distribuição das categorias:
 
 Por face: mediana de **6 cotas cobrindo 2 itens** (p75: 9 cotas, 4 itens).
 
-### 12. A linha de alinhamento — implementada, DESLIGADA
+### 12. A linha de alinhamento — LIGADA, e a pergunta certa é sobre TINTA
 
 Em "Supermercado" o "p" desce sozinho abaixo de todas as outras letras. Cotar
 até ele dá um número certo e inútil: naquela altura não há nada para alinhar.
-A referência do aplicador é a base onde S, u, e, r, m, c, a, d, o se apoiam.
+A referência do aplicador é a base onde S, u, e, r, m, c, a, d, o se apoiam. Do
+outro lado da mesma palavra, o til de `amigão` sobe 25 cm acima das letras: a
+cota do topo saía 67 quando o projetista escreveu 92.
 
-O extremo é apurado assim: cada subforma (glifo, pétala, traço) entra com o seu
-próprio extremo daquele lado, pesado pela largura que ocupa. Caminhando do
-extremo absoluto para dentro e somando peso, a linha é onde a soma cruza 15% —
-o "p" pesa ~8%, o rabo do "G" de GRESPAN ~14%, e os dois ficam de fora.
+A regra ficou **desligada por quatro tentativas**, e a razão era honesta: o
+ápice de um círculo dá 75% de apoio e se disfarça de planalto, a capitular é
+larga demais para o quantil e estreita demais para a moda, a cursiva não faz
+planalto por subforma, e a maçã lisa faz planalto falso. Cada limiar que
+resolvia um caso estragava outro.
 
-**Mas só apara quando existe uma linha DOMINANTE (≥ 50% da forma).** Sem essa
-condição o lado curto da palavra se estraga: na direita de "GRESPAN" só o "N"
-está no extremo, e sozinho ele pesa 14% — aparar apontaria a cota para o meio do
-logotipo. Na base, ao contrário, seis das sete letras compartilham a linha.
+**O que faltava não era um limiar melhor, era outra pergunta.** Não "isto parece
+reto?", mas **"quanta TINTA sobra além daqui?"**. Descendente é fino por
+definição — a perna do "p" desce 25% da altura e leva 3% da tinta; uma linha que
+deixasse de fora um oitavo da tinta não estaria aparando exceção, estaria
+cortando letra. Com esse freio (`alignmentMaxInkBeyond`, 8%) somado à contagem
+de subformas distintas que param na mesma faixa e à fração de colunas que
+terminam nela, o acerto foi de 30,0% para 41,1% e a **preservação do extremo,
+quando é ele que vale, de 73,4% para 98,9%** — três falsos positivos em 358
+âncoras, contra setenta antes.
 
-Está no código (`alignEdges`, `profileEdge`) e chega a reproduzir o 150 que o
-projetista pôs no GRESPAN — mas **sai de fábrica desligada**, e a razão é
-honesta: calibrar *quando a reta existe* se mostrou traiçoeiro.
+Como o extremo é apurado hoje: uma faixa de 3,5% do tamanho da peça (com 7% o
+ápice do círculo reunia 51% das colunas e passava), 160 colunas de perfil, pelo
+menos 8 subformas parando na faixa — ou 2 que cubram 55% da largura, escape para
+fonte de poucas peças —, 45% das colunas terminando nela, e recuo entre 8% e 40%
+da altura. Peça abaixo de 8 cm ou com menos de 6 subformas é desenho, não texto,
+e não tem linha a inferir. Os valores são o **preset conservador**: o preset
+solto (6 subformas, 30% de colunas, 12% de tinta) dá 0,6 ponto a mais de recall
+triplicando os falsos positivos — e uma linha errada corta letra, que é pior do
+que não ter linha.
 
-| caso | o que atrapalha |
-|---|---|
-| ápice de círculo (logotipo Ki) | uma roda de 2,3 m é quase plana no topo: 75% de apoio e 11 formas na faixa. Parece reta, não é. |
-| capitular (o "G" do GRESPAN) | larga demais para o quantil descartar, estreita demais para a moda ignorar |
-| fonte cursiva (Norte Minas) | letras ligadas: cada palavra é um caminho só e não há planalto por subforma |
-| curva lisa (a maçã) | toda coluna termina noutra altura; qualquer planalto ali é curvatura, não reta |
+**Só na horizontal.** Nos lados a palavra termina numa letra só, e aparar ali
+tira o "N" de GRESPAN: a cota deixa de bater com o extremo que o projetista usou
+(175, medido no arquivo dele).
 
-Cada limiar que resolvia um caso estragava outro, e o quadro do item passou a
-cortar letra que devia estar dentro. O padrão voltou ao **extremo real da tinta**
-— que é, afinal, o que o adesivo recortado tem. Ligar de novo é `alignEdges: true`,
-e o que falta para valer é um discriminador melhor entre reta e curvatura.
+⚠️ A linha é apurada **por peça**, e é isso que amarra esta regra à §10: quando
+o coração e a palavra do `amigão` saíam soldados, o topo do item era o til e
+nenhuma varredura o recuava — a tinta do coração e das letras responde em
+colunas diferentes, e 27% das colunas não fazem 45%. Separadas as peças, a
+palavra recua sozinha para 91 e o coração mantém o seu 75.
 
 ### 13. A face pode vir desenhada em SEÇÕES
 
