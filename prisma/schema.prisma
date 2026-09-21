@@ -525,6 +525,7 @@ model Customer {
   responsibles          Responsible[]       @relation("CompanyResponsibles")
   invoiceEntities       Invoice[]           @relation("CustomerInvoiceEntities")
   externalOperations    ExternalOperation[] @relation("CustomerExternalOperations")
+  purchaseOrders        PurchaseOrder[]     @relation("CustomerPurchaseOrders")
 
   addressNormalized       String? /// accent-insensitive search (generated column, see migration)
   cityNormalized          String? /// accent-insensitive search (generated column, see migration)
@@ -1892,11 +1893,29 @@ model Budget {
 
   /// A FILA: o que espera ação vem primeiro, e do mais antigo.
   ///
-  /// Coluna GERADA pelo banco (ver `20260917210000_fila_do_orcamento`) — o
-  /// instante de criação em segundos, NEGADO para APPROVED e CANCELLED. Ordenar
-  /// por `statusOrder` e depois por ela, as duas ascendentes, dá pendente mais
-  /// ANTIGO primeiro e aprovado mais RECENTE primeiro. Duas direções opostas numa
-  /// ordenação só, que é o que o Prisma não sabe expressar de outro jeito.
+  /// Coluna GERADA pelo banco — o instante de criação em segundos, NEGADO
+  /// conforme o estado. Ordenar por `statusOrder` e depois por ela, as duas
+  /// ascendentes, dá direções OPOSTAS por grupo, que é o que o Prisma não sabe
+  /// expressar de outro jeito.
+  ///
+  /// A direção depende de QUEM DEVE A PRÓXIMA AÇÃO
+  /// (`20260920190000_fila_hibrida_por_estado`):
+  ///
+  ///   · bola com a ANKAA  → mais RECENTE primeiro (trabalho que chegou)
+  ///     REQUESTED, PRE_APPROVED, SIGNED
+  ///   · espera-se o CLIENTE → mais ANTIGO primeiro (cobrança que envelhece)
+  ///     EXPIRED, IN_NEGOTIATION, PENDING
+  ///   · TERMINAIS → mais RECENTE primeiro (histórico se lê de trás)
+  ///     APPROVED, CANCELLED
+  ///
+  /// A versão anterior (`20260917210000_fila_do_orcamento`) tinha só dois
+  /// grupos e mandava TODA requisição nova para o FIM do próprio grupo — quem
+  /// abria um orçamento pelo portal e ligava em seguida ouvia "não chegou
+  /// nada", porque não chegou nada visível.
+  ///
+  /// ⚠️ A lista do PORTAL não usa esta coluna e não deve usar: ela é o
+  /// histórico do cliente, e lá o mais recente vem primeiro sempre
+  /// (`PORTAL_BUDGET_ORDER`, em `portal-read.service.ts`).
   ///
   /// ⚠️ NUNCA a escreva: o Postgres recusa `INSERT`/`UPDATE` em coluna gerada. Os
   /// mapeadores desestruturam campo a campo, então ela não vaza para um payload.
@@ -1975,11 +1994,94 @@ model Budget {
   signatureEnvelopes SignatureEnvelope[] @relation("QUOTE_SIGNATURE_ENVELOPES")
   nfseDocuments      NfseDocument[]      @relation("QuoteNfseDocuments")
 
+  /// A REQUISIÇÃO que deu origem a este orçamento, quando ele nasceu no portal do
+  /// cliente em vez de nascer no comercial. Ausente = orçamento criado por dentro.
+  request BudgetRequest? @relation("BudgetRequestOfBudget")
+
   @@index([status])
   @@index([statusOrder])
   @@index([statusOrder, queueRank])
   @@index([expiresAt])
   @@index([commercialUserId])
+}
+
+/// O PEDIDO DO CLIENTE — o que ele mandou antes de existir preço.
+///
+/// Mora FORA de `Budget` de propósito. O que está em `Budget` corre o risco de
+/// entrar na projeção material da assinatura (`quote-snapshot.service.ts`) e
+/// derrubar coleta em curso; briefing e nome de logomarca são conversa comercial,
+/// não cláusula do instrumento. Aqui também ficam as DECISÕES do lado do cliente
+/// (pré-aprovação e recusa), que são atos de pessoas do cliente e não da Ankaa.
+///
+/// 1:1 com `Budget`: a requisição VIRA o orçamento, não gera outro.
+model BudgetRequest {
+  id       String @id @default(uuid())
+  budgetId String @unique
+  budget   Budget @relation("BudgetRequestOfBudget", fields: [budgetId], references: [id], onDelete: Cascade)
+
+  /// Quem abriu a requisição no portal. `Restrict`: apagar o contato não pode
+  /// apagar o pedido que originou um contrato.
+  requestedByResponsibleId String
+  requestedBy              Responsible @relation("BudgetRequestsOpened", fields: [requestedByResponsibleId], references: [id], onDelete: Restrict)
+  requestedAt              DateTime    @default(now())
+
+  /// O texto livre que o cliente escreveu explicando o serviço.
+  briefing String @db.Text
+
+  /// Nome da logomarca a aplicar, quando há. Texto — a ARTE vem nos
+  /// `Task.baseFiles`, que é onde o resto do sistema já procura imagem de origem.
+  logoName String?
+
+  /// PRÉ-APROVAÇÃO: o vendedor do cliente clicou em Aprovar. Carimbo + autor.
+  preApprovedAt              DateTime?
+  preApprovedByResponsibleId String?
+  preApprovedBy              Responsible? @relation("BudgetRequestsPreApproved", fields: [preApprovedByResponsibleId], references: [id], onDelete: SetNull)
+
+  /// RECUSA na pré-aprovação. Não é cancelamento: o orçamento volta para o
+  /// comercial refazer, e o motivo é o que ele precisa ler.
+  refusedAt              DateTime?
+  refusedByResponsibleId String?
+  refusedBy              Responsible? @relation("BudgetRequestsRefused", fields: [refusedByResponsibleId], references: [id], onDelete: SetNull)
+
+  /// Justificativa da decisão — preenchida na pré-aprovação ou na recusa.
+  decisionNote String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestedByResponsibleId])
+  @@index([requestedAt])
+}
+
+/// O PEDIDO DE COMPRA do cliente — o número que o Compras dele emite e sem o qual
+/// a nota não sai.
+///
+/// Desenhado em `docs/REESTRUTURACAO_ORCAMENTO_FATURAMENTO.md` §2.12 (pacote P5) e
+/// construído aqui. Antes disto o número era `Task.customerOrderNumber`, texto
+/// livre por veículo, e "os 20 primeiros no pedido 8842" só se respondia
+/// reconstruindo a string. `@@unique([customerId, number])` porque o número é
+/// único DENTRO do cliente que o emitiu — dois clientes têm pedido 1 sem conflito.
+model PurchaseOrder {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation("CustomerPurchaseOrders", fields: [customerId], references: [id], onDelete: Cascade)
+
+  number   String
+  issuedAt DateTime?
+
+  /// Quem informou o número. Normalmente o contato de papel `PURCHASING` pelo
+  /// portal; nulo quando um funcionário o digitou por dentro.
+  issuedByResponsibleId String?
+  issuedBy              Responsible? @relation("PurchaseOrdersIssued", fields: [issuedByResponsibleId], references: [id], onDelete: SetNull)
+
+  tasks Task[] @relation("TaskPurchaseOrder")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([customerId, number])
+  @@index([customerId])
+  @@index([issuedByResponsibleId])
 }
 
 model BudgetItem {
@@ -2251,7 +2353,17 @@ model Task {
   /// Livre e NÃO único de propósito: repetir o mesmo número em vários veículos é
   /// caso legítimo, não erro. A nota conjunta cita o número quando é um só e
   /// lista por veículo quando difere.
-  customerOrderNumber   String?
+  customerOrderNumber String?
+
+  /// O PEDIDO DE COMPRA a que este veículo pertence, quando o cliente emite um.
+  ///
+  /// Convive com `customerOrderNumber` de propósito: é aquela coluna que a regra
+  /// de atenção `budget.ibipora-missing-order-number`, a NFS-e e o `seuNumero` do
+  /// boleto leem hoje. Escrita DUPLA enquanto as duas existirem — quem grava o
+  /// vínculo grava também o texto, e a limpeza é rodada própria.
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation("TaskPurchaseOrder", fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+
   details               String?
   entryDate             DateTime?
   term                  DateTime?
@@ -2832,6 +2944,21 @@ model Notification {
   user              User?                   @relation("NOTIFICATION_CREATED_BY", fields: [userId], references: [id])
   deliveries        NotificationDelivery[]
   seenBy            SeenNotification[]
+
+  /// O DESTINATÁRIO quando é um contato do CLIENTE, não um funcionário.
+  ///
+  /// Até 20/09/2026 `userId` era a única FK de pessoa e `getTargetUsers` só
+  /// resolvia `prisma.user`: era IMPOSSÍVEL avisar um cliente por dentro do
+  /// sistema, e o portal só o alcançava por fora (cerimônia de assinatura, OTP).
+  /// Um fluxo com passagem de bastão entre vendedor, compras e comercial precisa
+  /// disto.
+  ///
+  /// ⚠️ CHECK no banco: `("userId" IS NULL) <> ("responsibleId" IS NULL)` — uma
+  /// notificação tem EXATAMENTE um destinatário. Mesma doutrina do
+  /// `EnvelopeSigner_exactly_one_identity`, e pela mesma razão: os dois sujeitos
+  /// não se misturam.
+  responsibleId String?
+  responsible   Responsible? @relation("RESPONSIBLE_NOTIFICATIONS", fields: [responsibleId], references: [id], onDelete: Cascade)
 
   bodyNormalized  String? /// accent-insensitive search (generated column, see migration)
   titleNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -3521,6 +3648,14 @@ model Responsible {
   envelopeSignatures EnvelopeSigner[]           @relation("ENVELOPE_SIGNER_RESPONSIBLE")
   authChallenges     ResponsibleAuthChallenge[] @relation("RESPONSIBLE_AUTH_CHALLENGES")
   sessions           ResponsibleSession[]       @relation("RESPONSIBLE_SESSIONS")
+
+  /// O que este contato fez no PORTAL. Três relações separadas e não uma coluna
+  /// de "ator" porque os três atos são distintos e auditáveis em separado.
+  budgetRequestsOpened     BudgetRequest[] @relation("BudgetRequestsOpened")
+  budgetRequestsPreApprove BudgetRequest[] @relation("BudgetRequestsPreApproved")
+  budgetRequestsRefused    BudgetRequest[] @relation("BudgetRequestsRefused")
+  purchaseOrdersIssued     PurchaseOrder[] @relation("PurchaseOrdersIssued")
+  notifications            Notification[]  @relation("RESPONSIBLE_NOTIFICATIONS")
 
   cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
@@ -4519,18 +4654,47 @@ enum QuoteBillingSplit {
 /// execução do serviço; o faturamento, até o pagamento terminar.** Por isso
 /// `APPROVED` é o ÚLTIMO estado daqui — depois dele não há mais nada a decidir
 /// sobre o orçamento, só a cobrar.
+/// ⚠️ A ORDEM DE DECLARAÇÃO É A ORDEM DE ATENÇÃO, e é ela que `BUDGET_STATUS_ORDER`
+/// persiste em `Budget.statusOrder`. A regra, desde 20/09/2026: primeiro o que a
+/// ANKAA deve, depois o que o CLIENTE deve, por último os terminais. Não é
+/// cronológica — é a mesma doutrina de `BillingStatus`, onde `PARTIAL` vem antes
+/// de `APPROVED` porque pede mais atenção.
 enum BudgetStatus {
+  /// O cliente pediu pelo portal e NINGUÉM precificou ainda. Nasce sem serviço e
+  /// sem valor: só briefing, arquivos e veículos. É o primeiro da fila porque é
+  /// o único estado em que alguém de fora está esperando a Ankaa começar.
+  REQUESTED
+
   /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
   /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" e não
   /// "Vencido": vencida é a PARCELA, e isso agora é `BillingStatus.OVERDUE`,
   /// noutra entidade.
   EXPIRED
 
+  /// O vendedor do cliente clicou em Aprovar. O orçamento está acertado e espera
+  /// a Ankaa LANÇAR as assinaturas. Some assim que o envelope nasce.
+  PRE_APPROVED
+
   /// Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
   /// Ankaa. Sem este estado o momento era indistinguível de PENDING, e quem
   /// precisa saber o que depende de NÓS não tinha como ver numa lista.
   SIGNED
 
+  /// O comercial montou serviços e valores, e o orçamento está com o VENDEDOR do
+  /// cliente para pré-aprovar ou recusar. É daqui que o valor passa a ser visível
+  /// para quem requisitou.
+  ///
+  /// ⚠️ Substituiu a O.S. comercial "Em Negociação", removida em 20/09/2026 — ela
+  /// era uma `description` de TEXTO LIVRE que aprovava e rebaixava o orçamento
+  /// sozinha, comparada em três arquivos com três normalizações diferentes.
+  IN_NEGOTIATION
+
+  /// Envelope lançado, esperando as assinaturas do cliente.
+  ///
+  /// ⚠️ O VALOR continua `PENDING` de propósito: ele viaja para fora da API em
+  /// filtro salvo, no app Flutter em produção e em changelog gravado como string.
+  /// Só o RÓTULO mudou, para "Aguardando Assinatura" — o par com `REQUESTED` fica
+  /// honesto: lá a Ankaa deve um preço, aqui o cliente deve uma decisão.
   PENDING
 
   /// O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia para
@@ -8457,6 +8621,20 @@ enum SignatureAuthMethod {
   EMAIL_OTP
   SMS_OTP
   INTERNAL_SESSION
+
+  /// Assinatura do CONTATO DO CLIENTE feita pela sessão do portal, sem OTP — a
+  /// sessão já foi provada por OTP no login.
+  ///
+  /// ⚠️ VALOR PRÓPRIO, e não reuso de `INTERNAL_SESSION`, porque `ceremonyKindOf`
+  /// é um ternário de UMA LINHA com quatro dependentes (`assertOtpCeremony`,
+  /// `resendInvitation`, `noticeChannelOf`, `getPublicState.canSign`): dar
+  /// `INTERNAL_SESSION` a um signatário-cliente faria os quatro virarem
+  /// comportamento do lado ANKAA, em silêncio.
+  ///
+  /// ⚠️ A escolha é feita NA EMISSÃO do envelope, antes de congelar os bytes: a
+  /// cláusula de aceite impressa no PDF declara COMO o signatário se autentica, e
+  /// convertê-lo depois tornaria a frase falsa no instrumento assinado.
+  RESPONSIBLE_SESSION
 }
 
 enum SigningChallengeStatus {

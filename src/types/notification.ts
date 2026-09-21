@@ -37,6 +37,21 @@ export interface SeenNotification extends BaseEntity {
 
 export interface Notification extends BaseEntity {
   userId: string | null;
+  /**
+   * O destinatário quando é um CONTATO DO CLIENTE, não um funcionário.
+   *
+   * ⚠️ CHECK no banco: `("userId" IS NULL) <> ("responsibleId" IS NULL)` —
+   * exatamente um. Este tipo declara os dois como nuláveis porque é a forma da
+   * LINHA; quem precisa do par indivisível usa `NotificationRecipient`
+   * (`common/notification/notification-recipient.ts`), que é união discriminada
+   * e torna "os dois" e "nenhum" inexprimíveis.
+   *
+   * Opcional na interface, e não `string | null` obrigatório, por uma razão
+   * mecânica: dezenas de literais de objeto já são atribuídos a `Notification`
+   * no repositório, e exigir a chave os quebraria todos de uma vez sem que
+   * nenhum deles tivesse um destinatário-cliente a declarar.
+   */
+  responsibleId?: string | null;
   title: string;
   body: string;
   type: NOTIFICATION_TYPE;

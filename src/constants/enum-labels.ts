@@ -2109,7 +2109,13 @@ export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
   // FAZER com o orçamento.
   [TASK_QUOTE_STATUS.EXPIRED]: 'Aguardando Reanálise',
   [TASK_QUOTE_STATUS.SIGNED]: 'Assinado',
-  [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
+  // Era "Pendente". Com `REQUESTED` ("Requisição") do outro lado, a palavra
+  // passou a nomear duas esperas opostas: lá a ANKAA deve um preço, aqui o
+  // CLIENTE deve uma assinatura. O valor do enum continua `'PENDING'`.
+  [TASK_QUOTE_STATUS.PENDING]: 'Aguardando Assinatura',
+  [TASK_QUOTE_STATUS.REQUESTED]: 'Requisição',
+  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 'Em Negociação',
+  [TASK_QUOTE_STATUS.PRE_APPROVED]: 'Pré-aprovado',
   // Sem o prefixo "Orçamento": a tela já se chama Orçamentos, e o estado de
   // faturamento mudou de entidade. Repetir a palavra era desambiguar de algo que
   // não mora mais aqui.

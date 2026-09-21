@@ -68,6 +68,9 @@ export interface BudgetPayer extends BaseEntity {
   // Relations
   quote?: Budget;
   customer?: Customer;
-  responsible?: { id: string; name: string; roles: string[] };
+  // ⛔ SEM `responsible`. A coluna `BudgetPayer.responsibleId` saiu na migration
+  // `20260918120000`, e um tipo que promete o que o servidor nunca preenche não
+  // dá erro: dá `undefined` silencioso em quem ler. Os signatários do orçamento
+  // vêm de `Task.responsibles`.
   installments?: Installment[];
 }

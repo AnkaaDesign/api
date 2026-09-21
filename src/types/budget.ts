@@ -149,7 +149,12 @@ export interface BudgetIncludes {
         include?: {
           customer?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
           customerSignature?: boolean;
-          responsible?: boolean;
+          // ⛔ NÃO devolva `responsible` aqui. A relação saiu de `BudgetPayer`
+          // na migration `20260918120000`. Enquanto o TIPO a anunciava, o `tsc`
+          // APROVAVA quem a escrevesse de novo — e foi exatamente assim que
+          // duas telas do web nasceram em 500 (`task-detail-page.tsx` e
+          // `billing/details/[id].tsx`). Quem responde pelo orçamento é
+          // `Task.responsibles`. O lado web já tinha limpado o gêmeo dele.
           installments?: boolean | { orderBy?: { number?: 'asc' | 'desc' } };
           /**
            * O FATURAMENTO do pagador — dele vêm a COBERTURA e o estado.

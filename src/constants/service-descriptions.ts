@@ -108,11 +108,15 @@ export const AIRBRUSHING_DESCRIPTION_PREFIX = 'aerografia';
 export type AirbrushingServiceDescription = (typeof AIRBRUSHING_SERVICE_DESCRIPTIONS)[number];
 
 // =====================
-// COMMERCIAL - Sales Actions (52 items including Em Negociação + Outros)
+// COMMERCIAL - Sales Actions (51 items including Outros)
+//
+// ⚠️ "Em Negociação" SAIU em 20/09/2026. Nunca foi uma ação comercial: era um
+// ESTADO do orçamento escrito como texto livre na descrição de uma O.S., e o
+// estado agora é `TASK_QUOTE_STATUS.IN_NEGOTIATION`, com máquina de transições.
+// As 486 linhas de produção foram removidas pela migration
+// `20260920120000_portal_do_responsavel_requisicao_e_pedido`.
 // =====================
 export const COMMERCIAL_SERVICE_DESCRIPTIONS = [
-  // Default for new tasks
-  'Em Negociação',
   // Orçamento - Ações
   'Elaborar Orçamento',
   'Enviar Orçamento',
@@ -269,19 +273,16 @@ export function isValidServiceDescription(type: SERVICE_ORDER_TYPE, description:
 }
 
 /**
- * Default service order for new tasks (COMMERCIAL type with "Em Negociação")
- */
-export const DEFAULT_TASK_SERVICE_ORDER = {
-  type: SERVICE_ORDER_TYPE.COMMERCIAL,
-  description: 'Em Negociação',
-} as const;
-
-/**
  * All default service orders created automatically for new tasks.
- * Includes: 1 Commercial, 3 Artwork, 2 Logistic
+ * Includes: 3 Artwork, 2 Logistic.
+ *
+ * ⚠️ A O.S. comercial "Em Negociação" saiu daqui em 20/09/2026 — o estado é do
+ * ORÇAMENTO (`TASK_QUOTE_STATUS.IN_NEGOTIATION`), não de uma ordem de serviço.
+ * Uma tarefa pode nascer sem nenhuma O.S. comercial, e os portões que olham o
+ * conjunto comercial (`areCommercialServiceOrdersComplete`) já tratam o vazio
+ * como satisfeito.
  */
 export const DEFAULT_TASK_SERVICE_ORDERS = [
-  { type: SERVICE_ORDER_TYPE.COMMERCIAL, description: 'Em Negociação' },
   { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Elaborar Layout' },
   { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Elaborar Projeto' },
   { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Preparar Arquivos para Plotagem' },

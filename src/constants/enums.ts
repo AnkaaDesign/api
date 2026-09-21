@@ -2813,6 +2813,15 @@ export enum TASK_QUOTE_STATUS {
    * aqui esse momento era PENDING, igual a um orçamento criado há cinco minutos.
    */
   SIGNED = 'SIGNED',
+  /**
+   * Envelope lançado, esperando as assinaturas do cliente.
+   *
+   * ⚠️ O VALOR continua `'PENDING'` de propósito — ele viaja para fora da API em
+   * filtro salvo, no app Flutter em produção e em changelog gravado como string.
+   * Só o RÓTULO mudou, em 20/09/2026, para "Aguardando Assinatura": com
+   * {@link TASK_QUOTE_STATUS.REQUESTED} do outro lado, "Pendente" passou a
+   * significar duas esperas diferentes na mesma palavra.
+   */
   PENDING = 'PENDING',
   /**
    * O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia só
@@ -2820,6 +2829,31 @@ export enum TASK_QUOTE_STATUS {
    */
   APPROVED = 'APPROVED',
   CANCELLED = 'CANCELLED',
+
+  /**
+   * O cliente pediu pelo PORTAL e ninguém precificou ainda. Nasce sem serviço e
+   * sem valor — só briefing, arquivos e veículos (ver `BudgetRequest`).
+   *
+   * É o primeiro da fila porque é o único estado em que alguém de fora está
+   * esperando a Ankaa COMEÇAR.
+   */
+  REQUESTED = 'REQUESTED',
+  /**
+   * O comercial montou serviços e valores, e o orçamento está com o VENDEDOR do
+   * cliente para pré-aprovar ou recusar. É daqui que o valor passa a ser visível
+   * para quem requisitou.
+   *
+   * ⚠️ Substituiu a O.S. comercial "Em Negociação", removida em 20/09/2026. Ela
+   * era uma `description` de TEXTO LIVRE que aprovava o orçamento ao ser concluída
+   * e o rebaixava de APPROVED para PENDING ao ser reaberta, comparada em três
+   * arquivos com três normalizações diferentes.
+   */
+  IN_NEGOTIATION = 'IN_NEGOTIATION',
+  /**
+   * O vendedor do cliente clicou em Aprovar. O orçamento está acertado e espera a
+   * Ankaa LANÇAR as assinaturas. Some assim que o envelope nasce.
+   */
+  PRE_APPROVED = 'PRE_APPROVED',
 }
 
 /**

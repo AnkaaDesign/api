@@ -174,12 +174,30 @@ export const BONIFICATION_STATUS_ORDER: Record<BONIFICATION_STATUS, number> = {
 //
 // Encurtou em 16/09/2026: os cinco estados de cobrança saíram daqui e viraram
 // `BILLING_STATUS_ORDER`, porque o ciclo do pagamento é do `Billing`.
+// Cresceu em 20/09/2026 com o portal do responsável. A regra de ordenação ficou
+// explícita: primeiro o que a ANKAA deve, depois o que o CLIENTE deve, por último
+// os terminais. `REQUESTED` é 1 porque é o único estado em que alguém de fora
+// espera a Ankaa começar.
+//
+// ⚠️ ESTE MAPA É PERSISTIDO em `Budget.statusOrder` e tem um GÊMEO EM SQL, no
+// `UPDATE` de backfill da migration `20260920120000`. Mexer aqui sem mexer lá
+// deixa a ordenação do servidor e a do cliente discordando — e nada falha.
+//
+// ⚠️ NUNCA use 0: `sortOrder.ts` e `budget.service.ts` calculam `MAP[status] || 1`
+// (0 vira 1) enquanto `budget-prisma.repository.ts` usa `?? 8` (0 sobrevive). O
+// mesmo status ganharia ordem diferente no CREATE e no UPDATE, sem erro.
 export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
-  [TASK_QUOTE_STATUS.EXPIRED]: 1,
-  [TASK_QUOTE_STATUS.SIGNED]: 2,
-  [TASK_QUOTE_STATUS.PENDING]: 3,
-  [TASK_QUOTE_STATUS.APPROVED]: 4,
-  [TASK_QUOTE_STATUS.CANCELLED]: 5,
+  // ── a Ankaa deve ──
+  [TASK_QUOTE_STATUS.REQUESTED]: 1,
+  [TASK_QUOTE_STATUS.EXPIRED]: 2,
+  [TASK_QUOTE_STATUS.PRE_APPROVED]: 3,
+  [TASK_QUOTE_STATUS.SIGNED]: 4,
+  // ── o cliente deve ──
+  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 5,
+  [TASK_QUOTE_STATUS.PENDING]: 6,
+  // ── terminais ──
+  [TASK_QUOTE_STATUS.APPROVED]: 7,
+  [TASK_QUOTE_STATUS.CANCELLED]: 8,
 };
 
 // ⚠️ PERSISTIDA em `Billing.statusOrder`, escrita junto com `Billing.status` por
