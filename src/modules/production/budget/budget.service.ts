@@ -14,6 +14,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { PortalNotificationService } from '@modules/common/notification/portal-notification.service';
 import { BudgetRepository } from './repositories/budget.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
@@ -70,7 +71,6 @@ import {
   type SyncServiceOrder,
 } from '../../../utils/budget-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
-import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import {
   syncTaskLayoutsFromQuote,
   reproveNonSelectedTaskLayoutsFromQuote,
@@ -162,14 +162,17 @@ export class BudgetService {
     private readonly signatureEnvelopes: SignatureEnvelopeService,
     @Inject(forwardRef(() => SignatureDeletionService))
     private readonly signatureDeletion: SignatureDeletionService,
-    // A cascata do ORÇAMENTO: reconcilia a O.S. "Em Negociação" e dispara o aviso
-    // de contrato quitado. Não calcula mais status — isso é da cobrança.
+    // A cascata do ORÇAMENTO: dispara o aviso de contrato quitado. Não calcula
+    // mais status — isso é da cobrança.
     @Inject(forwardRef(() => BudgetStatusCascadeService))
     private readonly statusCascadeService: BudgetStatusCascadeService,
     // A cascata da COBRANÇA: deriva `Billing.status` das parcelas. É quem fecha o
     // estado depois de aprovar um faturamento, e quem o recalcula quando uma
     // aprovação falha no meio.
     private readonly billingStatusCascade: BillingStatusCascadeService,
+    // Os avisos que atravessam a fronteira da empresa — ver
+    // `common/notification/portal-notification.service.ts`.
+    private readonly portalNotifications: PortalNotificationService,
   ) {}
 
   /**
@@ -2199,14 +2202,6 @@ export class BudgetService {
         });
       });
 
-      // Reconcile the "Em Negociação" SO whenever this update changed the
-      // quote status (explicit caller status, or the auto-revert-to-PENDING
-      // branch above triggered by value-affecting edits) OR the layout files —
-      // uploading/clearing a layout flips the "has layout" check.
-      if (data.status !== undefined || (data as any).layoutFileIds !== undefined) {
-        await syncEmNegociacaoForQuote(this.prisma, id, userId);
-      }
-
       // Pós-commit: se algo que o documento EXIBE mudou, a coleta de assinaturas
       // em andamento deixa de valer. O cliente assinou uma versão específica do
       // orçamento; mantê-la de pé após uma alteração material vincularia alguém a
@@ -2255,6 +2250,30 @@ export class BudgetService {
             sigError instanceof Error ? sigError.message : sigError
           }`,
         );
+      }
+
+      // ── O BASTÃO VOLTA PARA O CLIENTE, TAMBÉM POR AQUI ─────────────────────
+      //
+      // `updateStatus` é o caminho do seletor de status, e ele tem o mesmo
+      // gancho. Este é o caminho do FORMULÁRIO: o assistente do orçamento grava
+      // serviços, valores e status na mesma requisição, e é justamente assim
+      // que uma requisição vira proposta — o comercial monta o orçamento e o
+      // devolve ao cliente numa gravação só.
+      //
+      // ⚠️ `!_internal` EVITA O AVISO EM DOBRO: `updateStatus` chama este método
+      // com `_internal = true` logo depois de ter validado a transição, e sem
+      // esta condição o requisitante receberia duas mensagens por um movimento.
+      if (
+        !_internal &&
+        data.status === TASK_QUOTE_STATUS.IN_NEGOTIATION &&
+        currentStatus === TASK_QUOTE_STATUS.REQUESTED
+      ) {
+        const { label, taskId } = await this.buildQuoteLabel(id);
+        await this.portalNotifications.notifyRequesterValuesVisible({
+          budgetId: id,
+          taskId,
+          quoteLabel: label,
+        });
       }
 
       return {
@@ -2443,8 +2462,8 @@ export class BudgetService {
    *      contagem que multiplica os totais;
    *   7. changelog no sobrevivente e em cada veículo movido.
    *
-   * Pós-commit, fora da transação: reconciliar a O.S. "Em Negociação" e
-   * reavaliar a assinatura do sobrevivente (acrescentar veículo é MATERIAL).
+   * Pós-commit, fora da transação: reavaliar a assinatura do sobrevivente
+   * (acrescentar veículo é MATERIAL).
    */
   async mergeQuotes(
     taskIds: string[],
@@ -2572,13 +2591,7 @@ export class BudgetService {
       { timeout: 120_000 },
     );
 
-    // Pós-commit, best-effort: nenhum dos dois pode desfazer uma união que já
-    // está no banco.
-    try {
-      await syncEmNegociacaoForQuote(this.prisma, survivor.id, userId);
-    } catch (e) {
-      this.logger.error(`Falha ao reconciliar "Em Negociação" do orçamento ${survivor.id}: ${e}`);
-    }
+    // Pós-commit, best-effort: não pode desfazer uma união que já está no banco.
     try {
       await this.signatureEnvelopes.onQuoteContentChanged(survivor.id, userId || null);
     } catch (e) {
@@ -2762,10 +2775,24 @@ export class BudgetService {
   /**
    * Update quote status (approve/reject/cancel)
    */
+  /**
+   * @param reason  O motivo digitado pelo operador. Chega do corpo da requisição
+   *   (`PUT /budgets/:id/status` manda `{ status, reason }`) e ia para o chão:
+   *   o controller lia só `status` e este método nem recebia o campo. O diálogo
+   *   de recusa da web EXIGE o motivo, e a trilha do orçamento registrava apenas
+   *   "Campo Status atualizado" — quem abrisse o histórico não descobria por que
+   *   a proposta voltou para Pendente.
+   *
+   *   Vai para o ChangeLog como uma entrada PRÓPRIA, ao lado da genérica que
+   *   `update()` escreve pelo rastreio de campo. É a mesma forma do
+   *   rebaixamento por invalidação de assinatura (`markPendingAfterSignature-
+   *   Invalidation`) e do cancelamento, que já anexavam a frase do sistema.
+   */
   async updateStatus(
     id: string,
     status: TASK_QUOTE_STATUS,
     userId: string,
+    reason?: string,
   ): Promise<BudgetUpdateResponse> {
     try {
       const existing = await this.budgetRepository.findById(id);
@@ -2830,7 +2857,11 @@ export class BudgetService {
       // tarefa), mas ele não toca em tarefa nenhuma: só no orçamento e nos
       // artefatos dele. Por isso o motivo do changelog é parâmetro.
       if (status === TASK_QUOTE_STATUS.CANCELLED) {
-        await this.cancelForTaskCancellation(id, userId, 'Orçamento cancelado pelo usuário');
+        await this.cancelForTaskCancellation(
+          id,
+          userId,
+          reason?.trim() || 'Orçamento cancelado pelo usuário',
+        );
         const cancelled = await this.budgetRepository.findById(id);
         return {
           success: true,
@@ -2842,9 +2873,29 @@ export class BudgetService {
       // Update status — pass _internal=true to bypass the external-call guard
       const updated = await this.update(id, { status }, userId, true);
 
-      // Reconcile the "Em Negociação" COMMERCIAL ServiceOrder. Best-effort:
-      // never throws into the caller's flow.
-      await syncEmNegociacaoForQuote(this.prisma, id, userId);
+      // O MOTIVO, na trilha. `update()` escreve a linha genérica do campo
+      // ("Campo Status atualizado"); esta é a que carrega a frase do operador —
+      // e só existe quando ele realmente escreveu alguma coisa.
+      const motivo = reason?.trim();
+      if (motivo) {
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_QUOTE,
+          entityId: id,
+          // Voltar a Pendente é REPROVAÇÃO — a mesma ação que a invalidação por
+          // assinatura registra. Os demais movimentos são atualização comum.
+          action:
+            status === TASK_QUOTE_STATUS.PENDING
+              ? CHANGE_ACTION.ROLLBACK
+              : CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: existing.status,
+          newValue: status,
+          reason: motivo,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId,
+          userId: userId || '',
+        });
+      }
 
       // Generic status route (PUT /:id/status) can advance a quote to the approval
       // state directly (bypassing budgetApprove). When that happens, notify the NEXT
@@ -2852,6 +2903,32 @@ export class BudgetService {
       // method emits its own *_approved key; this covers the generic path.
       if (status === TASK_QUOTE_STATUS.APPROVED) {
         await this.dispatchApprovalPendingNotification(id, status, userId);
+      }
+
+      // ── O BASTÃO VOLTA PARA O CLIENTE ──────────────────────────────────────
+      //
+      // `REQUESTED → IN_NEGOTIATION` é o único momento em que a Ankaa devolve o
+      // orçamento ao lado de fora: a requisição nasceu sem serviço e sem valor,
+      // o comercial montou os dois, e agora o vendedor do cliente tem de decidir.
+      //
+      // Sem este aviso o cliente não tem como SABER que os valores apareceram —
+      // ele teria de abrir o portal por adivinhação. É a razão de
+      // `Notification.responsibleId` existir; antes de 20/09/2026 este aviso era
+      // literalmente impossível de mandar.
+      //
+      // Só na aresta que vem de `REQUESTED`: voltar de `PRE_APPROVED` ou de
+      // `PENDING` para `IN_NEGOTIATION` é a Ankaa ou o próprio cliente
+      // retomando a conversa, e ali não há valor novo a anunciar.
+      if (
+        status === TASK_QUOTE_STATUS.IN_NEGOTIATION &&
+        (existing.status as TASK_QUOTE_STATUS) === TASK_QUOTE_STATUS.REQUESTED
+      ) {
+        const { label, taskId } = await this.buildQuoteLabel(id);
+        await this.portalNotifications.notifyRequesterValuesVisible({
+          budgetId: id,
+          taskId,
+          quoteLabel: label,
+        });
       }
 
       return {
@@ -3309,8 +3386,6 @@ export class BudgetService {
 
     await this.update(quoteId, { status: TASK_QUOTE_STATUS.SIGNED }, userId, true);
 
-    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
-
     // O aviso de contra-assinatura para QUEM ASSINA pela Ankaa sai da própria
     // cerimônia (`notifyAnkaaSigner`, com link). Este é o aviso de SETOR: o
     // comercial e a administração precisam ver na lista de notificações que há
@@ -3371,8 +3446,6 @@ export class BudgetService {
     }
 
     await this.update(quoteId, { status: TASK_QUOTE_STATUS.EXPIRED }, userId, true);
-
-    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
 
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
@@ -3445,8 +3518,6 @@ export class BudgetService {
     }
 
     await this.update(quoteId, { status: TASK_QUOTE_STATUS.EXPIRED }, userId, true);
-
-    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
 
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
@@ -3536,8 +3607,6 @@ export class BudgetService {
 
     await this.update(quoteId, { status: TASK_QUOTE_STATUS.PENDING }, userId, true);
 
-    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
-
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.TASK_QUOTE,
       entityId: quoteId,
@@ -3570,10 +3639,7 @@ export class BudgetService {
    */
   async budgetApprove(id: string, userId: string): Promise<BudgetUpdateResponse> {
     // Required-layout gate: a budget can only be approved once an approved layout
-    // (Budget.layoutFiles) has been selected in Step 2. This gates ONLY the
-    // manual commercial approval; the automated Em Negociação auto-approval path
-    // writes the status directly (service-order.service) and is intentionally not
-    // subject to this gate.
+    // (Budget.layoutFiles) has been selected in Step 2.
     const quoteForGate = await this.prisma.budget.findUnique({
       where: { id },
       select: { layoutFiles: { select: { id: true } } },
@@ -3617,7 +3683,11 @@ export class BudgetService {
   /** Best-effort human label for a quote — uses the linked task serial/name when
    *  available, falling back to the short quote id. Also returns the linked task
    *  id so notification deep links (keyed by taskId) can be built. Never throws. */
-  private async buildQuoteLabel(
+  // PÚBLICO desde 20/09: o portal do responsável precisa do MESMO rótulo que as
+  // notificações internas usam. Dois montadores de rótulo produziriam duas
+  // formas do mesmo orçamento — uma no aviso que o comercial recebe, outra no
+  // que o cliente recebe sobre o mesmo ato.
+  async buildQuoteLabel(
     quoteId: string,
   ): Promise<{ label: string; taskId: string | null }> {
     try {
@@ -3640,32 +3710,6 @@ export class BudgetService {
       // ignore — fall through to id
     }
     return { label: quoteId.slice(-8).toUpperCase(), taskId: null };
-  }
-
-  /**
-   * Manually reconcile the "Em Negociação" SO for the task tied to this quote.
-   * Recovery path: a task can land in a stuck state if a status change happened
-   * before the sync logic existed (or before a bug fix). This endpoint replays
-   * the reconciliation without requiring a status transition.
-   */
-  async syncEmNegociacao(id: string, userId: string): Promise<{ success: true; message: string }> {
-    const tasks = await this.prisma.task.findMany({
-      where: { quoteId: id },
-      select: { id: true },
-    });
-    if (tasks.length === 0) {
-      throw new NotFoundException(`Tarefa para o orçamento ${id} não encontrada.`);
-    }
-    // TODAS as tarefas do orçamento — é justamente o conserto que este endpoint
-    // de recuperação existe para aplicar nos orçamentos que ficaram tortos.
-    await syncEmNegociacaoForQuote(this.prisma, id, userId);
-    return {
-      success: true,
-      message:
-        tasks.length === 1
-          ? 'Em Negociação reconciliada.'
-          : `Em Negociação reconciliada em ${tasks.length} tarefas.`,
-    };
   }
 
   /**
@@ -4840,11 +4884,11 @@ export class BudgetService {
       );
     }
 
-    // A tarefa ÂNCORA — a primeira na ordem canônica. Serve só de contexto para
-    // `syncEmNegociacaoForTask`; o que se desmonta é escopado pelo ORÇAMENTO
-    // (ver `invoicesOfQuote`). Sem `orderBy` a escolha mudava entre duas
-    // leituras, e âncora que anda é como o mesmo orçamento passa a apontar para
-    // caminhões diferentes.
+    // A tarefa ÂNCORA — a primeira na ordem canônica. Serve só de contexto de
+    // mensagem; o que se desmonta é escopado pelo ORÇAMENTO (ver
+    // `invoicesOfQuote`). Sem `orderBy` a escolha mudava entre duas leituras, e
+    // âncora que anda é como o mesmo orçamento passa a apontar para caminhões
+    // diferentes.
     const task = await this.prisma.task.findFirst({
       where: { quoteId: id },
       select: { id: true },
@@ -5005,13 +5049,6 @@ export class BudgetService {
       `[REVERT_BILLING] Faturamentos do orçamento ${id} desfeitos: fatura, parcelas e boletos apagados, carimbos levantados e estado recalculado.`,
     );
 
-    // Direct prisma write above bypasses updateStatus — reconcile explicitly.
-    // Status moves stay within ≥ BUDGET_APPROVED so this is usually a no-op
-    // for Em Negociação, but kept for symmetry with other status-change paths.
-    // Escopado pelo ORÇAMENTO, como tudo que esta reversão desmonta: a tarefa
-    // âncora acima é só contexto de log, não o alcance do que mudou.
-    await syncEmNegociacaoForQuote(this.prisma, id, userId);
-
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.TASK_QUOTE,
       entityId: id,
@@ -5088,19 +5125,14 @@ export class BudgetService {
       return;
     }
 
-    const task = await this.prisma.task.findFirst({
-      where: { quoteId: id },
-      select: { id: true },
-    });
-    const taskId = task?.id ?? null;
-
     // ── O DESMONTE É DO ORÇAMENTO, NÃO DA TAREFA ─────────────────────────────
     //
     // Este bloco inteiro vivia dentro de `if (taskId)` — e NADA dentro dele
     // precisa da tarefa: `assertBillingArtifactsConfirmed`, a guarda de parcela
     // paga, `baixarBoletosAndConfirm` e a varredura de NFS-e são todas escopadas
-    // pelo ORÇAMENTO (`invoicesOfQuote`). O `taskId` só serve de contexto para o
-    // `syncEmNegociacaoForTask` lá embaixo.
+    // pelo ORÇAMENTO (`invoicesOfQuote`). A tarefa âncora que o bloco lia só
+    // servia de contexto para a reconciliação da O.S. "Em Negociação", que
+    // deixou de existir — por isso nem ela é lida mais.
     //
     // ⚠️ E o orçamento SEM veículo é exatamente o caso que a condição excluía.
     // Medido em produção (17/09/2026): dos 105 órfãos, 104 estão limpos — mas o
@@ -5261,8 +5293,6 @@ export class BudgetService {
     // Fora da transação e depois dela, como as outras cascatas: ela abre a
     // própria escrita e precisa LER o orçamento já cancelado para decidir.
     await this.billingStatusCascade.recomputeForQuote(id);
-
-    await syncEmNegociacaoForQuote(this.prisma, id, userId);
 
     // Uma cerimônia de assinatura em andamento não pode sobreviver ao orçamento
     // cancelado: o link continuaria assinável e o scheduler de expiração seguiria
@@ -5822,6 +5852,29 @@ export class BudgetService {
    * Validate status transition
    * @private
    */
+  /**
+   * A MÁQUINA DE ESTADOS, ABERTA A QUEM NÃO É `BudgetService`.
+   *
+   * Existe por causa do portal do responsável: `PUT /cliente/me/orcamentos/:id/
+   * {pre-aprovar,recusar}` move o orçamento, e mover status escrevendo
+   * `status` direto no Prisma é como a automação da O.S. já fazia em quatro
+   * pontos (`service-order.service.ts:2003, 2087, 1155, 217`) — passando por
+   * cima de toda esta tabela. O portal não repete isso.
+   *
+   * É um invólucro de UMA LINHA de propósito: a tabela `ALLOWED` continua
+   * privada e única. Duplicá-la no portal criaria dois grafos que divergiriam na
+   * primeira aresta nova, e o mais novo seria o que ninguém audita.
+   *
+   * Lança `BadRequestException` com os RÓTULOS em português, que é o que o
+   * cliente do portal vê.
+   */
+  assertTransitionAllowed(
+    currentStatus: TASK_QUOTE_STATUS,
+    newStatus: TASK_QUOTE_STATUS,
+  ): void {
+    this.validateStatusTransition(currentStatus, newStatus);
+  }
+
   private validateStatusTransition(
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
@@ -5860,7 +5913,14 @@ export class BudgetService {
     // cancela. Não há "aprovar faturamento" aqui — isso é `PUT
     // /billings/:id/approve`, que não mexe no status do orçamento.
     const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
-      [TASK_QUOTE_STATUS.PENDING]: [TASK_QUOTE_STATUS.APPROVED, TASK_QUOTE_STATUS.CANCELLED],
+      // Ganhou IN_NEGOTIATION em 20/09: o cliente pede revisão de preço com o
+      // envelope já lançado, e o orçamento volta à mesa do vendedor. Antes disso
+      // o único caminho era cancelar e recotar, perdendo o número.
+      [TASK_QUOTE_STATUS.PENDING]: [
+        TASK_QUOTE_STATUS.APPROVED,
+        TASK_QUOTE_STATUS.IN_NEGOTIATION,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
       // SIGNED é escrito pela CERIMÔNIA (grupo do cliente completo), nunca à
       // mão — por isso não é destino de ninguém aqui. O que esta linha declara
       // é como se SAI dele: aprovar (a contra-assinatura aconteceu, ou o
@@ -5879,7 +5939,14 @@ export class BudgetService {
       // edição de valor), ou estende a validade, ou cancela. Não vai direto
       // para APPROVED — aprovar sem assinatura é exatamente o que a cerimônia
       // existe para impedir.
-      [TASK_QUOTE_STATUS.EXPIRED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.CANCELLED],
+      [TASK_QUOTE_STATUS.EXPIRED]: [
+        TASK_QUOTE_STATUS.PENDING,
+        // Vencido que nasceu de requisição volta a ser requisição: o comercial
+        // remonta serviços e valores do zero, que é o que "reanalisar" quer dizer
+        // quando o pedido veio de fora.
+        TASK_QUOTE_STATUS.REQUESTED,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
       // APPROVED → PENDING existe para o caminho de cancelamento mais comum: o
       // cliente desiste antes de haver cobrança. Depois que alguma cobrança foi
       // aprovada, `isQuoteMoneyLocked` barra a edição e o caminho é
@@ -5888,6 +5955,38 @@ export class BudgetService {
       // Terminal — a quote is cancelled when its task is cancelled. Re-quoting
       // creates a new quote rather than transitioning out of CANCELLED.
       [TASK_QUOTE_STATUS.CANCELLED]: [],
+
+      // ─── O CAMINHO DO PORTAL (20/09/2026) ───────────────────────────────────
+      //
+      // A requisição nasce sem serviço e sem valor. O comercial monta, e daí saem
+      // dois caminhos: manda ao VENDEDOR do cliente pré-aprovar (IN_NEGOTIATION),
+      // ou vai direto para assinatura quando não há intermediário a consultar —
+      // cliente direto não tem vendedor para pré-aprovar.
+      //
+      // ⚠️ NÃO vai direto para APPROVED. Uma requisição não tem documento, não tem
+      // assinatura e não tem valor acordado; aprovar dali criaria contrato do
+      // nada — e é `APPROVED` que destrava a cobrança.
+      [TASK_QUOTE_STATUS.REQUESTED]: [
+        TASK_QUOTE_STATUS.IN_NEGOTIATION,
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
+      // Com o vendedor do cliente. Ele aprova (PRE_APPROVED) ou recusa, e recusar
+      // devolve a REQUESTED — para o comercial refazer, não para o limbo. É a
+      // volta que a O.S. "Em Negociação" fazia reabrindo a si mesma.
+      [TASK_QUOTE_STATUS.IN_NEGOTIATION]: [
+        TASK_QUOTE_STATUS.PRE_APPROVED,
+        TASK_QUOTE_STATUS.REQUESTED,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
+      // Acertado, esperando a Ankaa LANÇAR as assinaturas. `PENDING` é escrito
+      // pela emissão do envelope; a volta a IN_NEGOTIATION existe para quando o
+      // vendedor se retrata antes de o documento sair.
+      [TASK_QUOTE_STATUS.PRE_APPROVED]: [
+        TASK_QUOTE_STATUS.PENDING,
+        TASK_QUOTE_STATUS.IN_NEGOTIATION,
+        TASK_QUOTE_STATUS.CANCELLED,
+      ],
     };
 
     const allowed = ALLOWED[currentStatus] ?? [];

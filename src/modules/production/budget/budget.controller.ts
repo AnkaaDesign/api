@@ -187,6 +187,14 @@ export class BudgetController {
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: string,
+    // O MOTIVO CHEGA — e agora é lido.
+    //
+    // A tela manda `{ status, reason }` desde sempre (`budgetService.reject` e
+    // o diálogo de recusa, que EXIGE cinco caracteres antes de liberar o botão),
+    // e este controller só lia `status`. O motivo digitado pelo operador morria
+    // na borda: a trilha registrava "Campo Status atualizado" e mais nada, de
+    // modo que uma reprovação de orçamento não dizia por quê.
+    @Body('reason') reason: string | undefined,
     @UserId() userId: string,
     @Req() req: Request,
   ) {
@@ -206,7 +214,12 @@ export class BudgetController {
     //
     // Chamadas antigas caem no `Status inválido` acima, que é o correto: o valor
     // não existe mais no contrato.
-    return this.budgetService.updateStatus(id, status as TASK_QUOTE_STATUS, userId);
+    return this.budgetService.updateStatus(
+      id,
+      status as TASK_QUOTE_STATUS,
+      userId,
+      typeof reason === 'string' && reason.trim() ? reason.trim() : undefined,
+    );
   }
 
   /**
@@ -303,20 +316,6 @@ export class BudgetController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async revertBillingApproval(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.budgetService.revertBillingApproval(id, userId);
-  }
-
-  /**
-   * POST /task-quotes/:id/sync-em-negociacao
-   * Force a reconciliation of the "Em Negociação" SO against current quote/layout
-   * state. Idempotent — safe to call any time to recover from a stuck state.
-   *
-   * Access: ADMIN, FINANCIAL, COMMERCIAL
-   */
-  @Post(':id/sync-em-negociacao')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
-  @HttpCode(HttpStatus.OK)
-  async syncEmNegociacao(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.budgetService.syncEmNegociacao(id, userId);
   }
 
   /**

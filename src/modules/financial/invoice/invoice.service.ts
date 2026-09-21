@@ -391,8 +391,7 @@ export class InvoiceService {
         // O estado de cada cobrança é DERIVADO do carimbo e das parcelas, e as
         // duas coisas acabaram de mudar. Quem recalcula é a cascata — este
         // serviço não escreve `Billing.status`, e escrever aqui abriria a
-        // segunda fonte de verdade que a separação existiu para fechar. Ela
-        // também reconcilia "Em Negociação" em todas as tarefas do orçamento.
+        // segunda fonte de verdade que a separação existiu para fechar.
         await this.cascadeService.cascadeFromQuote(quote.id);
       }
     } catch (revertError) {

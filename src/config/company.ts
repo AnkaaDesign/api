@@ -159,8 +159,20 @@ export const BRAND_COLORS = {
 export const PINNED_CUSTOMERS = {
   /**
    * Ibiporã Implementos Rodoviários — "Industria de Carrocerias Metalicas Ibipora LTDA",
-   * CNPJ 85462471000174. Fatura contra pedido de compra, portanto
-   * `BudgetPayer.orderNumber` é obrigatório para ela.
+   * CNPJ 85462471000174, tag "furgão ibiporã". Fatura contra pedido de compra:
+   * sem o `Nº do Pedido` a nota não sai. Fixada no topo dos seletores de cliente
+   * de Orçamento e Faturamento e sujeita da regra de atenção
+   * `budget.ibipora-missing-order-number`.
+   *
+   * ⚠️ O NÚMERO MORA NA TAREFA, não no pagador. Este comentário citava
+   * `BudgetPayer.orderNumber` — coluna que NÃO EXISTE MAIS. Ela desceu para
+   * `Task.customerOrderNumber` em 17/09/2026, quando um orçamento passou a
+   * cobrir N caminhões: o pedido é por ENTREGA, e um número por fatura obrigava
+   * os sessenta veículos a citarem o mesmo. Desde 20/09 o par
+   * (cliente, número) é a entidade `PurchaseOrder`, e `Task.purchaseOrderId`
+   * aponta para ela — com `Task.customerOrderNumber` mantida em escrita dupla,
+   * porque é ela que a NFS-e, o `seuNumero` do boleto e a regra de atenção leem.
+   * O gêmeo do web (`web/src/config/company.ts`) já estava correto.
    */
   IBIPORA: '93dfbeb1-aec0-4829-a297-6a2f09fcfe08',
 } as const;

@@ -164,7 +164,12 @@ export class BillingService {
       orderBy: { createdAt: 'asc' as const },
       include: {
         customer: true,
-        responsible: true,
+        // ⛔ NÃO acrescente `responsible` aqui. A relação foi removida de
+        // `BudgetPayer` pela migration `20260918120000` e esta linha sobreviveu
+        // à varredura (que procurou `responsibleId`, a FK, e não `responsible`,
+        // a relação). `findById` usa `(this.prisma as any)`, então o `tsc` não
+        // via nada: `GET /billings/:id`, `/by-task/:taskId` e `/quote/:quoteId`
+        // — os três compartilham este grafo — respondiam 500 em produção.
         installments: { orderBy: { number: 'asc' as const } },
         invoices: {
           orderBy: { createdAt: 'desc' as const },
@@ -200,8 +205,8 @@ export class BillingService {
    *  · `installments.bankSlip.status` e `invoices.nfseDocuments.status` — os selos
    *    de boleto e nota, que o grafo antigo trazia por inteiro ou não trazia.
    *
-   * O que saiu: `quote.services`, `customerConfigs.responsible`, a garantia, e os
-   * escalares de fatura que ninguém lê na lista.
+   * O que saiu: `quote.services`, a garantia, e os escalares de fatura que
+   * ninguém lê na lista.
    */
   private static readonly LIST_INCLUDE = {
     quote: {

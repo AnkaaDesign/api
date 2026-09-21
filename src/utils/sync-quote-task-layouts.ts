@@ -221,7 +221,7 @@ async function syncOneTaskFromQuoteFiles(
  *     already-REPROVED layout.
  * Best-effort + tx-atomic, mirroring syncTaskLayoutsFromQuote. Returns the ids of
  * the task layouts it reproved, so the caller can fire downstream reconciliation
- * (e.g. Em Negociação service-order sync / artwork.reproved events).
+ * (e.g. artwork.reproved events).
  */
 export async function reproveDroppedTaskLayoutsFromQuote(
   prisma: PrismaContext,
@@ -298,7 +298,7 @@ export async function reproveDroppedTaskLayoutsFromQuote(
         // A MESMA linha `Layout` costuma estar ligada a vários veículos deste
         // orçamento (`fileId` é `@unique`). Sem esta guarda ela seria reprovada
         // sessenta vezes e entraria sessenta vezes no resultado, disparando a
-        // reconciliação de Em Negociação uma vez por veículo.
+        // reconciliação a jusante uma vez por veículo.
         if (alreadyReproved.has(match.id)) continue;
 
         // Guard against corrupting a still-in-use reference. This Layout row can be
@@ -380,7 +380,7 @@ export async function reproveDroppedTaskLayoutsFromQuote(
  *   - Layout-ROW-scoped shared guard: skip a Layout row still referenced by
  *     ANOTHER quote's current selection (a sibling quote actively displaying it).
  * Best-effort + tx-atomic. Returns the reproved task-layout ids for downstream
- * reconciliation (Em Negociação / artwork.reproved).
+ * reconciliation (artwork.reproved).
  */
 export async function reproveNonSelectedTaskLayoutsFromQuote(
   prisma: PrismaContext,

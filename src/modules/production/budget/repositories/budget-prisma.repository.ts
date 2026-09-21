@@ -688,6 +688,24 @@ export class BudgetPrismaRepository
             },
           },
         },
+
+        // A REQUISIÇÃO, quando o orçamento nasceu no portal do cliente.
+        //
+        // Entra no include FIXO porque esta é a única fonte da tela interna de
+        // detalhe (`GET /budgets/task/:taskId`), e o painel que mostra ao
+        // comercial o briefing, o nome da logomarca e — o que mais importa — o
+        // MOTIVO de uma recusa não tem outro caminho até a tela.
+        //
+        // Os três autores vêm por `select` e não por `true`: `Responsible`
+        // carrega telefone, e-mail e CPF, e quem os precisa é a cerimônia de
+        // assinatura, não a tela de quem está montando o preço.
+        request: {
+          include: {
+            requestedBy: { select: { id: true, name: true, roles: true } },
+            preApprovedBy: { select: { id: true, name: true, roles: true } },
+            refusedBy: { select: { id: true, name: true, roles: true } },
+          },
+        },
       },
     });
 

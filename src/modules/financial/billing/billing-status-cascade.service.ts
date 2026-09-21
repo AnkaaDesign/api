@@ -80,9 +80,8 @@ export class BillingStatusCascadeService {
    *
    * ⚠️ O texto anterior dizia que a baixa de parcela e o webhook do Sicredi
    * usavam este caminho. Não usam: os dois passam por `cascadeFromInstallment`,
-   * que recalcula o orçamento INTEIRO — e precisa, porque também sincroniza a
-   * O.S. "Em Negociação" e dispara o aviso de contrato quitado, que são do
-   * contrato e não da cobrança.
+   * que recalcula o orçamento INTEIRO — e precisa, porque também dispara o aviso
+   * de contrato quitado, que é do contrato e não da cobrança.
    *
    * Quem usa este é o grampeamento de vencimento no registro do boleto, onde o
    * `customerConfigId` está em mão e recalcular o orçamento todo custaria N vezes

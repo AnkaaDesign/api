@@ -16,7 +16,6 @@ import {
   UsePipes,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceAnalyticsService } from './invoice-analytics.service';
@@ -1056,16 +1055,6 @@ export class InvoiceController {
       // operation LIQUIDATED) — replaces the hand-rolled per-path derivation. cascadeFromInstallment
       // resolves the correct anchor (invoice → quote, or external operation) and never throws.
       await this.sicrediBoletoScheduler.cascadeFromInstallment(installmentId);
-
-      // Reconcile Em Negociação for the linked task (kept for symmetry with other paths).
-      const invoiceForSync = await this.prisma.invoice.findUnique({
-        where: { id: installment.invoiceId },
-        select: { customerConfig: { select: { quoteId: true } } },
-      });
-      const syncQuoteId = invoiceForSync?.customerConfig?.quoteId;
-      if (syncQuoteId) {
-        await syncEmNegociacaoForQuote(this.prisma, syncQuoteId);
-      }
     }
 
     return { message: `Parcela marcada como paga via ${paymentMethod}.` };

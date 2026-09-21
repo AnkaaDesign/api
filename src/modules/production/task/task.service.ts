@@ -63,7 +63,6 @@ import {
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
 } from '../budget/budget.guards';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
 import { hasEntered } from '../../../utils/task-cleared';
@@ -156,6 +155,24 @@ function formatImplementMeasureForChangelog(implementMeasure: any) {
  * The task's bonification status field is maintained for reference but
  * no bonification entries are automatically created.
  */
+/**
+ * O NOME DA RELAÇÃO QUE O PRISMA NÃO CONHECE, extraído da recusa dele.
+ *
+ * O `PrismaClientValidationError` traz a frase inteira em `message`, na forma
+ * "Unknown field `x` for include statement on model `Y`" (ou `for select
+ * statement`, ou `argument`). Lê-se de lá porque o Prisma NÃO expõe o campo
+ * culpado como dado — e uma regex sobre a mensagem dele é frágil por natureza,
+ * então a função devolve `null` quando não reconhece, e quem chama volta ao 500
+ * de sempre. Errar para o lado de não adivinhar: um nome errado mandaria o
+ * desenvolvedor caçar a relação errada, que é pior que não dizer nada.
+ */
+function nomeDaRelacaoDesconhecida(erro: unknown): string | null {
+  const mensagem = (erro as { message?: unknown })?.message;
+  if (typeof mensagem !== 'string') return null;
+  const achado = /Unknown (?:field|argument) `([^`]+)`/i.exec(mensagem);
+  return achado?.[1] ?? null;
+}
+
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
@@ -1130,31 +1147,6 @@ export class TaskService {
         `[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`,
       );
       this.logger.log(`[Task Create] layoutStatusesMap: ${JSON.stringify(layoutStatusesMap)}`);
-
-      // ─────────────────────────────────────────────────────────────────────
-      // Harden the default "Em Negociação" COMMERCIAL SO to start IN_PROGRESS.
-      // Web/Mobile forms already do this, but a non-form caller (batch import,
-      // copy-task, integration) would otherwise create it as PENDING and
-      // break the commercial workflow handoff for that task.
-      // ─────────────────────────────────────────────────────────────────────
-      if (Array.isArray((data as any).serviceOrders)) {
-        for (const so of (data as any).serviceOrders as any[]) {
-          const isEmNegociacao =
-            so?.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
-            (so?.description ?? '').toLowerCase().trim() === 'em negociação';
-          if (isEmNegociacao) {
-            if (!so.status || so.status === SERVICE_ORDER_STATUS.PENDING) {
-              so.status = SERVICE_ORDER_STATUS.IN_PROGRESS;
-              so.statusOrder = 2;
-            }
-            // Ensure timing is set for all IN_PROGRESS Em Negociação SOs
-            if (so.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
-              if (!so.startedAt) so.startedAt = new Date();
-              if (!so.lastStartedAt) so.lastStartedAt = new Date();
-            }
-          }
-        }
-      }
 
       // Check if this is a bulk create from serial number range
       const serialNumberFrom = (data as any).serialNumberFrom;
@@ -7362,17 +7354,6 @@ export class TaskService {
         // caused DUPLICATE notifications for production users.
       }
 
-      // Reconcile the "Em Negociação" SO when layout data changed — adding the
-      // first layout on a budget-approved task closes the commercial handoff.
-      // Idempotent; uses post-commit prisma so it sees the final task.layouts set.
-      const layoutDataTouched =
-        (data as any).layoutIds !== undefined ||
-        (data as any).fileIds !== undefined ||
-        (data as any).layoutStatuses !== undefined;
-      if (layoutDataTouched) {
-        await syncEmNegociacaoForTask(this.prisma, id, userId);
-      }
-
       return {
         success: true,
         message: 'Tarefa atualizada com sucesso.',
@@ -10338,6 +10319,27 @@ export class TaskService {
       if (error instanceof NotFoundException) {
         throw error;
       }
+      // ⛔ O INCLUDE COM CHAVE INVENTADA MERECE NOME, NÃO 500.
+      //
+      // `taskIncludeSchema` valida include ANINHADO como `z.record` — é
+      // passthrough (`schemas/task.ts:1098`). Uma relação que não existe mais
+      // atravessa o zod inteiro e só morre no Prisma, e aqui virava "Erro
+      // interno do servidor. Tente novamente." — uma frase que manda o
+      // desenvolvedor procurar no lugar errado.
+      //
+      // Custou caro DUAS vezes com a MESMA relação: `BudgetPayer.responsible`
+      // saiu na migration `20260918120000` e ficou em dois includes do web
+      // (`task-detail-page.tsx` e `billing/details/[id].tsx`), derrubando as
+      // duas telas inteiras sem nenhuma pista. Nomear a chave transforma uma
+      // hora de arqueologia num conserto de uma linha.
+      const chaveDesconhecida = nomeDaRelacaoDesconhecida(error);
+      if (chaveDesconhecida) {
+        throw new BadRequestException(
+          `O include pede a relação "${chaveDesconhecida}", que não existe no modelo. ` +
+            'Confira se ela foi removida numa migration — o schema de include de tarefa ' +
+            'aceita chave aninhada desconhecida sem reclamar, e o erro só aparece aqui.',
+        );
+      }
       throw new InternalServerErrorException(
         'Erro interno do servidor ao buscar a tarefa. Tente novamente.',
       );
@@ -12674,13 +12676,6 @@ export class TaskService {
           );
         }
       }
-    }
-
-    // Reconcile "Em Negociação" for every task that got an layout added.
-    // Tasks with a budget-approved quote and a previously-empty layout list
-    // need to flip from WAITING_ARTWORK to COMPLETED.
-    for (const change of fieldChangesForEvents) {
-      await syncEmNegociacaoForTask(this.prisma, change.taskId, userId);
     }
 
     return {

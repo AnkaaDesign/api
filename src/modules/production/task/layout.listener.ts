@@ -2,8 +2,6 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService } from '@modules/common/notification/deep-link.service';
-import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { syncEmNegociacaoForTask } from '../../../utils/em-negociacao-sync';
 import {
   LayoutApprovedEvent,
   LayoutReprovedEvent,
@@ -40,7 +38,6 @@ export class LayoutListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
-    private readonly prisma: PrismaService,
   ) {
     this.logger.log('========================================');
     this.logger.log('[ARTWORK LISTENER] Initializing Layout Event Listener');
@@ -116,16 +113,6 @@ export class LayoutListener {
       });
 
       this.logger.log('[ARTWORK EVENT] Layout approved dispatch completed');
-
-      // Reconcile the commercial workflow: a task that was waiting for
-      // layout now has an APPROVED layout — close the "Em Negociação" SO.
-      if (event.task?.id) {
-        await syncEmNegociacaoForTask(
-          this.prisma,
-          event.task.id,
-          event.approvedBy.id,
-        );
-      }
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling layout approved event:', error.message);
     }
@@ -181,18 +168,6 @@ export class LayoutListener {
       });
 
       this.logger.log('[ARTWORK EVENT] Layout reproved dispatch completed');
-
-      // Reconcile: an layout was reproved. If the task had previously
-      // closed the commercial SO (auto-COMPLETED on a now-REPROVED layout),
-      // re-open it to WAITING_ARTWORK so the commercial flow knows layout
-      // is still pending.
-      if (event.task?.id) {
-        await syncEmNegociacaoForTask(
-          this.prisma,
-          event.task.id,
-          event.reprovedBy.id,
-        );
-      }
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling layout reproved event:', error.message);
     }

@@ -9,7 +9,6 @@ import {
   EXTERNAL_OPERATION_STATUS_ORDER,
 } from '@constants';
 import { Decimal } from '@prisma/client/runtime/library';
-import { syncEmNegociacaoForQuote } from '../../../utils/em-negociacao-sync';
 import { isDueDateOverdue, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util';
 import { QUOTE_TASKS_ORDER_BY } from '@utils/quote-tasks';
 
@@ -309,21 +308,14 @@ export class BudgetStatusCascadeService {
    * outra.
    *
    * Agora ele delega: cada `Billing` recebe o seu estado, calculado das suas
-   * próprias parcelas. O que sobrou aqui é o que é mesmo do ORÇAMENTO — a
-   * reconciliação da O.S. "Em Negociação" e o aviso de contrato quitado, que só
-   * dispara quando TODAS as cobranças fecharam.
+   * próprias parcelas. O que sobrou aqui é o que é mesmo do ORÇAMENTO — o aviso
+   * de contrato quitado, que só dispara quando TODAS as cobranças fecharam.
    */
   async cascadeFromQuote(quoteId: string): Promise<void> {
     try {
       const antesTodasPagas = await this.billingStatusCascade.isQuoteFullyPaid(quoteId);
 
       await this.billingStatusCascade.recomputeForQuote(quoteId);
-
-      // Reconcilia "Em Negociação" em TODAS as tarefas do orçamento: a O.S. é por
-      // tarefa, e num orçamento de sessenta caminhões reconciliar só a primeira
-      // deixaria as outras cinquenta e nove com a O.S. de negociação aberta
-      // depois de o contrato estar fechado.
-      await syncEmNegociacaoForQuote(this.prisma, quoteId);
 
       // O aviso de "Pagamento Liquidado" é do CONTRATO, não de uma cobrança: só
       // sai quando a última fecha, e só na transição — sem o `antesTodasPagas`

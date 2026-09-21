@@ -104,7 +104,6 @@ async function main(): Promise<void> {
                 generateBankSlip: false,
                 paymentCondition: 'CASH_5',
                 paymentConfig: { type: 'CASH', cashDays: 5 },
-                ...(responsible?.id ? { responsible: { connect: { id: responsible.id } } } : {}),
               },
             ],
           },

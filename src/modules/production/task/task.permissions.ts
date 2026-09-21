@@ -233,8 +233,8 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
  * (POST /tasks, POST /tasks/batch, serial-range create).
  *
  * Creation is broader than update on purpose: the create form submits the full
- * task snapshot (dates, status default, sector, default "Em Negociação" SO,
- * truck, files...), so every creator role needs the structural domains.
+ * task snapshot (dates, status default, sector, default service orders, truck,
+ * files...), so every creator role needs the structural domains.
  * What stays restricted at create:
  * - term (Prazo de Entrega): PRODUCTION_MANAGER only (same rule as update). A
  *   task created by the commercial desk is born WITHOUT a deadline; production
