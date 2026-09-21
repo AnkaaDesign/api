@@ -5,6 +5,9 @@ import { ItemModule } from '@modules/inventory/item/item.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
+// O pedido de componentes nasce aqui, mas é um Pedido de verdade: a criação
+// passa pelo OrderService, com as mesmas validações e o mesmo changelog.
+import { OrderModule } from '@modules/inventory/order/order.module';
 // Controllers
 import { PaintUnifiedController } from './paint.controller';
 import { PaintBrandController } from './paint-brand.controller';
@@ -16,6 +19,7 @@ import { PaintTypeService } from './paint-type.service';
 import { PaintFormulaService } from './paint-formula.service';
 import { PaintFormulaComponentService } from './paint-formula-component.service';
 import { PaintProductionService } from './paint-production.service';
+import { PaintPurchaseService } from './paint-purchase.service';
 import { PaintGroundService } from './paint-ground.service';
 import { PaintBrandService } from './paint-brand.service';
 import { PaintCompatibilityService } from './paint-compatibility.service';
@@ -49,6 +53,7 @@ import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-bra
     ActivityModule,
     FilesStorageModule,
     NotificationModule,
+    OrderModule,
   ],
   exports: [
     PaintService,
@@ -72,6 +77,7 @@ import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-bra
     PaintFormulaService,
     PaintFormulaComponentService,
     PaintProductionService,
+    PaintPurchaseService,
     PaintGroundService,
     PaintBrandService,
     PaintCompatibilityService,

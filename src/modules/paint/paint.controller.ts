@@ -32,6 +32,13 @@ import { PaintGroundService } from './paint-ground.service';
 import { PaintFormulaService } from './paint-formula.service';
 import { PaintFormulaComponentService } from './paint-formula-component.service';
 import { PaintProductionService } from './paint-production.service';
+import {
+  PaintPurchaseService,
+  paintPurchaseOrderSchema,
+  paintPurchasePlanSchema,
+  type PaintPurchaseOrderInput,
+  type PaintPurchasePlanInput,
+} from './paint-purchase.service';
 import { PaintBrandService } from './paint-brand.service';
 import { PaintCompatibilityService } from './paint-compatibility.service';
 import {
@@ -234,6 +241,7 @@ export class PaintUnifiedController {
     private readonly paintFormulaService: PaintFormulaService,
     private readonly paintFormulaComponentService: PaintFormulaComponentService,
     private readonly paintProductionService: PaintProductionService,
+    private readonly paintPurchaseService: PaintPurchaseService,
     private readonly paintAnalyticsService: PaintAnalyticsService,
     private readonly paintBrandService: PaintBrandService,
     private readonly paintCompatibilityService: PaintCompatibilityService,
@@ -909,6 +917,38 @@ export class PaintUnifiedController {
         data: null,
       };
     }
+  }
+
+  // Do volume de tinta para o PEDIDO DE COMPRA. A prévia e a criação fazem a
+  // mesma conta a partir dos mesmos parâmetros: o cliente não manda quantidade,
+  // manda o volume. Privilégio de quem cria pedido (WAREHOUSE/ADMIN), e não o do
+  // planejador — a página é de produção, o pedido é de compras.
+  @Post('productions/purchase-preview')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async previewPaintPurchase(
+    @Body(new ZodValidationPipe(paintPurchasePlanSchema)) body: PaintPurchasePlanInput,
+  ) {
+    try {
+      const data = await this.paintPurchaseService.buildPlan(body);
+      return { success: true, message: 'Prévia do pedido calculada', data };
+    } catch (error) {
+      return {
+        success: false,
+        message: error?.message || 'Erro ao calcular a prévia do pedido',
+        data: null,
+      };
+    }
+  }
+
+  @Post('productions/purchase-order')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async createPaintPurchaseOrder(
+    @Body(new ZodValidationPipe(paintPurchaseOrderSchema)) body: PaintPurchaseOrderInput,
+    @UserId() userId: string,
+  ) {
+    return this.paintPurchaseService.createOrder(body, userId);
   }
 
   @Get('productions')

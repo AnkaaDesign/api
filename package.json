@@ -123,7 +123,8 @@
     "repair:billing-residue": "ts-node -r tsconfig-paths/register --transpile-only src/scripts/repair-billing-residue.ts",
     "test:portal-cliente:http": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-http.test.ts",
     "test:portal-cliente:fluxo": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-fluxo.test.ts",
-    "test:auth-entrega": "tsx tests/auth-entrega-codigo.test.ts"
+    "test:auth-entrega": "tsx tests/auth-entrega-codigo.test.ts",
+    "test:paint-purchase": "tsx tests/paint-purchase.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
