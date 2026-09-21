@@ -47,6 +47,10 @@ import {
   configKeyOfNotification,
   isWhatsAppNotificationAllowed,
 } from './whatsapp-notification-policy';
+// O lado do CLIENTE. Ver `dispatchToResponsible`.
+import { AuthOtpDeliveryService } from '../auth-otp/auth-otp-delivery.service';
+import { portalNoticeTemplate } from './responsible-notice-templates';
+import { generateNotificationEmailTemplate } from '../../../templates/email-templates';
 
 // Import services (these need to be created separately or already exist)
 import { EmailService } from '../mailer/services/email.service';
@@ -151,6 +155,9 @@ export class NotificationDispatchService {
     private readonly deepLinkService: DeepLinkService,
     private readonly configurationService: NotificationConfigurationService,
     private readonly workScheduleService: WorkScheduleService,
+    // A escada WhatsApp-oficial→e-mail que o OTP do portal já usa. É por ela —
+    // e só por ela — que uma notificação alcança um contato de cliente.
+    private readonly authOtpDelivery: AuthOtpDeliveryService,
   ) {}
 
   /**
@@ -231,6 +238,22 @@ export class NotificationDispatchService {
           data: { scheduledAt: nextSendableTime },
         });
 
+        return;
+      }
+
+      // 3.9. O DESVIO DO CLIENTE.
+      //
+      // Uma notificação com `responsibleId` NÃO tem destinatário funcionário —
+      // o CHECK do banco garante isso —, e nada do que vem abaixo se aplica a
+      // ela: não há `NotificationPreference` de contato de cliente, não há
+      // websocket (o portal não abre o gateway), não há push (não há aparelho
+      // registrado) e a fila de WhatsApp roteia por `userId`.
+      //
+      // O desvio vem ANTES de `getTargetUsers` de propósito. Aquele método,
+      // sem `userId`, entende a linha como BROADCAST e varre `prisma.user`
+      // inteiro: um aviso para um contato do cliente sairia para a empresa toda.
+      if (notification.responsibleId) {
+        await this.dispatchToResponsible(notification);
         return;
       }
 
@@ -595,6 +618,14 @@ export class NotificationDispatchService {
       where: { id: notificationId },
       include: {
         user: true,
+        // ⚠️ SEM ESTA LINHA o desvio de cliente é invisível. `responsibleId`
+        // é escalar e viria de qualquer jeito, mas a RELAÇÃO é o que carrega
+        // nome, telefone e e-mail — e sem ela `dispatchToResponsible` faria uma
+        // segunda consulta por notificação. Pior: um `select` que esquecesse o
+        // escalar entregaria `{ userId: null }` ao roteador, e uma notificação
+        // sem `userId` é tratada como BROADCAST — varrendo `prisma.user`
+        // inteiro para entregar um aviso destinado a UM contato de cliente.
+        responsible: true,
         seenBy: {
           include: {
             user: true,
@@ -617,6 +648,27 @@ export class NotificationDispatchService {
    */
   async getTargetUsers(notification: Notification): Promise<User[]> {
     try {
+      // Case 0: o destinatário é um CONTATO DO CLIENTE.
+      //
+      // `Responsible` e `User` são tabelas diferentes e sujeitos diferentes.
+      // Procurar um `responsibleId` em `prisma.user` devolve `null` na melhor
+      // das hipóteses e, num dia azarado em que os dois UUIDs colidissem,
+      // entregaria os dados de um funcionário qualquer a um cliente. Este
+      // método devolve FUNCIONÁRIOS; quem entrega ao cliente é
+      // `dispatchToResponsible`, e o desvio para ele acontece antes daqui.
+      //
+      // Devolver `[]` é o certo mesmo assim: se alguém chamar este método
+      // direto com uma notificação de cliente, o resultado tem de ser "nenhum
+      // funcionário", NUNCA o broadcast que a ausência de `userId` dispararia
+      // no Caso 2 abaixo.
+      if (notification.responsibleId) {
+        this.logger.debug(
+          `Notificação ${notification.id} é de CONTATO DE CLIENTE (responsibleId=${notification.responsibleId}): ` +
+            'nenhum funcionário é destinatário. A entrega é por dispatchToResponsible.',
+        );
+        return [];
+      }
+
       // Case 1: Notification targeted to specific user
       if (notification.userId) {
         const user = await this.prisma.user.findUnique({
@@ -686,6 +738,190 @@ export class NotificationDispatchService {
       );
       throw error;
     }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // O LADO DO CLIENTE
+  //
+  // `getTargetUsers` responde "quais FUNCIONÁRIOS". O par abaixo responde "qual
+  // CONTATO DE CLIENTE", e é o resolvedor irmão que faltava desde sempre: até
+  // 20/09/2026 `Notification.userId → User` era a única FK de pessoa, e avisar
+  // um cliente por dentro do sistema era impossível.
+  //
+  // São dois métodos e não um porque as duas perguntas são separáveis e a
+  // primeira é testável sozinha: "quem é" não depende de "como entregar".
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * O contato de cliente destinatário, ou `null`.
+   *
+   * `null` significa "não entregue" e NUNCA "entregue a todos": um
+   * `responsibleId` que não resolve é cadastro apagado ou desativado, e o
+   * broadcast do Caso 2 de `getTargetUsers` não tem análogo aqui de propósito —
+   * não existe "avisar todos os clientes".
+   */
+  async getTargetResponsible(notification: Notification): Promise<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string;
+  } | null> {
+    if (!notification.responsibleId) return null;
+
+    const responsible = await this.prisma.responsible.findUnique({
+      where: { id: notification.responsibleId },
+      select: { id: true, name: true, email: true, phone: true, isActive: true },
+    });
+
+    if (!responsible) {
+      this.logger.warn(
+        `Contato ${notification.responsibleId} não encontrado para a notificação ${notification.id}.`,
+      );
+      return null;
+    }
+
+    // Mesmo portão que `isUserEligible` aplica do lado do funcionário: cadastro
+    // desativado não recebe. A guarda do portal já recusa a sessão dele
+    // (`resolveSession` relê o cadastro a cada requisição); mandar mensagem a
+    // quem não pode mais entrar seria convidar para uma porta fechada.
+    if (!responsible.isActive) {
+      this.logger.log(
+        `Contato ${responsible.id} está inativo — notificação ${notification.id} não enviada.`,
+      );
+      return null;
+    }
+
+    return {
+      id: responsible.id,
+      name: responsible.name,
+      email: responsible.email,
+      phone: responsible.phone,
+    };
+  }
+
+  /**
+   * Entrega ao contato do cliente.
+   *
+   * REUSA A CAMADA DE ENTREGA DO OTP (`AuthOtpDeliveryService`), que é um dos
+   * dois únicos caminhos do sistema que alcançam alguém de fora da Ankaa — o
+   * outro é a cerimônia de assinatura, que tem ponte própria por falar com o
+   * Baileys. Não há um terceiro, e não se inventa um aqui.
+   *
+   * ⛔ O QUE **NÃO** SE USA, E POR QUÊ
+   *   · `getUserChannels` / `NotificationPreference` — são por `userId`. Contato
+   *     de cliente não tem preferência cadastrada, e o padrão de um registro
+   *     ausente é "todos os canais", que mandaria push e websocket para
+   *     ninguém.
+   *   · `queueNotificationJob` — o job roteia por `userId` (veja a interface
+   *     `NotificationQueueJob`); um `responsibleId` ali seria procurado em
+   *     `prisma.user` e a entrega morreria em silêncio na fila.
+   *   · O canal WHATSAPP do `dispatchToChannel` — está morto por allowlist
+   *     vazia (`whatsapp-notification-policy.ts`) E sai pelo Baileys. O canal
+   *     oficial (Cloud API) é o que a escada do OTP usa, e é o que se usa aqui.
+   *
+   * NUNCA LANÇA para fora do dispatch: quem chamou já confirmou a transação de
+   * negócio (uma pré-aprovação, um orçamento precificado). Um canal morto não
+   * pode desfazer o que já aconteceu.
+   */
+  private async dispatchToResponsible(notification: Notification): Promise<void> {
+    const responsible = await this.getTargetResponsible(notification);
+
+    if (!responsible) {
+      // Marca como enviada mesmo sem destinatário — é o que o caminho do
+      // funcionário faz quando `targetUsers` vem vazio, e serve ao mesmo fim:
+      // não reprocessar para sempre uma linha que não tem para onde ir.
+      await this.updateNotificationSentAt(notification.id);
+      return;
+    }
+
+    const metadata = (notification.metadata ?? {}) as Record<string, any>;
+    const budgetLabel = String(metadata.quoteLabel ?? metadata.budgetLabel ?? '').trim();
+
+    const baseData = this.emailService.createBaseEmailData(responsible.name);
+    const html = generateNotificationEmailTemplate({
+      ...baseData,
+      notificationType: 'GENERAL',
+      eventType: 'Portal do cliente',
+      importance: (notification.importance as any) ?? 'NORMAL',
+      title: notification.title,
+      message: notification.body,
+      // ⚠️ ABSOLUTA. `metadata.webUrl` é um CAMINHO (`/cliente/painel/…`) porque
+      // do lado do funcionário ele alimenta deep link de app e roteador de SPA,
+      // que resolvem relativo. Num e-mail não existe "relativo a quê": um
+      // `href="/cliente/painel/…"` vira link morto no cliente de correio.
+      actionUrl: this.absolutePortalUrl(metadata.webUrl),
+      actionText: 'Abrir o portal',
+      timestamp: new Date().toLocaleString('pt-BR'),
+    });
+
+    const result = await this.authOtpDelivery.deliverNotice(
+      { name: responsible.name, email: responsible.email, phone: responsible.phone },
+      {
+        whatsapp: portalNoticeTemplate(responsible.name, budgetLabel || notification.title),
+        email: { subject: notification.title, html, kind: 'PORTAL_NOTICE' },
+      },
+    );
+
+    // A trilha usa os MESMOS canais do enum do sistema: quem lê
+    // `NotificationDelivery` depois não precisa saber que esta linha saiu por
+    // outra estrada.
+    const channel =
+      result.channel === 'WHATSAPP'
+        ? NOTIFICATION_CHANNEL.WHATSAPP
+        : NOTIFICATION_CHANNEL.EMAIL;
+
+    await this.createDeliveryRecord(
+      notification.id,
+      channel,
+      result.ok ? DELIVERY_STATUS.DELIVERED : DELIVERY_STATUS.FAILED,
+      result.ok ? undefined : (result.reason ?? 'nenhum canal aceitou'),
+    );
+
+    if (result.ok) {
+      await this.prisma.notification.update({
+        where: { id: notification.id },
+        data: {
+          sentAt: new Date(),
+          deliveredAt: new Date(),
+          deliveredChannels: { set: [channel as any] },
+        },
+      });
+      this.logger.log(
+        `Aviso ${notification.id} entregue ao contato ${responsible.id} por ${result.channel} ` +
+          `(${result.destinationMask ?? 'destino não mascarado'}).`,
+      );
+    } else {
+      // Sem `sentAt`: a linha continua elegível para reenvio manual, e a
+      // ausência do carimbo é o que distingue "não saiu" de "saiu e ninguém
+      // leu". O aviso no log nomeia o motivo por canal — é a única pista que
+      // sobra quando o cadastro do contato não tem e-mail.
+      this.logger.warn(
+        `Aviso ${notification.id} NÃO saiu para o contato ${responsible.id}: ${result.reason}`,
+      );
+    }
+
+    this.eventEmitter.emit('notification.dispatched', {
+      notificationId: notification.id,
+      targetUserCount: 0,
+      targetResponsibleId: responsible.id,
+      deliveryResults: [{ channel, success: result.ok, error: result.reason }],
+      dispatchedAt: new Date(),
+    });
+  }
+
+  /**
+   * O caminho do portal vira URL completa para caber num e-mail.
+   *
+   * Sem `WEB_APP_URL` configurado não há o que prefixar, e é melhor mandar o
+   * aviso SEM botão do que com um botão que não abre: o corpo do e-mail já diz
+   * o que aconteceu, e o template só desenha o botão quando há `actionUrl`.
+   */
+  private absolutePortalUrl(path: unknown): string | undefined {
+    if (typeof path !== 'string' || !path.trim()) return undefined;
+    if (/^https?:\/\//i.test(path)) return path;
+    const base = (process.env.WEB_APP_URL ?? '').trim().replace(/\/+$/, '');
+    if (!base) return undefined;
+    return `${base}${path.startsWith('/') ? '' : '/'}${path}`;
   }
 
   /**

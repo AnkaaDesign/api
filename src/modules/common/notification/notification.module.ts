@@ -25,6 +25,10 @@ import { NotificationSchedulerService } from './notification-scheduler.service';
 import { NotificationReminderScheduler } from './notification-reminder.scheduler';
 import { NotificationReminderSchedulerService } from './notification-reminder-scheduler.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
+// Os dois avisos do portal do responsável: a decisão do cliente para o comercial
+// da Ankaa, e o orçamento precificado para quem o requisitou. É o primeiro uso
+// de `Notification.responsibleId`.
+import { PortalNotificationService } from './portal-notification.service';
 // Regra única das notificações do aerografista (atribuição / pagamento). Mora
 // aqui, e não no AirbrushingModule, porque o TaskService também escreve
 // painterId/paymentStatus e precisa do mesmo gancho sem criar ciclo de módulos.
@@ -67,6 +71,10 @@ import { UserModule } from '@modules/people/user/user.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
+// A entrega que alcança um CONTATO DE CLIENTE (WhatsApp oficial → e-mail). É a
+// mesma do OTP do portal, e é a única: `Notification.responsibleId` nasceu em
+// 20/09/2026 e não pode estrear uma segunda estrada para fora da Ankaa.
+import { AuthOtpModule } from '../auth-otp/auth-otp.module';
 
 @Module({
   imports: [
@@ -79,6 +87,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationQueueModule,
     PushModule,
     WhatsAppModule,
+    AuthOtpModule,
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot({
       wildcard: true,
@@ -118,6 +127,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationReminderScheduler,
     NotificationReminderSchedulerService,
     NotificationDispatchService,
+    PortalNotificationService,
     AirbrushingNotificationService,
     NotificationFilterService,
     EmailTemplateService,
@@ -163,6 +173,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationSchedulerService,
     NotificationReminderSchedulerService,
     NotificationDispatchService,
+    PortalNotificationService,
     AirbrushingNotificationService,
     NotificationConfigurationService,
     EmailTemplateService,
