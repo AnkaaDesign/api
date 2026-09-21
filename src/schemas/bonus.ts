@@ -281,6 +281,13 @@ export const bonusSimulateUserSchema = z
      * MonetaryValue. */
     salary: z.number().positive().optional(),
     performanceLevel: z.number().int().min(0).max(5),
+    /**
+     * Quanto do período a pessoa conta, de 0 a 1 (admissão, desligamento,
+     * afastamento) — o mesmo peso que entra no divisor da média. Sem ele o
+     * simulador não tem como aplicar desconto de VALOR fixo sobre a base certa.
+     * Ausente = período inteiro.
+     */
+    eligibilityWeight: z.number().min(0).max(1).optional(),
   })
   .refine(
     u => u.salary !== undefined || u.positionId !== undefined || u.positionName !== undefined,
