@@ -66,10 +66,6 @@ import {
 import { recalcQuoteTotals } from '../../../utils/budget-totals';
 import { isQuoteMoneyLocked } from '../budget/budget.guards';
 import {
-  syncEmNegociacaoForTaskAndSiblings,
-  registerEmNegociacaoEventEmitter,
-} from '../../../utils/em-negociacao-sync';
-import {
   getServiceDescriptionsByType,
   SERVICE_DESCRIPTIONS_BY_TYPE,
 } from '../../../constants/service-descriptions';
@@ -107,11 +103,7 @@ export class ServiceOrderService {
     // (NFS-e, Sicredi) e o custo de um ciclo futuro é um boot quebrado.
     @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly signatureEnvelopes: SignatureEnvelopeService,
-  ) {
-    // Let the Em Negociação sync util (plain function, no DI) emit
-    // service_order.status.changed for its automatic transitions.
-    registerEmNegociacaoEventEmitter(this.eventEmitter);
-  }
+  ) {}
 
   /**
    * Desfaz a cascata disparada pelo cancelamento da ÚLTIMA ordem de serviço
@@ -407,7 +399,7 @@ export class ServiceOrderService {
           createData.completedById = userId || '';
         }
 
-        // Auto-set timing for SOs created directly as IN_PROGRESS (e.g. "Em Negociação")
+        // Auto-set timing for SOs created directly as IN_PROGRESS
         if (createData.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
           if (!createData.startedAt) {
             createData.startedAt = new Date();
@@ -1867,51 +1859,6 @@ export class ServiceOrderService {
         }
       }
 
-      // If a manual SO status change on the Em Negociação SO took it OUT of a
-      // RESPECT_MANUAL state (PAUSED/CANCELLED), the workflow target may now
-      // differ from what the user picked (e.g. unpausing while the quote is
-      // budget-approved and no artwork exists → target is WAITING_ARTWORK, not
-      // IN_PROGRESS). Re-run the sync so the SO settles into the correct state.
-      const isEmNegociacao =
-        (serviceOrder as any)?.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
-        ((serviceOrder as any)?.description ?? '').toLowerCase().trim() === 'em negociação';
-      const statusChanged =
-        data.status !== undefined && data.status !== serviceOrderExists.status;
-      if (isEmNegociacao && statusChanged && (serviceOrder as any)?.taskId) {
-        // Reverse cascade FIRST: completing the commercial step IS the budget-
-        // approval gate, so advance the quote (PENDING → APPROVED) before
-        // the sync runs. Otherwise syncEmNegociacaoForTask sees a still-PENDING
-        // quote and reverts the just-completed SO back to IN_PROGRESS.
-        if (data.status === SERVICE_ORDER_STATUS.COMPLETED) {
-          await this.budgetApproveOnEmNegociacaoComplete(
-            (serviceOrder as any).taskId,
-            userId,
-          );
-        } else if (
-          serviceOrderExists.status === SERVICE_ORDER_STATUS.COMPLETED &&
-          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS
-        ) {
-          // INVERSE: reopening the commercial step (Concluído → Em Andamento) must
-          // un-approve the auto-approved budget (APPROVED → PENDING) BEFORE
-          // the sync runs — otherwise syncEmNegociacaoForTask sees a still-approved
-          // quote (+ artwork) and re-completes the SO, so "Reabrir" appears to do
-          // nothing. Reverting the quote makes the reopen actually stick.
-          await this.budgetRevertOnEmNegociacaoReopen(
-            (serviceOrder as any).taskId,
-            userId,
-          );
-        }
-        // E SOBRE AS TAREFAS IRMÃS TAMBÉM. Concluir a "Em Negociação" de um
-        // veículo aprova o ORÇAMENTO inteiro (e reabri-la o desaprova inteiro):
-        // num orçamento de quatro caminhões, sincronizar só a tarefa de origem
-        // deixava as outras três "Em Andamento" sobre um orçamento aprovado.
-        await syncEmNegociacaoForTaskAndSiblings(
-          this.prisma,
-          (serviceOrder as any).taskId,
-          userId,
-        );
-      }
-
       return {
         success: true,
         message: 'Ordem de serviço atualizada com sucesso.',
@@ -1924,192 +1871,6 @@ export class ServiceOrderService {
       }
       throw new InternalServerErrorException(
         'Erro interno do servidor ao atualizar a ordem de serviço. Tente novamente.',
-      );
-    }
-  }
-
-  /**
-   * Reverse of the quote→SO sync (em-negociacao-sync.ts): when the COMMERCIAL
-   * "Em Negociação" SO is COMPLETED, the commercial step is done — which IS the
-   * budget-approval gate. Advance the quote PENDING → APPROVED so the two
-   * stay consistent (parity with the manual budget-approve endpoint, minus the
-   * notification — auto-firing it per task would spam on bulk completes).
-   * Only ever moves PENDING → APPROVED, o ÚLTIMO estado do orçamento — o ciclo
-   * do pagamento é do `Billing` e nada aqui o toca. Best-effort: a failure here
-   * never breaks the SO update.
-   */
-  private async budgetApproveOnEmNegociacaoComplete(
-    taskId: string,
-    userId?: string | null,
-  ): Promise<void> {
-    try {
-      const task = await this.prisma.task.findUnique({
-        where: { id: taskId },
-        select: {
-          quote: {
-            select: {
-              id: true,
-              status: true,
-              layoutFiles: { select: { id: true } },
-              // ⚠️ O PAGADOR. Sem ele esta aprovação automática produz orçamento
-              // APROVADO sem ninguém a quem cobrar — ver a guarda abaixo.
-              customerConfigs: { select: { id: true, total: true } },
-            },
-          },
-        },
-      });
-      const quote = (task as any)?.quote;
-      // Only advance from the pre-approval state — never downgrade an already
-      // budget/billing-approved quote, and never touch a cancelled one.
-      if (!quote || quote.status !== TASK_QUOTE_STATUS.PENDING) return;
-
-      // Required-layout gate: the budget cannot be approved (here, by completing
-      // the commercial "Em Negociação" step) until an approved layout
-      // (Budget.layoutFiles) has been selected in Step 2. Skip the auto-
-      // approval when none is selected — the quote stays PENDING, and the
-      // caller's syncEmNegociacaoForTask then reverts the just-completed SO out
-      // of COMPLETED, so the commercial step cannot close without a layout.
-      if ((quote.layoutFiles || []).length === 0) {
-        this.logger.log(
-          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: budget-approve skipped — no approved layout selected on quote ${quote.id}.`,
-        );
-        return;
-      }
-
-      // ⚠️ E TEM DE HAVER A QUEM COBRAR.
-      //
-      // `validateStatusPrerequisites` exige, em `PENDING → APPROVED`, pelo menos
-      // um pagador com total maior que zero. Esta aprovação automática grava o
-      // status DIRETO no Prisma, então passava por fora dessa exigência — era a
-      // única porta do sistema capaz de produzir orçamento aprovado sem pagador
-      // nenhum, e o acervo tem dois assim (54 e 291), um deles sem nem tarefa de
-      // onde inferir o cliente.
-      //
-      // Mesma forma da guarda de layout acima: não aprova e explica no log. O
-      // `syncEmNegociacaoForTask` do chamador então devolve a O.S. recém-concluída
-      // para EM ANDAMENTO, que é o que faz o comercial perceber que falta algo.
-      const pagadores = (quote.customerConfigs ?? []) as Array<{ total: unknown }>;
-      if (!pagadores.some(c => Number(c.total ?? 0) > 0)) {
-        this.logger.log(
-          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: aprovação automática ignorada — ` +
-            `o orçamento ${quote.id} não tem nenhum pagador com valor maior que zero.`,
-        );
-        return;
-      }
-
-      await this.prisma.budget.update({
-        where: { id: quote.id },
-        data: {
-          status: TASK_QUOTE_STATUS.APPROVED,
-          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.APPROVED],
-        },
-      });
-
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.TASK_QUOTE,
-        entityId: quote.id,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'status',
-        oldValue: quote.status,
-        newValue: TASK_QUOTE_STATUS.APPROVED,
-        reason:
-          'Orçamento aprovado automaticamente pela conclusão da Em Negociação',
-        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-        triggeredById: taskId,
-        userId: userId || '',
-      });
-
-      this.logger.log(
-        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} PENDING → APPROVED on commercial completion`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[EM NEGOCIAÇÃO → QUOTE] Failed to budget-approve quote for task ${taskId} (non-fatal):`,
-        error,
-      );
-    }
-  }
-
-  /**
-   * Inverse of budgetApproveOnEmNegociacaoComplete: when the COMMERCIAL "Em
-   * Negociação" SO is REOPENED (Concluído → Em Andamento), the commercial step is
-   * no longer done, so un-approve the auto-approved budget (APPROVED → PENDING).
-   * Without this the quote stays approved and syncEmNegociacaoForTask
-   * immediately re-completes the SO from the still-approved quote, so "Reabrir"
-   * appears to do nothing. Best-effort: a failure here never breaks the SO
-   * update.
-   *
-   * ⛔ A GUARDA NÃO É MAIS O STATUS. Era `status !== BUDGET_APPROVED → return`, e
-   * aquilo bastava enquanto "faturado" era um status à frente (`BILLING_APPROVED`
-   * e o ciclo depois dele). Depois da separação TODO orçamento faturado está em
-   * `APPROVED` — é o último estado do orçamento e ele não se move mais —, então
-   * a guarda antiga deixava passar exatamente o caso que existia para barrar:
-   * reabrir a Em Negociação rebaixava para PENDENTE um contrato com NFS-e
-   * autorizada na prefeitura e boleto registrado no Sicredi.
-   *
-   * Quem responde "já saiu dinheiro?" é a COBRANÇA — `isQuoteMoneyLocked` sobre
-   * `billings.approvedAt`.
-   */
-  private async budgetRevertOnEmNegociacaoReopen(
-    taskId: string,
-    userId?: string | null,
-  ): Promise<void> {
-    try {
-      const task = await this.prisma.task.findUnique({
-        where: { id: taskId },
-        select: {
-          quote: {
-            select: {
-              id: true,
-              status: true,
-              // ⚠️ Sem este include `isQuoteMoneyLocked` devolve `false` e a
-              // trava simplesmente não acontece.
-              billings: { select: { approvedAt: true, status: true } },
-            },
-          },
-        },
-      });
-      const quote = (task as any)?.quote;
-      // Só desfaz a aprovação AUTOMÁTICA — nunca toca num orçamento cancelado...
-      if (!quote || quote.status !== TASK_QUOTE_STATUS.APPROVED) return;
-      // ...nem num que já tem cobrança aprovada: reabrir uma nota comercial não
-      // pode desfazer faturamento.
-      if (isQuoteMoneyLocked(quote.billings)) {
-        this.logger.log(
-          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: rebaixamento do orçamento ${quote.id} recusado — há cobrança aprovada.`,
-        );
-        return;
-      }
-
-      await this.prisma.budget.update({
-        where: { id: quote.id },
-        data: {
-          status: TASK_QUOTE_STATUS.PENDING,
-          statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
-        },
-      });
-
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.TASK_QUOTE,
-        entityId: quote.id,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'status',
-        oldValue: quote.status,
-        newValue: TASK_QUOTE_STATUS.PENDING,
-        reason:
-          'Orçamento retornado para pendente pela reabertura da Em Negociação',
-        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-        triggeredById: taskId,
-        userId: userId || '',
-      });
-
-      this.logger.log(
-        `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: quote ${quote.id} APPROVED → PENDING on commercial reopen`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[EM NEGOCIAÇÃO → QUOTE] Failed to revert quote to pending for task ${taskId} (non-fatal):`,
-        error,
       );
     }
   }
@@ -3895,56 +3656,6 @@ export class ServiceOrderService {
               serviceOrder,
               userId,
             });
-
-            // Reverse cascade: completing the COMMERCIAL "Em Negociação" SO
-            // approves the budget (PENDING → APPROVED). Parity with the
-            // single-update path.
-            if (
-              (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
-              ((serviceOrder as any).description ?? '').toLowerCase().trim() ===
-                'em negociação' &&
-              (serviceOrder as any).taskId
-            ) {
-              await this.budgetApproveOnEmNegociacaoComplete(
-                (serviceOrder as any).taskId,
-                userId,
-              );
-              // E as IRMÃS. A aprovação acima é do orçamento inteiro; sem isto,
-              // concluir em lote a "Em Negociação" de um veículo deixa os outros
-              // do mesmo orçamento negociando um negócio já fechado. Rodar
-              // depois da aprovação não reverte nada: o orçamento já está em
-              // APPROVED, e a O.S. recém-concluída nunca é rebaixada.
-              await syncEmNegociacaoForTaskAndSiblings(
-                this.prisma,
-                (serviceOrder as any).taskId,
-                userId,
-              );
-            }
-          }
-
-          // Inverse cascade: reopening the COMMERCIAL "Em Negociação" SO
-          // (Concluído → Em Andamento) un-approves the auto-approved budget
-          // (APPROVED → PENDING), parity with the single-update path so
-          // the quote and commercial SO never drift apart.
-          if (
-            oldData.status === SERVICE_ORDER_STATUS.COMPLETED &&
-            serviceOrder.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-            (serviceOrder as any).type === SERVICE_ORDER_TYPE.COMMERCIAL &&
-            ((serviceOrder as any).description ?? '').toLowerCase().trim() ===
-              'em negociação' &&
-            (serviceOrder as any).taskId
-          ) {
-            await this.budgetRevertOnEmNegociacaoReopen(
-              (serviceOrder as any).taskId,
-              userId,
-            );
-            // Idem na volta: a desaprovação é do orçamento inteiro, então as
-            // "Em Negociação" das tarefas irmãs precisam reabrir junto.
-            await syncEmNegociacaoForTaskAndSiblings(
-              this.prisma,
-              (serviceOrder as any).taskId,
-              userId,
-            );
           }
 
           // If status changed to WAITING_APPROVE and type is ARTWORK
