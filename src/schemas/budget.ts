@@ -30,6 +30,13 @@ import {
 // `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
 // também, sempre.
 export const budgetStatusSchema = z.enum([
+  // Os TRÊS do portal do responsável entraram em 20/09/2026 junto com o enum.
+  // Sem eles aqui a advertência acima se cumpria à risca: `updateStatus` não
+  // tipava (`pnpm build` vermelho) e um filtro `status=IN_NEGOTIATION` na lista
+  // era APAGADO pelo zod, devolvendo a tabela inteira sem dizer nada.
+  TASK_QUOTE_STATUS.REQUESTED,
+  TASK_QUOTE_STATUS.IN_NEGOTIATION,
+  TASK_QUOTE_STATUS.PRE_APPROVED,
   TASK_QUOTE_STATUS.EXPIRED,
   TASK_QUOTE_STATUS.SIGNED,
   TASK_QUOTE_STATUS.PENDING,
@@ -151,6 +158,30 @@ export const budgetIncludeSchema = z
     task: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
     layoutFiles: z.boolean().optional(),
+    /**
+     * A REQUISIÇÃO que originou o orçamento, quando ele nasceu no portal.
+     *
+     * ⚠️ SEM ESTA CHAVE O `include` É DESCARTADO EM SILÊNCIO. Este objeto zod não
+     * é `.strict()`, então `include: { request: true }` não dá erro — ele
+     * simplesmente some, e a tela do comercial abre o painel da requisição VAZIO,
+     * sem briefing, sem arquivos e sem o motivo da recusa. É a mesma armadilha
+     * que o comentário de `customerConfigs` já documenta: o que o schema não
+     * conhece, ele apaga.
+     */
+    request: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              requestedBy: z.boolean().optional(),
+              preApprovedBy: z.boolean().optional(),
+              refusedBy: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     customerConfigs: z
       .union([
         z.boolean(),
@@ -172,7 +203,9 @@ export const budgetIncludeSchema = z
                 ])
                 .optional(),
               customerSignature: z.boolean().optional(),
-              responsible: z.boolean().optional(),
+              // `responsible` NÃO existe mais em `BudgetPayer` (migration
+              // `20260918120000`). Deixar a chave no zod fazia o include do
+              // cliente atravessar a borda e estourar no Prisma.
               installments: z
                 .union([
                   z.boolean(),
