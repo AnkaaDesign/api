@@ -270,8 +270,17 @@ UPDATE "Task" t
 --
 -- CHECK de destinatário único, mesma doutrina do
 -- `EnvelopeSigner_exactly_one_identity`: os dois sujeitos não se misturam, e o
--- banco é quem garante. Produção tem 0 linhas com `userId` nulo — o CHECK entra
--- sem exceção e sem backfill.
+-- banco é quem garante.
+--
+-- A conta de "0 linhas com `userId` nulo" não se sustentou contra o backup de
+-- 21/09: há 6 avisos de ponto ("Hora de Registrar o Ponto" / "Lembrete de
+-- Ponto") criados em 27/08 num intervalo de quatro segundos, todos sem
+-- destinatário nenhum. Como o `ALTER TABLE ... ADD CONSTRAINT` valida a tabela
+-- INTEIRA, essas 6 linhas derrubam o CHECK com 23514 e levam a migration toda
+-- junto — foi o que aconteceu ao restaurar produção.
+--
+-- Elas são varridas, não backfilladas: aviso sem dono não tem a quem ser
+-- entregue nem tela onde aparecer, e só existiu porque não havia CHECK.
 
 ALTER TABLE "Notification" ADD COLUMN "responsibleId" TEXT;
 CREATE INDEX "Notification_responsibleId_idx" ON "Notification"("responsibleId");
@@ -279,6 +288,9 @@ CREATE INDEX "Notification_responsibleId_idx" ON "Notification"("responsibleId")
 ALTER TABLE "Notification"
   ADD CONSTRAINT "Notification_responsibleId_fkey"
   FOREIGN KEY ("responsibleId") REFERENCES "Representative"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+DELETE FROM "Notification"
+ WHERE "userId" IS NULL AND "responsibleId" IS NULL;
 
 ALTER TABLE "Notification"
   ADD CONSTRAINT "Notification_exactly_one_recipient"
