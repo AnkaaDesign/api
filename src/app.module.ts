@@ -40,6 +40,32 @@ import { PreferencesModule } from './modules/people/preferences/preferences.modu
 import { StatisticsPreferencesModule } from './modules/people/statistics-preferences/statistics-preferences.module';
 import { ResponsibleModule } from './modules/people/responsible/responsible.module';
 import { ResponsibleAuthModule } from './modules/people/responsible-auth/responsible-auth.module';
+import { PortalModule } from './modules/people/portal/portal.module';
+import { PortalRequestModule } from './modules/people/portal/portal-request.module';
+// As rotas de LEITURA do portal do cliente (`/cliente/me/*`). Traz junto o
+// `PortalModule` (escopo + projeção), que ele importa.
+import { PortalReadModule } from './modules/people/portal/portal-read.module';
+// A PRÉ-APROVAÇÃO (`PUT /cliente/me/orcamentos/:id/{pre-aprovar,recusar}`).
+// Módulo próprio porque ESCREVE: arrasta Prisma, `BudgetModule` (a máquina de
+// estados) e `NotificationModule` (o aviso ao comercial) — nada disso pode
+// entrar em `PortalModule`, que é a fundação pura.
+import { PortalDecisionModule } from './modules/people/portal/portal-decision.module';
+// OS CATÁLOGOS do assistente de requisição (`/cliente/me/{clientes,tintas,
+// tipos-de-tinta}` + `POST /cliente/me/tintas`). Módulo próprio porque lê o
+// banco e arrasta `PaintModule` — nada disso pode entrar em `PortalModule`.
+import { PortalCatalogModule } from './modules/people/portal/portal-catalog.module';
+// A IDENTIFICAÇÃO DO VEÍCULO (`PATCH /cliente/me/veiculos/:taskId/
+// identificacao`) — série, placa, chassi, plaqueta e nº do pedido escritos pelo
+// próprio cliente. Módulo próprio porque ESCREVE tarefa, caminhão, arquivo e
+// pedido de compra: arrasta `FileModule` e `PurchaseOrderModule`, e nada disso
+// pode entrar em `PortalModule`, que é a fundação pura.
+import { PortalIdentityModule } from './modules/people/portal/portal-identity.module';
+// O pedido de compra do cliente — a entidade de `REESTRUTURACAO…` §2.12. Traz
+// DUAS audiências no mesmo serviço: `/purchase-orders` (ADMIN/FINANCEIRO/
+// COMERCIAL) e `/cliente/me/pedidos` (o Compras do cliente, pelo portal). É ele
+// que faz a ESCRITA DUPLA em `Task.customerOrderNumber` — a coluna que a NFS-e,
+// o `seuNumero` do boleto e a regra de atenção da Ibiporã leem hoje.
+import { PurchaseOrderModule } from './modules/production/purchase-order/purchase-order.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
 import { SectorModule } from './modules/people/sector/sector.module';
@@ -140,6 +166,13 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     StatisticsPreferencesModule,
     ResponsibleModule,
     ResponsibleAuthModule,
+    PortalModule,
+    PortalRequestModule,
+    PortalReadModule,
+    PortalDecisionModule,
+    PortalCatalogModule,
+    PortalIdentityModule,
+    PurchaseOrderModule,
     PrismaModule,
     WarningModule,
     SectorModule,
