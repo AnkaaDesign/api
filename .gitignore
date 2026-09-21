@@ -112,3 +112,6 @@ painting-engine-v4/.pytest_cache/
 # de produção) não existe na máquina de desenvolvimento — sem um caminho
 # gravável o `AppModule` não sobe e o e2e morre antes da primeira verificação.
 .tmp/
+
+# Sessões de teste do portal — token de sessão, descartável, nunca versionado.
+tests/e2e-portal/artifacts/

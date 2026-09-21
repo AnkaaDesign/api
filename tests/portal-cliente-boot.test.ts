@@ -90,6 +90,60 @@ async function main(): Promise<void> {
     check(`rota registrada: ${esperada}`, rotas.includes(esperada));
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // A SUPERFICIE `/cliente/me/*` — o mesmo motivo, um degrau acima
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Um controlador que compila e cujo MODULO nao esta em `app.module.ts` nao
+  // existe em runtime: `pnpm build` passa, e a rota e' 404. Aconteceu com
+  // `PortalRequestModule`, cujo proprio cabecalho registra a linha que faltava
+  // na lista de `imports` do `AppModule`.
+  //
+  // Esta lista e' o contrato §4 mais o que o web ja chama. Cada entrada que
+  // desaparecer daqui reprova antes de virar uma tela que degrada em silencio
+  // para lista vazia.
+  for (const esperada of [
+    // Leitura (contrato §4)
+    'GET /cliente/me/resumo',
+    'GET /cliente/me/orcamentos',
+    'GET /cliente/me/orcamentos/:id',
+    'GET /cliente/me/veiculos',
+    'GET /cliente/me/veiculos/:taskId',
+    'GET /cliente/me/cobrancas',
+    // A IDENTIFICACAO DO VEICULO — serie, placa, chassi, plaqueta e no do
+    // pedido escritos pelo proprio cliente. Foi a ULTIMA rota do §4 a existir:
+    // `web/src/api-client/portal.ts` -> `updateVehicleIdentity` ja a chamava e
+    // recebia 404, porque o tipo, a tela e o cliente HTTP existiam e o
+    // controller nao. E' o sintoma exato que esta lista pega: `tsc` compila um
+    // controller cujo modulo nao esta no `AppModule`, e a ausencia so aparece
+    // como 404 em producao.
+    'PATCH /cliente/me/veiculos/:taskId/identificacao',
+    // A requisicao e as duas decisoes
+    'POST /cliente/me/orcamentos',
+    'PUT /cliente/me/orcamentos/:id/pre-aprovar',
+    'PUT /cliente/me/orcamentos/:id/recusar',
+    // O pedido de compra
+    'GET /cliente/me/pedidos',
+    'POST /cliente/me/pedidos',
+    // A assinatura por sessao — e o PDF DO RECORTE deste signatario, que a
+    // rota publica do orcamento NAO substitui (ela serve o documento completo).
+    'GET /cliente/me/assinaturas',
+    'POST /cliente/me/assinaturas/:signerId/assinar',
+    // A RECUSA, pelo mesmo canal do "sim". Sem ela o contato do cliente entra
+    // no portal e so encontra ACEITAR — e a cerimonia publica tem as duas
+    // (`POST /assinatura/publico/:token/recusar`). A assimetria nao se defende
+    // num instrumento: o "nao" vira telefonema e some da trilha.
+    'POST /cliente/me/assinaturas/:signerId/recusar',
+    'GET /cliente/me/assinaturas/:signerId/documento.pdf',
+    // Os catalogos do assistente de requisicao
+    'GET /cliente/me/clientes',
+    'GET /cliente/me/tintas',
+    'GET /cliente/me/tipos-de-tinta',
+    'POST /cliente/me/tintas',
+  ]) {
+    check(`rota registrada: ${esperada}`, rotas.includes(esperada));
+  }
+
   // Fechar a aplicacao derruba Baileys e Redis junto, e numa maquina de
   // desenvolvimento (sem sessao de WhatsApp, sem senha de Redis) esses dois
   // rejeitam no desligamento. E' ruido de AMBIENTE, nao defeito do que se testa
