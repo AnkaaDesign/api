@@ -159,3 +159,7 @@ export * from './dependent';
 // Calendário/agenda + notas (a5-calendar)
 export * from './agenda-event';
 export * from './note';
+// PORTAL DO RESPONSÁVEL — a requisição de orçamento (`POST /cliente/me/orcamentos`).
+// Todos os nomes daqui têm prefixo `portal`/`Portal` de propósito: o barril é
+// `export *`, e um nome genérico colidiria em silêncio com o de outro schema.
+export * from './portal-request';

@@ -112,6 +112,9 @@ export class SignatureController {
       ctx: ctxOf(req),
       channel: body?.channel ?? null,
       signers: body?.signers ?? null,
+      // A escolha da cerimônia do CONTRATANTE. Ver a nota no schema: ela congela
+      // a cláusula impressa no documento e não se converte depois.
+      portalSession: body?.portalSession ?? false,
     });
     const via =
       result.channel === 'WHATSAPP'

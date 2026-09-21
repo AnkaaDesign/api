@@ -199,6 +199,19 @@ export const signatureCreateEnvelopeSchema = z
       )
       .max(50, 'Lista de signatários inválida.')
       .nullish(),
+    /**
+     * O CONTRATANTE assina dentro do PORTAL DO CLIENTE, em sessão autenticada,
+     * sem código de uso único.
+     *
+     * ⚠️ É DECISÃO DA EMISSÃO, e só dela. A cláusula de aceitação que descreve o
+     * método é IMPRESSA no corpo do orçamento e congelada com os bytes nesta
+     * mesma transação — converter um signatário depois exigiria re-renderizar um
+     * documento já assinado. Ausente = a coleta comum, por código.
+     *
+     * `boolean` e não enum de cerimônia: do lado do CONTRATANTE só há duas
+     * opções, e `INTERNAL` (o lado da Ankaa) nunca foi escolha de quem emite.
+     */
+    portalSession: z.boolean().nullish(),
   })
   // Corpo ausente é o caso NORMAL (modo fixo), não um erro: sem isto um POST
   // sem body cairia em "Expected object, received undefined".
@@ -206,6 +219,91 @@ export const signatureCreateEnvelopeSchema = z
   .transform(value => value ?? {});
 
 export type SignatureCreateEnvelopeFormData = z.infer<typeof signatureCreateEnvelopeSchema>;
+
+// ---------------------------------------------------------------------------
+// POST /cliente/me/assinaturas/:signerId/assinar   (PORTAL DO CLIENTE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Assinatura por SESSÃO do portal. Nenhum `challengeId`, nenhum `code`.
+ *
+ * A ausência dos dois é a diferença inteira: a prova de identidade deste ato é
+ * a sessão do portal (token opaco de 256 bits, relido do banco a cada
+ * requisição), e não um código de uso único. Aceitar aqui um campo de código
+ * seria oferecer um segundo fator que a cerimônia não usa — e um campo que não
+ * é usado é um campo que alguém um dia vai achar que é.
+ *
+ * `cpf` e `cargo` são OPCIONAIS porque os dois têm fonte no cadastro: o CPF já
+ * pode estar em `EnvelopeSigner.declaredCpf` (congelado na emissão) e o cargo
+ * cai nas funções do contato (`Responsible.roles`), que é o mesmo
+ * `registryCargo` que a página pública já oferece pronto. O serviço é quem
+ * resolve a cadeia e quem RECUSA quando ela termina vazia — aqui só se valida
+ * forma.
+ */
+export const portalSignSchema = z.object({
+  cpf: z
+    .string()
+    .max(20, 'CPF inválido.')
+    .nullish()
+    .transform(value => (value ?? '').trim() || null),
+  cargo: z
+    .string()
+    .max(
+      SIGNATURE_CARGO_MAX_LENGTH,
+      `Cargo deve ter no máximo ${SIGNATURE_CARGO_MAX_LENGTH} caracteres.`,
+    )
+    .nullish()
+    .transform(value => (value ?? '').trim() || null),
+  /**
+   * Chaves das declarações aceitas. O conjunto EXIGIDO é decidido no serviço
+   * (`declarationKeysFor('PORTAL')`), não aqui — a lista é versionada junto com
+   * o texto jurídico e não pode divergir em dois lugares.
+   */
+  declarations: z
+    .array(z.string().min(1).max(64), { required_error: 'Aceite as declarações para assinar.' })
+    .min(1, 'Aceite as declarações para assinar.')
+    .max(20, 'Lista de declarações inválida.'),
+  clientTimestamp: clientTimestampSchema,
+  geo: geoSchema,
+});
+
+export type PortalSignFormData = z.infer<typeof portalSignSchema>;
+
+// ---------------------------------------------------------------------------
+// POST /cliente/me/assinaturas/:signerId/recusar   (PORTAL DO CLIENTE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Recusa por SESSÃO do portal. Nenhum `challengeId`, nenhum `code` — pela mesma
+ * razão de `portalSignSchema`: a prova de identidade é a sessão.
+ *
+ * `motivo`, e não `reason`: o corpo do portal fala português como as outras duas
+ * decisões dele (`PUT /cliente/me/orcamentos/:id/recusar`). A rota PÚBLICA
+ * continua com `reason`, porque é o corpo que a página pública já manda há
+ * tempo e renomeá-lo quebraria um cliente que não está nesta branch.
+ *
+ * ⚠️ `.strict()` EXPLÍCITO, como no controlador de decisão. Zod descarta chave
+ * desconhecida em SILÊNCIO, e num corpo de UMA chave isso basta para um
+ * `{ reason: '…' }` chegar aqui como corpo vazio e o `min(1)` acusar um campo
+ * que o cliente jurou ter preenchido. Com `.strict()` a resposta nomeia a chave
+ * errada em vez de mentir sobre a certa.
+ *
+ * O motivo é obrigatório porque é ele que o comercial lê para decidir o que
+ * fazer com o orçamento — uma recusa muda sem causa produz exatamente o ciclo
+ * que a O.S. "Em Negociação" produzia: volta, ninguém sabe por quê, volta de
+ * novo.
+ */
+export const portalRefuseSchema = z
+  .object({
+    motivo: z
+      .string({ required_error: 'Informe o motivo da recusa.' })
+      .trim()
+      .min(1, 'Informe o motivo da recusa.')
+      .max(2000, 'O motivo deve ter no máximo 2000 caracteres.'),
+  })
+  .strict();
+
+export type PortalRefuseFormData = z.infer<typeof portalRefuseSchema>;
 
 // ---------------------------------------------------------------------------
 // POST /assinatura/publico/:token/assinar

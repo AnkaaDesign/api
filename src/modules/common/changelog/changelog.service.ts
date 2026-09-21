@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogRepository } from '../changelog/repositories/changelog.repository';
 import {
   CHANGE_LOG_ENTITY_TYPE,
@@ -41,11 +42,24 @@ interface LogChangeParams {
  */
 const ACTOR_SENTINELS = new Set(['system', 'System', 'SYSTEM', 'cron', '']);
 
+/**
+ * Teto das duas consultas de `getTaskHistory`. O repositório pagina com `take`
+ * 20 por padrão, e a tela de histórico da tarefa não pagina: sem um teto
+ * explícito ela mostrava as vinte linhas mais antigas e escondia o resto.
+ */
+const TASK_HISTORY_TAKE = 500;
+
 @Injectable()
 export class ChangeLogService {
   private readonly logger = new Logger(ChangeLogService.name);
 
-  constructor(private readonly changeLogRepository: ChangeLogRepository) {}
+  constructor(
+    private readonly changeLogRepository: ChangeLogRepository,
+    // Só para RESOLVER AS ORDENS DE SERVIÇO DE UMA TAREFA em `getTaskHistory`.
+    // `ChangeLog` guarda `entityType` + `entityId`, e não há como perguntar "as
+    // O.S. desta tarefa" sem olhar a tabela de O.S. `PrismaModule` é `@Global`.
+    private readonly prisma: PrismaService,
+  ) {}
 
   async findMany(params: any): Promise<any> {
     return await this.changeLogRepository.findMany(params);
@@ -301,6 +315,21 @@ export class ChangeLogService {
     };
   }
 
+  /**
+   * ⛔ ESTE MÉTODO DEVOLVIA O HISTÓRICO DE O.S. DO SISTEMA INTEIRO.
+   *
+   * O `where` da segunda consulta filtrava por `entityType = SERVICE_ORDER` e
+   * PARAVA AÍ — não havia `taskId` em lugar nenhum. `GET /changelogs/task/:id/
+   * history` respondia, no lugar das O.S. daquele caminhão, as vinte alterações
+   * de O.S. mais ANTIGAS de toda a base (vinte porque o `take` do repositório
+   * é 20 por padrão), iguais para qualquer tarefa consultada.
+   *
+   * `ChangeLog` não tem FK para tarefa: a linha de uma O.S. guarda o id DA O.S.
+   * em `entityId`. O recorte, portanto, é resolver antes quais O.S. são desta
+   * tarefa e filtrar por esses ids. A O.S. apagada não entra — `ServiceOrder`
+   * cai em cascata com a tarefa (`onDelete: Cascade`), de modo que a trilha de
+   * uma tarefa viva é exatamente a das O.S. vivas dela.
+   */
   async getTaskHistory(taskId: string) {
     const taskResult = await this.changeLogRepository.findMany({
       where: {
@@ -308,18 +337,30 @@ export class ChangeLogService {
         entityId: taskId,
       },
       orderBy: { createdAt: 'asc' },
+      take: TASK_HISTORY_TAKE,
     });
     const changes = taskResult.data;
 
-    // Also get changes to service orders
-    const serviceChanges = await this.changeLogRepository.findMany({
-      where: {
-        entityType: CHANGE_LOG_ENTITY_TYPE.SERVICE_ORDER,
-        // Filter by task ID in metadata or entity relationships instead
-        // since triggeredBy/triggeredById are for specific enum-based triggers
-      },
-      orderBy: { createdAt: 'asc' },
+    // As O.S. DESTA tarefa — o recorte que faltava.
+    const serviceOrders = await this.prisma.serviceOrder.findMany({
+      where: { taskId },
+      select: { id: true },
     });
+    const serviceOrderIds = serviceOrders.map(so => so.id);
+
+    // Tarefa sem ordem de serviço: `entityId: { in: [] }` devolveria vazio de
+    // qualquer forma, mas a consulta é pura perda — e um `in` vazio já foi
+    // fonte de surpresa neste repositório.
+    const serviceChanges = serviceOrderIds.length
+      ? await this.changeLogRepository.findMany({
+          where: {
+            entityType: CHANGE_LOG_ENTITY_TYPE.SERVICE_ORDER,
+            entityId: { in: serviceOrderIds },
+          },
+          orderBy: { createdAt: 'asc' },
+          take: TASK_HISTORY_TAKE,
+        })
+      : { data: [] as any[] };
 
     // Bonification changes are tracked as part of task changes (field-level changes)
     // since bonification is a field on the Task entity, not a separate entity

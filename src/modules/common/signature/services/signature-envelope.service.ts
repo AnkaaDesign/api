@@ -79,6 +79,21 @@ import {
   type QuoteSection,
 } from '../quote-sections';
 import { budgetPdfFilename } from '../document/document-filename';
+import { ceremonyKindOfAuthMethod, isSessionCeremony } from '../ceremony-kind';
+import {
+  isSolePurchasingContact,
+  purchaseOrderGateVerdict,
+  PURCHASE_ORDER_REQUIRED_MESSAGE,
+} from '../purchase-order-gate';
+import { commercialTaskLink } from '@modules/people/portal/portal-scope.service';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import {
+  TASK_QUOTE_STATUS,
+  CHANGE_ACTION,
+  CHANGE_TRIGGERED_BY,
+  ENTITY_TYPE,
+} from '@/constants/enums';
+import { TASK_QUOTE_STATUS_ORDER } from '@/constants/sortOrders';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
   acceptanceClauseFor,
@@ -347,6 +362,9 @@ export class SignatureEnvelopeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    // A EMISSÃO move o orçamento para "Aguardando Assinatura" e registra a
+    // troca — no mesmo commit do envelope. Ver a nota em `createEnvelope`.
+    private readonly changeLogs: ChangeLogService,
     private readonly audit: SignatureAuditService,
     private readonly challenges: SigningChallengeService,
     private readonly snapshots: QuoteSnapshotService,
@@ -922,6 +940,32 @@ export class SignatureEnvelopeService {
      * mensagem certa.
      */
     signers?: Array<{ responsibleId?: string; sections?: string[] }> | null;
+    /**
+     * O CONTRATANTE assina dentro do PORTAL DO CLIENTE, em sessão autenticada,
+     * sem código de uso único (`SignatureAuthMethod.RESPONSIBLE_SESSION`).
+     *
+     * ⚠️ ESTA ESCOLHA É DA EMISSÃO, E SÓ DELA. Ela governa a CLÁUSULA DE
+     * ACEITAÇÃO, que é impressa no corpo do orçamento e congelada com os bytes
+     * nesta mesma transação: uma coleta emitida por código diz, dentro do
+     * instrumento assinado, que o CONTRATANTE se autentica "por código de uso
+     * único enviado…", e assinar aquele documento por sessão tornaria a frase
+     * falsa no próprio papel que ela existe para sustentar. Converter um
+     * signatário depois da emissão exigiria re-renderizar bytes já assinados.
+     *
+     * É a mesma razão pela qual `countersign` recusa envelope pré-reforma
+     * (`ankaa.authMethod !== INTERNAL_SESSION`), e o caminho do portal aplica a
+     * simétrica: `signByPortalSession` recusa signatário que não nasceu
+     * `RESPONSIBLE_SESSION`, mandando-o para o link com código.
+     *
+     * DECISÃO DE ENVELOPE, não de signatário. A cláusula é UMA por envelope
+     * (`SignatureEnvelope.acceptanceClause`, e o mesmo texto impresso em todos
+     * os recortes), então uma coleta metade-código metade-portal precisaria de
+     * uma frase que descrevesse as duas — e cada signatário leria, no seu
+     * próprio documento, a descrição de uma cerimônia que não é a dele. As
+     * DECLARAÇÕES, essas sim, são por signatário, e já seguem
+     * `ceremonyKindOf(authMethod)`.
+     */
+    portalSession?: boolean | null;
   }): Promise<{
     envelopeId: string;
     verificationCode: string;
@@ -941,6 +985,13 @@ export class SignatureEnvelopeService {
             .join(' ou ')}.`,
       );
     }
+
+    // A CERIMÔNIA DO CONTRATANTE, decidida aqui e congelada com os bytes.
+    // Ver a nota em `args.portalSession`: governa a cláusula de aceitação
+    // impressa no documento e o `authMethod` dos signatários do cliente.
+    const customerCeremony: Exclude<CeremonyKind, 'INTERNAL'> = args.portalSession
+      ? 'PORTAL'
+      : 'OTP';
 
     const loaded = await this.snapshots.buildForQuote(args.quoteId);
     if (!loaded) throw new NotFoundException('Orçamento não encontrado.');
@@ -1141,7 +1192,25 @@ export class SignatureEnvelopeService {
     const missingContact = signing
       .map(e => e.responsible)
       .filter(r => (channel === 'WHATSAPP' ? onlyDigits(r.phone).length < 10 : !r.email?.includes('@')));
-    if (missingContact.length) {
+    // ── NO PORTAL, O CONTATO DEIXA DE SER CONDIÇÃO PARA ASSINAR ──────────────
+    //
+    // Mesma decisão, e pelo mesmo motivo, que tirou o signatário da Ankaa desta
+    // guarda: quem assina por sessão não recebe código nenhum, então o e-mail
+    // ou o telefone aqui é endereço de AVISO, não segundo fator. Barrar uma
+    // coleta inteira por um canal que a cerimônia não usa seria cobrar do
+    // negócio um problema de cadastro.
+    //
+    // O que se perde é o aviso, e isso fica registrado — não em silêncio. Entrar
+    // no portal continua possível (o telefone do responsável é NOT NULL e o OTP
+    // de login segue o canal do portal, que é outra configuração).
+    if (missingContact.length && customerCeremony === 'PORTAL') {
+      this.logger.warn(
+        `Coleta por PORTAL do orçamento ${args.quoteId}: ` +
+          `${missingContact.map(r => r.name).join(', ')} não tem contato válido para ` +
+          `${SIGNATURE_DELIVERY_CHANNEL_LABELS[channel]} — o convite não sai para essa(s) ` +
+          'pessoa(s). A assinatura pelo portal continua disponível.',
+      );
+    } else if (missingContact.length) {
       throw new BadRequestException(
         channel === 'WHATSAPP'
           ? `Responsáveis sem telefone válido no cadastro: ${missingContact
@@ -1325,6 +1394,8 @@ export class SignatureEnvelopeService {
           null,
           channel,
           plan.sections,
+          false,
+          customerCeremony,
         ),
       ),
     );
@@ -1424,11 +1495,75 @@ export class SignatureEnvelopeService {
           quoteTermsSha256: materialHash,
           verificationCode,
           legalBasis: LEGAL_BASIS,
-          acceptanceClause: acceptanceClauseFor(channel),
+          // A MESMA frase que `buildRenderInput` acabou de IMPRIMIR nos PDFs
+          // congelados logo acima. As duas leem `customerCeremony`; divergirem
+          // faria a coluna afirmar uma cerimônia e o papel assinado, outra.
+          acceptanceClause: acceptanceClauseFor(channel, customerCeremony),
           createdById: args.actorUserId,
           sentAt: new Date(),
         },
       });
+
+      // ═══════════════════════════════════════════════════════════════════
+      // O ORÇAMENTO PASSA A "AGUARDANDO ASSINATURA" — no MESMO commit
+      // ═══════════════════════════════════════════════════════════════════
+      //
+      // ⛔ POR QUE AQUI DENTRO, E NÃO NUM SEGUNDO ATO DO OPERADOR.
+      //
+      // A emissão congela o documento e dispara os convites: a partir deste
+      // instante o orçamento ESTÁ aguardando assinatura, quer alguém se lembre
+      // de mudar o estado, quer não. Enquanto isso dependeu de uma segunda
+      // ação, o estado derivou — e derivou em silêncio: no acervo do dono havia
+      // NOVE orçamentos em `REQUESTED` com coleta `RUNNING` e assinaturas já
+      // colhidas. A tela do comercial, lendo só o estado, continuava
+      // oferecendo "Enviar para pré-aprovação" para um documento que o cliente
+      // já tinha assinado.
+      //
+      // ⛔ E a deriva tinha um FIM SEM SAÍDA, não só feiura: quando a coleta
+      // conclui, o fluxo chama `budgetApprove()` — e `REQUESTED → APPROVED` NÃO
+      // é aresta do grafo (`budget.service.ts`, `ALLOWED`). O documento
+      // assinado não teria como virar orçamento aprovado; nenhuma tela ofereceu
+      // saída porque nenhuma sabia que havia problema.
+      //
+      // ⚠️ `CANCELLED` fica de fora: `CANCELLED → ∅` é terminal de propósito, e
+      // forçá-lo a PENDING aqui contrabandearia uma ressurreição por uma porta
+      // que não é a dela.
+      const antes = await tx.budget.findUnique({
+        where: { id: args.quoteId },
+        select: { status: true },
+      });
+      const estadoAnterior = antes?.status as TASK_QUOTE_STATUS | undefined;
+      if (
+        estadoAnterior &&
+        estadoAnterior !== TASK_QUOTE_STATUS.PENDING &&
+        estadoAnterior !== TASK_QUOTE_STATUS.CANCELLED
+      ) {
+        await tx.budget.update({
+          where: { id: args.quoteId },
+          data: {
+            status: TASK_QUOTE_STATUS.PENDING,
+            // ⚠️ Pela TABELA, nunca `MAP[status] || 1`: aquela forma transforma
+            // ordem 0 em 1 em silêncio, e o mesmo status passa a ter ordem
+            // diferente conforme o caminho que o escreveu.
+            statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
+          },
+        });
+        await this.changeLogs.logChange({
+          entityType: ENTITY_TYPE.TASK_QUOTE,
+          entityId: args.quoteId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'status',
+          oldValue: estadoAnterior,
+          newValue: TASK_QUOTE_STATUS.PENDING,
+          reason: 'Documento emitido para assinatura — o orçamento passa a aguardar as assinaturas.',
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: args.actorUserId ?? null,
+          userId: args.actorUserId ?? null,
+          // MESMA transação: um estado que só mude se o envelope existir, e um
+          // envelope que só exista se o estado mudar.
+          transaction: tx,
+        });
+      }
 
       for (const { plan, render, sha256, fileId } of persisted) {
         const document = await tx.envelopeDocument.create({
@@ -1478,10 +1613,21 @@ export class SignatureEnvelopeService {
               // ninguém contesta; o que dá segurança do nosso lado é a sessão, que
               // o servidor emitiu. E um link público sem código seria pior que
               // inútil: quem recebesse a mensagem encaminhada obrigaria a empresa.
+              //
+              // ⚠️ E O CLIENTE PODE ASSINAR POR SESSÃO TAMBÉM — pelo PORTAL,
+              // quando a emissão assim o decidiu. `RESPONSIBLE_SESSION`, nunca
+              // `INTERNAL_SESSION`: os dois dispensam o código e é só isso que
+              // têm em comum. Marcar um contato do cliente como
+              // `INTERNAL_SESSION` faria `assertOtpCeremony`, `resendInvitation`,
+              // `noticeChannelOf` e `getPublicState` tratarem-no como lado
+              // Ankaa, em silêncio — e a cláusula impressa, que é por envelope,
+              // continuaria dizendo "por código de uso único".
               authMethod:
                 seed.side === 'ANKAA'
                   ? SignatureAuthMethod.INTERNAL_SESSION
-                  : authMethodForChannel(channel),
+                  : customerCeremony === 'PORTAL'
+                    ? SignatureAuthMethod.RESPONSIBLE_SESSION
+                    : authMethodForChannel(channel),
               accessToken: randomBytes(32).toString('base64url'),
               tokenExpiresAt: deadlineAt,
             },
@@ -1509,6 +1655,11 @@ export class SignatureEnvelopeService {
         // depender de os eventos de entrega terem sido gravados.
         channel: auditChannelOf(channel),
         deliveryMode: mode,
+        // COMO O CONTRATANTE SE AUTENTICA NESTA COLETA. Entra na trilha na
+        // criação porque é a decisão que a cláusula congelada descreve, e é a
+        // única prova, anos depois, de que o texto impresso e o `authMethod` dos
+        // signatários nasceram da mesma escolha.
+        customerCeremony,
         // QUEM recebeu O QUÊ. É a única prova de que a Ankaa não escolheu o
         // recorte depois do fato: a trilha é append-only e encadeada, e esta
         // linha é gravada no mesmo instante em que os bytes são congelados.
@@ -1576,11 +1727,46 @@ export class SignatureEnvelopeService {
    * Como aquele signatário é autenticado.
    *
    * `INTERNAL_SESSION` é o lado da Ankaa, que contra-assina dentro do sistema.
-   * Todo o resto é OTP, inclusive os métodos legados (`SMS_OTP`) que continuam no
-   * enum porque envelopes já selados os carregam na evidência.
+   * `RESPONSIBLE_SESSION` é o contato do CLIENTE que assina de dentro do Portal
+   * do Cliente, também sem código. Todo o resto é OTP, inclusive os métodos
+   * legados (`SMS_OTP`) que continuam no enum porque envelopes já selados os
+   * carregam na evidência.
+   *
+   * ⚠️ ERA UM TERNÁRIO DE UMA LINHA, e o ternário é que era o perigo.
+   *
+   *   Ele dizia "INTERNAL_SESSION → INTERNAL, tudo o mais → OTP". Um valor novo
+   *   de sessão — que não é OTP coisa nenhuma — cairia no `else` e seria tratado
+   *   como coleta por código pelos QUATRO dependentes desta função:
+   *   `assertOtpCeremony` (deixaria o signatário de sessão assinar pelo link
+   *   público, sem código, que é uma capability de obrigar a empresa viajando
+   *   por e-mail), `resendInvitation`, `noticeChannelOf` e `getPublicState`.
+   *   O atalho inverso — reusar `INTERNAL_SESSION` para o cliente — é pior
+   *   ainda: os quatro passariam a tratar um contato do CLIENTE como lado
+   *   ANKAA, em silêncio.
+   *
+   *   Por isso agora é um `switch` sobre valores NOMEADOS, com `default`
+   *   explícito: todo valor do enum aparece aqui, e acrescentar um sem decidir o
+   *   que ele é passa a ser uma escolha visível.
    */
   private ceremonyKindOf(authMethod: SignatureAuthMethod | string): CeremonyKind {
-    return authMethod === SignatureAuthMethod.INTERNAL_SESSION ? 'INTERNAL' : 'OTP';
+    // A tabela-verdade mora em `ceremony-kind.ts`, sem dependência nenhuma, para
+    // que ela possa ser percorrida por teste puro — era um ternário privado
+    // dentro deste arquivo de 7.900 linhas e não havia como verificá-la.
+    // O método fica, porque são sete chamadas e o `this.` é o que as mantém
+    // legíveis.
+    return ceremonyKindOfAuthMethod(authMethod);
+  }
+
+  /**
+   * Esta cerimônia dispensa o código de uso único?
+   *
+   * `INTERNAL` e `PORTAL` são as duas sessões. O que as une é só isto — o resto
+   * (quem convida, por onde avisa, onde fica o botão) é oposto entre as duas, e
+   * é por isso que esta pergunta existe separada em vez de virar um
+   * `!== 'OTP'` solto em sete lugares.
+   */
+  private isSessionCeremony(authMethod: SignatureAuthMethod | string): boolean {
+    return isSessionCeremony(authMethod);
   }
 
   /**
@@ -1592,14 +1778,49 @@ export class SignatureEnvelopeService {
    * gravar `INTERNAL_SESSION`, que não é canal nenhum. Sem isto o aviso de
    * contra-assinatura de uma coleta de WhatsApp sairia por e-mail — e a trilha
    * registraria "email" numa cerimônia conduzida por WhatsApp.
+   *
+   * ⚠️ O FILTRO É `isSessionCeremony`, não `!== INTERNAL_SESSION`.
+   *   `RESPONSIBLE_SESSION` também não descreve canal nenhum, e numa coleta de
+   *   WhatsApp assinada pelo portal ele seria o primeiro `orderGroup === 0`
+   *   encontrado — `channelForAuthMethod` devolveria EMAIL (o padrão dela) e o
+   *   aviso sairia pelo canal errado, com "email" gravado na trilha
+   *   append-only. Numa coleta 100% de portal não há canal a descobrir e o
+   *   padrão vale; o que não pode é um signatário de sessão MASCARAR o canal de
+   *   uma coleta mista.
    */
   private noticeChannelOf(
     signers: ReadonlyArray<{ orderGroup: number; authMethod: SignatureAuthMethod }>,
   ): SignatureDeliveryChannel {
     const customer = signers.find(
-      s => s.orderGroup === 0 && s.authMethod !== SignatureAuthMethod.INTERNAL_SESSION,
+      s => s.orderGroup === 0 && !this.isSessionCeremony(s.authMethod),
     );
     return channelForAuthMethod(customer?.authMethod);
+  }
+
+  /**
+   * O canal em que se FALA com um signatário — convite, lembrete, aviso.
+   *
+   * ⚠️ `channelForAuthMethod` SOZINHA NÃO SERVE para signatário de sessão.
+   *   Ela lê o canal do `authMethod`, e `INTERNAL_SESSION`/`RESPONSIBLE_SESSION`
+   *   não descrevem canal nenhum — caem no padrão dela, que é EMAIL. Numa coleta
+   *   de WhatsApp isso manda a mensagem pelo canal errado E grava "email" numa
+   *   trilha append-only de um envelope de WhatsApp.
+   *
+   *   Para eles o canal é o da COLETA (`noticeChannelOf`), que é lido dos
+   *   signatários que de fato carregam um.
+   *
+   * UM SÓ LUGAR, e é o ponto: a regra vale em SEIS caminhos de mensagem
+   * (convite, reenvio, lembrete, vencimento, anulação, recusa de um colega) e
+   * repeti-la em seis ternários era garantia de que um deles envelheceria — foi
+   * exatamente assim que o e-mail acabou hardcoded em seis pontos em 07/2026.
+   */
+  private deliveryChannelFor(
+    signer: { authMethod: SignatureAuthMethod },
+    siblings: ReadonlyArray<{ orderGroup: number; authMethod: SignatureAuthMethod }>,
+  ): SignatureDeliveryChannel {
+    return this.isSessionCeremony(signer.authMethod)
+      ? this.noticeChannelOf(siblings)
+      : channelForAuthMethod(signer.authMethod);
   }
 
   /**
@@ -1937,6 +2158,16 @@ export class SignatureEnvelopeService {
      * PDFs anexados; com Pix não há anexo nenhum, e o dossiê saía sem data).
      */
     withPaymentSchedule = false,
+    /**
+     * Como o CONTRATANTE se autentica — governa a CLÁUSULA DE ACEITAÇÃO
+     * impressa no corpo do documento.
+     *
+     * `OTP` é o padrão e é o que todo caminho avulso quer (prévia não assinada,
+     * corpo legível do dossiê): eles descrevem a coleta comum. Só a emissão por
+     * PORTAL passa outra coisa — e passa nos dois lugares, aqui e na coluna
+     * `SignatureEnvelope.acceptanceClause`, a partir da MESMA variável.
+     */
+    customerCeremony: Exclude<CeremonyKind, 'INTERNAL'> = 'OTP',
   ): RenderInput {
     const segment = customerId
       ? (quote.customerConfigs.find(c => c.customerId === customerId) ?? null)
@@ -2340,7 +2571,7 @@ export class SignatureEnvelopeService {
         subtitle: s.subtitle,
         side: s.side,
       })),
-      acceptanceClause: acceptanceClauseFor(channel),
+      acceptanceClause: acceptanceClauseFor(channel, customerCeremony),
       verificationCode,
       verificationUrl: this.verificationUrl(verificationCode),
     };
@@ -2361,7 +2592,15 @@ export class SignatureEnvelopeService {
     // de ver quem assinou do outro lado.
     for (const signer of envelope.signers.filter(s => s.orderGroup === 0)) {
       // Canal do SIGNATÁRIO, não da configuração: ver `channelForAuthMethod`.
-      const channel = channelForAuthMethod(signer.authMethod);
+      //
+      // ⚠️ Menos para quem assina pelo PORTAL: `RESPONSIBLE_SESSION` não
+      // descreve canal, e o padrão de `channelForAuthMethod` (EMAIL) mandaria o
+      // convite de uma coleta de WhatsApp por e-mail. Ele segue o canal de aviso
+      // da coleta. O convite CONTINUA saindo — para quem assina pelo portal a
+      // página do link é onde se confere o documento, e o convite é o que avisa
+      // que há orçamento esperando; o ato mora no portal (ver `portalNotice` em
+      // `getPublicState`).
+      const channel = this.deliveryChannelFor(signer, envelope.signers);
       const signingUrl = this.signingUrl(signer.accessToken);
       const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
 
@@ -2541,7 +2780,9 @@ export class SignatureEnvelopeService {
         );
         if (!due) continue;
 
-        const channel = channelForAuthMethod(signer.authMethod);
+        // Ver `deliveryChannelFor`: quem assina por SESSÃO não carrega canal no
+        // `authMethod` e segue o canal da coleta.
+        const channel = this.deliveryChannelFor(signer, envelope.signers);
         const signingUrl = this.signingUrl(signer.accessToken);
         const deadlineDate = this.deadlineLabel(envelope.deadlineAt);
         // Nunca negativo: o `deadlineAt > now` da consulta garante pelo menos o
@@ -2736,6 +2977,13 @@ export class SignatureEnvelopeService {
           where: { orderGroup: 0 },
           select: {
             id: true,
+            // `orderGroup` é redundante com o `where` acima e entra mesmo
+            // assim: `deliveryChannelFor` precisa da LISTA para descobrir o
+            // canal da coleta quando o signatário assina por sessão, e é por
+            // `orderGroup === 0` que ela acha o signatário que carrega canal.
+            // Sem a coluna, a lista não serve de referência e o canal do
+            // signatário de portal cairia no padrão (e-mail).
+            orderGroup: true,
             declaredName: true,
             declaredEmail: true,
             declaredPhone: true,
@@ -2753,7 +3001,7 @@ export class SignatureEnvelopeService {
     let failed = 0;
 
     for (const signer of envelope.signers) {
-      const channel = channelForAuthMethod(signer.authMethod);
+      const channel = this.deliveryChannelFor(signer, envelope.signers);
       const payload = {
         signerName: signer.declaredName,
         budgetNumber: envelope.quote.budgetNumber,
@@ -3214,19 +3462,34 @@ export class SignatureEnvelopeService {
         cargo: signer.informedCargo,
         company: customer?.corporateName ?? customer?.fantasyName ?? '',
       }),
-      // O lado da Ankaa NUNCA assina por esta página. `canSign: false` aqui não
-      // é uma restrição a mais — é a verdade sobre onde o ato acontece, e sem
-      // ela a página desenharia o formulário de CPF e código para alguém que o
-      // servidor recusaria em seguida, sem dizer por quê.
+      // NENHUMA DAS DUAS SESSÕES assina por esta página. `canSign: false` aqui
+      // não é uma restrição a mais — é a verdade sobre onde o ato acontece, e
+      // sem ela a página desenharia o formulário de CPF e código para alguém
+      // que o servidor recusaria em seguida, sem dizer por quê.
+      //
+      // ⚠️ A comparação é `kind === 'OTP'`, e não `kind !== 'INTERNAL'`. Escrita
+      // pela negativa, ela abriria o formulário de código para o signatário de
+      // PORTAL — que não tem desafio para pedir — e o ato só falharia depois,
+      // em `assertOtpCeremony`.
       canSign:
-        kind === 'INTERNAL'
-          ? false
-          : this.canSignNow(env.status, signer.status, env.deadlineAt),
+        kind === 'OTP' ? this.canSignNow(env.status, signer.status, env.deadlineAt) : false,
       ...(kind === 'INTERNAL'
         ? {
             internalNotice:
               'A contra-assinatura da Ankaa é feita dentro do sistema, na tela do orçamento. ' +
               'Entre com sua conta e conclua por lá.',
+          }
+        : {}),
+      // Campo PRÓPRIO, não o `internalNotice` reaproveitado: a tela pública
+      // decide o que desenhar por ele, e as duas sessões mandam o leitor a
+      // lugares diferentes. Um só campo faria a página oferecer ao cliente o
+      // caminho do funcionário.
+      ...(kind === 'PORTAL'
+        ? {
+            portalNotice:
+              'Este orçamento é assinado dentro do Portal do Cliente, com a sua sessão — ' +
+              'não há código a digitar aqui. Entre no portal, abra o orçamento e conclua ' +
+              'por lá. Esta página serve para conferir o documento.',
           }
         : {}),
     };
@@ -3834,6 +4097,60 @@ export class SignatureEnvelopeService {
       payload: { stage: 'refusal' },
     });
 
+    // ── O ATO, no caminho COMUM às duas cerimônias ───────────────────────────
+    //
+    // Ver `applyRefusal`: a recusa é de quem recusou e só, o envelope só morre
+    // quando não sobra mais ninguém do lado do cliente, e os avisos saem fora da
+    // transação. A prova deste caminho é o desafio que acabou de ser verificado.
+    await this.applyRefusal({
+      env,
+      signer,
+      reason,
+      ctx: args.ctx,
+      proof: { challengeId: args.challengeId },
+    });
+  }
+
+  /**
+   * O ATO DA RECUSA — comum às DUAS cerimônias (código de uso único e sessão do
+   * portal).
+   *
+   * Extraído de `refuse` quando a recusa pelo Portal do Cliente nasceu. O que
+   * muda entre as duas é só COMO a pessoa foi autenticada — e isso já foi
+   * decidido, e provado, antes de chegar aqui: `refuse` verifica um
+   * `SigningChallenge`, `refuseByPortalSession` confere o par
+   * `{ id, responsibleId }` da sessão. Deste ponto em diante o ato é o mesmo, e
+   * tem de continuar sendo: são as transições de estado e a trilha encadeada de
+   * um ato jurídico, e duas cópias delas divergiriam no primeiro conserto.
+   *
+   * O CHAMADOR É QUEM GARANTE, ANTES: `assertCeremonyConfigured`, a cerimônia
+   * certa, `assertSignable` e um `reason` já aparado e não vazio.
+   *
+   * Devolve se a coleta INTEIRA morreu — é o que distingue "um recusou, os
+   * outros ainda podem assinar" de "não sobrou ninguém do lado do cliente".
+   */
+  private async applyRefusal(input: {
+    env: {
+      id: string;
+      quoteId: string;
+      originalSha256: string | null;
+      status: EnvelopeStatus;
+    };
+    signer: {
+      id: string;
+      declaredName: string | null;
+      declaredCpf?: string | null;
+      informedCpf: string | null;
+      informedCargo: string | null;
+    };
+    /** Já aparado e não vazio — a borda de quem chamou. */
+    reason: string;
+    ctx: RequestContext;
+    /** A prova do ato NESTA cerimônia. Entra na trilha, dentro do payload. */
+    proof: Record<string, unknown>;
+  }): Promise<{ envelopeRefused: boolean }> {
+    const { env, signer, reason, ctx, proof } = input;
+
     // A recusa é atribuída ao SIGNATÁRIO e registrada na trilha encadeada ANTES
     // de o envelope ir para o estado terminal: se a gravação da prova falhar
     // (`record` lança, ao contrário de `recordBestEffort`), o negócio não é
@@ -3843,14 +4160,18 @@ export class SignatureEnvelopeService {
       actorType: 'SIGNER',
       actorId: signer.id,
       actorLabel: signer.declaredName,
-      ipAddress: args.ctx.ipAddress,
-      userAgent: args.ctx.userAgent,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
       documentHash: env.originalSha256,
       payload: {
         reason,
-        cpf: maskCpf(signer.informedCpf),
+        cpf: maskCpf(signer.informedCpf ?? signer.declaredCpf),
         cargo: signer.informedCargo,
-        challengeId: args.challengeId,
+        // O QUE PROVA O ATO NESTA CERIMÔNIA: o desafio verificado, no caminho
+        // do código; a sessão do portal, no caminho da sessão. É o único campo
+        // em que as duas recusas divergem — e por isso é parâmetro, e não um
+        // segundo método.
+        ...proof,
       },
     });
 
@@ -3885,8 +4206,8 @@ export class SignatureEnvelopeService {
           status: EnvelopeSignerStatus.REFUSED,
           refusedAt: new Date(),
           refusalReason: reason,
-          ipAddress: args.ctx.ipAddress,
-          userAgent: args.ctx.userAgent,
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
         },
       });
 
@@ -3981,6 +4302,8 @@ export class SignatureEnvelopeService {
         }`,
       ),
     );
+
+    return { envelopeRefused };
   }
 
   /**
@@ -4026,7 +4349,7 @@ export class SignatureEnvelopeService {
       // O canal de CADA UM, do `authMethod` dele — não o da coleta. Num envelope
       // misto, ler o canal da coleta mandaria e-mail para quem entrou por
       // WhatsApp e gravaria o canal errado na trilha.
-      const channel = channelForAuthMethod(peer.authMethod);
+      const channel = this.deliveryChannelFor(peer, env.signers);
       const delivery = await this.deliverToSigner({
         signer: peer,
         channel,
@@ -4485,6 +4808,749 @@ export class SignatureEnvelopeService {
     return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
   }
 
+  // ===========================================================================
+  // O PORTAL DO CLIENTE — assinar por SESSÃO, sem código
+  // ===========================================================================
+
+  /**
+   * O que espera por ESTE contato, do lado dele.
+   *
+   * ⚠️ A PRIMEIRA CONSULTA DO SISTEMA A BUSCAR `EnvelopeSigner` POR
+   * `responsibleId`. A coluna é FK real desde a primeira migration e tem
+   * `@@unique([envelopeId, responsibleId])` — o signatário do cliente nunca foi
+   * "contato copiado" —, mas até aqui tudo o que a abria era o `accessToken` do
+   * link. É essa troca de chave que muda a natureza do acesso: o link é uma
+   * capability que se encaminha, a sessão é uma identidade que o servidor
+   * emitiu.
+   *
+   * DEVOLVE TAMBÉM O QUE ELE NÃO ASSINA AQUI. Um contato pode ter uma coleta
+   * antiga, emitida por código, ainda pendente: escondê-la faria o portal dizer
+   * "nada esperando por você" enquanto um orçamento espera. Cada linha diz a
+   * CERIMÔNIA dela e se o ato cabe no portal (`podeAssinarAqui`); quem não cabe
+   * é mandado para o link.
+   */
+  async listPendingForResponsible(responsibleId: string): Promise<
+    Array<{
+      signerId: string;
+      status: EnvelopeSignerStatus;
+      ceremony: CeremonyKind;
+      podeAssinarAqui: boolean;
+      envelope: {
+        id: string;
+        /**
+         * `Budget.id` — o endereço do orçamento, para o link "ver o orçamento".
+         *
+         * Sai daqui e não de uma segunda consulta: o `web` o usava para casar o
+         * envelope com a frota lida à parte, e agora o usa para NAVEGAR.
+         */
+        budgetId: string;
+        status: EnvelopeStatus;
+        budgetNumber: number;
+        deadlineAt: Date;
+        acceptanceClause: string | null;
+      };
+      documento: {
+        id: string | null;
+        sections: QuoteSection[];
+        label: string;
+        isFull: boolean;
+        sha256: string | null;
+      };
+      /** Segue o RECORTE: quem não recebeu PRICING não vê total em lugar nenhum. */
+      total: string | null;
+      /**
+       * OS VEÍCULOS COBERTOS, COM A IDENTIDADE QUE A TELA PRECISA — e não só um
+       * rótulo.
+       *
+       * ⛔ ELES VÊM DAQUI PORQUE A PERGUNTA É DESTE ENVELOPE. A tela de
+       * assinaturas precisa saber, por envelope, quais veículos estão sem número
+       * de pedido (o ⛔ PORTÃO DO COMPRAS) e em quais o campo de conserto vai
+       * gravar. Enquanto esta rota mandava só `{ id, label }`, o `web` só
+       * conseguia responder isso lendo a FROTA INTEIRA (`GET
+       * /cliente/me/veiculos?take=500`) e filtrando no navegador por
+       * `vehicle.budget.id` — uma segunda requisição, com o teto de 100 do
+       * schema estourado, para responder uma pergunta que já estava respondida
+       * aqui dentro. Um cliente com 358 veículos pagava 358 linhas para saber de
+       * 4.
+       *
+       * ⚠️ SEGUE O RECORTE, como `total` segue `PRICING`. Série, placa e número
+       * do pedido são seção `VEHICLE` (contrato §2); sem ela a lista vem VAZIA,
+       * e não com os campos nulos — vazio é "você não vê isto", campo nulo é
+       * "isto existe e está em branco", e as duas desenham telas diferentes.
+       *
+       * ⚠️ HOJE `VEHICLE` É `ALWAYS_SECTION` (`quote-sections.ts`): ela entra em
+       * TODO recorte que assina, inclusive o do Marketing — o PDF dele imprime o
+       * veículo, porque aprovar arte sem saber em qual caminhão ela vai não é
+       * aprovar nada. Ou seja: o piso abaixo não recorta ninguém no dado atual, e
+       * existe para que, no dia em que `ALWAYS_SECTIONS` mudar, esta rota mude
+       * junto — em vez de continuar mandando placa a quem o documento parou de
+       * mostrar, que é a classe de vazamento que este módulo inteiro persegue.
+       */
+      veiculos: Array<{
+        /** `Task.id` — é ele que vai em `taskIds` de `POST /cliente/me/pedidos`. */
+        taskId: string;
+        name: string | null;
+        /** Série, placa ou nome — o identificador humano, já resolvido. */
+        label: string;
+        serialNumber: string | null;
+        plate: string | null;
+        /** A coluna legada, que é a que a NFS-e e o boleto leem. */
+        customerOrderNumber: string | null;
+        /** A ENTIDADE do pedido. O portão aceita os dois lados da escrita dupla. */
+        purchaseOrder: { id: string; number: string; issuedAt: Date | null } | null;
+      }>;
+      /** O portão do pedido de compra, já resolvido para a tela. */
+      pedidoDeCompra: { exigido: boolean; pendente: boolean; mensagem: string | null };
+      declaracoes: Array<{ key: string; text: string }>;
+    }>
+  > {
+    const signers = await this.prisma.envelopeSigner.findMany({
+      where: {
+            responsibleId,
+        // SÓ O QUE DE FATO ESPERA POR ELE. `SIGNED`/`REFUSED`/`VOIDED` não são
+        // pendência, e um envelope fora de RUNNING não aceita ato nenhum
+        // (`assertSignable`) — listá-lo ofereceria um botão que o servidor
+        // recusaria em seguida.
+        status: {
+          in: [
+            EnvelopeSignerStatus.PENDING,
+            EnvelopeSignerStatus.VIEWED,
+            EnvelopeSignerStatus.AUTHENTICATED,
+          ],
+        },
+        envelope: { status: EnvelopeStatus.RUNNING },
+      },
+      include: {
+        document: true,
+        responsible: { select: { id: true, roles: true, companyId: true } },
+        envelope: {
+          include: {
+            signers: { select: { orderGroup: true, authMethod: true } },
+            quote: {
+              include: {
+                tasks: {
+                  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                  include: {
+                    customer: true,
+                    truck: true,
+                    // ⚠️ A ENTIDADE, além da coluna legada. `taskHasPurchaseOrder`
+                    // aceita os DOIS lados da escrita dupla, e a tela precisa
+                    // poder dizer "já no pedido 8842" — o que o `purchaseOrderId`
+                    // sozinho não escreve.
+                    purchaseOrder: { select: { id: true, number: true, issuedAt: true } },
+                    // ⛔ O CAMINHO DO PAGADOR, para o portão do pedido de compra
+                    // saber se ESTE contato pode emitir o pedido DESTE veículo.
+                    // `commercialTaskLink` FALHA FECHADO quando o `select` não
+                    // traz isto — e aqui falhar fechado no vínculo significaria
+                    // relaxar o portão justamente para quem PAGA, que é o caso
+                    // principal da feature (a Furgões emite o pedido e não é
+                    // dona do caminhão).
+                    billingEntry: {
+                      select: {
+                        billing: {
+                          select: { customerConfigs: { select: { customerId: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return signers.map(signer => {
+      const env = signer.envelope;
+      const sections = this.sectionsOf(signer.document);
+      const kind = this.ceremonyKindOf(signer.authMethod);
+      const tasks = sortQuoteTasks(env.quote?.tasks ?? []);
+      const customer = primaryTask(env.quote)?.customer ?? null;
+
+      // ⚠️ O RECORTE, antes de copiar campo nenhum. Ver a nota do tipo acima:
+      // série, placa e número do pedido são `VEHICLE`, e quem não a recebeu
+      // recebe lista vazia — nunca campos nulos, que seriam a afirmação de que
+      // o veículo não tem placa.
+      const veVeiculo = hasSection(sections, 'VEHICLE');
+      const veiculos = veVeiculo
+        ? tasks.map(t => ({
+            taskId: t.id,
+            name: t.name ?? null,
+            label:
+              (t.serialNumber || undefined) ??
+              (t.truck?.plate || undefined) ??
+              (t.name || undefined) ??
+              t.id.slice(0, 8),
+            serialNumber: t.serialNumber ?? null,
+            plate: t.truck?.plate ?? null,
+            customerOrderNumber: (t.customerOrderNumber ?? '').trim() || null,
+            purchaseOrder: t.purchaseOrder
+              ? {
+                  id: t.purchaseOrder.id,
+                  number: t.purchaseOrder.number,
+                  issuedAt: t.purchaseOrder.issuedAt ?? null,
+                }
+              : null,
+          }))
+        : [];
+
+      // ⛔ O VEREDITO OLHA `tasks`, NUNCA `veiculos`. O recorte acima esvazia a
+      // lista para quem não tem `VEHICLE`, e um portão alimentado pela lista
+      // recortada diria "nenhum veículo, nada a cobrar" — liberando por falta de
+      // visão o que o servidor recusaria com 403 no ato.
+      const gate = purchaseOrderGateVerdict({
+        roles: signer.responsible?.roles ?? [],
+        vehicles: tasks.map(t => ({
+          ...t,
+          // (a) PAGADOR ∨ (b) DONO — o MESMO predicado que
+          // `POST /cliente/me/pedidos` usa no `where`. Se as duas portas não
+          // lessem a mesma regra, o portão cobraria o que a outra recusa.
+          canIssuePurchaseOrder:
+            commercialTaskLink(t as any, signer.responsible?.companyId ?? null) !== null,
+        })),
+      });
+
+      return {
+        signerId: signer.id,
+        status: signer.status,
+        ceremony: kind,
+        podeAssinarAqui: kind === 'PORTAL',
+        envelope: {
+          id: env.id,
+          budgetId: env.quote.id,
+          status: env.status,
+          budgetNumber: env.quote.budgetNumber,
+          deadlineAt: env.deadlineAt,
+          acceptanceClause: env.acceptanceClause,
+        },
+        documento: {
+          id: signer.documentId ?? null,
+          sections,
+          label: describeSections(sections),
+          isFull: isFullSections(sections),
+          sha256: signer.document?.originalSha256 ?? env.originalSha256 ?? null,
+        },
+        // MESMA REGRA DA PÁGINA PÚBLICA: o total segue o recorte. Mandá-lo a
+        // quem não recebeu a seção de preços desfaria, numa linha de JSON, a
+        // decisão inteira de não lhe mostrar o valor.
+        total: hasSection(sections, 'PRICING')
+          ? formatCurrencyBRL(Number(env.quote.total))
+          : null,
+        veiculos,
+        pedidoDeCompra: {
+          exigido: isSolePurchasingContact(signer.responsible?.roles ?? []),
+          pendente: gate.blocked,
+          mensagem: gate.message,
+        },
+        // O TEXTO EXATO que ele vai aceitar, renderizado aqui e não na tela: é
+        // ele que será persistido byte a byte em `declarations`, e montá-lo no
+        // navegador faria o que foi exibido e o que foi guardado poderem
+        // divergir — que é justamente o que este módulo existe para impedir.
+        declaracoes:
+          kind === 'PORTAL'
+            ? this.renderDeclarationsFor({
+                kind,
+                channel: this.noticeChannelOf(env.signers ?? []),
+                sections,
+                budgetNumber: env.quote.budgetNumber,
+                total: Number(env.quote.total),
+                cargo:
+                  signer.informedCargo ||
+                  fitCargo(formatResponsibleRoles(signer.responsible?.roles ?? [])) ||
+                  null,
+                company: customer?.corporateName ?? customer?.fantasyName ?? '',
+              })
+            : [],
+      };
+    });
+  }
+
+  /**
+   * O ato: o contato do cliente assina de dentro do Portal do Cliente.
+   *
+   * É `countersign` do lado do CLIENTE — mesma `assertSignable`, mesma
+   * reconferência de frescor no instante do ato, mesma evidência + HMAC —, com
+   * três diferenças que valem a leitura:
+   *
+   *   1. **NENHUM `SigningChallenge` é emitido nem consumido.** A prova de
+   *      identidade deste ato é a sessão do portal, que o servidor emitiu e que
+   *      não se encaminha. `SigningChallenge.signerId` continua sendo FK dura
+   *      para `EnvelopeSigner`, e isso não atrapalha: assinatura por sessão não
+   *      cria desafio nenhum.
+   *
+   *   2. **O signatário é resolvido por `{ id, responsibleId }`**, nunca por
+   *      token. Um `findUnique({ id })` seguido de um `if` de conferência daria
+   *      o mesmo resultado e abriria um oráculo: "este id existe" e "este id é
+   *      meu" responderiam diferente. Com o par no `where`, o signatário de
+   *      outra pessoa simplesmente não existe.
+   *
+   *   3. **O PORTÃO DO PEDIDO DE COMPRA** (§7 do contrato) roda aqui, e só aqui
+   *      ele pode rodar: é o único ponto em que se sabe quem assina, o que ele
+   *      assina e o que já existe de pedido para cada veículo.
+   */
+  async signByPortalSession(args: {
+    signerId: string;
+    /** O principal da sessão do portal. NUNCA um `User`. */
+    responsible: {
+      id: string;
+      sessionId?: string | null;
+      name?: string | null;
+      roles?: readonly string[] | null;
+      companyId?: string | null;
+    };
+    /** Opcional: cai no CPF do cadastro quando já existe. */
+    cpf?: string | null;
+    /** Opcional: cai no cargo congelado, e depois nas funções do cadastro. */
+    cargo?: string | null;
+    acceptedDeclarationKeys: string[];
+    clientTimestamp?: string | null;
+    geo?: { lat?: number; lon?: number; accuracy?: number | null } | null;
+    ctx: RequestContext;
+  }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
+    this.assertCeremonyConfigured();
+
+    // ⚠️ O PAR NO `where`, e não um `findUnique` + `if`. Ver a nota (2) acima.
+    const signer = await this.prisma.envelopeSigner.findFirst({
+      where: { id: args.signerId, responsibleId: args.responsible.id },
+      include: {
+        document: true,
+        responsible: { select: { id: true, name: true, roles: true, cpf: true, companyId: true } },
+        envelope: {
+          include: {
+            signers: { select: { id: true, orderGroup: true, authMethod: true, status: true } },
+            documents: {
+              select: { id: true, variantKey: true, sections: true, originalSha256: true },
+            },
+            quote: {
+              include: {
+                tasks: {
+                  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                  include: {
+                    customer: true,
+                    truck: true,
+                    // O caminho do pagador — mesma razão do `select` da
+                    // listagem: sem ele o portão relaxaria para quem PAGA.
+                    billingEntry: {
+                      select: {
+                        billing: {
+                          select: { customerConfigs: { select: { customerId: true } } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!signer) {
+      throw new NotFoundException(
+        'Esta assinatura não existe ou não é sua. Confira a lista de pendências do portal.',
+      );
+    }
+    const env = signer.envelope;
+
+    // ── COLETAS EMITIDAS POR CÓDIGO FICAM DE FORA ────────────────────────────
+    //
+    // Espelho exato de `countersign`, e pelo MESMO motivo — só que do outro
+    // lado. Naquela coleta o documento imprime, no corpo, que o CONTRATANTE se
+    // autentica "por código de uso único enviado…", e a declaração que o
+    // signatário vai ler afirma posse do canal. Fechá-la por sessão criaria a
+    // contradição interna que a v3 destas constantes existiu para consertar: o
+    // instrumento descreveria um método que não foi o usado, entregando ao
+    // adversário a primeira linha de defesa de graça (MP 2.200-2, art. 10 §2º).
+    //
+    // A cerimônia é escolhida NA EMISSÃO, antes de os bytes congelarem. Não há
+    // conversão depois — o link com código daquela coleta continua valendo, e é
+    // para ele que a mensagem manda.
+    if (this.ceremonyKindOf(signer.authMethod) !== 'PORTAL') {
+      throw new BadRequestException(
+        'Esta coleta foi emitida para assinatura por código de uso único. ' +
+          'Conclua pelo link que você recebeu — o documento assinado descreve aquele método, ' +
+          'e ele não pode ser trocado depois de emitido.',
+      );
+    }
+
+    // Mesma porta de todos os atos: status, prazo, já-assinou e a ordem.
+    await this.assertSignable(env, signer);
+
+    const tasks = sortQuoteTasks(env.quote?.tasks ?? []);
+    const roles = signer.responsible?.roles ?? [];
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // O PORTÃO DO PEDIDO DE COMPRA — exigência explícita do dono
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Quem tem Compras como ÚNICA função só assina com o número do pedido no
+    // veículo. Quem acumula Compras com Comercial/Vendedor/Representante/
+    // Coordenador NÃO é barrado — essas quatro recebem o documento inteiro e
+    // aprovam o negócio. A regra e a razão moram em `purchase-order-gate.ts`.
+    //
+    // ⚠️ AQUI, E NÃO NA EMISSÃO. Na emissão o número pode legitimamente não
+    // existir ainda (é o próprio Compras que vai emiti-lo, muitas vezes depois
+    // de ver o orçamento); no instante do clique ele ou existe ou não existe, e
+    // é aí que a cobrança é barata. É a mesma escolha que `countersign` faz com
+    // as lacunas de cadastro tardio, com o sinal trocado: lá a ausência é
+    // normal e se REGISTRA; aqui ela é o que o dono mandou BARRAR.
+    const gate = purchaseOrderGateVerdict({
+      roles,
+      vehicles: tasks.map(t => ({
+        ...t,
+        canIssuePurchaseOrder:
+          commercialTaskLink(t as any, signer.responsible?.companyId ?? null) !== null,
+      })),
+    });
+    if (gate.blocked) {
+      // A mensagem é LITERAL e vem da constante — a tela do portal a reconhece
+      // para desenhar o atalho de "informar o pedido" em vez de um toast cru.
+      throw new ForbiddenException(gate.message ?? PURCHASE_ORDER_REQUIRED_MESSAGE);
+    }
+
+    // As declarações do PORTAL: `reviewed`, `authority`, `method`. `identity`
+    // não entra — não há canal a declarar nesta cerimônia —, e `authority` é
+    // justamente a que não pode sair (CC art. 118). Ver `declarationsFor`.
+    const required = [...declarationKeysFor('PORTAL')];
+    const missing = required.filter(k => !args.acceptedDeclarationKeys.includes(k));
+    if (missing.length) {
+      throw new BadRequestException('É necessário aceitar todas as declarações para assinar.');
+    }
+
+    // ── CARGO ────────────────────────────────────────────────────────────────
+    //
+    // Ordem: o que ele digitou → o congelado no envelope → as funções do
+    // cadastro. A terceira fonte é a mesma que a página pública já oferece como
+    // `registryCargo`, e `fitCargo` existe porque as nove funções do cadastro
+    // passam de 113 caracteres — acima do teto que o próprio schema impõe.
+    //
+    // Vazio BARRA: `authority` diz "exerço o cargo de {cargo}", e um `{cargo}`
+    // que renderiza "—" é uma declaração de poderes sem sujeito.
+    const cargo =
+      fitCargo((args.cargo ?? '').trim()) ||
+      fitCargo(signer.informedCargo ?? '') ||
+      fitCargo(formatResponsibleRoles(roles));
+    if (!cargo) {
+      throw new BadRequestException('Informe seu cargo na empresa antes de assinar.');
+    }
+
+    // ── CPF ──────────────────────────────────────────────────────────────────
+    //
+    // Diferente de `countersign`, aqui o CPF NÃO é dispensável. Lá a identidade
+    // do ato é um `User` com vínculo empregatício e a ausência é problema nosso;
+    // aqui é o CONTRATANTE que assina, o CPF sai no selo e é ele que amarra a
+    // pessoa ao ato (e, com sorte, ao QSA do CNPJ — ver §4.4 do desenho).
+    // Aceita-se o do cadastro quando já existe; digitado, tem de CONFERIR.
+    const declaredCpf = signer.declaredCpf ? onlyDigits(signer.declaredCpf) : null;
+    const informed = onlyDigits(args.cpf ?? '') || declaredCpf || '';
+    if (!isCpfWellFormed(informed)) {
+      throw new BadRequestException('CPF inválido.');
+    }
+    const cpfMatch = declaredCpf ? declaredCpf === informed : null;
+    if (declaredCpf && !cpfMatch) {
+      throw new BadRequestException(
+        'Os dígitos do CPF não conferem com o cadastro. Confira ou fale com a Ankaa.',
+      );
+    }
+
+    // ── GARANTIA DE FRESCOR, no instante do ato ──────────────────────────────
+    //
+    // Idêntica à dos outros dois caminhos e pelo mesmo motivo: a pergunta "as
+    // CONDIÇÕES ainda são as que foram congeladas?" só é juridicamente decisiva
+    // agora. Dezenas de caminhos alteram o que o documento exibe e perseguir
+    // call site por call site não se sustenta.
+    //
+    // `actorUserId: null` — não há `User` neste ato, e inventar um gravaria um
+    // id de contato numa coluna FK de `User`. É a regra do portal inteiro.
+    const fresh = await this.snapshots.buildForQuote(env.quoteId);
+    if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
+      const invalidated = await this.onQuoteContentChanged(env.quoteId, null);
+      if (invalidated) {
+        throw new BadRequestException(
+          'O orçamento foi alterado desde o envio. Uma nova versão será enviada para sua revisão.',
+        );
+      }
+    }
+
+    const customer = primaryTask(env.quote)?.customer ?? null;
+    const sections = this.sectionsOf(signer.document);
+    const declarations = this.renderDeclarationsFor({
+      kind: 'PORTAL',
+      // Irrelevante para o texto do portal (nenhuma declaração dele cita canal),
+      // mas passado de verdade e não chutado: `renderDeclarationsFor` é um só
+      // lugar para os quatro caminhos, e um valor inventado aqui viraria o
+      // primeiro ponto onde os textos podem divergir.
+      channel: this.noticeChannelOf(env.signers),
+      sections,
+      budgetNumber: env.quote.budgetNumber,
+      total: Number(env.quote.total),
+      cargo,
+      company: customer?.corporateName ?? customer?.fantasyName ?? '',
+    }).map(d => ({
+      ...d,
+      acceptedAt: new Date().toISOString(),
+      version: DECLARATIONS_VERSION,
+    }));
+
+    await this.audit.record(env.id, {
+      eventType: 'DECLARATIONS_ACCEPTED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      payload: {
+        version: DECLARATIONS_VERSION,
+        count: declarations.length,
+        ceremony: 'responsible_session',
+      },
+    });
+
+    const serverTimestamp = new Date();
+    const clientSignedAt = this.parseClientTimestamp(args.clientTimestamp);
+    const geo = this.normalizeGeo(args.geo);
+    const evidence = {
+      envelopeId: env.id,
+      signerId: signer.id,
+      // O documento que ELE assinou — o recorte dele, nunca o do envelope.
+      documentId: signer.documentId,
+      documentSections: sections,
+      documentSha256: signer.document?.originalSha256 ?? env.originalSha256,
+      declaredName: signer.declaredName,
+      declaredPhone: signer.declaredPhone,
+      declaredEmail: signer.declaredEmail,
+      informedCpf: informed,
+      informedCargo: cargo,
+      cpfMatch,
+      authMethod: SignatureAuthMethod.RESPONSIBLE_SESSION,
+      // ⚠️ A PROVA DE IDENTIDADE DESTE ATO: a sessão do Portal do Cliente — que
+      // o servidor emitiu, que é relida do banco a cada requisição e que não se
+      // encaminha —, e o contato a que ela pertence. Onde o caminho do código
+      // grava `challengeId`, este grava a sessão. Sem um dos dois a evidência
+      // não diria COMO a pessoa foi autenticada.
+      responsibleId: args.responsible.id,
+      portalSessionId: args.responsible.sessionId ?? null,
+      responsibleRoles: [...roles],
+      // ⚠️ O PORTÃO DO PEDIDO DE COMPRA, quando ele se aplicou.
+      //
+      // Só quando Compras é a ÚNICA função: é o caso em que a assinatura
+      // depende de uma condição externa ao documento, e a prova de que ela
+      // estava satisfeita NO INSTANTE DO ATO tem de viajar dentro da evidência
+      // — o número pode ser editado depois, e a trilha é o que fixa o que o
+      // servidor viu.
+      ...(isSolePurchasingContact(roles)
+        ? {
+            comprasGate: {
+              aplicado: true,
+              veiculos: tasks.map(t => ({
+                taskId: t.id,
+                purchaseOrderId: t.purchaseOrderId ?? null,
+                numeroDoPedido: (t.customerOrderNumber ?? '').trim() || null,
+              })),
+            },
+          }
+        : {}),
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      clientTimestamp: clientSignedAt ? clientSignedAt.toISOString() : null,
+      serverTimestamp: serverTimestamp.toISOString(),
+      // Arredondado a 4 casas (~11m) por minimização — LGPD art. 6º, III.
+      geoLat: geo ? Number(geo.lat.toFixed(4)) : null,
+      geoLon: geo ? Number(geo.lon.toFixed(4)) : null,
+      declarations,
+    };
+
+    const evidenceHash = sha256Hex(evidence);
+    const pepper = this.config.get<string>('SIGNATURE_HMAC_SECRET');
+    if (!pepper) {
+      throw new ServiceUnavailableException(
+        'Assinatura eletrônica temporariamente indisponível (configuração do servidor). ' +
+          'Entre em contato com a Ankaa.',
+      );
+    }
+    const hmacSignature = createHmac('sha256', pepper).update(evidenceHash).digest('hex');
+
+    await this.prisma.envelopeSigner.update({
+      where: { id: signer.id },
+      data: {
+        status: EnvelopeSignerStatus.SIGNED,
+        signedAt: serverTimestamp,
+        clientSignedAt,
+        informedCpf: informed,
+        informedCargo: cargo,
+        cpfMatch,
+        // Primeira vez: o cadastro não tinha CPF, então o que ele informou passa
+        // a SER o declarado deste envelope — a mesma regra de `requestOtp`, sem
+        // a qual a conferência acima aceitaria qualquer CPF válido na próxima
+        // tentativa.
+        ...(declaredCpf ? {} : { declaredCpf: informed }),
+        ipAddress: args.ctx.ipAddress,
+        userAgent: args.ctx.userAgent,
+        geoLat: geo ? new Prisma.Decimal(geo.lat.toFixed(6)) : null,
+        geoLon: geo ? new Prisma.Decimal(geo.lon.toFixed(6)) : null,
+        geoAccuracyM: geo?.accuracy ? Math.round(geo.accuracy) : null,
+        // `responsible_session` e não `gps`/`denied` sozinhos: o campo descreve
+        // a PROCEDÊNCIA do ato, e aqui ela é a sessão do portal.
+        geoSource: geo ? 'gps' : 'responsible_session',
+        declarations: declarations as unknown as Prisma.InputJsonValue,
+        evidenceJson: evidence as unknown as Prisma.InputJsonValue,
+        evidenceHash,
+        hmacSignature,
+      },
+    });
+
+    if (!declaredCpf) await this.persistCpfToResponsible(signer, informed);
+
+    await this.audit.record(env.id, {
+      eventType: 'SIGNATURE_APPLIED',
+      actorType: 'SIGNER',
+      actorId: signer.id,
+      actorLabel: signer.declaredName,
+      ipAddress: args.ctx.ipAddress,
+      userAgent: args.ctx.userAgent,
+      documentHash: signer.document?.originalSha256 ?? env.originalSha256,
+      payload: {
+        evidenceHash,
+        cargo,
+        variant: signer.document?.variantKey ?? null,
+        sections,
+        ceremony: 'responsible_session',
+        portalSessionId: args.responsible.sessionId ?? null,
+        ...(isSolePurchasingContact(roles) ? { comprasGate: 'aprovado' } : {}),
+      },
+    });
+
+    const envelopeStatus = await this.advanceEnvelope(env.id);
+    return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
+  }
+
+  /**
+   * A RECUSA PELO PORTAL — o mesmo ato de `refuse`, com a credencial trocada.
+   *
+   * ⛔ POR QUE ESTA ROTA TEM DE EXISTIR. A cerimônia pública tem
+   * `POST /assinatura/publico/:token/recusar`; a do portal não tinha equivalente,
+   * e o contato do cliente entrava no Portal e encontrava só o botão de ACEITAR.
+   * Num instrumento isso não é simplificação de tela: a recusa é ato jurídico do
+   * mesmo peso que a aceitação (CC art. 431 — aceitação fora do prazo ou com
+   * modificações importa nova proposta), e quem não pode dizer "não" pelo canal
+   * em que foi chamado a dizer "sim" é empurrado para fora do registro. O "não"
+   * vira telefonema, e telefonema não entra na trilha encadeada.
+   *
+   * ⚠️ E CONTINUA VALENDO O QUE `tests/signature-refusal.test.ts` FIXA: recusar
+   * NÃO derruba a assinatura de ninguém. Quem já assinou continua `SIGNED`, com o
+   * PDF congelado idêntico; a coleta só morre quando não sobra mais ninguém do
+   * lado do cliente. Isso mora em `applyRefusal`, que os dois caminhos chamam —
+   * é essa partilha que impede as duas recusas de divergirem no primeiro
+   * conserto.
+   *
+   * ⚠️ NÃO EXIGE CPF NEM CARGO, ao contrário do ato de ASSINAR. Lá o CPF entra no
+   * SELO e é ele que amarra a pessoa à obrigação que ela assumiu (§4.4 do
+   * desenho); aqui não se assume obrigação nenhuma, não se sela documento nenhum,
+   * e quem age já está nomeado pela sessão — `responsibleId` e `portalSessionId`
+   * vão para a trilha. Cobrar mais para recusar do que para aceitar recriaria, em
+   * forma de formulário, a assimetria que esta rota existe para desfazer.
+   *
+   * ⚠️ RECUSAR A ASSINATURA ≠ RECUSAR O ORÇAMENTO. `PUT /cliente/me/orcamentos/
+   * :id/recusar` devolve um orçamento EM NEGOCIAÇÃO ao comercial, antes de
+   * existir coleta. Esta aqui é o ato dentro de uma coleta já lançada, e é a
+   * única das duas que produz evidência no envelope.
+   */
+  async refuseByPortalSession(args: {
+    signerId: string;
+    /** O principal da sessão do portal. NUNCA um `User`. */
+    responsible: {
+      id: string;
+      sessionId?: string | null;
+      name?: string | null;
+      roles?: readonly string[] | null;
+      companyId?: string | null;
+    };
+    reason: string;
+    ctx: RequestContext;
+  }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
+    this.assertCeremonyConfigured();
+
+    // O motivo é OBRIGATÓRIO e aparado aqui TAMBÉM. O zod da borda já o exige; a
+    // repetição é a mesma de `refuse`, e existe porque um serviço chamado de
+    // outro lugar não pode gravar recusa sem causa — é o motivo que o comercial
+    // vai ler para decidir o que fazer com o orçamento.
+    const reason = (args.reason ?? '').trim();
+    if (!reason) {
+      throw new BadRequestException('Informe o motivo da recusa.');
+    }
+
+    // ⚠️ O PAR NO `where`, exatamente como em `signByPortalSession`: a assinatura
+    // de outra pessoa não EXISTE, em vez de existir e ser negada. Um
+    // `findUnique({ id })` seguido de `if (signer.responsibleId !== …)` daria o
+    // mesmo veredito e abriria um oráculo de ids.
+    const signer = await this.prisma.envelopeSigner.findFirst({
+      where: { id: args.signerId, responsibleId: args.responsible.id },
+      include: { envelope: true },
+    });
+    if (!signer) {
+      throw new NotFoundException(
+        'Esta assinatura não existe ou não é sua. Confira a lista de pendências do portal.',
+      );
+    }
+    const env = signer.envelope;
+
+    // ── COLETA EMITIDA POR CÓDIGO FICA DE FORA, como no ato de assinar ───────
+    //
+    // Mesmo espelho de `signByPortalSession`, e pela mesma razão: a cerimônia é
+    // escolhida na EMISSÃO e não se converte depois. Se a coleta daquele
+    // signatário se autentica por código, é lá que o ato — aceitar ou recusar —
+    // fica provado; registrar aqui uma recusa sem o desafio que aquela cerimônia
+    // promete produziria evidência de qualidade menor do que o instrumento
+    // descreve.
+    if (this.ceremonyKindOf(signer.authMethod) !== 'PORTAL') {
+      throw new BadRequestException(
+        'Esta coleta foi emitida para assinatura por código de uso único. ' +
+          'Registre a recusa pelo link que você recebeu — é lá que ela fica provada.',
+      );
+    }
+
+    // A MESMA PORTA DE TODOS OS ATOS. Recusar é ato da mesma coleta: envelope
+    // terminal, prazo vencido, já ter assinado ou já ter recusado barram os dois
+    // sentidos. Um "recusar" que funcionasse onde "assinar" não funciona seria
+    // uma segunda régua discordando da primeira.
+    await this.assertSignable(env, signer);
+
+    const { envelopeRefused } = await this.applyRefusal({
+      env,
+      signer,
+      reason,
+      ctx: args.ctx,
+      proof: {
+        ceremony: 'responsible_session',
+        // A PROVA DE IDENTIDADE DESTE ATO — a mesma que a evidência da
+        // assinatura por sessão grava: o contato e a sessão que o servidor
+        // emitiu. Onde o caminho do código escreve `challengeId`, este escreve a
+        // sessão; sem um dos dois a trilha não diria COMO a pessoa foi
+        // autenticada para recusar.
+        responsibleId: args.responsible.id,
+        portalSessionId: args.responsible.sessionId ?? null,
+        responsibleRoles: [...(args.responsible.roles ?? [])],
+      },
+    });
+
+    // Sem reler o envelope: `applyRefusal` acabou de decidir entre os dois casos,
+    // e uma releitura só acrescentaria a janela em que o que se devolve discorda
+    // do que se gravou.
+    //
+    // ⚠️ `RUNNING` aqui é a verdade DESCONFORTÁVEL, e é de propósito que ela
+    // apareça: com colegas ainda pendentes, a coleta continua viva e TRAVADA —
+    // `advanceEnvelope` conta o `REFUSED` como pendente e a conclusão nunca
+    // chega. Quem destrava é o operador, reabrindo o recusante por
+    // `resendInvitation` (que exige justamente `RUNNING`). Devolver outra coisa
+    // aqui faria a tela do cliente afirmar um desfecho que não houve.
+    return {
+      status: EnvelopeSignerStatus.REFUSED,
+      envelopeStatus: envelopeRefused ? EnvelopeStatus.REFUSED : EnvelopeStatus.RUNNING,
+    };
+  }
+
   /**
    * Troca QUEM contra-assina numa coleta ainda em andamento.
    *
@@ -4672,7 +5738,22 @@ export class SignatureEnvelopeService {
    * para descobrir que o botão estava na tela ao lado.
    */
   private assertOtpCeremony(signer: { authMethod: SignatureAuthMethod }): void {
-    if (this.ceremonyKindOf(signer.authMethod) !== 'INTERNAL') return;
+    const kind = this.ceremonyKindOf(signer.authMethod);
+    if (kind === 'OTP') return;
+
+    // ⚠️ RAMO PRÓPRIO PARA O PORTAL, e não uma mensagem genérica de "não é
+    // aqui". O texto diz ONDE assinar, e as duas sessões assinam em lugares
+    // diferentes: o diretor, no painel interno; o contato do cliente, no Portal
+    // do Cliente. Mandar o cliente "entrar com a sua conta na tela do
+    // orçamento" seria mandá-lo a uma tela que ele não pode abrir.
+    if (kind === 'PORTAL') {
+      throw new ForbiddenException(
+        'Esta coleta é assinada dentro do Portal do Cliente, com a sua sessão. ' +
+          'Entre no portal, abra o orçamento e conclua por lá. ' +
+          'Este link serve apenas para conferir o documento.',
+      );
+    }
+
     throw new ForbiddenException(
       'A contra-assinatura da Ankaa é feita dentro do sistema, na tela do orçamento, ' +
         'com a sua conta. Este link serve apenas para conferir o documento.',
@@ -6112,10 +7193,10 @@ export class SignatureEnvelopeService {
       // `channelForAuthMethod` devolveria e-mail para ele numa coleta de
       // WhatsApp — mandando o aviso por um canal que a cerimônia não usou e
       // gravando "email" na trilha append-only de um envelope de WhatsApp.
-      const channel =
-        this.ceremonyKindOf(s.authMethod) === 'INTERNAL'
-          ? this.noticeChannelOf(running.signers)
-          : channelForAuthMethod(s.authMethod);
+      //
+      // `isSessionCeremony` e não `=== 'INTERNAL'`: `RESPONSIBLE_SESSION`
+      // também não é canal, e cairia no padrão EMAIL de `channelForAuthMethod`.
+      const channel = this.deliveryChannelFor(s, running.signers);
       const voidNotice = await this.deliverToSigner({
         signer: s,
         channel,
@@ -6244,6 +7325,39 @@ export class SignatureEnvelopeService {
   // ===========================================================================
   // DOCUMENTO SERVIDO
   // ===========================================================================
+
+  /**
+   * O PDF DO RECORTE DESTE SIGNATÁRIO, pela SESSÃO DO PORTAL.
+   *
+   * ⛔ A ROTA PÚBLICA DO ORÇAMENTO NÃO SUBSTITUI ESTA. Ela serve o documento
+   * COMPLETO — a capability dela é o UUID do orçamento —, e um signatário do
+   * portal pode ter recebido um RECORTE: o Marketing do cliente assina a fatia
+   * de `LAYOUT` e não recebeu `PRICING`. Servir-lhe o instrumento inteiro
+   * mostraria o preço que a emissão decidiu não lhe mostrar, que é a mesma
+   * classe de vazamento de `GET /budgets/public/:id`. O que se serve é
+   * `EnvelopeSigner.documentId` — o recorte DELE —, exatamente como a rota
+   * pública do signatário já faz com o token.
+   *
+   * ⚠️ O PAR NO `where`, nunca `findUnique` + `if`. Mesma doutrina de
+   * `signByPortalSession`: com `{ id, responsibleId }` o signatário de outra
+   * pessoa não EXISTE, em vez de existir e ser negado — que é a diferença entre
+   * um `where` e um oráculo de ids válidos.
+   */
+  async renderDocumentForResponsible(
+    signerId: string,
+    responsibleId: string,
+  ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
+    const signer = await this.prisma.envelopeSigner.findFirst({
+      where: { id: signerId, responsibleId },
+      select: { envelopeId: true, documentId: true },
+    });
+    if (!signer) {
+      throw new NotFoundException(
+        'Esta assinatura não existe ou não é sua. Confira a lista de pendências do portal.',
+      );
+    }
+    return this.renderServedDocument(signer.envelopeId, signer.documentId);
+  }
 
   /**
    * PDF servido "ao vivo": os bytes congelados + os selos de quem já assinou.
@@ -7652,7 +8766,18 @@ export class SignatureEnvelopeService {
     // `SIGNATURE_DELIVERY_CHANNEL`: trocar o canal no meio de uma coleta viva
     // mandaria o link para um contato diferente daquele que o hash material
     // congelou, e a próxima conferência derrubaria o envelope.
-    const channel = channelForAuthMethod(signer.authMethod);
+    //
+    // ⚠️ O SIGNATÁRIO DE PORTAL NÃO CARREGA CANAL. `RESPONSIBLE_SESSION` não é
+    // e-mail nem WhatsApp, e `channelForAuthMethod` devolveria o padrão (EMAIL)
+    // para ele — o reenvio de uma coleta de WhatsApp sairia por e-mail, com
+    // "email" gravado na trilha append-only. Ele cai no canal de AVISO da
+    // coleta, o mesmo de que a contra-assinatura se serve, e pela mesma razão.
+    //
+    // E o que ele recebe continua sendo o link: para quem assina pelo portal, a
+    // página pública é onde se CONFERE o documento (`canSign: false` +
+    // `portalNotice` explicam onde o ato acontece). É a mesma doutrina do lado
+    // da Ankaa — token e página para ler, ato em outro lugar.
+    const channel = this.deliveryChannelFor(signer, signer.envelope.signers);
 
     // ═══════════════════════════════════════════════════════════════════════
     // REENVIAR A QUEM RECUSOU É PEDIR DE NOVO — e reabre a vez dele

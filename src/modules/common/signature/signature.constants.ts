@@ -43,11 +43,36 @@
  *      identidade vem da sessão e os poderes, do vínculo empregatício. Ver
  *      `declarationsFor({ kind: 'INTERNAL' })`.
  *
+ * v5 (2026-09-20): o CONTRATANTE passou a poder assinar de dentro do PORTAL DO
+ * CLIENTE, em sessão autenticada, sem código de uso único
+ * (`SignatureAuthMethod.RESPONSIBLE_SESSION`). Isso obrigou DUAS mudanças de
+ * texto, e nenhuma delas é cosmética.
+ *
+ *   1. **A cláusula de aceitação passou a ter variante.** Ela é IMPRESSA no
+ *      corpo do orçamento e CONGELADA com os bytes, e dizia que o CONTRATANTE se
+ *      autentica "por código de uso único enviado…". Numa coleta assinada pelo
+ *      portal essa frase é falsa dentro do próprio instrumento assinado — o
+ *      mesmo defeito que a v3 existiu para consertar, agora do lado do cliente.
+ *      Por isso `acceptanceClauseFor` recebe a CERIMÔNIA do cliente, e a escolha
+ *      é feita NA EMISSÃO: não se converte signatário de código em signatário de
+ *      sessão depois, porque os bytes já estão congelados (é a mesma razão pela
+ *      qual `countersign` recusa envelope pré-reforma).
+ *
+ *   2. **O conjunto de declarações do portal larga `identity` e MANTÉM
+ *      `authority`.** `identity` afirma posse do canal que recebeu o código — e
+ *      no portal não há código nenhum nesta cerimônia: a posse do canal já foi
+ *      provada no LOGIN, pela mesma plataforma, e repeti-la aqui seria colher
+ *      uma declaração sobre um ato que não aconteceu. `authority` fica, e fica
+ *      porque é a que importa: a disputa provável em B2B não é "um impostor
+ *      assinou", é "quem assinou não podia obrigar a empresa" (CC art. 118; ver
+ *      `BUDGET-SIGNATURE-DESIGN.md` §4.4). Uma sessão prova QUEM é; ela não diz
+ *      nada sobre PODERES, e é justamente o que falta que precisa ser declarado.
+ *
  * Envelopes já assinados não são afetados: `EnvelopeSigner.declarations` guarda
  * o texto exato que aquela pessoa leu, e `SignatureEnvelope.acceptanceClause` é
  * persistida por envelope. Nenhum dos dois é retroalimentado.
  */
-export const DECLARATIONS_VERSION = 4;
+export const DECLARATIONS_VERSION = 5;
 
 /** O canal de uma coleta, no vocabulário de `signature-delivery.ts`. */
 type ClauseChannel = 'WHATSAPP' | 'EMAIL';
@@ -57,9 +82,19 @@ type ClauseChannel = 'WHATSAPP' | 'EMAIL';
  *
  * `OTP` é o contato do cliente, que prova posse do canal com um código de uso
  * único. `INTERNAL` é o signatário da Ankaa, autenticado pela sessão da própria
- * plataforma — ver `SignatureAuthMethod.INTERNAL_SESSION`.
+ * plataforma — ver `SignatureAuthMethod.INTERNAL_SESSION`. `PORTAL` é o contato
+ * do CLIENTE autenticado na sessão do Portal do Cliente
+ * (`SignatureAuthMethod.RESPONSIBLE_SESSION`).
+ *
+ * ⚠️ `PORTAL` É UM TERCEIRO VALOR, e não um apelido de `INTERNAL`. Os dois são
+ * "sessão", e é aí que mora a armadilha: `INTERNAL` significa, em todo lugar que
+ * o consome, LADO ANKAA — não recebe convite, não assina pelo link público, o
+ * aviso dele tem outro template e o botão dele mora no painel interno. Um
+ * signatário do cliente marcado como `INTERNAL` herdaria os quatro
+ * comportamentos em silêncio. O que `PORTAL` compartilha com `INTERNAL` é
+ * apenas a ausência de código; tudo o mais é do lado do cliente.
  */
-export type CeremonyKind = 'OTP' | 'INTERNAL';
+export type CeremonyKind = 'OTP' | 'INTERNAL' | 'PORTAL';
 
 /**
  * Cláusula impressa no corpo do orçamento.
@@ -74,17 +109,51 @@ export type CeremonyKind = 'OTP' | 'INTERNAL';
  * O trecho que descreve o MEIO segue o canal: é ele que precisa bater com o que
  * a trilha de auditoria e o selo do PDF registram.
  */
-export function acceptanceClauseFor(channel: ClauseChannel): string {
-  const delivery =
-    channel === 'WHATSAPP'
-      ? 'enviado por WhatsApp ao número de telefone celular cadastrado do signatário'
-      : 'enviado ao endereço de e-mail cadastrado do signatário';
+export function acceptanceClauseFor(
+  channel: ClauseChannel,
+  /**
+   * Como o CONTRATANTE se autentica NESTA coleta.
+   *
+   * `OTP` (padrão) é a coleta por link + código. `PORTAL` é a coleta assinada
+   * de dentro do Portal do Cliente, em sessão autenticada.
+   *
+   * ⚠️ NÃO ACEITA `INTERNAL`: a cerimônia da Ankaa é descrita na segunda metade
+   * da frase e não é escolha de coleta — ela é sempre em sessão. O parâmetro
+   * fala do CONTRATANTE, que é quem tem duas opções.
+   *
+   * ⚠️ E É DECIDIDO NA EMISSÃO. Esta frase é impressa no corpo do orçamento e
+   * congelada com os bytes; trocá-la depois exigiria re-renderizar um documento
+   * que já foi assinado. Ver `createEnvelope`.
+   */
+  customerCeremony: Exclude<CeremonyKind, 'INTERNAL'> = 'OTP',
+): string {
+  // O MEIO pelo qual o CONTRATANTE se autentica — a única parte variável.
+  //
+  // No portal ele NÃO é um canal: a sessão é que autentica, e o código de uso
+  // único aparece só no LOGIN, antes e fora desta cerimônia. Descrevê-lo assim é
+  // o que mantém a frase verdadeira sem mentir para menos — a posse do canal
+  // continua sendo a raiz da sessão, e dizê-lo é prova a favor, não contra.
+  //
+  // E repare que aqui o canal do envelope NÃO entra: o OTP do portal segue o
+  // canal do LOGIN do responsável, que é outra configuração. Citar "por e-mail"
+  // numa coleta de e-mail cujo login saiu por WhatsApp reintroduziria, do lado
+  // do cliente, exatamente o defeito que a v3 consertou do lado do documento.
+  const autenticacaoDoContratante =
+    customerCeremony === 'PORTAL'
+      ? 'em sessão identificada do Portal do Cliente da CONTRATADA, pessoal e intransferível, ' +
+        'aberta mediante código de uso único enviado ao contato cadastrado do signatário no ' +
+        'momento do acesso'
+      : `por código de uso único ${
+          channel === 'WHATSAPP'
+            ? 'enviado por WhatsApp ao número de telefone celular cadastrado do signatário'
+            : 'enviado ao endereço de e-mail cadastrado do signatário'
+        }`;
 
   return (
     'ACEITAÇÃO DO MEIO ELETRÔNICO. As partes reconhecem e aceitam, para todos os fins do ' +
     'art. 10, § 2º, da Medida Provisória nº 2.200-2/2001, a assinatura eletrônica deste ' +
-    'orçamento por meio da plataforma da CONTRATADA, mediante autenticação do CONTRATANTE por ' +
-    `código de uso único ${delivery}, autenticação da CONTRATADA em sessão identificada de sua ` +
+    'orçamento por meio da plataforma da CONTRATADA, mediante autenticação do CONTRATANTE ' +
+    `${autenticacaoDoContratante}, autenticação da CONTRATADA em sessão identificada de sua ` +
     'própria plataforma, e registro de trilha de auditoria, ' +
     'admitindo tal método como meio válido de comprovação de autoria e integridade, com os ' +
     'mesmos efeitos da assinatura manuscrita, e renunciando a impugná-lo exclusivamente em ' +
@@ -103,7 +172,13 @@ export interface DeclarationDef {
 
 /** O que decide QUAIS declarações e com qual redação. */
 export interface DeclarationContext {
-  /** Canal da coleta. Governa a redação de `identity`. Irrelevante em `INTERNAL`. */
+  /**
+   * Canal da coleta. Governa a redação de `identity`.
+   *
+   * Irrelevante em `INTERNAL` e em `PORTAL` — os dois não colhem `identity`, e
+   * no portal o código de uso único do login segue o canal do PORTAL, não o
+   * desta coleta.
+   */
   channel: ClauseChannel;
   /** Padrão `OTP` — o contato do cliente. */
   kind?: CeremonyKind;
@@ -153,6 +228,44 @@ export function declarationsFor(context: DeclarationContext): DeclarationDef[] {
         'orçamento nº {budgetNumber} pertinentes à minha função ({sections}), e que concordo ' +
         'com seu conteúdo.',
   };
+
+  // ── O CAMINHO DO PORTAL: TRÊS, e a que sai é `identity` ───────────────────
+  //
+  // Sai `identity` porque ela afirma posse do CANAL que recebeu o código, e
+  // nesta cerimônia não há código: a posse do canal já foi provada no login do
+  // portal, pela mesma plataforma, com trilha própria. Recolhê-la aqui seria
+  // fazer a pessoa declarar algo sobre um ato que não aconteceu neste
+  // documento — e uma declaração que descreve errado a cerimônia que a colheu é
+  // a primeira linha de defesa do adversário, de graça.
+  //
+  // FICA `authority`, e é o ponto inteiro. A identidade vem da sessão; os
+  // PODERES não vêm de lugar nenhum. No lado da Ankaa `authority` pôde sair
+  // porque o vínculo empregatício está registrado no próprio sistema — do lado
+  // do cliente não há nada equivalente, e é exatamente aqui que a disputa mora
+  // (CC art. 118, `BUDGET-SIGNATURE-DESIGN.md` §4.4). Um portal que dispensasse
+  // a declaração de poderes por "já estar logado" confundiria identidade com
+  // autoridade, que é o erro que o projeto inteiro existe para não cometer.
+  if (kind === 'PORTAL') {
+    return [
+      reviewed,
+      {
+        key: 'authority',
+        template:
+          'Declaro que exerço o cargo de {cargo} na {company} e que detenho poderes para ' +
+          'representá-la e aprovar este orçamento neste ato.',
+      },
+      {
+        key: 'method',
+        template:
+          'Assino este orçamento em sessão identificada do Portal do Cliente da ' +
+          '{ankaaCompany}, aberta com as minhas credenciais pessoais e intransferíveis. ' +
+          'Reconheço que esta assinatura eletrônica produz os mesmos efeitos da assinatura ' +
+          'manuscrita, nos termos do art. 10, § 2º, da MP nº 2.200-2/2001, e autorizo o ' +
+          'registro de meu nome, CPF, endereço IP, data e hora na trilha de auditoria deste ' +
+          'documento.',
+      },
+    ];
+  }
 
   if (kind === 'INTERNAL') {
     return [
@@ -223,8 +336,28 @@ export const DECLARATION_KEYS: readonly string[] = [
 
 export const INTERNAL_DECLARATION_KEYS: readonly string[] = ['reviewed', 'method'];
 
+/**
+ * O portal larga `identity` e mantém `authority` — ver a nota em `declarationsFor`.
+ *
+ * A lista existe separada (e não como `DECLARATION_KEYS.filter(...)`) pelo mesmo
+ * motivo que a interna: é ela que o POST de assinatura do portal confere, e
+ * derivá-la de outra por subtração faria uma mudança na lista do OTP mexer, sem
+ * aviso, no que a cerimônia do portal exige.
+ */
+export const PORTAL_DECLARATION_KEYS: readonly string[] = ['reviewed', 'authority', 'method'];
+
 export function declarationKeysFor(kind: CeremonyKind): readonly string[] {
-  return kind === 'INTERNAL' ? INTERNAL_DECLARATION_KEYS : DECLARATION_KEYS;
+  // `switch` exaustivo, e não um ternário: foi um ternário de uma linha que
+  // deixou a porta aberta para um terceiro valor virar, em silêncio, o
+  // comportamento do segundo. Ver `SignatureEnvelopeService.ceremonyKindOf`.
+  switch (kind) {
+    case 'INTERNAL':
+      return INTERNAL_DECLARATION_KEYS;
+    case 'PORTAL':
+      return PORTAL_DECLARATION_KEYS;
+    default:
+      return DECLARATION_KEYS;
+  }
 }
 
 export function renderDeclaration(
@@ -250,6 +383,7 @@ export const AUTH_METHOD_LABELS: Record<string, string> = {
   WHATSAPP_OTP: 'Código de uso único via WhatsApp',
   SMS_OTP: 'Código de uso único via SMS',
   INTERNAL_SESSION: 'Sessão autenticada Ankaa',
+  RESPONSIBLE_SESSION: 'Sessão autenticada do Portal do Cliente',
 };
 
 /** Descrições em português dos eventos, usadas na página de trilha de auditoria. */

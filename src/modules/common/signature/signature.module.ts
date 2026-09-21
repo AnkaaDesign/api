@@ -12,6 +12,7 @@
  */
 
 import { Module, OnModuleInit, Logger, forwardRef } from '@nestjs/common';
+import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
@@ -34,9 +35,13 @@ import { DossierAssemblerService } from './dossier/dossier-assembler.service';
 import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 import { SicrediModule } from '@modules/integrations/sicredi/sicredi.module';
 import { SignatureController, PublicSignatureController } from './signature.controller';
+import { PortalSignatureController } from './portal-signature.controller';
 
 @Module({
   imports: [
+    // `ChangeLogService` — a EMISSÃO passa o orçamento a "Aguardando
+    // Assinatura" e registra a troca no mesmo commit do envelope.
+    ChangeLogModule,
     ConfigModule,
     PrismaModule,
     // Caminho dos PDFs persistidos (orçamento selado / dossiê). Folha, sem ciclo:
@@ -53,7 +58,16 @@ import { SignatureController, PublicSignatureController } from './signature.cont
     forwardRef(() => NfseModule),
     forwardRef(() => SicrediModule),
   ],
-  controllers: [SignatureController, PublicSignatureController],
+  // Três controllers, três SUJEITOS: funcionário (JWT), terceiro (token do
+  // signatário) e contato do cliente (sessão do portal). Ver o cabeçalho de
+  // `portal-signature.controller.ts` — a separação é o que impede um contato de
+  // cliente de aparecer em `request.user`.
+  //
+  // `PortalSignatureController` não precisa de `ResponsibleAuthModule` nos
+  // imports: a guarda dele é `APP_GUARD` (global, registrada lá) e o que este
+  // arquivo usa são apenas DECORADORES — metadados e um param decorator, sem
+  // provider a injetar.
+  controllers: [SignatureController, PublicSignatureController, PortalSignatureController],
   providers: [
     PadesSignerService,
     SignatureAuditService,
