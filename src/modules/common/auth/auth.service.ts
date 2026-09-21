@@ -149,6 +149,40 @@ export class AuthService {
     }
   }
 
+  /**
+   * LOGIN ÚNICO — passo 1: que credencial esta tela deve pedir?
+   *
+   * Uma só porta de entrada para funcionário e para contato de cliente. A tela
+   * pergunta aqui antes de mostrar o segundo campo: funcionário conhecido ⇒
+   * SENHA; qualquer outra coisa ⇒ CÓDIGO.
+   *
+   * POR QUE O RAMO PADRÃO É `CODE`, E NÃO "NÃO ENCONTRADO":
+   *
+   * Um contato que não é funcionário pode ser (a) um responsável de cliente ou
+   * (b) ninguém — e esta rota não distingue os dois de propósito. Mandar o
+   * desconhecido para o fluxo de código é o que impede a sonda de virar um
+   * oráculo: lá ele recebe o desafio-CHAMARIZ que `ResponsibleAuthService.
+   * requestCode` já emite hoje (challengeId aleatório, máscara do que a PESSOA
+   * digitou, nada enviado), e falha depois com a mesma mensagem genérica de
+   * código inválido. Do lado de fora, "responsável cadastrado" e "ninguém" são
+   * indistinguíveis — exatamente como já eram antes desta rota existir.
+   *
+   * ⇒ Consequência prática: a sonda NÃO consulta a tabela de responsáveis. Ela
+   *   só pergunta "é funcionário?". Nada de acoplar o módulo de auth ao portal.
+   *
+   * E sobre o funcionário ela também não revela nada novo: `/auth/login` já
+   * responde 404 "Email ou número não cadastrado." para contato sem `User`
+   * (ver `signIn` logo abaixo, e a mesma admissão em
+   * `assertEligibleForFirstAccess`). A sonda apenas antecipa um fato já público.
+   */
+  async resolveLoginMethod(contact: string): Promise<'PASSWORD' | 'CODE'> {
+    const trimmed = contact?.trim();
+    if (!trimmed) return 'CODE';
+
+    const foundUser = await this.findUserBycontact(trimmed);
+    return foundUser ? 'PASSWORD' : 'CODE';
+  }
+
   async signIn(signInDTO: SignInFormData, userAgent?: string): Promise<any> {
     const { contact, password } = signInDTO;
 

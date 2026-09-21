@@ -34,6 +34,7 @@ import { ZodValidationPipe } from '../pipes/zod-validation.pipe';
 import { SECTOR_PRIVILEGES, CONTRACT_STATUS } from '../../../constants';
 import type {
   SignInFormData,
+  LoginMethodFormData,
   SignUpFormData,
   PasswordResetRequestFormData,
   PasswordResetFormData,
@@ -51,6 +52,7 @@ import type {
 } from '../../../schemas';
 import {
   signInSchema,
+  loginMethodSchema,
   signUpSchema,
   passwordResetRequestSchema,
   passwordResetSchema,
@@ -105,6 +107,32 @@ export class AuthController {
     const clientIp = this.getClientIp(req);
     const userAgent = req.headers['user-agent'];
     return this.authService.signIn(data, userAgent);
+  }
+
+  /**
+   * LOGIN ÚNICO — a sonda do passo 1.
+   *
+   * A tela de entrada pede só o contato e pergunta aqui qual é a segunda
+   * credencial: `PASSWORD` para funcionário conhecido, `CODE` para todo o
+   * resto (responsável de cliente — ou ninguém).
+   *
+   * SEMPRE 200, nunca 404: o "não achei" é justamente o que não pode vazar.
+   * O porquê completo do ramo padrão ser `CODE` está em
+   * `AuthService.resolveLoginMethod`.
+   */
+  @Public()
+  @AuthRateLimit()
+  @Post('login-method')
+  @HttpCode(HttpStatus.OK)
+  @UsePipes(new ZodValidationPipe(loginMethodSchema))
+  async loginMethod(@Body() data: LoginMethodFormData) {
+    const method = await this.authService.resolveLoginMethod(data.contact);
+
+    return {
+      success: true,
+      message: 'Método de entrada determinado com sucesso',
+      data: { method },
+    };
   }
 
   @Public()

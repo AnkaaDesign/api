@@ -23,6 +23,21 @@ export const signInSchema = z.object({
 
 export type SignInFormData = z.infer<typeof signInSchema>;
 
+// =====================
+// Login único — passo 1 (sonda)
+// =====================
+//
+// Só o contato. A validação é DELIBERADAMENTE frouxa (não usa
+// `contactMethodSchema`) porque a sonda precisa responder 200 para QUALQUER
+// coisa digitada: um 400 de formato não revela quem existe, mas um endpoint
+// que às vezes recusa e às vezes responde é um degrau a menos para quem está
+// sondando, e a tela do passo 1 já valida o formato antes de chamar.
+export const loginMethodSchema = z.object({
+  contact: z.string().trim().min(1, 'Email ou telefone é obrigatório'),
+});
+
+export type LoginMethodFormData = z.infer<typeof loginMethodSchema>;
+
 // Refresh token exchange schema — the client presents its opaque refresh token
 // to obtain a fresh access token. Public endpoint (no access token required).
 export const refreshTokenSchema = z.object({
