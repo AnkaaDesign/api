@@ -164,7 +164,6 @@ export class BillingService {
       orderBy: { createdAt: 'asc' as const },
       include: {
         customer: true,
-        responsible: true,
         installments: { orderBy: { number: 'asc' as const } },
         invoices: {
           orderBy: { createdAt: 'desc' as const },

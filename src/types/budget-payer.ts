@@ -68,6 +68,5 @@ export interface BudgetPayer extends BaseEntity {
   // Relations
   quote?: Budget;
   customer?: Customer;
-  responsible?: { id: string; name: string; roles: string[] };
   installments?: Installment[];
 }
