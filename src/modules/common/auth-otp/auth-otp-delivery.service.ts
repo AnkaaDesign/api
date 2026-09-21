@@ -253,9 +253,15 @@ export class AuthOtpDeliveryService {
 
     try {
       const baseData = this.email.createBaseEmailData(target.name);
-      const result = await this.email.sendPasswordResetCode(target.email, {
+      // ⛔ NÃO É `sendPasswordResetCode`, e era. Quem recebe este código é o
+      // contato do CLIENTE, que não tem senha no sistema — o portal entra só
+      // por código. O e-mail chegava dizendo "você solicitou a redefinição da
+      // sua senha", que acusa um pedido que ele não fez sobre uma credencial
+      // que ele não tem: a leitura natural é invasão, e a reação é ligar para
+      // o comercial achando que a conta foi tomada.
+      const result = await this.email.sendAccessCode(target.email, {
         ...baseData,
-        resetCode: code,
+        accessCode: code,
         expiryMinutes: 10,
       });
 

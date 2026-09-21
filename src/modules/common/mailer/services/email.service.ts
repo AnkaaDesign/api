@@ -3,6 +3,7 @@ import { MailerRepository } from '../repositories/mailer.repository';
 import {
   generateEmailVerificationCodeTemplate,
   generatePasswordResetCodeTemplate,
+  generateAccessCodeTemplate,
   generateFirstAccessCodeTemplate,
   generatePasswordChangedNotificationTemplate,
   generateAccountStatusChangeTemplate,
@@ -35,6 +36,11 @@ export interface PasswordResetData extends BaseEmailData {
 }
 
 export interface FirstAccessData extends BaseEmailData {
+  accessCode: string;
+  expiryMinutes: number;
+}
+
+export interface AccessCodeData extends BaseEmailData {
   accessCode: string;
   expiryMinutes: number;
 }
@@ -104,6 +110,20 @@ export class EmailService {
     const html = generateFirstAccessCodeTemplate(data);
 
     return this.sendEmailWithRetry(email, subject, html, 'FIRST_ACCESS');
+  }
+
+  /**
+   * O código de ENTRADA — quem recebe não tem senha para redefinir.
+   *
+   * É o do portal do cliente, onde a única credencial é o código. Mandar o
+   * template de redefinição de senha (o que acontecia) acusa um pedido que a
+   * pessoa não fez, sobre uma senha que ela não tem.
+   */
+  async sendAccessCode(email: string, data: AccessCodeData): Promise<EmailDeliveryResult> {
+    const subject = `Código de acesso - ${data.companyName}`;
+    const html = generateAccessCodeTemplate(data);
+
+    return this.sendEmailWithRetry(email, subject, html, 'ACCESS_CODE');
   }
 
   /**

@@ -39,6 +39,11 @@ interface FirstAccessCodeTemplateData extends BaseTemplateData {
   expiryMinutes: number;
 }
 
+interface AccessCodeTemplateData extends BaseTemplateData {
+  accessCode: string;
+  expiryMinutes: number;
+}
+
 interface PasswordChangedTemplateData extends BaseTemplateData {
   loginUrl: string;
   changeTime: string;
@@ -628,6 +633,65 @@ export function generateFirstAccessCodeTemplate(data: FirstAccessCodeTemplateDat
         data,
         'Se você não tentou fazer o primeiro acesso, pode ignorar este e-mail com segurança.',
       )}
+    </body>
+    </html>
+  `;
+}
+
+/**
+ * O CÓDIGO DE ENTRADA DO PORTAL DO CLIENTE.
+ *
+ * ⛔ NÃO É O TEMPLATE DE REDEFINIR SENHA, e era esse que saía: `viaEmail` do
+ * `AuthOtpDeliveryService` chamava `sendPasswordResetCode` para todo código,
+ * então o contato do cliente — que NÃO TEM SENHA NENHUMA, porque o portal
+ * entra só por código — recebia "você solicitou a redefinição da sua senha".
+ * A frase acusa um pedido que ele não fez, num sistema onde ele não tem senha
+ * para redefinir; a reação certa a esse e-mail é achar que alguém invadiu.
+ *
+ * É a mesma razão que já deu template próprio ao primeiro acesso
+ * (`generateFirstAccessCodeTemplate`): o que o código FAZ muda o que a mensagem
+ * precisa dizer.
+ */
+export function generateAccessCodeTemplate(data: AccessCodeTemplateData): string {
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Código de acesso - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      ${emailHeader('Código de acesso', 'Para entrar no portal do cliente')}
+
+      <div class="content">
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <p>
+          Use o código abaixo para entrar no portal da ${data.companyName} e
+          acompanhar seus orçamentos, veículos e cobranças:
+        </p>
+
+        <div class="code">${data.accessCode}</div>
+
+        <p style="text-align:center;color:#5f6b60;font-size:14px;margin-top:-10px;">
+          Válido por <strong>${data.expiryMinutes} minutos</strong>.
+        </p>
+
+        <div class="alert">
+          <strong>Nunca compartilhe este código.</strong>
+          A ${data.companyName} não solicita este código por telefone, WhatsApp ou e-mail.
+          Se alguém pedir, é golpe.
+        </div>
+
+        <p style="color:#5f6b60;font-size:14px;">
+          Se não foi você que pediu para entrar, ignore esta mensagem: o código
+          perde a validade sozinho e ninguém entra sem ele.
+        </p>
+      </div>
+
+      ${emailFooter(data, 'Se você não pediu este código, pode ignorar este e-mail com segurança.')}
     </body>
     </html>
   `;
