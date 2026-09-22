@@ -1422,6 +1422,11 @@ export class SignatureEnvelopeService {
           quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           quoteSnapshotSha256: hash,
           quoteTermsSha256: materialHash,
+          // NASCE TENDO VISTO O PRÓPRIO ESTADO DE EMISSÃO. No instante do envio
+          // o congelado É o atual, e sem esta linha o primeiro `onQuoteContent-
+          // Changed` cairia no ramo "nunca avaliado" e voltaria a julgar contra o
+          // congelado — que é o comportamento que esta marca existe para datar.
+          lastSeenSnapshotSha256: hash,
           verificationCode,
           legalBasis: LEGAL_BASIS,
           acceptanceClause: acceptanceClauseFor(channel),
@@ -5800,6 +5805,38 @@ export class SignatureEnvelopeService {
    * Base: OWASP Transaction Authorization §2.6 e CC art. 431 (aceitação com
    * modificações importa nova proposta).
    */
+  /**
+   * Marca, no envelope, o estado do orçamento que este gancho ACABOU DE AVALIAR.
+   *
+   * É o que dá DATA à comparação. Sem ela, `onQuoteContentChanged` só sabe dizer
+   * "diverge do congelado", e responde isso para sempre — cobrando a divergência
+   * de quem quer que salve o orçamento em seguida, tenha essa pessoa mexido no
+   * documento ou não.
+   *
+   * ⚠️ SÓ NO CAMINHO DE ESCRITA. `changesSinceFrozen`, que roda na LEITURA do
+   * painel, não pode gravar aqui: se gravasse, abrir a tela do orçamento
+   * consumiria a deriva, e a alteração material que viesse depois encontraria o
+   * estado já "visto" e nunca invalidaria. Ver o aviso em `changesSinceFrozen`.
+   *
+   * Best-effort: a marca é uma otimização de atribuição, não o estado do
+   * documento. Falhar aqui, no pior caso, devolve o comportamento antigo (julgar
+   * contra o congelado) — nunca invalida nada por conta própria.
+   */
+  private async rememberSeenSnapshot(envelopeId: string, hash: string): Promise<void> {
+    try {
+      await this.prisma.signatureEnvelope.update({
+        where: { id: envelopeId },
+        data: { lastSeenSnapshotSha256: hash },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível marcar o estado avaliado do envelope ${envelopeId}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+  }
+
   async onQuoteContentChanged(quoteId: string, actorUserId: string | null): Promise<boolean> {
     // ⚠️ COLETA CONCLUÍDA TAMBÉM ENTRA AQUI, e essa é a correção de 17/09/2026.
     //
@@ -5843,7 +5880,43 @@ export class SignatureEnvelopeService {
     if (!loaded) return false;
 
     // Atalho barato: nada no documento mudou, nem cosmético nem material.
-    if (loaded.hash === running.quoteSnapshotSha256) return false;
+    if (loaded.hash === running.quoteSnapshotSha256) {
+      await this.rememberSeenSnapshot(running.id, loaded.hash);
+      return false;
+    }
+
+    // ── SÓ A DERIVA QUE ESTA GRAVAÇÃO INTRODUZIU ────────────────────────────
+    //
+    // A pergunta certa não é "diverge do congelado?" — é "diverge do que eu já
+    // tinha visto?". A primeira não tem data: uma troca de layout de cinco dias
+    // atrás responde igualzinho a uma de cinco segundos atrás, e quem a executa
+    // é quem salvar o orçamento em seguida, seja lá o que essa pessoa tenha
+    // mexido.
+    //
+    // O INCIDENTE que isto conserta, nº 973, 22/09/2026: o layout fora trocado
+    // em 17/09 (correção dos telefones na arte), a regra que enxerga coleta
+    // CONCLUÍDA subiu em produção às 12:20, e às 12:33 o FATURAMENTO puxou o
+    // gatilho — uma gravação de condição de pagamento e pagador, campos que o
+    // documento assinado nem exibe. O contrato foi anulado, o orçamento voltou a
+    // PENDENTE, a O.S. comercial reabriu em cascata e o cliente recebeu um
+    // WhatsApp de cancelamento que ninguém pediu. Orçamento e faturamento são
+    // coisas separadas: uma escrita de cobrança não pode derrubar um contrato.
+    //
+    // Com a marca, a alteração material é cobrada de QUEM A FEZ, NO MOMENTO em
+    // que a faz — que é quando a pessoa ainda sabe o que mudou e por quê.
+    //
+    // ⚠️ A DERIVA ANTIGA NÃO É ESQUECIDA: `changesSinceFrozen` continua
+    // comparando contra o CONGELADO, então a tela e a rota de alterações seguem
+    // mostrando tudo que divergiu desde a assinatura. O que muda é só quem tem
+    // autoridade para INVALIDAR, e a partir de quando.
+    if (running.lastSeenSnapshotSha256 && running.lastSeenSnapshotSha256 === loaded.hash) {
+      this.logger.log(
+        `Orçamento ${quoteId}: esta gravação não mexeu no documento (a divergência com o ` +
+          `congelado é anterior e já foi avaliada). Envelope ${running.id} segue em ` +
+          `${running.status}.`,
+      );
+      return false;
+    }
 
     const before = running.quoteSnapshot as any;
     // Quem AINDA NÃO assinou. É esta lista que decide o que derruba a coleta:
@@ -5896,6 +5969,9 @@ export class SignatureEnvelopeService {
       // nenhum: o relógio que barra a assinatura é `deadlineAt`, e ele continuaria
       // no dia de ontem. Ver `tolerateExtendedValidity`.
       await this.propagateExtendedDeadline(running, loaded.snapshot.expiresAt, actorUserId);
+      // Avaliado e aprovado: este estado não precisa ser julgado de novo pela
+      // próxima gravação que passar por aqui.
+      await this.rememberSeenSnapshot(running.id, loaded.hash);
       return false;
     }
 
@@ -5912,7 +5988,14 @@ export class SignatureEnvelopeService {
       });
       await tx.signatureEnvelope.update({
         where: { id: running.id },
-        data: { status: EnvelopeStatus.INVALIDATED, invalidatedReason: reason },
+        data: {
+          status: EnvelopeStatus.INVALIDATED,
+          invalidatedReason: reason,
+          // O estado que motivou a anulação fica marcado como JÁ AVALIADO. O
+          // envelope sai de RUNNING/COMPLETED e este gancho não volta a achá-lo,
+          // mas a marca é o registro de até onde a avaliação chegou.
+          lastSeenSnapshotSha256: loaded.hash,
+        },
       });
     });
 
@@ -6079,12 +6162,10 @@ export class SignatureEnvelopeService {
     // O botão do template interno é endereçado pela TAREFA, e este método só
     // recebe o orçamento. Uma consulta, fora do laço: o alvo é o mesmo para
     // todos os signatários, e o laço fala com dois transportes de rede.
-    const task = await this.prisma.task.findFirst({
-      where: { quoteId: running.quoteId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true },
-    });
-    const quoteButtonParam = this.internalQuoteButtonParam(task?.id ?? null, running.quoteId);
+    // A busca da tarefa saiu daqui junto com o `urlButtonParam`: o único
+    // consumidor dela era o sufixo do botão do `orcamento_assinatura_cancelada_
+    // interna`, e esse template não tem botão nenhum na Meta. Ver
+    // `voidedInternalTemplate`.
     for (const s of toNotify) {
       // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
       // anulada não deveria precisar abrir um link para descobrir qual preço
@@ -6137,7 +6218,6 @@ export class SignatureEnvelopeService {
                 signerName: voidedPayload.signerName,
                 budgetNumber: voidedPayload.budgetNumber,
                 reason: voidedPayload.reason,
-                quoteTaskId: quoteButtonParam,
               })
             : voidedTemplate({
                 signerName: voidedPayload.signerName,

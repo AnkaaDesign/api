@@ -1,0 +1,19 @@
+-- O ENVELOPE PASSA A LEMBRAR O ÚLTIMO ESTADO DO ORÇAMENTO QUE JÁ AVALIOU.
+--
+-- Sem isto, a invalidação compara sempre contra o snapshot CONGELADO — e um
+-- hash congelado não tem data. Uma divergência de cinco dias atrás é
+-- indistinguível de uma de cinco segundos atrás, e quem a executa é a PRÓXIMA
+-- gravação qualquer no orçamento, mesmo que ela não toque em nada que o
+-- documento exiba.
+--
+-- Foi o nº 973 em 22/09/2026: layout trocado em 17/09 (correção de telefones na
+-- arte), a regra que enxerga coleta CONCLUÍDA subiu às 12:20, e às 12:33 quem
+-- pagou foi o FATURAMENTO — uma gravação de condição de pagamento e pagador,
+-- que o documento assinado nem exibe.
+--
+-- A coluna nasce nula de propósito: o valor verdadeiro é o hash do recorte
+-- canônico ATUAL, que só o código sabe calcular (RFC 8785, em TypeScript).
+-- Quem o escreve é `scripts/backfill-envelope-last-seen.ts`, logo após o
+-- deploy. Nulo continua significando "nunca avaliado por este caminho", e aí
+-- vale o congelado — o comportamento anterior.
+ALTER TABLE "SignatureEnvelope" ADD COLUMN "lastSeenSnapshotSha256" TEXT;

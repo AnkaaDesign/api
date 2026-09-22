@@ -8113,6 +8113,31 @@ model SignatureEnvelope {
   /// Ver `QuoteSnapshotService.materialProjection`.
   quoteTermsSha256 String?
 
+  /// O ÚLTIMO estado do orçamento que o gancho de conteúdo JÁ AVALIOU.
+  ///
+  /// Existe porque a comparação de invalidação é contra o hash CONGELADO, e um
+  /// hash congelado não tem data: divergiu há cinco dias ou há cinco segundos,
+  /// ele responde a mesma coisa. Quem paga por isso é a PRÓXIMA pessoa a salvar
+  /// qualquer coisa no orçamento, que não mudou nada do documento e mesmo assim
+  /// vê a coleta cair na mão dela.
+  ///
+  /// Foi o nº 973 em 22/09/2026: o layout fora trocado em 17/09 (correção dos
+  /// telefones na arte), a regra que enxerga coleta CONCLUÍDA subiu em produção
+  /// às 12:20, e às 12:33 o faturamento — que só gravou condição de pagamento e
+  /// pagador, nada que o documento exiba — foi quem executou a divergência
+  /// alheia: envelope anulado, orçamento de volta a PENDENTE, cliente avisado
+  /// por WhatsApp de um cancelamento que ninguém pediu.
+  ///
+  /// Com esta coluna a pergunta deixa de ser "diverge do congelado?" e passa a
+  /// ser "diverge do que eu já tinha visto?" — que é a pergunta que atribui a
+  /// mudança a quem a fez, no momento em que a fez. Escrito SÓ no caminho de
+  /// ESCRITA (`onQuoteContentChanged`): se a leitura do painel também gravasse,
+  /// abrir a tela consumiria a deriva e a alteração material nunca invalidaria.
+  ///
+  /// Nulo = envelope nunca avaliado por este caminho; aí vale o congelado, que é
+  /// o comportamento anterior.
+  lastSeenSnapshotSha256 String?
+
   /// ADITIVO DE IDENTIFICAÇÃO DO VEÍCULO, selado à parte na finalização do serviço.
   ///
   /// Existe porque a identidade do veículo NUNCA cabe no orçamento assinado de um
