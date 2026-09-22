@@ -53,3 +53,31 @@ export function isMarketplaceTransaction(
   if (digits && MARKETPLACE_INTERMEDIARY_CNPJS.has(digits)) return true;
   return isMarketplaceMemo(memo);
 }
+
+/**
+ * CNPJs of SUPPLIER records that are the marketplace itself rather than the
+ * store that ships the goods. A purchase made on Mercado Livre is registered
+ * against a "Mercado Livre" supplier (03007331000141), while the debit carries
+ * Mercado Pago's CNPJ (10573521000191) and the NF is emitted by the actual
+ * seller — three different documents by construction. CNPJ identity can
+ * therefore NEVER hold on a marketplace order, which is why the payable matcher
+ * accepts value identity in its place (and only for an exact value).
+ */
+export const MARKETPLACE_SUPPLIER_CNPJS = new Set<string>([
+  '03007331000141', // Mercado Livre
+  '10573521000191', // Mercado Pago
+  '38372267000182', // SHPP Brasil (Shopee)
+]);
+
+/**
+ * Whether a supplier record stands for a marketplace, by CNPJ (primary) or by
+ * name (fallback — many marketplace suppliers are registered with no CNPJ).
+ */
+export function isMarketplaceSupplier(
+  name: string | null | undefined,
+  cnpj: string | null | undefined,
+): boolean {
+  const digits = cnpj?.replace(/\D/g, '');
+  if (digits && MARKETPLACE_SUPPLIER_CNPJS.has(digits)) return true;
+  return /mercado\s*(livre|pago)|\bml\b|shopee|shpp|amazon|aliexpress|shein/i.test(name ?? '');
+}
