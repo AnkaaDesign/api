@@ -38,8 +38,11 @@ import { FilesStorageService, type FilesFolderMapping } from './files-storage.se
  *    cannot prove is unused is never deleted.
  */
 
-/** Columns on File that point OUT at another table. Invisible to the inbound FK catalog. */
-const OUTBOUND_REFERENCES: ReadonlyArray<{
+/**
+ * Columns on File that point OUT at another table. Invisible to the inbound FK catalog.
+ * (Exportado para o teste de referências, G10: `tests/file-references.test.ts`.)
+ */
+export const OUTBOUND_REFERENCES: ReadonlyArray<{
   column: string;
   targetTable: string;
   context: keyof FilesFolderMapping;
@@ -68,7 +71,7 @@ const DERIVED_TABLES: ReadonlySet<string> = new Set(['thumbnail_jobs']);
  * canonical folder" — the file is never moved on account of it. That is the safe
  * default for anything not listed here too: unknown reference ⇒ protected, not placed.
  */
-const INBOUND_REFERENCES: Readonly<
+export const INBOUND_REFERENCES: Readonly<
   Record<string, { context: keyof FilesFolderMapping | null; label: string }>
 > = {
   // --- Task (Clientes/{cliente}/…) ---
