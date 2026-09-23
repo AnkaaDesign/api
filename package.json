@@ -137,7 +137,8 @@
     "test:portal-e2e": "bash tests/e2e-portal/run.sh",
     "test:paint-purchase": "tsx tests/paint-purchase.test.ts",
     "test:bonus-modifiers": "tsx tests/bonus-modifiers.test.ts",
-    "test:query-contract": "tsx tests/query-contract.test.ts"
+    "test:query-contract": "tsx tests/query-contract.test.ts",
+    "guard:residual": "bash scripts/guard-residual.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

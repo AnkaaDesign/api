@@ -1,0 +1,8 @@
+# G6a/G6b — arquivos INTEIROS fora da contagem de resíduo (scripts/guard-residual.sh).
+# Um glob por linha, relativo à raiz da api. Só entra aqui o que precisa falar
+# "truck" para sempre; o resto fica na catraca (.residual-baseline.json) e cai.
+#
+# Chaves do hash da assinatura: renomeá-las invalidaria todo envelope assinado
+# (G11). A troca de vocabulário acontece na LEITURA, não na chave congelada.
+src/modules/common/signature/services/quote-snapshot.service.ts
+src/modules/common/signature/services/quote-diff.ts
