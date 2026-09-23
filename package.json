@@ -143,6 +143,7 @@
     "test:file-references": "tsx tests/file-references.test.ts",
     "test:signature-golden": "tsx tests/signature-golden-hashes.test.ts",
     "export:signature-golden": "tsx scripts/export-signature-golden.ts",
+    "db:gen-objetos-pos-push": "tsx scripts/gen-objetos-pos-push.ts",
     "guard:residual": "bash scripts/guard-residual.sh"
   },
   "dependencies": {
