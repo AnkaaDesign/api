@@ -141,6 +141,8 @@
     "test:sector-field-matrix": "tsx tests/sector-field-matrix.test.ts",
     "test:notification-keys": "tsx tests/notification-keys.test.ts",
     "test:file-references": "tsx tests/file-references.test.ts",
+    "test:signature-golden": "tsx tests/signature-golden-hashes.test.ts",
+    "export:signature-golden": "tsx scripts/export-signature-golden.ts",
     "guard:residual": "bash scripts/guard-residual.sh"
   },
   "dependencies": {

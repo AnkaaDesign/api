@@ -1,0 +1,3423 @@
+{
+  "descricao": "G11 — hashes de ouro das assinaturas. Snapshots ANONIMIZADOS do clone local; os hashes foram recalculados sobre o anonimizado, na versão do recorte material em que o envelope REAL casava no banco (noBanco). Gerado por scripts/export-signature-golden.ts; não editar à mão. Os 30 COMPLETED de produção entram no P30 (ou por exportação somente leitura autorizada pelo dono).",
+  "geradoEm": "2026-09-23",
+  "versaoMaterialCorrente": 7,
+  "totais": {
+    "envelopes": 35,
+    "comTermos": 23,
+    "casamNoBanco": 23,
+    "snapshotCasaNoBanco": 35,
+    "perVehicleReais": 0,
+    "sinteticos": 2
+  },
+  "envelopes": [
+    {
+      "caso": "envelope-01",
+      "status": "COMPLETED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "a6fd3a99-797c-4298-8a61-553b1e0477da",
+          "name": "Texto 66bd00b6",
+          "serialNumber": null
+        },
+        "total": "20125.00",
+        "truck": {
+          "plate": null,
+          "category": "BITRUCK",
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 66da6679",
+            "roles": [
+              "OWNER"
+            ],
+            "phoneDigits": "20220412834",
+            "responsibleId": "ccc5b1af-371b-4c7a-a59f-74653c398335"
+          }
+        ],
+        "customer": {
+          "id": "c9ec6ab6-d58f-4c6c-8401-23adafa66103",
+          "document": "70306592964555",
+          "fantasyName": "Texto 1e3b37da",
+          "corporateName": "Texto 295d165a"
+        },
+        "discount": {
+          "type": "PERCENTAGE",
+          "value": "8.00",
+          "reference": "Texto 558a3de7"
+        },
+        "issuedAt": "2026-06-30T11:04:41.804Z",
+        "services": [
+          {
+            "amount": "9365.00",
+            "position": 0,
+            "description": "Texto f7efd596",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1680.00",
+            "position": 1,
+            "description": "Texto 1e1c9652",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1020.00",
+            "position": 2,
+            "description": "Texto 40e2a6a1",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1430.00",
+            "position": 3,
+            "description": "Texto c7bfcab5",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "950.00",
+            "position": 4,
+            "description": "Texto be3c8f8b",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "6210.00",
+            "position": 5,
+            "description": "Texto b9e72a11",
+            "observation": null
+          },
+          {
+            "amount": "1220.00",
+            "position": 6,
+            "description": "Texto 8878ff10",
+            "observation": null
+          }
+        ],
+        "subtotal": "21875.00",
+        "expiresAt": "2026-08-25T18:16:05.727Z",
+        "budgetNumber": 584,
+        "layoutFileIds": [
+          "ea1a3798-c11b-49c5-a921-529fcc993a7e"
+        ],
+        "schemaVersion": 1,
+        "guaranteeYears": 15,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": 3,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "743300e5b48be0517dca36c94eda3ffb6ed6e3957bfe231eb46a1f7486236d55",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-02",
+      "status": "INVALIDATED",
+      "versaoEnvelope": 2,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "a6fd3a99-797c-4298-8a61-553b1e0477da",
+          "name": "Texto 66bd00b6",
+          "serialNumber": null
+        },
+        "total": "20125.00",
+        "truck": {
+          "plate": null,
+          "category": "BITRUCK",
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 66da6679",
+            "roles": [
+              "OWNER"
+            ],
+            "phoneDigits": "20220412834",
+            "responsibleId": "ccc5b1af-371b-4c7a-a59f-74653c398335"
+          }
+        ],
+        "customer": {
+          "id": "c9ec6ab6-d58f-4c6c-8401-23adafa66103",
+          "document": "70306592964555",
+          "fantasyName": "Texto 1e3b37da",
+          "corporateName": "Texto 295d165a"
+        },
+        "discount": {
+          "type": "PERCENTAGE",
+          "value": "8.00",
+          "reference": "Texto 558a3de7"
+        },
+        "issuedAt": "2026-06-30T11:04:41.804Z",
+        "services": [
+          {
+            "amount": "9365.00",
+            "position": 0,
+            "description": "Texto f7efd596",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1680.00",
+            "position": 1,
+            "description": "Texto 1e1c9652",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1020.00",
+            "position": 2,
+            "description": "Texto 40e2a6a1",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "1430.00",
+            "position": 3,
+            "description": "Texto c7bfcab5",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "950.00",
+            "position": 4,
+            "description": "Texto be3c8f8b",
+            "observation": "Texto 8aaab538"
+          },
+          {
+            "amount": "6210.00",
+            "position": 5,
+            "description": "Texto b9e72a11",
+            "observation": null
+          },
+          {
+            "amount": "1220.00",
+            "position": 6,
+            "description": "Texto 8878ff10",
+            "observation": null
+          }
+        ],
+        "subtotal": "21875.00",
+        "expiresAt": "2026-08-25T18:16:05.727Z",
+        "budgetNumber": 584,
+        "layoutFileIds": [
+          "ea1a3798-c11b-49c5-a921-529fcc993a7e"
+        ],
+        "schemaVersion": 1,
+        "guaranteeYears": 15,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": 3,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "743300e5b48be0517dca36c94eda3ffb6ed6e3957bfe231eb46a1f7486236d55",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-03",
+      "status": "EXPIRED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "488ef359-b7f9-46da-b9e2-ecc494ea3308",
+          "name": "Texto 648dcfc8",
+          "serialNumber": null
+        },
+        "total": "0.01",
+        "truck": {
+          "plate": "ANON9EE84B",
+          "category": "TRUCK",
+          "vinPlate": null,
+          "chassisNumber": "ANON659339",
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8778435e-a977-4675-b300-6efb5076814e",
+          "document": null,
+          "fantasyName": "Texto cab3fa1b",
+          "corporateName": "Texto 019239fe"
+        },
+        "discount": {
+          "type": "PERCENTAGE",
+          "value": "99.00",
+          "reference": "Texto f0c70f01"
+        },
+        "issuedAt": "2026-01-27T13:03:27.008Z",
+        "services": [
+          {
+            "amount": "1.11",
+            "position": 0,
+            "description": "Texto 7d5ea31b",
+            "observation": null
+          }
+        ],
+        "subtotal": "1.11",
+        "expiresAt": "2026-02-27T02:59:59.999Z",
+        "budgetNumber": 34,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "d5a041d837286e8de0b2f55f2b4f20f67375479278f06d47d2f768501c2956e4",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-04",
+      "status": "EXPIRED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "76c104df-4e1f-401c-9105-3366f1d62285",
+          "name": "Texto e3f5abd2",
+          "serialNumber": null
+        },
+        "total": "10815.20",
+        "truck": {
+          "plate": null,
+          "category": "RIGID",
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "INSULATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 92e71ee0",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "19790468194",
+            "responsibleId": "16298400-bebe-4a05-ba8c-549d8026c887"
+          }
+        ],
+        "customer": {
+          "id": "f0142aa5-76d9-41a3-aa4b-8bddc524a09b",
+          "document": "44587493642053",
+          "fantasyName": "Texto 2435c473",
+          "corporateName": "Texto 9f2b8486"
+        },
+        "discount": {
+          "type": "PERCENTAGE",
+          "value": "12.00",
+          "reference": "Texto 558a3de7"
+        },
+        "issuedAt": "2026-06-26T11:10:52.826Z",
+        "services": [
+          {
+            "amount": "9610.00",
+            "position": 0,
+            "description": "Texto b9e72a11",
+            "observation": null
+          },
+          {
+            "amount": "1860.00",
+            "position": 1,
+            "description": "Texto 8878ff10",
+            "observation": null
+          },
+          {
+            "amount": "820.00",
+            "position": 2,
+            "description": "Texto ce7a3a84",
+            "observation": null
+          }
+        ],
+        "subtotal": "12290.00",
+        "expiresAt": "2026-08-25T21:36:29.984Z",
+        "budgetNumber": 583,
+        "layoutFileIds": [
+          "5cbdc4e8-690a-4c68-8063-ecc54af226d0"
+        ],
+        "schemaVersion": 1,
+        "guaranteeYears": 15,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": 4,
+        "customForecastDays": 2,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c8e2e5be2405125df1b1e53cdff97c7144b61e0538cb0a10ae92bc1682c52e",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-05",
+      "status": "CANCELLED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-06",
+      "status": "SUPERSEDED",
+      "versaoEnvelope": 2,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-07",
+      "status": "REFUSED",
+      "versaoEnvelope": 3,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-08",
+      "status": "SUPERSEDED",
+      "versaoEnvelope": 4,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-09",
+      "status": "REFUSED",
+      "versaoEnvelope": 5,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-10",
+      "status": "COMPLETED",
+      "versaoEnvelope": 6,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-11",
+      "status": "REFUSED",
+      "versaoEnvelope": 7,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "3502898c-9072-4bba-b79e-13087bf955dd",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "0.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": {
+          "id": "8ee76bd9-7d2e-4c26-9e7a-a574adc77b99",
+          "document": null,
+          "fantasyName": "Texto 97cfddbf",
+          "corporateName": "Texto 4f825eff"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:47:23.625Z",
+        "services": [
+          {
+            "amount": "0.00",
+            "position": 0,
+            "description": "Texto 0a68c384",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.00",
+        "expiresAt": "2026-08-26T02:59:59.999Z",
+        "budgetNumber": 591,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b0c577356bcdaf19ad7ac69b8c5cdbf778fad3d7dcbc1f89e9f5f76e9c1fb777",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-12",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 1,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": false,
+        "versaoMaterialQueCasa": null
+      },
+      "snapshot": {
+        "task": {
+          "id": "16ac3991-af61-4967-85d4-9b18cd7522fa",
+          "name": "Texto 2bdaa2ae",
+          "serialNumber": null
+        },
+        "total": "40.00",
+        "truck": {
+          "plate": null,
+          "category": null,
+          "vinPlate": null,
+          "chassisNumber": null,
+          "implementType": "REFRIGERATED"
+        },
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d"
+          }
+        ],
+        "customer": null,
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-07-26T13:34:57.287Z",
+        "services": [
+          {
+            "amount": "40.00",
+            "position": 0,
+            "description": "Texto f941c16d",
+            "observation": null
+          }
+        ],
+        "subtotal": "40.00",
+        "expiresAt": "2026-08-25T22:28:28.188Z",
+        "budgetNumber": 590,
+        "layoutFileIds": [],
+        "schemaVersion": 1,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "eac5688900fe7440adba4e9b505717d4b46e10b719913c124b9465c4ccf6f8bc",
+      "termsVersion": null,
+      "termsSha256": null
+    },
+    {
+      "caso": "envelope-13",
+      "status": "COMPLETED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "0.80",
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d",
+            "emailNormalized": "anon-7eeffc77@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b593f440-9f00-4c85-93ef-54bf5a9eef37",
+          "document": "49909604950889",
+          "fantasyName": "Texto 65f45943",
+          "corporateName": "Texto 65f45943"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T10:56:45.675Z",
+        "services": [
+          {
+            "amount": "0.10",
+            "position": 0,
+            "description": "Texto 83a84725",
+            "observation": null
+          },
+          {
+            "amount": "0.10",
+            "position": 1,
+            "description": "Texto b9e72a11",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.80",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "67a104c0-f55f-4078-958c-60d5e17ce5e3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON7A1DAC",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "c1f67f7d-a3dc-4bda-a879-c8c976a215cb",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONA4F18C",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "9cb32575-ddba-40d5-a36a-34891f81fb3c",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON4880BA",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "098551e3-903a-4b89-879b-0b541620a8a3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONE41737",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          }
+        ],
+        "expiresAt": "2026-10-15T02:59:59.999Z",
+        "billingSplit": "PER_TASK",
+        "budgetNumber": 594,
+        "billingGroups": [
+          [
+            "67a104c0-f55f-4078-958c-60d5e17ce5e3"
+          ],
+          [
+            "c1f67f7d-a3dc-4bda-a879-c8c976a215cb"
+          ],
+          [
+            "9cb32575-ddba-40d5-a36a-34891f81fb3c"
+          ],
+          [
+            "098551e3-903a-4b89-879b-0b541620a8a3"
+          ]
+        ],
+        "layoutFileIds": [
+          "110454cf-d256-46ba-96ee-b0f7b9dccc6a"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": 10,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": 2,
+        "customForecastDays": 3,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "03d89f99f1531ef67607a73c09a86a5809538d989a38d9ad4d406d3079962473",
+      "termsVersion": 6,
+      "termsSha256": "5b3384172f97f5a2afdf267a7daff195e1bcdf8d91b72812a026d7241dec07da"
+    },
+    {
+      "caso": "envelope-14",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "100.00",
+        "signers": [
+          {
+            "name": "Texto 5af7d8fa",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "24650327713",
+            "responsibleId": "0b0eb249-7194-4c43-8361-fe8aa737d1ff",
+            "emailNormalized": "anon-d59b5c47@exemplo.invalid"
+          },
+          {
+            "name": "Texto 8daaad7a",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "89101417931",
+            "responsibleId": "3f571ead-6328-4535-8f80-439d3a6c097f",
+            "emailNormalized": "anon-e40f88d2@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b7d52ec6-a078-42ab-b9e5-2b4c7b96d48c",
+          "document": null,
+          "fantasyName": "Texto c2695624",
+          "corporateName": "Texto b4cee6fc"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T12:38:33.641Z",
+        "services": [
+          {
+            "amount": "100.00",
+            "position": 0,
+            "description": "Texto 01ca5cec",
+            "observation": null
+          }
+        ],
+        "subtotal": "100.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "e2573507-a2b6-46e6-af0e-f1a4612d7f13",
+            "category": null,
+            "taskName": "Texto bd71d39a",
+            "orderNumber": null,
+            "serialNumber": "ANON518574",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-14T12:38:33.588Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 595,
+        "billingGroups": [
+          [
+            "e2573507-a2b6-46e6-af0e-f1a4612d7f13"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "7150520fcb9b5d4128cbc5c95f81ffeda16c2b0f9589ba3a16a1f0a8f99a92d5",
+      "termsVersion": 6,
+      "termsSha256": "472dd933ebe27e0a84c62f42ec8b7ce90be590022c571b470351665fe5215344"
+    },
+    {
+      "caso": "envelope-15",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "100.00",
+        "signers": [
+          {
+            "name": "Texto febffdf4",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "64062330716",
+            "responsibleId": "64a9d137-30fd-4224-908b-61a076f2ffcc",
+            "emailNormalized": "anon-c341d4d9@exemplo.invalid"
+          },
+          {
+            "name": "Texto f95a3a0e",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "15112416591",
+            "responsibleId": "ff6cfce0-22ec-4f87-9039-ed5b5083bdfb",
+            "emailNormalized": "anon-29c1e020@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b7d52ec6-a078-42ab-b9e5-2b4c7b96d48c",
+          "document": null,
+          "fantasyName": "Texto c2695624",
+          "corporateName": "Texto b4cee6fc"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T12:39:04.897Z",
+        "services": [
+          {
+            "amount": "100.00",
+            "position": 0,
+            "description": "Texto 01ca5cec",
+            "observation": null
+          }
+        ],
+        "subtotal": "100.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "7c869e60-435f-4c44-b737-c83230b3bf1d",
+            "category": null,
+            "taskName": "Texto 58b7dbb7",
+            "orderNumber": null,
+            "serialNumber": "ANON20D57B",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-14T12:39:04.844Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 596,
+        "billingGroups": [
+          [
+            "7c869e60-435f-4c44-b737-c83230b3bf1d"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "599f40c58fe01ad157001bed6663992f4b83348a9cf384961f75e12a638c1674",
+      "termsVersion": 6,
+      "termsSha256": "a8b19bb4cf602580a7475a81c3f3cec05b2021af61ebecf24da3ad24ee9e5a55"
+    },
+    {
+      "caso": "envelope-16",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "100.00",
+        "signers": [
+          {
+            "name": "Texto 15a9ccd1",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "96610125231",
+            "responsibleId": "9f74144a-1907-44e1-9f58-cc2b4362fd08",
+            "emailNormalized": "anon-3d08d05c@exemplo.invalid"
+          },
+          {
+            "name": "Texto 09905091",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "10701079458",
+            "responsibleId": "cee1f9c5-54e6-4e84-bee7-97613e0e323b",
+            "emailNormalized": "anon-945d3bc4@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b7d52ec6-a078-42ab-b9e5-2b4c7b96d48c",
+          "document": null,
+          "fantasyName": "Texto c2695624",
+          "corporateName": "Texto b4cee6fc"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T12:39:44.796Z",
+        "services": [
+          {
+            "amount": "100.00",
+            "position": 0,
+            "description": "Texto 01ca5cec",
+            "observation": null
+          }
+        ],
+        "subtotal": "100.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "7e7ea9fb-d3be-418a-82c4-86b7ca2b875d",
+            "category": null,
+            "taskName": "Texto 5d5215ff",
+            "orderNumber": null,
+            "serialNumber": "ANON439EC0",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-14T12:39:44.744Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 597,
+        "billingGroups": [
+          [
+            "7e7ea9fb-d3be-418a-82c4-86b7ca2b875d"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "adb4ef17fa20959d390b08e4f978a02234cba7df04657611e26de8d8f2265caf",
+      "termsVersion": 6,
+      "termsSha256": "328b00e876e0f4a36a23e1da517fbf1fe23f0e62232a89e3b62ed151027d85e4"
+    },
+    {
+      "caso": "envelope-17",
+      "status": "INVALIDATED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "7000.00",
+        "signers": [
+          {
+            "name": "Texto a1333b26",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "89333468047",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000001",
+            "emailNormalized": "anon-5e2231e2@exemplo.invalid"
+          },
+          {
+            "name": "Texto 3e73a0c1",
+            "roles": [
+              "FINANCIAL"
+            ],
+            "phoneDigits": "73120434358",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000002",
+            "emailNormalized": "anon-2ad1b1a2@exemplo.invalid"
+          },
+          {
+            "name": "Texto afa00cb7",
+            "roles": [
+              "MARKETING"
+            ],
+            "phoneDigits": "04029131196",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000003",
+            "emailNormalized": "anon-b122721f@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "cccc1111-0000-4000-8000-000000000001",
+          "document": "32487390569770",
+          "fantasyName": "Texto d814d11c",
+          "corporateName": "Texto 861c1f6f"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T16:18:11.093Z",
+        "services": [
+          {
+            "amount": "1500.00",
+            "position": 0,
+            "description": "Texto ef881783",
+            "observation": null
+          },
+          {
+            "amount": "250.00",
+            "position": 1,
+            "description": "Texto ce7a3a84",
+            "observation": null
+          }
+        ],
+        "subtotal": "7000.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "b8019ecf-14b1-4f7b-afb8-ee8f4020ea39",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON29F1EB",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "d3408024-8566-4e57-93ab-b5ebdba8fa0f",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON4C089F",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "ce6b0ccc-7a67-41a3-995e-e201c52aa015",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON76A0EA",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "6492ae16-07b2-42be-a21e-1e4eeb2057ff",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON1A24E6",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          }
+        ],
+        "expiresAt": "2026-10-15T02:59:59.999Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 598,
+        "billingGroups": [
+          [
+            "b8019ecf-14b1-4f7b-afb8-ee8f4020ea39",
+            "d3408024-8566-4e57-93ab-b5ebdba8fa0f",
+            "ce6b0ccc-7a67-41a3-995e-e201c52aa015",
+            "6492ae16-07b2-42be-a21e-1e4eeb2057ff"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "f362b691352d411b2096584e3ba926d07e11d8c4c99ffe5259e60e9f1dd1f333",
+      "termsVersion": 6,
+      "termsSha256": "353be38fe3c4688d0f5b84bf3b1e8ec4da89fc52dd5b4c74a0b934b841b06e21"
+    },
+    {
+      "caso": "envelope-18",
+      "status": "RUNNING",
+      "versaoEnvelope": 2,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "8200.00",
+        "signers": [
+          {
+            "name": "Texto a1333b26",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "89333468047",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000001",
+            "emailNormalized": "anon-5e2231e2@exemplo.invalid"
+          },
+          {
+            "name": "Texto 3e73a0c1",
+            "roles": [
+              "FINANCIAL"
+            ],
+            "phoneDigits": "73120434358",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000002",
+            "emailNormalized": "anon-2ad1b1a2@exemplo.invalid"
+          },
+          {
+            "name": "Texto afa00cb7",
+            "roles": [
+              "MARKETING"
+            ],
+            "phoneDigits": "04029131196",
+            "responsibleId": "bbbb1111-0000-4000-8000-000000000003",
+            "emailNormalized": "anon-b122721f@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "cccc1111-0000-4000-8000-000000000001",
+          "document": "32487390569770",
+          "fantasyName": "Texto d814d11c",
+          "corporateName": "Texto 861c1f6f"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T16:18:11.093Z",
+        "services": [
+          {
+            "amount": "1800.00",
+            "position": 0,
+            "description": "Texto ef881783",
+            "observation": null
+          },
+          {
+            "amount": "250.00",
+            "position": 1,
+            "description": "Texto ce7a3a84",
+            "observation": null
+          }
+        ],
+        "subtotal": "8200.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "b8019ecf-14b1-4f7b-afb8-ee8f4020ea39",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON29F1EB",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "d3408024-8566-4e57-93ab-b5ebdba8fa0f",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON4C089F",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "ce6b0ccc-7a67-41a3-995e-e201c52aa015",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON76A0EA",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "6492ae16-07b2-42be-a21e-1e4eeb2057ff",
+            "category": null,
+            "taskName": "Texto ba80b0f6",
+            "orderNumber": null,
+            "serialNumber": "ANON1A24E6",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          }
+        ],
+        "expiresAt": "2026-10-15T02:59:59.999Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 598,
+        "billingGroups": [
+          [
+            "b8019ecf-14b1-4f7b-afb8-ee8f4020ea39",
+            "d3408024-8566-4e57-93ab-b5ebdba8fa0f",
+            "ce6b0ccc-7a67-41a3-995e-e201c52aa015",
+            "6492ae16-07b2-42be-a21e-1e4eeb2057ff"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "b90cc222879d0b9fd4facc45cb58f3a6b02062d9b1e44792b3004db775ceaff2",
+      "termsVersion": 6,
+      "termsSha256": "04396e38786e64ce4853d4f6d24d6a7453ad8e44beec015fd7f934502b0636b8"
+    },
+    {
+      "caso": "envelope-19",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "100.00",
+        "signers": [
+          {
+            "name": "Texto cde3df87",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "30155414320",
+            "responsibleId": "83d2210d-a6d3-4558-8c50-1b6c1af5395b",
+            "emailNormalized": "anon-439a3d81@exemplo.invalid"
+          },
+          {
+            "name": "Texto bbb46451",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "49544365868",
+            "responsibleId": "c4b6cfa1-c49c-43e5-9dbe-8e1c740815d0",
+            "emailNormalized": "anon-db57655a@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b7d52ec6-a078-42ab-b9e5-2b4c7b96d48c",
+          "document": null,
+          "fantasyName": "Texto c2695624",
+          "corporateName": "Texto b4cee6fc"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T18:37:54.562Z",
+        "services": [
+          {
+            "amount": "100.00",
+            "position": 0,
+            "description": "Texto 01ca5cec",
+            "observation": null
+          }
+        ],
+        "subtotal": "100.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "8d55524a-561f-47b0-b52f-21b21e91b971",
+            "category": null,
+            "taskName": "Texto a09f3ada",
+            "orderNumber": null,
+            "serialNumber": "ANONC76281",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-14T18:37:54.507Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 601,
+        "billingGroups": [
+          [
+            "8d55524a-561f-47b0-b52f-21b21e91b971"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "a8d57bb6f85447f1cff15fc764fe50c4bccc955eadb3a357c9681d73badcd8bd",
+      "termsVersion": 6,
+      "termsSha256": "2ceb84075f97d598de27ed9f83c1e5245e7c3e18e706ee781633bc9183549e10"
+    },
+    {
+      "caso": "envelope-20",
+      "status": "REFUSED",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 6
+      },
+      "snapshot": {
+        "total": "100.00",
+        "signers": [
+          {
+            "name": "Texto 3fe77203",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "84227474415",
+            "responsibleId": "2ac70cc5-599c-4f1c-bedd-0763791a0ac2",
+            "emailNormalized": "anon-0e712ed9@exemplo.invalid"
+          },
+          {
+            "name": "Texto 8df234bf",
+            "roles": [
+              "COMMERCIAL"
+            ],
+            "phoneDigits": "35443673362",
+            "responsibleId": "d1c60631-0d92-41cd-93a4-2b4c73ed0bfb",
+            "emailNormalized": "anon-46d74eb8@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b7d52ec6-a078-42ab-b9e5-2b4c7b96d48c",
+          "document": null,
+          "fantasyName": "Texto c2695624",
+          "corporateName": "Texto b4cee6fc"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T19:05:23.822Z",
+        "services": [
+          {
+            "amount": "100.00",
+            "position": 0,
+            "description": "Texto 01ca5cec",
+            "observation": null
+          }
+        ],
+        "subtotal": "100.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "990ea5a6-63ad-4719-a606-8b3fe733fbdd",
+            "category": null,
+            "taskName": "Texto 1ac8690d",
+            "orderNumber": null,
+            "serialNumber": "ANONEDE0D3",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-14T19:05:23.767Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 602,
+        "billingGroups": [
+          [
+            "990ea5a6-63ad-4719-a606-8b3fe733fbdd"
+          ]
+        ],
+        "layoutFileIds": [],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "623b0c4b89f3016f954f0342d475f9f7d76fd39394a0fc00d1b44c64d302d081",
+      "termsVersion": 6,
+      "termsSha256": "0f03cdcf8a19ab7a1b01040f35ce4945f5c39efa29b2b5f69bcf6fd5986dc3aa"
+    },
+    {
+      "caso": "envelope-21",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "74100.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "c602c1ff-886c-4c36-855d-4824a97acb20",
+          "document": null,
+          "fantasyName": "Texto b66e5273",
+          "corporateName": "Texto fc6513f2"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T21:08:02.146Z",
+        "services": [
+          {
+            "amount": "18500.00",
+            "position": 0,
+            "description": "Texto 39a64b03",
+            "observation": null
+          },
+          {
+            "amount": "6200.00",
+            "position": 1,
+            "description": "Texto b9e72a11",
+            "observation": null
+          }
+        ],
+        "subtotal": "74100.00",
+        "vehicles": [
+          {
+            "plate": "ANON742F03",
+            "taskId": "dfebd6fc-d2aa-43f7-8ad9-065bff97117e",
+            "category": null,
+            "taskName": "Texto 4e1d5aba",
+            "orderNumber": null,
+            "serialNumber": "ANON02C16F",
+            "chassisNumber": "ANONCE87E1",
+            "implementType": null
+          },
+          {
+            "plate": "ANON8CC8AA",
+            "taskId": "9b002ace-a496-44e5-b3ae-7c84c8449838",
+            "category": null,
+            "taskName": "Texto 993c5a23",
+            "orderNumber": null,
+            "serialNumber": "ANON400136",
+            "chassisNumber": "ANON298526",
+            "implementType": null
+          },
+          {
+            "plate": "ANON67ED00",
+            "taskId": "a96d1639-3e73-443e-8fec-0755a1833ebe",
+            "category": null,
+            "taskName": "Texto 8c46413e",
+            "orderNumber": null,
+            "serialNumber": "ANONBB3BD0",
+            "chassisNumber": "ANONB6BA51",
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T21:08:02.146Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 611,
+        "billingGroups": [
+          [
+            "dfebd6fc-d2aa-43f7-8ad9-065bff97117e",
+            "9b002ace-a496-44e5-b3ae-7c84c8449838",
+            "a96d1639-3e73-443e-8fec-0755a1833ebe"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "1467294b390e57d7d5cfdd681719ad717b2a21a187d1e07c4ff2e4975dfffe70",
+      "termsVersion": 7,
+      "termsSha256": "133d9e156070dbbe380106a0d5703f840d145ae176377fc6057c40a4e98fb0a3"
+    },
+    {
+      "caso": "envelope-22",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "94ef1004-a94b-4204-8eb5-faba9de7a60d",
+          "document": "51749852838715",
+          "fantasyName": "Texto a9254cb4",
+          "corporateName": "Texto 6e32fbaa"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T22:15:02.898Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "b5f9f497-622c-473d-a6ee-bbbe5bea151a",
+            "category": null,
+            "taskName": "Texto 359ab943",
+            "orderNumber": null,
+            "serialNumber": "ANON10CDDC",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T22:15:02.897Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 613,
+        "billingGroups": [
+          [
+            "b5f9f497-622c-473d-a6ee-bbbe5bea151a"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "aa9f93e818366b859e3b91bd66520d256971889c71e42c93ceca0935d4dbfb2c",
+      "termsVersion": 7,
+      "termsSha256": "49c9425d54064fe7d068b7dd7674dd5992c193a875a00a7814f8ccfcb4b53975"
+    },
+    {
+      "caso": "envelope-23",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T22:17:01.490Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "ca2cf0f0-479b-45a9-ad36-319f36aa77eb",
+            "category": null,
+            "taskName": "Texto f45015d1",
+            "orderNumber": null,
+            "serialNumber": "ANON368007",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T22:17:01.489Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 614,
+        "billingGroups": [
+          [
+            "ca2cf0f0-479b-45a9-ad36-319f36aa77eb"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "6d7f710666b4c2a85de064d5c8ba2d68a984423a88c22df63ca512ff4e367053",
+      "termsVersion": 7,
+      "termsSha256": "cc7f59875d48a8d2d522c327c1a924c7f94dd0ac0732997d794ec9ab55d526bb"
+    },
+    {
+      "caso": "envelope-24",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T22:18:37.960Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "7111f1a1-adc1-4dc9-b957-4c7ab0e2e782",
+            "category": null,
+            "taskName": "Texto 763448bc",
+            "orderNumber": null,
+            "serialNumber": "ANONF3F4FB",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T22:18:37.959Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 616,
+        "billingGroups": [
+          [
+            "7111f1a1-adc1-4dc9-b957-4c7ab0e2e782"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "6db536f67a53d951d648e295b885fb0ee4a16b7ee2df3a04252ce25cc315ef2b",
+      "termsVersion": 7,
+      "termsSha256": "540b9fcdb88098eaab7511d6047b5c612388bb593676c7a04b4cb3d652d2c5b2"
+    },
+    {
+      "caso": "envelope-25",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T22:25:58.057Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "b36d0530-3163-415a-a0e7-0554820f6f8d",
+            "category": null,
+            "taskName": "Texto 867b28a2",
+            "orderNumber": null,
+            "serialNumber": "ANONB8C959",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T22:25:58.056Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 618,
+        "billingGroups": [
+          [
+            "b36d0530-3163-415a-a0e7-0554820f6f8d"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "1a6ddeeb3b26b0ce5aa8138256bf9392a482ad3228050291fba863aeb123c437",
+      "termsVersion": 7,
+      "termsSha256": "b196794bb2d8673c1e54e4cedbe5df89b132061549f377fdf4762ae60b6a2e17"
+    },
+    {
+      "caso": "envelope-26",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T22:47:42.562Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "c0c0db59-5a92-42b7-88a7-03158fffe7b9",
+            "category": null,
+            "taskName": "Texto 24196e07",
+            "orderNumber": null,
+            "serialNumber": "ANOND97ABB",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T22:47:42.561Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 620,
+        "billingGroups": [
+          [
+            "c0c0db59-5a92-42b7-88a7-03158fffe7b9"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "58718862fe277bb0f05a8899f74e85f1a1255aaf0852f1c25eeb569ddc7d37de",
+      "termsVersion": 7,
+      "termsSha256": "0eac356c8152b9f43f5d633ac0736adf8cf9044f65e44c72b44e413930320eef"
+    },
+    {
+      "caso": "envelope-27",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T23:17:05.040Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "0ec4efae-7821-421a-8170-425c6a9c3e38",
+            "category": null,
+            "taskName": "Texto ae67da7a",
+            "orderNumber": null,
+            "serialNumber": "ANON07DD71",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T23:17:05.039Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 621,
+        "billingGroups": [
+          [
+            "0ec4efae-7821-421a-8170-425c6a9c3e38"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "7ae0ffde497ea35cac17d6bb5499ddc0f73024cb0bc7bb1cf3ba261bf6499653",
+      "termsVersion": 7,
+      "termsSha256": "7f80bd9ba85f26b2bca46ae5290e9cf69d10221010dd2d6594ab3eefaf45df75"
+    },
+    {
+      "caso": "envelope-28",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T23:18:26.577Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "babb0312-2636-4755-9f2e-d9ea23ef858f",
+            "category": null,
+            "taskName": "Texto a9a74662",
+            "orderNumber": null,
+            "serialNumber": "ANON79EE23",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T23:18:26.577Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 622,
+        "billingGroups": [
+          [
+            "babb0312-2636-4755-9f2e-d9ea23ef858f"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "cc93f9cc6bed9fec50cf60a06086196da71d314e76311075fd9fd4268abc8e86",
+      "termsVersion": 7,
+      "termsSha256": "4b7f74f8fa40c5e7a1bb4b3e9d1377e1e412889216aa9728efc6e115b589d9ed"
+    },
+    {
+      "caso": "envelope-29",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T23:20:03.381Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "c628deda-aa5c-4b36-bc1e-8fd768e2a834",
+            "category": null,
+            "taskName": "Texto ba885896",
+            "orderNumber": null,
+            "serialNumber": "ANON768D48",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T23:20:03.381Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 623,
+        "billingGroups": [
+          [
+            "c628deda-aa5c-4b36-bc1e-8fd768e2a834"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "29ea6f034721dc57f5dd613a679a217826bf0f4d9f8f200fb52a63712415c779",
+      "termsVersion": 7,
+      "termsSha256": "13fa714a7bf7958f7bdaf2ea25b4a84460f913218504044f5f3c61f5d3afb957"
+    },
+    {
+      "caso": "envelope-30",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T23:24:31.614Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "95b05290-cb9f-4f17-b381-786d7d391955",
+            "category": null,
+            "taskName": "Texto 3bb69e25",
+            "orderNumber": null,
+            "serialNumber": "ANON056DDF",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T23:24:31.613Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 624,
+        "billingGroups": [
+          [
+            "95b05290-cb9f-4f17-b381-786d7d391955"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "046dcdcb45e040135477edc72a9ba0cf22a8fa2b6c6f3b128c97e6024fc1dd32",
+      "termsVersion": 7,
+      "termsSha256": "5715b9295c540e3aeae13de9a803acc5217bd7448a6b493fa8ed8db890779fb4"
+    },
+    {
+      "caso": "envelope-31",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-20T23:58:13.406Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "ab4c891c-9312-44f1-8b86-5b27b46cf296",
+            "category": null,
+            "taskName": "Texto 58e79eb2",
+            "orderNumber": null,
+            "serialNumber": "ANOND972E1",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-20T23:58:13.405Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 625,
+        "billingGroups": [
+          [
+            "ab4c891c-9312-44f1-8b86-5b27b46cf296"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "86d6c34725a26ed37e615fb8d22e25492534e528a0bbbfdf603fc61a147f7db2",
+      "termsVersion": 7,
+      "termsSha256": "094b2d82747e8e78ef70aab4c0057474c6c0e803d88d379ecb6f5f9946891216"
+    },
+    {
+      "caso": "envelope-32",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-21T00:21:16.483Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "8f454f45-1202-4108-93e1-05ea174868a9",
+            "category": null,
+            "taskName": "Texto d63b32f4",
+            "orderNumber": null,
+            "serialNumber": "ANON9A4A0B",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-21T00:21:16.482Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 627,
+        "billingGroups": [
+          [
+            "8f454f45-1202-4108-93e1-05ea174868a9"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "7b6544f89f3eaa518bcde65c2c85752e34d5189d0be1ae19baf0b18db70f35d8",
+      "termsVersion": 7,
+      "termsSha256": "a73008e6e150f267a643cb01d4c381e20a99732bf0be2a06c9acdc06797250a1"
+    },
+    {
+      "caso": "envelope-33",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-21T00:21:29.390Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "21816224-a584-47ff-ad08-bc6984f71ddb",
+            "category": null,
+            "taskName": "Texto 6a73f75e",
+            "orderNumber": null,
+            "serialNumber": "ANON5FF703",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-21T00:21:29.389Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 628,
+        "billingGroups": [
+          [
+            "21816224-a584-47ff-ad08-bc6984f71ddb"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "1d03cd130a505dbc08b1c79394e19fc2007cdb839358f4584902c9968bf2289d",
+      "termsVersion": 7,
+      "termsSha256": "82bd83dcb2dfea9edf26e65727cf645f43fd326ae3fd4ca57993bb672bf6318f"
+    },
+    {
+      "caso": "envelope-34",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          },
+          {
+            "name": "Texto 54f5a682",
+            "roles": [
+              "PURCHASING"
+            ],
+            "phoneDigits": "01360179501",
+            "responsibleId": "bd863aec-0dc5-40b0-ac8b-979b55d671f8",
+            "emailNormalized": "anon-21853ef5@exemplo.invalid"
+          },
+          {
+            "name": "Texto 89644258",
+            "roles": [
+              "COMMERCIAL",
+              "PURCHASING"
+            ],
+            "phoneDigits": "04374440043",
+            "responsibleId": "e0d9f079-3777-4c60-b3a2-699675382f7e",
+            "emailNormalized": "anon-6a0197e7@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-21T00:57:40.955Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "cf9af1d8-402c-40d2-9e8a-a83c1674c9ed",
+            "category": null,
+            "taskName": "Texto 99c46d72",
+            "orderNumber": null,
+            "serialNumber": "ANON3C3D44",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-21T00:57:40.955Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 630,
+        "billingGroups": [
+          [
+            "cf9af1d8-402c-40d2-9e8a-a83c1674c9ed"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "644ddc67a03f8d70d6dde56f321a658cd22b3ed4fdbb82b4e22f8d93adfae552",
+      "termsVersion": 7,
+      "termsSha256": "5e72957d6738732c377643418959f59f2c0657d438a43ca1ac3797f8d0c68e2d"
+    },
+    {
+      "caso": "envelope-35",
+      "status": "RUNNING",
+      "versaoEnvelope": 1,
+      "layoutScope": "SHARED",
+      "schemaVersion": 4,
+      "noBanco": {
+        "snapshotCasa": true,
+        "termosGravados": true,
+        "versaoMaterialQueCasa": 7
+      },
+      "snapshot": {
+        "total": "0.00",
+        "signers": [
+          {
+            "name": "Texto 218c819c",
+            "roles": [
+              "SELLER"
+            ],
+            "phoneDigits": "25515119317",
+            "responsibleId": "0674876c-88cb-4646-8fef-1a2b0930b2eb",
+            "emailNormalized": "anon-3c0781fe@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08",
+          "document": "41242185914139",
+          "fantasyName": "Texto 3a973d60",
+          "corporateName": "Texto 16122fe5"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-21T00:57:53.804Z",
+        "services": [],
+        "subtotal": "0.00",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "de635389-f239-420d-a906-fc2c89df3e5b",
+            "category": null,
+            "taskName": "Texto e4201079",
+            "orderNumber": null,
+            "serialNumber": "ANONF0B3AD",
+            "chassisNumber": null,
+            "implementType": null
+          }
+        ],
+        "expiresAt": "2026-10-21T00:57:53.803Z",
+        "billingSplit": "JOINT",
+        "budgetNumber": 631,
+        "billingGroups": [
+          [
+            "de635389-f239-420d-a906-fc2c89df3e5b"
+          ]
+        ],
+        "layoutFileIds": [
+          "8d426db1-b233-4e46-a8c5-0dd7cee81de9"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": null,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": null,
+        "customForecastDays": null,
+        "customGuaranteeText": null
+      },
+      "snapshotSha256": "363aee52e2563c7e84da22f7d6a0d07499c165c7f333f5329e78459f372f10d7",
+      "termsVersion": 7,
+      "termsSha256": "81a1c31bf79a0493c16cdf8a15690552f4e3d69c1de641e71bd5535b803a51e2"
+    },
+    {
+      "caso": "sintetico-per-vehicle-uniforme",
+      "status": "SINTETICO",
+      "versaoEnvelope": 1,
+      "layoutScope": "PER_VEHICLE",
+      "schemaVersion": 4,
+      "noBanco": null,
+      "snapshot": {
+        "total": "0.80",
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d",
+            "emailNormalized": "anon-7eeffc77@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b593f440-9f00-4c85-93ef-54bf5a9eef37",
+          "document": "49909604950889",
+          "fantasyName": "Texto 65f45943",
+          "corporateName": "Texto 65f45943"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T10:56:45.675Z",
+        "services": [
+          {
+            "amount": "0.10",
+            "position": 0,
+            "description": "Texto 83a84725",
+            "observation": null
+          },
+          {
+            "amount": "0.10",
+            "position": 1,
+            "description": "Texto b9e72a11",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.80",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "67a104c0-f55f-4078-958c-60d5e17ce5e3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON7A1DAC",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "c1f67f7d-a3dc-4bda-a879-c8c976a215cb",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONA4F18C",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "9cb32575-ddba-40d5-a36a-34891f81fb3c",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON4880BA",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "098551e3-903a-4b89-879b-0b541620a8a3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONE41737",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          }
+        ],
+        "expiresAt": "2026-10-15T02:59:59.999Z",
+        "billingSplit": "PER_TASK",
+        "budgetNumber": 594,
+        "billingGroups": [
+          [
+            "67a104c0-f55f-4078-958c-60d5e17ce5e3"
+          ],
+          [
+            "c1f67f7d-a3dc-4bda-a879-c8c976a215cb"
+          ],
+          [
+            "9cb32575-ddba-40d5-a36a-34891f81fb3c"
+          ],
+          [
+            "098551e3-903a-4b89-879b-0b541620a8a3"
+          ]
+        ],
+        "layoutFileIds": [
+          "00000000-0000-4000-8000-00000000a001"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": 10,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": 2,
+        "customForecastDays": 3,
+        "customGuaranteeText": null,
+        "layoutCoverage": [
+          [
+            "00000000-0000-4000-8000-00000000a001",
+            [
+              "67a104c0-f55f-4078-958c-60d5e17ce5e3",
+              "c1f67f7d-a3dc-4bda-a879-c8c976a215cb",
+              "9cb32575-ddba-40d5-a36a-34891f81fb3c",
+              "098551e3-903a-4b89-879b-0b541620a8a3"
+            ]
+          ]
+        ]
+      },
+      "snapshotSha256": "f99e3eb72c90106491799f8d1bbd96a2b2a19495deb8d906037208064b120020",
+      "termsVersion": 7,
+      "termsSha256": "ee7d54a47a06522dcb9e356ffd0b0eada7ada87e023cd1a2d6b4c6027e08b9ce"
+    },
+    {
+      "caso": "sintetico-per-vehicle-nao-uniforme",
+      "status": "SINTETICO",
+      "versaoEnvelope": 1,
+      "layoutScope": "PER_VEHICLE",
+      "schemaVersion": 4,
+      "noBanco": null,
+      "snapshot": {
+        "total": "0.80",
+        "signers": [
+          {
+            "name": "Texto 514f3970",
+            "roles": [
+              "COMMERCIAL",
+              "FINANCIAL",
+              "MARKETING"
+            ],
+            "phoneDigits": "18320440936",
+            "responsibleId": "49c22fb3-aed1-40dd-99a2-527a7d3c8f1d",
+            "emailNormalized": "anon-7eeffc77@exemplo.invalid"
+          }
+        ],
+        "customer": {
+          "id": "b593f440-9f00-4c85-93ef-54bf5a9eef37",
+          "document": "49909604950889",
+          "fantasyName": "Texto 65f45943",
+          "corporateName": "Texto 65f45943"
+        },
+        "discount": {
+          "type": "NONE",
+          "value": null,
+          "reference": null
+        },
+        "issuedAt": "2026-09-14T10:56:45.675Z",
+        "services": [
+          {
+            "amount": "0.10",
+            "position": 0,
+            "description": "Texto 83a84725",
+            "observation": null
+          },
+          {
+            "amount": "0.10",
+            "position": 1,
+            "description": "Texto b9e72a11",
+            "observation": null
+          }
+        ],
+        "subtotal": "0.80",
+        "vehicles": [
+          {
+            "plate": null,
+            "taskId": "67a104c0-f55f-4078-958c-60d5e17ce5e3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON7A1DAC",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "c1f67f7d-a3dc-4bda-a879-c8c976a215cb",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONA4F18C",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "9cb32575-ddba-40d5-a36a-34891f81fb3c",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANON4880BA",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          },
+          {
+            "plate": null,
+            "taskId": "098551e3-903a-4b89-879b-0b541620a8a3",
+            "category": "RIGID",
+            "taskName": "Texto 2bdaa2ae",
+            "orderNumber": null,
+            "serialNumber": "ANONE41737",
+            "chassisNumber": null,
+            "implementType": "REFRIGERATED"
+          }
+        ],
+        "expiresAt": "2026-10-15T02:59:59.999Z",
+        "billingSplit": "PER_TASK",
+        "budgetNumber": 594,
+        "billingGroups": [
+          [
+            "67a104c0-f55f-4078-958c-60d5e17ce5e3"
+          ],
+          [
+            "c1f67f7d-a3dc-4bda-a879-c8c976a215cb"
+          ],
+          [
+            "9cb32575-ddba-40d5-a36a-34891f81fb3c"
+          ],
+          [
+            "098551e3-903a-4b89-879b-0b541620a8a3"
+          ]
+        ],
+        "layoutFileIds": [
+          "00000000-0000-4000-8000-00000000a001",
+          "00000000-0000-4000-8000-00000000b002"
+        ],
+        "schemaVersion": 4,
+        "guaranteeYears": 10,
+        "commercialUserId": null,
+        "paymentCondition": null,
+        "customPaymentText": null,
+        "simultaneousTasks": 2,
+        "customForecastDays": 3,
+        "customGuaranteeText": null,
+        "layoutCoverage": [
+          [
+            "00000000-0000-4000-8000-00000000a001",
+            [
+              "67a104c0-f55f-4078-958c-60d5e17ce5e3"
+            ]
+          ],
+          [
+            "00000000-0000-4000-8000-00000000b002",
+            [
+              "c1f67f7d-a3dc-4bda-a879-c8c976a215cb",
+              "9cb32575-ddba-40d5-a36a-34891f81fb3c",
+              "098551e3-903a-4b89-879b-0b541620a8a3"
+            ]
+          ]
+        ]
+      },
+      "snapshotSha256": "76003f60bbf1a033664c5dda8d01d2ec8a5631cbaebd9582f781355d8c3bc42b",
+      "termsVersion": 7,
+      "termsSha256": "19515fcc4bfc6736dc7369ed50d59a48a68549f93c14921b0f8729c18e8fa89a"
+    }
+  ]
+}
