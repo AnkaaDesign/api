@@ -19,7 +19,16 @@
  * "LEIAUTE DPS_NFS-e" e "RN DPS_NFS-e".
  */
 
-import { IMPLEMENT_TYPE_LABELS, TRUCK_CATEGORY_LABELS } from '@constants/enum-labels';
+// O PERFIL DA NFS-e DO AEROGRAFISTA. Era o mapa da TELA (`@constants/enum-labels`):
+// renomear um rótulo de tela mudava esta nota sem ninguém saber. Hoje as
+// palavras são as mesmas da tela, mas o perfil é dele (D-18).
+import {
+  IMPLEMENT_TYPE_PROFILE_LABELS,
+  TRUCK_CATEGORY_PROFILE_LABELS,
+} from '@constants/document-labels';
+
+const TRUCK_CATEGORY_LABELS: Record<string, string> = TRUCK_CATEGORY_PROFILE_LABELS.nfsePainter;
+const IMPLEMENT_TYPE_LABELS: Record<string, string> = IMPLEMENT_TYPE_PROFILE_LABELS.nfsePainter;
 
 export const NFSE_NAMESPACE = 'http://www.sped.fazenda.gov.br/nfse';
 export const DPS_LAYOUT_VERSION = '1.01';

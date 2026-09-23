@@ -6,6 +6,10 @@ import axios from 'axios';
 import { FiscalDocumentStatus, NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
 import { buildDiscriminacao } from './nfse-discriminacao';
+import {
+  IMPLEMENT_TYPE_PROFILE_LABELS,
+  TRUCK_CATEGORY_PROFILE_LABELS,
+} from '@constants/document-labels';
 
 export interface MunicipalEmitNfseInput {
   id: string;
@@ -1292,27 +1296,15 @@ export class ElotechOxyNfseService {
     };
   }
 
-  private readonly TRUCK_CATEGORY_LABELS: Record<string, string> = {
-    MINI: 'Mini',
-    VUC: 'VUC',
-    THREE_QUARTER: '3/4',
-    RIGID: 'Toco',
-    TRUCK: 'Truck',
-    SEMI_TRAILER: 'Semirreboque',
-    SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
-    B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
-    B_DOUBLE_REAR: 'Bitrem Composição Traseira',
-    BITRUCK: 'Bitruck',
-  };
+  // O PERFIL DA NFS-e DA TAREFA ("Carga seca", "Isotérmico", "Prancha/Plataforma")
+  // — diferente do da tela, do boleto e da fatura, e é o texto de todas as notas
+  // já emitidas. Mora na fonte única (`@constants/document-labels`, D-18) e é
+  // travado por `tests/fiscal-labels-golden.test.ts`.
+  private readonly TRUCK_CATEGORY_LABELS: Record<string, string> =
+    TRUCK_CATEGORY_PROFILE_LABELS.nfseTask;
 
-  private readonly IMPLEMENT_TYPE_LABELS: Record<string, string> = {
-    DRY_CARGO: 'Carga seca',
-    REFRIGERATED: 'Refrigerado',
-    INSULATED: 'Isotérmico',
-    CURTAIN_SIDE: 'Sider',
-    TANK: 'Tanque',
-    FLATBED: 'Prancha/Plataforma',
-  };
+  private readonly IMPLEMENT_TYPE_LABELS: Record<string, string> =
+    IMPLEMENT_TYPE_PROFILE_LABELS.nfseTask;
 
   private async buildPayload(invoice: MunicipalEmitNfseInput): Promise<Record<string, any>> {
     const contribuinte = this.authService.getContribuinteData();
