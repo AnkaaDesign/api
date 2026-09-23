@@ -34,9 +34,10 @@
 
 process.env.TZ = 'America/Sao_Paulo';
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
+import { scanMeasureWrites, scanMeasureWriteSource } from './helpers/measure-write-scan';
 
 const SUFFIX = Date.now().toString().slice(-6);
 const NAME_PREFIX = `zz-g15-medida-${SUFFIX}`;
@@ -143,38 +144,63 @@ async function main() {
   };
 
   // ── Forma da fonte: ninguém fora do escritor escreve medida ───────────────
+  // Pelo AST (tests/helpers/measure-write-scan.ts), em src/, scripts/ e prisma/:
+  // escrita direta no modelo, chave de face dentro de uma escrita (inclusive
+  // aninhada e com a FK literal), operação aninhada numa face, atribuição a
+  // coluna de face, chave computada sem o desvio pelo FACE_FK e SQL cru.
   console.log('\nA FONTE — só o escritor único grava `ImplementMeasure`');
   {
     const raiz = resolve(__dirname, '..', 'src');
-    const arquivos: string[] = [];
-    const varrer = (dir: string) => {
-      for (const nome of readdirSync(dir)) {
-        const p = join(dir, nome);
-        if (statSync(p).isDirectory()) varrer(p);
-        else if (p.endsWith('.ts')) arquivos.push(p);
-      }
-    };
-    varrer(raiz);
-    const escrita =
-      /\.implementMeasure\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|\.implementMeasureSection\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/;
-    const fora = arquivos.filter(
-      p => !p.endsWith('implement-measure-writer.ts') && escrita.test(readFileSync(p, 'utf8')),
-    );
+    const fora = scanMeasureWrites(resolve(__dirname, '..'));
     check(
-      'nenhum `implementMeasure.create/update/delete` fora de implement-measure-writer.ts',
+      'nenhuma escrita de medida fora de implement-measure-writer.ts (src/, scripts/, prisma/)',
       fora.length === 0,
-      fora.map(p => p.replace(raiz, 'src')).join(', '),
+      fora.map(h => `${h.file}:${h.line} [${h.rule}] ${h.text}`).join(' | '),
     );
-    const colunaSolta = arquivos.filter(p => {
-      if (p.endsWith('implement-measure-writer.ts')) return false;
-      const src = readFileSync(p, 'utf8');
-      // Uma coluna de face gravada à mão: `data: { leftSideMeasureId: … }` ou `[lado.coluna]`.
-      return /data:\s*\{\s*\[(lado\.coluna|SIDE_FK\[|implementMeasureField|FACE_FK\[)/.test(src);
-    });
+    // A varredura pega o que promete: cada forma abaixo TEM de ser acusada.
+    const CANARIOS: Array<[string, string]> = [
+      [
+        'FK literal copiada',
+        'tx.truck.update({ where: { id }, data: { leftSideMeasureId: outro.leftSideMeasureId } })',
+      ],
+      ['FK na criação', 'tx.truck.create({ data: { taskId, backSideMeasureId: x } })'],
+      [
+        'connect aninhado',
+        'tx.truck.update({ where: { id }, data: { rightSideMeasure: { connect: { id: x } } } })',
+      ],
+      [
+        'create aninhado',
+        'tx.task.create({ data: { truck: { create: { backSideMeasure: { create: {} } } } } })',
+      ],
+      [
+        'face do P11',
+        'tx.task.update({ where: { id }, data: { truck: { update: { frontSideMeasureId: x } } } })',
+      ],
+      ['objeto montado fora', 'const payload = { leftSideMeasure: { connectOrCreate: {} } }'],
+      ['escrita direta', 'tx.implementMeasure.update({ where: { id }, data: {} })'],
+      ['escrita por colchete', "tx['implementMeasure'].delete({ where: { id } })"],
+      ['atribuição', 'truckData.rightSideMeasureId = null'],
+      ['chave computada sem desvio', 'tx.truck.update({ where: { id }, data: { [campo]: v } })'],
+      ['SQL cru', 'tx.$executeRaw`UPDATE "Truck" SET "leftSideMeasureId" = ${x}`'],
+    ];
+    const cegos = CANARIOS.filter(([, src]) => scanMeasureWriteSource('canario.ts', src).length === 0);
     check(
-      'nenhuma coluna de face gravada fora do escritor (`data: { [coluna]: … }`)',
-      colunaSolta.length === 0,
-      colunaSolta.map(p => p.replace(raiz, 'src')).join(', '),
+      `a varredura acusa as ${CANARIOS.length} formas de escrita (canários)`,
+      cegos.length === 0,
+      cegos.map(([n]) => n).join(', '),
+    );
+    const LEITURAS = [
+      'tx.truck.findMany({ select: { leftSideMeasureId: true }, where: { backSideMeasureId: x } })',
+      'z.object({ leftSideMeasure: implementMeasureSideSchema })',
+      'function f() { return { leftSideMeasure: truck.leftSideMeasure } }',
+      'if (face && FACE_FK[face] === campo) { a() } ' +
+        'else { tx.truck.update({ where: { id }, data: { [campo]: v } }) }',
+    ];
+    const falsos = LEITURAS.filter(src => scanMeasureWriteSource('leitura.ts', src).length > 0);
+    check(
+      'leitura, schema, resposta e a reversão desviada pelo FACE_FK não são acusados',
+      falsos.length === 0,
+      falsos.join(' | '),
     );
     const portal = readFileSync(
       join(raiz, 'modules/people/portal/portal-identity.service.ts'),
