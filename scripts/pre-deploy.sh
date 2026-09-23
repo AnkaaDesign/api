@@ -60,7 +60,9 @@ PASSOS=(
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
   # ── P04: escritor único de medida ──
   "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"
-  # ── P05: (acrescentar aqui, na integração) ──
+  # ── P05: fonte única de rótulos + contrato exportado ──
+  "G21 ouro dos rótulos fiscais|0|npm run -s test:fiscal-labels"
+  "exaustividade dos rótulos|0|npm run -s test:labels-exhaustive"
 )
 
 if [[ "$E2E" == "1" ]]; then
