@@ -37,6 +37,9 @@
  *   npx tsx scripts/export-contracts.ts --check         só confere (sai 1 se desatualizado)
  *   npx tsx scripts/export-contracts.ts --out <dir>     também copia os dois JSON para <dir>
  *                                                       (web: ../web/src/generated/contracts)
+ *   npx tsx scripts/export-contracts.ts --irmaos        também grava as cópias do web e do app nos
+ *                                                       repositórios irmãos que existirem
+ *   Com --check, as cópias pedidas (--out, --dart ou --irmaos) são conferidas também.
  *   npx tsx scripts/export-contracts.ts --dart <file>   também gera o .dart do app
  *                                                       (../mobile-flutter/lib/generated/contracts/labels.dart)
  */
@@ -58,6 +61,17 @@ import { FilesStorageService } from '../src/modules/common/file/services/files-s
 
 const ROOT = join(__dirname, '..');
 export const CONTRACTS_DIR = join(ROOT, 'contracts');
+/** As cópias geradas nos repositórios irmãos (web e app), lado a lado com a api. */
+export const WEB_COPY_DIR = join(ROOT, '..', 'web', 'src', 'generated', 'contracts');
+export const APP_COPY_FILE = join(
+  ROOT,
+  '..',
+  'mobile-flutter',
+  'lib',
+  'generated',
+  'contracts',
+  'labels.dart',
+);
 const GENERATED_BY =
   'GERADO por api/scripts/export-contracts.ts — NÃO EDITE À MÃO. Regerar: npx tsx scripts/export-contracts.ts';
 
@@ -440,26 +454,37 @@ function main(): void {
     [join(CONTRACTS_DIR, 'enums.json'), serialize(contracts.enums)],
   ];
 
+  // As cópias dos clientes: pedidas por --out/--dart, ou as dos repositórios
+  // irmãos que existirem (--irmaos). No --check elas são CONFERIDAS também:
+  // regerar só o contrato da api deixava web e app com a cópia velha, e os
+  // testes deles comparam contra a própria cópia (F5, R-B-06).
+  const out = argValue('--out') ?? (process.argv.includes('--irmaos') ? WEB_COPY_DIR : null);
+  const dart = argValue('--dart') ?? (process.argv.includes('--irmaos') ? APP_COPY_FILE : null);
+  const copies: Array<[string, string]> = [];
+  if (out && (argValue('--out') || existsSync(dirname(out)))) {
+    copies.push([join(out, 'labels.json'), serialize(contracts.labels)]);
+    copies.push([join(out, 'enums.json'), serialize(contracts.enums)]);
+  }
+  if (dart && (argValue('--dart') || existsSync(dirname(dirname(dart))))) {
+    copies.push([dart, buildDart(contracts)]);
+  }
+
   if (process.argv.includes('--check')) {
-    const stale = files.filter(([p, c]) => !existsSync(p) || readFileSync(p, 'utf8') !== c);
+    const all = [...files, ...copies];
+    const stale = all.filter(([p, c]) => !existsSync(p) || readFileSync(p, 'utf8') !== c);
     if (stale.length > 0) {
       console.error(
         `Contratos desatualizados: ${stale.map(([p]) => relative(ROOT, p)).join(', ')}. ` +
-          'Rode: npx tsx scripts/export-contracts.ts',
+          'Rode: npx tsx scripts/export-contracts.ts --irmaos',
       );
       process.exit(1);
     }
-    console.log('Contratos em dia.');
+    console.log(
+      `Contratos em dia (${all.map(([p]) => relative(ROOT, p)).join(', ')}).`,
+    );
     return;
   }
-
-  const out = argValue('--out');
-  if (out) {
-    files.push([join(out, 'labels.json'), serialize(contracts.labels)]);
-    files.push([join(out, 'enums.json'), serialize(contracts.enums)]);
-  }
-  const dart = argValue('--dart');
-  if (dart) files.push([dart, buildDart(contracts)]);
+  files.push(...copies);
 
   for (const [path, content] of files) {
     const changed = writeIfChanged(path, content);

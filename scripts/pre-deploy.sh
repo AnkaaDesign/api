@@ -63,6 +63,8 @@ PASSOS=(
   # ── P05: fonte única de rótulos + contrato exportado ──
   "G21 ouro dos rótulos fiscais|0|npm run -s test:fiscal-labels"
   "exaustividade dos rótulos|0|npm run -s test:labels-exhaustive"
+  # ── revisão da Fase A: as cópias dos clientes não ficam para trás ──
+  "G5 contrato nas cópias do web e do app|0|npx tsx scripts/export-contracts.ts --check --irmaos"
 )
 
 if [[ "$E2E" == "1" ]]; then
