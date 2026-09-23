@@ -42,6 +42,12 @@ import {
   QUOTE_BILLING_INCLUDE,
   withCoverageInclude,
 } from '../../../../utils/quote-tasks';
+import {
+  PER_VEHICLE_LEGACY_WRITE_MESSAGE,
+  pruneQuoteLayoutCoverage,
+  QUOTE_LAYOUT_FILES_INCLUDE,
+  withLayoutCoverageInclude,
+} from '../../../../utils/quote-layout-coverage';
 
 // =====================
 // Query Pattern Definitions
@@ -251,7 +257,8 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
           },
         },
       },
-      layoutFiles: { orderBy: { createdAt: 'asc' } },
+      // Com a cobertura de cada arte — ver `withLayoutCoverageInclude`.
+      layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
       customerConfigs: {
         include: {
           billing: QUOTE_BILLING_INCLUDE,
@@ -1787,6 +1794,19 @@ export class TaskPrismaRepository
       if (nested && nested.customerConfigs !== undefined && nested.customerConfigs !== false) {
         nested.customerConfigs = withCoverageInclude(nested.customerConfigs);
       }
+      // ─── E A COBERTURA DE CADA ARTE DE LAYOUT, pelo mesmo motivo ─────────
+      //
+      // A tela de Faturamento lê o orçamento por AQUI (`quote: { include: {
+      // layoutFiles: true } }`), e num orçamento com layout por veículo a arte
+      // sem `quoteLayoutTasks` não diz de qual caminhão é. `layoutScope` chega
+      // sozinho quando o nó é `include` (escalar); num `select` à mão ele só vem
+      // se pedido, então é pendurado junto.
+      if (nested && nested.layoutFiles !== undefined && nested.layoutFiles !== false) {
+        nested.layoutFiles = withLayoutCoverageInclude(nested.layoutFiles);
+        if (quoteNode.select && !('layoutScope' in (quoteNode.select as object))) {
+          (quoteNode.select as Record<string, unknown>).layoutScope = true;
+        }
+      }
     }
 
     this.logger.log(
@@ -2309,6 +2329,7 @@ export class TaskPrismaRepository
                   customGuaranteeText: true,
                   customForecastDays: true,
                   simultaneousTasks: true,
+                  layoutScope: true,
                   layoutFiles: { select: { id: true } },
                 },
               });
@@ -2336,6 +2357,14 @@ export class TaskPrismaRepository
                     .map(f => f.id)
                     .sort()
                     .join('|');
+                  // LAYOUT POR VEÍCULO: a lista crua de ids não diz de qual
+                  // caminhão cada arte é. Conjunto igual é o eco do formulário e
+                  // passa SEM TOCAR em nada (ver `layoutEcho` abaixo); diferente
+                  // é recusado com o endereço da única tela que atribui arte a
+                  // veículo.
+                  if (pedidos !== gravados && (atual as any).layoutScope === 'PER_VEHICLE') {
+                    throw new BadRequestException(PER_VEHICLE_LEGACY_WRITE_MESSAGE);
+                  }
                   if (pedidos !== gravados) forbiddenHere.push('layout de referência');
                 }
               }
@@ -2348,9 +2377,22 @@ export class TaskPrismaRepository
               );
             }
 
+            // Chegando aqui, `layoutFileIds` é o MESMO conjunto gravado (a guarda
+            // acima recusa o resto). Num orçamento por veículo esse eco não
+            // regrava nada — nem a relação, nem a galeria das tarefas: a
+            // cobertura de cada arte fica exatamente como o comercial deixou.
+            const layoutEchoOnPerVehicle =
+              hasImplementMeasure &&
+              (
+                await transaction.budget.findUnique({
+                  where: { id: currentTask.quoteId },
+                  select: { layoutScope: true },
+                })
+              )?.layoutScope === 'PER_VEHICLE';
+
             // Clone any implementMeasure File owned by ANOTHER quote so this quote owns an
             // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
-            const resolvedImplementMeasureIds = hasImplementMeasure
+            const resolvedImplementMeasureIds = hasImplementMeasure && !layoutEchoOnPerVehicle
               ? await this.fileService.resolveLayoutFileIdsForQuote(
                   transaction,
                   currentTask.quoteId,
@@ -2404,7 +2446,9 @@ export class TaskPrismaRepository
               },
             });
 
-            if (hasImplementMeasure) quoteIdForLayoutSync = currentTask.quoteId;
+            if (hasImplementMeasure && !layoutEchoOnPerVehicle) {
+              quoteIdForLayoutSync = currentTask.quoteId;
+            }
 
             // Configs: non-destructive upsert by (quoteId, customerId) — preserves
             // issued Invoice/Installments and DB-owned fields (customerSignatureId,
@@ -2573,6 +2617,10 @@ export class TaskPrismaRepository
           // destino não cobraria o que recebeu.
           await resliceQuoteCoverage(transaction, quoteId);
           await recalcQuoteTotals(transaction, quoteId);
+          // E a cobertura de LAYOUT, nos dois lados: quem saiu perde a dele, quem
+          // chegou não traz a do orçamento de onde veio — e, num orçamento por
+          // veículo, fica descoberto até alguém atribuir.
+          await pruneQuoteLayoutCoverage(transaction, quoteId);
         }
       }
 
@@ -2640,6 +2688,10 @@ export class TaskPrismaRepository
           // um grupo de N num orçamento de N−1.
           await resliceQuoteCoverage(transaction, before.quoteId);
           await recalcQuoteTotals(transaction, before.quoteId);
+          // As linhas de layout do veículo apagado caem por cascata; a arte que
+          // era SÓ dele sai do orçamento aqui (num orçamento por veículo, uma
+          // arte sem veículo nenhum seria layout aprovado de ninguém).
+          await pruneQuoteLayoutCoverage(transaction, before.quoteId);
         }
       }
 

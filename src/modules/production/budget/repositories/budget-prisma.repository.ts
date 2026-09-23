@@ -11,6 +11,10 @@ import {
   QUOTE_BILLING_INCLUDE,
   withCoverageInclude,
 } from '@utils/quote-tasks';
+import {
+  QUOTE_LAYOUT_FILES_INCLUDE,
+  withLayoutCoverageInclude,
+} from '@utils/quote-layout-coverage';
 
 /** A ordem canônica das tarefas de um orçamento — ver `QUOTE_TASKS_ORDER_BY`. */
 const TASK_ORDER = QUOTE_TASKS_ORDER_BY;
@@ -393,8 +397,11 @@ export class BudgetPrismaRepository
             ? { orderBy: TASK_ORDER, select: (requestedTaskInclude as any).select }
             : { orderBy: TASK_ORDER, include: requestedTaskInclude.include as any };
     }
+    // A COBERTURA DE CADA ARTE ENTRA SEMPRE — gêmea da injeção de `billing`
+    // logo abaixo. `layoutFiles: true` é o que toda tela manda, e sem a
+    // injeção o layout por veículo chegaria sem dizer de quem é cada arte.
     if ((include as any).layoutFiles !== undefined)
-      mappedInclude.layoutFiles = (include as any).layoutFiles;
+      mappedInclude.layoutFiles = withLayoutCoverageInclude((include as any).layoutFiles) as any;
     if ((include as any).customerConfigs !== undefined) {
       // A COBERTURA ENTRA SEMPRE, seja qual for a forma que o chamador pediu.
       // Ver `withCoverageInclude`: uma fatura que chega à tela sem a cobertura é
@@ -653,7 +660,10 @@ export class BudgetPrismaRepository
             },
           },
         },
-        layoutFiles: { orderBy: { createdAt: 'asc' } },
+        // As artes COM a cobertura de cada uma: é esta a leitura da tela de
+        // Orçamento, e é nela que o layout se atribui veículo a veículo.
+        // (`layoutScope` vem sozinho — é escalar, e este é um `include`.)
+        layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
         services: {
           orderBy: { position: 'asc' },
           include: {

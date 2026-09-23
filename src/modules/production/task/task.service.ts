@@ -110,6 +110,11 @@ import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
 } from '../../../utils/budget-customer-config-sync';
+import {
+  layoutFileCoverage,
+  PER_VEHICLE_LEGACY_WRITE_MESSAGE,
+  pruneQuoteLayoutCoverage,
+} from '../../../utils/quote-layout-coverage';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -3464,6 +3469,19 @@ export class TaskService {
         // Up to 2 implementMeasure files (controller maxCount=2). Newly-uploaded File ids are merged,
         // order-preserving, with any existing-selected ids the client sent in layoutFileIds.
         if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
+          // Arte NOVA num orçamento com layout por veículo: a porta da tarefa não
+          // sabe de qual caminhão ela é, e o repositório recusaria a lista
+          // mudada logo adiante — mas DEPOIS de os bytes irem para o disco, onde
+          // o rollback da transação não alcança. Recusar antes do upload.
+          if (existingTask.quoteId) {
+            const escopo = await tx.budget.findUnique({
+              where: { id: existingTask.quoteId },
+              select: { layoutScope: true },
+            });
+            if (escopo?.layoutScope === 'PER_VEHICLE') {
+              throw new BadRequestException(PER_VEHICLE_LEGACY_WRITE_MESSAGE);
+            }
+          }
           console.log('[TaskService] Processing quote implementMeasure file(s)');
           const customerName = existingTask.customer?.fantasyName;
 
@@ -11690,11 +11708,28 @@ export class TaskService {
           }
         }
 
+        // O orçamento de onde a tarefa SAI com o rollback — lido antes, porque
+        // depois do update o vínculo anterior já se foi.
+        const quoteAntesDoRollback =
+          (
+            await tx.task.findUnique({
+              where: { id: changeLog.entityId },
+              select: { quoteId: true },
+            })
+          )?.quoteId ?? null;
+
         // Update the task's quoteId
         await tx.task.update({
           where: { id: changeLog.entityId },
           data: { quoteId: quoteIdToRestore },
         });
+
+        // A cobertura de LAYOUT não acompanha a tarefa: ela perde a do orçamento
+        // de onde saiu e não herda cobertura nenhuma no que a recebe — num
+        // orçamento por veículo, fica descoberta até alguém atribuir.
+        for (const q of new Set([quoteAntesDoRollback, quoteIdToRestore])) {
+          if (q) await pruneQuoteLayoutCoverage(tx, q);
+        }
 
         // Task↔quote link restored: re-materialize the quote's layout files as
         // APPROVED task layouts.
@@ -13337,7 +13372,16 @@ export class TaskService {
    * ADMIN/FINANCEIRO/COMERCIAL. O `billingSplit` também não é copiado: a cópia
    * tem um veículo, e a única leitura possível ali é `JOINT`.
    */
-  private async duplicateBudget(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
+  private async duplicateBudget(
+    sourceQuoteId: string,
+    tx: PrismaTransaction,
+    /**
+     * O VEÍCULO de origem da cópia. Num orçamento com layout por veículo, a
+     * cópia (que é de um caminhão só) leva só as artes DESTE veículo — levar
+     * todas daria ao destino a pintura dos outros caminhões como layout aprovado.
+     */
+    sourceTaskId?: string | null,
+  ): Promise<string> {
     const sourceQuote = await tx.budget.findUnique({
       where: { id: sourceQuoteId },
       include: {
@@ -13355,7 +13399,11 @@ export class TaskService {
           // back in non-deterministic heap order. Without this the copy is scrambled.
           orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         },
-        layoutFiles: { select: { id: true } },
+        layoutFiles: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, quoteLayoutTasks: { select: { taskId: true } } },
+        },
+        tasks: { select: { id: true, createdAt: true } },
         customerConfigs: {
           select: {
             customerId: true,
@@ -13394,8 +13442,17 @@ export class TaskService {
 
     // Clone the source quote's implementMeasure files so the new quote owns INDEPENDENT
     // copies — connecting the source ids would steal them (FK lives on File).
+    // Em `PER_VEHICLE`, só as artes do veículo de origem (ver `sourceTaskId`); a
+    // cópia nasce `SHARED`, porque tem um veículo só e as artes dela são dele.
+    const coberturaDaOrigem = layoutFileCoverage(sourceQuote as any);
+    const artesDaOrigem = ((sourceQuote as any).layoutFiles ?? []).filter(
+      (f: { id: string }) =>
+        (sourceQuote as any).layoutScope !== 'PER_VEHICLE' ||
+        !sourceTaskId ||
+        (coberturaDaOrigem.get(f.id) ?? []).includes(sourceTaskId),
+    );
     const clonedImplementMeasureIds: string[] = [];
-    for (const f of (sourceQuote as any).layoutFiles ?? []) {
+    for (const f of artesDaOrigem) {
       clonedImplementMeasureIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
     }
 
@@ -14001,7 +14058,11 @@ export class TaskService {
                   orphanedOldQuoteId = destinationTask.quote.id;
                 }
                 // Create an independent copy of the quote (never share quote across tasks)
-                const newQuoteId = await this.duplicateBudget(sourceTask.quoteId, tx);
+                const newQuoteId = await this.duplicateBudget(
+                  sourceTask.quoteId,
+                  tx,
+                  sourceTask.id,
+                );
                 updateData.quoteId = newQuoteId;
                 copiedFields.push(field);
                 // Store quote info for changelog display
@@ -14597,11 +14658,15 @@ export class TaskService {
             // caminhão que não é mais dele.
             await resliceQuoteCoverage(tx, updateData.quoteId as string);
             await this.recalcQuoteTotals(tx, updateData.quoteId as string);
+            // A cobertura de LAYOUT que o destino trazia era das artes do
+            // orçamento antigo dele — não vale no novo.
+            await pruneQuoteLayoutCoverage(tx, updateData.quoteId as string);
             if (orphanedOldQuoteId && orphanedOldQuoteId !== updateData.quoteId) {
               const aindaExiste = await tx.budget.count({ where: { id: orphanedOldQuoteId } });
               if (aindaExiste > 0) {
                 await resliceQuoteCoverage(tx, orphanedOldQuoteId);
                 await this.recalcQuoteTotals(tx, orphanedOldQuoteId);
+                await pruneQuoteLayoutCoverage(tx, orphanedOldQuoteId);
               }
             }
 
