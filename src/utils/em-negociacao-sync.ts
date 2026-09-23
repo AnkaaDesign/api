@@ -82,8 +82,20 @@ export async function syncEmNegociacaoForTask(
       include: {
         // A quote layout file also counts as an "artwork" for handoff purposes —
         // it's the rendered layout uploaded via the budget editor.
+        //
+        // Com o `layoutScope`: num orçamento por veículo, só conta a arte que
+        // cobre ESTA tarefa — as linhas de cobertura vêm filtradas por ela.
         quote: {
-          select: { status: true, layoutFiles: { select: { id: true }, take: 1 } },
+          select: {
+            status: true,
+            layoutScope: true,
+            layoutFiles: {
+              select: {
+                id: true,
+                quoteLayoutTasks: { where: { taskId }, select: { taskId: true } },
+              },
+            },
+          },
         },
         serviceOrders: {
           select: {
@@ -135,7 +147,17 @@ export async function syncEmNegociacaoForTask(
     // job is to get something uploaded; approval is a separate workflow.
     // The quote's layoutFile (rendered via the budget editor) also counts —
     // from the operator's perspective, uploading a layout = layout delivered.
-    const hasAnyLayout = layouts.length > 0 || (task.quote?.layoutFiles?.length ?? 0) > 0;
+    //
+    // POR TAREFA: num orçamento `PER_VEHICLE` a arte do caminhão 39088 não
+    // entrega o layout do 39089 — a Em Negociação do 39089 só fecha quando ELE
+    // tem arte (na galeria dele ou atribuída a ele no orçamento). Em `SHARED`
+    // qualquer arte do orçamento conta, como sempre.
+    const quoteFiles: any[] = task.quote?.layoutFiles ?? [];
+    const quoteHasLayoutForThisTask =
+      task.quote?.layoutScope === 'PER_VEHICLE'
+        ? quoteFiles.some((f: any) => (f.quoteLayoutTasks ?? []).length > 0)
+        : quoteFiles.length > 0;
+    const hasAnyLayout = layouts.length > 0 || quoteHasLayoutForThisTask;
     // "Needs layout" is determined by the presence of ARTWORK-type service orders.
     // A task with no Arte SOs at all is service-only and doesn't wait for layout.
     const needsLayout = allServiceOrders.some(

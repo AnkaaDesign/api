@@ -60,6 +60,11 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
+import {
+  isPerVehicleLayout,
+  layoutFileCoverage,
+  layoutGateFailure,
+} from '@utils/quote-layout-coverage';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
@@ -565,7 +570,11 @@ export class SignatureEnvelopeService {
         // O preflight existe justamente para dizer isso ANTES do clique: sem
         // esta linha o operador escolheria canal, marcaria recortes, confirmaria
         // e só então tomaria o 400.
-        layoutFiles: { select: { id: true }, take: 1 },
+        //
+        // POR VEÍCULO: com `layoutScope`, a cobertura de cada arte — o portão
+        // pergunta se TODO veículo tem o seu, e nomeia o que falta.
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
         // Os PAGADORES, pelo mesmo motivo do layout: `createEnvelope` recusa dois
         // (o documento congelado descreveria um só) e o preflight existe para
         // dizer isso ANTES do clique. Sem esta linha o operador escolhia canal,
@@ -630,7 +639,14 @@ export class SignatureEnvelopeService {
       );
     }
 
-    if (!quote.layoutFiles?.length) {
+    const layoutGatePreflight = layoutGateFailure(quote as any);
+    if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
+      blockers.push(
+        `${layoutGatePreflight.message} Atribua um layout a cada veículo antes de enviar o ` +
+          'orçamento para assinatura — sem ele o orçamento não poderá ser aprovado depois que o ' +
+          'cliente assinar.',
+      );
+    } else if (layoutGatePreflight) {
       blockers.push(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não poderá ser aprovado depois que o cliente assinar.',
@@ -1068,11 +1084,36 @@ export class SignatureEnvelopeService {
     // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
     // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
     // e o layout pode ser desvinculado entre a emissão e a conclusão.
+    //
+    // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é se TODO veículo tem
+    // o seu layout — o documento é o contrato dos N caminhões, e um caminhão sem
+    // arte chegaria à aprovação pelo mesmo beco sem saída do nº 591. Em `SHARED`,
+    // a pergunta e a frase de sempre.
     const gate = await this.prisma.budget.findUnique({
       where: { id: args.quoteId },
-      select: { layoutFiles: { select: { id: true }, take: 1 } },
+      select: {
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
+            truck: { select: { plate: true } },
+          },
+        },
+      },
     });
-    if (!gate?.layoutFiles?.length) {
+    const layoutGate = layoutGateFailure(gate as any);
+    if (layoutGate?.scope === 'PER_VEHICLE') {
+      throw new BadRequestException(
+        `${layoutGate.message} Atribua um layout a cada veículo antes de enviar o orçamento ` +
+          'para assinatura. Sem ele o orçamento não pode ser aprovado depois que o cliente ' +
+          'assinar, e a coleta ficaria concluída com o orçamento parado.',
+      );
+    }
+    if (layoutGate) {
       throw new BadRequestException(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não pode ser aprovado depois que o cliente assinar, e a coleta ' +
@@ -2260,9 +2301,50 @@ export class SignatureEnvelopeService {
       // idêntico ao de antes desta mudança.
       .join('\n');
 
-    const layoutImages = quote.layoutFiles
-      .map(f => this.renderer.resolveLayoutImageDataUri(f))
-      .filter((v): v is string => Boolean(v));
+    // ── AS ARTES, E DE QUAL VEÍCULO É CADA UMA ──────────────────────────────
+    //
+    // `SHARED`: as artes na ordem de sempre, SEM legenda — o HTML sai byte a
+    // byte igual ao de antes (envelopes antigos são reconferidos contra ele).
+    //
+    // `PER_VEHICLE`: cada arte com a legenda dos veículos dela ("Veículo 39088",
+    // "Veículos 39088, 39089"), na ordem do PRIMEIRO veículo que ela cobre —
+    // a mesma ordem da tabela de identificação, para o cliente ler o documento de
+    // cima para baixo sem ir e voltar. Sem isto o PDF mostrava duas pinturas sem
+    // dizer de qual caminhão era cada uma, e quem assinava aprovava as duas para
+    // os dois.
+    //
+    // A legenda viaja PAREADA com a imagem até o filtro das que não resolveram:
+    // filtrar só as imagens desalinharia as legendas dali em diante.
+    const perVehicleLayout = isPerVehicleLayout(quote as any);
+    const artCoverage = layoutFileCoverage(quote as any);
+    const vehicleIndex = new Map(vehicleTasks.map((t, i) => [t.id, i] as const));
+    const firstCovered = (fileId: string): number =>
+      Math.min(
+        Number.POSITIVE_INFINITY,
+        ...(artCoverage.get(fileId) ?? []).map(
+          id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
+        ),
+      );
+    const orderedLayoutFiles = perVehicleLayout
+      ? quote.layoutFiles
+          .map((f, position) => ({ f, position, first: firstCovered(f.id) }))
+          .sort((a, b) => a.first - b.first || a.position - b.position)
+          .map(x => x.f)
+      : quote.layoutFiles;
+    const layoutPairs = orderedLayoutFiles
+      .map(f => ({
+        src: this.renderer.resolveLayoutImageDataUri(f),
+        caption: perVehicleLayout
+          ? coverageSummary(
+              { tasks: (artCoverage.get(f.id) ?? []).map(taskId => ({ taskId })) } as any,
+              vehicleTasks.length,
+              vehicleTasks as any,
+            )
+          : null,
+      }))
+      .filter((p): p is { src: string; caption: string | null } => Boolean(p.src));
+    const layoutImages = layoutPairs.map(p => p.src);
+    const layoutCaptions = perVehicleLayout ? layoutPairs.map(p => p.caption) : undefined;
 
     // Quem o documento identifica como cliente: no recorte é o cliente da
     // configuração, e não o da tarefa — são diferentes justamente no faturamento
@@ -2364,6 +2446,8 @@ export class SignatureEnvelopeService {
         guaranteeYears: quote.guaranteeYears ?? null,
       }),
       layoutImages,
+      // Só existe em `PER_VEHICLE` — ver `QuoteHtmlInput.layoutCaptions`.
+      ...(layoutCaptions ? { layoutCaptions } : {}),
       signers: signers.map(s => ({
         id: s.id,
         name: s.name,

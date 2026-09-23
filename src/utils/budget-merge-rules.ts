@@ -69,6 +69,8 @@ export interface MergeCandidate {
   customGuaranteeText: string | null;
   customForecastDays: number | null;
   layoutFileIds: string[];
+  /** `SHARED` (padrão quando ausente) ou `PER_VEHICLE` — ver `Budget.layoutScope`. */
+  layoutScope?: string | null;
   services: MergeService[];
   customerConfigs: MergeCustomerConfig[];
   /** Ids das tarefas (veículos) deste orçamento. */
@@ -330,6 +332,21 @@ export function judgeMerge(candidates: MergeCandidate[]): MergeVerdict {
         `O layout aprovado do nº ${survivor.budgetNumber} prevalece; o dos demais sai do ` +
         'orçamento (a arte continua na tarefa de cada veículo).',
       budgetNumbers: nums([survivor, ...layoutDivergente]),
+    });
+  }
+
+  // O SOBREVIVENTE TEM LAYOUT POR VEÍCULO: quem chega não herda arte nenhuma.
+  // A cobertura é uma afirmação sobre CADA caminhão, e inventá-la para os que
+  // vieram de outro orçamento seria aprovar para eles uma pintura que ninguém
+  // escolheu. Eles entram descobertos, e o portão da assinatura e da aprovação
+  // acusa até alguém atribuir.
+  if (survivor.layoutScope === 'PER_VEHICLE' && absorbed.length) {
+    warnings.push({
+      code: 'LAYOUT_PER_VEHICLE',
+      message:
+        `O nº ${survivor.budgetNumber} tem layout por veículo: os veículos que entram ficam ` +
+        'sem layout aprovado até alguém atribuir um a cada um, na tela do orçamento.',
+      budgetNumbers: nums([survivor]),
     });
   }
 

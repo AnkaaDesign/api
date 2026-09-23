@@ -779,6 +779,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     guaranteeYears: 'Anos de Garantia',
     customGuaranteeText: 'Texto Personalizado de Garantia',
     layoutFileIds: 'Arquivos de Layout',
+    layouts: 'Layout aprovado por veículo',
     budgetNumber: 'Número do Orçamento',
     customerSignatureId: 'Assinatura do Cliente',
     customForecastDays: 'Dias de Previsão Personalizados',

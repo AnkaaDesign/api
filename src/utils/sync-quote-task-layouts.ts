@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { layoutImageKey, layoutSelectionByTask } from './quote-layout-coverage';
 
 type PrismaContext = Prisma.TransactionClient | { budget: any; layout: any; task: any };
 
@@ -7,11 +8,109 @@ const logger = new Logger('QuoteTaskLayoutSync');
 
 /** Image identity: same picture regardless of File id (a private clone keeps the
  * source's originalName + byte size, so two records of the same image match). */
-const imageKey = (f: {
-  originalName?: string | null;
-  filename?: string | null;
-  size?: number | null;
-}): string => `${(f.originalName || f.filename || '').trim().toLowerCase()}::${f.size ?? 0}`;
+const imageKey = layoutImageKey;
+
+/**
+ * O grafo que os três reconciliadores leem: as tarefas com as suas galerias, e
+ * as artes do orçamento com a cobertura de cada uma.
+ *
+ * `layoutScope` e `quoteLayoutTasks` entraram quando o layout aprovado passou a
+ * poder ser POR VEÍCULO (ver `utils/quote-layout-coverage.ts`): a seleção de
+ * cada tarefa deixou de ser a lista do orçamento e passou a ser a lista DELA.
+ */
+const QUOTE_LAYOUT_SYNC_SELECT = {
+  layoutScope: true,
+  tasks: {
+    orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+    select: {
+      id: true,
+      createdAt: true,
+      layouts: {
+        select: {
+          id: true,
+          fileId: true,
+          status: true,
+          file: { select: { originalName: true, filename: true, size: true } },
+        },
+      },
+    },
+  },
+  layoutFiles: {
+    select: {
+      id: true,
+      originalName: true,
+      filename: true,
+      size: true,
+      quoteLayoutTasks: { select: { taskId: true } },
+    },
+  },
+};
+
+/**
+ * A SELEÇÃO de cada veículo, como arquivos: em `SHARED`, todas as artes do
+ * orçamento para todos (o comportamento de sempre, byte a byte); em
+ * `PER_VEHICLE`, as artes com linha para aquela tarefa.
+ */
+function selectedFilesByTask(quote: any): Map<string, any[]> {
+  const byId = new Map<string, any>((quote?.layoutFiles || []).map((f: any) => [f.id, f]));
+  const out = new Map<string, any[]>();
+  for (const [taskId, fileIds] of layoutSelectionByTask(quote || {})) {
+    out.set(taskId, fileIds.map(id => byId.get(id)).filter(Boolean));
+  }
+  return out;
+}
+
+/** As imagens selecionadas por tarefa — a mesma seleção, na identidade que a galeria usa. */
+function selectedImageKeysByTask(quote: any): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const [taskId, files] of selectedFilesByTask(quote)) {
+    out.set(taskId, new Set(files.map((f: any) => imageKey(f))));
+  }
+  return out;
+}
+
+/**
+ * A GUARDA DA LINHA COMPARTILHADA, dentro do PRÓPRIO orçamento.
+ *
+ * `Layout.fileId` é `@unique`: a linha `Layout` de uma imagem é UMA, e as N
+ * tarefas que a exibem a compartilham pelo m2m `Task.layouts`. O status é da
+ * LINHA, não da tarefa. Então, num orçamento por veículo em que a arte A é do
+ * caminhão 1 e está ligada também à galeria do caminhão 2 (o `SHARED` de antes a
+ * materializou nos dois), reprovar A "no caminhão 2" reprovaria A no caminhão 1 —
+ * exatamente o defeito da Carlotti, por outra porta.
+ *
+ * Por isso a linha só é reprovada quando NENHUMA tarefa deste orçamento ligada a
+ * ela seleciona a imagem. Em `SHARED` a seleção é a mesma para todas as tarefas,
+ * logo a imagem não selecionada numa não está selecionada em nenhuma: a guarda
+ * nunca dispara e o resultado é o de sempre.
+ */
+function selectedByAnotherTaskOfThisQuote(
+  layoutRowTasks: any[],
+  quoteId: string,
+  key: string,
+  selectedKeysByTask: Map<string, Set<string>>,
+): boolean {
+  return layoutRowTasks.some(
+    (t: any) => t.quote?.id === quoteId && !!selectedKeysByTask.get(t.id)?.has(key),
+  );
+}
+
+/** A consulta da linha `Layout` para as duas guardas (deste orçamento e dos outros). */
+const LAYOUT_ROW_GUARD_SELECT = {
+  tasks: {
+    select: {
+      id: true,
+      quote: {
+        select: {
+          id: true,
+          layoutFiles: {
+            select: { originalName: true, filename: true, size: true },
+          },
+        },
+      },
+    },
+  },
+};
 
 /**
  * Materialize a quote's approved layout files (`Budget.layoutFiles`, the
@@ -57,25 +156,7 @@ export async function syncTaskLayoutsFromQuote(
   try {
     const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
-      select: {
-        tasks: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: {
-            id: true,
-            layouts: {
-              select: {
-                id: true,
-                fileId: true,
-                status: true,
-                file: { select: { originalName: true, filename: true, size: true } },
-              },
-            },
-          },
-        },
-        layoutFiles: {
-          select: { id: true, originalName: true, filename: true, size: true },
-        },
-      },
+      select: QUOTE_LAYOUT_SYNC_SELECT,
     });
 
     // No task linked yet (e.g. a freshly-cloned quote before its task.update) —
@@ -86,16 +167,21 @@ export async function syncTaskLayoutsFromQuote(
     const quoteFiles: any[] = quote.layoutFiles || [];
     if (quoteFiles.length === 0) return; // nothing added — removal is not our concern
 
-    // UMA VEZ POR VEÍCULO. A lista de layouts do orçamento é única e vale para
-    // todas as tarefas: o caminhão 37 precisa da arte aprovada na SUA galeria
-    // tanto quanto o primeiro. Materializar só na tarefa âncora deixaria 59
-    // veículos sem layout nenhum na produção.
+    // UMA VEZ POR VEÍCULO, e cada um com a SUA seleção. Em `SHARED` a seleção
+    // de todo veículo é a lista inteira do orçamento — o caminhão 37 precisa da
+    // arte aprovada na SUA galeria tanto quanto o primeiro, e materializar só na
+    // âncora deixaria 59 veículos sem layout. Em `PER_VEHICLE` cada veículo
+    // recebe só as artes dele: materializar a arte do caminhão 1 na galeria do
+    // caminhão 2 é o que fazia a pintura de um aparecer aprovada no outro.
+    const selection = selectedFilesByTask(quote);
     let linkedTotal = 0;
     for (const task of tasks) {
+      const own = selection.get(task.id) ?? [];
+      if (own.length === 0) continue;
       linkedTotal += await syncOneTaskFromQuoteFiles(
         prisma,
         task,
-        quoteFiles,
+        own,
         reapproveReprovedSelection,
       );
     }
@@ -213,8 +299,15 @@ async function syncOneTaskFromQuoteFiles(
  * clone of a task layout, so it is image-matched (originalName + size), not by
  * File id.
  *
+ * POR VEÍCULO. "Saiu" é uma conta de CADA tarefa: a seleção anterior dela
+ * (`coveredTaskIds` de cada arquivo anterior; ausente/nulo = valia para todos,
+ * que é o `SHARED`) contra a seleção atual dela. Em `SHARED` → `SHARED` as duas
+ * contas são as do orçamento inteiro, e o resultado é o de sempre.
+ *
  * Guards so this can never corrupt a still-in-use reference:
- *   - Skip if the same image is STILL referenced by THIS quote (reorder / no-op).
+ *   - Skip if the same image is STILL selected for THIS task (reorder / no-op).
+ *   - Skip if another task of THIS quote linked to the same `Layout` row still
+ *     selects the image (the row is shared; its status is not per task).
  *   - Skip if ANY OTHER quote still references the same image (a sibling quote is
  *     actively displaying it — reproving would silently break its reference).
  *   - Only ever downgrades APPROVED → REPROVED; never touches DRAFT or an
@@ -231,6 +324,8 @@ export async function reproveDroppedTaskLayoutsFromQuote(
     originalName?: string | null;
     filename?: string | null;
     size?: number | null;
+    /** Os veículos que a arte cobria ANTES. Ausente/nulo = todos (`SHARED`). */
+    coveredTaskIds?: string[] | null;
   }>,
   _userId?: string | null,
 ): Promise<string[]> {
@@ -242,49 +337,28 @@ export async function reproveDroppedTaskLayoutsFromQuote(
 
     const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
-      select: {
-        tasks: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: {
-            id: true,
-            layouts: {
-              select: {
-                id: true,
-                fileId: true,
-                status: true,
-                file: { select: { originalName: true, filename: true, size: true } },
-              },
-            },
-          },
-        },
-        layoutFiles: {
-          select: { id: true, originalName: true, filename: true, size: true },
-        },
-      },
+      select: QUOTE_LAYOUT_SYNC_SELECT,
     });
     const tasks: any[] = quote?.tasks || [];
     if (tasks.length === 0) return reprovedLayoutIds;
 
-    // Images the quote STILL references after the write — never reprove these.
-    const currentImageKeys = new Set<string>(
-      (quote.layoutFiles || []).map((f: any) => imageKey(f)),
-    );
+    // Imagens que cada veículo AINDA seleciona depois da gravação.
+    const currentKeysByTask = selectedImageKeysByTask(quote);
 
-    // The genuinely-dropped images (de-duped, still-referenced removed). É uma
-    // conta do ORÇAMENTO, não da tarefa: a seleção é uma só para os N veículos.
-    const droppedKeys = new Set<string>();
-    for (const pf of previousLayoutFiles) {
-      const k = imageKey(pf);
-      if (!currentImageKeys.has(k)) droppedKeys.add(k);
-    }
-    if (droppedKeys.size === 0) return reprovedLayoutIds;
-
-    // Tirar a referência do orçamento reprova a arte em TODOS os veículos dele:
-    // a seleção é do orçamento, e deixar o caminhão 37 com a arte aprovada
-    // depois de ela sair do orçamento é exatamente a divergência que a produção
-    // não tem como perceber.
     const alreadyReproved = new Set<string>();
     for (const task of tasks) {
+      // O que ESTE veículo tinha antes e não tem mais.
+      const currentKeys = currentKeysByTask.get(task.id) ?? new Set<string>();
+      const droppedKeys = new Set<string>();
+      for (const pf of previousLayoutFiles) {
+        const coveredBefore =
+          !Array.isArray(pf.coveredTaskIds) || pf.coveredTaskIds.includes(task.id);
+        if (!coveredBefore) continue;
+        const k = imageKey(pf);
+        if (!currentKeys.has(k)) droppedKeys.add(k);
+      }
+      if (droppedKeys.size === 0) continue;
+
       // Task layouts of THIS task, indexed by image identity.
       const taskLayoutByImage = new Map<string, { id: string; status: string }>();
       for (const l of task.layouts || []) {
@@ -301,33 +375,19 @@ export async function reproveDroppedTaskLayoutsFromQuote(
         // reconciliação de Em Negociação uma vez por veículo.
         if (alreadyReproved.has(match.id)) continue;
 
-        // Guard against corrupting a still-in-use reference. This Layout row can be
-        // shared (m2m) across sibling tasks; reprove it only if NO OTHER quote —
-        // among the tasks connected to THIS Layout row — still references the same
-        // image. (Scoping to the Layout row, not the image, means a sibling task
-        // with its OWN separate row for the same picture does NOT block the
-        // reprove, while a genuinely shared row is protected until every quote on
-        // it has dropped the image — e.g. the last task in a bulk apply.)
-        // As tarefas do PRÓPRIO orçamento nunca bloqueiam: o filtro é
-        // `t.quote.id !== quoteId`, e todas elas carregam este mesmo `quoteId`.
         const layoutRow = await (prisma as any).layout.findUnique({
           where: { id: match.id },
-          select: {
-            tasks: {
-              select: {
-                quote: {
-                  select: {
-                    id: true,
-                    layoutFiles: {
-                      select: { originalName: true, filename: true, size: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          select: LAYOUT_ROW_GUARD_SELECT,
         });
-        const referencedElsewhere = (layoutRow?.tasks || []).some(
+        const rowTasks: any[] = layoutRow?.tasks || [];
+        // Outro veículo DESTE orçamento, ligado à mesma linha, ainda a seleciona.
+        if (selectedByAnotherTaskOfThisQuote(rowTasks, quoteId, k, currentKeysByTask)) continue;
+        // Guard against corrupting a still-in-use reference of ANOTHER quote.
+        // (Scoping to the Layout row, not the image, means a sibling task with its
+        // OWN separate row for the same picture does NOT block the reprove, while
+        // a genuinely shared row is protected until every quote on it has dropped
+        // the image — e.g. the last task in a bulk apply.)
+        const referencedElsewhere = rowTasks.some(
           (t: any) =>
             t.quote &&
             t.quote.id !== quoteId &&
@@ -361,24 +421,33 @@ export async function reproveDroppedTaskLayoutsFromQuote(
 /**
  * AUTHORITATIVE reconciler — the stronger counterpart to
  * {@link reproveDroppedTaskLayoutsFromQuote}. When a quote's approved-layout
- * selection (`Budget.layoutFiles`) is set, the SELECTION IS AUTHORITATIVE:
- * every APPROVED task layout of the quote's task whose image is NOT in the
- * current selection is REPROVED — not just the ones that were previously
- * selected and dropped. (Commercial rule: "whatever is picked in Step 2 stays
- * approved; all non-selected task layouts are reproved.")
+ * selection is set, the SELECTION IS AUTHORITATIVE: every APPROVED task layout
+ * whose image is NOT in the current selection is REPROVED — not just the ones
+ * that were previously selected and dropped. (Commercial rule: "whatever is
+ * picked in Step 2 stays approved; all non-selected task layouts are reproved.")
+ *
+ * POR VEÍCULO. A seleção que manda em cada galeria é a DAQUELE veículo: em
+ * `SHARED`, a lista inteira do orçamento (o de sempre); em `PER_VEHICLE`, as
+ * artes com linha para ele. Escolher a arte B para o caminhão 39089 não diz
+ * nada sobre a galeria do 39088 — e reprovar a arte A lá era o defeito da
+ * Carlotti (orçamento nº 990).
  *
  * Pair with {@link syncTaskLayoutsFromQuote} (called first, with
  * `reapproveReprovedSelection = true`) so the SELECTED images are promoted to
  * APPROVED before this reproves the rest — net result: selected ⇒ APPROVED,
  * everything else ⇒ REPROVED.
  *
- * Guards (identical spirit to reproveDropped):
- *   - No-op when the quote has NO selected layoutFiles — never mass-reprove an
- *     empty selection (nothing authoritative to enforce).
+ * Guards:
+ *   - Never reprove against an EMPTY selection — not the quote's (nothing
+ *     authoritative to enforce) and not a vehicle's (a vehicle still waiting for
+ *     its art in a `PER_VEHICLE` quote keeps its gallery as is).
  *   - Only ever downgrades APPROVED → REPROVED; never touches DRAFT or an
  *     already-REPROVED layout.
- *   - Layout-ROW-scoped shared guard: skip a Layout row still referenced by
- *     ANOTHER quote's current selection (a sibling quote actively displaying it).
+ *   - Shared `Layout` row inside THIS quote: reprove only when NO task of this
+ *     quote linked to the row selects the image (see
+ *     `selectedByAnotherTaskOfThisQuote`).
+ *   - Layout-ROW-scoped guard across quotes: skip a Layout row still referenced
+ *     by ANOTHER quote's current selection (a sibling quote actively displaying it).
  * Best-effort + tx-atomic. Returns the reproved task-layout ids for downstream
  * reconciliation (Em Negociação / artwork.reproved).
  */
@@ -391,25 +460,7 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
   try {
     const quote = await (prisma as any).budget.findUnique({
       where: { id: quoteId },
-      select: {
-        tasks: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: {
-            id: true,
-            layouts: {
-              select: {
-                id: true,
-                fileId: true,
-                status: true,
-                file: { select: { originalName: true, filename: true, size: true } },
-              },
-            },
-          },
-        },
-        layoutFiles: {
-          select: { id: true, originalName: true, filename: true, size: true },
-        },
-      },
+      select: QUOTE_LAYOUT_SYNC_SELECT,
     });
     const tasks: any[] = quote?.tasks || [];
     if (tasks.length === 0) return reprovedLayoutIds;
@@ -418,39 +469,30 @@ export async function reproveNonSelectedTaskLayoutsFromQuote(
     // Authoritative only when there IS a selection — never mass-reprove empty.
     if (selected.length === 0) return reprovedLayoutIds;
 
-    const selectedImageKeys = new Set<string>(selected.map((f: any) => imageKey(f)));
+    const selectedKeysByTask = selectedImageKeysByTask(quote);
 
-    // A seleção é AUTORITATIVA para o orçamento inteiro, logo para cada um dos
-    // seus veículos: o que não está escolhido é reprovado na galeria de todos.
     const alreadyReproved = new Set<string>();
     for (const task of tasks) {
+      const selectedImageKeys = selectedKeysByTask.get(task.id) ?? new Set<string>();
+      // Veículo sem arte nenhuma: nada autoritativo a impor NA GALERIA DELE.
+      if (selectedImageKeys.size === 0) continue;
       for (const l of task.layouts || []) {
         if (l.status !== 'APPROVED') continue; // only downgrade APPROVED
         const k = imageKey(l.file || {});
-        if (selectedImageKeys.has(k)) continue; // this layout IS the approved selection
+        if (selectedImageKeys.has(k)) continue; // this layout IS this vehicle's selection
         // Linha `Layout` compartilhada entre os veículos deste mesmo orçamento —
         // reprovar uma vez basta. Ver a mesma guarda em reproveDropped.
         if (alreadyReproved.has(l.id)) continue;
 
-        // Shared m2m row guard: skip if ANOTHER quote still selects this image.
         const layoutRow = await (prisma as any).layout.findUnique({
           where: { id: l.id },
-          select: {
-            tasks: {
-              select: {
-                quote: {
-                  select: {
-                    id: true,
-                    layoutFiles: {
-                      select: { originalName: true, filename: true, size: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          select: LAYOUT_ROW_GUARD_SELECT,
         });
-        const referencedElsewhere = (layoutRow?.tasks || []).some(
+        const rowTasks: any[] = layoutRow?.tasks || [];
+        // A mesma linha é a arte aprovada de OUTRO veículo deste orçamento.
+        if (selectedByAnotherTaskOfThisQuote(rowTasks, quoteId, k, selectedKeysByTask)) continue;
+        // Shared m2m row guard: skip if ANOTHER quote still selects this image.
+        const referencedElsewhere = rowTasks.some(
           (t: any) =>
             t.quote &&
             t.quote.id !== quoteId &&

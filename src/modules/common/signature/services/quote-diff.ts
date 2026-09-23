@@ -1125,6 +1125,39 @@ export function diffQuoteSnapshots(
         ? plural(after.layoutFileIds.length, 'imagem', 'imagens')
         : 'Sem layout',
     });
+  } else {
+    // ---- Layout por veículo ------------------------------------------------
+    // As MESMAS imagens, atribuídas a outros veículos — ou o orçamento passando
+    // de "vale para todos" a "cada caminhão com a sua". O hash material já
+    // enxerga isso (`layoutCoverage`); sem esta linha a invalidação sairia sem
+    // nenhuma frase que a explicasse. MATERIAL pela mesma razão da troca de
+    // imagem: quem aprovou a arte A para o caminhão 1 não aprovou a arte A para
+    // o caminhão 2. Só existe quando uma das pontas é por veículo — entre dois
+    // `SHARED` a chave nem está no snapshot.
+    const coverageKey = (s: QuoteSnapshot): string =>
+      Array.isArray(s.layoutCoverage)
+        ? s.layoutCoverage
+            .map(([fileId, taskIds]) => `${fileId}:${[...taskIds].sort().join(',')}`)
+            .sort()
+            .join(';')
+        : '';
+    const coverageBefore = coverageKey(before);
+    const coverageAfter = coverageKey(after);
+    if (coverageBefore !== coverageAfter) {
+      const describe = (s: QuoteSnapshot): string =>
+        Array.isArray(s.layoutCoverage) ? 'Por veículo' : 'O mesmo para todos os veículos';
+      const sameShape = describe(before) === describe(after);
+      out.push({
+        key: 'layoutCoverage',
+        severity: 'MATERIAL',
+        kind: 'CHANGED',
+        group: 'LAYOUT',
+        label: 'Layout aprovado por veículo',
+        subject: null,
+        before: sameShape ? 'Atribuição anterior' : describe(before),
+        after: sameShape ? 'Artes atribuídas a outros veículos' : describe(after),
+      });
+    }
   }
 
   // ---- Contratante --------------------------------------------------------

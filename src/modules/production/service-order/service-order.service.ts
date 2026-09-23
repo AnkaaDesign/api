@@ -74,6 +74,7 @@ import {
   SERVICE_DESCRIPTIONS_BY_TYPE,
 } from '../../../constants/service-descriptions';
 import { calculateWorkingSeconds } from '../../../utils/working-hours';
+import { layoutGateFailure } from '../../../utils/quote-layout-coverage';
 import { BillingStatusCascadeService } from '@modules/financial/billing/billing-status-cascade.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 
@@ -1950,7 +1951,18 @@ export class ServiceOrderService {
             select: {
               id: true,
               status: true,
-              layoutFiles: { select: { id: true } },
+              // Por veículo: o portão pergunta se TODO veículo tem o seu layout.
+              layoutScope: true,
+              layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+              tasks: {
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                select: {
+                  id: true,
+                  createdAt: true,
+                  serialNumber: true,
+                  truck: { select: { plate: true } },
+                },
+              },
               // ⚠️ O PAGADOR. Sem ele esta aprovação automática produz orçamento
               // APROVADO sem ninguém a quem cobrar — ver a guarda abaixo.
               customerConfigs: { select: { id: true, total: true } },
@@ -1969,9 +1981,18 @@ export class ServiceOrderService {
       // approval when none is selected — the quote stays PENDING, and the
       // caller's syncEmNegociacaoForTask then reverts the just-completed SO out
       // of COMPLETED, so the commercial step cannot close without a layout.
-      if ((quote.layoutFiles || []).length === 0) {
+      //
+      // POR VEÍCULO: num orçamento `PER_VEHICLE`, concluir a Em Negociação de um
+      // caminhão não aprova o orçamento enquanto outro caminhão dele estiver sem
+      // arte — aprovar o contrato inteiro com a pintura de um veículo só é o
+      // defeito que o layout por veículo existe para impedir.
+      const layoutGate = layoutGateFailure(quote);
+      if (layoutGate) {
         this.logger.log(
-          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: budget-approve skipped — no approved layout selected on quote ${quote.id}.`,
+          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: budget-approve skipped — ` +
+            (layoutGate.scope === 'PER_VEHICLE'
+              ? `${layoutGate.message} (orçamento ${quote.id}, layout por veículo).`
+              : `no approved layout selected on quote ${quote.id}.`),
         );
         return;
       }
