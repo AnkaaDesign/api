@@ -136,6 +136,10 @@ import { BudgetService } from '../budget/budget.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { describePrismaFailure } from '../../../utils/quote-tasks';
+import {
+  rethrowPrismaValidationAsBadRequest,
+  unknownPrismaKeyOf,
+} from '../../common/query/prisma-validation-error';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
@@ -166,23 +170,6 @@ function formatImplementMeasureForChangelog(implementMeasure: any) {
  * The task's bonification status field is maintained for reference but
  * no bonification entries are automatically created.
  */
-/**
- * O NOME DA RELAÇÃO QUE O PRISMA NÃO CONHECE, extraído da recusa dele.
- *
- * O `PrismaClientValidationError` traz a frase inteira em `message`, na forma
- * "Unknown field `x` for include statement on model `Y`" (ou `for select
- * statement`, ou `argument`). Lê-se de lá porque o Prisma NÃO expõe o campo
- * culpado como dado — e uma regex sobre a mensagem dele é frágil por natureza,
- * então a função devolve `null` quando não reconhece, e quem chama volta ao 500
- * de sempre. Errar para o lado de não adivinhar: um nome errado mandaria o
- * desenvolvedor caçar a relação errada, que é pior que não dizer nada.
- */
-function nomeDaRelacaoDesconhecida(erro: unknown): string | null {
-  const mensagem = (erro as { message?: unknown })?.message;
-  if (typeof mensagem !== 'string') return null;
-  const achado = /Unknown (?:field|argument) `([^`]+)`/i.exec(mensagem);
-  return achado?.[1] ?? null;
-}
 
 @Injectable()
 export class TaskService {
@@ -1869,6 +1856,7 @@ export class TaskService {
       if (error instanceof BadRequestException) {
         throw error;
       }
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor ao criar a tarefa. Tente novamente.',
       );
@@ -2201,6 +2189,7 @@ export class TaskService {
       if (error instanceof BadRequestException) {
         throw error;
       }
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor na criação em lote. Tente novamente.',
       );
@@ -2334,6 +2323,7 @@ export class TaskService {
       this.logger.error('Erro na criação atômica de tarefas + orçamento:', error);
       if (error instanceof HttpException) throw error;
       const detail = describePrismaFailure(error);
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         detail
           ? `Erro ao criar as tarefas e o orçamento: ${detail}`
@@ -7445,6 +7435,7 @@ export class TaskService {
       ) {
         throw error;
       }
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor ao atualizar a tarefa. Tente novamente.',
       );
@@ -9872,6 +9863,7 @@ export class TaskService {
 
       // For other errors, provide more detailed information
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(`Erro na atualização em lote: ${errorMessage}`);
     }
   }
@@ -10114,6 +10106,7 @@ export class TaskService {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor ao excluir a tarefa. Tente novamente.',
       );
@@ -10326,6 +10319,7 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error('Erro na exclusão em lote:', error);
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor na exclusão em lote. Tente novamente.',
       );
@@ -10401,7 +10395,11 @@ export class TaskService {
       // (`task-detail-page.tsx` e `billing/details/[id].tsx`), derrubando as
       // duas telas inteiras sem nenhuma pista. Nomear a chave transforma uma
       // hora de arqueologia num conserto de uma linha.
-      const chaveDesconhecida = nomeDaRelacaoDesconhecida(error);
+      //
+      // Desde o G1 a chave inventada é recusada na ROTA, com o caminho inteiro
+      // (`query-shape.guard.ts`); isto fica como rede para consulta montada aqui
+      // dentro.
+      const chaveDesconhecida = unknownPrismaKeyOf(error);
       if (chaveDesconhecida) {
         throw new BadRequestException(
           `O include pede a relação "${chaveDesconhecida}", que não existe no modelo. ` +
@@ -10409,6 +10407,7 @@ export class TaskService {
             'aceita chave aninhada desconhecida sem reclamar, e o erro só aparece aqui.',
         );
       }
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor ao buscar a tarefa. Tente novamente.',
       );
@@ -10477,6 +10476,7 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error('Erro ao buscar tarefas:', error);
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(
         'Erro interno do servidor ao buscar as tarefas. Tente novamente.',
       );
@@ -15042,6 +15042,7 @@ export class TaskService {
         throw error;
       }
 
+      rethrowPrismaValidationAsBadRequest(error);
       throw new InternalServerErrorException(`Erro ao copiar campos da tarefa: ${error.message}`);
     }
   }

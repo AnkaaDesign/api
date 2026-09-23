@@ -5,6 +5,10 @@ import { ZodError } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { ErrorLoggerService } from './error-logger.service';
 import { AuthenticatedRequest, HttpExceptionResponse } from '../../types/express.types';
+import {
+  describePrismaValidationError,
+  unknownPrismaKeyOf,
+} from '../../modules/common/query/prisma-validation-error';
 
 interface ErrorResponse {
   success: false;
@@ -103,6 +107,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             payrollNumber: 'Este número da folha de pagamento já está em uso.',
             sessionToken: 'Este token de sessão já está em uso.',
             preferenceId: 'Esta preferência já está cadastrada.',
+            // Corrida entre dois pedidos que gravam a mesma série: a checagem do
+            // serviço passa nos dois e o índice único recusa o segundo.
+            serialNumber: 'Este número de série já está em uso.',
           };
 
           errorResponse.message =
@@ -250,7 +257,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     } else if (exception instanceof Prisma.PrismaClientValidationError) {
       status = HttpStatus.BAD_REQUEST;
-      errorResponse.message = 'Dados inválidos na requisição ao banco de dados.';
+      // Nomeia a chave quando o Prisma a diz ("Unknown field `x`…"): é o que
+      // separa uma hora de arqueologia de um conserto de uma linha.
+      errorResponse.message = unknownPrismaKeyOf(exception)
+        ? describePrismaValidationError(exception)
+        : 'Dados inválidos na requisição ao banco de dados.';
       errorResponse.error = 'DATABASE_VALIDATION_ERROR';
 
       if (this.isDevelopment) {
