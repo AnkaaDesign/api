@@ -5,7 +5,7 @@
   },
   "g6a": {
     "src/app.module.ts": 4,
-    "src/constants/enum-labels.ts": 13,
+    "src/constants/enum-labels.ts": 3,
     "src/constants/enums.ts": 12,
     "src/constants/garage.ts": 16,
     "src/constants/routes.ts": 1,
@@ -55,9 +55,9 @@
     "src/modules/production/budget/budget.service.ts": 10,
     "src/modules/production/budget/repositories/budget-prisma.repository.ts": 4,
     "src/modules/production/budget/repositories/budget.repository.ts": 1,
-    "src/modules/production/implement-measure/implement-measure-writer.ts": 2,
     "src/modules/production/implement-measure/implement-measure.controller.ts": 12,
     "src/modules/production/implement-measure/implement-measure.service.ts": 60,
+    "src/modules/production/implement-measure/implement-measure-writer.ts": 2,
     "src/modules/production/implement-measure/repositories/implement-measure-prisma.repository.ts": 7,
     "src/modules/production/implement-measure/repositories/implement-measure.repository.ts": 1,
     "src/modules/production/layout-dimensions/engine/grouping.ts": 2,
@@ -119,7 +119,7 @@
     "src/utils/changelog-fields.ts": 2
   },
   "totais": {
-    "g6a": 1240,
+    "g6a": 1230,
     "g6b": 39,
     "g6aArquivos": 105,
     "g6bArquivos": 6

@@ -29,7 +29,7 @@ import { BILLING_FROZEN_WHERE } from '../../production/budget/budget.guards';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
 import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 
 const MAX_WEBHOOK_RETRIES = 3;
@@ -1008,7 +1008,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   // (`@constants/document-labels`, perfil `boleto`, D-18) e são travadas por
   // `tests/fiscal-labels-golden.test.ts`.
   private translateTruckCategory(category?: string | null): string | null {
-    const map: Record<string, string> = TRUCK_CATEGORY_PROFILE_LABELS.boleto;
+    const map: Record<string, string> = CATEGORY_PROFILE_LABELS.boleto;
     return category ? (map[category] ?? category) : null;
   }
 

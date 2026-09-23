@@ -6,3 +6,10 @@
 # (G11). A troca de vocabulário acontece na LEITURA, não na chave congelada.
 src/modules/common/signature/services/quote-snapshot.service.ts
 src/modules/common/signature/services/quote-diff.ts
+
+# TEMPORÁRIAS (vencem; depois da data o arquivo volta à conta com base 0).
+#
+# Fonte única dos rótulos (P05): importa o enum de categoria, que ainda tem o
+# nome velho, e o apelida uma vez (2 ocorrências). O P11 renomeia o enum e
+# zera o arquivo; até lá ele fica fora da conta.
+src/constants/document-labels.ts até=2026-12-31

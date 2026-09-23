@@ -33,7 +33,7 @@ import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
   LABEL_PROFILES,
   LABEL_PROFILE_READERS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '../src/constants/document-labels';
 import { buildContracts, CONTRACTS_DIR, serialize } from '../scripts/export-contracts';
 
@@ -69,7 +69,7 @@ const categorias = Object.values(TRUCK_CATEGORY) as string[];
 const implementos = Object.values(IMPLEMENT_TYPE) as string[];
 check('há perfis', LABEL_PROFILES.length >= 5, String(LABEL_PROFILES.length));
 for (const perfil of LABEL_PROFILES) {
-  const cat = lacunas(categorias, TRUCK_CATEGORY_PROFILE_LABELS[perfil] ?? {});
+  const cat = lacunas(categorias, CATEGORY_PROFILE_LABELS[perfil] ?? {});
   check(`TRUCK_CATEGORY × ${perfil}`, cat === '', cat);
   const imp = lacunas(implementos, IMPLEMENT_TYPE_PROFILE_LABELS[perfil] ?? {});
   check(`IMPLEMENT_TYPE × ${perfil}`, imp === '', imp);
@@ -77,19 +77,19 @@ for (const perfil of LABEL_PROFILES) {
 }
 check(
   'nenhum perfil sobrando nos mapas',
-  Object.keys(TRUCK_CATEGORY_PROFILE_LABELS).every(p => (LABEL_PROFILES as readonly string[]).includes(p)) &&
+  Object.keys(CATEGORY_PROFILE_LABELS).every(p => (LABEL_PROFILES as readonly string[]).includes(p)) &&
     Object.keys(IMPLEMENT_TYPE_PROFILE_LABELS).every(p => (LABEL_PROFILES as readonly string[]).includes(p)),
 );
 check(
   'os perfis são congelados (ninguém reescreve a nota em runtime)',
   LABEL_PROFILES.every(
-    p => Object.isFrozen(TRUCK_CATEGORY_PROFILE_LABELS[p]) && Object.isFrozen(IMPLEMENT_TYPE_PROFILE_LABELS[p]),
+    p => Object.isFrozen(CATEGORY_PROFILE_LABELS[p]) && Object.isFrozen(IMPLEMENT_TYPE_PROFILE_LABELS[p]),
   ),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n2. Os mapas de tela SÃO o perfil screen');
-check('TRUCK_CATEGORY_LABELS', ENUM_LABELS.TRUCK_CATEGORY_LABELS === TRUCK_CATEGORY_PROFILE_LABELS.screen);
+check('TRUCK_CATEGORY_LABELS', ENUM_LABELS.TRUCK_CATEGORY_LABELS === CATEGORY_PROFILE_LABELS.screen);
 check('IMPLEMENT_TYPE_LABELS', ENUM_LABELS.IMPLEMENT_TYPE_LABELS === IMPLEMENT_TYPE_PROFILE_LABELS.screen);
 
 // ═══════════════════════════════════════════════════════════════════════════

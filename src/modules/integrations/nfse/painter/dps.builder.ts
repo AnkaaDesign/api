@@ -24,10 +24,10 @@
 // palavras são as mesmas da tela, mas o perfil é dele (D-18).
 import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 
-const TRUCK_CATEGORY_LABELS: Record<string, string> = TRUCK_CATEGORY_PROFILE_LABELS.nfsePainter;
+const TRUCK_CATEGORY_LABELS: Record<string, string> = CATEGORY_PROFILE_LABELS.nfsePainter;
 const IMPLEMENT_TYPE_LABELS: Record<string, string> = IMPLEMENT_TYPE_PROFILE_LABELS.nfsePainter;
 
 export const NFSE_NAMESPACE = 'http://www.sped.fazenda.gov.br/nfse';

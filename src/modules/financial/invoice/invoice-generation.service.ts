@@ -5,7 +5,7 @@ import { SicrediAuthService } from '@modules/integrations/sicredi/sicredi-auth.s
 import { INVOICE_STATUS, INSTALLMENT_STATUS, BANK_SLIP_STATUS } from '@constants';
 import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 import type { Invoice } from '@types';
 import { nextBrazilianBusinessDay } from '@utils/brazilian-holidays.util';
@@ -1405,7 +1405,7 @@ export class InvoiceGenerationService {
   // (`@constants/document-labels`, perfil `invoice`, D-18) e são travadas por
   // `tests/fiscal-labels-golden.test.ts`.
   private translateTruckCategory(category?: string | null): string | null {
-    const map: Record<string, string> = TRUCK_CATEGORY_PROFILE_LABELS.invoice;
+    const map: Record<string, string> = CATEGORY_PROFILE_LABELS.invoice;
     return category ? (map[category] ?? category) : null;
   }
 

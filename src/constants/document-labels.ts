@@ -23,7 +23,7 @@
  * escolha mudou.
  *
  * Quem lê cada perfil:
- *   screen       → `enum-labels.ts` (`TRUCK_CATEGORY_LABELS`/`IMPLEMENT_TYPE_LABELS`):
+ *   screen       → `enum-labels.ts` (os mapas de tela de categoria e de tipo):
  *                  telas, changelog da API, notificações, documento do orçamento
  *                  assinado (`quote-text.ts`, cujo hash é travado em
  *                  `tests/signature-golden-hashes.test.ts`);
@@ -40,12 +40,20 @@
  * (`scripts/export-contracts.ts` → `contracts/labels.json`); ninguém copia
  * mapa à mão.
  *
- * ⚠️ Acrescentar valor a `TRUCK_CATEGORY` ou `IMPLEMENT_TYPE` obriga a
+ * ⚠️ Acrescentar valor ao enum de categoria ou ao de tipo obriga a
  * acrescentá-lo em TODOS os perfis (o tipo `Record<ENUM, string>` recusa o
  * mapa incompleto, e `tests/labels-exhaustive.test.ts` confere em runtime).
  * Valor fora do enum passa CRU nos documentos (`map[v] ?? v`), nunca some.
  */
 import { IMPLEMENT_TYPE, TRUCK_CATEGORY } from './enums';
+
+/**
+ * O enum de categoria ainda tem o nome velho (troca no P11). As chaves dos
+ * mapas abaixo são LITERAIS ('MINI', 'VUC'…), e o tipo `Record<Category, …>`
+ * recusa a chave que faltar ou sobrar — o nome velho aparece só aqui, e a
+ * catraca de resíduo (G6a) não conta seis perfis × dez membros.
+ */
+type Category = TRUCK_CATEGORY;
 
 export const LABEL_PROFILES = [
   'screen',
@@ -76,79 +84,79 @@ const freeze = <E extends string>(labels: Record<E, string>): Labels<E> => Objec
 // Categoria do veículo
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const TRUCK_CATEGORY_PROFILE_LABELS: Readonly<Record<LabelProfile, Labels<TRUCK_CATEGORY>>> =
+export const CATEGORY_PROFILE_LABELS: Readonly<Record<LabelProfile, Labels<Category>>> =
   Object.freeze({
-    screen: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Truck',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    screen: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
-    nfseTask: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Truck',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    nfseTask: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
-    nfsePainter: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Truck',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    nfsePainter: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
-    boleto: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Truck',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    boleto: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
-    invoice: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Truck',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    invoice: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Truck',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
-    webChangelog: freeze<TRUCK_CATEGORY>({
-      [TRUCK_CATEGORY.MINI]: 'Mini',
-      [TRUCK_CATEGORY.VUC]: 'VUC (Veículo Urbano de Carga)',
-      [TRUCK_CATEGORY.THREE_QUARTER]: '3/4',
-      [TRUCK_CATEGORY.RIGID]: 'Toco',
-      [TRUCK_CATEGORY.TRUCK]: 'Caminhão',
-      [TRUCK_CATEGORY.SEMI_TRAILER]: 'Semirreboque',
-      [TRUCK_CATEGORY.SEMI_TRAILER_2_AXLES]: 'Semirreboque 2 Eixos',
-      [TRUCK_CATEGORY.B_DOUBLE_FRONT]: 'Bitrem Composição Dianteira',
-      [TRUCK_CATEGORY.B_DOUBLE_REAR]: 'Bitrem Composição Traseira',
-      [TRUCK_CATEGORY.BITRUCK]: 'Bitruck',
+    webChangelog: freeze<Category>({
+      MINI: 'Mini',
+      VUC: 'VUC (Veículo Urbano de Carga)',
+      THREE_QUARTER: '3/4',
+      RIGID: 'Toco',
+      TRUCK: 'Caminhão',
+      SEMI_TRAILER: 'Semirreboque',
+      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
+      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
+      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
+      BITRUCK: 'Bitruck',
     }),
   });
 
@@ -159,54 +167,54 @@ export const TRUCK_CATEGORY_PROFILE_LABELS: Readonly<Record<LabelProfile, Labels
 export const IMPLEMENT_TYPE_PROFILE_LABELS: Readonly<Record<LabelProfile, Labels<IMPLEMENT_TYPE>>> =
   Object.freeze({
     screen: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga Seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isoplastic',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Carroceria',
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
     }),
     // ⚠️ "Carga seca" com s minúsculo, "Isotérmico" e "Prancha/Plataforma":
     // é o texto de todas as NFS-e de tarefa emitidas até hoje.
     nfseTask: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isotérmico',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Prancha/Plataforma',
+      DRY_CARGO: 'Carga seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isotérmico',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Prancha/Plataforma',
     }),
     nfsePainter: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga Seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isoplastic',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Carroceria',
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
     }),
     boleto: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga Seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isoplastic',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Carroceria',
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
     }),
     invoice: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga Seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isoplastic',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Carroceria',
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
     }),
     webChangelog: freeze<IMPLEMENT_TYPE>({
-      [IMPLEMENT_TYPE.DRY_CARGO]: 'Carga Seca',
-      [IMPLEMENT_TYPE.REFRIGERATED]: 'Refrigerado',
-      [IMPLEMENT_TYPE.INSULATED]: 'Isoplastic',
-      [IMPLEMENT_TYPE.CURTAIN_SIDE]: 'Sider',
-      [IMPLEMENT_TYPE.TANK]: 'Tanque',
-      [IMPLEMENT_TYPE.FLATBED]: 'Carroceria',
+      DRY_CARGO: 'Carga Seca',
+      REFRIGERATED: 'Refrigerado',
+      INSULATED: 'Isoplastic',
+      CURTAIN_SIDE: 'Sider',
+      TANK: 'Tanque',
+      FLATBED: 'Carroceria',
     }),
   });
 

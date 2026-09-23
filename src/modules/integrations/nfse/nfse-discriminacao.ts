@@ -37,12 +37,12 @@
  */
 import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 
 /** Os rótulos da NFS-e da tarefa (perfil `nfseTask`). */
 export const NFSE_CATEGORY_LABELS: Readonly<Record<string, string>> =
-  TRUCK_CATEGORY_PROFILE_LABELS.nfseTask;
+  CATEGORY_PROFILE_LABELS.nfseTask;
 export const NFSE_IMPLEMENT_LABELS: Readonly<Record<string, string>> =
   IMPLEMENT_TYPE_PROFILE_LABELS.nfseTask;
 

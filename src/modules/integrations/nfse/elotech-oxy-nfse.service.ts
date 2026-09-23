@@ -8,7 +8,7 @@ import { NFSE_LIVE_STATUSES } from '@constants';
 import { buildDiscriminacao } from './nfse-discriminacao';
 import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 
 export interface MunicipalEmitNfseInput {
@@ -1301,7 +1301,7 @@ export class ElotechOxyNfseService {
   // já emitidas. Mora na fonte única (`@constants/document-labels`, D-18) e é
   // travado por `tests/fiscal-labels-golden.test.ts`.
   private readonly TRUCK_CATEGORY_LABELS: Record<string, string> =
-    TRUCK_CATEGORY_PROFILE_LABELS.nfseTask;
+    CATEGORY_PROFILE_LABELS.nfseTask;
 
   private readonly IMPLEMENT_TYPE_LABELS: Record<string, string> =
     IMPLEMENT_TYPE_PROFILE_LABELS.nfseTask;

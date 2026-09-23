@@ -50,7 +50,7 @@ import {
   IMPLEMENT_TYPE_PROFILE_LABELS,
   LABEL_PROFILES,
   LABEL_PROFILE_READERS,
-  TRUCK_CATEGORY_PROFILE_LABELS,
+  CATEGORY_PROFILE_LABELS,
 } from '../src/constants/document-labels';
 import { TASK_QUOTE_STATUS_ORDER } from '../src/constants/sortOrders';
 import { BudgetService } from '../src/modules/production/budget/budget.service';
@@ -106,7 +106,7 @@ function collectProfiles() {
     Object.fromEntries(LABEL_PROFILES.map(p => [p, { ...source[p] }]));
   return {
     leitores: { ...LABEL_PROFILE_READERS },
-    TRUCK_CATEGORY: byProfile(TRUCK_CATEGORY_PROFILE_LABELS),
+    TRUCK_CATEGORY: byProfile(CATEGORY_PROFILE_LABELS),
     IMPLEMENT_TYPE: byProfile(IMPLEMENT_TYPE_PROFILE_LABELS),
   };
 }

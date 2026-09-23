@@ -17,11 +17,17 @@
 #
 # Exceções (arquivos inteiros fora da conta) em `.residual-allowlist`, um glob
 # por linha — só o que PRECISA continuar falando "truck" para sempre (chaves do
-# hash da assinatura, por exemplo).
+# hash da assinatura, por exemplo). Exceção TEMPORÁRIA leva `até=AAAA-MM-DD`
+# na linha: vencida a data, o arquivo volta à conta (base 0) e reprova até o
+# nome velho sair dele.
 #
-# Uso:  scripts/guard-residual.sh            verifica (sai 1 se algo subiu)
-#       scripts/guard-residual.sh --update   baixa a base (recusa se algo subiu)
-#       scripts/guard-residual.sh --init     grava a primeira base
+# Uso:  scripts/guard-residual.sh              verifica (sai 1 se algo subiu)
+#       scripts/guard-residual.sh --update     baixa a base (recusa se algo subiu)
+#       scripts/guard-residual.sh --init       grava a primeira base
+#       scripts/guard-residual.sh --recomando  regrava a base quando o PADRÃO
+#                                              mudou (e só então): a base sobe
+#                                              uma vez, no mesmo commit que
+#                                              troca o comando, e daí só cai
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,13 +41,28 @@ G6A_PATTERN='\btrucks?\b|Truck[A-Z]|TRUCK_(?!MANUFACTURER|SPOT)'
 G6B_PATTERN='["'"'"'`][^"'"'"'`\n]*(ImplementMeasure [a-zçã]|Implement [a-z]|Truck [a-z])'
 
 globs=()
+hoje="$(date +%F)"
+vencidas=()
 if [[ -f "$ALLOWLIST" ]]; then
   while IFS= read -r line; do
     line="${line%%#*}"
     line="$(echo "$line" | xargs)"
     [[ -z "$line" ]] && continue
-    globs+=(--glob "!$line")
+    glob="${line%% *}"
+    ate=""
+    if [[ "$line" =~ até=([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
+      ate="${BASH_REMATCH[1]}"
+    fi
+    if [[ -n "$ate" && "$hoje" > "$ate" ]]; then
+      vencidas+=("$glob (venceu em $ate)")
+      continue
+    fi
+    globs+=(--glob "!$glob")
   done <"$ALLOWLIST"
+fi
+if [[ ${#vencidas[@]} -gt 0 ]]; then
+  echo "[resíduo] exceção vencida — o arquivo voltou à conta:" >&2
+  printf '  %s\n' "${vencidas[@]}" >&2
 fi
 
 count_by_file() {
@@ -80,6 +101,24 @@ fi
 
 if [[ ! -f "$BASELINE" ]]; then
   echo "[resíduo] falta $BASELINE (rode com --init uma vez)." >&2
+  exit 2
+fi
+
+# O padrão mudou? A base de um comando não vale para outro: ou se regrava com
+# --recomando (no MESMO commit que troca o padrão), ou reprova.
+if [[ "$(jq -c .comando "$BASELINE")" != "$(echo "$current" | jq -c .comando)" ]]; then
+  if [[ "$MODE" == "--recomando" ]]; then
+    antes="$(jq -c .totais "$BASELINE")"
+    echo "$current" | jq --arg d "$(date +%F)" '. + {geradaEm: $d}' >"$BASELINE"
+    echo "[resíduo] padrão novo; base regravada: $(echo "$current" | jq -c .totais) (antes, com o padrão velho: $antes)"
+    exit 0
+  fi
+  echo "[resíduo] o padrão do guard-residual.sh não é o da base (.comando)." >&2
+  echo "          Regrave com --recomando no mesmo commit que troca o padrão." >&2
+  exit 2
+fi
+if [[ "$MODE" == "--recomando" ]]; then
+  echo "[resíduo] --recomando recusado: o padrão não mudou (use --update, que só desce)." >&2
   exit 2
 fi
 
