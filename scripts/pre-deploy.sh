@@ -68,6 +68,9 @@ PASSOS=(
   "G4 formas do web extraídas em dia|0|bash scripts/check-web-query-contracts.sh"
   # ── P06: release R-A (censo de formas G3 + versão do app G13) ──
   "G3 censo de formas (sem valor, teto, versão do app)|0|npm run -s test:census"
+  # ── P10: migrações da R-B escritas e ensaiadas (prisma/staged/r-b/) ──
+  "ensaio da R-B (fatias pendentes em transação revertida; invariantes, G25, G11-dados)|1|npm run -s test:rehearse-r-b"
+  "G36 informativo (distância schema.prisma × esquema-alvo da R-B)|0|bash scripts/check-schema-target.sh"
 )
 
 if [[ "$E2E" == "1" ]]; then
