@@ -789,6 +789,68 @@ async function dbChecks() {
     check('`layouts: []` limpa e volta a SHARED', q.layoutScope === 'SHARED' && q.layoutFiles.length === 0 && (await rowsOf(quoteId)).length === 0);
 
     // ═════════════════════════════════════════════════════════════════════
+    console.log('\nEm Negociação: por TAREFA — a arte do 1 não entrega o layout do 2');
+    // ═════════════════════════════════════════════════════════════════════
+    //
+    // Dois veículos novos, sem galeria nenhuma: o que decide é só a arte do
+    // orçamento que cobre (ou não) cada um. O reconciliador engole erro (é
+    // best-effort), então a prova é o ESTADO final das duas O.S.
+    const { syncEmNegociacaoForQuote } = require('../src/utils/em-negociacao-sync');
+    const t3 = await prisma.task.create({
+      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}3`, customerId: customer.id },
+    });
+    const t4 = await prisma.task.create({
+      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}4`, customerId: customer.id },
+    });
+    createdTaskIds.push(t3.id, t4.id);
+    const q2 = await budgets.create(
+      parse(budgetCreateSchema, {
+        taskIds: [t3.id, t4.id],
+        expiresAt: new Date(Date.now() + 30 * 86400000),
+        subtotal: 100,
+        total: 200,
+        status: 'PENDING',
+        services: [{ description: 'Pintura geral', amount: 100 }],
+        customerConfigs: [
+          {
+            customerId: customer.id,
+            subtotal: 100,
+            total: 200,
+            discountType: 'NONE',
+            generateInvoice: true,
+            generateBankSlip: true,
+            paymentConfig: { type: 'CASH', method: 'BANK_SLIP', cashDays: 5 },
+          },
+        ],
+        layouts: [{ fileId: fA.id, taskIds: [t3.id] }],
+      }),
+      user.id,
+    );
+    createdQuoteIds.push(q2.data.id);
+    check('a criação já nasce PER_VEHICLE pelo `layouts`', q2.data.layoutScope === 'PER_VEHICLE', q2.data.layoutScope);
+    const soDe = async (taskId: string) => {
+      await prisma.serviceOrder.create({
+        data: { description: 'Em Negociação', type: 'COMMERCIAL', status: 'IN_PROGRESS', taskId, createdById: user.id },
+      });
+      await prisma.serviceOrder.create({
+        data: { description: 'Elaborar Layout', type: 'ARTWORK', status: 'PENDING', taskId, createdById: user.id },
+      });
+    };
+    await soDe(t3.id);
+    await soDe(t4.id);
+    await prisma.budget.update({ where: { id: q2.data.id }, data: { status: 'APPROVED' } });
+    await syncEmNegociacaoForQuote(prisma, q2.data.id, user.id);
+    const emNeg = async (taskId: string) =>
+      (
+        await prisma.serviceOrder.findFirst({
+          where: { taskId, type: 'COMMERCIAL', description: 'Em Negociação' },
+          select: { status: true },
+        })
+      )?.status;
+    check('o veículo COM arte fecha a Em Negociação', (await emNeg(t3.id)) === 'COMPLETED', await emNeg(t3.id));
+    check('o veículo SEM arte fica esperando a arte dele', (await emNeg(t4.id)) === 'WAITING_ARTWORK', await emNeg(t4.id));
+
+    // ═════════════════════════════════════════════════════════════════════
     console.log('\nMedir um veículo mede o outro (mesmo orçamento)');
     // ═════════════════════════════════════════════════════════════════════
     const truck1 = await prisma.truck.create({ data: { taskId: t1.id } });
