@@ -77,8 +77,17 @@ if [[ ${#vencidas[@]} -gt 0 ]]; then
 fi
 
 count_by_file() {
-  # $1 = padrão PCRE; imprime "arquivo<TAB>contagem", ordenado
-  rg --no-config -P --count-matches --no-messages "${globs[@]}" -e "$1" src |
+  # $1 = padrão PCRE; imprime "arquivo<TAB>contagem", ordenado.
+  # rg sai 1 quando não acha nada (zero é resultado) e 2 em erro (padrão
+  # inválido, por exemplo): só o 2 derruba o portão.
+  local out rc=0
+  out="$(rg --no-config -P --count-matches --no-messages "${globs[@]}" -e "$1" src)" || rc=$?
+  if [[ $rc -gt 1 ]]; then
+    echo "[resíduo] rg falhou (saída $rc)" >&2
+    exit 2
+  fi
+  [[ -z "$out" ]] && return 0
+  printf '%s\n' "$out" |
     awk '{ n = $0; sub(/.*:/, "", n); f = $0; sub(/:[0-9]+$/, "", f); printf "%s\t%s\n", f, n }' |
     sort
 }
