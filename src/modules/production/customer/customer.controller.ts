@@ -19,7 +19,11 @@ import { CustomerService } from './customer.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
-import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import {
+  ZodValidationPipe,
+  ZodQueryValidationPipe,
+  type ZodValidationPipeOptions,
+} from '../../common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '../../common/pipes/array-fix.pipe';
 import {
   customerGetManySchema,
@@ -60,6 +64,17 @@ import type {
   Customer,
 } from '../../../types';
 
+/**
+ * G1 em MODO RELATÓRIO (revisão da Fase A, F6): a consulta de Customer passa
+ * pelo validador do DMMF só para CONTAR — chave que o zod descarta calado e
+ * chave que chegaria ao Prisma aparecem no log; nenhuma resposta muda. Vira
+ * a porta de verdade (400 nomeado) quando o censo (G3) mostrar quem manda o quê.
+ */
+const CUSTOMER_QUERY_REPORT: ZodValidationPipeOptions = {
+  queryModel: 'Customer',
+  reportOnly: true,
+};
+
 @Controller('customers')
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
@@ -79,7 +94,8 @@ export class CustomerController {
     SECTOR_PRIVILEGES.ACCOUNTING,
   )
   async findMany(
-    @Query(new ZodQueryValidationPipe(customerGetManySchema)) query: CustomerGetManyFormData,
+    @Query(new ZodQueryValidationPipe(customerGetManySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerGetManyFormData,
     @UserId() userId: string,
   ): Promise<CustomerGetManyResponse> {
     return this.customerService.findMany(query);
@@ -98,7 +114,8 @@ export class CustomerController {
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(customerCreateSchema))
     data: CustomerCreateFormData,
-    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerQueryFormData,
     @UserId() userId: string,
     @UploadedFile() logo?: Express.Multer.File,
   ): Promise<CustomerCreateResponse> {
@@ -116,7 +133,8 @@ export class CustomerController {
   @HttpCode(HttpStatus.CREATED)
   async quickCreate(
     @Body(new ZodValidationPipe(customerQuickCreateSchema)) data: CustomerQuickCreateFormData,
-    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerQueryFormData,
     @UserId() userId: string,
   ): Promise<CustomerCreateResponse> {
     return this.customerService.quickCreate(data, query.include, userId);
@@ -134,7 +152,8 @@ export class CustomerController {
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(customerBatchCreateSchema)) data: CustomerBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(customerBatchQuerySchema)) query: CustomerBatchQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerBatchQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerBatchQueryFormData,
     @UserId() userId: string,
   ): Promise<CustomerBatchCreateResponse> {
     return this.customerService.batchCreate(data, query.include, userId);
@@ -144,7 +163,8 @@ export class CustomerController {
   @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async batchUpdate(
     @Body(new ZodValidationPipe(customerBatchUpdateSchema)) data: CustomerBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(customerBatchQuerySchema)) query: CustomerBatchQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerBatchQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerBatchQueryFormData,
     @UserId() userId: string,
   ): Promise<CustomerBatchUpdateResponse> {
     return this.customerService.batchUpdate(data, query.include, userId);
@@ -165,7 +185,8 @@ export class CustomerController {
   @HttpCode(HttpStatus.OK)
   async merge(
     @Body(new ZodValidationPipe(customerMergeSchema)) data: CustomerMergeFormData,
-    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerQueryFormData,
     @UserId() userId: string,
   ): Promise<CustomerMergeResponse> {
     return this.customerService.merge(data, query.include, userId);
@@ -185,7 +206,8 @@ export class CustomerController {
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerQueryFormData,
     @UserId() userId: string,
   ): Promise<CustomerGetUniqueResponse> {
     return this.customerService.findById(id, query.include);
@@ -204,7 +226,8 @@ export class CustomerController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(customerUpdateSchema))
     data: CustomerUpdateFormData,
-    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema, CUSTOMER_QUERY_REPORT))
+    query: CustomerQueryFormData,
     @UserId() userId: string,
     @UploadedFile() logo?: Express.Multer.File,
   ): Promise<CustomerUpdateResponse> {

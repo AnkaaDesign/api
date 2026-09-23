@@ -359,6 +359,47 @@ function partePipe(): void {
   }
   check('relação inventada, mesmo só com where, continua 400', inventadaSoWhere === 400);
 
+  // Modo relatório (F6): clientes, arquivos e aerografias contam, não recusam.
+  resetQueryKeyCounters();
+  const relatorio = new ZodQueryValidationPipe(customerSchemas.customerQuerySchema, {
+    queryModel: 'Customer',
+    reportOnly: true,
+  });
+  const cliente = relatorio.transform(
+    { include: JSON.stringify({ tasks: { include: { nfe: true, sector: true } } }) },
+    meta,
+  ) as any;
+  const cont = Object.keys(queryKeyCounters());
+  check(
+    'modo relatório: a chave que o zod tira calado é contada, e a resposta não muda',
+    !!cliente?.include?.tasks && cont.includes('dropped|Customer|include.tasks.include.nfe'),
+    `${JSON.stringify(cliente)} ${cont.join(', ')}`,
+  );
+  let relatorioRecusou = false;
+  try {
+    enforceQueryShape('Customer', { include: { naoExiste: true } }, { reportOnly: true });
+  } catch {
+    relatorioRecusou = true;
+  }
+  check(
+    'modo relatório: chave que chegaria ao Prisma é contada, nunca recusada',
+    !relatorioRecusou &&
+      Object.keys(queryKeyCounters()).includes('rejected|Customer|include.naoExiste'),
+  );
+  for (const [arquivo, rotulo] of [
+    ['../src/modules/production/customer/customer.controller.ts', 'Customer'],
+    ['../src/modules/production/airbrushing/airbrushing.controller.ts', 'Airbrushing'],
+    ['../src/modules/common/file/file.controller.ts', 'File'],
+  ] as const) {
+    const fonte = readFileSync(join(__dirname, arquivo), 'utf8');
+    const semPorta = [...fonte.matchAll(/new ZodQueryValidationPipe\((\w+)\)/g)].map(m => m[1]);
+    check(
+      `${rotulo}: toda consulta passa pelo G1 (ao menos em modo relatório)`,
+      semPorta.length === 0 && fonte.includes(`queryModel: '${rotulo}'`),
+      semPorta.join(', '),
+    );
+  }
+
   const semModelo = new ZodQueryValidationPipe(taskSchemas.taskQuerySchema);
   const passa = semModelo.transform(
     { include: JSON.stringify({ customer: { include: { nfe: true } } }) },

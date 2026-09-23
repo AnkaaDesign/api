@@ -33,6 +33,7 @@ import { SECTOR_PRIVILEGES } from '../../../constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
+  type ZodValidationPipeOptions,
 } from '@modules/common/pipes/zod-validation.pipe';
 import { AuthGuard } from '../auth/auth.guard';
 import {
@@ -91,6 +92,14 @@ const FILE_WRITE_ROLES = [
   SECTOR_PRIVILEGES.AIRBRUSHING,
 ] as const;
 
+/**
+ * G1 em MODO RELATÓRIO (revisão da Fase A, F6): a consulta de File passa
+ * pelo validador do DMMF só para CONTAR — chave que o zod descarta calado e
+ * chave que chegaria ao Prisma aparecem no log; nenhuma resposta muda. Vira
+ * a porta de verdade (400 nomeado) quando o censo (G3) mostrar quem manda o quê.
+ */
+const FILE_QUERY_REPORT: ZodValidationPipeOptions = { queryModel: 'File', reportOnly: true };
+
 @Controller('files')
 @UseGuards(AuthGuard)
 export class FileController {
@@ -138,7 +147,7 @@ export class FileController {
     @Query('supplierName') supplierName?: string,
     @Query('userName') userName?: string,
     @Query('cutType') cutType?: string,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileCreateResponse> {
     if (!file) {
@@ -173,7 +182,7 @@ export class FileController {
     @Query('supplierName') supplierName?: string,
     @Query('userName') userName?: string,
     @Query('cutType') cutType?: string,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
     if (!files || files.length === 0) {
@@ -289,7 +298,7 @@ export class FileController {
   @Get()
   @NoRateLimit() // Disable rate limiting for file list operations
   async findMany(
-    @Query(new ZodQueryValidationPipe(fileGetManySchema)) query: FileGetManyFormData,
+    @Query(new ZodQueryValidationPipe(fileGetManySchema, FILE_QUERY_REPORT)) query: FileGetManyFormData,
   ): Promise<FileGetManyResponse> {
     return this.fileService.findMany(query);
   }
@@ -299,7 +308,7 @@ export class FileController {
   @WriteRateLimit()
   async create(
     @Body(new ZodValidationPipe(fileCreateSchema)) data: FileCreateFormData,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query: FileQueryFormData,
     @UserId() userId: string,
   ): Promise<FileCreateResponse> {
     return this.fileService.create(data, query.include, userId);
@@ -345,7 +354,7 @@ export class FileController {
   @WriteRateLimit()
   async batchCreate(
     @Body(new ZodValidationPipe(fileBatchCreateSchema)) data: FileBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query: FileQueryFormData,
     @UserId() userId: string,
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
     return this.fileService.batchCreate(data, query.include, userId);
@@ -356,7 +365,7 @@ export class FileController {
   @WriteRateLimit()
   async batchUpdate(
     @Body(new ZodValidationPipe(fileBatchUpdateSchema)) data: FileBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query: FileQueryFormData,
     @UserId() userId: string,
   ): Promise<FileBatchUpdateResponse<FileUpdateFormData>> {
     return this.fileService.batchUpdate(data, query.include, userId);
@@ -532,7 +541,7 @@ export class FileController {
   @FileOperationBypass() // Completely bypass ALL throttlers for file reads
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query: FileQueryFormData,
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<FileGetUniqueResponse | void> {
@@ -557,7 +566,7 @@ export class FileController {
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(fileUpdateSchema)) data: FileUpdateFormData,
-    @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
+    @Query(new ZodQueryValidationPipe(fileQuerySchema, FILE_QUERY_REPORT)) query: FileQueryFormData,
     @UserId() userId: string,
   ): Promise<FileUpdateResponse> {
     return this.fileService.update(id, data, query.include, userId);

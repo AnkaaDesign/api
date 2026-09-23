@@ -28,6 +28,8 @@ export interface ZodValidationPipeOptions {
   queryModel?: string;
   /** G1: ver `EnforceQueryShapeOptions.bareRelationArgsIgnored`. */
   bareRelationArgsIgnored?: boolean;
+  /** G1: ver `EnforceQueryShapeOptions.reportOnly` (conta, não recusa nem traduz). */
+  reportOnly?: boolean;
 }
 
 @Injectable()
@@ -41,8 +43,11 @@ export class ZodValidationPipe implements PipeTransform {
     const parsed = this.parse(value, metadata);
     if (metadata.type === 'query' && this.options.queryModel) {
       return enforceQueryShape(this.options.queryModel, parsed, {
-        raw: value,
+        // o cru já com o include em JSON aberto (o app manda `include` como
+        // JSON na querystring): sem isso o modo relatório não via nada
+        raw: this.transformQueryParams(value),
         bareRelationArgsIgnored: this.options.bareRelationArgsIgnored,
+        reportOnly: this.options.reportOnly,
       });
     }
     return parsed;

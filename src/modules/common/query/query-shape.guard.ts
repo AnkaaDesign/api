@@ -97,6 +97,14 @@ export interface EnforceQueryShapeOptions {
    * conta e loga como descartado, e a resposta continua a de antes.
    */
   bareRelationArgsIgnored?: boolean;
+  /**
+   * SÓ CONTA, nunca recusa nem traduz: a consulta sai exatamente como o zod a
+   * deixou. É o G1 das rotas que ainda não foram plugadas de verdade
+   * (clientes, arquivos, aerografias): a chave que o zod descarta calado e a
+   * que chegaria ao Prisma passam a aparecer no contador e no log, sem mudar
+   * nenhuma resposta na Fase A.
+   */
+  reportOnly?: boolean;
 }
 
 /**
@@ -109,6 +117,19 @@ export function enforceQueryShape<T>(
   options: EnforceQueryShapeOptions = {},
 ): T {
   if (!isPlainObject(parsed)) return parsed;
+
+  if (options.reportOnly) {
+    rewriteDeprecatedQueryKeys(model, parsed, use =>
+      recordQueryKeyEvent('deprecated', model, use.path, 'modo relatório: não traduzida'),
+    );
+    for (const i of findQueryKeyIssues(model, pickClauses(parsed), QUERY_KEY_ALLOWANCE)) {
+      recordQueryKeyEvent('rejected', model, i.path, `${i.reason} (modo relatório: não recusada)`);
+    }
+    if (isPlainObject(options.raw)) {
+      reportDroppedKeys(model, options.raw, parsed as Record<string, unknown>);
+    }
+    return parsed;
+  }
 
   const translated = rewriteDeprecatedQueryKeys(model, parsed, use =>
     recordQueryKeyEvent(

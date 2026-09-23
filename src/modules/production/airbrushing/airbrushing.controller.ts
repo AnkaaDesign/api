@@ -19,6 +19,7 @@ import { AirbrushingService } from './airbrushing.service';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
+  type ZodValidationPipeOptions,
 } from '@modules/common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import {
@@ -56,6 +57,17 @@ import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
+/**
+ * G1 em MODO RELATÓRIO (revisão da Fase A, F6): a consulta de Airbrushing passa
+ * pelo validador do DMMF só para CONTAR — chave que o zod descarta calado e
+ * chave que chegaria ao Prisma aparecem no log; nenhuma resposta muda. Vira
+ * a porta de verdade (400 nomeado) quando o censo (G3) mostrar quem manda o quê.
+ */
+const AIRBRUSHING_QUERY_REPORT: ZodValidationPipeOptions = {
+  queryModel: 'Airbrushing',
+  reportOnly: true,
+};
+
 @Controller('airbrushings')
 export class AirbrushingController {
   constructor(private readonly airbrushingService: AirbrushingService) {}
@@ -77,7 +89,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findMany(
-    @Query(new ZodQueryValidationPipe(airbrushingGetManySchema)) query: AirbrushingGetManyFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingGetManySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingGetManyFormData,
     @User() user: UserPayload,
   ): Promise<AirbrushingGetManyResponse> {
     return this.airbrushingService.findMany(query, user.role, user.sub);
@@ -102,7 +114,7 @@ export class AirbrushingController {
     // `<field>_empty=true`. ArrayFixPipe converts them back (→ null / → []) — without it,
     // "null" reaches z.coerce.date() as Invalid Date (400). Mirrors order/warning/supplier.
     @Body(new ArrayFixPipe(), new ZodValidationPipe(airbrushingCreateSchema)) data: AirbrushingCreateFormData,
-    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
     @UploadedFiles()
@@ -121,7 +133,7 @@ export class AirbrushingController {
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(airbrushingBatchCreateSchema)) data: AirbrushingBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<AirbrushingBatchCreateResponse<AirbrushingCreateFormData>> {
@@ -132,7 +144,7 @@ export class AirbrushingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   async batchUpdate(
     @Body(new ZodValidationPipe(airbrushingBatchUpdateSchema)) data: AirbrushingBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<AirbrushingBatchUpdateResponse<AirbrushingUpdateFormData>> {
@@ -175,7 +187,7 @@ export class AirbrushingController {
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingQueryFormData,
     @User() user: UserPayload,
   ): Promise<AirbrushingGetUniqueResponse> {
     return this.airbrushingService.findById(id, query.include, user.role, user.sub);
@@ -204,7 +216,7 @@ export class AirbrushingController {
     // "null" sentinel back to null (startedAt/finishedAt/startDate/finishDate/price) and
     // `<field>_empty=true` back to [] so file-removal reconciliation persists.
     @Body(new ArrayFixPipe(), new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
-    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @Query(new ZodQueryValidationPipe(airbrushingQuerySchema, AIRBRUSHING_QUERY_REPORT)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
     @UploadedFiles()
