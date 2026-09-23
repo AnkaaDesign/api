@@ -108,6 +108,39 @@ const FANTASMAS_CONHECIDOS: Record<string, string> = {
     '`tasks.include.airbrushing` não existe em Task (é `airbrushings`)',
 };
 
+/**
+ * Chaves que as formas reais dos clientes mandam e o zod da rota DESCARTA
+ * calado (`Modelo|caminho`, como `queryKeyCounters()` as conta). A tela recebe
+ * a resposta sem elas — "chave descartada, tela vazia". A lista SÓ ENCOLHE:
+ * chave nova reprova a parte C, e chave que nenhuma forma manda mais também.
+ * Para sair daqui: o schema da rota passa a conhecer a chave (e o G1 a julga)
+ * ou o cliente para de mandá-la.
+ */
+const DESCARTADAS_CONHECIDAS: Record<string, string> = {
+  // semeada em 23/09 (revisão da Fase A, R-B-02) com o que as formas mandavam
+  'Airbrushing|include.layouts.include.file':
+    'AnkaaAero (2 formas) e web (aerografia): o zod de airbrushing não conhece `layouts.include.file`',
+  'Customer|include.count': 'web customer-export: `count` não é `_count`',
+  'Customer|include.tasks.include.user':
+    'web customer/edit: include de tarefa aninhado que o zod de cliente não conhece',
+  'Customer|include.tasks.orderBy':
+    'web customer/edit: argumento da relação que o zod de cliente não conhece',
+  'Customer|include.tasks.take':
+    'web customer/edit: argumento da relação que o zod de cliente não conhece',
+  'Task|include.bonifications': 'web task-selector: relação inexistente em Task (fantasma do G1)',
+  'Task|include.budget': 'web task/edit: relação inexistente (é `quote`)',
+  'Task|include.cuts':
+    'web (bulk, widgets, edit) e seed copiar-de: relação que o zod de tarefa não conhece',
+  'Task|include.files': 'web (task-selector, export, tabela): relação inexistente em Task',
+  'Task|include.invoiceReimbursements':
+    'web customer-tasks-table: o zod só conhece `nfeReimbursements`',
+  'Task|include.reimbursementInvoices':
+    'web documents-card e duplicar: relação que o zod de tarefa não conhece',
+  'Task|include.reimbursements': 'web customer-tasks-table, documents-card e duplicar',
+  'Task|include.updatedBy': 'web customer-tasks-table: relação que o zod de tarefa não conhece',
+  'Task|orderBy[1].truck': 'semente do painel (tabela de tarefas): ordenar pelo caminhão',
+};
+
 // ─── A. validador, sem banco ─────────────────────────────────────────────────
 
 function parteA(): void {
@@ -417,18 +450,26 @@ type Veredito = {
   g1: 'passa' | 'recusa';
   prisma: 'passa' | 'recusa' | 'nao-rodou';
   detalhe: string;
+  /** `Modelo|caminho` de cada chave que o zod da rota descartou calado */
+  descartadas: string[];
 };
 
 async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Veredito> {
   const alvo = SCHEMAS[forma.schema];
   if (!alvo)
-    return { g1: 'recusa', prisma: 'nao-rodou', detalhe: `schema ${forma.schema} não registrado` };
+    return {
+      g1: 'recusa',
+      prisma: 'nao-rodou',
+      detalhe: `schema ${forma.schema} não registrado`,
+      descartadas: [],
+    };
   const parsed = alvo.schema.safeParse(forma.consulta);
   if (!parsed.success) {
     return {
       g1: 'recusa',
       prisma: 'nao-rodou',
       detalhe: `zod: ${parsed.error.issues.map(i => `${i.path.join('.')} ${i.message}`).join('; ')}`,
+      descartadas: [],
     };
   }
   const q = parsed.data as Record<string, unknown>;
@@ -436,11 +477,14 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
   let g1: Veredito['g1'] = 'passa';
   let detalhe = '';
   let consulta: Record<string, unknown> = q;
+  // Contadores zerados por forma: o que sobrar em `dropped|…` é desta forma.
+  resetQueryKeyCounters();
   try {
-    consulta = enforceQueryShape(forma.modelo, q, { raw: forma.consulta }) as Record<
-      string,
-      unknown
-    >;
+    consulta = enforceQueryShape(forma.modelo, q, {
+      raw: forma.consulta,
+      // as rotas de tarefa usam TASK_QUERY_SHAPE; as outras ainda não têm opção
+      ...(forma.modelo === 'Task' ? TASK_QUERY_SHAPE : {}),
+    }) as Record<string, unknown>;
   } catch (e) {
     g1 = 'recusa';
     detalhe =
@@ -448,6 +492,9 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
     // para comparar vereditos, o Prisma recebe a consulta como o zod a deixou
     consulta = q;
   }
+  const descartadas = Object.keys(queryKeyCounters())
+    .filter(k => k.startsWith('dropped|'))
+    .map(k => k.slice('dropped|'.length));
 
   const args: Record<string, unknown> = { take: 1 };
   if (consulta.include && Object.keys(consulta.include as object).length)
@@ -460,7 +507,7 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
 
   try {
     await delegate(tx, forma.modelo).findFirst(args);
-    return { g1, prisma: 'passa', detalhe };
+    return { g1, prisma: 'passa', detalhe, descartadas };
   } catch (e) {
     const msg =
       e instanceof Prisma.PrismaClientValidationError
@@ -469,11 +516,17 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
             .filter(l => /Unknown|Invalid|Argument/.test(l))
             .pop() ?? 'validação')
         : String((e as Error)?.message ?? e).slice(0, 200);
-    return { g1, prisma: 'recusa', detalhe: `${detalhe}${detalhe ? ' | ' : ''}prisma: ${msg}` };
+    return {
+      g1,
+      prisma: 'recusa',
+      detalhe: `${detalhe}${detalhe ? ' | ' : ''}prisma: ${msg}`,
+      descartadas,
+    };
   }
 }
 
 async function parteCD(): Promise<void> {
+  const vistas = new Map<string, string[]>();
   const prisma = new PrismaClient();
   const ROLLBACK = new Error('rollback-do-teste-de-contrato');
   try {
@@ -484,6 +537,11 @@ async function parteCD(): Promise<void> {
           console.log(`\n── ${negativas ? 'D. negativas' : 'C. formas reais'}: ${arquivo}`);
           for (const forma of formas) {
             const v = await julgar(tx, forma);
+            if (!negativas) {
+              for (const d of v.descartadas) {
+                (vistas.get(d) ?? vistas.set(d, []).get(d)!).push(`${arquivo}#${forma.id}`);
+              }
+            }
             const esperado = forma.esperado ?? (negativas ? 'recusa' : 'passa');
             if (esperado === 'passa') {
               check(
@@ -509,6 +567,23 @@ async function parteCD(): Promise<void> {
   } finally {
     await prisma.$disconnect();
   }
+
+  // O runtime segue em modo relatório (conta e loga); o CONTRATO é estrito: a
+  // forma de cliente que manda chave que o zod descarta calado reprova, salvo
+  // o que já está em DESCARTADAS_CONHECIDAS — lista que só encolhe.
+  console.log('\n── C2. chaves que o zod descarta calado nas formas reais');
+  const novas = [...vistas.keys()].filter(k => !(k in DESCARTADAS_CONHECIDAS)).sort();
+  check(
+    'nenhuma forma de cliente manda chave que o zod descarta calado (fora da lista conhecida)',
+    novas.length === 0,
+    novas.map(k => `${k} ← ${vistas.get(k)!.join(', ')}`).join('; '),
+  );
+  const velhas = Object.keys(DESCARTADAS_CONHECIDAS).filter(k => !vistas.has(k));
+  check(
+    'DESCARTADAS_CONHECIDAS não lista chave que nenhuma forma manda mais (a lista só encolhe)',
+    velhas.length === 0,
+    velhas.join('; '),
+  );
 }
 
 async function main(): Promise<void> {
