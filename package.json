@@ -144,7 +144,8 @@
     "test:signature-golden": "tsx tests/signature-golden-hashes.test.ts",
     "export:signature-golden": "tsx scripts/export-signature-golden.ts",
     "db:gen-objetos-pos-push": "tsx scripts/gen-objetos-pos-push.ts",
-    "guard:residual": "bash scripts/guard-residual.sh"
+    "guard:residual": "bash scripts/guard-residual.sh",
+    "pre-deploy": "bash scripts/pre-deploy.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
