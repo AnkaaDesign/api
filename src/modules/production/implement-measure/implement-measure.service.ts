@@ -11,9 +11,15 @@ import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } f
 import { ImplementMeasurePrismaRepository } from './repositories/implement-measure-prisma.repository';
 import {
   replicateImplementMeasuresToQuoteSiblings,
-  type MeasureSide,
   type ReplicationLogEntry,
 } from '../../../utils/implement-measure-replication';
+import { FACE_REL, attachMeasure, setFace, type ImplementFace } from './implement-measure-writer';
+
+/** O formato que as rotas do módulo sempre devolveram: foto e seções em ordem. */
+const RESPONSE_INCLUDE = {
+  photo: true,
+  sections: { orderBy: { position: 'asc' as const } },
+};
 
 @Injectable()
 export class ImplementMeasureService {
@@ -102,23 +108,15 @@ export class ImplementMeasureService {
       throw new NotFoundException(`Caminhão ${truckId} não encontrado`);
     }
 
-    const implementMeasureFieldMap = {
-      left: 'leftSideMeasureId',
-      right: 'rightSideMeasureId',
-      back: 'backSideMeasureId',
-    };
-
     // Numa transação agora: a medida atribuída vale para os demais veículos do
     // mesmo orçamento (por CÓPIA — ver `utils/implement-measure-replication.ts`),
     // e ou ela chega aos N caminhões, ou a nenhum. Este caminho exige o caminhão
     // e não o cria; o irmão sem caminhão é pulado e o log diz qual.
+    //
+    // Atribuir não compartilha: se outra face já usa a linha, esta ganha uma
+    // cópia (escritor único); a linha anterior da face só sai se ficou sem uso.
     await this.prisma.$transaction(async tx => {
-      await tx.truck.update({
-        where: { id: truckId },
-        data: {
-          [implementMeasureFieldMap[side]]: implementMeasureId,
-        },
-      });
+      await attachMeasure(tx, truckId, side, implementMeasureId);
       await this.replicateToQuoteSiblings(tx, truck.taskId, [side], userId);
     });
 
@@ -159,7 +157,7 @@ export class ImplementMeasureService {
   private async replicateToQuoteSiblings(
     tx: any,
     sourceTaskId: string,
-    sides: MeasureSide[],
+    sides: ImplementFace[],
     userId?: string | null,
   ): Promise<void> {
     if (!sourceTaskId || sides.length === 0) return;
@@ -211,31 +209,23 @@ export class ImplementMeasureService {
       throw new NotFoundException('ImplementMeasure não encontrado');
     }
 
-    // A edição NO LUGAR muda a medida de todo caminhão ligado a esta linha — e o
-    // tamanho é do orçamento: cada um desses caminhões replica o lado editado
-    // para os irmãos dele, na mesma transação da edição.
+    // A edição pelo ID muda a medida de todo caminhão ligado a esta linha (cada
+    // um termina com a SUA linha — escritor único) — e o tamanho é do
+    // orçamento: cada um desses caminhões replica o lado editado para os irmãos
+    // dele, na mesma transação da edição.
     const implementMeasure = await this.implementMeasureRepository.update(
       id,
       data,
       userId,
-      async tx => {
-        const trucks = await tx.truck.findMany({
-          where: {
-            OR: [{ leftSideMeasureId: id }, { rightSideMeasureId: id }, { backSideMeasureId: id }],
-          },
-          select: {
-            taskId: true,
-            leftSideMeasureId: true,
-            rightSideMeasureId: true,
-            backSideMeasureId: true,
-          },
-        });
-        for (const t of trucks) {
-          const lados: MeasureSide[] = [];
-          if (t.leftSideMeasureId === id) lados.push('left');
-          if (t.rightSideMeasureId === id) lados.push('right');
-          if (t.backSideMeasureId === id) lados.push('back');
-          await this.replicateToQuoteSiblings(tx, t.taskId, lados, userId);
+      async (tx, references) => {
+        // As faces que usavam a linha ANTES da edição — cada uma já tem a sua
+        // linha agora (o escritor desfaz o compartilhamento ao editar pelo ID).
+        const facesByTask = new Map<string, ImplementFace[]>();
+        for (const ref of references) {
+          facesByTask.set(ref.taskId, [...(facesByTask.get(ref.taskId) ?? []), ref.face]);
+        }
+        for (const [taskId, lados] of facesByTask) {
+          await this.replicateToQuoteSiblings(tx, taskId, lados, userId);
         }
       },
     );
@@ -295,19 +285,6 @@ export class ImplementMeasureService {
       this.prisma.truck.count({ where: { backSideMeasureId: implementMeasureId } }),
       this.prisma.truck.count({ where: { leftSideMeasureId: implementMeasureId } }),
       this.prisma.truck.count({ where: { rightSideMeasureId: implementMeasureId } }),
-    ]);
-    return backCount + leftCount + rightCount;
-  }
-
-  /**
-   * Get count of trucks using this implementMeasure (within transaction)
-   * Returns total count across all three sides (back, left, right)
-   */
-  private async getImplementMeasureUsageCountInTransaction(tx: any, implementMeasureId: string): Promise<number> {
-    const [backCount, leftCount, rightCount] = await Promise.all([
-      tx.truck.count({ where: { backSideMeasureId: implementMeasureId } }),
-      tx.truck.count({ where: { leftSideMeasureId: implementMeasureId } }),
-      tx.truck.count({ where: { rightSideMeasureId: implementMeasureId } }),
     ]);
     return backCount + leftCount + rightCount;
   }
@@ -485,21 +462,9 @@ export class ImplementMeasureService {
         hasBackImplementMeasure: !!truck.backSideMeasure,
       });
 
-      // Determine which implementMeasure to update
-      const implementMeasureFieldMap = {
-        left: 'leftSideMeasureId',
-        right: 'rightSideMeasureId',
-        back: 'backSideMeasureId',
-      };
-
-      const existingImplementMeasureMap = {
-        left: truck.leftSideMeasure,
-        right: truck.rightSideMeasure,
-        back: truck.backSideMeasure,
-      };
-
-      const implementMeasureField = implementMeasureFieldMap[side];
-      const existingImplementMeasure = existingImplementMeasureMap[side];
+      // A medida atual desta face (para o log e a notificação; a escrita é do
+      // escritor único, que relê a face dentro da transação)
+      const existingImplementMeasure = truck[FACE_REL[side]];
 
       // Capture old implementMeasure snapshot for notification comparison (before any modifications)
       if (existingImplementMeasure && (existingImplementMeasure as any).sections) {
@@ -541,60 +506,26 @@ export class ImplementMeasureService {
 
       let implementMeasure: ImplementMeasure;
 
-      // NEW LOGIC: Check if we should use an existing shared implementMeasure
+      // Tudo pelo escritor único: atribuir uma linha existente (cópia se outra
+      // face já a usa), ou gravar uma linha NOVA no lugar da anterior — que só
+      // é apagada se ficou sem uso (nenhuma face, nenhuma análise de pintura).
       if (existingImplementMeasureId) {
         this.logger.log(
           `[BACKEND] 🔗 SHARED LAYOUT MODE - Assigning existing implementMeasure ${existingImplementMeasureId}`,
         );
 
-        // Verify the implementMeasure exists
-        const sharedImplementMeasure = await tx.implementMeasure.findUnique({
-          where: { id: existingImplementMeasureId },
-          include: {
-            photo: true,
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
-        });
-
-        if (!sharedImplementMeasure) {
+        const attached = await attachMeasure(tx, truckId, side, existingImplementMeasureId);
+        if (!attached) {
           throw new NotFoundException(`ImplementMeasure compartilhado ${existingImplementMeasureId} não encontrado`);
         }
+        this.logger.log(
+          `[BACKEND] ✅ ImplementMeasure ${existingImplementMeasureId} attached (${attached.action}) as ${attached.measureId}`,
+        );
 
-        // If there's an old implementMeasure, handle it
-        if (existingImplementMeasure && existingImplementMeasure.id !== existingImplementMeasureId) {
-          // Check if old implementMeasure is used by other trucks
-          const oldImplementMeasureUsageCount = await this.getImplementMeasureUsageCountInTransaction(
-            tx,
-            existingImplementMeasure.id,
-          );
-          this.logger.log(
-            `[BACKEND] Old implementMeasure ${existingImplementMeasure.id} is used by ${oldImplementMeasureUsageCount} truck(s)`,
-          );
-
-          if (oldImplementMeasureUsageCount === 1) {
-            // Only this truck uses it, safe to delete
-            this.logger.log(`[BACKEND] 🗑️  Deleting unused old implementMeasure ${existingImplementMeasure.id}`);
-            await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: existingImplementMeasure.id } });
-            await tx.implementMeasure.delete({ where: { id: existingImplementMeasure.id } });
-            this.logger.log(`[BACKEND] ✅ Old implementMeasure deleted`);
-          } else {
-            // Other trucks use it, just unlink
-            this.logger.log(
-              `[BACKEND] ℹ️  Old implementMeasure is shared, keeping it (used by ${oldImplementMeasureUsageCount} trucks)`,
-            );
-          }
-        }
-
-        // Link shared implementMeasure to this truck
-        await tx.truck.update({
-          where: { id: truckId },
-          data: { [implementMeasureField]: existingImplementMeasureId },
+        implementMeasure = await tx.implementMeasure.findUniqueOrThrow({
+          where: { id: attached.measureId! },
+          include: RESPONSE_INCLUDE,
         });
-        this.logger.log(`[BACKEND] ✅ Shared implementMeasure ${existingImplementMeasureId} linked to truck`);
-
-        implementMeasure = sharedImplementMeasure;
 
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TRUCK,
@@ -606,142 +537,40 @@ export class ImplementMeasureService {
           userId: userId || null,
           transaction: tx,
         });
-      } else if (existingImplementMeasure) {
-        this.logger.log(`[BACKEND] ⚙️  REPLACE MODE - Existing implementMeasure found for ${side} side`);
-
-        // Check if existing implementMeasure is used by other trucks
-        const usageCount = await this.getImplementMeasureUsageCountInTransaction(tx, existingImplementMeasure.id);
+      } else {
         this.logger.log(
-          `[BACKEND] Existing implementMeasure ${existingImplementMeasure.id} is used by ${usageCount} truck(s)`,
+          existingImplementMeasure
+            ? `[BACKEND] ⚙️  REPLACE MODE - Existing implementMeasure found for ${side} side`
+            : `[BACKEND] ➕ CREATE MODE - No existing implementMeasure for ${side} side`,
         );
 
-        if (usageCount > 1) {
-          // ImplementMeasure is shared! Don't delete it, just create a new one for this truck
-          this.logger.log(
-            `[BACKEND] ⚠️  ImplementMeasure is SHARED by ${usageCount} trucks - creating new implementMeasure instead of modifying shared one`,
-          );
-        } else {
-          // Only this truck uses it, safe to delete
-          this.logger.log(
-            `[BACKEND] 🗑️  Deleting old implementMeasure ${existingImplementMeasure.id} (only used by this truck)`,
-          );
-
-          // First, disconnect the implementMeasure from the truck
-          await tx.truck.update({
-            where: { id: truckId },
-            data: { [implementMeasureField]: null },
-          });
-          this.logger.log(`[BACKEND] ImplementMeasure disconnected from truck`);
-
-          // Delete old implementMeasure sections
-          await tx.implementMeasureSection.deleteMany({
-            where: { implementMeasureId: existingImplementMeasure.id },
-          });
-          this.logger.log(`[BACKEND] Old implementMeasure sections deleted`);
-
-          // Delete the old implementMeasure
-          await tx.implementMeasure.delete({
-            where: { id: existingImplementMeasure.id },
-          });
-          this.logger.log(`[BACKEND] Old implementMeasure deleted successfully`);
-        }
-
-        // Create new implementMeasure
-        this.logger.log(`[BACKEND] 🆕 Creating new implementMeasure to replace old one`);
-        implementMeasure = await tx.implementMeasure.create({
-          data: {
-            height: data.height,
-            ...(photoId && { photo: { connect: { id: photoId } } }),
-            sections: {
-              create: data.sections.map((section, index) => ({
-                width: section.width,
-                isDoor: section.isDoor,
-                doorHeight: section.doorHeight,
-                position: section.position ?? index,
-              })),
-            },
-          },
-          include: {
-            photo: true,
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
+        const written = await setFace(
+          tx,
+          truckId,
+          side,
+          { height: data.height, sections: data.sections, photoId },
+          { mode: 'replace' },
+        );
+        implementMeasure = await tx.implementMeasure.findUniqueOrThrow({
+          where: { id: written.measureId! },
+          include: RESPONSE_INCLUDE,
         });
 
         this.logger.log(`[BACKEND] ✅ New implementMeasure created successfully:`, {
-          oldImplementMeasureId: existingImplementMeasure.id,
+          oldImplementMeasureId: written.previousId,
+          oldImplementMeasure: written.previous,
           newImplementMeasureId: implementMeasure.id,
           height: implementMeasure.height,
           sectionsCount: (implementMeasure as any).sections?.length || 0,
         });
 
-        // Link new implementMeasure to truck
-        await tx.truck.update({
-          where: { id: truckId },
-          data: {
-            [implementMeasureField]: implementMeasure.id,
-          },
-        });
-        this.logger.log(`[BACKEND] ✅ New implementMeasure linked to truck`);
-
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
           entityId: implementMeasure.id,
           action: CHANGE_ACTION.CREATE,
-          reason: `ImplementMeasure do lado ${side} do caminhão substituído (deletar e criar novo)`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: userId || null,
-          userId: userId || null,
-          transaction: tx,
-        });
-      } else {
-        this.logger.log(`[BACKEND] ➕ CREATE MODE - No existing implementMeasure for ${side} side`);
-        this.logger.log(`[BACKEND] 🆕 Creating new implementMeasure (always create, no duplicate check)`);
-
-        // Create new implementMeasure
-        implementMeasure = await tx.implementMeasure.create({
-          data: {
-            height: data.height,
-            ...(photoId && { photo: { connect: { id: photoId } } }),
-            sections: {
-              create: data.sections.map((section, index) => ({
-                width: section.width,
-                isDoor: section.isDoor,
-                doorHeight: section.doorHeight,
-                position: section.position ?? index,
-              })),
-            },
-          },
-          include: {
-            photo: true,
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
-        });
-
-        this.logger.log(`[BACKEND] ✅ New implementMeasure created successfully:`, {
-          implementMeasureId: implementMeasure.id,
-          height: implementMeasure.height,
-          sectionsCount: (implementMeasure as any).sections?.length || 0,
-        });
-
-        // Update truck with new implementMeasure
-        this.logger.log(`[BACKEND] Linking implementMeasure ${implementMeasure.id} to truck ${truckId} (${side} side)`);
-        await tx.truck.update({
-          where: { id: truckId },
-          data: {
-            [implementMeasureField]: implementMeasure.id,
-          },
-        });
-        this.logger.log(`[BACKEND] ✅ Truck updated with implementMeasure link`);
-
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-          entityId: implementMeasure.id,
-          action: CHANGE_ACTION.CREATE,
-          reason: `ImplementMeasure do lado ${side} do caminhão criado`,
+          reason: written.previousId
+            ? `ImplementMeasure do lado ${side} do caminhão substituído (deletar e criar novo)`
+            : `ImplementMeasure do lado ${side} do caminhão criado`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId || null,
           userId: userId || null,

@@ -2,6 +2,7 @@
 
 import { ImplementMeasure } from '@prisma/client';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../../schemas';
+import type { MeasureReference } from '../implement-measure-writer';
 
 export interface ImplementMeasureRepository {
   findById(id: string, include?: any): Promise<ImplementMeasure | null>;
@@ -11,6 +12,11 @@ export interface ImplementMeasureRepository {
     backSideMeasure: ImplementMeasure | null;
   }>;
   create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure>;
-  update(id: string, data: ImplementMeasureUpdateFormData, userId?: string): Promise<ImplementMeasure>;
+  update(
+    id: string,
+    data: ImplementMeasureUpdateFormData,
+    userId?: string,
+    afterWrite?: (tx: any, references: MeasureReference[]) => Promise<void>,
+  ): Promise<ImplementMeasure>;
   delete(id: string, userId?: string): Promise<void>;
 }

@@ -5,6 +5,18 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ImplementMeasure } from '@prisma/client';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../../schemas';
 import { ImplementMeasureRepository } from './implement-measure.repository';
+import {
+  createMeasure,
+  deleteMeasure,
+  rewriteMeasure,
+  type MeasureReference,
+} from '../implement-measure-writer';
+
+/** O formato que as rotas do módulo sempre devolveram: foto e seções em ordem. */
+const RESPONSE_INCLUDE = {
+  photo: true,
+  sections: { orderBy: { position: 'asc' as const } },
+};
 
 @Injectable()
 export class ImplementMeasurePrismaRepository implements ImplementMeasureRepository {
@@ -82,29 +94,18 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     };
   }
 
-  async create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure> {
-    const implementMeasure = await this.prisma.implementMeasure.create({
-      data: {
-        height: data.height,
-        ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
-        sections: {
-          create: data.sections.map((section, index) => ({
-            width: section.width,
-            isDoor: section.isDoor,
-            doorHeight: section.doorHeight,
-            position: section.position ?? index,
-          })),
-        },
-      },
-      include: {
-        photo: true,
-        sections: {
-          orderBy: { position: 'asc' },
-        },
-      },
-    });
+  // As escritas passam pelo escritor único (`../implement-measure-writer.ts`):
+  // é ele quem sabe que uma linha editada pelo ID pode estar em mais de uma
+  // face, e que a linha apontada por uma análise de pintura não sai.
 
-    return implementMeasure;
+  async create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure> {
+    return this.prisma.$transaction(async tx => {
+      const created = await createMeasure(tx, data);
+      return tx.implementMeasure.findUniqueOrThrow({
+        where: { id: created.id },
+        include: RESPONSE_INCLUDE,
+      });
+    });
   }
 
   async update(
@@ -114,55 +115,21 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     /**
      * Roda DENTRO da transação da edição, depois dela — é por onde o serviço
      * replica a medida editada para os irmãos de orçamento de cada caminhão que
-     * a usa, sem abrir uma segunda transação.
+     * a usava, sem abrir uma segunda transação. Recebe as faces que apontavam
+     * para a linha ANTES da edição (depois dela, cada uma tem a sua linha).
      */
-    afterWrite?: (tx: any) => Promise<void>,
+    afterWrite?: (tx: any, references: MeasureReference[]) => Promise<void>,
   ): Promise<ImplementMeasure> {
-    // Use a transaction to update implementMeasure and replace all sections
-    const implementMeasure = await this.prisma.$transaction(async tx => {
-      // Delete existing sections if we're updating them
-      if (data.sections) {
-        await tx.implementMeasureSection.deleteMany({
-          where: { implementMeasureId: id },
-        });
-      }
-
-      // Update implementMeasure with new sections
-      const updated = await tx.implementMeasure.update({
-        where: { id },
-        data: {
-          ...(data.height !== undefined && { height: data.height }),
-          ...(data.photoId !== undefined &&
-            data.photoId && { photo: { connect: { id: data.photoId } } }),
-          ...(data.photoId === null && { photo: { disconnect: true } }),
-          ...(data.sections && {
-            sections: {
-              create: data.sections.map((section, index) => ({
-                width: section.width,
-                isDoor: section.isDoor,
-                doorHeight: section.doorHeight,
-                position: section.position ?? index,
-              })),
-            },
-          }),
-        },
-        include: {
-          photo: true,
-          sections: {
-            orderBy: { position: 'asc' },
-          },
-        },
-      });
-      if (afterWrite) await afterWrite(tx);
-      return updated;
+    return this.prisma.$transaction(async tx => {
+      const { references } = await rewriteMeasure(tx, id, data);
+      if (afterWrite) await afterWrite(tx, references);
+      return tx.implementMeasure.findUniqueOrThrow({ where: { id }, include: RESPONSE_INCLUDE });
     });
-
-    return implementMeasure;
   }
 
   async delete(id: string, userId?: string): Promise<void> {
-    await this.prisma.implementMeasure.delete({
-      where: { id },
+    await this.prisma.$transaction(async tx => {
+      await deleteMeasure(tx, id);
     });
   }
 }
