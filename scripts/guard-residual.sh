@@ -21,6 +21,17 @@
 # na linha: vencida a data, o arquivo volta à conta (base 0) e reprova até o
 # nome velho sair dele.
 #
+# O G6a enxerga, além de `truck`/`trucks` e `TruckAlgo`, o camelCase
+# (`truckId`, `truckData`…) e o tipo sozinho (`Truck`, `Trucks`). Exceções
+# nomeadas no próprio padrão: `truckSpot` (a vaga do pátio), `truck-studio` e
+# "Truck Studio" (a ferramenta 3D), `TRUCK_MANUFACTURER*`, `TRUCK_SPOT`.
+# `IconTruck`/`GarageTruck` não casam (sem fronteira de palavra antes do T).
+#
+# O G6b pega o identificador em inglês colado a texto de tela dos DOIS lados
+# ("ImplementMeasure do…", "Medida do ImplementMeasure"), o nome separado
+# ("Implement Measure") e o literal que termina no identificador e é
+# concatenado ("Truck " + x).
+#
 # Uso:  scripts/guard-residual.sh              verifica (sai 1 se algo subiu)
 #       scripts/guard-residual.sh --update     baixa a base (recusa se algo subiu)
 #       scripts/guard-residual.sh --init       grava a primeira base
@@ -37,8 +48,8 @@ BASELINE=".residual-baseline.json"
 ALLOWLIST=".residual-allowlist"
 MODE="${1:-check}"
 
-G6A_PATTERN='\btrucks?\b|Truck[A-Z]|TRUCK_(?!MANUFACTURER|SPOT)'
-G6B_PATTERN='["'"'"'`][^"'"'"'`\n]*(ImplementMeasure [a-zçã]|Implement [a-z]|Truck [a-z])'
+G6A_PATTERN='\btrucks?\b(?!-studio)|\btrucks?(?!Spot)[A-Z]\w*|\bTrucks?\b(?! Studio)|Truck[A-Z]|TRUCK_(?!MANUFACTURER|SPOT)'
+G6B_PATTERN='["'"'"'`][^"'"'"'`\n]*(ImplementMeasure [a-zçã]|Implement [a-z]|Truck [a-z]|[a-zçãõéêíóú:]\s+(ImplementMeasure|Implement|Truck)\b(?! Studio)|Implement Measure|\b(ImplementMeasure|Implement|Truck) ["'"'"'`])'
 
 globs=()
 hoje="$(date +%F)"
