@@ -2392,13 +2392,14 @@ export class TaskPrismaRepository
 
             // Clone any implementMeasure File owned by ANOTHER quote so this quote owns an
             // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
-            const resolvedImplementMeasureIds = hasImplementMeasure && !layoutEchoOnPerVehicle
-              ? await this.fileService.resolveLayoutFileIdsForQuote(
-                  transaction,
-                  currentTask.quoteId,
-                  quoteData.layoutFileIds ?? [],
-                )
-              : undefined;
+            const resolvedImplementMeasureIds =
+              hasImplementMeasure && !layoutEchoOnPerVehicle
+                ? await this.fileService.resolveLayoutFileIdsForQuote(
+                    transaction,
+                    currentTask.quoteId,
+                    quoteData.layoutFileIds ?? [],
+                  )
+                : undefined;
             const layoutFileUpdate =
               resolvedImplementMeasureIds !== undefined
                 ? { layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }

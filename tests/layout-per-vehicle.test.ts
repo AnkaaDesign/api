@@ -82,57 +82,129 @@ async function rejectsWith(p: Promise<unknown>, fragment: string): Promise<strin
 function pureChecks() {
   const t1 = { id: 't1', serialNumber: '39088', createdAt: new Date('2026-09-22T17:04:39.924Z') };
   const t2 = { id: 't2', serialNumber: '39089', createdAt: new Date('2026-09-22T17:04:39.996Z') };
-  const t3 = { id: 't3', serialNumber: null, truck: { plate: 'ABC1D23' }, createdAt: new Date('2026-09-22T17:05:00Z') };
-  const t4 = { id: 't4', serialNumber: null, truck: null, createdAt: new Date('2026-09-22T17:06:00Z') };
+  const t3 = {
+    id: 't3',
+    serialNumber: null,
+    truck: { plate: 'ABC1D23' },
+    createdAt: new Date('2026-09-22T17:05:00Z'),
+  };
+  const t4 = {
+    id: 't4',
+    serialNumber: null,
+    truck: null,
+    createdAt: new Date('2026-09-22T17:06:00Z'),
+  };
 
   console.log('\nNormalização do pedido `layouts`');
   {
     const p = planLayoutCoverage([{ fileId: 'A' }, { fileId: 'B', taskIds: null }], [t1, t2]);
-    check('todas as artes para todos ⇒ SHARED, sem linhas', p.scope === 'SHARED' && p.files.every(f => f.taskIds.length === 0), JSON.stringify(p));
+    check(
+      'todas as artes para todos ⇒ SHARED, sem linhas',
+      p.scope === 'SHARED' && p.files.every(f => f.taskIds.length === 0),
+      JSON.stringify(p),
+    );
   }
   {
     const p = planLayoutCoverage([{ fileId: 'A', taskIds: ['t2', 't1'] }], [t1, t2]);
-    check('cobertura explícita de TODOS também normaliza para SHARED', p.scope === 'SHARED', JSON.stringify(p));
+    check(
+      'cobertura explícita de TODOS também normaliza para SHARED',
+      p.scope === 'SHARED',
+      JSON.stringify(p),
+    );
   }
   {
-    const p = planLayoutCoverage([{ fileId: 'A', taskIds: ['t1'] }, { fileId: 'B', taskIds: ['t2'] }], [t2, t1]);
+    const p = planLayoutCoverage(
+      [
+        { fileId: 'A', taskIds: ['t1'] },
+        { fileId: 'B', taskIds: ['t2'] },
+      ],
+      [t2, t1],
+    );
     check(
       'A só na 39088, B só na 39089 ⇒ PER_VEHICLE com as linhas explícitas',
       p.scope === 'PER_VEHICLE' &&
-        JSON.stringify(p.files) === JSON.stringify([{ fileId: 'A', taskIds: ['t1'] }, { fileId: 'B', taskIds: ['t2'] }]),
+        JSON.stringify(p.files) ===
+          JSON.stringify([
+            { fileId: 'A', taskIds: ['t1'] },
+            { fileId: 'B', taskIds: ['t2'] },
+          ]),
       JSON.stringify(p),
     );
   }
   {
-    const p = planLayoutCoverage([{ fileId: 'A', taskIds: null }, { fileId: 'B', taskIds: ['t2'] }], [t1, t2]);
+    const p = planLayoutCoverage(
+      [
+        { fileId: 'A', taskIds: null },
+        { fileId: 'B', taskIds: ['t2'] },
+      ],
+      [t1, t2],
+    );
     check(
       'arte "para todos" num PER_VEHICLE ganha uma linha por veículo ATUAL',
-      p.scope === 'PER_VEHICLE' && JSON.stringify(p.files[0]) === JSON.stringify({ fileId: 'A', taskIds: ['t1', 't2'] }),
+      p.scope === 'PER_VEHICLE' &&
+        JSON.stringify(p.files[0]) === JSON.stringify({ fileId: 'A', taskIds: ['t1', 't2'] }),
       JSON.stringify(p),
     );
   }
   {
-    const p = planLayoutCoverage([{ fileId: 'A', taskIds: ['t1'] }, { fileId: 'A', taskIds: ['t2'] }], [t1, t2, t3]);
-    check('`fileId` repetido junta as coberturas', p.files.length === 1 && p.files[0].taskIds.join() === 't1,t2', JSON.stringify(p));
+    const p = planLayoutCoverage(
+      [
+        { fileId: 'A', taskIds: ['t1'] },
+        { fileId: 'A', taskIds: ['t2'] },
+      ],
+      [t1, t2, t3],
+    );
+    check(
+      '`fileId` repetido junta as coberturas',
+      p.files.length === 1 && p.files[0].taskIds.join() === 't1,t2',
+      JSON.stringify(p),
+    );
   }
   {
-    const p = planLayoutCoverage([{ fileId: 'A', taskIds: [] }, { fileId: 'B', taskIds: ['t1'] }], [t1, t2]);
-    check('arte com cobertura vazia não cobre ninguém e sai', p.files.map(f => f.fileId).join() === 'B', JSON.stringify(p));
+    const p = planLayoutCoverage(
+      [
+        { fileId: 'A', taskIds: [] },
+        { fileId: 'B', taskIds: ['t1'] },
+      ],
+      [t1, t2],
+    );
+    check(
+      'arte com cobertura vazia não cobre ninguém e sai',
+      p.files.map(f => f.fileId).join() === 'B',
+      JSON.stringify(p),
+    );
   }
-  check('`[]` limpa e volta a SHARED', planLayoutCoverage([], [t1, t2]).scope === 'SHARED' && planLayoutCoverage([], [t1]).files.length === 0);
+  check(
+    '`[]` limpa e volta a SHARED',
+    planLayoutCoverage([], [t1, t2]).scope === 'SHARED' &&
+      planLayoutCoverage([], [t1]).files.length === 0,
+  );
   check(
     'veículo que não é do orçamento ⇒ recusa clara',
-    throwsWith(() => planLayoutCoverage([{ fileId: 'A', taskIds: ['tX'] }], [t1, t2]), 'não pertence a este orçamento'),
+    throwsWith(
+      () => planLayoutCoverage([{ fileId: 'A', taskIds: ['tX'] }], [t1, t2]),
+      'não pertence a este orçamento',
+    ),
   );
   check(
     'veículo SAINDO na mesma gravação é descartado, não recusado',
-    planLayoutCoverage([{ fileId: 'A', taskIds: ['t1', 'tX'] }, { fileId: 'B', taskIds: ['t2'] }], [t1, t2], {
-      leavingTaskIds: ['tX'],
-    }).files[0].taskIds.join() === 't1',
+    planLayoutCoverage(
+      [
+        { fileId: 'A', taskIds: ['t1', 'tX'] },
+        { fileId: 'B', taskIds: ['t2'] },
+      ],
+      [t1, t2],
+      {
+        leavingTaskIds: ['tX'],
+      },
+    ).files[0].taskIds.join() === 't1',
   );
   check(
     'SHARED continua com no máximo 2 artes',
-    throwsWith(() => planLayoutCoverage([{ fileId: 'A' }, { fileId: 'B' }, { fileId: 'C' }], [t1, t2]), 'No máximo 2'),
+    throwsWith(
+      () => planLayoutCoverage([{ fileId: 'A' }, { fileId: 'B' }, { fileId: 'C' }], [t1, t2]),
+      'No máximo 2',
+    ),
   );
   check(
     'PER_VEHICLE: no máximo 2 por veículo, e a recusa nomeia o veículo',
@@ -150,17 +222,38 @@ function pureChecks() {
     ),
   );
   {
-    const many = Array.from({ length: 21 }, (_, i) => ({ id: `v${i}`, serialNumber: `S${i}`, createdAt: new Date(1000 + i) }));
+    const many = Array.from({ length: 21 }, (_, i) => ({
+      id: `v${i}`,
+      serialNumber: `S${i}`,
+      createdAt: new Date(1000 + i),
+    }));
     check(
       'PER_VEHICLE: no máximo 20 artes distintas',
-      throwsWith(() => planLayoutCoverage(many.map((t, i) => ({ fileId: `F${i}`, taskIds: [t.id] })), many), 'No máximo 20'),
+      throwsWith(
+        () =>
+          planLayoutCoverage(
+            many.map((t, i) => ({ fileId: `F${i}`, taskIds: [t.id] })),
+            many,
+          ),
+        'No máximo 20',
+      ),
     );
-    const ok = planLayoutCoverage(many.slice(0, 20).map((t, i) => ({ fileId: `F${i}`, taskIds: [t.id] })), many);
-    check('três (ou vinte) veículos com artes distintas cabem', ok.scope === 'PER_VEHICLE' && ok.files.length === 20);
+    const ok = planLayoutCoverage(
+      many.slice(0, 20).map((t, i) => ({ fileId: `F${i}`, taskIds: [t.id] })),
+      many,
+    );
+    check(
+      'três (ou vinte) veículos com artes distintas cabem',
+      ok.scope === 'PER_VEHICLE' && ok.files.length === 20,
+    );
   }
 
   console.log('\nMensagens dos portões');
-  const perVehicle = (files: any[], tasks: any[]) => ({ layoutScope: 'PER_VEHICLE', layoutFiles: files, tasks });
+  const perVehicle = (files: any[], tasks: any[]) => ({
+    layoutScope: 'PER_VEHICLE',
+    layoutFiles: files,
+    tasks,
+  });
   {
     const g = layoutGateFailure(
       perVehicle([{ id: 'A', quoteLayoutTasks: [{ taskId: 't1' }] }], [t1, t2]),
@@ -172,10 +265,13 @@ function pureChecks() {
     );
   }
   {
-    const g = layoutGateFailure(perVehicle([{ id: 'A', quoteLayoutTasks: [{ taskId: 't1' }] }], [t1, t2, t3, t4]));
+    const g = layoutGateFailure(
+      perVehicle([{ id: 'A', quoteLayoutTasks: [{ taskId: 't1' }] }], [t1, t2, t3, t4]),
+    );
     check(
       'série, senão placa, senão a posição do veículo',
-      g?.scope === 'PER_VEHICLE' && g.message === 'Falta o layout aprovado dos veículos 39089, ABC1D23, 4.',
+      g?.scope === 'PER_VEHICLE' &&
+        g.message === 'Falta o layout aprovado dos veículos 39089, ABC1D23, 4.',
       JSON.stringify(g),
     );
   }
@@ -194,20 +290,36 @@ function pureChecks() {
   check(
     'linha de veículo que NÃO é do orçamento não conta como cobertura',
     layoutGateFailure(
-      perVehicle([{ id: 'A', quoteLayoutTasks: [{ taskId: 't1' }, { taskId: 'tFora' }] }], [t1, t2]),
+      perVehicle(
+        [{ id: 'A', quoteLayoutTasks: [{ taskId: 't1' }, { taskId: 'tFora' }] }],
+        [t1, t2],
+      ),
     )?.scope === 'PER_VEHICLE',
   );
   check(
     'SHARED: a pergunta de sempre — alguma arte',
-    layoutGateFailure({ layoutScope: 'SHARED', layoutFiles: [], tasks: [t1, t2] })?.scope === 'SHARED' &&
-      layoutGateFailure({ layoutScope: 'SHARED', layoutFiles: [{ id: 'A' }], tasks: [t1, t2] }) === null,
+    layoutGateFailure({ layoutScope: 'SHARED', layoutFiles: [], tasks: [t1, t2] })?.scope ===
+      'SHARED' &&
+      layoutGateFailure({ layoutScope: 'SHARED', layoutFiles: [{ id: 'A' }], tasks: [t1, t2] }) ===
+        null,
   );
-  check('lista longa tem teto', describeVehicleList(Array.from({ length: 13 }, (_, i) => String(i))).endsWith('e mais 3'));
+  check(
+    'lista longa tem teto',
+    describeVehicleList(Array.from({ length: 13 }, (_, i) => String(i))).endsWith('e mais 3'),
+  );
 
   console.log('\nSHARED: snapshot, hash material e HTML iguais aos de antes (main 2bc5eccf)');
   const snapshots = new QuoteSnapshotService(null as never);
-  const customer = { id: 'cust-1', corporateName: 'CARLOTTI LTDA', fantasyName: 'Carlotti', cnpj: '12345678000199', cpf: null };
-  const responsibles = [{ id: 'r1', name: 'Fulano', phone: '11999990000', email: 'a@b.c', roles: ['OWNER'] }];
+  const customer = {
+    id: 'cust-1',
+    corporateName: 'CARLOTTI LTDA',
+    fantasyName: 'Carlotti',
+    cnpj: '12345678000199',
+    cpf: null,
+  };
+  const responsibles = [
+    { id: 'r1', name: 'Fulano', phone: '11999990000', email: 'a@b.c', roles: ['OWNER'] },
+  ];
   const graph = (layoutScope: string, files: any[]): any => ({
     id: 'quote-990',
     budgetNumber: 990,
@@ -236,8 +348,26 @@ function pureChecks() {
       },
     ],
     tasks: [
-      { id: 'task-2', name: 'Carlotti', serialNumber: '39089', createdAt: t2.createdAt, customerOrderNumber: null, customer, truck: { plate: null, chassisNumber: null, category: null, implementType: null }, responsibles },
-      { id: 'task-1', name: 'Carlotti', serialNumber: '39088', createdAt: t1.createdAt, customerOrderNumber: null, customer, truck: { plate: 'ABC1D23', chassisNumber: null, category: null, implementType: null }, responsibles },
+      {
+        id: 'task-2',
+        name: 'Carlotti',
+        serialNumber: '39089',
+        createdAt: t2.createdAt,
+        customerOrderNumber: null,
+        customer,
+        truck: { plate: null, chassisNumber: null, category: null, implementType: null },
+        responsibles,
+      },
+      {
+        id: 'task-1',
+        name: 'Carlotti',
+        serialNumber: '39088',
+        createdAt: t1.createdAt,
+        customerOrderNumber: null,
+        customer,
+        truck: { plate: 'ABC1D23', chassisNumber: null, category: null, implementType: null },
+        responsibles,
+      },
     ],
   });
   const sharedFiles = [
@@ -259,11 +389,21 @@ function pureChecks() {
     } as Record<number, string>,
   };
   check('o snapshot SHARED não tem a chave `layoutCoverage`', !('layoutCoverage' in shared));
-  check('hash do snapshot SHARED = o de antes', snapshots.hash(shared) === BASELINE.snapshot, snapshots.hash(shared));
+  check(
+    'hash do snapshot SHARED = o de antes',
+    snapshots.hash(shared) === BASELINE.snapshot,
+    snapshots.hash(shared),
+  );
   for (const v of [7, 6, 5, 4, 3, 2, 1]) {
-    check(`hash material v${v} SHARED = o de antes`, snapshots.materialHash(shared, v) === BASELINE.material[v]);
+    check(
+      `hash material v${v} SHARED = o de antes`,
+      snapshots.materialHash(shared, v) === BASELINE.material[v],
+    );
   }
-  check('a projeção SHARED continua na versão 7', snapshots.materialProjection(shared).materialVersion === 7);
+  check(
+    'a projeção SHARED continua na versão 7',
+    snapshots.materialProjection(shared).materialVersion === 7,
+  );
 
   const perVehicleFiles = [
     { id: 'file-b', originalName: 'b.png', size: 20, quoteLayoutTasks: [{ taskId: 'task-2' }] },
@@ -272,7 +412,11 @@ function pureChecks() {
   const pv = snapshots.build(graph('PER_VEHICLE', perVehicleFiles));
   check(
     'PER_VEHICLE congela a cobertura, ordenada',
-    JSON.stringify(pv.layoutCoverage) === JSON.stringify([['file-a', ['task-1']], ['file-b', ['task-2']]]),
+    JSON.stringify(pv.layoutCoverage) ===
+      JSON.stringify([
+        ['file-a', ['task-1']],
+        ['file-b', ['task-2']],
+      ]),
     JSON.stringify(pv.layoutCoverage),
   );
   check(
@@ -286,7 +430,10 @@ function pureChecks() {
       { id: 'file-a', originalName: 'a.png', size: 10, quoteLayoutTasks: [{ taskId: 'task-2' }] },
     ]),
   );
-  check('trocar a arte de veículo é mudança MATERIAL', snapshots.materialHash(swapped) !== snapshots.materialHash(pv));
+  check(
+    'trocar a arte de veículo é mudança MATERIAL',
+    snapshots.materialHash(swapped) !== snapshots.materialHash(pv),
+  );
   const { diffQuoteSnapshots } = require('../src/modules/common/signature/services/quote-diff');
   const changes = diffQuoteSnapshots(pv, swapped);
   check(
@@ -302,7 +449,17 @@ function pureChecks() {
     corporateName: 'CARLOTTI',
     customerDocumentFormatted: '12.345.678/0001-99',
     contactName: 'Fulano',
-    vehicles: [{ taskId: 'task-1', serialNumber: '39088', plate: null, chassisNumber: null, orderNumber: null, categoryLabel: null, implementLabel: null }],
+    vehicles: [
+      {
+        taskId: 'task-1',
+        serialNumber: '39088',
+        plate: null,
+        chassisNumber: null,
+        orderNumber: null,
+        categoryLabel: null,
+        implementLabel: null,
+      },
+    ],
     services: [{ description: 'Pintura', amount: 5000, observation: null }],
     subtotal: 5000,
     total: 5000,
@@ -334,11 +491,18 @@ function pureChecks() {
     for (const inContent of [false, true]) {
       const html = buildQuoteHtml({ ...htmlFixture, layoutInContent: inContent }, part);
       const h = createHash('sha256').update(html).digest('hex');
-      check(`HTML SHARED byte a byte igual (${part}, arte no corpo=${inContent})`, h === HTML_BASELINE[`${part}/${inContent}`], h);
+      check(
+        `HTML SHARED byte a byte igual (${part}, arte no corpo=${inContent})`,
+        h === HTML_BASELINE[`${part}/${inContent}`],
+        h,
+      );
     }
   }
   {
-    const html = buildQuoteHtml({ ...htmlFixture, layoutCaptions: ['Veículo 39088', 'Veículo 39089'] }, 'fused');
+    const html = buildQuoteHtml(
+      { ...htmlFixture, layoutCaptions: ['Veículo 39088', 'Veículo 39089'] },
+      'fused',
+    );
     const iGrid = html.indexOf('<div class="layout-grid">');
     const i1 = html.indexOf('>Veículo 39088</div>', iGrid);
     const iA = html.indexOf('AAAA', iGrid);
@@ -368,9 +532,15 @@ async function dbChecks() {
   const { PrismaService } = require('../src/modules/common/prisma/prisma.service');
   const { BudgetService } = require('../src/modules/production/budget/budget.service');
   const { TaskService } = require('../src/modules/production/task/task.service');
-  const { ImplementMeasureService } = require('../src/modules/production/implement-measure/implement-measure.service');
-  const { SignatureEnvelopeService } = require('../src/modules/common/signature/services/signature-envelope.service');
-  const { QuoteSnapshotService: SnapshotSvc } = require('../src/modules/common/signature/services/quote-snapshot.service');
+  const {
+    ImplementMeasureService,
+  } = require('../src/modules/production/implement-measure/implement-measure.service');
+  const {
+    SignatureEnvelopeService,
+  } = require('../src/modules/common/signature/services/signature-envelope.service');
+  const {
+    QuoteSnapshotService: SnapshotSvc,
+  } = require('../src/modules/common/signature/services/quote-snapshot.service');
   const { budgetCreateSchema, budgetUpdateSchema } = require('../src/schemas/budget');
   const { taskUpdateSchema } = require('../src/schemas/task');
   /* eslint-enable @typescript-eslint/no-var-requires */
@@ -419,7 +589,13 @@ async function dbChecks() {
       const path = join(dir, `${tag}.png`);
       writeFileSync(path, Buffer.alloc(bytes, tag.charCodeAt(0)));
       return prisma.file.create({
-        data: { filename: `${tag}.png`, originalName: `${NAME_PREFIX}-${tag}.png`, mimetype: 'image/png', path, size: bytes },
+        data: {
+          filename: `${tag}.png`,
+          originalName: `${NAME_PREFIX}-${tag}.png`,
+          mimetype: 'image/png',
+          path,
+          size: bytes,
+        },
       });
     };
     const fA = await mkFile('A', 101);
@@ -430,13 +606,17 @@ async function dbChecks() {
     const lA = await prisma.layout.create({ data: { fileId: fA.id, status: 'APPROVED' } });
     const lB = await prisma.layout.create({ data: { fileId: fB.id, status: 'APPROVED' } });
     const lC = await prisma.layout.create({ data: { fileId: fC.id, status: 'DRAFT' } });
-    await prisma.task.update({ where: { id: t1.id }, data: { layouts: { connect: [{ id: lA.id }] } } });
+    await prisma.task.update({
+      where: { id: t1.id },
+      data: { layouts: { connect: [{ id: lA.id }] } },
+    });
     await prisma.task.update({
       where: { id: t2.id },
       data: { layouts: { connect: [{ id: lA.id }, { id: lB.id }, { id: lC.id }] } },
     });
     const statusOf = async (layoutId: string) =>
-      (await prisma.layout.findUnique({ where: { id: layoutId }, select: { status: true } }))?.status;
+      (await prisma.layout.findUnique({ where: { id: layoutId }, select: { status: true } }))
+        ?.status;
     const rowsOf = async (quoteId: string) =>
       (
         await prisma.budgetLayoutTask.findMany({
@@ -449,7 +629,13 @@ async function dbChecks() {
         where: { id },
         select: {
           layoutScope: true,
-          layoutFiles: { select: { id: true, originalName: true, quoteLayoutTasks: { select: { taskId: true } } } },
+          layoutFiles: {
+            select: {
+              id: true,
+              originalName: true,
+              quoteLayoutTasks: { select: { taskId: true } },
+            },
+          },
         },
       });
     const ownFileByTag = (q: any, tag: string) =>
@@ -484,7 +670,10 @@ async function dbChecks() {
     const quoteId: string = created.data.id;
     createdQuoteIds.push(quoteId);
     let q: any = await quoteOf(quoteId);
-    check('nasce SHARED, sem linha de cobertura', q.layoutScope === 'SHARED' && (await rowsOf(quoteId)).length === 0);
+    check(
+      'nasce SHARED, sem linha de cobertura',
+      q.layoutScope === 'SHARED' && (await rowsOf(quoteId)).length === 0,
+    );
     check('a arte A (clone do orçamento) está em layoutFiles', !!ownFileByTag(q, 'A'));
     check(
       'SHARED reprova o que não é a seleção em TODAS as galerias (o de hoje): B vira REPROVED',
@@ -510,14 +699,25 @@ async function dbChecks() {
     q = await quoteOf(quoteId);
     const cloneB = ownFileByTag(q, 'B')?.id as string;
     check('grava PER_VEHICLE', q.layoutScope === 'PER_VEHICLE', q.layoutScope);
-    check('a cobertura da arte da galeria caiu no CLONE do orçamento', !!cloneB && cloneB !== fB.id);
+    check(
+      'a cobertura da arte da galeria caiu no CLONE do orçamento',
+      !!cloneB && cloneB !== fB.id,
+    );
     check(
       'linhas exatamente: A→39088, B→39089',
-      JSON.stringify((await rowsOf(quoteId)).sort()) === JSON.stringify([`${cloneA}>${t1.id}`, `${cloneB}>${t2.id}`].sort()),
+      JSON.stringify((await rowsOf(quoteId)).sort()) ===
+        JSON.stringify([`${cloneA}>${t1.id}`, `${cloneB}>${t2.id}`].sort()),
       JSON.stringify(await rowsOf(quoteId)),
     );
-    check('a resposta traz `layoutScope` e `layoutFiles[].quoteLayoutTasks`', r.data?.layoutScope === 'PER_VEHICLE' && Array.isArray(r.data?.layoutFiles?.[0]?.quoteLayoutTasks));
-    check('B volta a APPROVED na galeria da 39089 (seleção dela)', (await statusOf(lB.id)) === 'APPROVED');
+    check(
+      'a resposta traz `layoutScope` e `layoutFiles[].quoteLayoutTasks`',
+      r.data?.layoutScope === 'PER_VEHICLE' &&
+        Array.isArray(r.data?.layoutFiles?.[0]?.quoteLayoutTasks),
+    );
+    check(
+      'B volta a APPROVED na galeria da 39089 (seleção dela)',
+      (await statusOf(lB.id)) === 'APPROVED',
+    );
     check(
       'A continua APPROVED — a linha é compartilhada com a 39088, que a seleciona',
       (await statusOf(lA.id)) === 'APPROVED',
@@ -538,7 +738,9 @@ async function dbChecks() {
     });
     check(
       'a trilha registra o arranjo por veículo',
-      !!trilha && String(trilha.newValue).includes(`L${SUFFIX}1`) && String(trilha.newValue).includes('-B.png'),
+      !!trilha &&
+        String(trilha.newValue).includes(`L${SUFFIX}1`) &&
+        String(trilha.newValue).includes('-B.png'),
       JSON.stringify(trilha),
     );
 
@@ -557,7 +759,11 @@ async function dbChecks() {
       false,
       'ADMIN',
     );
-    check('A (do 39088) CONTINUA APPROVED', (await statusOf(lA.id)) === 'APPROVED', await statusOf(lA.id));
+    check(
+      'A (do 39088) CONTINUA APPROVED',
+      (await statusOf(lA.id)) === 'APPROVED',
+      await statusOf(lA.id),
+    );
     check('C (rascunho) vira APPROVED na 39089', (await statusOf(lC.id)) === 'APPROVED');
     check('B sai da seleção da 39089 e é REPROVED', (await statusOf(lB.id)) === 'REPROVED');
     q = await quoteOf(quoteId);
@@ -579,7 +785,11 @@ async function dbChecks() {
       false,
       'ADMIN',
     );
-    check('mesmo arranjo ⇒ "Nenhuma alteração detectada."', r.message === 'Nenhuma alteração detectada.', r.message);
+    check(
+      'mesmo arranjo ⇒ "Nenhuma alteração detectada."',
+      r.message === 'Nenhuma alteração detectada.',
+      r.message,
+    );
     r = await budgets.update(
       quoteId,
       parse(budgetUpdateSchema, {
@@ -611,14 +821,25 @@ async function dbChecks() {
     );
     check(
       '`layoutFileIds` com o MESMO conjunto passa sem tocar em nada',
-      JSON.stringify((await rowsOf(quoteId)).sort()) === antes && (await quoteOf(quoteId)).layoutScope === 'PER_VEHICLE',
+      JSON.stringify((await rowsOf(quoteId)).sort()) === antes &&
+        (await quoteOf(quoteId)).layoutScope === 'PER_VEHICLE',
       r.message,
     );
     let err = await rejectsWith(
-      budgets.update(quoteId, parse(budgetUpdateSchema, { layoutFileIds: [cloneA] }), user.id, false, 'ADMIN'),
+      budgets.update(
+        quoteId,
+        parse(budgetUpdateSchema, { layoutFileIds: [cloneA] }),
+        user.id,
+        false,
+        'ADMIN',
+      ),
       'Este orçamento tem layout por veículo. Altere o layout aprovado pela tela do orçamento, no passo Informações.',
     );
-    check('`layoutFileIds` com conjunto DIFERENTE ⇒ 400 com o endereço certo', err === null, err ?? '');
+    check(
+      '`layoutFileIds` com conjunto DIFERENTE ⇒ 400 com o endereço certo',
+      err === null,
+      err ?? '',
+    );
     // O formulário da tarefa manda o bloco `quote` INTEIRO (o zod exige
     // serviços, validade e pagadores); os campos iguais aos gravados são
     // descartados antes do repositório, e sobra só o layout mudado.
@@ -626,7 +847,10 @@ async function dbChecks() {
       where: { id: quoteId },
       select: {
         expiresAt: true,
-        services: { orderBy: { position: 'asc' }, select: { description: true, amount: true, observation: true } },
+        services: {
+          orderBy: { position: 'asc' },
+          select: { description: true, amount: true, observation: true },
+        },
         customerConfigs: {
           select: {
             customerId: true,
@@ -664,7 +888,10 @@ async function dbChecks() {
     err = await rejectsWith(
       budgets.update(
         quoteId,
-        parse(budgetUpdateSchema, { layouts: [{ fileId: cloneA, taskIds: [t1.id] }], layoutFileIds: [cloneA] }),
+        parse(budgetUpdateSchema, {
+          layouts: [{ fileId: cloneA, taskIds: [t1.id] }],
+          layoutFileIds: [cloneA],
+        }),
         user.id,
         false,
         'ADMIN',
@@ -672,7 +899,10 @@ async function dbChecks() {
       'não pelos dois',
     );
     check('`layouts` junto com `layoutFileIds` ⇒ 400', err === null, err ?? '');
-    const estranho = await prisma.task.findFirst({ where: { quoteId: { not: quoteId } }, select: { id: true } });
+    const estranho = await prisma.task.findFirst({
+      where: { quoteId: { not: quoteId } },
+      select: { id: true },
+    });
     err = await rejectsWith(
       budgets.update(
         quoteId,
@@ -730,17 +960,44 @@ async function dbChecks() {
       'ADMIN',
     );
     // Só `taskIds`: a poda roda sozinha (é o caminho de toda troca de vínculo).
-    await budgets.update(quoteId, parse(budgetUpdateSchema, { taskIds: [t1.id] }), user.id, false, 'ADMIN');
+    await budgets.update(
+      quoteId,
+      parse(budgetUpdateSchema, { taskIds: [t1.id] }),
+      user.id,
+      false,
+      'ADMIN',
+    );
     q = await quoteOf(quoteId);
-    check('a linha da 39089 sumiu', !(await rowsOf(quoteId)).some(x => x.endsWith(t2.id)), JSON.stringify(await rowsOf(quoteId)));
-    check('a arte que era SÓ dela saiu do orçamento', !q.layoutFiles.some((f: any) => f.id === cloneC));
-    check('nenhuma linha órfã da 39089 em lugar nenhum', (await prisma.budgetLayoutTask.count({ where: { taskId: t2.id } })) === 0);
-    check('o orçamento continua PER_VEHICLE (a poda não normaliza)', q.layoutScope === 'PER_VEHICLE', q.layoutScope);
-    await budgets.update(quoteId, parse(budgetUpdateSchema, { taskIds: [t1.id, t2.id] }), user.id, false, 'ADMIN');
+    check(
+      'a linha da 39089 sumiu',
+      !(await rowsOf(quoteId)).some(x => x.endsWith(t2.id)),
+      JSON.stringify(await rowsOf(quoteId)),
+    );
+    check(
+      'a arte que era SÓ dela saiu do orçamento',
+      !q.layoutFiles.some((f: any) => f.id === cloneC),
+    );
+    check(
+      'nenhuma linha órfã da 39089 em lugar nenhum',
+      (await prisma.budgetLayoutTask.count({ where: { taskId: t2.id } })) === 0,
+    );
+    check(
+      'o orçamento continua PER_VEHICLE (a poda não normaliza)',
+      q.layoutScope === 'PER_VEHICLE',
+      q.layoutScope,
+    );
+    await budgets.update(
+      quoteId,
+      parse(budgetUpdateSchema, { taskIds: [t1.id, t2.id] }),
+      user.id,
+      false,
+      'ADMIN',
+    );
     q = await quoteOf(quoteId);
     check(
       'voltando ao orçamento, a 39089 NÃO ganha cobertura implícita',
-      q.layoutScope === 'PER_VEHICLE' && (await prisma.budgetLayoutTask.count({ where: { taskId: t2.id } })) === 0,
+      q.layoutScope === 'PER_VEHICLE' &&
+        (await prisma.budgetLayoutTask.count({ where: { taskId: t2.id } })) === 0,
     );
     err = await rejectsWith(budgets.budgetApprove(quoteId, user.id), falta);
     check('e o portão acusa', err === null, err ?? '');
@@ -780,13 +1037,32 @@ async function dbChecks() {
     );
     check(
       'e a arte restante cobre o único veículo ⇒ normaliza para SHARED (regra do pedido)',
-      q.layoutScope === 'SHARED' && q.layoutFiles.length === 1 && (await rowsOf(quoteId)).length === 0,
+      q.layoutScope === 'SHARED' &&
+        q.layoutFiles.length === 1 &&
+        (await rowsOf(quoteId)).length === 0,
       JSON.stringify(q),
     );
-    await budgets.update(quoteId, parse(budgetUpdateSchema, { taskIds: [t1.id, t2.id] }), user.id, false, 'ADMIN');
-    await budgets.update(quoteId, parse(budgetUpdateSchema, { layouts: [] }), user.id, false, 'ADMIN');
+    await budgets.update(
+      quoteId,
+      parse(budgetUpdateSchema, { taskIds: [t1.id, t2.id] }),
+      user.id,
+      false,
+      'ADMIN',
+    );
+    await budgets.update(
+      quoteId,
+      parse(budgetUpdateSchema, { layouts: [] }),
+      user.id,
+      false,
+      'ADMIN',
+    );
     q = await quoteOf(quoteId);
-    check('`layouts: []` limpa e volta a SHARED', q.layoutScope === 'SHARED' && q.layoutFiles.length === 0 && (await rowsOf(quoteId)).length === 0);
+    check(
+      '`layouts: []` limpa e volta a SHARED',
+      q.layoutScope === 'SHARED' &&
+        q.layoutFiles.length === 0 &&
+        (await rowsOf(quoteId)).length === 0,
+    );
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\nEm Negociação: por TAREFA — a arte do 1 não entrega o layout do 2');
@@ -827,13 +1103,29 @@ async function dbChecks() {
       user.id,
     );
     createdQuoteIds.push(q2.data.id);
-    check('a criação já nasce PER_VEHICLE pelo `layouts`', q2.data.layoutScope === 'PER_VEHICLE', q2.data.layoutScope);
+    check(
+      'a criação já nasce PER_VEHICLE pelo `layouts`',
+      q2.data.layoutScope === 'PER_VEHICLE',
+      q2.data.layoutScope,
+    );
     const soDe = async (taskId: string) => {
       await prisma.serviceOrder.create({
-        data: { description: 'Em Negociação', type: 'COMMERCIAL', status: 'IN_PROGRESS', taskId, createdById: user.id },
+        data: {
+          description: 'Em Negociação',
+          type: 'COMMERCIAL',
+          status: 'IN_PROGRESS',
+          taskId,
+          createdById: user.id,
+        },
       });
       await prisma.serviceOrder.create({
-        data: { description: 'Elaborar Layout', type: 'ARTWORK', status: 'PENDING', taskId, createdById: user.id },
+        data: {
+          description: 'Elaborar Layout',
+          type: 'ARTWORK',
+          status: 'PENDING',
+          taskId,
+          createdById: user.id,
+        },
       });
     };
     await soDe(t3.id);
@@ -847,8 +1139,16 @@ async function dbChecks() {
           select: { status: true },
         })
       )?.status;
-    check('o veículo COM arte fecha a Em Negociação', (await emNeg(t3.id)) === 'COMPLETED', await emNeg(t3.id));
-    check('o veículo SEM arte fica esperando a arte dele', (await emNeg(t4.id)) === 'WAITING_ARTWORK', await emNeg(t4.id));
+    check(
+      'o veículo COM arte fecha a Em Negociação',
+      (await emNeg(t3.id)) === 'COMPLETED',
+      await emNeg(t3.id),
+    );
+    check(
+      'o veículo SEM arte fica esperando a arte dele',
+      (await emNeg(t4.id)) === 'WAITING_ARTWORK',
+      await emNeg(t4.id),
+    );
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\nMedir um veículo mede o outro (mesmo orçamento)');
@@ -867,7 +1167,16 @@ async function dbChecks() {
       prisma.truck.findUnique({
         where: { id: truckId },
         select: {
-          leftSideMeasure: { select: { id: true, height: true, sections: { orderBy: { position: 'asc' }, select: { width: true, isDoor: true, doorHeight: true } } } },
+          leftSideMeasure: {
+            select: {
+              id: true,
+              height: true,
+              sections: {
+                orderBy: { position: 'asc' },
+                select: { width: true, isDoor: true, doorHeight: true },
+              },
+            },
+          },
           rightSideMeasure: { select: { id: true, height: true } },
         },
       });
@@ -880,7 +1189,10 @@ async function dbChecks() {
         JSON.stringify(m2.leftSideMeasure.sections) === JSON.stringify(m1.leftSideMeasure.sections),
       JSON.stringify(m2),
     );
-    check('por CÓPIA — outra linha, não a compartilhada', m2?.leftSideMeasure?.id !== m1?.leftSideMeasure?.id);
+    check(
+      'por CÓPIA — outra linha, não a compartilhada',
+      m2?.leftSideMeasure?.id !== m1?.leftSideMeasure?.id,
+    );
     const log = await prisma.changeLog.findFirst({
       where: { entityId: t2.id, field: 'implementMeasures' },
       orderBy: { createdAt: 'desc' },
@@ -894,24 +1206,46 @@ async function dbChecks() {
     const idAntes = m2.leftSideMeasure.id;
     await measures.createOrUpdateTruckImplementMeasure(truck1.id, 'left', medida as any, user.id);
     m2 = await leftOf(truck2.id);
-    check('regravar a mesma medida não reescreve o irmão (só o lado que DIFERE)', m2.leftSideMeasure.id === idAntes);
+    check(
+      'regravar a mesma medida não reescreve o irmão (só o lado que DIFERE)',
+      m2.leftSideMeasure.id === idAntes,
+    );
 
     await tasks.update(
       t2.id,
       parse(taskUpdateSchema, {
-        truck: { rightSideMeasure: { height: 2.4, sections: [{ width: 5.3, isDoor: false, doorHeight: null, position: 0 }] } },
+        truck: {
+          rightSideMeasure: {
+            height: 2.4,
+            sections: [{ width: 5.3, isDoor: false, doorHeight: null, position: 0 }],
+          },
+        },
       }),
       undefined,
       user.id,
       'ADMIN',
     );
     m1 = await leftOf(truck1.id);
-    check('pela edição da TAREFA também (lado direito da 39089 → 39088)', m1?.rightSideMeasure?.height === 2.4, JSON.stringify(m1));
+    check(
+      'pela edição da TAREFA também (lado direito da 39089 → 39088)',
+      m1?.rightSideMeasure?.height === 2.4,
+      JSON.stringify(m1),
+    );
 
-    await tasks.update(t1.id, parse(taskUpdateSchema, { truck: { leftSideMeasure: null } }), undefined, user.id, 'ADMIN');
+    await tasks.update(
+      t1.id,
+      parse(taskUpdateSchema, { truck: { leftSideMeasure: null } }),
+      undefined,
+      user.id,
+      'ADMIN',
+    );
     m1 = await leftOf(truck1.id);
     m2 = await leftOf(truck2.id);
-    check('exclusão NÃO replica', !m1.leftSideMeasure && !!m2.leftSideMeasure, JSON.stringify({ m1, m2 }));
+    check(
+      'exclusão NÃO replica',
+      !m1.leftSideMeasure && !!m2.leftSideMeasure,
+      JSON.stringify({ m1, m2 }),
+    );
   } finally {
     try {
       const measureIds = (
@@ -919,9 +1253,14 @@ async function dbChecks() {
           where: { taskId: { in: createdTaskIds } },
           select: { leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
         })
-      ).flatMap((t: any) => [t.leftSideMeasureId, t.rightSideMeasureId, t.backSideMeasureId]).filter(Boolean);
+      )
+        .flatMap((t: any) => [t.leftSideMeasureId, t.rightSideMeasureId, t.backSideMeasureId])
+        .filter(Boolean);
       if (createdQuoteIds.length) {
-        await prisma.task.updateMany({ where: { id: { in: createdTaskIds } }, data: { quoteId: null } });
+        await prisma.task.updateMany({
+          where: { id: { in: createdTaskIds } },
+          data: { quoteId: null },
+        });
         await prisma.budget.deleteMany({ where: { id: { in: createdQuoteIds } } });
       }
       await prisma.task.deleteMany({ where: { id: { in: createdTaskIds } } });
@@ -933,12 +1272,18 @@ async function dbChecks() {
       // deliberada, dentro da transação, e as linhas `Layout` saem antes.
       await prisma.$transaction(async (tx: any) => {
         await tx.$executeRawUnsafe(`SET LOCAL ankaa.allow_referenced_file_delete = 'on'`);
-        await tx.layout.deleteMany({ where: { file: { originalName: { startsWith: NAME_PREFIX } } } });
+        await tx.layout.deleteMany({
+          where: { file: { originalName: { startsWith: NAME_PREFIX } } },
+        });
         await tx.file.deleteMany({ where: { originalName: { startsWith: NAME_PREFIX } } });
       });
-      await prisma.changeLog.deleteMany({ where: { entityId: { in: [...createdTaskIds, ...createdQuoteIds] } } });
+      await prisma.changeLog.deleteMany({
+        where: { entityId: { in: [...createdTaskIds, ...createdQuoteIds] } },
+      });
     } catch (e) {
-      console.log(`  ⚠️  limpeza falhou (${(e as Error)?.message}); sobraram tarefas ${createdTaskIds.join(', ')}`);
+      console.log(
+        `  ⚠️  limpeza falhou (${(e as Error)?.message}); sobraram tarefas ${createdTaskIds.join(', ')}`,
+      );
     }
     await app.close().catch(() => {});
   }

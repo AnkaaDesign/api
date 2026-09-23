@@ -1795,7 +1795,11 @@ export class BudgetService {
               },
             },
           });
-          if (depois && storedLayoutArrangementKey(existing as any) !== storedLayoutArrangementKey(depois as any)) {
+          if (
+            depois &&
+            storedLayoutArrangementKey(existing as any) !==
+              storedLayoutArrangementKey(depois as any)
+          ) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK_QUOTE,
               entityId: id,

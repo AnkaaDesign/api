@@ -55,10 +55,7 @@ function selectedFilesByTask(quote: any): Map<string, any[]> {
   const byId = new Map<string, any>((quote?.layoutFiles || []).map((f: any) => [f.id, f]));
   const out = new Map<string, any[]>();
   for (const [taskId, fileIds] of layoutSelectionByTask(quote || {})) {
-    out.set(
-      taskId,
-      fileIds.map(id => byId.get(id)).filter(Boolean),
-    );
+    out.set(taskId, fileIds.map(id => byId.get(id)).filter(Boolean));
   }
   return out;
 }

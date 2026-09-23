@@ -2296,7 +2296,9 @@ export class SignatureEnvelopeService {
     const firstCovered = (fileId: string): number =>
       Math.min(
         Number.POSITIVE_INFINITY,
-        ...(artCoverage.get(fileId) ?? []).map(id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY),
+        ...(artCoverage.get(fileId) ?? []).map(
+          id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
+        ),
       );
     const orderedLayoutFiles = perVehicleLayout
       ? quote.layoutFiles

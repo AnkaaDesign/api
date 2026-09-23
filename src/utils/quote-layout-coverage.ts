@@ -135,7 +135,9 @@ export interface QuoteLayoutLike<T extends VehicleTaskLike = VehicleTaskLike> {
   tasks?: T[] | null;
 }
 
-export function isPerVehicleLayout(quote: { layoutScope?: string | null } | null | undefined): boolean {
+export function isPerVehicleLayout(
+  quote: { layoutScope?: string | null } | null | undefined,
+): boolean {
   return quote?.layoutScope === 'PER_VEHICLE';
 }
 
@@ -195,10 +197,7 @@ export function layoutSelectionByTask<T extends VehicleTaskLike>(
  * costumam ter o MESMO nome (o do cliente), e "Falta o layout do veículo
  * Carlotti" não diz qual dos dois.
  */
-export function vehicleLabel(
-  task: VehicleTaskLike | null | undefined,
-  index: number,
-): string {
+export function vehicleLabel(task: VehicleTaskLike | null | undefined, index: number): string {
   const serial = (task?.serialNumber ?? '').trim();
   if (serial) return serial;
   const plate = (task?.truck?.plate ?? '').trim();
@@ -553,11 +552,12 @@ export async function pruneQuoteLayoutCoverage(
   }
   if (!quote || quote.layoutScope !== 'PER_VEHICLE') return result;
 
-  const files: Array<{ id: string; _count: { quoteLayoutTasks: number } }> =
-    await tx.file.findMany({
+  const files: Array<{ id: string; _count: { quoteLayoutTasks: number } }> = await tx.file.findMany(
+    {
       where: { quoteLayoutId: quoteId },
       select: { id: true, _count: { select: { quoteLayoutTasks: true } } },
-    });
+    },
+  );
   const orphans = files.filter(f => f._count.quoteLayoutTasks === 0).map(f => f.id);
   if (orphans.length > 0) {
     await tx.file.updateMany({

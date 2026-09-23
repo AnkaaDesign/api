@@ -90,7 +90,10 @@ export async function syncEmNegociacaoForTask(
             status: true,
             layoutScope: true,
             layoutFiles: {
-              select: { id: true, quoteLayoutTasks: { where: { taskId }, select: { taskId: true } } },
+              select: {
+                id: true,
+                quoteLayoutTasks: { where: { taskId }, select: { taskId: true } },
+              },
             },
           },
         },

@@ -46,7 +46,10 @@ export type MeasureSide = 'left' | 'right' | 'back';
 
 export const MEASURE_SIDES: readonly MeasureSide[] = ['left', 'right', 'back'] as const;
 
-const SIDE_FK: Record<MeasureSide, 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId'> = {
+const SIDE_FK: Record<
+  MeasureSide,
+  'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId'
+> = {
   left: 'leftSideMeasureId',
   right: 'rightSideMeasureId',
   back: 'backSideMeasureId',
@@ -105,7 +108,12 @@ function measureKey(m: MeasureRow | null | undefined): string {
     p: m.photoId ?? null,
     s: [...(m.sections ?? [])]
       .sort((a, b) => a.position - b.position)
-      .map(s => [Number(s.width), !!s.isDoor, s.doorHeight == null ? null : Number(s.doorHeight), s.position]),
+      .map(s => [
+        Number(s.width),
+        !!s.isDoor,
+        s.doorHeight == null ? null : Number(s.doorHeight),
+        s.position,
+      ]),
   });
 }
 
@@ -262,7 +270,9 @@ export async function replicateImplementMeasuresToQuoteSiblings(
           tx.paintingAnalysis.count({ where: { implementMeasureId: current.id } }),
         ]);
         if (trucks === 0 && analyses === 0) {
-          await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: current.id } });
+          await tx.implementMeasureSection.deleteMany({
+            where: { implementMeasureId: current.id },
+          });
           await tx.implementMeasure.delete({ where: { id: current.id } });
         }
       }

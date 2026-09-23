@@ -221,11 +221,7 @@ export class ImplementMeasureService {
       async tx => {
         const trucks = await tx.truck.findMany({
           where: {
-            OR: [
-              { leftSideMeasureId: id },
-              { rightSideMeasureId: id },
-              { backSideMeasureId: id },
-            ],
+            OR: [{ leftSideMeasureId: id }, { rightSideMeasureId: id }, { backSideMeasureId: id }],
           },
           select: {
             taskId: true,
