@@ -101,6 +101,7 @@
     "test:portal-escopo": "tsx -r tsconfig-paths/register tests/portal-escopo.test.ts",
     "test:portal-recorte": "tsx -r tsconfig-paths/register tests/portal-recorte.test.ts",
     "test:portal-cliente:db": "tsx -r tsconfig-paths/register tests/portal-cliente-auth-db.test.ts",
+    "test:census": "ts-node -r tsconfig-paths/register --transpile-only tests/census-shape.test.ts",
     "test:portal-cliente:boot": "ts-node -r tsconfig-paths/register --transpile-only tests/portal-cliente-boot.test.ts",
     "test:dossier-structure": "tsx tests/dossier-structure.test.ts",
     "test:dossier-signed-trail": "tsx tests/dossier-signed-trail.test.ts",

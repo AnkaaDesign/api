@@ -6,6 +6,7 @@ import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MoneyRedactionInterceptor } from './modules/common/interceptors/money-redaction.interceptor';
+import { CensusMiddleware } from './modules/common/census/census.middleware';
 import { getRedisConfig } from './common/config/redis.config';
 import { SchedulerGuardService } from './common/services/scheduler-guard.service';
 
@@ -241,5 +242,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Apply security middleware to all routes
     consumer.apply(SecurityValidationMiddleware, SecurityMiddleware).forRoutes('*');
+    // G3/G13: censo das formas de consulta e corpo por rota + `req.appVersion` (só leitura)
+    consumer.apply(CensusMiddleware).forRoutes('*');
   }
 }

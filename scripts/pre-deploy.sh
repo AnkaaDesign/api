@@ -66,6 +66,8 @@ PASSOS=(
   # ── revisão da Fase A: as cópias dos clientes não ficam para trás ──
   "G5 contrato nas cópias do web e do app|0|npx tsx scripts/export-contracts.ts --check --irmaos"
   "G4 formas do web extraídas em dia|0|bash scripts/check-web-query-contracts.sh"
+  # ── P06: release R-A (censo de formas G3 + versão do app G13) ──
+  "G3 censo de formas (sem valor, teto, versão do app)|0|npm run -s test:census"
 )
 
 if [[ "$E2E" == "1" ]]; then
