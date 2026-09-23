@@ -115,11 +115,21 @@ import {
   pruneQuoteLayoutCoverage,
 } from '../../../utils/quote-layout-coverage';
 import {
-  measureSideOf,
   replicateImplementMeasuresToQuoteSiblings,
-  type MeasureSide,
   type ReplicationLogEntry,
 } from '../../../utils/implement-measure-replication';
+import {
+  FACES,
+  FACE_FK,
+  FACE_REL,
+  attachMeasure,
+  cloneFaces,
+  faceOf,
+  setFace,
+  setFacePhoto,
+  type FaceWriteResult,
+  type ImplementFace,
+} from '../implement-measure/implement-measure-writer';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -1333,38 +1343,16 @@ export class TaskService {
           }
           this.logger.log(`[Task Create] Truck found/created: ${truck.id}`);
 
-          // Helper function to create implementMeasure for a side
-          const createImplementMeasure = async (
-            implementMeasureData: any,
-            implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
-            sideName: string,
-          ) => {
-            if (!implementMeasureData) return;
+          // Uma face por vez, pelo escritor único (a tarefa é nova: toda face
+          // nasce com a SUA linha). A trilha continua a de sempre.
+          for (const face of FACES) {
+            const implementMeasureData = truckData[FACE_REL[face]];
+            if (!implementMeasureData) continue;
+            const implementMeasureField = FACE_FK[face];
 
-            this.logger.log(`[Task Create] Creating ${sideName} implementMeasure`);
-            const implementMeasure = await tx.implementMeasure.create({
-              data: {
-                height: implementMeasureData.height,
-                ...(implementMeasureData.photoId && {
-                  photo: { connect: { id: implementMeasureData.photoId } },
-                }),
-                sections: {
-                  create: implementMeasureData.sections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
-                },
-              },
-              include: {
-                sections: true,
-              },
-            });
-            await tx.truck.update({
-              where: { id: truck.id },
-              data: { [implementMeasureField]: implementMeasure.id },
-            });
+            this.logger.log(`[Task Create] Creating ${face} implementMeasure`);
+            const written = await setFace(tx, truck.id, face, implementMeasureData);
+            const implementMeasure = written.after!;
 
             // Create changelog for implementMeasure creation
             await logEntityChange({
@@ -1380,14 +1368,9 @@ export class TaskService {
             });
 
             this.logger.log(
-              `[Task Create] ${sideName} implementMeasure created: ${implementMeasure.id} with changelog`,
+              `[Task Create] ${face} implementMeasure created: ${implementMeasure.id} with changelog`,
             );
-          };
-
-          // Create implementMeasures for each side using the new consolidated format
-          await createImplementMeasure(truckData.leftSideMeasure, 'leftSideMeasureId', 'left');
-          await createImplementMeasure(truckData.rightSideMeasure, 'rightSideMeasureId', 'right');
-          await createImplementMeasure(truckData.backSideMeasure, 'backSideMeasureId', 'back');
+          }
 
           this.logger.log(`[Task Create] ImplementMeasures created for truck ${truck.id}`);
         }
@@ -1954,35 +1937,6 @@ export class TaskService {
         const successfulTasks: Task[] = [];
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
-        // Helper to create an individual implementMeasure from implementMeasure data
-        const createIndividualImplementMeasure = async (
-          implementMeasureData: any,
-          sideName: string,
-          taskIndex: number,
-        ): Promise<string | null> => {
-          if (!implementMeasureData || !implementMeasureData.sections) return null;
-          const implementMeasure = await tx.implementMeasure.create({
-            data: {
-              height: implementMeasureData.height,
-              ...(implementMeasureData.photoId && {
-                photo: { connect: { id: implementMeasureData.photoId } },
-              }),
-              sections: {
-                create: implementMeasureData.sections.map((section: any, idx: number) => ({
-                  width: section.width,
-                  isDoor: section.isDoor,
-                  doorHeight: section.doorHeight,
-                  position: section.position ?? idx,
-                })),
-              },
-            },
-          });
-          this.logger.log(
-            `[batchCreate] Individual ${sideName} implementMeasure created: ${implementMeasure.id} for task index ${taskIndex}`,
-          );
-          return implementMeasure.id;
-        };
-
         // Save implementMeasure data from each task before it gets deleted by the repository
         const taskImplementMeasureDataMap = new Map<
           number,
@@ -2057,31 +2011,22 @@ export class TaskService {
             );
 
             // Create individual implementMeasures for this task and connect to the truck
+            // (escritor único: cada tarefa do lote ganha as SUAS linhas).
             const savedImplementMeasureData = taskImplementMeasureDataMap.get(index);
             if (savedImplementMeasureData) {
               const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
-                const implementMeasureUpdate: any = {};
-                const leftId = await createIndividualImplementMeasure(
-                  savedImplementMeasureData.leftSideMeasure,
-                  'left',
-                  index,
-                );
-                const rightId = await createIndividualImplementMeasure(
-                  savedImplementMeasureData.rightSideMeasure,
-                  'right',
-                  index,
-                );
-                const backId = await createIndividualImplementMeasure(
-                  savedImplementMeasureData.backSideMeasure,
-                  'back',
-                  index,
-                );
-                if (leftId) implementMeasureUpdate.leftSideMeasureId = leftId;
-                if (rightId) implementMeasureUpdate.rightSideMeasureId = rightId;
-                if (backId) implementMeasureUpdate.backSideMeasureId = backId;
-                if (Object.keys(implementMeasureUpdate).length > 0) {
-                  await tx.truck.update({ where: { id: truck.id }, data: implementMeasureUpdate });
+                let wroteAny = false;
+                for (const face of FACES) {
+                  const implementMeasureData = savedImplementMeasureData[FACE_REL[face]];
+                  if (!implementMeasureData || !implementMeasureData.sections) continue;
+                  const written = await setFace(tx, truck.id, face, implementMeasureData);
+                  wroteAny = true;
+                  this.logger.log(
+                    `[batchCreate] Individual ${face} implementMeasure created: ${written.measureId} for task index ${index}`,
+                  );
+                }
+                if (wroteAny) {
                   this.logger.log(
                     `[batchCreate] Created individual implementMeasures for truck ${truck.id} on task ${createdTask.id}`,
                   );
@@ -2567,32 +2512,20 @@ export class TaskService {
               this.logger.log(`[Task Update] Deleting truck for task ${id}`);
               const truck = existingTask.truck;
 
-              // Helper: only delete a implementMeasure if no other trucks reference it
-              const safeDeleteImplementMeasure = async (
-                implementMeasureId: string,
-                relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
-                fieldName: string,
-              ) => {
-                // Count how many trucks reference this implementMeasure (excluding the one being deleted)
-                const implementMeasure = await tx.implementMeasure.findUnique({
-                  where: { id: implementMeasureId },
-                  include: { sections: true, [relationName]: { select: { id: true } } },
-                });
-                if (!implementMeasure) return;
-
-                const referencingTrucks = (implementMeasure as any)[relationName] || [];
-                const otherTrucks = referencingTrucks.filter((t: any) => t.id !== truck.id);
-
-                if (otherTrucks.length === 0) {
-                  // No other trucks reference this implementMeasure - safe to delete
-                  await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId } });
-                  await tx.implementMeasure.delete({ where: { id: implementMeasureId } });
+              // As medidas saem pelo escritor único: a face é desconectada e a
+              // linha só é apagada se mais ninguém a usa (nenhuma face de nenhum
+              // caminhão, nenhuma análise de pintura).
+              for (const face of FACES) {
+                const fieldName = FACE_FK[face];
+                if (!truck[fieldName]) continue;
+                const released = await setFace(tx, truck.id, face, null);
+                if (released.previous === 'deleted') {
                   await logEntityChange({
                     changeLogService: this.changeLogService,
                     entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-                    entityId: implementMeasureId,
+                    entityId: released.previousId!,
                     action: CHANGE_ACTION.DELETE,
-                    entity: implementMeasure,
+                    entity: released.before,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     reason: `ImplementMeasure ${fieldName} removido (caminhão deletado)`,
@@ -2600,31 +2533,9 @@ export class TaskService {
                   });
                 } else {
                   this.logger.log(
-                    `[Task Update] ImplementMeasure ${implementMeasureId} shared by ${otherTrucks.length} other truck(s), skipping deletion`,
+                    `[Task Update] ImplementMeasure ${released.previousId} still in use elsewhere, skipping deletion`,
                   );
                 }
-              };
-
-              if (truck.leftSideMeasureId) {
-                await safeDeleteImplementMeasure(
-                  truck.leftSideMeasureId,
-                  'trucksLeftSide',
-                  'leftSideMeasureId',
-                );
-              }
-              if (truck.rightSideMeasureId) {
-                await safeDeleteImplementMeasure(
-                  truck.rightSideMeasureId,
-                  'trucksRightSide',
-                  'rightSideMeasureId',
-                );
-              }
-              if (truck.backSideMeasureId) {
-                await safeDeleteImplementMeasure(
-                  truck.backSideMeasureId,
-                  'trucksBackSide',
-                  'backSideMeasureId',
-                );
               }
 
               // Delete truck and create changelog
@@ -2724,314 +2635,153 @@ export class TaskService {
               }
             }
 
-            // Handle implementMeasures - helper function to process each side
+            // Handle implementMeasures — uma face por vez, pelo escritor único
+            // (editar a própria linha; copiar se ela é de mais alguém; criar se
+            // não há; `null` desconecta e só apaga a linha que ficou sem uso).
             const processImplementMeasure = async (
               implementMeasureData: any,
-              existingImplementMeasureId: string | null,
-              implementMeasureField:
-                | 'leftSideMeasureId'
-                | 'rightSideMeasureId'
-                | 'backSideMeasureId',
+              face: ImplementFace,
             ) => {
               if (implementMeasureData === undefined) return; // Not in payload, skip
+              const implementMeasureField = FACE_FK[face];
 
               if (implementMeasureData === null) {
-                // Remove implementMeasure from this truck
-                if (existingImplementMeasureId) {
-                  this.logger.log(`[Task Update] Removing ${implementMeasureField} from truck`);
+                const removed = await setFace(tx, truckId!, face, null);
+                if (removed.action !== 'removed') return;
+                this.logger.log(`[Task Update] Removing ${implementMeasureField} from truck`);
 
-                  // Disconnect this truck from the implementMeasure first
-                  await tx.truck.update({
-                    where: { id: truckId! },
-                    data: { [implementMeasureField]: null },
-                  });
-
-                  // Check if other trucks still reference this implementMeasure
-                  const relationName =
-                    implementMeasureField === 'leftSideMeasureId'
-                      ? 'trucksLeftSide'
-                      : implementMeasureField === 'rightSideMeasureId'
-                        ? 'trucksRightSide'
-                        : 'trucksBackSide';
-                  const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
-                    where: { id: existingImplementMeasureId },
-                    include: { sections: true, [relationName]: { select: { id: true } } },
-                  });
-
-                  if (implementMeasureWithRefs) {
-                    // Log implementMeasure removal to TASK entity changelog
-                    await this.changeLogService.logChange({
-                      entityType: ENTITY_TYPE.TASK,
-                      entityId: id,
-                      action: CHANGE_ACTION.UPDATE,
-                      field: 'implementMeasures',
-                      oldValue: {
-                        [implementMeasureField]:
-                          formatImplementMeasureForChangelog(implementMeasureWithRefs),
-                      },
-                      newValue: { [implementMeasureField]: null },
-                      reason: `ImplementMeasure ${implementMeasureField} removido`,
-                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                      triggeredById: id,
-                      userId: userId || '',
-                      transaction: tx,
-                    });
-
-                    const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
-                    if (remainingTrucks.length === 0) {
-                      // No other trucks reference this implementMeasure - safe to delete
-                      await tx.implementMeasureSection.deleteMany({
-                        where: { implementMeasureId: existingImplementMeasureId },
-                      });
-                      await tx.implementMeasure.delete({
-                        where: { id: existingImplementMeasureId },
-                      });
-
-                      await logEntityChange({
-                        changeLogService: this.changeLogService,
-                        entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-                        entityId: existingImplementMeasureId,
-                        action: CHANGE_ACTION.DELETE,
-                        entity: implementMeasureWithRefs,
-                        userId: userId || '',
-                        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                        reason: `ImplementMeasure ${implementMeasureField} removido`,
-                        transaction: tx,
-                      });
-                      this.logger.log(
-                        `[Task Update] Deleted ${implementMeasureField} (no other references)`,
-                      );
-                    } else {
-                      this.logger.log(
-                        `[Task Update] ImplementMeasure ${existingImplementMeasureId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
-                      );
-                    }
-                  }
-                }
-              } else {
-                // Create or update implementMeasure
-                if (existingImplementMeasureId) {
-                  const relationName =
-                    implementMeasureField === 'leftSideMeasureId'
-                      ? 'trucksLeftSide'
-                      : implementMeasureField === 'rightSideMeasureId'
-                        ? 'trucksRightSide'
-                        : 'trucksBackSide';
-                  // Get implementMeasure details before update — for changelog AND the
-                  // copy-on-write sharing check.
-                  const existingImplementMeasure = await tx.implementMeasure.findUnique({
-                    where: { id: existingImplementMeasureId },
-                    include: { sections: true, [relationName]: { select: { id: true } } },
-                  });
-
-                  // Only rewrite the sections (measures) when the payload actually
-                  // carries them — an omitted/empty list must PRESERVE the existing
-                  // measures. Blindly delete+recreate wiped them on partial saves
-                  // (the "truck measures disappeared on save" bug).
-                  const wantsSectionRewrite =
-                    Array.isArray(implementMeasureData.sections) &&
-                    implementMeasureData.sections.length > 0;
-                  const sectionCreate = wantsSectionRewrite
-                    ? implementMeasureData.sections.map((section: any, index: number) => ({
-                        width: section.width,
-                        isDoor: section.isDoor,
-                        doorHeight: section.doorHeight,
-                        position: section.position ?? index,
-                      }))
-                    : null;
-                  const fallbackSections = ((existingImplementMeasure as any)?.sections || []).map(
-                    (s: any, i: number) => ({
-                      width: s.width,
-                      isDoor: s.isDoor,
-                      doorHeight: s.doorHeight,
-                      position: s.position ?? i,
-                    }),
-                  );
-
-                  // Copy-on-write: if OTHER trucks share this ImplementMeasure, editing it in
-                  // place would corrupt theirs — fork a private copy for this truck.
-                  const otherTrucks = (
-                    (existingImplementMeasure as any)?.[relationName] || []
-                  ).filter((t: any) => t.id !== truckId);
-
-                  let updatedImplementMeasure: any;
-                  if (otherTrucks.length > 0) {
-                    updatedImplementMeasure = await tx.implementMeasure.create({
-                      data: {
-                        height:
-                          implementMeasureData.height !== undefined
-                            ? implementMeasureData.height
-                            : (existingImplementMeasure as any)?.height,
-                        ...(implementMeasureData.photoId !== undefined
-                          ? implementMeasureData.photoId
-                            ? { photo: { connect: { id: implementMeasureData.photoId } } }
-                            : {}
-                          : (existingImplementMeasure as any)?.photoId
-                            ? {
-                                photo: {
-                                  connect: { id: (existingImplementMeasure as any).photoId },
-                                },
-                              }
-                            : {}),
-                        sections: { create: sectionCreate ?? fallbackSections },
-                      },
-                      include: { sections: true },
-                    });
-                    await tx.truck.update({
-                      where: { id: truckId! },
-                      data: { [implementMeasureField]: updatedImplementMeasure.id },
-                    });
-                    this.logger.log(
-                      `[Task Update] ${implementMeasureField} shared by ${otherTrucks.length} other truck(s); forked to ${updatedImplementMeasure.id} (copy-on-write)`,
-                    );
-                  } else {
-                    // Sole owner: update in place. Rewrite sections only when sent,
-                    // and preserve photoId when the payload omits it.
-                    if (wantsSectionRewrite) {
-                      await tx.implementMeasureSection.deleteMany({
-                        where: { implementMeasureId: existingImplementMeasureId },
-                      });
-                    }
-                    updatedImplementMeasure = await tx.implementMeasure.update({
-                      where: { id: existingImplementMeasureId },
-                      data: {
-                        ...(implementMeasureData.height !== undefined && {
-                          height: implementMeasureData.height,
-                        }),
-                        ...(implementMeasureData.photoId !== undefined && {
-                          photoId: implementMeasureData.photoId || null,
-                        }),
-                        ...(wantsSectionRewrite && {
-                          sections: { create: sectionCreate },
-                        }),
-                      },
-                      include: {
-                        sections: true,
-                      },
-                    });
-                  }
-
-                  // Create changelog for implementMeasure update
-                  await logEntityChange({
-                    changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-                    entityId: existingImplementMeasureId,
-                    action: CHANGE_ACTION.UPDATE,
-                    entity: updatedImplementMeasure,
-                    userId: userId || '',
-                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `ImplementMeasure ${implementMeasureField} atualizado`,
-                    transaction: tx,
-                  });
-
-                  // Log implementMeasure update to TASK entity changelog
+                if (removed.before) {
+                  // Log implementMeasure removal to TASK entity changelog
                   await this.changeLogService.logChange({
                     entityType: ENTITY_TYPE.TASK,
                     entityId: id,
                     action: CHANGE_ACTION.UPDATE,
                     field: 'implementMeasures',
                     oldValue: {
-                      [implementMeasureField]:
-                        formatImplementMeasureForChangelog(existingImplementMeasure),
+                      [implementMeasureField]: formatImplementMeasureForChangelog(removed.before),
                     },
-                    newValue: {
-                      [implementMeasureField]:
-                        formatImplementMeasureForChangelog(updatedImplementMeasure),
-                    },
-                    reason: `ImplementMeasure ${implementMeasureField} atualizado`,
+                    newValue: { [implementMeasureField]: null },
+                    reason: `ImplementMeasure ${implementMeasureField} removido`,
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     triggeredById: id,
                     userId: userId || '',
                     transaction: tx,
                   });
+                }
 
-                  this.logger.log(
-                    `[Task Update] ${implementMeasureField} updated in-place: ${existingImplementMeasureId} with changelog`,
-                  );
-                } else {
-                  // No existing implementMeasure - create new one
-                  const newImplementMeasure = await tx.implementMeasure.create({
-                    data: {
-                      height: implementMeasureData.height,
-                      ...(implementMeasureData.photoId && {
-                        photo: { connect: { id: implementMeasureData.photoId } },
-                      }),
-                      sections: {
-                        create: implementMeasureData.sections.map(
-                          (section: any, index: number) => ({
-                            width: section.width,
-                            isDoor: section.isDoor,
-                            doorHeight: section.doorHeight,
-                            position: section.position ?? index,
-                          }),
-                        ),
-                      },
-                    },
-                    include: {
-                      sections: true,
-                    },
-                  });
-                  await tx.truck.update({
-                    where: { id: truckId! },
-                    data: { [implementMeasureField]: newImplementMeasure.id },
-                  });
-
-                  // Create changelog for new implementMeasure creation
+                if (removed.previous === 'deleted') {
                   await logEntityChange({
                     changeLogService: this.changeLogService,
                     entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-                    entityId: newImplementMeasure.id,
-                    action: CHANGE_ACTION.CREATE,
-                    entity: newImplementMeasure,
+                    entityId: removed.previousId!,
+                    action: CHANGE_ACTION.DELETE,
+                    entity: removed.before,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `ImplementMeasure ${implementMeasureField} criado`,
+                    reason: `ImplementMeasure ${implementMeasureField} removido`,
                     transaction: tx,
                   });
-
-                  // Log implementMeasure creation to TASK entity changelog
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK,
-                    entityId: id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'implementMeasures',
-                    oldValue: { [implementMeasureField]: null },
-                    newValue: {
-                      [implementMeasureField]:
-                        formatImplementMeasureForChangelog(newImplementMeasure),
-                    },
-                    reason: `ImplementMeasure ${implementMeasureField} criado`,
-                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    triggeredById: id,
-                    userId: userId || '',
-                    transaction: tx,
-                  });
-
                   this.logger.log(
-                    `[Task Update] ${implementMeasureField} created: ${newImplementMeasure.id} with changelog`,
+                    `[Task Update] Deleted ${implementMeasureField} (no other references)`,
+                  );
+                } else {
+                  this.logger.log(
+                    `[Task Update] ImplementMeasure ${removed.previousId} still in use elsewhere, only disconnected`,
                   );
                 }
+                return;
               }
+
+              const written = await setFace(tx, truckId!, face, implementMeasureData);
+
+              if (written.action === 'created') {
+                const newImplementMeasure = written.after!;
+                // Create changelog for new implementMeasure creation
+                await logEntityChange({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                  entityId: newImplementMeasure.id,
+                  action: CHANGE_ACTION.CREATE,
+                  entity: newImplementMeasure,
+                  userId: userId || '',
+                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                  reason: `ImplementMeasure ${implementMeasureField} criado`,
+                  transaction: tx,
+                });
+
+                // Log implementMeasure creation to TASK entity changelog
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'implementMeasures',
+                  oldValue: { [implementMeasureField]: null },
+                  newValue: {
+                    [implementMeasureField]: formatImplementMeasureForChangelog(newImplementMeasure),
+                  },
+                  reason: `ImplementMeasure ${implementMeasureField} criado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+
+                this.logger.log(
+                  `[Task Update] ${implementMeasureField} created: ${newImplementMeasure.id} with changelog`,
+                );
+                return;
+              }
+
+              if (written.action === 'forked') {
+                this.logger.log(
+                  `[Task Update] ${implementMeasureField} in use elsewhere; forked to ${written.measureId} (copy-on-write)`,
+                );
+              }
+
+              // Create changelog for implementMeasure update
+              await logEntityChange({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
+                entityId: written.previousId!,
+                action: CHANGE_ACTION.UPDATE,
+                entity: written.after,
+                userId: userId || '',
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                reason: `ImplementMeasure ${implementMeasureField} atualizado`,
+                transaction: tx,
+              });
+
+              // Log implementMeasure update to TASK entity changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'implementMeasures',
+                oldValue: {
+                  [implementMeasureField]: formatImplementMeasureForChangelog(written.before),
+                },
+                newValue: {
+                  [implementMeasureField]: formatImplementMeasureForChangelog(written.after),
+                },
+                reason: `ImplementMeasure ${implementMeasureField} atualizado`,
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              this.logger.log(
+                `[Task Update] ${implementMeasureField} updated (${written.action}): ${written.measureId} with changelog`,
+              );
             };
 
             // Process each implementMeasure side
-            await processImplementMeasure(
-              truckData.leftSideMeasure,
-              existingTruck?.leftSideMeasureId || null,
-              'leftSideMeasureId',
-            );
-            await processImplementMeasure(
-              truckData.rightSideMeasure,
-              existingTruck?.rightSideMeasureId || null,
-              'rightSideMeasureId',
-            );
-            await processImplementMeasure(
-              truckData.backSideMeasure,
-              existingTruck?.backSideMeasureId || null,
-              'backSideMeasureId',
-            );
+            for (const face of FACES) {
+              await processImplementMeasure(truckData[FACE_REL[face]], face);
+            }
 
-            // Handle implementMeasure photo uploads
+            // Handle implementMeasure photo uploads (a foto é da face: linha usada
+            // por outra face ganha cópia, como qualquer edição)
             if (files) {
               const customerName = existingTask.customer?.fantasyName;
               const implementMeasurePhotoKeys = Object.keys(files).filter(k =>
@@ -3039,15 +2789,12 @@ export class TaskService {
               );
 
               for (const key of implementMeasurePhotoKeys) {
-                const side = key.replace('implementMeasurePhotos.', '') as
-                  | 'leftSide'
-                  | 'rightSide'
-                  | 'backSide';
+                const face = faceOf(key.replace('implementMeasurePhotos.', ''));
                 const photoFile = Array.isArray((files as any)[key])
                   ? (files as any)[key][0]
                   : (files as any)[key];
 
-                if (photoFile) {
+                if (photoFile && face) {
                   const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
                     tx,
                     photoFile,
@@ -3056,25 +2803,7 @@ export class TaskService {
                     { entityId: id, entityType: 'IMPLEMENT_MEASURE', customerName },
                   );
 
-                  const implementMeasureFieldMap = {
-                    leftSide: 'leftSideMeasureId',
-                    rightSide: 'rightSideMeasureId',
-                    backSide: 'backSideMeasureId',
-                  } as const;
-
-                  const implementMeasureId = await tx.truck
-                    .findUnique({
-                      where: { id: truckId },
-                      select: { [implementMeasureFieldMap[side]]: true },
-                    })
-                    .then(t => t?.[implementMeasureFieldMap[side]]);
-
-                  if (implementMeasureId) {
-                    await tx.implementMeasure.update({
-                      where: { id: implementMeasureId },
-                      data: { photoId: uploadedPhoto.id },
-                    });
-                  }
+                  await setFacePhoto(tx, truckId!, face, uploadedPhoto.id);
                 }
               }
             }
@@ -3086,14 +2815,14 @@ export class TaskService {
             // cópia, na mesma transação. `null` (remover o lado) não replica.
             // Esta porta cria o caminhão quando ele falta, então o irmão sem
             // caminhão ganha um. Ver `utils/implement-measure-replication.ts`.
-            const ladosEscritos = new Set<MeasureSide>();
-            for (const rel of ['leftSideMeasure', 'rightSideMeasure', 'backSideMeasure'] as const) {
-              const v = (truckData as any)[rel];
-              if (v !== undefined && v !== null) ladosEscritos.add(measureSideOf(rel)!);
+            const ladosEscritos = new Set<ImplementFace>();
+            for (const face of FACES) {
+              const v = (truckData as any)[FACE_REL[face]];
+              if (v !== undefined && v !== null) ladosEscritos.add(face);
             }
             for (const key of Object.keys(files ?? {})) {
               if (!key.startsWith('implementMeasurePhotos.')) continue;
-              const lado = measureSideOf(key.replace('implementMeasurePhotos.', ''));
+              const lado = faceOf(key.replace('implementMeasurePhotos.', ''));
               if (lado) ladosEscritos.add(lado);
             }
             if (ladosEscritos.size > 0) {
@@ -8644,185 +8373,13 @@ export class TaskService {
             `[batchUpdate] Processing individual implementMeasures for ${tasksNeedingImplementMeasureUpdate.length} tasks`,
           );
 
-          // Helper to apply an individual implementMeasure for a side.
-          //
-          // I38 FIX: when the truck already owns a implementMeasure for this side, UPDATE it
-          // in place (preserving the ImplementMeasure id + its ImplementMeasureSection ids unless the
-          // sections actually changed) instead of always creating a fresh ImplementMeasure.
-          // Blindly recreating churned the implementMeasureId FK every batch save → a false
-          // "implementMeasures changed" event and broken external references. Mirrors the
-          // single-update in-place path (sole-owner update / copy-on-write fork /
-          // create-new). Returns the implementMeasure id the truck should point at.
-          const applyIndividualImplementMeasure = async (
-            implementMeasureData: any,
-            sideName: string,
-            taskId: string,
-            existingImplementMeasureId: string | null,
-            truckId: string,
-            relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
-          ): Promise<string | null> => {
-            if (!implementMeasureData) return null;
+          // Cada face passa pelo escritor único (I38: a linha que é só deste
+          // caminhão é editada NO LUGAR — sem trocar o id da medida a cada lote,
+          // o que disparava um falso "medidas mudaram"; a que é de mais alguém
+          // ganha cópia; face sem linha ganha uma). O escritor devolve o ANTES
+          // de cada face, lido antes da escrita.
 
-            // Only rewrite sections when the payload actually carries them —
-            // absence = preserve existing measures.
-            const wantsSectionRewrite =
-              Array.isArray(implementMeasureData.sections) &&
-              implementMeasureData.sections.length > 0;
-            const sectionCreate = wantsSectionRewrite
-              ? implementMeasureData.sections.map((section: any, index: number) => ({
-                  width: section.width,
-                  isDoor: section.isDoor,
-                  doorHeight: section.doorHeight,
-                  position: section.position ?? index,
-                }))
-              : null;
-
-            if (existingImplementMeasureId) {
-              const existingImplementMeasure = await tx.implementMeasure.findUnique({
-                where: { id: existingImplementMeasureId },
-                include: { sections: true, [relationName]: { select: { id: true } } },
-              });
-
-              // Copy-on-write: if OTHER trucks share this ImplementMeasure, editing it in
-              // place would corrupt theirs — fork a private copy for this truck.
-              const otherTrucks = ((existingImplementMeasure as any)?.[relationName] || []).filter(
-                (t: any) => t.id !== truckId,
-              );
-
-              if (existingImplementMeasure && otherTrucks.length === 0) {
-                // Sole owner → update IN PLACE, preserving the ImplementMeasure id.
-                if (wantsSectionRewrite) {
-                  await tx.implementMeasureSection.deleteMany({
-                    where: { implementMeasureId: existingImplementMeasureId },
-                  });
-                }
-                await tx.implementMeasure.update({
-                  where: { id: existingImplementMeasureId },
-                  data: {
-                    ...(implementMeasureData.height !== undefined && {
-                      height: implementMeasureData.height,
-                    }),
-                    ...(implementMeasureData.photoId !== undefined && {
-                      photoId: implementMeasureData.photoId || null,
-                    }),
-                    ...(wantsSectionRewrite && {
-                      sections: { create: sectionCreate },
-                    }),
-                  },
-                });
-                this.logger.log(
-                  `[batchUpdate] Individual ${sideName} implementMeasure updated in-place: ${existingImplementMeasureId} for task ${taskId}`,
-                );
-                return existingImplementMeasureId;
-              }
-
-              // Shared (or vanished) → fork a private copy, carrying over the
-              // existing measures/height/photo when the payload omitted them.
-              const fallbackSections = ((existingImplementMeasure as any)?.sections || []).map(
-                (s: any, i: number) => ({
-                  width: s.width,
-                  isDoor: s.isDoor,
-                  doorHeight: s.doorHeight,
-                  position: s.position ?? i,
-                }),
-              );
-              const forkedImplementMeasure = await tx.implementMeasure.create({
-                data: {
-                  height:
-                    implementMeasureData.height !== undefined
-                      ? implementMeasureData.height
-                      : (existingImplementMeasure as any)?.height,
-                  ...(implementMeasureData.photoId !== undefined
-                    ? implementMeasureData.photoId
-                      ? { photo: { connect: { id: implementMeasureData.photoId } } }
-                      : {}
-                    : (existingImplementMeasure as any)?.photoId
-                      ? { photo: { connect: { id: (existingImplementMeasure as any).photoId } } }
-                      : {}),
-                  sections: { create: sectionCreate ?? fallbackSections },
-                },
-              });
-              this.logger.log(
-                `[batchUpdate] Individual ${sideName} implementMeasure forked (copy-on-write): ${forkedImplementMeasure.id} for task ${taskId}`,
-              );
-              return forkedImplementMeasure.id;
-            }
-
-            // No existing implementMeasure for this side → create new.
-            this.logger.log(
-              `[batchUpdate] Creating individual ${sideName} implementMeasure for task ${taskId}`,
-            );
-            const newImplementMeasure = await tx.implementMeasure.create({
-              data: {
-                height: implementMeasureData.height,
-                ...(implementMeasureData.photoId && {
-                  photo: { connect: { id: implementMeasureData.photoId } },
-                }),
-                sections: {
-                  create: (implementMeasureData.sections || []).map(
-                    (section: any, index: number) => ({
-                      width: section.width,
-                      isDoor: section.isDoor,
-                      doorHeight: section.doorHeight,
-                      position: section.position ?? index,
-                    }),
-                  ),
-                },
-              },
-            });
-            this.logger.log(
-              `[batchUpdate] Individual ${sideName} implementMeasure created: ${newImplementMeasure.id} for task ${taskId}`,
-            );
-            return newImplementMeasure.id;
-          };
-
-          // Helper to safely disconnect a truck from a implementMeasure (check usage count before deleting)
-          const safeDisconnectImplementMeasure = async (
-            truckId: string,
-            existingImplementMeasureId: string | null,
-            implementMeasureField: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId',
-            sideName: string,
-          ) => {
-            if (!existingImplementMeasureId) return;
-
-            // Disconnect this truck from the implementMeasure first
-            await tx.truck.update({
-              where: { id: truckId },
-              data: { [implementMeasureField]: null },
-            });
-
-            // Check if other trucks still reference this implementMeasure
-            const relationName =
-              implementMeasureField === 'leftSideMeasureId'
-                ? 'trucksLeftSide'
-                : implementMeasureField === 'rightSideMeasureId'
-                  ? 'trucksRightSide'
-                  : 'trucksBackSide';
-            const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
-              where: { id: existingImplementMeasureId },
-              include: { [relationName]: { select: { id: true } } },
-            });
-
-            if (implementMeasureWithRefs) {
-              const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
-              if (remainingTrucks.length === 0) {
-                // No other trucks reference this implementMeasure - safe to delete
-                await tx.implementMeasureSection.deleteMany({
-                  where: { implementMeasureId: existingImplementMeasureId },
-                });
-                await tx.implementMeasure.delete({ where: { id: existingImplementMeasureId } });
-                this.logger.log(
-                  `[batchUpdate] Deleted orphaned ${sideName} implementMeasure: ${existingImplementMeasureId}`,
-                );
-              } else {
-                this.logger.log(
-                  `[batchUpdate] ImplementMeasure ${existingImplementMeasureId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
-                );
-              }
-            }
-          };
-
-          // Phase 2: For each task, ensure truck exists, safely disconnect old implementMeasures, create individual implementMeasures
+          // Phase 2: For each task, ensure truck exists, then write each face through the writer
           for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
             this.logger.log(`[batchUpdate] Processing truck implementMeasures for task ${taskId}`);
 
@@ -8862,139 +8419,54 @@ export class TaskService {
               this.logger.log(`[batchUpdate] Using existing truck: ${truckId}`);
             }
 
-            // Safely disconnect from old implementMeasures (check usage count before deleting)
-            const existingLeftId = taskWithTruck?.truck?.leftSideMeasureId ?? null;
-            const existingRightId = taskWithTruck?.truck?.rightSideMeasureId ?? null;
-            const existingBackId = taskWithTruck?.truck?.backSideMeasureId ?? null;
-
-            // Apply individual implementMeasures for this task — update in place when the
-            // truck already owns the side's implementMeasure (I38: no id churn), else fork/
-            // create. When the returned id equals the existing id (in-place
-            // update) the disconnect below is correctly skipped.
-            const newLeftId = await applyIndividualImplementMeasure(
-              truckData.leftSideMeasure,
-              'left',
-              taskId,
-              existingLeftId,
-              truckId,
-              'trucksLeftSide',
-            );
-            const newRightId = await applyIndividualImplementMeasure(
-              truckData.rightSideMeasure,
-              'right',
-              taskId,
-              existingRightId,
-              truckId,
-              'trucksRightSide',
-            );
-            const newBackId = await applyIndividualImplementMeasure(
-              truckData.backSideMeasure,
-              'back',
-              taskId,
-              existingBackId,
-              truckId,
-              'trucksBackSide',
-            );
-
-            if (newLeftId && existingLeftId !== newLeftId) {
-              await safeDisconnectImplementMeasure(
-                truckId,
-                existingLeftId,
-                'leftSideMeasureId',
-                'left',
+            const SIDE_NAMES: Record<ImplementFace, string> = {
+              left: 'Motorista',
+              right: 'Sapo',
+              back: 'Traseira',
+            };
+            const writtenFaces: FaceWriteResult[] = [];
+            for (const face of FACES) {
+              const implementMeasureData = truckData[FACE_REL[face]];
+              if (!implementMeasureData) continue;
+              const written = await setFace(tx, truckId, face, implementMeasureData);
+              this.logger.log(
+                `[batchUpdate] Individual ${face} implementMeasure ${written.action}: ${written.measureId} for task ${taskId}`,
               );
-            }
-            if (newRightId && existingRightId !== newRightId) {
-              await safeDisconnectImplementMeasure(
-                truckId,
-                existingRightId,
-                'rightSideMeasureId',
-                'right',
-              );
-            }
-            if (newBackId && existingBackId !== newBackId) {
-              await safeDisconnectImplementMeasure(
-                truckId,
-                existingBackId,
-                'backSideMeasureId',
-                'back',
-              );
+              writtenFaces.push(written);
             }
 
-            // Point truck to the individual implementMeasures
-            const implementMeasureUpdate: any = {};
-            if (newLeftId) {
-              implementMeasureUpdate.leftSideMeasureId = newLeftId;
-            }
-            if (newRightId) {
-              implementMeasureUpdate.rightSideMeasureId = newRightId;
-            }
-            if (newBackId) {
-              implementMeasureUpdate.backSideMeasureId = newBackId;
+            // As faces escritas (o escritor já apontou o caminhão para cada uma)
+            const implementMeasureUpdate: Record<string, string> = {};
+            for (const written of writtenFaces) {
+              if (written.measureId) implementMeasureUpdate[written.fk] = written.measureId;
             }
 
             if (Object.keys(implementMeasureUpdate).length > 0) {
-              await tx.truck.update({
-                where: { id: truckId },
-                data: implementMeasureUpdate,
-              });
               this.logger.log(
                 `[batchUpdate] Truck ${truckId} pointed to individual implementMeasures: ${JSON.stringify(implementMeasureUpdate)}`,
               );
 
               // Track implementMeasure changes in changelog with formatted summaries
-              const sides = [];
+              const sides: string[] = [];
               const oldValues: Record<string, any> = {};
               const newValues: Record<string, any> = {};
-
-              // Fetch old implementMeasures with sections for meaningful before data
               const implementMeasureSidePairs: Array<{
                 field: string;
                 oldId: string | null;
                 newId: string;
                 sideName: string;
               }> = [];
-              if (implementMeasureUpdate.leftSideMeasureId) {
+              for (const written of writtenFaces) {
+                if (!written.measureId) continue;
                 implementMeasureSidePairs.push({
-                  field: 'leftSideMeasureId',
-                  oldId: existingLeftId,
-                  newId: implementMeasureUpdate.leftSideMeasureId,
-                  sideName: 'Motorista',
+                  field: written.fk,
+                  oldId: written.previousId,
+                  newId: written.measureId,
+                  sideName: SIDE_NAMES[written.face],
                 });
-              }
-              if (implementMeasureUpdate.rightSideMeasureId) {
-                implementMeasureSidePairs.push({
-                  field: 'rightSideMeasureId',
-                  oldId: existingRightId,
-                  newId: implementMeasureUpdate.rightSideMeasureId,
-                  sideName: 'Sapo',
-                });
-              }
-              if (implementMeasureUpdate.backSideMeasureId) {
-                implementMeasureSidePairs.push({
-                  field: 'backSideMeasureId',
-                  oldId: existingBackId,
-                  newId: implementMeasureUpdate.backSideMeasureId,
-                  sideName: 'Traseira',
-                });
-              }
-
-              for (const pair of implementMeasureSidePairs) {
-                sides.push(pair.sideName);
-                // Fetch old implementMeasure with sections (if exists)
-                const oldImplementMeasure = pair.oldId
-                  ? await tx.implementMeasure.findUnique({
-                      where: { id: pair.oldId },
-                      include: { sections: true },
-                    })
-                  : null;
-                // Fetch new implementMeasure with sections
-                const newImplementMeasure = await tx.implementMeasure.findUnique({
-                  where: { id: pair.newId },
-                  include: { sections: true },
-                });
-                oldValues[pair.field] = formatImplementMeasureForChangelog(oldImplementMeasure);
-                newValues[pair.field] = formatImplementMeasureForChangelog(newImplementMeasure);
+                sides.push(SIDE_NAMES[written.face]);
+                oldValues[written.fk] = formatImplementMeasureForChangelog(written.before);
+                newValues[written.fk] = formatImplementMeasureForChangelog(written.after);
               }
 
               await this.changeLogService.logChange({
@@ -9046,9 +8518,7 @@ export class TaskService {
           // pulado (só o lado que DIFERE é escrito), e o que ficou de fora do
           // lote recebe a medida. Ver `utils/implement-measure-replication.ts`.
           for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
-            const lados = (['left', 'right', 'back'] as const).filter(
-              lado => !!truckData?.[`${lado}SideMeasure`],
-            );
+            const lados = FACES.filter(face => !!truckData?.[FACE_REL[face]]);
             if (lados.length === 0) continue;
             await replicateImplementMeasuresToQuoteSiblings(tx, {
               sourceTaskId: taskId,
@@ -10996,10 +10466,17 @@ export class TaskService {
           convertedValue = null;
         }
 
-        await tx.truck.update({
-          where: { id: changeLog.entityId },
-          data: { [fieldToRevert]: convertedValue },
-        });
+        // Coluna de face: pelo escritor único (reverter não pode compartilhar
+        // linha nem deixar a atual órfã).
+        const revertedFace = faceOf(fieldToRevert);
+        if (revertedFace && FACE_FK[revertedFace] === fieldToRevert) {
+          await this.restoreFaceFromChangelog(tx, changeLog.entityId, revertedFace, convertedValue);
+        } else {
+          await tx.truck.update({
+            where: { id: changeLog.entityId },
+            data: { [fieldToRevert]: convertedValue },
+          });
+        }
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
@@ -11844,10 +11321,20 @@ export class TaskService {
           throw new BadRequestException('Tarefa não possui caminhão associado');
         }
 
-        await tx.truck.update({
-          where: { id: taskWithTruck.truck.id },
-          data: { [truckField]: convertedValue },
-        });
+        const revertedFace = faceOf(truckField);
+        if (revertedFace && FACE_FK[revertedFace] === truckField) {
+          await this.restoreFaceFromChangelog(
+            tx,
+            taskWithTruck.truck.id,
+            revertedFace,
+            convertedValue,
+          );
+        } else {
+          await tx.truck.update({
+            where: { id: taskWithTruck.truck.id },
+            data: { [truckField]: convertedValue },
+          });
+        }
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
           tx,
@@ -12052,110 +11539,11 @@ export class TaskService {
           );
         }
 
-        const implementMeasureSides: Array<{
-          key: string;
-          field: 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId';
-          relationName: string;
-          sideName: string;
-        }> = [
-          {
-            key: 'leftSideMeasureId',
-            field: 'leftSideMeasureId',
-            relationName: 'trucksLeftSide',
-            sideName: 'left',
-          },
-          {
-            key: 'rightSideMeasureId',
-            field: 'rightSideMeasureId',
-            relationName: 'trucksRightSide',
-            sideName: 'right',
-          },
-          {
-            key: 'backSideMeasureId',
-            field: 'backSideMeasureId',
-            relationName: 'trucksBackSide',
-            sideName: 'back',
-          },
-        ];
-
-        for (const { key, field, relationName, sideName } of implementMeasureSides) {
+        for (const face of FACES) {
+          const key = FACE_FK[face];
           // Only process sides that appear in the old value
           if (parsedOldValue !== null && parsedOldValue[key] === undefined) continue;
-
-          const oldSideImplementMeasure = parsedOldValue?.[key] ?? null;
-          const currentImplementMeasureId = truck[field] as string | null;
-
-          // Disconnect current implementMeasure with orphan cleanup
-          if (currentImplementMeasureId) {
-            await tx.truck.update({
-              where: { id: truck.id },
-              data: { [field]: null },
-            });
-
-            const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
-              where: { id: currentImplementMeasureId },
-              include: { [relationName]: { select: { id: true } } },
-            });
-
-            if (implementMeasureWithRefs) {
-              const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
-              if (remainingTrucks.length === 0) {
-                await tx.implementMeasureSection.deleteMany({
-                  where: { implementMeasureId: currentImplementMeasureId },
-                });
-                await tx.implementMeasure.delete({ where: { id: currentImplementMeasureId } });
-                this.logger.log(
-                  `[Rollback] Deleted orphaned ${sideName} implementMeasure: ${currentImplementMeasureId}`,
-                );
-              }
-            }
-          }
-
-          // Reconnect or recreate old implementMeasure
-          if (oldSideImplementMeasure) {
-            let targetImplementMeasureId: string | null = null;
-
-            // Try to reconnect by id if the implementMeasure still exists
-            if (oldSideImplementMeasure.id) {
-              const existing = await tx.implementMeasure.findUnique({
-                where: { id: oldSideImplementMeasure.id },
-              });
-              if (existing) {
-                targetImplementMeasureId = existing.id;
-                this.logger.log(
-                  `[Rollback] Reconnecting to existing ${sideName} implementMeasure: ${targetImplementMeasureId}`,
-                );
-              }
-            }
-
-            // If implementMeasure doesn't exist anymore, recreate from stored sections
-            if (!targetImplementMeasureId && oldSideImplementMeasure.sections?.length > 0) {
-              const newImplementMeasure = await tx.implementMeasure.create({
-                data: {
-                  height: oldSideImplementMeasure.height || 0,
-                  sections: {
-                    create: oldSideImplementMeasure.sections.map((s: any, idx: number) => ({
-                      width: s.width || 0,
-                      isDoor: s.isDoor || false,
-                      doorHeight: s.doorHeight ?? null,
-                      position: s.position ?? idx,
-                    })),
-                  },
-                },
-              });
-              targetImplementMeasureId = newImplementMeasure.id;
-              this.logger.log(
-                `[Rollback] Recreated ${sideName} implementMeasure: ${targetImplementMeasureId}`,
-              );
-            }
-
-            if (targetImplementMeasureId) {
-              await tx.truck.update({
-                where: { id: truck.id },
-                data: { [field]: targetImplementMeasureId },
-              });
-            }
-          }
+          await this.restoreFaceFromChangelog(tx, truck.id, face, parsedOldValue?.[key] ?? null);
         }
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
@@ -13419,6 +12807,74 @@ export class TaskService {
    * tem um veículo, e a única leitura possível ali é `JOINT`.
    */
   /**
+   * Reverte UMA face para o valor que o histórico guardou, pelo escritor único:
+   *   - a linha antiga ainda existe e NÃO é a atual da face → a face volta a
+   *     apontá-la; se outra face já a usa, ganha uma CÓPIA (reverter não cria
+   *     medida compartilhada);
+   *   - a linha antiga É a atual (a edição foi no lugar) → os valores guardados
+   *     voltam para ela mesma (mesmo id, a foto fica);
+   *   - a linha sumiu, mas o histórico tem as seções → recriada (sem foto, como
+   *     sempre foi);
+   *   - nada a restaurar (`null`, ou sem id nem seções) → a face fica vazia e a
+   *     linha atual só é apagada se mais ninguém a usa.
+   * `value` é o recorte de `formatImplementMeasureForChangelog` ou só o id.
+   */
+  private async restoreFaceFromChangelog(
+    tx: PrismaTransaction,
+    truckId: string,
+    face: ImplementFace,
+    value: string | { id?: string | null; height?: number; sections?: any[] } | null,
+  ): Promise<void> {
+    const old = typeof value === 'string' ? { id: value } : value;
+    const currentId =
+      ((await tx.truck.findUnique({ where: { id: truckId }, select: { [FACE_FK[face]]: true } })) as
+        | Record<string, string | null>
+        | null)?.[FACE_FK[face]] ?? null;
+    const isCurrent = !!old?.id && old.id === currentId;
+
+    if (old?.id && !isCurrent) {
+      const attached = await attachMeasure(tx, truckId, face, old.id);
+      if (attached) {
+        this.logger.log(
+          `[Rollback] ${face} implementMeasure restored (${attached.action}): ${attached.measureId}`,
+        );
+        return;
+      }
+    }
+
+    if (old && Array.isArray(old.sections) && old.sections.length > 0) {
+      const restored = await setFace(
+        tx,
+        truckId,
+        face,
+        {
+          height: old.height || 0,
+          sections: old.sections.map((s: any, idx: number) => ({
+            width: s.width || 0,
+            isDoor: s.isDoor || false,
+            doorHeight: s.doorHeight ?? null,
+            position: s.position ?? idx,
+          })),
+        },
+        { mode: isCurrent ? 'patch' : 'replace' },
+      );
+      this.logger.log(
+        `[Rollback] ${face} implementMeasure restored from history (${restored.action}): ${restored.measureId}`,
+      );
+      return;
+    }
+
+    if (isCurrent) return;
+
+    if (currentId) {
+      const removed = await setFace(tx, truckId, face, null);
+      if (removed.previous === 'deleted') {
+        this.logger.log(`[Rollback] Deleted orphaned ${face} implementMeasure: ${currentId}`);
+      }
+    }
+  }
+
+  /**
    * A trilha de uma medida REPLICADA: na tarefa irmã, no mesmo campo
    * (`implementMeasures`) que a edição de tarefa usa, dizendo de qual veículo a
    * medida veio. Gerada pelo sistema, mas atribuída a quem gravou a origem.
@@ -14009,7 +13465,7 @@ export class TaskService {
         // Lados de medida que a cópia escreveu no destino — replicados aos irmãos
         // DEPOIS do vínculo final com o orçamento (a mesma cópia pode trocar o
         // orçamento do destino, e replicar antes mediria os irmãos errados).
-        const ladosDeMedidaCopiados: MeasureSide[] = [];
+        const ladosDeMedidaCopiados: ImplementFace[] = [];
 
         this.logger.log(`[copyFromTask] Processing ${fieldsToProcess.length} fields...`);
         this.logger.debug(`[copyFromTask] Fields to process: ${fieldsToProcess.join(', ')}`);
@@ -14397,126 +13853,33 @@ export class TaskService {
               if (hasData(sourceTask.truck)) {
                 const existingTruck = await tx.truck.findUnique({
                   where: { taskId: destinationTaskId },
-                  select: {
-                    id: true,
-                    leftSideMeasureId: true,
-                    rightSideMeasureId: true,
-                    backSideMeasureId: true,
-                  },
+                  select: { id: true },
                 });
 
-                // Helper to clone a implementMeasure as a new individual instance
-                const cloneImplementMeasure = async (
-                  sourceImplementMeasure: any,
-                ): Promise<string | null> => {
-                  if (!sourceImplementMeasure) return null;
-                  const cloned = await tx.implementMeasure.create({
-                    data: {
-                      height: sourceImplementMeasure.height,
-                      ...(sourceImplementMeasure.photoId && {
-                        photo: { connect: { id: sourceImplementMeasure.photoId } },
-                      }),
-                      sections: {
-                        create: (sourceImplementMeasure.sections || []).map(
-                          (section: any, idx: number) => ({
-                            width: section.width,
-                            isDoor: section.isDoor,
-                            doorHeight: section.doorHeight,
-                            position: section.position ?? idx,
-                          }),
-                        ),
-                      },
-                    },
+                // Cada face da origem vira uma linha NOVA no destino (escritor
+                // único, `cloneFaces`); a anterior do destino só sai se ficou sem
+                // uso. Face vazia na origem não mexe no destino.
+                let destinationTruckId = existingTruck?.id;
+                if (!destinationTruckId) {
+                  // Create truck if it doesn't exist
+                  const createdTruck = await tx.truck.create({
+                    data: { taskId: destinationTaskId, spot: null },
+                    select: { id: true },
                   });
-                  return cloned.id;
-                };
-
-                // Helper to safely disconnect and clean up old implementMeasure
-                const safeDisconnectOldImplementMeasure = async (
-                  truckId: string,
-                  oldImplementMeasureId: string | null,
-                  implementMeasureField:
-                    | 'leftSideMeasureId'
-                    | 'rightSideMeasureId'
-                    | 'backSideMeasureId',
-                ) => {
-                  if (!oldImplementMeasureId) return;
-                  await tx.truck.update({
-                    where: { id: truckId },
-                    data: { [implementMeasureField]: null },
-                  });
-                  const relationName =
-                    implementMeasureField === 'leftSideMeasureId'
-                      ? 'trucksLeftSide'
-                      : implementMeasureField === 'rightSideMeasureId'
-                        ? 'trucksRightSide'
-                        : 'trucksBackSide';
-                  const implementMeasureWithRefs = await tx.implementMeasure.findUnique({
-                    where: { id: oldImplementMeasureId },
-                    include: { [relationName]: { select: { id: true } } },
-                  });
-                  if (implementMeasureWithRefs) {
-                    const remainingTrucks = (implementMeasureWithRefs as any)[relationName] || [];
-                    if (remainingTrucks.length === 0) {
-                      await tx.implementMeasureSection.deleteMany({
-                        where: { implementMeasureId: oldImplementMeasureId },
-                      });
-                      await tx.implementMeasure.delete({ where: { id: oldImplementMeasureId } });
-                    }
-                  }
-                };
-
-                // Clone each side's implementMeasure as an individual instance
-                const clonedLeftId = await cloneImplementMeasure(sourceTask.truck.leftSideMeasure);
-                const clonedRightId = await cloneImplementMeasure(
-                  sourceTask.truck.rightSideMeasure,
+                  destinationTruckId = createdTruck.id;
+                }
+                const clonedFaces = await cloneFaces(
+                  tx,
+                  sourceTask.truck.id,
+                  destinationTruckId,
                 );
-                const clonedBackId = await cloneImplementMeasure(sourceTask.truck.backSideMeasure);
 
-                const implementMeasureData: any = {};
-                if (clonedLeftId) implementMeasureData.leftSideMeasureId = clonedLeftId;
-                if (clonedRightId) implementMeasureData.rightSideMeasureId = clonedRightId;
-                if (clonedBackId) implementMeasureData.backSideMeasureId = clonedBackId;
-
-                if (existingTruck) {
-                  // Safely disconnect old implementMeasures before connecting new ones
-                  if (clonedLeftId)
-                    await safeDisconnectOldImplementMeasure(
-                      existingTruck.id,
-                      existingTruck.leftSideMeasureId,
-                      'leftSideMeasureId',
-                    );
-                  if (clonedRightId)
-                    await safeDisconnectOldImplementMeasure(
-                      existingTruck.id,
-                      existingTruck.rightSideMeasureId,
-                      'rightSideMeasureId',
-                    );
-                  if (clonedBackId)
-                    await safeDisconnectOldImplementMeasure(
-                      existingTruck.id,
-                      existingTruck.backSideMeasureId,
-                      'backSideMeasureId',
-                    );
-
-                  await tx.truck.update({
-                    where: { taskId: destinationTaskId },
-                    data: implementMeasureData,
-                  });
-                } else {
-                  // Create truck with cloned implementMeasures if it doesn't exist
-                  await tx.truck.create({
-                    data: {
-                      ...implementMeasureData,
-                      taskId: destinationTaskId,
-                      spot: null,
-                    },
-                  });
+                const implementMeasureData: Record<string, string> = {};
+                for (const cloned of clonedFaces) {
+                  implementMeasureData[cloned.fk] = cloned.measureId!;
+                  ladosDeMedidaCopiados.push(cloned.face);
                 }
                 copiedFields.push(field);
-                if (clonedLeftId) ladosDeMedidaCopiados.push('left');
-                if (clonedRightId) ladosDeMedidaCopiados.push('right');
-                if (clonedBackId) ladosDeMedidaCopiados.push('back');
 
                 // Helper to calculate dimensions from implementMeasure
                 const getImplementMeasureDimensions = (implementMeasure: any) => {
