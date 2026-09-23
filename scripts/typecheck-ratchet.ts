@@ -15,12 +15,17 @@
  *     com `--update` (a catraca só desce: `--update` recusa subir qualquer
  *     contagem).
  *
+ *   - arquivo NOVO que o tsconfig.check.json deixa de fora (`*.spec.ts`,
+ *     `*.test-utils.ts`, `*.example.ts(x)`, `src/scripts/archive/**`) reprova:
+ *     erro de tipo ali passaria calado (R-B-14). Os que já existem ficam em
+ *     `foraDoTipo` na base, lista que só encolhe. Teste novo é `.test.ts`.
+ *
  * Uso:  npx tsx scripts/typecheck-ratchet.ts            (verifica)
  *       npx tsx scripts/typecheck-ratchet.ts --update   (baixa a base)
  *       npx tsx scripts/typecheck-ratchet.ts --init     (grava a primeira base)
  */
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 const ROOT = join(__dirname, '..');
@@ -30,6 +35,29 @@ interface Baseline {
   geradaEm: string;
   total: number;
   assinaturas: Record<string, number>;
+  /** arquivos que o tsconfig.check.json exclui e já existiam (só encolhe) */
+  foraDoTipo?: string[];
+}
+
+/** Os padrões de exclusão do tsconfig.check.json que escondem código NOVO. */
+const FORA_DO_TIPO = [/\.spec\.ts$/, /\.test-utils\.ts$/, /\.example\.tsx?$/, /^src\/scripts\/archive\//];
+
+function arquivosForaDoTipo(): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    const abs = join(ROOT, rel);
+    if (!existsSync(abs)) return;
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      const nome = e.name;
+      if (nome === 'node_modules' || nome === 'dist' || nome.startsWith('.')) continue;
+      const r = `${rel}/${nome}`;
+      // link simbólico (artefatos do e2e) não é código: fica de fora
+      if (e.isDirectory()) walk(r);
+      else if (e.isFile() && /\.tsx?$/.test(nome) && FORA_DO_TIPO.some(p => p.test(r))) out.push(r);
+    }
+  };
+  for (const d of ['src', 'tests', 'scripts']) walk(d);
+  return out.sort();
 }
 
 function runTsc(): { output: string; status: number | null } {
@@ -100,6 +128,7 @@ function main(): void {
       geradaEm: new Date().toISOString().slice(0, 10),
       total: errors.length,
       assinaturas: sortRecord(current),
+      foraDoTipo: arquivosForaDoTipo(),
     };
     writeFileSync(BASELINE, JSON.stringify(base, null, 2) + '\n');
     console.log(`[typecheck] base gravada: ${errors.length} erro(s) em tests/ e scripts/.`);
@@ -123,7 +152,19 @@ function main(): void {
     if (n < antes) caiu.push(`${sig}  (${antes} → ${n})`);
   }
 
-  const reprovado = srcErrors.length > 0 || novos.length > 0;
+  const fora = arquivosForaDoTipo();
+  const conhecidos = new Set(base.foraDoTipo ?? []);
+  const foraNovos = base.foraDoTipo ? fora.filter(f => !conhecidos.has(f)) : [];
+  const foraSumiram = (base.foraDoTipo ?? []).filter(f => !fora.includes(f));
+
+  const reprovado = srcErrors.length > 0 || novos.length > 0 || foraNovos.length > 0;
+  if (foraNovos.length > 0) {
+    console.error(
+      `[typecheck] ✗ ${foraNovos.length} arquivo(s) NOVO(S) que o tsconfig.check.json não checa ` +
+        '(jest não está instalado: teste novo é .test.ts; archive/ não recebe código novo):',
+    );
+    foraNovos.forEach(f => console.error('  ' + f));
+  }
   if (srcErrors.length > 0) {
     console.error(`[typecheck] ✗ src/ tem ${srcErrors.length} erro(s) — src/ não tem base:`);
     srcErrors.forEach(e => console.error('  ' + e));
@@ -142,6 +183,8 @@ function main(): void {
       geradaEm: new Date().toISOString().slice(0, 10),
       total: errors.length,
       assinaturas: sortRecord(current),
+      // primeira vez (base de antes da lista): grava o que existe; depois, só encolhe
+      foraDoTipo: fora,
     };
     writeFileSync(BASELINE, JSON.stringify(nova, null, 2) + '\n');
     console.log(`[typecheck] base baixada: ${base.total} → ${errors.length}.`);
@@ -152,9 +195,15 @@ function main(): void {
   console.log(
     `[typecheck] ✓ src/ com 0 erro; tests/+scripts/ com ${errors.length} (base ${base.total}).`,
   );
-  if (caiu.length > 0) {
+  if (!base.foraDoTipo) {
     console.log(
-      `[typecheck] ${caiu.length} assinatura(s) caíram — baixe a base: npm run typecheck:full -- --update`,
+      '[typecheck] a base não tem a lista foraDoTipo — grave-a: npm run typecheck:full -- --update',
+    );
+  }
+  if (caiu.length > 0 || foraSumiram.length > 0) {
+    console.log(
+      `[typecheck] ${caiu.length} assinatura(s) e ${foraSumiram.length} arquivo(s) fora do tipo ` +
+        'caíram — baixe a base: npm run typecheck:full -- --update',
     );
   }
 }
