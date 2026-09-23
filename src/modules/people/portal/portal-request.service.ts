@@ -96,6 +96,7 @@ import { NOTIFICATION_IMPORTANCE } from '@/constants/enums';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import type { ResponsiblePrincipal } from '@modules/people/responsible-auth/responsible-auth.guard';
 import { PortalScopeService } from './portal-scope.service';
+import { setFace } from '@modules/production/implement-measure/implement-measure-writer';
 import {
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
@@ -208,11 +209,11 @@ export interface PortalRequisicaoCriada {
  */
 const DIAS_DE_VALIDADE_PROVISORIA = 30;
 
-/** Os três lados de `ImplementMeasure`, e a coluna de `Truck` de cada um. */
+/** Os lados da medida no portal e a face de cada um (a coluna é do escritor único). */
 const LADOS = [
-  { chave: 'esquerda', coluna: 'leftSideMeasureId' },
-  { chave: 'direita', coluna: 'rightSideMeasureId' },
-  { chave: 'traseira', coluna: 'backSideMeasureId' },
+  { chave: 'esquerda', face: 'left' },
+  { chave: 'direita', face: 'right' },
+  { chave: 'traseira', face: 'back' },
 ] as const;
 
 @Injectable()
@@ -921,27 +922,11 @@ export class PortalRequestService {
         // ⚠️ AQUI, E SÓ AQUI, CENTÍMETROS VIRAM METROS (armadilha 3).
         const emMetros = medidaParaPrisma(entrada);
 
-        const medida = await tx.implementMeasure.create({
-          data: {
-            height: emMetros.height,
-            sections: {
-              create: emMetros.sections.map(secao => ({
-                width: secao.width,
-                isDoor: secao.isDoor,
-                doorHeight: secao.doorHeight,
-                position: secao.position,
-              })),
-            },
-          },
-          select: { id: true },
-        });
+        // Pelo escritor único: o caminhão acabou de nascer, então a face ganha
+        // a SUA linha.
+        const medida = await setFace(tx, truckId, lado.face, emMetros);
 
-        await tx.truck.update({
-          where: { id: truckId },
-          data: { [lado.coluna]: medida.id },
-        });
-
-        measureIds[lado.chave] = medida.id;
+        measureIds[lado.chave] = medida.measureId;
       }
     }
 

@@ -100,6 +100,7 @@ import { commercialTaskLink, PortalScopeService } from './portal-scope.service';
 import { hasCapability, PORTAL_CAPABILITY } from './portal-capabilities';
 import { assertIdentidadeNaoContradizDocumento } from './portal-frozen-document';
 import { medidaParaPrisma } from '@/schemas/portal-request';
+import { FACE_FK, setFace } from '@modules/production/implement-measure/implement-measure-writer';
 import {
   VEHICLE_IDENTITY_FIELDS,
   type DesiredVehicleIdentity,
@@ -153,11 +154,11 @@ const taskSelectFor = (customerId: string) =>
     },
   }) as const;
 
-/** Os três lados de `ImplementMeasure` e a coluna de `Truck` de cada um. */
+/** Os lados da medida no portal, a face de cada um e a coluna dela no caminhão. */
 const LADOS_DA_MEDIDA = [
-  { chave: 'esquerda', coluna: 'leftSideMeasureId' },
-  { chave: 'direita', coluna: 'rightSideMeasureId' },
-  { chave: 'traseira', coluna: 'backSideMeasureId' },
+  { chave: 'esquerda', face: 'left', coluna: FACE_FK.left },
+  { chave: 'direita', face: 'right', coluna: FACE_FK.right },
+  { chave: 'traseira', face: 'back', coluna: FACE_FK.back },
 ] as const;
 
 @Injectable()
@@ -647,55 +648,17 @@ export class PortalIdentityService {
 
           const atualId = (task.truck as Record<string, any> | null | undefined)?.[lado.coluna] ?? null;
 
-          // `null` explícito = apagar a face.
+          // Pelo escritor único: `null` explícito apaga a face (a linha só sai se
+          // mais ninguém a usa — antes, `.delete().catch()` dentro da transação
+          // abortava tudo quando a linha era de outro caminhão); editar mexe na
+          // linha só se ela é deste lado, senão ganha uma cópia — corrigir o
+          // próprio furgão não pode mudar o de outro cliente.
           if (entrada === null) {
-            if (atualId) {
-              await tx.truck.update({ where: { id: truckId }, data: { [lado.coluna]: null } });
-              await tx.implementMeasure.delete({ where: { id: atualId } }).catch(() => undefined);
-            }
+            if (atualId) await setFace(tx, truckId, lado.face, null);
             continue;
           }
 
-          const emMetros = medidaParaPrisma(entrada as never);
-
-          if (atualId) {
-            // ⚠️ A CHAVE É `implementMeasureId`, não `measureId` — o nome curto
-            // devolve 400 do Prisma em runtime.
-            await tx.implementMeasureSection.deleteMany({ where: { implementMeasureId: atualId } });
-            await tx.implementMeasure.update({
-              where: { id: atualId },
-              data: {
-                height: emMetros.height,
-                sections: {
-                  create: emMetros.sections.map(secao => ({
-                    width: secao.width,
-                    isDoor: secao.isDoor,
-                    doorHeight: secao.doorHeight,
-                    position: secao.position,
-                  })),
-                },
-              },
-            });
-          } else {
-            const criada = await tx.implementMeasure.create({
-              data: {
-                height: emMetros.height,
-                sections: {
-                  create: emMetros.sections.map(secao => ({
-                    width: secao.width,
-                    isDoor: secao.isDoor,
-                    doorHeight: secao.doorHeight,
-                    position: secao.position,
-                  })),
-                },
-              },
-              select: { id: true },
-            });
-            await tx.truck.update({
-              where: { id: truckId },
-              data: { [lado.coluna]: criada.id },
-            });
-          }
+          await setFace(tx, truckId, lado.face, medidaParaPrisma(entrada as never));
 
           await this.auditar(tx, {
             entityType: ENTITY_TYPE.TRUCK,
