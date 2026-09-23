@@ -556,7 +556,28 @@ export class FileService {
     requestedIds: string[],
     userId?: string,
   ): Promise<string[]> {
-    const resolved: string[] = [];
+    const map = await this.resolveLayoutFileIdMapForQuote(tx, targetQuoteId, requestedIds, userId);
+    return [...map.values()];
+  }
+
+  /**
+   * A mesma resolução, devolvendo o MAPA pedido → resolvido.
+   *
+   * Existe para o layout aprovado POR VEÍCULO: o pedido diz "a arte X vale para o
+   * caminhão 39088", e X costuma ser o arquivo da galeria da tarefa — que esta
+   * função troca por um CLONE privado do orçamento. A cobertura precisa cair no
+   * clone, e só o mapa diz qual clone nasceu de qual pedido. Id que não existe
+   * mais fica fora do mapa (descartado, como sempre foi).
+   *
+   * A ordem de inserção do mapa é a do pedido, sem repetição.
+   */
+  async resolveLayoutFileIdMapForQuote(
+    tx: PrismaTransaction,
+    targetQuoteId: string | null,
+    requestedIds: string[],
+    userId?: string,
+  ): Promise<Map<string, string>> {
+    const resolved = new Map<string, string>();
     // Dedupe first — a repeated id owned by ANOTHER quote would otherwise be cloned
     // once per occurrence, producing multiple stray File copies for a single slot.
     const uniqueIds = [...new Set(requestedIds)];
@@ -583,9 +604,9 @@ export class FileService {
       // original stays the task layout. Skip cloning only when this quote already
       // owns the File (a plain re-save) or the File is an unshared fresh upload.
       if (!isOwnByThisQuote && (isTaskLayout || ownedByAnotherQuote)) {
-        resolved.push(await this.cloneFileForQuoteLayout(tx, id, userId));
+        resolved.set(id, await this.cloneFileForQuoteLayout(tx, id, userId));
       } else {
-        resolved.push(id);
+        resolved.set(id, id);
       }
     }
     return resolved;

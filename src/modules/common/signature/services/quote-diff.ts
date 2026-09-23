@@ -704,9 +704,17 @@ function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[
       before: normText(wasV.implementType),
       after: normText(nowV.implementType),
     });
+    // Nº DE SÉRIE: TROCAR é material, PREENCHER não (23/09/2026, depois do
+    // nº 981, assinado com a série 38597 e que seguiu válido com 39027). É o
+    // número que identifica o implemento — outro número é outro veículo. Mas
+    // implemento 0 km é orçado antes de ter série, e completar o cadastro não
+    // pode custar assinatura: mesma regra da placa. Quem DECIDE a invalidação
+    // é `serialNumberReplaced` (dentro de `matchesFrozenTerms`); esta
+    // severidade é o que a tela e o motivo da anulação dizem.
     scalar(out, {
       key: `taskSerialNumber:${nowV.taskId}`,
-      severity: 'COSMETIC',
+      severity: 'MATERIAL',
+      cosmeticOnFillIn: true,
       group: 'VEHICLE',
       label: 'Número de série',
       subject,
@@ -1117,6 +1125,39 @@ export function diffQuoteSnapshots(
         ? plural(after.layoutFileIds.length, 'imagem', 'imagens')
         : 'Sem layout',
     });
+  } else {
+    // ---- Layout por veículo ------------------------------------------------
+    // As MESMAS imagens, atribuídas a outros veículos — ou o orçamento passando
+    // de "vale para todos" a "cada caminhão com a sua". O hash material já
+    // enxerga isso (`layoutCoverage`); sem esta linha a invalidação sairia sem
+    // nenhuma frase que a explicasse. MATERIAL pela mesma razão da troca de
+    // imagem: quem aprovou a arte A para o caminhão 1 não aprovou a arte A para
+    // o caminhão 2. Só existe quando uma das pontas é por veículo — entre dois
+    // `SHARED` a chave nem está no snapshot.
+    const coverageKey = (s: QuoteSnapshot): string =>
+      Array.isArray(s.layoutCoverage)
+        ? s.layoutCoverage
+            .map(([fileId, taskIds]) => `${fileId}:${[...taskIds].sort().join(',')}`)
+            .sort()
+            .join(';')
+        : '';
+    const coverageBefore = coverageKey(before);
+    const coverageAfter = coverageKey(after);
+    if (coverageBefore !== coverageAfter) {
+      const describe = (s: QuoteSnapshot): string =>
+        Array.isArray(s.layoutCoverage) ? 'Por veículo' : 'O mesmo para todos os veículos';
+      const sameShape = describe(before) === describe(after);
+      out.push({
+        key: 'layoutCoverage',
+        severity: 'MATERIAL',
+        kind: 'CHANGED',
+        group: 'LAYOUT',
+        label: 'Layout aprovado por veículo',
+        subject: null,
+        before: sameShape ? 'Atribuição anterior' : describe(before),
+        after: sameShape ? 'Artes atribuídas a outros veículos' : describe(after),
+      });
+    }
   }
 
   // ---- Contratante --------------------------------------------------------

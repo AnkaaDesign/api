@@ -772,6 +772,8 @@ model File {
   supplierLogo                           Supplier[]             @relation("SUPPLIER_LOGO")
   configCustomerSignatures               BudgetPayer[]          @relation("CONFIG_CUSTOMER_SIGNATURE")
   quoteLayout                            Budget?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
+  /// Os veículos que esta arte cobre, quando o orçamento dono dela é `PER_VEHICLE`.
+  quoteLayoutTasks                       BudgetLayoutTask[]     @relation("QUOTE_LAYOUT_TASKS")
   userAvatar                             User[]                 @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
   paintingFaceFiles                      PaintingAnalysisFace[] @relation("PAINTING_FACE_FILE")
@@ -1981,9 +1983,27 @@ model Budget {
   /// Ver `QuoteBillingSplit`, `Billing` e `BillingTask`.
   billingSplit QuoteBillingSplit @default(JOINT)
   layoutFiles  File[]            @relation("QUOTE_LAYOUT")
-  services     BudgetItem[]      @relation("QUOTE_SERVICES")
+
+  /// DE QUAL VEÍCULO É CADA LAYOUT APROVADO.
+  ///
+  /// `SHARED` (o padrão, e o que todo orçamento anterior a esta coluna é): cada
+  /// arte de `layoutFiles` vale para TODOS os veículos — o comportamento de
+  /// sempre, sem nenhuma linha em `BudgetLayoutTask`.
+  ///
+  /// `PER_VEHICLE`: as linhas de `BudgetLayoutTask` são a verdade. Uma arte vale
+  /// só para os veículos com linha, e veículo sem linha não tem layout — nem
+  /// herdado, nem implícito. Nasceu do orçamento nº 990 (Carlotti): mesmo preço
+  /// para os dois caminhões, mas cada um com a SUA pintura. Com a seleção única
+  /// do orçamento, escolher a arte do segundo reprovava a do primeiro na galeria
+  /// dele, e escolher as duas deixava as duas aprovadas nos dois.
+  ///
+  /// O preço continua um só: é o layout que passa a ser por veículo, não o
+  /// orçamento. Veículo que precisa de outra LISTA de serviços continua sendo
+  /// outro orçamento.
+  layoutScope QuoteLayoutScope @default(SHARED)
+  services    BudgetItem[]     @relation("QUOTE_SERVICES")
   /// OS FATURAMENTOS deste orçamento — 1 ou N, entidades de verdade.
-  billings     Billing[]         @relation("QuoteBillings")
+  billings    Billing[]        @relation("QuoteBillings")
 
   /// DEPRECIADO como "a lista de faturamentos". Continua existindo porque é a
   /// lista de PAGADORES, agora pendurada em cada `Billing` por `billingId`. O
@@ -2291,6 +2311,34 @@ model BillingTask {
   @@index([taskId])
 }
 
+/// A COBERTURA DE UM LAYOUT APROVADO — "esta arte vale para este veículo".
+///
+/// Só existe em orçamento `layoutScope = PER_VEHICLE`; num `SHARED` a tabela não
+/// tem linha nenhuma dele, e voltar para `SHARED` apaga as que houver.
+///
+/// Sem `budgetId` de propósito: o orçamento é o dono da ARTE
+/// (`File.quoteLayoutId`) e o dono do VEÍCULO (`Task.quoteId`), e uma linha só
+/// vale quando os dois apontam para o mesmo orçamento. Guardar um terceiro
+/// ponteiro criaria o caso "a linha diz um orçamento, a arte diz outro". Quem lê
+/// a cobertura parte da arte (`layoutFiles[].quoteLayoutTasks`) e cruza com as
+/// tarefas do orçamento; quem tira um veículo do orçamento apaga as linhas dele
+/// (ver `utils/quote-layout-coverage.ts`).
+///
+/// `Cascade` dos dois lados: sem a arte ou sem o veículo a afirmação não tem
+/// sujeito. Um veículo apagado perde a cobertura, e NUNCA a ganha de volta por
+/// inferência.
+model BudgetLayoutTask {
+  fileId    String
+  taskId    String
+  createdAt DateTime @default(now())
+
+  file File @relation("QUOTE_LAYOUT_TASKS", fields: [fileId], references: [id], onDelete: Cascade)
+  task Task @relation("TASK_QUOTE_LAYOUTS", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, taskId])
+  @@index([taskId])
+}
+
 model Supplier {
   id                String             @id @default(uuid())
   sequentialNumber  Int?               @unique @default(dbgenerated("nextval('supplier_number_seq'::regclass)"))
@@ -2434,6 +2482,9 @@ model Task {
   /// Como de-um, `orderBy: { billingEntry: { billing: { statusOrder: 'asc' } } }`
   /// funciona nativamente, sem coluna desnormalizada e sem ordenar em memória.
   billingEntry          BillingTask?          @relation("TaskBillingEntity")
+  /// As artes do orçamento que valem para ESTE veículo, quando o orçamento é
+  /// `PER_VEHICLE`. Num `SHARED` é sempre vazia: ali toda arte vale para todos.
+  quoteLayoutCoverage   BudgetLayoutTask[]    @relation("TASK_QUOTE_LAYOUTS")
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -4641,6 +4692,15 @@ enum QuoteBillingSplit {
   /// nenhum por adivinhação: ganha o próprio faturamento, e a tela mostra que
   /// ele está sozinho.
   CUSTOM
+}
+
+/// De quem é o layout aprovado de um orçamento com N veículos. Ver
+/// `Budget.layoutScope` e `BudgetLayoutTask`.
+enum QuoteLayoutScope {
+  /// Toda arte vale para todo veículo — o comportamento de sempre.
+  SHARED
+  /// Cada arte vale só para os veículos com linha em `BudgetLayoutTask`.
+  PER_VEHICLE
 }
 
 /// O CICLO DO ORÇAMENTO, E SÓ DELE.
@@ -8277,6 +8337,31 @@ model SignatureEnvelope {
   /// Ver `QuoteSnapshotService.materialProjection`.
   quoteTermsSha256 String?
 
+  /// O ÚLTIMO estado do orçamento que o gancho de conteúdo JÁ AVALIOU.
+  ///
+  /// Existe porque a comparação de invalidação é contra o hash CONGELADO, e um
+  /// hash congelado não tem data: divergiu há cinco dias ou há cinco segundos,
+  /// ele responde a mesma coisa. Quem paga por isso é a PRÓXIMA pessoa a salvar
+  /// qualquer coisa no orçamento, que não mudou nada do documento e mesmo assim
+  /// vê a coleta cair na mão dela.
+  ///
+  /// Foi o nº 973 em 22/09/2026: o layout fora trocado em 17/09 (correção dos
+  /// telefones na arte), a regra que enxerga coleta CONCLUÍDA subiu em produção
+  /// às 12:20, e às 12:33 o faturamento — que só gravou condição de pagamento e
+  /// pagador, nada que o documento exiba — foi quem executou a divergência
+  /// alheia: envelope anulado, orçamento de volta a PENDENTE, cliente avisado
+  /// por WhatsApp de um cancelamento que ninguém pediu.
+  ///
+  /// Com esta coluna a pergunta deixa de ser "diverge do congelado?" e passa a
+  /// ser "diverge do que eu já tinha visto?" — que é a pergunta que atribui a
+  /// mudança a quem a fez, no momento em que a fez. Escrito SÓ no caminho de
+  /// ESCRITA (`onQuoteContentChanged`): se a leitura do painel também gravasse,
+  /// abrir a tela consumiria a deriva e a alteração material nunca invalidaria.
+  ///
+  /// Nulo = envelope nunca avaliado por este caminho; aí vale o congelado, que é
+  /// o comportamento anterior.
+  lastSeenSnapshotSha256 String?
+
   /// ADITIVO DE IDENTIFICAÇÃO DO VEÍCULO, selado à parte na finalização do serviço.
   ///
   /// Existe porque a identidade do veículo NUNCA cabe no orçamento assinado de um
@@ -8662,6 +8747,12 @@ enum SignatureEventType {
   DECLARATIONS_ACCEPTED
   SIGNATURE_APPLIED
   SIGNATURE_REFUSED
+
+  /// O signatário de COMPRAS informou, no ato, o nº do pedido de compra de
+  /// veículo(s) que estavam sem ele — condição para ele assinar. O valor vai
+  /// para `Task.customerOrderNumber` (com linha de ChangeLog) e é carimbado na
+  /// lacuna reservada do documento. Ver `signature/order-number-gate.ts`.
+  ORDER_NUMBER_INFORMED
 
   /// O operador pediu de novo a quem havia recusado, devolvendo a vez dele.
   /// A recusa CONTINUA na trilha e em `EnvelopeSigner.refusalReason` — isto não

@@ -53,6 +53,7 @@ import { onlyDigits } from '../utils/identity';
 // nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
 // mantém o ciclo entre os dois arquivos inofensivo.
 import { sortQuoteTasks } from '@utils/quote-tasks';
+import { canonicalLayoutCoverage } from '@utils/quote-layout-coverage';
 import {
   snapshotVehicles,
   describeQuoteChange,
@@ -205,6 +206,19 @@ export interface QuoteSnapshot {
   customForecastDays: number | null;
   simultaneousTasks: number | null;
   layoutFileIds: string[];
+  /**
+   * DE QUAL VEÍCULO É CADA ARTE — só em orçamento `layoutScope = PER_VEHICLE`.
+   *
+   * `[fileId, taskIds ordenados]`, ordenado por `fileId`. AUSENTE (e não vazio)
+   * em `SHARED`: é a ausência que faz o snapshot de um orçamento compartilhado
+   * sair byte a byte igual ao de antes do layout por veículo — o canonicalizador
+   * descarta a chave indefinida, e todo hash já congelado continua batendo.
+   *
+   * Sem subir `QUOTE_SNAPSHOT_SCHEMA_VERSION` pela mesma razão: a versão entra
+   * no hash, e subi-la mudaria o de TODO orçamento, inclusive os compartilhados,
+   * que não mudaram em nada.
+   */
+  layoutCoverage?: Array<[string, string[]]>;
   signers: QuoteSnapshotSigner[];
   commercialUserId: string | null;
 }
@@ -294,6 +308,26 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
  * sob ela reproduz o hash de antes, que é o que permite reconhecê-lo como não
  * alterado.
  */
+/**
+ * LAYOUT POR VEÍCULO (2026-09-23) — `layoutCoverage`, SEM versão nova.
+ *
+ * A regra acima manda subir a versão quando o conjunto de campos materiais muda,
+ * e a razão dela é proteger o que já foi congelado: um envelope avaliado pela
+ * regra nova não pode cair por uma mudança que, à época dele, não era material.
+ * Aqui a chave nova é CONDICIONAL — só existe em orçamento `PER_VEHICLE`, escopo
+ * que não existia quando nenhum dos envelopes atuais foi congelado. Então:
+ *
+ *   - um orçamento `SHARED` emite a projeção de antes, byte a byte, sob a MESMA
+ *     versão (nenhuma assinatura colhida cai por esta mudança);
+ *   - um envelope congelado sob qualquer versão, cujo orçamento depois passou a
+ *     `PER_VEHICLE`, ganha a chave no recálculo e deixa de bater — e é o certo:
+ *     dizer que a arte A é só do caminhão 1 muda o que o cliente aprovou;
+ *   - subir para v8 faria o contrário do que se quer: os congelados sob v7
+ *     seriam recalculados SEM a chave, e a troca de cobertura passaria calada
+ *     (o buraco que a nota da v7 descreve, reaberto por outra porta).
+ *
+ * Mudar a cobertura de um `PER_VEHICLE` é, portanto, mudança material.
+ */
 export const QUOTE_MATERIAL_SCHEMA_VERSION = 7;
 
 /** Versões de recorte material que ainda sabemos recalcular. Ordem: mais nova primeiro. */
@@ -324,6 +358,8 @@ export interface QuoteMaterialProjection {
   simultaneousTasks: number | null;
   expiresAt: string;
   layoutFileIds: string[];
+  /** Só em `PER_VEHICLE` — ver `QuoteSnapshot.layoutCoverage` e a nota de versão. */
+  layoutCoverage?: Array<[string, string[]]>;
   /** Quem se vincula: id + documento. Razão social e nome fantasia são cosméticos. */
   customer: { id: string | null; document: string | null } | null;
   /**
@@ -386,7 +422,12 @@ export interface QuoteMaterialProjection {
 /** Include compartilhado — o renderizador e o snapshot precisam ver o MESMO grafo. */
 export const QUOTE_SNAPSHOT_INCLUDE = {
   services: { orderBy: { position: 'asc' } },
-  layoutFiles: { orderBy: { createdAt: 'asc' } },
+  // Com a cobertura de cada arte: o snapshot a congela (`layoutCoverage`) e o
+  // documento a imprime como legenda de cada imagem.
+  layoutFiles: {
+    orderBy: { createdAt: 'asc' },
+    include: { quoteLayoutTasks: { select: { taskId: true } } },
+  },
   customerConfigs: {
     orderBy: { createdAt: 'asc' },
     include: {
@@ -528,6 +569,12 @@ export class QuoteSnapshotService {
       // Ordenado: a ordem de leitura do Prisma não é garantida entre versões, e
       // uma permutação mudaria o hash sem que nada tivesse mudado de fato.
       layoutFileIds: quote.layoutFiles.map(f => f.id).sort(),
+      // A cobertura, só em `PER_VEHICLE` — em `SHARED` a chave nem existe, e o
+      // snapshot sai idêntico ao de antes. Ver `QuoteSnapshot.layoutCoverage`.
+      ...(() => {
+        const coverage = canonicalLayoutCoverage(quote as any);
+        return coverage ? { layoutCoverage: coverage } : {};
+      })(),
       // Os signatários aparecem no documento (uma linha de assinatura cada), logo
       // adicionar ou remover um responsável É alteração material.
       //
@@ -592,6 +639,15 @@ export class QuoteSnapshotService {
       simultaneousTasks: s.simultaneousTasks,
       expiresAt: s.expiresAt,
       layoutFileIds: [...s.layoutFileIds].sort(),
+      // Em QUALQUER versão, porque só existe em `PER_VEHICLE` — ver a nota de
+      // versão. Renormalizada: a ordem de leitura não pode mudar o hash.
+      ...(Array.isArray(s.layoutCoverage)
+        ? {
+            layoutCoverage: s.layoutCoverage
+              .map(([fileId, taskIds]) => [fileId, [...taskIds].sort()] as [string, string[]])
+              .sort((a, b) => a[0].localeCompare(b[0])),
+          }
+        : {}),
       customer: s.customer ? { id: s.customer.id, document: s.customer.document } : null,
       // O OBJETO DO CONTRATO, na versão pedida.
       //
@@ -657,6 +713,25 @@ export class QuoteSnapshotService {
     };
   }
 
+  /**
+   * Algum veículo que estava no documento congelado COM nº de série tem agora
+   * outro número (ou nenhum)?
+   *
+   * Preencher o que estava vazio NÃO conta — é cadastro tardio, a mesma
+   * tolerância da placa. Veículo que só existe de um dos lados também não:
+   * entrar ou sair veículo já é material pela lista de placas.
+   */
+  serialNumberReplaced(current: QuoteSnapshot, frozen: QuoteSnapshot): boolean {
+    const now = new Map(snapshotVehicles(current).map(v => [v.taskId, v]));
+    return snapshotVehicles(frozen).some(was => {
+      const before = normText(was.serialNumber);
+      if (before === null) return false;
+      const v = now.get(was.taskId);
+      if (!v) return false;
+      return normText(v.serialNumber) !== before;
+    });
+  }
+
   materialHash(
     snapshot: QuoteSnapshot,
     version: number = QUOTE_MATERIAL_SCHEMA_VERSION,
@@ -691,6 +766,14 @@ export class QuoteSnapshotService {
      */
     pendingSignerIds?: readonly string[] | null,
   ): number | null {
+    // TROCA DE Nº DE SÉRIE — veto que vale para QUALQUER versão do recorte.
+    //
+    // Não entrou no hash material (seria uma v8) de propósito: as versões
+    // antigas continuam sendo testadas abaixo, e um envelope congelado sob a v7
+    // casaria pela v7 — que não enxerga série — e a troca passaria. Como
+    // veto, ela alcança também os envelopes já emitidos e os já concluídos.
+    if (frozen && this.serialNumberReplaced(snapshot, frozen)) return null;
+
     const reconciled: QuoteSnapshot[] = [];
     if (frozen) {
       const late = this.tolerateLateRegistration(snapshot, frozen);

@@ -643,18 +643,112 @@ export class BonusService {
   }
 
   /**
+   * AS LINHAS QUE A CONTA VIVA PRODUZ — e que só viram registro no banco quando
+   * a folha fecha.
+   *
+   * São três, e todas derivam da base do período: o extra de assiduidade do
+   * ponto, o desconto das tarefas suspensas e as faltas (atestado e sem
+   * justificativa, em cascata). Enquanto o mês está aberto elas existem apenas
+   * aqui — o período corrente não tem nenhum `Bonus` gravado —, e é por isso
+   * que quem lê só o banco vê "ajustes R$ 0,00" num mês inteiro de descontos.
+   *
+   * Um lugar só porque são três consumidores: a sobreposição do bônus salvo, a
+   * lista do DP e a SIMULAÇÃO. Quando cada um montava as suas, a mesma pessoa
+   * aparecia com dois líquidos.
+   */
+  private buildLiveModifierLines(
+    live: {
+      bonusExtraPercentage?: number;
+      bonusExtraValue?: number;
+      suspendedTasksDiscount?: number;
+      secullumAnalysis?: SecullumBonusAnalysis;
+    },
+    bonusId: string,
+    userId: string,
+  ): { extras: any[]; discounts: any[] } {
+    const extras: any[] = [];
+    const discounts: any[] = [];
+
+    if (live.bonusExtraValue && live.bonusExtraValue > 0) {
+      extras.push({
+        id: `live-extra-ponto-${userId}`,
+        bonusId,
+        reference: 'Assiduidade do Ponto Eletrônico',
+        percentage: live.bonusExtraPercentage,
+        value: live.bonusExtraValue,
+        calculationOrder: 1,
+      });
+    }
+    if (live.suspendedTasksDiscount && live.suspendedTasksDiscount > 0) {
+      discounts.push({
+        id: `live-discount-suspended-${userId}`,
+        bonusId,
+        reference: 'Tarefas Suspensas',
+        value: live.suspendedTasksDiscount,
+        percentage: null,
+        calculationOrder: 1,
+      });
+    }
+    if (live.secullumAnalysis) {
+      for (const line of buildAbsenceDiscountLines(live.secullumAnalysis)) {
+        discounts.push({
+          id: `live-discount-${line.kind}-${userId}`,
+          bonusId,
+          reference: line.reference,
+          ruleReference: line.ruleReference,
+          dates: line.dates,
+          percentage: line.percentage,
+          value: line.value,
+          ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
+          calculationOrder: line.calculationOrder,
+        });
+      }
+    }
+
+    return { extras, discounts };
+  }
+
+  /**
    * Aplica extras e descontos sobre uma base, na ordem de cálculo. Extraído
    * para que a LISTA e o DETALHE cheguem ao mesmo líquido a partir da mesma
    * base — as duas telas divergirem em centavos é bug de confiança.
    */
-  private applyModifiersToBase(base: number, extras: any[], discounts: any[]): number {
+  private applyModifiersToBase(
+    base: number,
+    extras: any[],
+    discounts: any[],
+    /**
+     * A SIMULAÇÃO pede a PORCENTAGEM primeiro, e o bônus gravado pede o VALOR.
+     *
+     * Não é capricho: 63 lançamentos do acervo trazem os dois campos (a
+     * "Assiduidade do Ponto Eletrônico" é 21% E os R$ 287,92 que aquele 21%
+     * valeu na base daquele mês). Para o bônus REAL o valor materializado é a
+     * verdade — foi ele que a folha pagou. Para a simulação ele é justamente o
+     * que não vale: quem troca o cargo muda a base, e um extra de 21% tem de
+     * render 21% da base NOVA, não os reais da antiga. Linha que só tem valor
+     * (um acerto de R$ 80) continua valendo o valor nos dois modos.
+     */
+    options: { preferPercentage?: boolean } = {},
+  ): number {
+    /**
+     * `first` preserva a preferência ORIGINAL de cada lado — extra lia o valor
+     * antes, desconto lia a porcentagem antes — porque trocar isso mudaria o
+     * bônus já pago de quem tem um lançamento com os dois campos. Só o modo de
+     * simulação unifica em porcentagem.
+     */
+    const amountOf = (line: any, over: number, first: 'value' | 'percentage'): number | null => {
+      const pct = line.percentage !== null && line.percentage !== undefined ? Number(line.percentage) : null;
+      const val = line.value !== null && line.value !== undefined ? Number(line.value) : null;
+      const byPct = pct !== null ? over * (pct / 100) : null;
+      if (options.preferPercentage && byPct !== null) return byPct;
+      if (first === 'value') return val ?? byPct;
+      return byPct ?? val;
+    };
+
     let totalExtras = 0;
     for (const extra of extras) {
-      if (extra.value !== null && extra.value !== undefined) {
-        totalExtras += Number(extra.value);
-      } else if (extra.percentage !== null && extra.percentage !== undefined) {
-        totalExtras += base * (Number(extra.percentage) / 100);
-      }
+      const amount = amountOf(extra, base, 'value');
+      if (amount !== null) totalExtras += amount;
     }
 
     let calculatedNet = base + totalExtras;
@@ -666,13 +760,9 @@ export class BonusService {
     );
 
     for (const discount of sortedDiscounts) {
-      if (discount.percentage !== null && discount.percentage !== undefined) {
-        const discountAmount = calculatedNet * (Number(discount.percentage) / 100);
-        calculatedNet = Math.max(0, calculatedNet - discountAmount);
-      } else if (discount.value !== null && discount.value !== undefined) {
-        const discountAmount = Math.min(Number(discount.value), calculatedNet);
-        calculatedNet = Math.max(0, calculatedNet - discountAmount);
-      }
+      const amount = amountOf(discount, calculatedNet, 'percentage');
+      if (amount === null) continue;
+      calculatedNet = Math.max(0, calculatedNet - Math.min(amount, calculatedNet));
     }
 
     const hasModifiers = discounts.length > 0 || extras.length > 0;
@@ -743,41 +833,9 @@ export class BonusService {
         !String(d.reference || '').startsWith('Faltas - Atestado') &&
         !String(d.reference || '').startsWith('Faltas - Sem Justificativa'),
     );
-    if (live.bonusExtraValue && live.bonusExtraValue > 0) {
-      extras.push({
-        id: `live-extra-ponto-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-        bonusId: savedBonus.id,
-        reference: 'Assiduidade do Ponto Eletrônico',
-        percentage: live.bonusExtraPercentage,
-        value: live.bonusExtraValue,
-        calculationOrder: 1,
-      });
-    }
-    if (live.suspendedTasksDiscount > 0) {
-      discounts.push({
-        id: `live-discount-suspended-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-        bonusId: savedBonus.id,
-        reference: 'Tarefas Suspensas',
-        value: live.suspendedTasksDiscount,
-        percentage: null,
-        calculationOrder: 1,
-      });
-    }
-    if (live.secullumAnalysis) {
-      for (const line of buildAbsenceDiscountLines(live.secullumAnalysis)) {
-        discounts.push({
-          id: `live-discount-${line.kind}-${savedBonus.userId}-${savedBonus.year}-${savedBonus.month}`,
-          bonusId: savedBonus.id,
-          reference: line.reference,
-          ruleReference: line.ruleReference,
-          dates: line.dates,
-          percentage: line.percentage,
-          value: line.value,
-          ...(line.noDiscountNote ? { noDiscountNote: line.noDiscountNote } : {}),
-          calculationOrder: line.calculationOrder,
-        });
-      }
-    }
+    const liveLines = this.buildLiveModifierLines(live, savedBonus.id, savedBonus.userId);
+    extras.push(...liveLines.extras);
+    discounts.push(...liveLines.discounts);
 
     return {
       ...savedBonus,
@@ -4622,6 +4680,15 @@ export class BonusService {
       sectorName?: string;
       salary?: number;
       performanceLevel: number;
+      /**
+       * Quanto do período a pessoa conta, de 0 a 1 (admissão, desligamento,
+       * afastamento). É o MESMO peso que entra no divisor da média. O simulador
+       * mandava o valor de período inteiro e prorrateava no cliente; agora o
+       * peso vem junto, porque sem ele não há como aplicar desconto de VALOR
+       * fixo sobre a base certa — 50% de um bônus prorrateado é uma coisa, R$ 80
+       * sobre ele é outra.
+       */
+      eligibilityWeight?: number;
     }>;
     config?: Partial<{
       k: number;
@@ -4701,6 +4768,96 @@ export class BonusService {
       if (r.calculation.bonus > 0) eligibleCount++;
     }
 
+    /**
+     * O BRUTO NÃO É O QUE CAI NA FOLHA. Entre um e outro estão os extras e os
+     * descontos do período — suspensão de tarefa, advertência, acerto manual —,
+     * e a simulação que só mostra o bruto responde a pergunta errada: promover
+     * alguém que tem 50% de desconto não muda o desconto, muda a base sobre a
+     * qual ele incide.
+     *
+     * Os lançamentos vêm do período REAL da pessoa e são aplicados sobre a base
+     * SIMULADA pela mesma função que a lista e o detalhe usam
+     * (`applyModifiersToBase`) — as três telas divergirem em centavos é bug de
+     * confiança. Quem não tem bônus gravado no período não tem lançamento: o
+     * líquido é o próprio bruto.
+     */
+    const weightById = new Map<string, number>();
+    for (const u of input.users) {
+      if (u.id) weightById.set(u.id, u.eligibilityWeight ?? 1);
+    }
+    const ledgerByUserId = new Map<string, { extras: any[]; discounts: any[] }>();
+    const simulatedUserIds = input.users.map(u => u.id).filter((id): id is string => !!id);
+    if (input.year && input.month && simulatedUserIds.length > 0) {
+      const periodBonuses = await this.prisma.bonus.findMany({
+        where: { userId: { in: simulatedUserIds }, year: input.year, month: input.month },
+        select: {
+          userId: true,
+          bonusExtras: { orderBy: [{ calculationOrder: 'asc' }, { createdAt: 'asc' }] },
+          bonusDiscounts: { orderBy: [{ calculationOrder: 'asc' }, { createdAt: 'asc' }] },
+        },
+      });
+      for (const b of periodBonuses) {
+        ledgerByUserId.set(b.userId, { extras: b.bonusExtras, discounts: b.bonusDiscounts });
+      }
+
+      /**
+       * O PERÍODO ABERTO NÃO TEM BÔNUS GRAVADO — e é justamente ele que se
+       * simula. Assiduidade do ponto, atestado, falta sem justificativa e
+       * tarefa suspensa só viram linha no banco quando a folha fecha; até lá
+       * moram na conta VIVA, que é o que a tela de Bônus mostra. Lendo só o
+       * gravado, a simulação do mês corrente dizia "ajustes R$ 0,00" para
+       * todo mundo — o líquido saía igual ao bruto, que é a resposta errada
+       * com cara de resposta certa.
+       *
+       * A ordem é a mesma que `calculateLiveBonusForUser` usa: o gravado manda
+       * quando existe (foi ele que a folha pagou), o vivo entra para quem
+       * ainda não tem. `calculateLiveBonuses` é SWR com cache de período — a
+       * mesma chamada que a lista de bônus já faz o tempo todo.
+       */
+      const missing = simulatedUserIds.filter(id => !ledgerByUserId.has(id));
+      if (missing.length > 0) {
+        try {
+          const live = await this.calculateLiveBonuses(input.year, input.month);
+          const wanted = new Set(missing);
+          for (const lb of live.bonuses) {
+            if (!wanted.has(lb.userId)) continue;
+            // As linhas do período aberto são SINTETIZADAS (ponto, tarefas
+            // suspensas, faltas) — o `bonusExtras`/`bonusDiscounts` da linha
+            // viva vem vazio, porque não há registro no banco para relacionar.
+            const lines = this.buildLiveModifierLines(lb, `live-${lb.userId}`, lb.userId);
+            const extras = [...(lb.bonusExtras ?? []), ...lines.extras];
+            const discounts = [...(lb.bonusDiscounts ?? []), ...lines.discounts];
+            if (extras.length || discounts.length) {
+              ledgerByUserId.set(lb.userId, { extras, discounts });
+            }
+          }
+        } catch (error) {
+          // Simulação não pode morrer por causa do Secullum: sem a conta viva
+          // o líquido vira o bruto, que é o que ela mostrava antes.
+          this.logger.warn(
+            `Simulação sem lançamentos do período vivo ${input.month}/${input.year}: ${(error as Error)?.message}`,
+          );
+        }
+      }
+    }
+
+    const settlementOf = (userId: string | undefined, fullPeriodBonus: number) => {
+      const weight = userId ? (weightById.get(userId) ?? 1) : 1;
+      const grossBonus = roundCurrency(fullPeriodBonus * weight);
+      const ledger = userId ? ledgerByUserId.get(userId) : undefined;
+      const netBonus = ledger
+        ? this.applyModifiersToBase(grossBonus, ledger.extras, ledger.discounts, {
+            preferPercentage: true,
+          })
+        : grossBonus;
+      return {
+        eligibilityWeight: weight,
+        grossBonus,
+        netBonus,
+        adjustments: roundCurrency(netBonus - grossBonus),
+      };
+    };
+
     // Optional B1 curve for the chart-2 view (bonus × B1, salary fixed).
     // `steps` defines the number of INTERVALS, so we emit `steps + 1` points
     // spanning [min, max] inclusive — same convention as bonus-simulator.html
@@ -4749,6 +4906,9 @@ export class BonusService {
         performanceLevel: r.performanceLevel,
         bonus: r.calculation.bonus,
         baseBonus: r.calculation.baseBonus,
+        // Bruto prorrateado, líquido e a diferença entre os dois — o que a folha
+        // realmente pagaria com este cargo e este nível.
+        ...settlementOf(r.id, r.calculation.bonus),
         ratio: r.calculation.ratio,
         x: r.calculation.x,
         anchor: r.calculation.anchor,

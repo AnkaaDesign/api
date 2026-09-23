@@ -104,6 +104,7 @@
     "test:dossier-signed-trail": "tsx tests/dossier-signed-trail.test.ts",
     "test:dossier-paginacao": "tsx tests/dossier-paginacao.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
+    "test:layout-per-vehicle": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/layout-per-vehicle.test.ts",
     "whatsapp:submit-template": "tsx scripts/submit-signature-whatsapp-template.ts",
     "test:signature-refusal": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/signature-refusal.test.ts",
     "test:nfse-line-scale": "tsx tests/nfse-line-scale.test.ts",
@@ -117,6 +118,7 @@
     "test:billing-entity": "tsx tests/billing-entity.test.ts",
     "test:billing-payer-guard": "tsx tests/budget-payer-needs-billing.test.ts",
     "test:billing-status": "tsx tests/billing-status.test.ts",
+    "test:billing-lens": "tsx tests/billing-lens.test.ts",
     "test:invoice-payment-state": "tsx tests/invoice-payment-state.test.ts",
     "test:parcelas-custom": "tsx tests/parcelas-custom.test.ts",
     "test:signature-whatsapp-templates": "tsx tests/signature-whatsapp-templates.test.ts",
@@ -130,7 +132,9 @@
     "test:portal-requisicao": "tsx tests/portal-requisicao.test.ts",
     "test:orcamento-sem-os-negociacao": "tsx tests/orcamento-sem-os-negociacao.test.ts",
     "test:portal-identificacao": "tsx -r tsconfig-paths/register tests/portal-identificacao.test.ts",
-    "test:portal-e2e": "bash tests/e2e-portal/run.sh"
+    "test:portal-e2e": "bash tests/e2e-portal/run.sh",
+    "test:paint-purchase": "tsx tests/paint-purchase.test.ts",
+    "test:bonus-modifiers": "tsx tests/bonus-modifiers.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

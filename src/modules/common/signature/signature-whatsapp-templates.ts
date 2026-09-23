@@ -325,14 +325,31 @@ export function ankaaCountersignTemplate(data: {
   };
 }
 
-/** A coleta caiu por alteração material — o que o lado da ANKAA recebe. */
+/**
+ * A coleta caiu por alteração material — o que o lado da ANKAA recebe.
+ *
+ * ⚠️ SEM `urlButtonParam`, e isso não é esquecimento. O template aprovado na
+ * Meta com este nome NÃO TEM componente de botão, e a Meta recusa no ENVIO —
+ * não no cadastro — qualquer parâmetro de botão mandado para um template que não
+ * o declara: erro 132018, "Template does not contain button components, no
+ * parameters allowed".
+ *
+ * O efeito era o pior possível: o aviso do CLIENTE saía normalmente e o aviso
+ * INTERNO — o único que diz POR QUE a coleta caiu — era recusado em silêncio, com
+ * a falha morrendo numa linha de log. Foi exatamente o que aconteceu no nº 973 em
+ * 22/09/2026: o cliente recebeu "sua assinatura foi cancelada" e ninguém aqui
+ * dentro soube que tinha acontecido.
+ *
+ * Um aviso sem botão chega; um aviso com botão que a Meta recusa não chega. Se um
+ * dia o template ganhar o botão "Abrir o orçamento" (como o `orcamento_recusado`
+ * e o `orcamento_contra_assinatura` ganharam em 17/09), é o CADASTRO na Meta que
+ * muda primeiro — e só então esta função volta a mandar o sufixo.
+ */
 export function voidedInternalTemplate(data: {
   signerName: string;
   budgetNumber: string | number;
   /** Por que a coleta foi anulada. Texto nosso, mas de tamanho livre. */
   reason: string;
-  /** Sufixo do botão: o id da TAREFA, que é como a tela interna é endereçada. */
-  quoteTaskId: string;
 }): SignatureWhatsAppTemplate {
   return {
     name: SIGNATURE_WHATSAPP_TEMPLATE_NAMES.VOIDED_INTERNAL,
@@ -342,6 +359,5 @@ export function voidedInternalTemplate(data: {
       cleanParam(data.budgetNumber),
       clampParam(cleanParam(data.reason), 320),
     ],
-    urlButtonParam: cleanParam(data.quoteTaskId),
   };
 }

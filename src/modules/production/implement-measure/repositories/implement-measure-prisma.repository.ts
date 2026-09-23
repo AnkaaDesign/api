@@ -107,7 +107,17 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     return implementMeasure;
   }
 
-  async update(id: string, data: ImplementMeasureUpdateFormData, userId?: string): Promise<ImplementMeasure> {
+  async update(
+    id: string,
+    data: ImplementMeasureUpdateFormData,
+    userId?: string,
+    /**
+     * Roda DENTRO da transação da edição, depois dela — é por onde o serviço
+     * replica a medida editada para os irmãos de orçamento de cada caminhão que
+     * a usa, sem abrir uma segunda transação.
+     */
+    afterWrite?: (tx: any) => Promise<void>,
+  ): Promise<ImplementMeasure> {
     // Use a transaction to update implementMeasure and replace all sections
     const implementMeasure = await this.prisma.$transaction(async tx => {
       // Delete existing sections if we're updating them
@@ -118,7 +128,7 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
       }
 
       // Update implementMeasure with new sections
-      return await tx.implementMeasure.update({
+      const updated = await tx.implementMeasure.update({
         where: { id },
         data: {
           ...(data.height !== undefined && { height: data.height }),
@@ -143,6 +153,8 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
           },
         },
       });
+      if (afterWrite) await afterWrite(tx);
+      return updated;
     });
 
     return implementMeasure;

@@ -326,6 +326,26 @@ export const signatureSignSchema = z.object({
     .max(20, 'Lista de declarações inválida.'),
   clientTimestamp: clientTimestampSchema,
   geo: geoSchema,
+  /**
+   * Nº do pedido de compra por veículo — só é LIDO quando o signatário é de
+   * Compras e só preenche veículo que está sem número (ver
+   * `signature/order-number-gate.ts`). Aqui só forma e cardinalidade; o teor
+   * (caracteres, obrigatoriedade) é regra de domínio e fica no serviço, que
+   * sabe dizer qual veículo está faltando.
+   *
+   * Opcional: página já aberta antes do deploy não manda o campo, e para quem
+   * não é de Compras ele nunca é exigido.
+   */
+  orderNumbers: z
+    .array(
+      z.object({
+        taskId: z.string().uuid('Veículo inválido.'),
+        value: z.string().max(200, 'Nº do pedido muito longo.'),
+      }),
+    )
+    .max(100, 'Lista de pedidos inválida.')
+    .nullish()
+    .transform(value => value ?? []),
 });
 
 export type SignatureSignFormData = z.infer<typeof signatureSignSchema>;

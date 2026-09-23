@@ -157,7 +157,14 @@ export const budgetIncludeSchema = z
      */
     task: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
-    layoutFiles: z.boolean().optional(),
+    /**
+     * `true` é o que as telas mandam, e basta: o repositório pendura a cobertura
+     * de cada arte (`quoteLayoutTasks`) sozinho — ver `withLayoutCoverageInclude`.
+     * A forma de objeto passa para quem monta o nó à mão; um `z.boolean()` puro
+     * RECUSAVA esse corpo, e um objeto zod estrito descartaria a chave nova em
+     * silêncio, que é o defeito que esta base já teve com `billing`.
+     */
+    layoutFiles: z.union([z.boolean(), z.record(z.any())]).optional(),
     /**
      * A REQUISIÇÃO que originou o orçamento, quando ele nasceu no portal.
      *
@@ -893,6 +900,39 @@ export const discountReferenceSchema = z
   .nullable()
   .optional();
 
+/**
+ * O LAYOUT APROVADO, arte a arte, com os veículos de cada uma.
+ *
+ * `taskIds` ausente ou nulo = "esta arte vale para todos os veículos". Se TODAS
+ * as artes valem para todos, o orçamento é gravado como `SHARED` (o de sempre);
+ * se alguma vale só para parte deles, `PER_VEHICLE`, com uma linha por (arte ×
+ * veículo). `[]` ou `null` na lista inteira limpa o layout — igual a
+ * `layoutFileIds: []`.
+ *
+ * O teto aqui é folgado de propósito (a lista pode repetir `fileId`, e as
+ * coberturas se juntam): quem impõe os limites de verdade — 2 por veículo, 20
+ * distintas, 2 no `SHARED` — é `planLayoutCoverage`, que sabe nomear o veículo
+ * que passou.
+ *
+ * Não convive com `layoutFileIds` no mesmo corpo: as duas dizem a mesma coisa
+ * de formas diferentes, e escolher uma em silêncio esconderia o erro de quem
+ * mandou as duas.
+ */
+export const budgetLayoutsSchema = z
+  .array(
+    z.object({
+      fileId: z.string().uuid('Arquivo de layout invalido'),
+      taskIds: z
+        .array(z.string().uuid('Veiculo invalido'))
+        .max(200, 'Maximo de 200 veiculos por layout')
+        .optional()
+        .nullable(),
+    }),
+  )
+  .max(100, 'Layouts demais para um orcamento')
+  .optional()
+  .nullable();
+
 // BudgetItem nested schema
 // Amount is optional and defaults to 0 (courtesy services)
 export const budgetItemCreateNestedSchema = z.object({
@@ -1007,6 +1047,8 @@ export const budgetCreateBaseSchema = z.object({
 
   // Layout Files (max 2, ordered File ids)
   layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
+  // Layout aprovado POR VEÍCULO — ver `budgetLayoutsSchema`.
+  layouts: budgetLayoutsSchema,
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
@@ -1175,6 +1217,9 @@ export const budgetUpdateSchema = z.object({
 
   // Layout Files (max 2, ordered File ids)
   layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
+  // Layout aprovado POR VEÍCULO — ver `budgetLayoutsSchema`. Seguro depois do
+  // faturamento, como `layoutFileIds` (ver `QUOTE_SAFE_AFTER_BILLING_FIELDS`).
+  layouts: budgetLayoutsSchema,
 
   simultaneousTasks: simultaneousTasksSchema,
   // `.min(1)` mirrors the create schema: an empty array is not "no change", it

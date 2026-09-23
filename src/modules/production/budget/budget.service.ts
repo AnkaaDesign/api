@@ -123,6 +123,22 @@ import {
   deleteInstallmentsWithSlips,
 } from '@utils/billing-teardown';
 import { reconcileBillingsForQuote } from '@utils/budget-customer-config-sync';
+import {
+  describeLayoutArrangement,
+  isPerVehicleLayout,
+  layoutArrangementKey,
+  layoutImageKey,
+  layoutGateFailure,
+  PER_VEHICLE_LEGACY_WRITE_MESSAGE,
+  planLayoutCoverage,
+  pruneQuoteLayoutCoverage,
+  QUOTE_LAYOUT_FILES_INCLUDE,
+  sameIdSet,
+  storedLayoutArrangementKey,
+  writeLayoutCoverageRows,
+  type LayoutCoveragePlan,
+  type QuoteLayoutScopeValue,
+} from '@utils/quote-layout-coverage';
 
 /**
  * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
@@ -342,6 +358,9 @@ export class BudgetService {
         include: {
           responsibles: { select: { id: true, roles: true }, orderBy: { createdAt: 'asc' } },
           quote: { select: { budgetNumber: true } },
+          // A placa nomeia o veículo sem número de série nas mensagens do layout
+          // por veículo ("passou do veículo ABC1D23").
+          truck: { select: { plate: true } },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
@@ -383,6 +402,24 @@ export class BudgetService {
       }
 
       const task = tasks[0];
+
+      // ── O LAYOUT APROVADO, VEÍCULO A VEÍCULO ──────────────────────────────
+      //
+      // `layouts` é a forma nova: cada arte diz de quais veículos é. Normalizada
+      // AQUI, antes de qualquer escrita, porque é aqui que ela pode ser recusada
+      // (veículo que não é do orçamento, arte demais por caminhão) — e recusar
+      // depois de alocar número e criar faturamento seria desfazer tudo isso.
+      // `layoutFileIds` continua aceito (app instalado, criação em lote) e cria
+      // um orçamento `SHARED`, como sempre.
+      if ((data as any).layouts !== undefined && data.layoutFileIds !== undefined) {
+        throw new BadRequestException(
+          'Envie o layout aprovado por "layouts" ou por "layoutFileIds", não pelos dois.',
+        );
+      }
+      const layoutPlan: LayoutCoveragePlan | null =
+        (data as any).layouts !== undefined
+          ? planLayoutCoverage((data as any).layouts ?? [], tasks as any[])
+          : null;
 
       // O PAGADOR NÃO ELEGE MAIS UM RESPONSÁVEL. Havia aqui um bloco que
       // escolhia "o melhor" responsável da tarefa e o gravava em cada fatia de
@@ -513,6 +550,12 @@ export class BudgetService {
         // Get next budget number (auto-increment, advisory-locked against concurrent minters)
         const nextBudgetNumber = await allocateBudgetNumber(tx);
 
+        // As artes do plano, já RESOLVIDAS: a arte da galeria de uma tarefa (ou de
+        // outro orçamento) vira um clone privado deste, e a cobertura cai no clone.
+        const resolvedLayoutPlan = layoutPlan
+          ? await this.resolveLayoutPlan(tx, null, layoutPlan, userId)
+          : null;
+
         const newQuote = await tx.budget.create({
           data: {
             budgetNumber: nextBudgetNumber,
@@ -538,6 +581,14 @@ export class BudgetService {
                     userId,
                   )
                 ).map((fid: string) => ({ id: fid })),
+              },
+            }),
+            // Layout por `layouts` — com o escopo que a normalização decidiu. As
+            // linhas de cobertura vêm depois do vínculo das tarefas.
+            ...(resolvedLayoutPlan && {
+              layoutScope: resolvedLayoutPlan.scope as any,
+              layoutFiles: {
+                connect: resolvedLayoutPlan.files.map(f => ({ id: f.fileId })),
               },
             }),
             simultaneousTasks: data.simultaneousTasks || null,
@@ -572,7 +623,7 @@ export class BudgetService {
               },
             },
             tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-            layoutFiles: { orderBy: { createdAt: 'asc' } },
+            layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
             customerConfigs: {
               include: {
                 customer: {
@@ -706,11 +757,22 @@ export class BudgetService {
           });
         }
 
+        // A COBERTURA de cada arte — agora que os veículos são deste orçamento.
+        if (resolvedLayoutPlan) {
+          await writeLayoutCoverageRows(
+            tx,
+            newQuote.id,
+            resolvedLayoutPlan.scope,
+            resolvedLayoutPlan.files,
+          );
+        }
+
         // Any layout file added straight onto the quote must also exist as an
         // APPROVED task layout (now that the task↔quote link is set). The Step-2
         // selection is authoritative: promote the selected images (re-approving a
         // re-selected REPROVED one), then reprove every non-selected task layout.
-        if (data.layoutFileIds !== undefined) {
+        // Por veículo: cada galeria recebe e impõe só a seleção DELA.
+        if (data.layoutFileIds !== undefined || resolvedLayoutPlan) {
           await syncTaskLayoutsFromQuote(tx, newQuote.id, userId, true);
           await reproveNonSelectedTaskLayoutsFromQuote(tx, newQuote.id, userId);
         }
@@ -821,7 +883,7 @@ export class BudgetService {
               },
             },
             tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-            layoutFiles: { orderBy: { createdAt: 'asc' } },
+            layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
             customerConfigs: {
               include: {
                 customer: {
@@ -1021,13 +1083,31 @@ export class BudgetService {
   private filterToMaterialChanges(
     existing: any,
     data: BudgetUpdateFormData,
+    /**
+     * O pedido `layouts` JÁ NORMALIZADO (`planLayoutCoverage`). A comparação é
+     * do ARRANJO — escopo + quem cobre quem —, não da presença da chave: a tela
+     * de orçamento reenvia `layouts` em toda gravação, e tratá-lo como "mudou"
+     * derrubaria a coleta de assinaturas a cada salvamento, que é exatamente o
+     * efeito que `layoutFileIds` teve até 17/09 (ver o ramo abaixo).
+     */
+    layoutPlan?: LayoutCoveragePlan | null,
   ): BudgetUpdateFormData {
     const filtered: any = {};
     for (const key of Object.keys(data)) {
       const value = (data as any)[key];
       if (value === undefined) continue;
       if (BudgetService.NON_QUOTE_UPDATE_KEYS.has(key)) continue;
-      if (key === 'customerConfigs') {
+      if (key === 'layouts') {
+        // Sem plano não há o que comparar — e aí a chave passa, que é o lado
+        // seguro (grava; não finge que nada mudou).
+        if (
+          !layoutPlan ||
+          layoutArrangementKey(layoutPlan.scope, layoutPlan.files) !==
+            storedLayoutArrangementKey(existing)
+        ) {
+          filtered[key] = value;
+        }
+      } else if (key === 'customerConfigs') {
         if (this.customerConfigsMateriallyChanged(existing.customerConfigs || [], value)) {
           filtered[key] = value;
         }
@@ -1153,10 +1233,23 @@ export class BudgetService {
           //
           // A gravação só manda `taskIds` quando MUDA o conjunto de veículos;
           // em toda outra gravação o conjunto é o que está no banco.
-          tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } },
+          // Série, placa e criação vêm junto com o id: são o que nomeia cada
+          // veículo na trilha e nas recusas do layout por veículo, e a ordem
+          // canônica da cobertura.
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              createdAt: true,
+              serialNumber: true,
+              truck: { select: { plate: true } },
+            },
+          },
           // Captured BEFORE the write so an UNSELECTED reference (dropped from
-          // layoutFiles) can be reproved on the task layout afterwards.
-          layoutFiles: true,
+          // layoutFiles) can be reproved on the task layout afterwards — e com a
+          // COBERTURA de cada arte, que é o lado gravado da detecção de mudança
+          // do layout por veículo.
+          layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
           // ⚠️ A TRAVA DO DINHEIRO LÊ DAQUI. Sem este include
           // `isQuoteMoneyLocked` devolve `false` e a gravação passa por cima de
           // fatura, boleto e nota já emitidos, em silêncio.
@@ -1169,6 +1262,57 @@ export class BudgetService {
       }
 
       const currentStatus = (existing as any).status as TASK_QUOTE_STATUS;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // O LAYOUT APROVADO: `layouts` (por veículo) ou `layoutFileIds` (legado)
+      // ─────────────────────────────────────────────────────────────────────
+      const layoutsRequested = (data as any).layouts !== undefined;
+      if (layoutsRequested && data.layoutFileIds !== undefined) {
+        throw new BadRequestException(
+          'Envie o layout aprovado por "layouts" ou por "layoutFileIds", não pelos dois.',
+        );
+      }
+      // A PORTA LEGADA num orçamento por veículo. A lista crua de ids não diz de
+      // qual veículo cada arte é: o MESMO conjunto é o eco que a tela de
+      // faturamento, o app e o modal da Agenda mandam em toda gravação, e passa
+      // sem tocar em nada (a cobertura fica como está); um conjunto DIFERENTE
+      // obrigaria a inventar a cobertura, e é recusado com o endereço certo.
+      if (!layoutsRequested && data.layoutFileIds !== undefined && isPerVehicleLayout(existing)) {
+        const gravados = (((existing as any).layoutFiles ?? []) as Array<{ id: string }>).map(
+          f => f.id,
+        );
+        if (!sameIdSet(gravados, data.layoutFileIds ?? [])) {
+          throw new BadRequestException(PER_VEHICLE_LEGACY_WRITE_MESSAGE);
+        }
+        data = { ...data };
+        delete (data as any).layoutFileIds;
+      }
+      // O pedido `layouts`, normalizado contra os veículos FINAIS desta gravação
+      // (a mesma gravação pode acrescentar ou retirar caminhão). Recusa aqui —
+      // veículo estranho, arte demais — sai antes de qualquer escrita.
+      let layoutPlan: LayoutCoveragePlan | null = null;
+      if (layoutsRequested) {
+        const gravadas = (((existing as any).tasks ?? []) as Array<{ id: string }>).map(t => t.id);
+        const finais =
+          data.taskIds && data.taskIds.length > 0 ? [...new Set(data.taskIds)] : gravadas;
+        const planTasks = await this.prisma.task.findMany({
+          where: { id: { in: finais } },
+          select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
+            name: true,
+            truck: { select: { plate: true } },
+          },
+        });
+        const entries = await this.reuseOwnLayoutFiles(
+          (data as any).layouts ?? [],
+          (existing as any).layoutFiles ?? [],
+        );
+        layoutPlan = planLayoutCoverage(entries, planTasks, {
+          leavingTaskIds: gravadas.filter(t => !finais.includes(t)),
+        });
+      }
 
       // Whether the CLIENT explicitly sent a status in THIS request. Captured
       // BEFORE filterToMaterialChanges, which strips a status equal to the
@@ -1191,7 +1335,7 @@ export class BudgetService {
       // to skip this — they assert their writes deliberately.
       // ─────────────────────────────────────────────────────────────────────
       if (!_internal) {
-        data = this.filterToMaterialChanges(existing, data);
+        data = this.filterToMaterialChanges(existing, data, layoutPlan);
         if (Object.keys(data).length === 0) {
           return {
             success: true,
@@ -1470,6 +1614,14 @@ export class BudgetService {
           }
         }
 
+        // O plano de layout com as artes RESOLVIDAS (clone privado quando a arte
+        // veio da galeria de uma tarefa ou de outro orçamento). Só quando
+        // `layouts` sobreviveu ao filtro de mudança material.
+        const resolvedLayoutPlan =
+          (data as any).layouts !== undefined && layoutPlan
+            ? await this.resolveLayoutPlan(tx, id, layoutPlan, userId)
+            : null;
+
         const updatedQuote = await tx.budget.update({
           where: { id },
           data: {
@@ -1504,6 +1656,14 @@ export class BudgetService {
                     userId,
                   )
                 ).map((fid: string) => ({ id: fid })),
+              },
+            }),
+            // Layout por `layouts`: o conjunto de artes E o escopo, juntos. As
+            // linhas de cobertura são gravadas logo depois, pelo plano resolvido.
+            ...(resolvedLayoutPlan && {
+              layoutScope: resolvedLayoutPlan.scope as any,
+              layoutFiles: {
+                set: resolvedLayoutPlan.files.map(f => ({ id: f.fileId })),
               },
             }),
             // O NÚMERO DO ORÇAMENTO, corrigível à mão.
@@ -1555,7 +1715,7 @@ export class BudgetService {
               },
             },
             tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-            layoutFiles: { orderBy: { createdAt: 'asc' } },
+            layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
             customerConfigs: {
               include: {
                 customer: {
@@ -1601,10 +1761,71 @@ export class BudgetService {
           transaction: tx,
         });
 
+        // ── A COBERTURA DE CADA ARTE ──────────────────────────────────────
+        //
+        // Substitui a anterior inteira (em `SHARED` apaga e não recria). A trilha
+        // registra o ARRANJO, com o nome de cada arte e o de cada veículo —
+        // "39088: frente.png; 39089: lateral.png" —, porque `layoutFileIds`
+        // sozinho não diz nada quando só a atribuição mudou.
+        if (resolvedLayoutPlan) {
+          await writeLayoutCoverageRows(
+            tx,
+            id,
+            resolvedLayoutPlan.scope,
+            resolvedLayoutPlan.files,
+            (((existing as any).layoutFiles ?? []) as Array<{ id: string }>).map(f => f.id),
+          );
+          const depois = await tx.budget.findUnique({
+            where: { id },
+            select: {
+              layoutScope: true,
+              layoutFiles: {
+                orderBy: { createdAt: 'asc' },
+                select: {
+                  id: true,
+                  originalName: true,
+                  quoteLayoutTasks: { select: { taskId: true } },
+                },
+              },
+              tasks: {
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                select: {
+                  id: true,
+                  createdAt: true,
+                  serialNumber: true,
+                  truck: { select: { plate: true } },
+                },
+              },
+            },
+          });
+          if (
+            depois &&
+            storedLayoutArrangementKey(existing as any) !==
+              storedLayoutArrangementKey(depois as any)
+          ) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK_QUOTE,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'layouts',
+              oldValue: describeLayoutArrangement(existing as any),
+              newValue: describeLayoutArrangement(depois as any),
+              reason:
+                (depois as any).layoutScope === 'PER_VEHICLE'
+                  ? 'Layout aprovado atribuído por veículo'
+                  : 'Layout aprovado do orçamento (vale para todos os veículos)',
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: userId,
+              transaction: tx,
+            });
+          }
+        }
+
         // Any layout file added straight onto the quote (batch "Layout do
         // Orçamento", billing editor, clones, …) must also exist as an APPROVED
         // task layout. The quote is already linked to its task here.
-        if (data.layoutFileIds !== undefined) {
+        if (data.layoutFileIds !== undefined || resolvedLayoutPlan) {
           // Promote the selected images to APPROVED task layouts (re-approving a
           // re-selected REPROVED one — selection is authoritative), then…
           await syncTaskLayoutsFromQuote(tx, id, userId, true);
@@ -2176,6 +2397,14 @@ export class BudgetService {
           await recalcQuoteTotals(tx, id);
         }
 
+        // O VEÍCULO QUE SAIU LEVA A COBERTURA DE LAYOUT JUNTO — e a arte que era
+        // só dele sai do orçamento. O que chegou não herda arte nenhuma num
+        // orçamento por veículo: fica descoberto até alguém atribuir, e o portão
+        // da assinatura e da aprovação acusa. Ver `pruneQuoteLayoutCoverage`.
+        if (data.taskIds !== undefined) {
+          await pruneQuoteLayoutCoverage(tx, id);
+        }
+
         return tx.budget.findUnique({
           where: { id },
           include: {
@@ -2188,7 +2417,7 @@ export class BudgetService {
               },
             },
             tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-            layoutFiles: { orderBy: { createdAt: 'asc' } },
+            layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
             customerConfigs: {
               include: {
                 customer: {
@@ -2353,6 +2582,7 @@ export class BudgetService {
       customGuaranteeText: q.customGuaranteeText ?? null,
       customForecastDays: q.customForecastDays ?? null,
       layoutFileIds: (q as any).layoutFiles?.map((f: { id: string }) => f.id) ?? [],
+      layoutScope: (q as any).layoutScope ?? 'SHARED',
       services: q.services.map(sv => ({
         description: sv.description,
         amount: Number(sv.amount),
@@ -2545,6 +2775,13 @@ export class BudgetService {
 
         await resliceQuoteCoverage(tx, survivor.id, { billingSplit, taskIds: allTaskIds });
 
+        // A cobertura de LAYOUT que os veículos movidos traziam era das artes do
+        // orçamento absorvido — que acabou de ser apagado. Ela não vale no
+        // sobrevivente: num sobrevivente por veículo, quem chegou fica descoberto
+        // até alguém atribuir (o portão acusa); num compartilhado, as artes dele
+        // já valem para todos.
+        await pruneQuoteLayoutCoverage(tx, survivor.id);
+
         // 6. Totais e `vehicleCount`, da mesma contagem.
         await recalcQuoteTotals(tx, survivor.id);
 
@@ -2611,6 +2848,76 @@ export class BudgetService {
         `Orçamento nº ${survivor.budgetNumber} agora cobre ${result.vehicleCount} veículos. ` +
         `${verdict.absorbed.length} ${verdict.absorbed.length === 1 ? 'orçamento foi absorvido' : 'orçamentos foram absorvidos'}.`,
     };
+  }
+
+  /**
+   * A ARTE JÁ É DESTE ORÇAMENTO? Então é ela — e não um clone novo.
+   *
+   * A tela escolhe o layout na GALERIA da tarefa, e o orçamento guarda um CLONE
+   * privado de cada arte escolhida. Se a tela reenvia o id da galeria para uma
+   * arte que o orçamento já tem, a resolução clonaria de novo a cada gravação: o
+   * arquivo mudaria de id, a comparação de mudança material diria "mudou" e a
+   * coleta de assinaturas cairia num salvamento que não mexeu em nada.
+   *
+   * Casa pela identidade da IMAGEM (`layoutImageKey`), a mesma com que a galeria
+   * casa a arte do orçamento. Só troca id de arquivo que NÃO é deste orçamento
+   * por um que é, com a mesma imagem; o resto passa intacto.
+   */
+  private async reuseOwnLayoutFiles(
+    entries: Array<{ fileId: string; taskIds?: string[] | null }>,
+    ownFiles: Array<{
+      id: string;
+      originalName?: string | null;
+      filename?: string | null;
+      size?: number | null;
+    }>,
+  ): Promise<Array<{ fileId: string; taskIds?: string[] | null }>> {
+    const ownIds = new Set(ownFiles.map(f => f.id));
+    const foreign = [...new Set(entries.map(e => e.fileId).filter(id => !ownIds.has(id)))];
+    if (foreign.length === 0 || ownFiles.length === 0) return entries;
+    const rows = await this.prisma.file.findMany({
+      where: { id: { in: foreign } },
+      select: { id: true, originalName: true, filename: true, size: true },
+    });
+    const ownByImage = new Map(ownFiles.map(f => [layoutImageKey(f), f.id] as const));
+    const swap = new Map<string, string>();
+    for (const r of rows) {
+      const own = ownByImage.get(layoutImageKey(r));
+      if (own) swap.set(r.id, own);
+    }
+    return entries.map(e => (swap.has(e.fileId) ? { ...e, fileId: swap.get(e.fileId)! } : e));
+  }
+
+  /**
+   * As artes de um plano de layout, RESOLVIDAS para o orçamento-alvo.
+   *
+   * `resolveLayoutFileIdMapForQuote` troca a arte da galeria de uma tarefa (ou a
+   * de outro orçamento) por um clone privado deste — é o que impede um orçamento
+   * de roubar o arquivo do outro. A cobertura pedida era do arquivo ORIGINAL, e
+   * tem de cair no clone: sem o mapa, "a arte X vale para o caminhão 39088"
+   * apontaria para um arquivo que não é deste orçamento, e a leitura (que parte
+   * da arte do orçamento) não a encontraria.
+   *
+   * Arte que sumiu do banco no caminho fica fora — como sempre foi com
+   * `layoutFileIds`. O veículo que ela cobria fica descoberto, e o portão acusa.
+   */
+  private async resolveLayoutPlan(
+    tx: PrismaTransaction,
+    quoteId: string | null,
+    plan: LayoutCoveragePlan,
+    userId: string,
+  ): Promise<LayoutCoveragePlan> {
+    const map = await this.fileService.resolveLayoutFileIdMapForQuote(
+      tx,
+      quoteId,
+      plan.files.map(f => f.fileId),
+      userId,
+    );
+    const files = plan.files
+      .filter(f => map.has(f.fileId))
+      .map(f => ({ fileId: map.get(f.fileId)!, taskIds: [...f.taskIds] }));
+    const scope: QuoteLayoutScopeValue = files.length === 0 ? 'SHARED' : plan.scope;
+    return { scope, files };
   }
 
   /**
@@ -2737,6 +3044,17 @@ export class BudgetService {
             });
           }
         }
+
+        // A COBERTURA DE LAYOUT sai junto. O `SetNull` de `File.quoteLayoutId`
+        // solta as artes do orçamento, mas as linhas de `BudgetLayoutTask`
+        // continuariam afirmando "esta arte vale para este caminhão" — e o
+        // caminhão, já sem orçamento, poderia ganhar outro com essa afirmação
+        // pendurada nele.
+        await tx.budgetLayoutTask.deleteMany({
+          where: {
+            OR: [{ file: { quoteLayoutId: id } }, { taskId: { in: unlinkTaskIds } }],
+          },
+        });
 
         await tx.budget.delete({ where: { id } });
 
@@ -3640,11 +3958,33 @@ export class BudgetService {
   async budgetApprove(id: string, userId: string): Promise<BudgetUpdateResponse> {
     // Required-layout gate: a budget can only be approved once an approved layout
     // (Budget.layoutFiles) has been selected in Step 2.
+    //
+    // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é "todo veículo tem o
+    // seu?", e a recusa diz qual falta. Em `SHARED` é a de sempre, com a frase
+    // de sempre.
     const quoteForGate = await this.prisma.budget.findUnique({
       where: { id },
-      select: { layoutFiles: { select: { id: true } } },
+      select: {
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+        tasks: {
+          orderBy: QUOTE_TASKS_ORDER_BY,
+          select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
+            truck: { select: { plate: true } },
+          },
+        },
+      },
     });
-    if (!quoteForGate || (quoteForGate.layoutFiles || []).length === 0) {
+    const layoutGate = layoutGateFailure(quoteForGate as any);
+    if (layoutGate?.scope === 'PER_VEHICLE') {
+      throw new BadRequestException(
+        `${layoutGate.message} Atribua um layout a cada veículo antes de aprovar o orçamento.`,
+      );
+    }
+    if (layoutGate) {
       throw new BadRequestException('Selecione um layout aprovado antes de aprovar o orçamento.');
     }
 
@@ -5508,9 +5848,21 @@ export class BudgetService {
           billingSplit: true,
           createdAt: true,
           updatedAt: true,
+          // DE QUAL VEÍCULO É CADA ARTE — a página pública mostra a arte com o
+          // veículo dela quando o orçamento é por veículo. `select` explícito:
+          // sem as duas chaves aqui elas simplesmente não chegam (é o defeito
+          // que `QUOTE_BILLING_INCLUDE` já teve).
+          layoutScope: true,
           layoutFiles: {
             orderBy: { createdAt: 'asc' },
-            select: { id: true, filename: true, originalName: true, mimetype: true, size: true },
+            select: {
+              id: true,
+              filename: true,
+              originalName: true,
+              mimetype: true,
+              size: true,
+              quoteLayoutTasks: { select: { taskId: true } },
+            },
           },
           services: {
             orderBy: { position: 'asc' },
@@ -5645,6 +5997,12 @@ export class BudgetService {
               status: true,
               startedAt: true,
               finishedAt: true,
+              // A ORDEM DOS VEÍCULOS. A página pública reordena as tarefas pela mesma
+              // regra deste `orderBy` (`sortQuoteTasks`: `createdAt`, depois `id`) — e
+              // sem o `createdAt` aqui ela desempatava tudo pelo `id`. No nº 990 isso
+              // punha o 39089 antes do 39088 na relação de veículos e nas legendas do
+              // layout, ao contrário do PDF assinado. Não é dado sensível.
+              createdAt: true,
               // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. A página pública e o
               // relatório de serviço o imprimem no quadro do tomador — é o número
               // pelo qual o cliente reconhece a compra. Ele lia
@@ -5802,7 +6160,7 @@ export class BudgetService {
         where: { id },
         include: {
           services: true,
-          layoutFiles: { orderBy: { createdAt: 'asc' } },
+          layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
           customerConfigs: {
             include: {
               customer: { select: { id: true, fantasyName: true, cnpj: true } },

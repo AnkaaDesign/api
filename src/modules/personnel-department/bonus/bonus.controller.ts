@@ -283,6 +283,7 @@ export class BonusController {
         sectorName: u.sectorName,
         salary: u.salary,
         performanceLevel: u.performanceLevel!,
+        eligibilityWeight: u.eligibilityWeight,
       })),
       config: data.config,
       salaryRange: data.salaryRange as { min: number; max: number } | undefined,

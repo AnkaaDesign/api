@@ -55,9 +55,15 @@ export class ReconciliationScheduler {
       // SAÍDA: confirm marked-paid payables against DEBITs (the import-time sweep
       // backstop). Gated by PAYABLE_AUTO_CONFIRM_ENABLED + paidAt-anchored, so a
       // wide lookback here cannot retroactively confirm history.
+      // C1-BACKFILL: the live tie-back only fires at match time, so a note
+      // attached to its purchase order afterwards leaves the bank line and the
+      // parcela it paid on separate axes. Re-run it over the same window, BEFORE
+      // the value sweep — an explicit NF↔order link beats a value guess.
+      const tiedBack = await this.matcher.tieBackOrphanOrderMatches({ start, end });
       const payableConfirmed = await this.payableMatch.confirmPayablesDateRange(start, end);
       this.logger.log(
-        `Daily rematch: ${matched} saída-NF + ${inflowMatched} entrada + ${bridged} boleto-bridge + ${payableConfirmed} payable-confirm transactions auto-matched`,
+        `Daily rematch: ${matched} saída-NF + ${inflowMatched} entrada + ${bridged} boleto-bridge + ` +
+          `${payableConfirmed} payable-confirm + ${tiedBack} order tie-back transactions auto-matched`,
       );
     } catch (err) {
       this.logger.error(`Daily rematch failed: ${err}`);

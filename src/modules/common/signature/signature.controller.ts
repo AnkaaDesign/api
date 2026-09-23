@@ -552,6 +552,7 @@ export class PublicSignatureController {
       acceptedDeclarationKeys: body.declarations,
       clientTimestamp: body.clientTimestamp,
       geo: body.geo,
+      orderNumbers: body.orderNumbers,
       ctx: ctxOf(req),
     });
     return { success: true, message: 'Orçamento assinado com sucesso.', data };

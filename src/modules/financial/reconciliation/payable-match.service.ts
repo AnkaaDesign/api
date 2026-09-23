@@ -13,6 +13,8 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { OrderService } from '@modules/inventory/order/order.service';
 import { nameSimilarity } from './text-normalization';
+import { isMarketplaceSupplier, isMarketplaceTransaction } from './marketplace';
+import { RECON_ADVISORY_LOCK_KEY } from './reconciliation-matcher.service';
 import { textHasInstallationCode } from '../recurrent-payable/recurrent-payable.service';
 
 /**
@@ -91,6 +93,10 @@ type PaidPayable = {
   /** True when the order also has a linked NF (M2M / resolved order code): the
    *  match is cross-validated order+nf+tx, the strongest confirmation. */
   nfCrossValidated?: boolean;
+  /** Order-installment anchors only — whether the debit and the order's supplier
+   *  are the SAME counterparty by some readable signal (see hasOrderIdentity).
+   *  Mandatory before a brand-new anchor row may be created from value+date. */
+  identityOk?: boolean;
 };
 
 const onlyDigits = (v: string | null | undefined): string => (v || '').replace(/\D/g, '');
@@ -161,7 +167,27 @@ export class PayableMatchService {
         // never seen again. What actually disqualifies a debit is already having
         // an anchor, or a person having declared it resolved without one.
         reconciliationStatus: { not: ReconciliationStatus.IGNORED },
-        matches: { none: { reversedAt: null } },
+        // NOT "has no live match at all" either. A debit whose only rows are NF
+        // rows has not confirmed any OBLIGATION yet — the note documents what was
+        // bought, the parcela records what was owed, and one bank line carries
+        // both (`tryConfirmDebit` ties the parcela onto the existing NF row). The
+        // stricter filter made every NF-matched debit invisible to this sweep, so
+        // the payment that actually settled an order could never be the one to
+        // clear it, and the orphaned parcela was left for whichever unrelated
+        // debit of a similar value came next. What disqualifies a debit is a live
+        // PAYABLE anchor — it is already confirmed — or a person having declared
+        // it resolved without one.
+        matches: {
+          none: {
+            reversedAt: null,
+            OR: [
+              { orderInstallmentId: { not: null } },
+              { airbrushingId: { not: null } },
+              { recurrentOccurrenceId: { not: null } },
+              { payrollMonthSettlementId: { not: null } },
+            ],
+          },
+        },
         settlementAckAt: null,
         ...extra,
       },
@@ -206,20 +232,121 @@ export class PayableMatchService {
     if (!live) return false;
     if (live.reconciliationStatus === ReconciliationStatus.IGNORED) return false;
     if (live.settlementAckAt) return false;
-    const anchored = await this.prisma.reconciliationMatch.count({
+    // A debit that already CONFIRMS a payable is done. One that merely carries NF
+    // rows is NOT: the order parcela and the note that documents it are parallel
+    // DESCRIPTIONS of the same payment (the doctrine written into
+    // `computeReconciliationStatus`, which measures coverage per anchor kind), so
+    // one bank line can and should carry both anchors. The blanket "has any live
+    // match ⇒ skip" guard that stood here made the TRUE payment structurally
+    // unable to claim its own parcela whenever the NF matcher reached it first,
+    // and left that parcela orphaned for an unrelated debit of a similar value to
+    // grab: on 18/09 the R$150,00 debit to G. J. L. Transporte took the R$149,80
+    // Mercado Livre parcela whose real payment (15/09) had been anchored to
+    // NF 4116 one second earlier.
+    const liveMatches = await this.prisma.reconciliationMatch.findMany({
       where: { transactionId: tx.id, reversedAt: null },
+      select: {
+        id: true,
+        allocatedAmount: true,
+        fiscalDocumentId: true,
+        orderInstallmentId: true,
+        airbrushingId: true,
+        recurrentOccurrenceId: true,
+        payrollMonthSettlementId: true,
+      },
     });
-    if (anchored > 0) return false;
+    if (
+      liveMatches.some(
+        m =>
+          m.orderInstallmentId ||
+          m.airbrushingId ||
+          m.recurrentOccurrenceId ||
+          m.payrollMonthSettlementId,
+      )
+    ) {
+      return false;
+    }
+    // NF rows of THIS debit not yet tied to an order parcela — co-anchor targets.
+    const coAnchorRows = liveMatches.filter(m => m.fiscalDocumentId && !m.orderInstallmentId);
 
     const abs = Math.abs(Number(tx.amount));
     const candidates = await this.findPaidCandidates(tx, abs);
     if (candidates.length === 0) return false;
 
+    // CO-ANCHOR — this debit already pays a note, and a parcela worth exactly
+    // that same money is the same payment seen from the obligation axis. Tie it
+    // onto the EXISTING NF row (C1's doctrine: no new row, no new allocation)
+    // instead of creating a parallel one. Counterparty identity is not required
+    // here and must not be: the bank line is pinned, and the note it provably
+    // pays is the corroboration — on a marketplace order the debit, the supplier
+    // and the note emitter are three different CNPJs by construction. What has
+    // to be unambiguous is the money, so the value must agree to the cent and
+    // exactly one parcela may claim it.
+    if (coAnchorRows.length > 0) {
+      const pairs: Array<{ c: PaidPayable; row: (typeof coAnchorRows)[number] }> = [];
+      for (const c of candidates) {
+        if (c.anchor.kind !== 'orderInstallment') continue;
+        // How far the note and the parcela may differ and still be "the same
+        // money" depends on what else corroborates them. To the cent, the value
+        // identity stands on its own. Beyond that it needs the counterparty to
+        // agree — a note routinely differs from the parcela that pays it by cents
+        // (NF 39764 is R$2.667,44 against a R$2.667,70 parcela), but a blanket
+        // R$2 / 0,5% window on value alone pairs strangers: the R$4.109,52 debit
+        // to Kennedy de Campos (NF 27) lands R$3,97 from a Farben "Thinner"
+        // parcela paid the same day, and nothing but the amount connects them.
+        const tol = c.identityOk
+          ? Math.max(AMOUNT_TOLERANCE_ABS, c.paidAmount * AMOUNT_TOLERANCE_PCT)
+          : 0.01;
+        const row = coAnchorRows.find(
+          r => Math.abs(Number(r.allocatedAmount) - c.paidAmount) <= tol,
+        );
+        if (row) pairs.push({ c, row });
+      }
+      if (pairs.length > 1) {
+        this.logger.debug(
+          `Debit ${tx.id} co-anchor ambiguous (${pairs.length} parcelas worth the same); leaving manual`,
+        );
+        return false;
+      }
+      if (pairs.length === 1) {
+        const { c, row } = pairs[0];
+        if (dryRun) {
+          this.logger.log(
+            `[dry-run] debit ${tx.id} → co-anchor parcela ${c.label} onto NF match ${row.id}`,
+          );
+          return true;
+        }
+        const tied = await this.coAnchorOrderInstallment(tx, c, row.id);
+        if (tied) {
+          this.logger.log(
+            `Debit ${tx.id} co-anchored order parcela ${c.label} onto its own NF match`,
+          );
+          return true;
+        }
+        return false;
+      }
+    }
+
     // Score: amount agreement is mandatory for a candidate to even enter the
     // pool (findPaidCandidates already filters by amount window). Disambiguate by
     // counterparty identity + date proximity, and only auto-confirm a unique or
     // clearly-winning candidate (never guess between two equally-good payables).
-    const scored = candidates
+    // CREATE mode — a brand-new anchor row, with nothing on this debit
+    // corroborating it. Here counterparty identity is mandatory for an order
+    // parcela: value + date alone is exactly how the G. J. L. debit took the
+    // Mercado Livre parcela. (Scoring cannot substitute for it — see
+    // hasOrderIdentity.)
+    const eligible = candidates.filter(
+      c => c.anchor.kind !== 'orderInstallment' || c.identityOk === true,
+    );
+    if (eligible.length === 0) {
+      this.logger.debug(
+        `Debit ${tx.id}: ${candidates.length} candidate(s) rejected for lack of counterparty identity`,
+      );
+      return false;
+    }
+
+    const scored = eligible
       .map(c => ({ c, score: this.score(tx, abs, c) }))
       .sort((a, b) => b.score - a.score);
 
@@ -275,6 +402,7 @@ export class PayableMatchService {
       },
       select: {
         id: true,
+        orderId: true,
         amount: true,
         paidAmount: true,
         paidAt: true,
@@ -284,13 +412,21 @@ export class PayableMatchService {
     });
     for (const oi of orderInstallments) {
       if (!oi.paidAt) continue;
+      const asserted = oi.paidAmount > 0 ? oi.paidAmount : oi.amount;
       out.push({
         anchor: { kind: 'orderInstallment', id: oi.id },
-        paidAmount: oi.paidAmount > 0 ? oi.paidAmount : oi.amount,
+        paidAmount: asserted,
         paidAt: oi.paidAt,
         counterpartyName: oi.order?.supplier?.fantasyName ?? null,
         counterpartyCnpjCpf: oi.order?.supplier?.cnpj ?? null,
         label: oi.order?.description ?? oi.id,
+        orderId: oi.orderId,
+        identityOk: this.hasOrderIdentity(
+          tx,
+          oi.order?.supplier?.fantasyName ?? null,
+          oi.order?.supplier?.cnpj ?? null,
+          Math.abs(asserted - abs) <= 0.01,
+        ),
       });
     }
 
@@ -364,6 +500,8 @@ export class PayableMatchService {
         label: oi.order?.description ?? oi.id,
         settleOnMatch: true,
         orderId: oi.orderId,
+        // The hard CNPJ gate above IS the identity check for this path.
+        identityOk: true,
         nfCrossValidated:
           (oi.order?._count?.fiscalDocuments ?? 0) > 0 ||
           (oi.order?._count?.fiscalDocumentOrderCodes ?? 0) > 0,
@@ -504,6 +642,131 @@ export class PayableMatchService {
     return Math.min(100, amount + cnpj + name + date);
   }
 
+  /**
+   * Identity gate for CREATING a new order-parcela anchor out of value + date.
+   *
+   * The C2 (open parcela) path already declares identity mandatory; the
+   * already-PAID path had no gate at all, which is how a R$150,00 debit to a
+   * freight company confirmed a R$149,80 Mercado Livre parcela two days later.
+   * A flat score floor cannot stand in for this: of the order anchors on record,
+   * the three CORRECT Mercado Livre confirmations score 55 — exact value, same
+   * day, but the memo carries Mercado Pago's CNPJ, never the store's — while the
+   * wrong one scored 41. What separates them is identity, not score.
+   */
+  private hasOrderIdentity(
+    tx: DebitTx,
+    supplierName: string | null,
+    supplierCnpj: string | null,
+    amountExact: boolean,
+  ): boolean {
+    const txCnpj = onlyDigits(tx.counterpartyCnpjCpf);
+    const supplierDigits = onlyDigits(supplierCnpj);
+    if (txCnpj && supplierDigits && txCnpj === supplierDigits) return true;
+    if (nameSimilarity(tx.counterpartyName, supplierName) >= 0.5) return true;
+    // Marketplace orders settle through an intermediary, so the debit's CNPJ is
+    // the intermediary's and can never equal the supplier's. An exact value
+    // against a marketplace supplier is the only identity available there.
+    return (
+      amountExact &&
+      isMarketplaceTransaction(tx.memo, tx.counterpartyCnpjCpf) &&
+      isMarketplaceSupplier(supplierName, supplierCnpj)
+    );
+  }
+
+  /**
+   * Tie an order parcela onto an EXISTING NF-match row of the same debit,
+   * mirroring the C1 tie-back in `reconciliation-matcher.service.ts`: the row
+   * gains `orderInstallmentId`, no row is created and no allocation is booked,
+   * so `anchorKindOf` still reads it as a single fiscalDocument slice and the
+   * reconciliation totals never double-count the payment.
+   *
+   * Returns true when the tie was written, false when a concurrent pass got
+   * there first (the read-then-write runs under the reconciliation advisory
+   * lock, so a re-run is a safe no-op).
+   */
+  private async coAnchorOrderInstallment(
+    tx: DebitTx,
+    c: PaidPayable,
+    matchId: string,
+  ): Promise<boolean> {
+    if (c.anchor.kind !== 'orderInstallment') return false;
+    const installmentId = c.anchor.id;
+    return this.prisma.$transaction(async db => {
+      // Serialize against the matcher's own tie-back and against manual matches.
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(${RECON_ADVISORY_LOCK_KEY})`;
+
+      const row = await db.reconciliationMatch.findUnique({
+        where: { id: matchId },
+        select: { reversedAt: true, fiscalDocumentId: true, orderInstallmentId: true },
+      });
+      if (!row || row.reversedAt || row.orderInstallmentId || !row.fiscalDocumentId) return false;
+      const fiscalDocumentId = row.fiscalDocumentId;
+
+      // The parcela must still be unclaimed.
+      const taken = await db.reconciliationMatch.count({
+        where: { orderInstallmentId: installmentId, reversedAt: null },
+      });
+      if (taken > 0) return false;
+
+      const inst = await db.orderInstallment.findUnique({
+        where: { id: installmentId },
+        select: { id: true, orderId: true, amount: true, status: true },
+      });
+      if (!inst) return false;
+
+      await db.reconciliationMatch.update({
+        where: { id: matchId },
+        data: { orderInstallmentId: inst.id },
+      });
+
+      // Settle a parcela that is still open. An already-PAID parcela keeps the
+      // human baixa exactly as it was typed — the tie adds bank truth to it, it
+      // does not rewrite the assertion.
+      if (inst.status !== OrderInstallmentStatus.PAID) {
+        await db.orderInstallment.updateMany({
+          where: { id: inst.id, status: { not: OrderInstallmentStatus.PAID } },
+          data: {
+            status: OrderInstallmentStatus.PAID,
+            paidAmount: inst.amount,
+            paidAt: tx.postedAt,
+          },
+        });
+      }
+
+      // Record the NF↔order relation this tie just proved, so `deriveOrderClearance`
+      // can see the note and every later C1 run is an idempotent no-op. Only when
+      // the note covers the order's parcelas: linking a note that finances a
+      // DIFFERENT total would turn the order's 3-way signal into a false MISMATCH.
+      const [fd, siblings] = await Promise.all([
+        db.fiscalDocument.findUnique({
+          where: { id: fiscalDocumentId },
+          select: {
+            totalValue: true,
+            orders: { where: { id: inst.orderId }, select: { id: true } },
+          },
+        }),
+        db.orderInstallment.findMany({
+          where: { orderId: inst.orderId },
+          select: { amount: true },
+        }),
+      ]);
+      if (fd && fd.orders.length === 0) {
+        const installmentTotal = siblings.reduce((sum, i) => sum + Number(i.amount), 0);
+        const noteTotal = Number(fd.totalValue);
+        const tol = Math.max(AMOUNT_TOLERANCE_ABS, installmentTotal * AMOUNT_TOLERANCE_PCT);
+        if (Math.abs(noteTotal - installmentTotal) <= tol) {
+          await db.order.update({
+            where: { id: inst.orderId },
+            data: { fiscalDocuments: { connect: { id: fiscalDocumentId } } },
+          });
+        }
+      }
+
+      await this.orderService.recomputeOrderPaymentRollupFromReconciliation(db, inst.orderId);
+      return true;
+    });
+  }
+
   /** Persist the clearance: create the anchored ReconciliationMatch (idempotent
    *  via the unique constraint), flip the debit to RECONCILED, and stamp the
    *  entity's clearance bookkeeping fields where they exist. */
@@ -533,8 +796,24 @@ export class PayableMatchService {
       // were marked PAID two months into the future off money that was never
       // paid. `recurrent-payable.service.ts` already guards this way; this path
       // did not.
+      // The budget is PER ANCHOR KIND, not per transaction. Summed across kinds
+      // it contradicted `computeReconciliationStatus` — where coverage is the
+      // LARGEST single kind, precisely because an order parcela and the note that
+      // documents it are parallel descriptions of one payment rather than two
+      // slices of it — and it made a debit that already carried its NF unable to
+      // also confirm its parcela. Same-kind budgeting is what this guard was
+      // built for: one R$370 cleaning payment must never clear four weekly
+      // occurrences.
+      const sameKind: Prisma.ReconciliationMatchWhereInput =
+        c.anchor.kind === 'orderInstallment'
+          ? { orderInstallmentId: { not: null } }
+          : c.anchor.kind === 'airbrushing'
+            ? { airbrushingId: { not: null } }
+            : c.anchor.kind === 'recurrentOccurrence'
+              ? { recurrentOccurrenceId: { not: null } }
+              : { payrollMonthSettlementId: { not: null } };
       const existing = await db.reconciliationMatch.findMany({
-        where: { transactionId: tx.id, reversedAt: null },
+        where: { transactionId: tx.id, reversedAt: null, ...sameKind },
         select: { allocatedAmount: true },
       });
       const spent = existing.reduce((s, m) => s + Number(m.allocatedAmount), 0);

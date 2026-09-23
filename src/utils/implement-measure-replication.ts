@@ -1,0 +1,298 @@
+/**
+ * O TAMANHO É DO ORÇAMENTO — as medidas do implemento, replicadas aos irmãos.
+ *
+ * Decisão do dono (23/09/2026): mesmo orçamento ⇒ mesmo tamanho. O preço de um
+ * orçamento é UM por veículo justamente porque os N caminhões são o mesmo
+ * implemento; o que pode variar entre eles é a PINTURA (o layout aprovado, que
+ * passou a poder ser por veículo), não a medida. Quando a Logística mede um dos
+ * caminhões, os demais do mesmo orçamento recebem as MESMAS medidas — sem isso,
+ * a produção abria o segundo caminhão e o encontrava sem medida nenhuma, ou com
+ * uma de outra visita.
+ *
+ * POR CÓPIA, NUNCA COMPARTILHANDO A LINHA
+ *   Cada irmão ganha uma linha `ImplementMeasure` nova (mesma altura, mesmas
+ *   seções, mesma foto). Compartilhar a linha amarraria os caminhões para sempre:
+ *   um veículo pode sair do orçamento amanhã, e editar a medida dele não pode
+ *   mexer na dos que ficaram. E as rotas de edição já tratam linha compartilhada
+ *   de três jeitos diferentes (copiar antes de editar, editar no lugar, apagar
+ *   quando órfã) — uma cópia não entra em nenhum desses casos.
+ *
+ *   A foto é o MESMO `File` (é a foto do implemento, que é o mesmo): nenhuma
+ *   rota apaga o arquivo da foto ao apagar a medida, então compartilhá-lo não
+ *   cria o risco que compartilhar a linha criaria.
+ *
+ * O QUE REPLICA E O QUE NÃO
+ *   - criação e atualização de um lado replicam;
+ *   - EXCLUSÃO NÃO replica — tirar a medida de um caminhão é quase sempre
+ *     corrigir aquele caminhão, e apagar a dos irmãos por tabela seria destruir
+ *     trabalho medido;
+ *   - só o lado que DIFERE é escrito: o irmão que já tem exatamente a mesma
+ *     medida não ganha linha nova nem entrada na trilha (é o que torna a rotina
+ *     idempotente, e é o que faz a gravação em lote não se replicar em cascata);
+ *   - irmão sem `Truck`: só ganha um quando o caminho de escrita da origem já
+ *     cria o caminhão sozinho (edição de tarefa, cópia, lote). Pelo módulo de
+ *     medidas, que exige o caminhão, o irmão é pulado e o log diz qual.
+ *
+ * Mesma transação da escrita de origem: ou a medida existe nos N caminhões, ou
+ * em nenhum.
+ */
+import { Logger } from '@nestjs/common';
+import { sortQuoteTasks } from './quote-tasks';
+import { vehicleLabel } from './quote-layout-coverage';
+
+const logger = new Logger('ImplementMeasureReplication');
+
+export type MeasureSide = 'left' | 'right' | 'back';
+
+export const MEASURE_SIDES: readonly MeasureSide[] = ['left', 'right', 'back'] as const;
+
+const SIDE_FK: Record<
+  MeasureSide,
+  'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId'
+> = {
+  left: 'leftSideMeasureId',
+  right: 'rightSideMeasureId',
+  back: 'backSideMeasureId',
+};
+const SIDE_REL: Record<MeasureSide, 'leftSideMeasure' | 'rightSideMeasure' | 'backSideMeasure'> = {
+  left: 'leftSideMeasure',
+  right: 'rightSideMeasure',
+  back: 'backSideMeasure',
+};
+
+/** O lado a partir do nome da FK (`leftSideMeasureId`) ou da relação (`leftSideMeasure`). */
+export function measureSideOf(field: string): MeasureSide | null {
+  if (field.startsWith('left')) return 'left';
+  if (field.startsWith('right')) return 'right';
+  if (field.startsWith('back')) return 'back';
+  return null;
+}
+
+interface MeasureRow {
+  id: string;
+  height: number;
+  photoId: string | null;
+  sections: Array<{ width: number; isDoor: boolean; doorHeight: number | null; position: number }>;
+}
+
+const MEASURE_SELECT = {
+  select: {
+    id: true,
+    height: true,
+    photoId: true,
+    sections: {
+      orderBy: { position: 'asc' as const },
+      select: { width: true, isDoor: true, doorHeight: true, position: true },
+    },
+  },
+};
+
+const TRUCK_MEASURES_SELECT = {
+  select: {
+    id: true,
+    plate: true,
+    leftSideMeasureId: true,
+    rightSideMeasureId: true,
+    backSideMeasureId: true,
+    leftSideMeasure: MEASURE_SELECT,
+    rightSideMeasure: MEASURE_SELECT,
+    backSideMeasure: MEASURE_SELECT,
+  },
+};
+
+/** A identidade de uma medida — o que precisa ser igual para "o irmão já tem a mesma". */
+function measureKey(m: MeasureRow | null | undefined): string {
+  if (!m) return '∅';
+  return JSON.stringify({
+    h: Number(m.height),
+    p: m.photoId ?? null,
+    s: [...(m.sections ?? [])]
+      .sort((a, b) => a.position - b.position)
+      .map(s => [
+        Number(s.width),
+        !!s.isDoor,
+        s.doorHeight == null ? null : Number(s.doorHeight),
+        s.position,
+      ]),
+  });
+}
+
+/** O mesmo recorte que `TaskService` grava no campo `implementMeasures` da trilha. */
+export function formatMeasureForChangelog(m: MeasureRow | null | undefined) {
+  if (!m) return null;
+  const sections = m.sections ?? [];
+  return {
+    id: m.id ?? null,
+    height: m.height || 0,
+    totalWidth: sections.reduce((sum, s) => sum + (s.width || 0), 0),
+    doorCount: sections.filter(s => s.isDoor).length,
+    sectionCount: sections.length,
+    sections: sections.map(s => ({
+      width: s.width,
+      isDoor: s.isDoor,
+      doorHeight: s.doorHeight,
+      position: s.position,
+    })),
+  };
+}
+
+export interface ReplicationLogEntry {
+  taskId: string;
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string;
+}
+
+export interface ReplicationResult {
+  /** Lados escritos nos irmãos: `taskId` → lados. */
+  replicated: Array<{ taskId: string; side: MeasureSide; implementMeasureId: string }>;
+  /** Irmãos pulados, com o motivo (sem caminhão, por exemplo). */
+  skipped: Array<{ taskId: string; side: MeasureSide; reason: string }>;
+}
+
+type Tx = any;
+
+/**
+ * Replica os lados `sides` do caminhão de `sourceTaskId` para os demais veículos
+ * do mesmo orçamento.
+ *
+ * @param logChange  Quem grava a trilha — o `ChangeLogService.logChange` do
+ *   chamador, já com a transação. Recebe UMA entrada por (irmão × lado), no
+ *   campo `implementMeasures` da TAREFA irmã (o mesmo campo que a edição de
+ *   tarefa usa), com o motivo "Medidas replicadas do veículo 39088 (mesmo
+ *   orçamento)".
+ */
+export async function replicateImplementMeasuresToQuoteSiblings(
+  tx: Tx,
+  params: {
+    sourceTaskId: string;
+    sides?: readonly MeasureSide[];
+    createMissingTruck: boolean;
+    logChange: (entry: ReplicationLogEntry) => Promise<unknown>;
+  },
+): Promise<ReplicationResult> {
+  const result: ReplicationResult = { replicated: [], skipped: [] };
+  const sides = [...new Set(params.sides ?? MEASURE_SIDES)];
+  if (sides.length === 0) return result;
+
+  const source = await tx.task.findUnique({
+    where: { id: params.sourceTaskId },
+    select: {
+      id: true,
+      quoteId: true,
+      truck: TRUCK_MEASURES_SELECT,
+    },
+  });
+  if (!source?.quoteId || !source.truck) return result;
+
+  const quoteTasks: Array<{
+    id: string;
+    createdAt: Date;
+    serialNumber: string | null;
+    truck: any;
+  }> = await tx.task.findMany({
+    where: { quoteId: source.quoteId },
+    select: {
+      id: true,
+      createdAt: true,
+      serialNumber: true,
+      truck: TRUCK_MEASURES_SELECT,
+    },
+  });
+  if (quoteTasks.length < 2) return result;
+
+  const ordered = sortQuoteTasks(quoteTasks);
+  const sourceIndex = ordered.findIndex(t => t.id === source.id);
+  const sourceLabel = vehicleLabel(ordered[sourceIndex] as any, sourceIndex);
+  const reason = `Medidas replicadas do veículo ${sourceLabel} (mesmo orçamento)`;
+
+  for (const side of sides) {
+    const origin: MeasureRow | null = source.truck[SIDE_REL[side]] ?? null;
+    // Exclusão não replica — e um lado sem medida na origem não tem o que copiar.
+    if (!origin) continue;
+    const originKey = measureKey(origin);
+
+    for (const sibling of ordered) {
+      if (sibling.id === source.id) continue;
+      let truck = sibling.truck;
+      if (!truck) {
+        if (!params.createMissingTruck) {
+          result.skipped.push({ taskId: sibling.id, side, reason: 'sem caminhão cadastrado' });
+          logger.warn(
+            `[Medidas] Irmão ${sibling.id} do orçamento ${source.quoteId} sem caminhão: ` +
+              `medida ${side} do veículo ${sourceLabel} NÃO replicada (este caminho não cria caminhão).`,
+          );
+          continue;
+        }
+        truck = await tx.truck.create({ data: { taskId: sibling.id }, ...TRUCK_MEASURES_SELECT });
+        sibling.truck = truck;
+      }
+
+      const current: MeasureRow | null = truck[SIDE_REL[side]] ?? null;
+      // Só o lado que difere. Linha compartilhada com a origem também conta como
+      // "já tem" — é a mesma medida.
+      if (current && (current.id === origin.id || measureKey(current) === originKey)) continue;
+
+      const copy: MeasureRow = await tx.implementMeasure.create({
+        data: {
+          height: origin.height,
+          ...(origin.photoId && { photo: { connect: { id: origin.photoId } } }),
+          sections: {
+            create: (origin.sections ?? []).map(s => ({
+              width: s.width,
+              isDoor: s.isDoor,
+              doorHeight: s.doorHeight,
+              position: s.position,
+            })),
+          },
+        },
+        ...MEASURE_SELECT,
+      });
+      await tx.truck.update({ where: { id: truck.id }, data: { [SIDE_FK[side]]: copy.id } });
+      truck[SIDE_REL[side]] = copy;
+      truck[SIDE_FK[side]] = copy.id;
+
+      // A medida anterior do irmão sai quando ninguém mais a usa — a mesma
+      // faxina que a edição de tarefa faz. Presa a outro caminhão (qualquer lado)
+      // ou a uma análise de pintura, fica.
+      if (current) {
+        const [trucks, analyses] = await Promise.all([
+          tx.truck.count({
+            where: {
+              OR: [
+                { leftSideMeasureId: current.id },
+                { rightSideMeasureId: current.id },
+                { backSideMeasureId: current.id },
+              ],
+            },
+          }),
+          tx.paintingAnalysis.count({ where: { implementMeasureId: current.id } }),
+        ]);
+        if (trucks === 0 && analyses === 0) {
+          await tx.implementMeasureSection.deleteMany({
+            where: { implementMeasureId: current.id },
+          });
+          await tx.implementMeasure.delete({ where: { id: current.id } });
+        }
+      }
+
+      await params.logChange({
+        taskId: sibling.id,
+        field: 'implementMeasures',
+        oldValue: { [SIDE_FK[side]]: formatMeasureForChangelog(current) },
+        newValue: { [SIDE_FK[side]]: formatMeasureForChangelog(copy) },
+        reason,
+      });
+      result.replicated.push({ taskId: sibling.id, side, implementMeasureId: copy.id });
+    }
+  }
+
+  if (result.replicated.length > 0) {
+    logger.log(
+      `[Medidas] Orçamento ${source.quoteId}: ${result.replicated.length} lado(s) replicado(s) ` +
+        `do veículo ${sourceLabel} para ${new Set(result.replicated.map(r => r.taskId)).size} irmão(s).`,
+    );
+  }
+  return result;
+}

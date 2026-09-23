@@ -70,8 +70,16 @@ export interface Budget extends BaseEntity {
   // Custom Forecast - manual override for production days displayed in budget
   customForecastDays: number | null;
 
-  // Layout Files (max 2)
-  layoutFiles?: File[];
+  // Layout Files — no máximo 2 em `SHARED`; em `PER_VEHICLE`, até 2 por veículo
+  // e 20 distintas. Cada arte traz a sua cobertura em `quoteLayoutTasks`.
+  layoutFiles?: Array<File & { quoteLayoutTasks?: Array<{ taskId: string }> }>;
+
+  /**
+   * De quem é cada arte: `SHARED` (todas valem para todos os veículos) ou
+   * `PER_VEHICLE` (as linhas `quoteLayoutTasks` de cada arte são a verdade). Ver
+   * `utils/quote-layout-coverage.ts`.
+   */
+  layoutScope?: 'SHARED' | 'PER_VEHICLE';
 
   simultaneousTasks: number | null;
 
@@ -142,7 +150,7 @@ export interface BudgetIncludes {
             | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
         };
       };
-  layoutFiles?: boolean;
+  layoutFiles?: boolean | Record<string, unknown>;
   customerConfigs?:
     | boolean
     | {

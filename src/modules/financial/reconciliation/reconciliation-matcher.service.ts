@@ -25,7 +25,11 @@ import { ReconciliationAliasService } from './reconciliation-alias.service';
 import { ItemCategoryClassifierService } from './item-category-classifier.service';
 import { FiscalDerivedLearnerService } from './fiscal-derived-learner.service';
 import { isMarketplaceTransaction, MARKETPLACE_INTERMEDIARY_CNPJS } from './marketplace';
-import { resolveOrderIdsForFiscalDocs } from './order-clearance';
+import {
+  resolveOrderIdsForFiscalDocs,
+  THREE_WAY_TOLERANCE_ABS,
+  THREE_WAY_TOLERANCE_PCT,
+} from './order-clearance';
 
 const FUZZY_DATE_WINDOW_DAYS = 10;
 // Settlement lag: a Sicredi boleto's paidAt (liquidation date) and the OFX
@@ -1029,6 +1033,128 @@ export class ReconciliationMatcherService {
       }
 
       await this.orderService.recomputeOrderPaymentRollupFromReconciliation(db, orderId);
+    });
+  }
+
+  /**
+   * C1-BACKFILL — re-run the tie-back over NF-match rows that never got one.
+   *
+   * `clearOrdersForTransaction` fires exactly once: at the moment a PENDING
+   * transaction auto-matches. A note attached to its purchase order AFTERWARDS
+   * (the usual flow — the NF arrives, someone links it to the order days later)
+   * or matched by hand never sees it again, so the bank line and the parcela it
+   * paid stay on separate axes forever. That is how six Farben payments ended up
+   * documented by a note whose own order still read "paid on paper".
+   *
+   * Deliberately stricter than the live tie-back: it only ever anchors an
+   * installment that NO transaction has claimed yet, and only when the row's
+   * allocation matches that installment's amount within tolerance and exactly
+   * one installment qualifies. The live path may fan a single-installment order
+   * across its member notes because it runs inside one transaction's match; a
+   * blanket re-run with that rule would tie SEVERAL transactions to one parcela
+   * (an order carrying three notes and one parcela would absorb all three), and
+   * the order's 3-way check would then read MISMATCH off money that is perfectly
+   * fine. Idempotent: a second run finds nothing left to do.
+   */
+  async tieBackOrphanOrderMatches(scope?: {
+    ids?: string[];
+    start?: Date;
+    end?: Date;
+  }): Promise<number> {
+    const txWhere: Prisma.BankTransactionWhereInput = {};
+    if (scope?.ids?.length) txWhere.id = { in: scope.ids };
+    if (scope?.start && scope?.end) txWhere.postedAt = { gte: scope.start, lte: scope.end };
+
+    const rows = await this.prisma.reconciliationMatch.findMany({
+      where: {
+        reversedAt: null,
+        fiscalDocumentId: { not: null },
+        orderInstallmentId: null,
+        ...(Object.keys(txWhere).length ? { transaction: txWhere } : {}),
+      },
+      select: { id: true, transactionId: true, fiscalDocumentId: true, allocatedAmount: true },
+    });
+    if (rows.length === 0) return 0;
+
+    const fdToOrders = await resolveOrderIdsForFiscalDocs(
+      this.prisma,
+      [...new Set(rows.map(r => r.fiscalDocumentId!))],
+    );
+    if (fdToOrders.size === 0) return 0;
+
+    let tied = 0;
+    for (const row of rows) {
+      const orderIds = fdToOrders.get(row.fiscalDocumentId!) ?? [];
+      for (const orderId of orderIds) {
+        const done = await this.tieBackOneOrphanRow(row.id, orderId, Number(row.allocatedAmount))
+          .catch(err => {
+            this.logger.warn(`Orphan tie-back failed for match ${row.id}: ${err}`);
+            return false;
+          });
+        if (done) {
+          tied += 1;
+          break; // the row now carries an anchor — never tie it to a second order
+        }
+      }
+    }
+    if (tied) this.logger.log(`C1 backfill: ${tied} NF match row(s) tied back to an order parcela`);
+    return tied;
+  }
+
+  /** One row → one free installment of one order, under the advisory lock. */
+  private async tieBackOneOrphanRow(
+    matchId: string,
+    orderId: string,
+    allocated: number,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async db => {
+      await this.lockWrites(db);
+
+      const row = await db.reconciliationMatch.findUnique({
+        where: { id: matchId },
+        select: { reversedAt: true, orderInstallmentId: true },
+      });
+      if (!row || row.reversedAt || row.orderInstallmentId) return false;
+
+      const order = await db.order.findUnique({
+        where: { id: orderId },
+        select: { status: true, paymentStatus: true },
+      });
+      if (
+        !order ||
+        order.status === OrderStatus.CANCELLED ||
+        order.paymentStatus === OrderPaymentStatus.PENDING
+      ) {
+        return false;
+      }
+
+      const free = await db.orderInstallment.findMany({
+        where: { orderId, reconciliationMatches: { none: { reversedAt: null } } },
+        select: { id: true, amount: true, status: true },
+      });
+      const fits = free.filter(i => {
+        const tol = Math.max(THREE_WAY_TOLERANCE_ABS, i.amount * THREE_WAY_TOLERANCE_PCT);
+        return Math.abs(i.amount - allocated) <= tol;
+      });
+      if (fits.length !== 1) return false;
+      const target = fits[0];
+
+      await db.reconciliationMatch.update({
+        where: { id: matchId },
+        data: { orderInstallmentId: target.id },
+      });
+      if (target.status !== OrderInstallmentStatus.PAID) {
+        await db.orderInstallment.update({
+          where: { id: target.id },
+          data: {
+            status: OrderInstallmentStatus.PAID,
+            paidAmount: target.amount,
+            paidAt: new Date(),
+          },
+        });
+      }
+      await this.orderService.recomputeOrderPaymentRollupFromReconciliation(db, orderId);
+      return true;
     });
   }
 

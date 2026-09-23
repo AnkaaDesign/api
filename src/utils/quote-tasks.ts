@@ -150,9 +150,13 @@ export function parseLateSlotKey(key: string): { field: string; taskId: string |
   return { field: key.slice(0, hash), taskId: key.slice(hash + 1) };
 }
 
-/** Os três campos que ganham lacuna. Categoria e implemento não: são
- *  classificação, não identidade, e já estão preenchidos na emissão. */
-export const LATE_SLOT_FIELDS = ['serialNumber', 'plate', 'chassis'] as const;
+/** Os campos que ganham lacuna. Categoria e implemento não: são
+ *  classificação, não identidade, e já estão preenchidos na emissão.
+ *
+ *  `orderNumber` estava de fora — o documento reservava a lacuna do pedido
+ *  (`ad2e5c47`) mas este mapa nunca a respondia, e o pdf selado saía com "a
+ *  registrar" mesmo com o número já na tarefa. */
+export const LATE_SLOT_FIELDS = ['serialNumber', 'plate', 'chassis', 'orderNumber'] as const;
 export type LateSlotField = (typeof LATE_SLOT_FIELDS)[number];
 
 export interface LateSlotVehicle {
@@ -160,6 +164,7 @@ export interface LateSlotVehicle {
   serialNumber?: string | null;
   plate?: string | null;
   chassis?: string | null;
+  orderNumber?: string | null;
 }
 
 /**

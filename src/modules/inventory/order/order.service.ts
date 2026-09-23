@@ -1384,6 +1384,52 @@ export class OrderService {
     // NOTE: If this system ever handles internal orders without suppliers,
     // we would need to check if existingOrder.supplierId exists to determine the flow
 
+    // Fulfillment is item-level truth: an order is only really "feito" when every item
+    // carries a fulfilledAt. Stamp it here, inside the same transaction as the status change,
+    // so EVERY path that sets FULFILLED (detail page, list bulk action, PUT /orders/batch,
+    // raw API) leaves the items consistent with the order. RECEIVED backfills it too, since
+    // receiving implies a prior fulfillment. Before this, only the web detail page stamped
+    // fulfilledAt — in a second, non-atomic call — so every other path produced an order
+    // reading "Atendido" over items still reading "Pendente".
+    if (
+      (newStatus === ORDER_STATUS.FULFILLED || newStatus === ORDER_STATUS.RECEIVED) &&
+      oldStatus !== newStatus
+    ) {
+      const unfulfilledItems = await tx.orderItem.findMany({
+        where: { orderId: existingOrder.id, fulfilledAt: null },
+        select: { id: true },
+      });
+
+      if (unfulfilledItems.length > 0) {
+        const fulfilledAt = new Date();
+        await tx.orderItem.updateMany({
+          where: { id: { in: unfulfilledItems.map(i => i.id) } },
+          data: { fulfilledAt },
+        });
+
+        const stampReason =
+          newStatus === ORDER_STATUS.RECEIVED
+            ? 'Item marcado como feito junto com o recebimento do pedido'
+            : 'Item marcado como feito junto com a confirmação do pedido';
+
+        for (const item of unfulfilledItems) {
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.ORDER_ITEM,
+            entityId: item.id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'fulfilledAt',
+            oldValue: null,
+            newValue: fulfilledAt,
+            reason: stampReason,
+            triggeredBy: CHANGE_TRIGGERED_BY.ORDER_UPDATE,
+            triggeredById: existingOrder.id,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
+      }
+    }
+
     // If changing to RECEIVED, validate and create any missing activities
     if (newStatus === ORDER_STATUS.RECEIVED && oldStatus !== ORDER_STATUS.RECEIVED) {
       this.logger.log(

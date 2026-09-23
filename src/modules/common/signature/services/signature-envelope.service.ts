@@ -60,6 +60,11 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
+import {
+  isPerVehicleLayout,
+  layoutFileCoverage,
+  layoutGateFailure,
+} from '@utils/quote-layout-coverage';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
@@ -94,6 +99,13 @@ import {
   ENTITY_TYPE,
 } from '@/constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@/constants/sortOrders';
+import {
+  orderNumberVehicles,
+  resolveOrderNumberSubmission,
+  signerRequiresOrderNumber,
+  ORDER_NUMBER_MAX_LENGTH,
+  type OrderNumberVehicle,
+} from '../order-number-gate';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
   acceptanceClauseFor,
@@ -290,6 +302,24 @@ function eventDetailOf(eventType: string, payload: unknown): string | null {
     const changes = data.changes;
     if (typeof changes !== 'string' || !changes.trim()) return null;
     return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
+  }
+
+  // Nº DO PEDIDO informado por Compras no ato. O valor é carimbado na lacuna do
+  // documento, mas o carimbo não diz QUEM o pôs lá — é esta linha que diz.
+  if (eventType === 'ORDER_NUMBER_INFORMED') {
+    const rows = Array.isArray(data.informed) ? data.informed : [];
+    const text = rows
+      .map(r => {
+        const row = r as { label?: unknown; value?: unknown };
+        if (typeof row.value !== 'string') return null;
+        return typeof row.label === 'string' && rows.length > 1
+          ? `${row.label}: ${row.value}`
+          : `Nº do pedido: ${row.value}`;
+      })
+      .filter((t): t is string => !!t)
+      .join(' | ');
+    if (!text) return null;
+    return text.length > 240 ? `${text.slice(0, 237)}...` : text;
   }
 
   // REDESIGNAÇÃO DO CONTRA-ASSINANTE. O documento está congelado e a linha de
@@ -558,7 +588,11 @@ export class SignatureEnvelopeService {
         // O preflight existe justamente para dizer isso ANTES do clique: sem
         // esta linha o operador escolheria canal, marcaria recortes, confirmaria
         // e só então tomaria o 400.
-        layoutFiles: { select: { id: true }, take: 1 },
+        //
+        // POR VEÍCULO: com `layoutScope`, a cobertura de cada arte — o portão
+        // pergunta se TODO veículo tem o seu, e nomeia o que falta.
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
         // Os PAGADORES, pelo mesmo motivo do layout: `createEnvelope` recusa dois
         // (o documento congelado descreveria um só) e o preflight existe para
         // dizer isso ANTES do clique. Sem esta linha o operador escolhia canal,
@@ -623,7 +657,14 @@ export class SignatureEnvelopeService {
       );
     }
 
-    if (!quote.layoutFiles?.length) {
+    const layoutGatePreflight = layoutGateFailure(quote as any);
+    if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
+      blockers.push(
+        `${layoutGatePreflight.message} Atribua um layout a cada veículo antes de enviar o ` +
+          'orçamento para assinatura — sem ele o orçamento não poderá ser aprovado depois que o ' +
+          'cliente assinar.',
+      );
+    } else if (layoutGatePreflight) {
       blockers.push(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não poderá ser aprovado depois que o cliente assinar.',
@@ -1094,11 +1135,36 @@ export class SignatureEnvelopeService {
     // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
     // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
     // e o layout pode ser desvinculado entre a emissão e a conclusão.
+    //
+    // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é se TODO veículo tem
+    // o seu layout — o documento é o contrato dos N caminhões, e um caminhão sem
+    // arte chegaria à aprovação pelo mesmo beco sem saída do nº 591. Em `SHARED`,
+    // a pergunta e a frase de sempre.
     const gate = await this.prisma.budget.findUnique({
       where: { id: args.quoteId },
-      select: { layoutFiles: { select: { id: true }, take: 1 } },
+      select: {
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
+            truck: { select: { plate: true } },
+          },
+        },
+      },
     });
-    if (!gate?.layoutFiles?.length) {
+    const layoutGate = layoutGateFailure(gate as any);
+    if (layoutGate?.scope === 'PER_VEHICLE') {
+      throw new BadRequestException(
+        `${layoutGate.message} Atribua um layout a cada veículo antes de enviar o orçamento ` +
+          'para assinatura. Sem ele o orçamento não pode ser aprovado depois que o cliente ' +
+          'assinar, e a coleta ficaria concluída com o orçamento parado.',
+      );
+    }
+    if (layoutGate) {
       throw new BadRequestException(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não pode ser aprovado depois que o cliente assinar, e a coleta ' +
@@ -1493,6 +1559,11 @@ export class SignatureEnvelopeService {
           quoteSnapshot: snapshot as unknown as Prisma.InputJsonValue,
           quoteSnapshotSha256: hash,
           quoteTermsSha256: materialHash,
+          // NASCE TENDO VISTO O PRÓPRIO ESTADO DE EMISSÃO. No instante do envio
+          // o congelado É o atual, e sem esta linha o primeiro `onQuoteContent-
+          // Changed` cairia no ramo "nunca avaliado" e voltaria a julgar contra o
+          // congelado — que é o comportamento que esta marca existe para datar.
+          lastSeenSnapshotSha256: hash,
           verificationCode,
           legalBasis: LEGAL_BASIS,
           // A MESMA frase que `buildRenderInput` acabou de IMPRIMIR nos PDFs
@@ -2461,9 +2532,50 @@ export class SignatureEnvelopeService {
       // idêntico ao de antes desta mudança.
       .join('\n');
 
-    const layoutImages = quote.layoutFiles
-      .map(f => this.renderer.resolveLayoutImageDataUri(f))
-      .filter((v): v is string => Boolean(v));
+    // ── AS ARTES, E DE QUAL VEÍCULO É CADA UMA ──────────────────────────────
+    //
+    // `SHARED`: as artes na ordem de sempre, SEM legenda — o HTML sai byte a
+    // byte igual ao de antes (envelopes antigos são reconferidos contra ele).
+    //
+    // `PER_VEHICLE`: cada arte com a legenda dos veículos dela ("Veículo 39088",
+    // "Veículos 39088, 39089"), na ordem do PRIMEIRO veículo que ela cobre —
+    // a mesma ordem da tabela de identificação, para o cliente ler o documento de
+    // cima para baixo sem ir e voltar. Sem isto o PDF mostrava duas pinturas sem
+    // dizer de qual caminhão era cada uma, e quem assinava aprovava as duas para
+    // os dois.
+    //
+    // A legenda viaja PAREADA com a imagem até o filtro das que não resolveram:
+    // filtrar só as imagens desalinharia as legendas dali em diante.
+    const perVehicleLayout = isPerVehicleLayout(quote as any);
+    const artCoverage = layoutFileCoverage(quote as any);
+    const vehicleIndex = new Map(vehicleTasks.map((t, i) => [t.id, i] as const));
+    const firstCovered = (fileId: string): number =>
+      Math.min(
+        Number.POSITIVE_INFINITY,
+        ...(artCoverage.get(fileId) ?? []).map(
+          id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
+        ),
+      );
+    const orderedLayoutFiles = perVehicleLayout
+      ? quote.layoutFiles
+          .map((f, position) => ({ f, position, first: firstCovered(f.id) }))
+          .sort((a, b) => a.first - b.first || a.position - b.position)
+          .map(x => x.f)
+      : quote.layoutFiles;
+    const layoutPairs = orderedLayoutFiles
+      .map(f => ({
+        src: this.renderer.resolveLayoutImageDataUri(f),
+        caption: perVehicleLayout
+          ? coverageSummary(
+              { tasks: (artCoverage.get(f.id) ?? []).map(taskId => ({ taskId })) } as any,
+              vehicleTasks.length,
+              vehicleTasks as any,
+            )
+          : null,
+      }))
+      .filter((p): p is { src: string; caption: string | null } => Boolean(p.src));
+    const layoutImages = layoutPairs.map(p => p.src);
+    const layoutCaptions = perVehicleLayout ? layoutPairs.map(p => p.caption) : undefined;
 
     // Quem o documento identifica como cliente: no recorte é o cliente da
     // configuração, e não o da tarefa — são diferentes justamente no faturamento
@@ -2565,6 +2677,8 @@ export class SignatureEnvelopeService {
         guaranteeYears: quote.guaranteeYears ?? null,
       }),
       layoutImages,
+      // Só existe em `PER_VEHICLE` — ver `QuoteHtmlInput.layoutCaptions`.
+      ...(layoutCaptions ? { layoutCaptions } : {}),
       signers: signers.map(s => ({
         id: s.id,
         name: s.name,
@@ -3281,7 +3395,21 @@ export class SignatureEnvelopeService {
         user: {
           select: { position: { select: { name: true } }, sector: { select: { name: true } } },
         },
-        envelope: { include: { quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } } } },
+        // `truck.plate` entra pelo nº do pedido de COMPRAS: é com série e placa
+        // que o signatário reconhece de qual veículo é cada campo (ver
+        // `orderNumberGateOf`).
+        envelope: {
+          include: {
+            quote: {
+              include: {
+                tasks: {
+                  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                  include: { customer: true, truck: { select: { plate: true } } },
+                },
+              },
+            },
+          },
+        },
       },
     });
     if (!signer) throw new NotFoundException('Link de assinatura inválido.');
@@ -3473,6 +3601,18 @@ export class SignatureEnvelopeService {
       // em `assertOtpCeremony`.
       canSign:
         kind === 'OTP' ? this.canSignNow(env.status, signer.status, env.deadlineAt) : false,
+      /**
+       * Nº do pedido de compra — `null` para quem NÃO é de Compras (a página
+       * nem desenha o campo). Para Compras vem a lista de veículos do
+       * orçamento, cada um com o número já registrado ou `null`; `required`
+       * diz se falta algum, e é o que a página usa para travar o botão. A
+       * regra de verdade é a do servidor (`signWithOtp`): isto só evita que o
+       * signatário descubra a exigência depois de digitar o código.
+       *
+       * Só na cerimônia OTP: é a única que assina por esta página. O signatário
+       * de PORTAL assina na sessão, onde vale o portão de `purchase-order-gate.ts`.
+       */
+      orderNumber: kind === 'OTP' ? this.orderNumberGateOf(signer) : null,
       ...(kind === 'INTERNAL'
         ? {
             internalNotice:
@@ -3493,6 +3633,109 @@ export class SignatureEnvelopeService {
           }
         : {}),
     };
+  }
+
+  /**
+   * A exigência do nº do pedido para ESTE signatário, ou `null` quando ele não
+   * está sujeito a ela (não é de Compras). Ver `order-number-gate.ts`.
+   *
+   * Lê as tarefas VIVAS, não o congelamento: o que importa é se o número existe
+   * agora — a Ankaa pode tê-lo registrado depois da emissão, e aí não há o que
+   * pedir.
+   */
+  private orderNumberGateOf(signer: {
+    responsible?: { roles?: string[] | null } | null;
+    envelope: { quote: { tasks?: Array<Record<string, any>> | null } };
+  }): { required: boolean; maxLength: number; vehicles: OrderNumberVehicle[] } | null {
+    if (!signerRequiresOrderNumber(signer.responsible?.roles)) return null;
+    const vehicles = orderNumberVehicles(
+      sortQuoteTasks((signer.envelope.quote.tasks ?? []) as any[]) as any[],
+    );
+    return {
+      required: vehicles.some(v => !v.value),
+      maxLength: ORDER_NUMBER_MAX_LENGTH,
+      vehicles,
+    };
+  }
+
+  /**
+   * Grava o nº do pedido que o signatário de Compras informou — na MESMA
+   * transação da linha de ChangeLog de cada tarefa e do evento na trilha.
+   *
+   * Só preenche VAZIO (`updateMany` com o vazio no `where`): se a Ankaa ou outro
+   * signatário de Compras registrou um número entre a leitura e esta escrita, o
+   * número dele fica e este é descartado em silêncio — o veículo já tem pedido,
+   * que é tudo o que a regra exige. A trilha registra só o que de fato entrou.
+   */
+  private async writeInformedOrderNumbers(args: {
+    envelopeId: string;
+    signer: { id: string; declaredName: string };
+    budgetNumber: number | null;
+    vehicles: readonly OrderNumberVehicle[];
+    toWrite: ReadonlyArray<{ taskId: string; value: string }>;
+    ctx: RequestContext;
+  }): Promise<Array<{ taskId: string; label: string; value: string }>> {
+    if (!args.toWrite.length) return [];
+    const labelOf = new Map(args.vehicles.map(v => [v.taskId, v.label]));
+
+    return this.prisma.$transaction(async tx => {
+      const informed: Array<{ taskId: string; label: string; value: string }> = [];
+      for (const row of args.toWrite) {
+        const res = await tx.task.updateMany({
+          where: {
+            id: row.taskId,
+            OR: [{ customerOrderNumber: null }, { customerOrderNumber: '' }],
+          },
+          data: { customerOrderNumber: row.value },
+        });
+        if (res.count === 0) continue;
+        informed.push({ taskId: row.taskId, label: labelOf.get(row.taskId) ?? '', value: row.value });
+
+        // `field: 'customerOrderNumber'` é o que `lateSlotRegistrationDates`
+        // procura para datar a lacuna no aditivo, e o que o histórico da tarefa
+        // mostra. Sem usuário: quem escreveu é um contato do cliente, e ele
+        // está nomeado no motivo e no metadata.
+        await tx.changeLog.create({
+          data: {
+            entityType: 'TASK',
+            entityId: row.taskId,
+            action: 'UPDATE',
+            field: 'customerOrderNumber',
+            oldValue: Prisma.JsonNull,
+            newValue: row.value,
+            reason:
+              `Nº do pedido informado por ${args.signer.declaredName} (Compras) ao assinar ` +
+              `o orçamento${args.budgetNumber != null ? ` nº ${args.budgetNumber}` : ''}`,
+            triggeredBy: 'SYSTEM',
+            triggeredById: args.signer.id,
+            userId: null,
+            metadata: {
+              source: 'SIGNATURE_CEREMONY',
+              envelopeId: args.envelopeId,
+              signerId: args.signer.id,
+              ipAddress: args.ctx.ipAddress ?? null,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        });
+      }
+      if (!informed.length) return informed;
+
+      await this.audit.record(
+        args.envelopeId,
+        {
+          eventType: 'ORDER_NUMBER_INFORMED',
+          actorType: 'SIGNER',
+          actorId: args.signer.id,
+          actorLabel: args.signer.declaredName,
+          ipAddress: args.ctx.ipAddress,
+          userAgent: args.ctx.userAgent,
+          payload: { informed },
+        },
+        tx,
+      );
+      return informed;
+    });
   }
 
   private canSignNow(
@@ -3797,6 +4040,11 @@ export class SignatureEnvelopeService {
      * chamado por script. `normalizeGeo` é quem impõe a forma.
      */
     geo?: { lat?: number; lon?: number; accuracy?: number | null } | null;
+    /**
+     * Nº do pedido por veículo — só é lido quando o signatário é de Compras.
+     * Ver `order-number-gate.ts`.
+     */
+    orderNumbers?: ReadonlyArray<{ taskId?: string; value?: string }> | null;
     ctx: RequestContext;
   }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
     this.assertCeremonyConfigured();
@@ -3814,6 +4062,23 @@ export class SignatureEnvelopeService {
     }
     if (!signer.informedCpf || !signer.informedCargo) {
       throw new BadRequestException('Informe CPF e cargo antes de assinar.');
+    }
+
+    // Nº DO PEDIDO — quem é de Compras só assina com o pedido de cada veículo
+    // registrado, já na tarefa ou informado agora (`order-number-gate.ts`).
+    //
+    // ANTES de verificar o código, de propósito: `verify` consome o desafio de
+    // uso único, e recusar depois dele obrigaria quem só esqueceu o campo a
+    // esperar o cooldown por um código novo. A GRAVAÇÃO, ao contrário, fica para
+    // depois do código: número em `Task` só entra com a identidade provada.
+    //
+    // O que quem NÃO é de Compras manda é ignorado — nunca gravado.
+    const orderGate = this.orderNumberGateOf(signer);
+    const orderResolution = orderGate
+      ? resolveOrderNumberSubmission(orderGate.vehicles, args.orderNumbers)
+      : null;
+    if (orderResolution?.problem) {
+      throw new BadRequestException(orderResolution.problem);
     }
 
     // GUARANTIA DE FRESCOR — verificada no momento do ato, não confiando na
@@ -3895,6 +4160,22 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
     });
 
+    // Com a identidade provada, o número entra na tarefa. Fica FORA do recorte
+    // material e do diff (`QuoteSnapshotVehicle.orderNumber`), então não derruba
+    // esta nem as outras assinaturas; e é carimbado na lacuna reservada do
+    // documento na conclusão (`stampLateValues`).
+    const orderNumbersInformed =
+      orderGate && orderResolution
+        ? await this.writeInformedOrderNumbers({
+            envelopeId: env.id,
+            signer,
+            budgetNumber: env.quote.budgetNumber ?? null,
+            vehicles: orderGate.vehicles,
+            toWrite: orderResolution.toWrite,
+            ctx: args.ctx,
+          })
+        : [];
+
     const customer = primaryTask(env.quote)?.customer ?? null;
     const signerSections = this.sectionsOf(signer.document);
     // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
@@ -3954,6 +4235,12 @@ export class SignatureEnvelopeService {
       geoLat: geo ? Number(geo.lat.toFixed(4)) : null,
       geoLon: geo ? Number(geo.lon.toFixed(4)) : null,
       declarations,
+      // Só quando houve: o número informado passa a fazer parte do que o HMAC
+      // sela, amarrado ao mesmo ato. Ausente nas demais evidências, que ficam
+      // com a forma de sempre.
+      ...(orderNumbersInformed.length
+        ? { orderNumbersInformed: orderNumbersInformed.map(o => ({ taskId: o.taskId, value: o.value })) }
+        : {}),
     };
 
     const evidenceHash = sha256Hex(evidence);
@@ -6399,6 +6686,7 @@ export class SignatureEnvelopeService {
         serialNumber: t.serialNumber ?? null,
         plate: t.truck?.plate ?? null,
         chassis: t.truck?.chassisNumber ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
     );
 
@@ -6881,6 +7169,38 @@ export class SignatureEnvelopeService {
    * Base: OWASP Transaction Authorization §2.6 e CC art. 431 (aceitação com
    * modificações importa nova proposta).
    */
+  /**
+   * Marca, no envelope, o estado do orçamento que este gancho ACABOU DE AVALIAR.
+   *
+   * É o que dá DATA à comparação. Sem ela, `onQuoteContentChanged` só sabe dizer
+   * "diverge do congelado", e responde isso para sempre — cobrando a divergência
+   * de quem quer que salve o orçamento em seguida, tenha essa pessoa mexido no
+   * documento ou não.
+   *
+   * ⚠️ SÓ NO CAMINHO DE ESCRITA. `changesSinceFrozen`, que roda na LEITURA do
+   * painel, não pode gravar aqui: se gravasse, abrir a tela do orçamento
+   * consumiria a deriva, e a alteração material que viesse depois encontraria o
+   * estado já "visto" e nunca invalidaria. Ver o aviso em `changesSinceFrozen`.
+   *
+   * Best-effort: a marca é uma otimização de atribuição, não o estado do
+   * documento. Falhar aqui, no pior caso, devolve o comportamento antigo (julgar
+   * contra o congelado) — nunca invalida nada por conta própria.
+   */
+  private async rememberSeenSnapshot(envelopeId: string, hash: string): Promise<void> {
+    try {
+      await this.prisma.signatureEnvelope.update({
+        where: { id: envelopeId },
+        data: { lastSeenSnapshotSha256: hash },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Não foi possível marcar o estado avaliado do envelope ${envelopeId}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+  }
+
   async onQuoteContentChanged(quoteId: string, actorUserId: string | null): Promise<boolean> {
     // ⚠️ COLETA CONCLUÍDA TAMBÉM ENTRA AQUI, e essa é a correção de 17/09/2026.
     //
@@ -6924,7 +7244,43 @@ export class SignatureEnvelopeService {
     if (!loaded) return false;
 
     // Atalho barato: nada no documento mudou, nem cosmético nem material.
-    if (loaded.hash === running.quoteSnapshotSha256) return false;
+    if (loaded.hash === running.quoteSnapshotSha256) {
+      await this.rememberSeenSnapshot(running.id, loaded.hash);
+      return false;
+    }
+
+    // ── SÓ A DERIVA QUE ESTA GRAVAÇÃO INTRODUZIU ────────────────────────────
+    //
+    // A pergunta certa não é "diverge do congelado?" — é "diverge do que eu já
+    // tinha visto?". A primeira não tem data: uma troca de layout de cinco dias
+    // atrás responde igualzinho a uma de cinco segundos atrás, e quem a executa
+    // é quem salvar o orçamento em seguida, seja lá o que essa pessoa tenha
+    // mexido.
+    //
+    // O INCIDENTE que isto conserta, nº 973, 22/09/2026: o layout fora trocado
+    // em 17/09 (correção dos telefones na arte), a regra que enxerga coleta
+    // CONCLUÍDA subiu em produção às 12:20, e às 12:33 o FATURAMENTO puxou o
+    // gatilho — uma gravação de condição de pagamento e pagador, campos que o
+    // documento assinado nem exibe. O contrato foi anulado, o orçamento voltou a
+    // PENDENTE, a O.S. comercial reabriu em cascata e o cliente recebeu um
+    // WhatsApp de cancelamento que ninguém pediu. Orçamento e faturamento são
+    // coisas separadas: uma escrita de cobrança não pode derrubar um contrato.
+    //
+    // Com a marca, a alteração material é cobrada de QUEM A FEZ, NO MOMENTO em
+    // que a faz — que é quando a pessoa ainda sabe o que mudou e por quê.
+    //
+    // ⚠️ A DERIVA ANTIGA NÃO É ESQUECIDA: `changesSinceFrozen` continua
+    // comparando contra o CONGELADO, então a tela e a rota de alterações seguem
+    // mostrando tudo que divergiu desde a assinatura. O que muda é só quem tem
+    // autoridade para INVALIDAR, e a partir de quando.
+    if (running.lastSeenSnapshotSha256 && running.lastSeenSnapshotSha256 === loaded.hash) {
+      this.logger.log(
+        `Orçamento ${quoteId}: esta gravação não mexeu no documento (a divergência com o ` +
+          `congelado é anterior e já foi avaliada). Envelope ${running.id} segue em ` +
+          `${running.status}.`,
+      );
+      return false;
+    }
 
     const before = running.quoteSnapshot as any;
     // Quem AINDA NÃO assinou. É esta lista que decide o que derruba a coleta:
@@ -6977,6 +7333,9 @@ export class SignatureEnvelopeService {
       // nenhum: o relógio que barra a assinatura é `deadlineAt`, e ele continuaria
       // no dia de ontem. Ver `tolerateExtendedValidity`.
       await this.propagateExtendedDeadline(running, loaded.snapshot.expiresAt, actorUserId);
+      // Avaliado e aprovado: este estado não precisa ser julgado de novo pela
+      // próxima gravação que passar por aqui.
+      await this.rememberSeenSnapshot(running.id, loaded.hash);
       return false;
     }
 
@@ -6993,7 +7352,14 @@ export class SignatureEnvelopeService {
       });
       await tx.signatureEnvelope.update({
         where: { id: running.id },
-        data: { status: EnvelopeStatus.INVALIDATED, invalidatedReason: reason },
+        data: {
+          status: EnvelopeStatus.INVALIDATED,
+          invalidatedReason: reason,
+          // O estado que motivou a anulação fica marcado como JÁ AVALIADO. O
+          // envelope sai de RUNNING/COMPLETED e este gancho não volta a achá-lo,
+          // mas a marca é o registro de até onde a avaliação chegou.
+          lastSeenSnapshotSha256: loaded.hash,
+        },
       });
     });
 
@@ -7160,12 +7526,10 @@ export class SignatureEnvelopeService {
     // O botão do template interno é endereçado pela TAREFA, e este método só
     // recebe o orçamento. Uma consulta, fora do laço: o alvo é o mesmo para
     // todos os signatários, e o laço fala com dois transportes de rede.
-    const task = await this.prisma.task.findFirst({
-      where: { quoteId: running.quoteId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: { id: true },
-    });
-    const quoteButtonParam = this.internalQuoteButtonParam(task?.id ?? null, running.quoteId);
+    // A busca da tarefa saiu daqui junto com o `urlButtonParam`: o único
+    // consumidor dela era o sufixo do botão do `orcamento_assinatura_cancelada_
+    // interna`, e esse template não tem botão nenhum na Meta. Ver
+    // `voidedInternalTemplate`.
     for (const s of toNotify) {
       // O e-mail leva a lista item a item. Quem assinou e teve a assinatura
       // anulada não deveria precisar abrir um link para descobrir qual preço
@@ -7218,7 +7582,6 @@ export class SignatureEnvelopeService {
                 signerName: voidedPayload.signerName,
                 budgetNumber: voidedPayload.budgetNumber,
                 reason: voidedPayload.reason,
-                quoteTaskId: quoteButtonParam,
               })
             : voidedTemplate({
                 signerName: voidedPayload.signerName,
@@ -7470,6 +7833,7 @@ export class SignatureEnvelopeService {
         serialNumber: t.serialNumber ?? null,
         plate: t.truck?.plate ?? null,
         chassis: t.truck?.chassisNumber ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
     );
 
