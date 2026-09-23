@@ -4043,6 +4043,25 @@ enum LayoutStatus {
   DRAFT
   APPROVED
   REPROVED
+  /// Enviada ao cliente para aprovar (M0, R-A). Nenhum escritor ainda: entra com a arte por implemento (R-B).
+  PENDING_APPROVAL
+  /// Uma versão nova aprovada tomou o lugar (M0, R-A). Nenhum escritor ainda.
+  SUPERSEDED
+}
+
+/// De onde veio a aprovação da arte (M0, R-A). Nenhum modelo usa ainda: a coluna nasce na M3.
+enum LayoutApprovalSource {
+  PORTAL
+  ON_BEHALF
+  MIGRATED_TASK
+  MIGRATED_BUDGET
+  MIGRATED_ENVELOPE
+}
+
+/// Folhas da porta traseira do implemento (M0, R-A). Nenhum modelo usa ainda: a coluna nasce na M2.
+enum RearDoorLeaves {
+  BIPARTITE
+  TRIPARTITE
 }
 
 enum CutStatus {
