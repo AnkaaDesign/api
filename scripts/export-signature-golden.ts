@@ -136,7 +136,7 @@ async function main(): Promise<void> {
       const ids: string[] = veiculos.map((v: any) => v.taskId);
       const arteA = '00000000-0000-4000-8000-00000000a001';
       const arteB = '00000000-0000-4000-8000-00000000b002';
-      for (const [caso, coverage] of [
+      const casos: Array<[string, Array<[string, string[]]>]> = [
         ['sintetico-per-vehicle-uniforme', [[arteA, ids]]],
         [
           'sintetico-per-vehicle-nao-uniforme',
@@ -145,11 +145,12 @@ async function main(): Promise<void> {
             [arteB, ids.slice(1)],
           ],
         ],
-      ] as const) {
+      ];
+      for (const [caso, coverage] of casos) {
         const snap = {
           ...base,
           vehicles: veiculos,
-          layoutFileIds: [...new Set((coverage as any[]).map(([f]) => f))],
+          layoutFileIds: [...new Set(coverage.map(([f]) => f))],
           layoutCoverage: coverage,
         } as QuoteSnapshot;
         sinteticos.push({
