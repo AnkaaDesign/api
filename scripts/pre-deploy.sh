@@ -65,6 +65,7 @@ PASSOS=(
   "exaustividade dos rótulos|0|npm run -s test:labels-exhaustive"
   # ── revisão da Fase A: as cópias dos clientes não ficam para trás ──
   "G5 contrato nas cópias do web e do app|0|npx tsx scripts/export-contracts.ts --check --irmaos"
+  "G4 formas do web extraídas em dia|0|bash scripts/check-web-query-contracts.sh"
 )
 
 if [[ "$E2E" == "1" ]]; then
