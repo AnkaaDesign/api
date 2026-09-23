@@ -13,9 +13,9 @@
  *   Cada irmão ganha uma linha `ImplementMeasure` nova (mesma altura, mesmas
  *   seções, mesma foto). Compartilhar a linha amarraria os caminhões para sempre:
  *   um veículo pode sair do orçamento amanhã, e editar a medida dele não pode
- *   mexer na dos que ficaram. E as rotas de edição já tratam linha compartilhada
- *   de três jeitos diferentes (copiar antes de editar, editar no lugar, apagar
- *   quando órfã) — uma cópia não entra em nenhum desses casos.
+ *   mexer na dos que ficaram. A escrita passa pelo escritor único
+ *   (`implement-measure-writer.ts`, modo `replace`), que é quem decide o que
+ *   acontece com a linha anterior do irmão.
  *
  *   A foto é o MESMO `File` (é a foto do implemento, que é o mesmo): nenhuma
  *   rota apaga o arquivo da foto ao apagar a medida, então compartilhá-lo não
@@ -39,34 +39,15 @@
 import { Logger } from '@nestjs/common';
 import { sortQuoteTasks } from './quote-tasks';
 import { vehicleLabel } from './quote-layout-coverage';
+import {
+  FACES,
+  FACE_FK,
+  FACE_REL,
+  setFace,
+  type ImplementFace,
+} from '../modules/production/implement-measure/implement-measure-writer';
 
 const logger = new Logger('ImplementMeasureReplication');
-
-export type MeasureSide = 'left' | 'right' | 'back';
-
-export const MEASURE_SIDES: readonly MeasureSide[] = ['left', 'right', 'back'] as const;
-
-const SIDE_FK: Record<
-  MeasureSide,
-  'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId'
-> = {
-  left: 'leftSideMeasureId',
-  right: 'rightSideMeasureId',
-  back: 'backSideMeasureId',
-};
-const SIDE_REL: Record<MeasureSide, 'leftSideMeasure' | 'rightSideMeasure' | 'backSideMeasure'> = {
-  left: 'leftSideMeasure',
-  right: 'rightSideMeasure',
-  back: 'backSideMeasure',
-};
-
-/** O lado a partir do nome da FK (`leftSideMeasureId`) ou da relação (`leftSideMeasure`). */
-export function measureSideOf(field: string): MeasureSide | null {
-  if (field.startsWith('left')) return 'left';
-  if (field.startsWith('right')) return 'right';
-  if (field.startsWith('back')) return 'back';
-  return null;
-}
 
 interface MeasureRow {
   id: string;
@@ -91,12 +72,8 @@ const TRUCK_MEASURES_SELECT = {
   select: {
     id: true,
     plate: true,
-    leftSideMeasureId: true,
-    rightSideMeasureId: true,
-    backSideMeasureId: true,
-    leftSideMeasure: MEASURE_SELECT,
-    rightSideMeasure: MEASURE_SELECT,
-    backSideMeasure: MEASURE_SELECT,
+    ...Object.fromEntries(FACES.map(face => [FACE_FK[face], true])),
+    ...Object.fromEntries(FACES.map(face => [FACE_REL[face], MEASURE_SELECT])),
   },
 };
 
@@ -146,9 +123,9 @@ export interface ReplicationLogEntry {
 
 export interface ReplicationResult {
   /** Lados escritos nos irmãos: `taskId` → lados. */
-  replicated: Array<{ taskId: string; side: MeasureSide; implementMeasureId: string }>;
+  replicated: Array<{ taskId: string; side: ImplementFace; implementMeasureId: string }>;
   /** Irmãos pulados, com o motivo (sem caminhão, por exemplo). */
-  skipped: Array<{ taskId: string; side: MeasureSide; reason: string }>;
+  skipped: Array<{ taskId: string; side: ImplementFace; reason: string }>;
 }
 
 type Tx = any;
@@ -167,13 +144,13 @@ export async function replicateImplementMeasuresToQuoteSiblings(
   tx: Tx,
   params: {
     sourceTaskId: string;
-    sides?: readonly MeasureSide[];
+    sides?: readonly ImplementFace[];
     createMissingTruck: boolean;
     logChange: (entry: ReplicationLogEntry) => Promise<unknown>;
   },
 ): Promise<ReplicationResult> {
   const result: ReplicationResult = { replicated: [], skipped: [] };
-  const sides = [...new Set(params.sides ?? MEASURE_SIDES)];
+  const sides = [...new Set(params.sides ?? FACES)];
   if (sides.length === 0) return result;
 
   const source = await tx.task.findUnique({
@@ -208,7 +185,7 @@ export async function replicateImplementMeasuresToQuoteSiblings(
   const reason = `Medidas replicadas do veículo ${sourceLabel} (mesmo orçamento)`;
 
   for (const side of sides) {
-    const origin: MeasureRow | null = source.truck[SIDE_REL[side]] ?? null;
+    const origin: MeasureRow | null = source.truck[FACE_REL[side]] ?? null;
     // Exclusão não replica — e um lado sem medida na origem não tem o que copiar.
     if (!origin) continue;
     const originKey = measureKey(origin);
@@ -229,59 +206,39 @@ export async function replicateImplementMeasuresToQuoteSiblings(
         sibling.truck = truck;
       }
 
-      const current: MeasureRow | null = truck[SIDE_REL[side]] ?? null;
+      const current: MeasureRow | null = truck[FACE_REL[side]] ?? null;
       // Só o lado que difere. Linha compartilhada com a origem também conta como
       // "já tem" — é a mesma medida.
       if (current && (current.id === origin.id || measureKey(current) === originKey)) continue;
 
-      const copy: MeasureRow = await tx.implementMeasure.create({
-        data: {
+      // Linha NOVA no irmão (mesma altura, mesmas seções, mesma foto); a anterior
+      // sai quando mais ninguém a usa e nenhuma análise de pintura a aponta — a
+      // regra é a do escritor único, não uma faxina própria.
+      const written = await setFace(
+        tx,
+        truck.id,
+        side,
+        {
           height: origin.height,
-          ...(origin.photoId && { photo: { connect: { id: origin.photoId } } }),
-          sections: {
-            create: (origin.sections ?? []).map(s => ({
-              width: s.width,
-              isDoor: s.isDoor,
-              doorHeight: s.doorHeight,
-              position: s.position,
-            })),
-          },
+          photoId: origin.photoId ?? null,
+          sections: (origin.sections ?? []).map(s => ({
+            width: s.width,
+            isDoor: s.isDoor,
+            doorHeight: s.doorHeight,
+            position: s.position,
+          })),
         },
-        ...MEASURE_SELECT,
-      });
-      await tx.truck.update({ where: { id: truck.id }, data: { [SIDE_FK[side]]: copy.id } });
-      truck[SIDE_REL[side]] = copy;
-      truck[SIDE_FK[side]] = copy.id;
-
-      // A medida anterior do irmão sai quando ninguém mais a usa — a mesma
-      // faxina que a edição de tarefa faz. Presa a outro caminhão (qualquer lado)
-      // ou a uma análise de pintura, fica.
-      if (current) {
-        const [trucks, analyses] = await Promise.all([
-          tx.truck.count({
-            where: {
-              OR: [
-                { leftSideMeasureId: current.id },
-                { rightSideMeasureId: current.id },
-                { backSideMeasureId: current.id },
-              ],
-            },
-          }),
-          tx.paintingAnalysis.count({ where: { implementMeasureId: current.id } }),
-        ]);
-        if (trucks === 0 && analyses === 0) {
-          await tx.implementMeasureSection.deleteMany({
-            where: { implementMeasureId: current.id },
-          });
-          await tx.implementMeasure.delete({ where: { id: current.id } });
-        }
-      }
+        { mode: 'replace' },
+      );
+      const copy: MeasureRow = written.after as unknown as MeasureRow;
+      truck[FACE_REL[side]] = copy;
+      truck[FACE_FK[side]] = copy.id;
 
       await params.logChange({
         taskId: sibling.id,
         field: 'implementMeasures',
-        oldValue: { [SIDE_FK[side]]: formatMeasureForChangelog(current) },
-        newValue: { [SIDE_FK[side]]: formatMeasureForChangelog(copy) },
+        oldValue: { [FACE_FK[side]]: formatMeasureForChangelog(current) },
+        newValue: { [FACE_FK[side]]: formatMeasureForChangelog(copy) },
         reason,
       });
       result.replicated.push({ taskId: sibling.id, side, implementMeasureId: copy.id });
