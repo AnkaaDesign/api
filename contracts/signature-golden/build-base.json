@@ -1,0 +1,27 @@
+{
+  "descricao": "G11 parte C: envelopes RUNNING/COMPLETED do clone cujo build() de hoje casa com os termos congelados (o ouro \"antes\" do P12) e os que não casam (orçamento editado depois da emissão; a lista só encolhe). Regravar: GRAVAR_BASE_BUILD=1 npm run test:signature-golden.",
+  "geradaEm": "2026-09-23",
+  "casam": [
+    "1c270cd6-bc0f-4ae8-a783-e758ce8f1044",
+    "637a2f5c-4359-437c-a53e-73e35ffebbdc",
+    "ea22697f-8249-4dcd-943f-6d717d582e76"
+  ],
+  "naoCasam": {
+    "3e9a0ed1-bb63-4632-ab89-2f2d0540047b": "RUNNING: o orçamento mudou depois da emissão",
+    "564ad134-a4ed-4d8e-8b2d-bdff736148fc": "RUNNING: o orçamento mudou depois da emissão",
+    "59029dcf-3e39-4846-b355-7e3f754c4ad9": "RUNNING: o orçamento mudou depois da emissão",
+    "69cfdf1f-265f-4e80-9297-650b42518d90": "RUNNING: o orçamento mudou depois da emissão",
+    "8b4fdaf3-f023-4549-81af-0e490aacf328": "RUNNING: o orçamento mudou depois da emissão",
+    "9116b234-18f9-4c5b-b90d-ce863a86d4aa": "RUNNING: o orçamento mudou depois da emissão",
+    "984c0caa-318b-4e18-8c24-4a4a718a8d7f": "RUNNING: o orçamento mudou depois da emissão",
+    "a0e08b34-d710-4afc-8a42-b10ae42d40e7": "RUNNING: o orçamento mudou depois da emissão",
+    "a7600efd-d4d1-472b-a012-6f9ceb48bd3a": "RUNNING: o orçamento mudou depois da emissão",
+    "a9cef93e-61cb-4ae4-9f25-0c26084d9d56": "COMPLETED: o orçamento mudou depois da emissão",
+    "b690487a-9832-487a-a714-bc4db146bdc8": "RUNNING: o orçamento mudou depois da emissão",
+    "c428c388-39a1-43bb-a00b-63387a053150": "RUNNING: o orçamento mudou depois da emissão",
+    "c597c002-93b4-446a-82b0-5aa5939b1acc": "RUNNING: o orçamento mudou depois da emissão",
+    "cb67d88c-2bf1-4dae-a809-3379cf62a5d2": "RUNNING: o orçamento mudou depois da emissão",
+    "d5b999a1-1388-4033-8f7f-4010104dd25d": "COMPLETED: o orçamento mudou depois da emissão",
+    "e0a9cf10-0385-44e1-8157-73afaa5aa6e9": "RUNNING: o orçamento mudou depois da emissão"
+  }
+}
