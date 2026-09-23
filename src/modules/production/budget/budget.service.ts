@@ -5971,6 +5971,12 @@ export class BudgetService {
               status: true,
               startedAt: true,
               finishedAt: true,
+              // A ORDEM DOS VEÍCULOS. A página pública reordena as tarefas pela mesma
+              // regra deste `orderBy` (`sortQuoteTasks`: `createdAt`, depois `id`) — e
+              // sem o `createdAt` aqui ela desempatava tudo pelo `id`. No nº 990 isso
+              // punha o 39089 antes do 39088 na relação de veículos e nas legendas do
+              // layout, ao contrário do PDF assinado. Não é dado sensível.
+              createdAt: true,
               // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. A página pública e o
               // relatório de serviço o imprimem no quadro do tomador — é o número
               // pelo qual o cliente reconhece a compra. Ele lia
