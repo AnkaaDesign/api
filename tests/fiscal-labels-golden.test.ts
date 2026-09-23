@@ -43,6 +43,11 @@ import { buildServiceDescription } from '../src/modules/integrations/nfse/painte
 import { BudgetReceiptService } from '../src/modules/production/budget/budget-receipt.service';
 import { coverageLabels, coverageSummary } from '../src/utils/quote-tasks';
 import { formatTaskIdentifier } from '../src/utils/task';
+import {
+  implementTypeLabel,
+  truckCategoryLabel,
+} from '../src/modules/common/signature/document/quote-text';
+import { IMPLEMENT_TYPE, TRUCK_CATEGORY } from '../src/constants/enums';
 import { Logger } from '@nestjs/common';
 
 // Os construtores logam cada informativo montado; aqui isso é só ruído.
@@ -453,6 +458,41 @@ async function cadaPalavra(): Promise<void> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 3b. O documento do ORÇAMENTO ASSINADO (quote-text → quote-html.builder)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// O hash das assinaturas (G11) NÃO protege estas palavras: o snapshot guarda o
+// VALOR do enum (`categoryLabel: t.truck?.category`), e o rótulo só entra na
+// hora de montar o HTML. Mudar uma palavra do perfil de tela mudava o
+// documento que o cliente assina sem reprovar nada (R-B-08). O texto de hoje
+// fica aqui, escrito por extenso.
+const TIPOS_DOCUMENTO_ASSINADO: Record<string, string> = {
+  DRY_CARGO: 'Carga Seca',
+  REFRIGERATED: 'Refrigerado',
+  INSULATED: 'Isoplastic',
+  CURTAIN_SIDE: 'Sider',
+  TANK: 'Tanque',
+  FLATBED: 'Carroceria',
+};
+
+async function documentoAssinado(): Promise<void> {
+  console.log('\n12b. Documento do orçamento assinado: cada categoria e cada implemento');
+  for (const [valor, palavra] of Object.entries(CATEGORIAS)) {
+    golden(`categoria ${valor} no documento assinado`, truckCategoryLabel(valor), palavra);
+  }
+  for (const [valor, palavra] of Object.entries(TIPOS_DOCUMENTO_ASSINADO)) {
+    golden(`implemento ${valor} no documento assinado`, implementTypeLabel(valor), palavra);
+  }
+  check(
+    'o documento assinado cobre todo valor dos dois enums',
+    Object.values(TRUCK_CATEGORY).every(v => v in CATEGORIAS) &&
+      Object.values(IMPLEMENT_TYPE).every(v => v in TIPOS_DOCUMENTO_ASSINADO),
+  );
+  golden('valor fora do enum passa cru no documento assinado', truckCategoryLabel('NOVA'), 'NOVA');
+  golden('rótulo já resolvido passa como veio', implementTypeLabel('Baú'), 'Baú');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 4. O DTO que os scripts montam à mão
 // ═══════════════════════════════════════════════════════════════════════════
 async function dtoDosScripts(): Promise<void> {
@@ -486,6 +526,7 @@ async function dtoDosScripts(): Promise<void> {
   await umVeiculo();
   await variosVeiculos();
   await cadaPalavra();
+  await documentoAssinado();
   await dtoDosScripts();
   console.log(
     failures === 0
