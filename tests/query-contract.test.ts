@@ -53,6 +53,7 @@ import {
 } from '../src/modules/common/query/query-key-telemetry';
 import { ZodQueryValidationPipe } from '../src/modules/common/pipes/zod-validation.pipe';
 import { walkQuerySchema } from './helpers/zod-dmmf-walk';
+import { TASK_QUERY_SHAPE } from '../src/modules/production/task/task-query-shape';
 
 let ok = 0;
 let fail = 0;
@@ -253,6 +254,47 @@ function partePipe(): void {
     status === 400 && mensagem.includes('Customer.nfe'),
     `${status} ${mensagem}`,
   );
+
+  // As traduções que o repositório de tarefa faz antes do Prisma não viram 400
+  // (F3/R-B-13): a porta das rotas é a de TASK_QUERY_SHAPE.
+  const rota = new ZodQueryValidationPipe(taskSchemas.taskQuerySchema, TASK_QUERY_SHAPE);
+  let nomeDaOs: any = null;
+  try {
+    nomeDaOs = rota.transform(
+      { include: JSON.stringify({ serviceOrders: { select: { id: true, name: true } } }) },
+      meta,
+    );
+  } catch (e) {
+    nomeDaOs = e;
+  }
+  check(
+    '`serviceOrders.select.name` passa (o repositório troca por description; linha na tabela)',
+    nomeDaOs?.include?.serviceOrders?.select?.name === true,
+    String(nomeDaOs?.message ?? JSON.stringify(nomeDaOs)),
+  );
+  resetQueryKeyCounters();
+  let soWhere: any = null;
+  try {
+    soWhere = rota.transform(
+      { include: JSON.stringify({ serviceOrders: { where: { naoExiste: 1 } } }) },
+      meta,
+    );
+  } catch (e) {
+    soWhere = e;
+  }
+  check(
+    'relação só com where: o repositório ignora, o G1 conta em vez de recusar',
+    !!soWhere?.include?.serviceOrders &&
+      Object.keys(queryKeyCounters()).includes('dropped|Task|include.serviceOrders.where'),
+    String(soWhere?.message ?? JSON.stringify(soWhere)),
+  );
+  let inventadaSoWhere = 0;
+  try {
+    enforceQueryShape('Task', { include: { naoExiste: { where: { id: 1 } } } }, TASK_QUERY_SHAPE);
+  } catch (e) {
+    inventadaSoWhere = (e as UnknownQueryKeyException).getStatus?.() ?? 0;
+  }
+  check('relação inventada, mesmo só com where, continua 400', inventadaSoWhere === 400);
 
   const semModelo = new ZodQueryValidationPipe(taskSchemas.taskQuerySchema);
   const passa = semModelo.transform(

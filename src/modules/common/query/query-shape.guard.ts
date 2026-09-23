@@ -89,6 +89,14 @@ export function droppedQueryKeyPaths(raw: unknown, parsed: unknown, path: string
 export interface EnforceQueryShapeOptions {
   /** o pedido ANTES do zod — habilita o modo relatório das chaves descartadas */
   raw?: unknown;
+  /**
+   * O repositório do modelo IGNORA o argumento de uma relação do `include` do
+   * topo que não traz `include` nem `select` (`{ serviceOrders: { where } }`
+   * vira o include padrão — `task-prisma.repository.ts#mapIncludeToDatabaseInclude`).
+   * Com esta opção, o G1 não julga esse argumento (ele nunca chega ao Prisma):
+   * conta e loga como descartado, e a resposta continua a de antes.
+   */
+  bareRelationArgsIgnored?: boolean;
 }
 
 /**
@@ -115,7 +123,26 @@ export function enforceQueryShape<T>(
     ),
   );
 
-  const issues = findQueryKeyIssues(model, pickClauses(translated), QUERY_KEY_ALLOWANCE);
+  const toValidate = pickClauses(translated);
+  if (options.bareRelationArgsIgnored && isPlainObject(toValidate.include)) {
+    const include: Record<string, unknown> = { ...toValidate.include };
+    for (const [key, value] of Object.entries(include)) {
+      if (!isPlainObject(value) || 'include' in value || 'select' in value) continue;
+      if (!getField(model, key)) continue; // relação inventada: o validador recusa
+      for (const arg of Object.keys(value)) {
+        recordQueryKeyEvent(
+          'dropped',
+          model,
+          `include.${key}.${arg}`,
+          'ignorado pelo repositório (relação sem include/select)',
+        );
+      }
+      include[key] = true;
+    }
+    toValidate.include = include;
+  }
+
+  const issues = findQueryKeyIssues(model, toValidate, QUERY_KEY_ALLOWANCE);
   if (issues.length > 0) {
     for (const i of issues) recordQueryKeyEvent('rejected', model, i.path, i.reason);
     throw new UnknownQueryKeyException(issues);

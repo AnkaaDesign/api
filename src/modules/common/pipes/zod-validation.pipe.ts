@@ -26,6 +26,8 @@ export interface ZodValidationPipeOptions {
    * Só vale para `@Query`.
    */
   queryModel?: string;
+  /** G1: ver `EnforceQueryShapeOptions.bareRelationArgsIgnored`. */
+  bareRelationArgsIgnored?: boolean;
 }
 
 @Injectable()
@@ -38,7 +40,10 @@ export class ZodValidationPipe implements PipeTransform {
   transform(value: unknown, metadata: ArgumentMetadata): unknown {
     const parsed = this.parse(value, metadata);
     if (metadata.type === 'query' && this.options.queryModel) {
-      return enforceQueryShape(this.options.queryModel, parsed, { raw: value });
+      return enforceQueryShape(this.options.queryModel, parsed, {
+        raw: value,
+        bareRelationArgsIgnored: this.options.bareRelationArgsIgnored,
+      });
     }
     return parsed;
   }

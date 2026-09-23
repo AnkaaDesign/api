@@ -115,6 +115,22 @@ export const DEPRECATED_QUERY_KEYS: readonly DeprecatedQueryKey[] = [
     handledBy: 'budget-prisma.repository.ts#stripUnorderableTaskEntries',
     reason: 'A coluna saiu de Budget; ordenar por ela era o mesmo 500 de `task`.',
   },
+  {
+    model: 'ServiceOrder',
+    key: 'name',
+    clauses: ['select'],
+    action: 'translate',
+    to: 'description',
+    since: '2026-09-23',
+    expiresAt: '2027-03-31',
+    handledBy: 'task-prisma.repository.ts#sanitizeSelectFields',
+    reason:
+      'ServiceOrder não tem `name`; o repositório de tarefa troca ' +
+      '`include.serviceOrders.select.name` por `description` antes do Prisma (herança ' +
+      'do app RN). Nenhum cliente atual manda (web, app main, v1.4.1+24 e AnkaaAero ' +
+      'conferidos no P01); a linha existe para o G1 não recusar com 400 o que a API ' +
+      'respondia com 200. Vencida, o censo (G3) decide se o sanitizador sai junto.',
+  },
 ];
 
 export interface ComputedQueryKey {

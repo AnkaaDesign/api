@@ -32,11 +32,7 @@ import {
   taskProductionStatsSchema,
   taskPerformanceStatsSchema,
 } from '../../../schemas/task-analytics';
-import {
-  ZodValidationPipe,
-  ZodQueryValidationPipe,
-  type ZodValidationPipeOptions,
-} from '@modules/common/pipes/zod-validation.pipe';
+import { ZodValidationPipe, ZodQueryValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import {
   taskCreateSchema,
@@ -94,12 +90,7 @@ import type {
 } from '../../../types';
 import type { SuccessResponse } from '../../../types';
 import { taskBatchCreateWithQuoteSchema } from '../../../schemas/task';
-
-/**
- * G1: toda consulta de tarefa (include/select/where/orderBy) passa pelo
- * validador derivado do DMMF depois do zod — chave inventada vira 400 nomeado.
- */
-const TASK_QUERY_SHAPE: ZodValidationPipeOptions = { queryModel: 'Task' };
+import { TASK_QUERY_SHAPE } from './task-query-shape';
 
 @Controller('tasks')
 export class TaskController {

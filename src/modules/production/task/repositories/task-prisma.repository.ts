@@ -1820,6 +1820,11 @@ export class TaskPrismaRepository
   /**
    * Sanitizes select objects before passing to Prisma:
    * - ServiceOrder: maps `name` → `description` (ServiceOrder has no `name` field)
+   *
+   * G1: esta tradução está registrada em `DEPRECATED_QUERY_KEYS`
+   * (`ServiceOrder.select.name`, handledBy este método) — a tabela é a única
+   * lista de chaves que o Prisma não conhece; sem a linha, o G1 recusaria com
+   * 400 o que aqui vira 200.
    */
   private sanitizeSelectFields(relationKey: string, value: any): any {
     if (!value || typeof value !== 'object' || !('select' in value)) return value;
