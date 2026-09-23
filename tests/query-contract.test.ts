@@ -31,6 +31,10 @@ import * as budgetSchemas from '../src/schemas/budget';
 import * as airbrushingSchemas from '../src/schemas/airbrushing';
 import * as customerSchemas from '../src/schemas/customer';
 import * as fileSchemas from '../src/schemas/file';
+import * as userSchemas from '../src/schemas/user';
+import * as itemSchemas from '../src/schemas/item';
+import * as supplierSchemas from '../src/schemas/supplier';
+import * as changelogSchemas from '../src/schemas/changelog';
 import {
   findQueryKeyIssues,
   getField,
@@ -96,6 +100,23 @@ const SCHEMAS: Record<string, { model: string; schema: ZodTypeAny }> = {
   },
   'file.fileGetManySchema': { model: 'File', schema: fileSchemas.fileGetManySchema },
   'file.fileQuerySchema': { model: 'File', schema: fileSchemas.fileQuerySchema },
+  // Revisão da Fase A (R-B-11): as rotas com mais consultas do web em `semSchema`.
+  'user.userGetManySchema': { model: 'User', schema: userSchemas.userGetManySchema },
+  'user.userQuerySchema': { model: 'User', schema: userSchemas.userQuerySchema },
+  'item.itemGetManySchema': { model: 'Item', schema: itemSchemas.itemGetManySchema },
+  'item.itemQuerySchema': { model: 'Item', schema: itemSchemas.itemQuerySchema },
+  'supplier.supplierGetManySchema': {
+    model: 'Supplier',
+    schema: supplierSchemas.supplierGetManySchema,
+  },
+  'supplier.supplierQuerySchema': {
+    model: 'Supplier',
+    schema: supplierSchemas.supplierQuerySchema,
+  },
+  'changelog.changeLogGetManySchema': {
+    model: 'ChangeLog',
+    schema: changelogSchemas.changeLogGetManySchema,
+  },
 };
 
 /**
@@ -110,6 +131,168 @@ const FANTASMAS_CONHECIDOS: Record<string, string> = {
     '`tasks.include.airbrushing` não existe em Task (é `airbrushings`)',
   'budget.budgetQuerySchema include Task.airbrushing':
     '`tasks.include.airbrushing` não existe em Task (é `airbrushings`)',
+  // Revisão da Fase A (R-B-11): ao registrar user/item/supplier/changelog, os
+  // schemas deles já declaravam estas chaves que o Prisma não conhece (a mesma
+  // classe que o P01 limpou em tarefa, cliente, arquivo e aerografia). Donos
+  // dos schemas; aqui só não pioram.
+  'user.userGetManySchema include Preferences.notifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema include User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema include User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema include User.ppeDeliveriesApproved':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema include User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema select User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema select User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema select User.ppeDeliveriesApproved':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema select User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema where User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userGetManySchema where User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema include Preferences.notifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema include User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema include User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema include User.ppeDeliveriesApproved':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema include User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema select User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema select User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema select User.ppeDeliveriesApproved':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'user.userQuerySchema select User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include User.ppeDeliveredBy':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Order.budget':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Order.nfe':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Order.receipt':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Order.epiSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema orderBy User.status':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema where Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema where Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema orderBy Item.price':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema orderBy Supplier.name':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select Item.ppeSize':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select Supplier.name':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select ItemCategory.orderSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema select ItemCategory.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include ItemCategory.orderSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include ItemCategory.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemGetManySchema include Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include User.ppeDeliveredBy':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include User.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Order.budget':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Order.nfe':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Order.receipt':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Order.epiSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema orderBy User.status':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema where Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema where Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema orderBy Item.price':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema orderBy Supplier.name':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select Item.ppeSize':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select Supplier.name':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select ItemCategory.orderSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema select ItemCategory.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include ItemCategory.orderSchedule':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include ItemCategory.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'item.itemQuerySchema include Item.ppeSchedules':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierGetManySchema include Item.price':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierGetManySchema include Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierGetManySchema include Order.nfe':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierGetManySchema include Order.budget':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierGetManySchema include Order.receipt':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierQuerySchema include Item.price':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierQuerySchema include Item.ppeDeliveries':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierQuerySchema include Order.nfe':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierQuerySchema include Order.budget':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'supplier.supplierQuerySchema include Order.receipt':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'changelog.changeLogGetManySchema include User.tasks':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'changelog.changeLogGetManySchema include User.bonifications':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
+  'changelog.changeLogGetManySchema orderBy User.status':
+    'R-B-11: schema registrado na revisão da Fase A; o zod declara, o Prisma não conhece',
 };
 
 /**
@@ -120,6 +303,17 @@ const FANTASMAS_CONHECIDOS: Record<string, string> = {
  * Para sair daqui: o schema da rota passa a conhecer a chave (e o G1 a julga)
  * ou o cliente para de mandá-la.
  */
+/**
+ * Formas REAIS do web que já dão 500 em produção (a rota não tem G1 e o Prisma
+ * recusa): a parte C exige que G1 e Prisma as recusem juntos, e reprova no dia
+ * em que passarem (consertou: tire daqui). Só encolhe.
+ */
+const FORMAS_QUEBRADAS_CONHECIDAS: Record<string, string> = {
+  'web.user.edit/id.includeParams':
+    'GET /users/:id com include.tasks — User não tem `tasks`: a tela de edição de colaborador pede e o Prisma dá 500',
+  'web.item.edit/id#3': 'GET /items com where.measures.some.AND[].type — Measure não tem `type`',
+};
+
 const DESCARTADAS_CONHECIDAS: Record<string, string> = {
   // semeada em 23/09 (revisão da Fase A, R-B-02) com o que as formas mandavam
   'Airbrushing|include.layouts.include.file':
@@ -142,6 +336,18 @@ const DESCARTADAS_CONHECIDAS: Record<string, string> = {
     'web documents-card e duplicar: relação que o zod de tarefa não conhece',
   'Task|include.reimbursements': 'web customer-tasks-table, documents-card e duplicar',
   'Task|include.updatedBy': 'web customer-tasks-table: relação que o zod de tarefa não conhece',
+  // R-B-11 (rotas registradas na revisão da Fase A):
+  'Item|include.borrows.include.user.select':
+    'web item detail: select aninhado que o zod de item não conhece',
+  'Item|include.changeLogs': 'web item detail: relação que o zod de item não conhece',
+  'Item|include.orderItems.include.order.select':
+    'web item-table: select aninhado que o zod não conhece',
+  'Item|include.ppeConfig': 'web item edit: chave que o zod de item não conhece',
+  'Item|include.warehouseLocation':
+    'web item detail/tabela/edit: relação que o zod de item não conhece',
+  'Supplier|include.orders.orderBy':
+    'web supplier edit: argumento da relação que o zod não conhece',
+  'Supplier|include.orders.take': 'web supplier edit: argumento da relação que o zod não conhece',
   'Task|orderBy[1].truck': 'semente do painel (tabela de tarefas): ordenar pelo caminhão',
 };
 
@@ -413,8 +619,27 @@ function partePipe(): void {
 
 // ─── B. estático: zod × DMMF × whitelist × tabela ────────────────────────────
 
+/**
+ * Cobertura do G4 no web: fração das consultas estáticas do web cujo schema o
+ * teste registra (`formas` ÷ (`formas` + `semSchema`) de web.json). A meta SÓ
+ * SOBE: registrar uma rota nova e ver a fração crescer pede subir este número
+ * no mesmo commit. 23/09 (R-B-11): 140 de 401 depois de registrar usuários,
+ * itens, fornecedores e histórico (eram 50 de 431).
+ */
+const COBERTURA_MINIMA_WEB = 0.34;
+
 function parteB(): void {
   console.log('\n── B. zod × DMMF × whitelist × tabela de legado');
+
+  const web = JSON.parse(
+    readFileSync(join(__dirname, '../contracts/queries/web.json'), 'utf8'),
+  ) as { formas: unknown[]; semSchema: unknown[] };
+  const cobertura = web.formas.length / (web.formas.length + web.semSchema.length);
+  check(
+    `cobertura do G4 no web ≥ ${COBERTURA_MINIMA_WEB} (hoje ${cobertura.toFixed(3)}: ` +
+      `${web.formas.length} formas, ${web.semSchema.length} sem schema)`,
+    cobertura >= COBERTURA_MINIMA_WEB,
+  );
 
   const achados = new Set<string>();
   for (const [nome, { model, schema }] of Object.entries(SCHEMAS)) {
@@ -598,6 +823,7 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
 
 async function parteCD(): Promise<void> {
   const vistas = new Map<string, string[]>();
+  const quebradasVistas = new Set<string>();
   const prisma = new PrismaClient();
   const ROLLBACK = new Error('rollback-do-teste-de-contrato');
   try {
@@ -613,7 +839,11 @@ async function parteCD(): Promise<void> {
                 (vistas.get(d) ?? vistas.set(d, []).get(d)!).push(`${arquivo}#${forma.id}`);
               }
             }
-            const esperado = forma.esperado ?? (negativas ? 'recusa' : 'passa');
+            const quebrada = !negativas && forma.id in FORMAS_QUEBRADAS_CONHECIDAS;
+            if (quebrada) quebradasVistas.add(forma.id);
+            const esperado = quebrada
+              ? 'recusa'
+              : (forma.esperado ?? (negativas ? 'recusa' : 'passa'));
             if (esperado === 'passa') {
               check(
                 `${forma.id} (${forma.rota}) passa no zod, no G1 e no Prisma`,
@@ -648,6 +878,14 @@ async function parteCD(): Promise<void> {
     'nenhuma forma de cliente manda chave que o zod descarta calado (fora da lista conhecida)',
     novas.length === 0,
     novas.map(k => `${k} ← ${vistas.get(k)!.join(', ')}`).join('; '),
+  );
+  const quebradasSumidas = Object.keys(FORMAS_QUEBRADAS_CONHECIDAS).filter(
+    k => !quebradasVistas.has(k),
+  );
+  check(
+    'FORMAS_QUEBRADAS_CONHECIDAS só lista formas que ainda existem',
+    quebradasSumidas.length === 0,
+    quebradasSumidas.join('; '),
   );
   const velhas = Object.keys(DESCARTADAS_CONHECIDAS).filter(k => !vistas.has(k));
   check(

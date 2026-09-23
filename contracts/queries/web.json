@@ -1,8 +1,31 @@
 {
   "cliente": "web",
   "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
-  "fonte": "web@feat/portal-do-responsavel (6150bafc)",
+  "fonte": "web@feat/portal-do-responsavel (ee7b1bc6)",
   "formas": [
+    {
+      "id": "web.changelog.list/changelog-table.includeConfig",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/administration/changelog/list/changelog-table.tsx:75 (includeConfig)",
+      "omitidas": [
+        "...filters",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "user": true
+        }
+      },
+      "origens": [
+        "web/src/components/administration/changelog/list/changelog-table.tsx:75 (includeConfig)",
+        "web/src/components/administration/changelog/list/changelog-list.tsx:171"
+      ]
+    },
     {
       "id": "web.task.detail/customer-tasks-table.includeConfig",
       "rota": "GET /tasks",
@@ -107,6 +130,182 @@
         "web/src/components/production/task/batch-edit/cells/customer-cell.tsx:37",
         "web/src/components/production/task/history/task-history-filters.tsx:40"
       ]
+    },
+    {
+      "id": "web.user.detail-page/user-detail-page",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/components/administration/user/detail-page/user-detail-page.tsx:169",
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true,
+          "ppeSize": true,
+          "avatar": true,
+          "currentContract": true,
+          "activities": {
+            "include": {
+              "item": true
+            }
+          },
+          "changeLogs": true
+        }
+      }
+    },
+    {
+      "id": "web.user.list/user-export",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/administration/user/list/user-export.tsx:74",
+      "omitidas": [
+        "...filters",
+        "page"
+      ],
+      "consulta": {
+        "limit": 100,
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true,
+          "currentContract": true,
+          "_count": {
+            "select": {
+              "createdTasks": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.user.list/user-table.includeConfig",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/administration/user/list/user-table.tsx:111 (includeConfig)",
+      "omitidas": [
+        "...restFilters",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true,
+          "ppeSize": true,
+          "currentContract": true,
+          "admissions": {
+            "include": {
+              "documents": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            }
+          },
+          "_count": {
+            "select": {
+              "createdTasks": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.user.table/user-table-page.LIST_INCLUDE",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/administration/user/table/user-table-page.tsx:118 (LIST_INCLUDE)",
+      "omitidas": [
+        "...(statuses ? { statuses } : {})"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true,
+          "ppeSize": true,
+          "currentContract": true,
+          "admissions": {
+            "include": {
+              "documents": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            }
+          },
+          "_count": {
+            "select": {
+              "createdTasks": true
+            }
+          }
+        },
+        "limit": 100,
+        "orderBy": {
+          "name": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.item.item-selector/item-selector.includeConfig",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/common/item-selector/item-selector.tsx:203 (includeConfig)",
+      "omitidas": [
+        "searchingFor",
+        "showInactive",
+        "where",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "borrows": {
+            "where": {
+              "status": "ACTIVE"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.supplier.item-selector/item-selector",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/common/item-selector/item-selector.tsx:315",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "take": 50,
+        "include": {
+          "logo": true
+        },
+        "where": {
+          "status": "ACTIVE"
+        }
+      }
     },
     {
       "id": "web.airbrushing.accounts-payable/manage-receipts-dialog",
@@ -272,6 +471,1003 @@
       }
     },
     {
+      "id": "web.user.list/calculation-list",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/integrations/secullum/calculations/list/calculation-list.tsx:140",
+      "consulta": {
+        "statuses": [
+          "ACTIVE"
+        ],
+        "where": {
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 100,
+        "include": {
+          "currentContract": true,
+          "position": true,
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/activity-batch-create-form",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/inventory/activity/form/activity-batch-create-form.tsx:69",
+      "consulta": {
+        "where": {
+          "currentContractStatus": "ACTIVE"
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 100,
+        "include": {
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/activity-batch-table",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/components/inventory/activity/form/activity-batch-table.tsx:47",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/activity-edit-form",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/components/inventory/activity/form/activity-edit-form.tsx:34",
+      "consulta": {
+        "include": {
+          "borrows": {
+            "where": {
+              "status": "ACTIVE"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.changelog.detail/borrow-history-card",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/inventory/borrow/detail/borrow-history-card.tsx:223",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        },
+        "take": 50
+      }
+    },
+    {
+      "id": "web.changelog.detail/borrow-timeline",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/inventory/borrow/detail/borrow-timeline.tsx:50",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "orderBy": {
+          "createdAt": "desc"
+        },
+        "include": {
+          "user": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/borrow-batch-create-form",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/inventory/borrow/form/borrow-batch-create-form.tsx:104",
+      "consulta": {
+        "statuses": [
+          "ACTIVE"
+        ],
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 100,
+        "include": {
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/borrow-item-selector.includeConfig",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/borrow/form/borrow-item-selector.tsx:254 (includeConfig)",
+      "omitidas": [
+        "...(!showSelectedOnlyProp && {\n        sear",
+        "...(!showSelectedOnlyProp && typeof showIna",
+        "where",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "borrows": {
+            "where": {
+              "status": "ACTIVE"
+            }
+          },
+          "orderItems": {
+            "include": {
+              "order": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.item.form/item-selector",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/borrow/form/item-selector.tsx:47",
+      "omitidas": [
+        "skip",
+        "where"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "category": true,
+          "brands": true
+        }
+      }
+    },
+    {
+      "id": "web.supplier.item-selector/item-selector-filters",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-filters.tsx:158",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "take": 50,
+        "include": {
+          "logo": true
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/common/item-selector/item-selector-filters.tsx:158",
+        "web/src/components/inventory/item/list/item-filters.tsx:168"
+      ]
+    },
+    {
+      "id": "web.item.item-selector/item-selector-table.includeConfig",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:228 (includeConfig)",
+      "omitidas": [
+        "limit"
+      ],
+      "consulta": {
+        "where": {
+          "id": {
+            "in": []
+          }
+        },
+        "page": 1,
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "web.item.item-selector/item-selector-table.includeConfig#2",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:244 (includeConfig)",
+      "omitidas": [
+        "where",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n          o"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/common/item-selector/item-selector-table.tsx:244 (includeConfig)",
+        "web/src/components/inventory/common/item-selector/item-selector-table.tsx:268 (includeConfig)",
+        "web/src/components/inventory/external-operation/form/external-operation-item-selector.tsx:239 (includeConfig)",
+        "web/src/components/inventory/activity/form/activity-item-selector.tsx:241 (includeConfig)",
+        "web/src/components/inventory/order/form/order-item-selector.tsx:296 (includeConfig)"
+      ]
+    },
+    {
+      "id": "web.item.delivery/item-selector-dropdown",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:137",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 50,
+        "where": {
+          "isActive": true,
+          "ppeType": {
+            "not": null
+          },
+          "quantity": {
+            "gt": 0
+          }
+        },
+        "include": {
+          "category": true,
+          "measures": true,
+          "brands": true
+        }
+      }
+    },
+    {
+      "id": "web.user.delivery/item-selector-dropdown",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:78",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "ppeSize": true
+        },
+        "take": 1
+      }
+    },
+    {
+      "id": "web.item.list/ppe-export",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/epi/list/ppe-export.tsx:99",
+      "omitidas": [
+        "...filters",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "prices": true
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/epi/list/ppe-export.tsx:99",
+        "web/src/components/inventory/item/list/item-export.tsx:95"
+      ]
+    },
+    {
+      "id": "web.item.list/ppe-table",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/epi/list/ppe-table.tsx:91",
+      "omitidas": [
+        "...(showSelectedOnly ? {} : cleanFilters)",
+        "page",
+        "limit",
+        "orderBy"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "measures": true,
+          "prices": {
+            "where": {
+              "current": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "web.user.sizes/ppe-sizes-table.includeConfig",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/inventory/epi/sizes/ppe-sizes-table.tsx:259 (includeConfig)",
+      "omitidas": [
+        "...filters",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n      order"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "ppeSize": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/external-operation-create-form",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/external-operation/form/external-operation-create-form.tsx:179",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/external-operation/form/external-operation-create-form.tsx:179",
+        "web/src/components/inventory/external-operation/form/external-operation-edit-form.tsx:271",
+        "web/src/components/inventory/order/form/order-batch-create-form.tsx:84"
+      ]
+    },
+    {
+      "id": "web.item.detail-page/item-detail-page.DETAIL_INCLUDE",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/components/inventory/item/detail-page/item-detail-page.tsx:87 (DETAIL_INCLUDE)",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "warehouseLocation": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "activities": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 20
+          },
+          "relatedItems": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "relatedTo": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "orderItems": {
+            "include": {
+              "order": {
+                "include": {
+                  "supplier": true,
+                  "items": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 50
+          },
+          "borrows": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 50
+          },
+          "changeLogs": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "_count": {
+            "select": {
+              "activities": true,
+              "borrows": true,
+              "orderItems": true,
+              "prices": true,
+              "measures": true,
+              "relatedItems": true,
+              "relatedTo": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.supplier.form/supplier-selector",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/inventory/item/form/supplier-selector.tsx:57",
+      "omitidas": [
+        "page",
+        "where"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "include": {
+          "logo": true
+        }
+      }
+    },
+    {
+      "id": "web.item.table/item-table-page.ITEM_LIST_INCLUDE",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/item/table/item-table-page.tsx:72 (ITEM_LIST_INCLUDE)",
+      "omitidas": [
+        "...buildItemQuery(params.filters, params.se",
+        "page",
+        "limit",
+        "orderBy"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "warehouseLocation": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "orderItems": {
+            "include": {
+              "order": {
+                "select": {
+                  "status": true
+                }
+              }
+            }
+          },
+          "_count": {
+            "select": {
+              "activities": true
+            }
+          }
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/item/table/item-table-page.tsx:72 (ITEM_LIST_INCLUDE)",
+        "web/src/components/inventory/item/table/item-table-page.tsx:91 (ITEM_LIST_INCLUDE)"
+      ]
+    },
+    {
+      "id": "web.item.common/items-needed-table.includeConfig",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/maintenance/common/items-needed-table.tsx:83 (includeConfig)",
+      "omitidas": [
+        "where",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "measures": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/maintenance/common/items-needed-table.tsx:83 (includeConfig)",
+        "web/src/components/inventory/order/form/order-create-form.tsx:264"
+      ]
+    },
+    {
+      "id": "web.item.form/item-selector#2",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/maintenance/form/item-selector.tsx:44",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 50,
+        "include": {
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/review-items-table",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/order-schedule/form/review-items-table.tsx:32",
+      "omitidas": [
+        "where",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "measures": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "page": 1
+      }
+    },
+    {
+      "id": "web.supplier.form/order-create-form",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/inventory/order/form/order-create-form.tsx:245",
+      "consulta": {
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "take": 100,
+        "include": {
+          "logo": true
+        }
+      },
+      "origens": [
+        "web/src/components/inventory/order/form/order-create-form.tsx:245",
+        "web/src/components/inventory/order/form/order-edit-form.tsx:449",
+        "web/src/components/inventory/order-schedule/form/order-schedule-create-form.tsx:75",
+        "web/src/components/inventory/order-schedule/form/order-schedule-edit-form.tsx:118",
+        "web/src/components/inventory/order/form/order-batch-create-form.tsx:76"
+      ]
+    },
+    {
+      "id": "web.item.form/order-edit-form",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/inventory/order/form/order-edit-form.tsx:461",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "measures": true
+        }
+      }
+    },
+    {
+      "id": "web.supplier.list/supplier-export",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/inventory/supplier/list/supplier-export.tsx:70",
+      "omitidas": [
+        "...filters",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "_count": {
+            "select": {
+              "items": true,
+              "orders": true,
+              "orderRules": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.supplier.list/supplier-table.includeConfig",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/components/inventory/supplier/list/supplier-table.tsx:96 (includeConfig)",
+      "omitidas": [
+        "...filters",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "logo": true,
+          "_count": {
+            "select": {
+              "items": true,
+              "orders": true,
+              "orderRules": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.user.notes/note-share-dialog",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/notes/note-share-dialog.tsx:126",
+      "omitidas": [
+        "skip",
+        "where"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "sector": true,
+          "avatar": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/fispq-form",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/components/occupational-health/fispq/form/fispq-form.tsx:157",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "supplier": true
+        }
+      }
+    },
+    {
+      "id": "web.changelog.detail/paint-with-formulas-changelog-history",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/painting/catalogue/detail/paint-with-formulas-changelog-history.tsx:93",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        },
+        "take": 100
+      }
+    },
+    {
+      "id": "web.item.formula/formula-calculator",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/painting/formula/formula-calculator.tsx:84",
+      "consulta": {
+        "where": {
+          "id": {
+            "in": []
+          }
+        },
+        "include": {
+          "measures": true,
+          "prices": true
+        }
+      }
+    },
+    {
+      "id": "web.item.form/component-items-selector",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/painting/paint-type/form/component-items-selector.tsx:48",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 50,
+        "include": {
+          "measures": true,
+          "category": true,
+          "brands": true
+        }
+      },
+      "origens": [
+        "web/src/components/painting/paint-type/form/component-items-selector.tsx:48",
+        "web/src/components/painting/paint-brand/form/component-items-selector.tsx:48"
+      ]
+    },
+    {
+      "id": "web.user.form/admission-new-user-form",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/admission/form/admission-new-user-form.tsx:175",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "take": 1,
+        "include": {
+          "position": true,
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.user.bonus-simulation/bonus-simulation-filters",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-filters.tsx:50",
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "where": {
+          "currentEmployeeType": "CLT",
+          "currentContractStatus": "ACTIVE",
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      },
+      "origens": [
+        "web/src/components/personnel-department/bonus-simulation/bonus-simulation-filters.tsx:50",
+        "web/src/components/personnel-department/promotions-simulation/promotions-simulation-filters.tsx:51"
+      ]
+    },
+    {
+      "id": "web.user.bonus-simulation/bonus-simulation-interactive-table",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-interactive-table.tsx:280",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.user.list/bonus-filters",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:40",
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "where": {
+          "currentEmployeeType": "CLT",
+          "payrollNumber": {
+            "not": null
+          }
+        },
+        "limit": 100
+      },
+      "origens": [
+        "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:40",
+        "web/src/pages/personnel-department/bonus/list.tsx:635"
+      ]
+    },
+    {
+      "id": "web.user.payroll/employee-loan-dialog",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/payroll/employee-loan-dialog.tsx:108",
+      "omitidas": [
+        "skip",
+        "where"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true
+        }
+      },
+      "origens": [
+        "web/src/components/personnel-department/payroll/employee-loan-dialog.tsx:108",
+        "web/src/components/personnel-department/thirteenth/form/thirteenth-form.tsx:77",
+        "web/src/components/occupational-health/medical-exam/form/medical-exam-form.tsx:94",
+        "web/src/components/occupational-health/work-accident/form/work-accident-form.tsx:90",
+        "web/src/pages/tools/overtime-cost-calculator.tsx:216",
+        "web/src/pages/tools/collaborator-cost-calculator.tsx:84"
+      ]
+    },
+    {
+      "id": "web.user.list/payroll-filters",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/payroll/list/payroll-filters.tsx:34",
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "where": {
+          "currentContractStatus": "ACTIVE",
+          "currentEmployeeType": "CLT",
+          "payrollNumber": {
+            "not": null
+          },
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "limit": 100
+      }
+    },
+    {
       "id": "web.task.payroll/payroll-calculation",
       "rota": "GET /tasks",
       "modelo": "Task",
@@ -284,6 +1480,279 @@
         "include": {
           "serviceOrders": true,
           "customer": true
+        }
+      }
+    },
+    {
+      "id": "web.user.payroll/payroll-form",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/payroll/payroll-form.tsx:87",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "position": {
+            "include": {
+              "remunerations": true
+            }
+          },
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.user.performance-levels/performance-level-export",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/performance-levels/performance-level-export.tsx:71",
+      "omitidas": [
+        "...filters",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true
+        }
+      },
+      "origens": [
+        "web/src/components/personnel-department/performance-levels/performance-level-export.tsx:71",
+        "web/src/components/personnel-department/performance-levels/performance-level-list.tsx:123",
+        "web/src/components/personnel-department/payroll/payroll-calculation.tsx:72"
+      ]
+    },
+    {
+      "id": "web.user.performance-levels/performance-level-filters",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/performance-levels/performance-level-filters.tsx:71",
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "where": {
+          "currentContractStatus": "ACTIVE"
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.user.promotions-simulation/promotions-simulation-interactive-table",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-interactive-table.tsx:166",
+      "consulta": {
+        "where": {
+          "currentEmployeeType": "CLT",
+          "currentContractStatus": "ACTIVE",
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "include": {
+          "position": {
+            "include": {
+              "remunerations": true
+            }
+          },
+          "sector": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.user.form/termination-form",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:140",
+      "consulta": {
+        "include": {
+          "currentContract": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/termination-form#2",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:173",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "take": 50,
+        "where": {
+          "currentContractStatus": {
+            "not": "TERMINATED"
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true
+        }
+      }
+    },
+    {
+      "id": "web.user.time-clock-entry/time-clock-edit-list",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/time-clock-entry/time-clock-edit-list.tsx:250",
+      "consulta": {
+        "statuses": [
+          "ACTIVE"
+        ],
+        "where": {
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 100,
+        "include": {
+          "position": true,
+          "sector": true,
+          "currentContract": true
+        }
+      }
+    },
+    {
+      "id": "web.user.assinatura-digital/espelho-export-modal",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/time-clock/assinatura-digital/espelho-export-modal.tsx:351",
+      "omitidas": [
+        "where",
+        "take"
+      ],
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "currentContract": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/user-benefit-form",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/user-benefit/form/user-benefit-form.tsx:167",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "take": 50,
+        "where": {
+          "currentContractStatus": "ACTIVE"
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": {
+            "include": {
+              "remunerations": true
+            }
+          },
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.user.promote/promote-dialog",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/user-position-history/promote/promote-dialog.tsx:74",
+      "consulta": {
+        "where": {
+          "currentContractStatus": "ACTIVE"
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 50,
+        "include": {
+          "position": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/vacation-form",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:109",
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": true,
+          "currentContract": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/vacation-form#2",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:141",
+      "omitidas": [
+        "page",
+        "...ELIGIBLE_VACATION_WHERE"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true,
+          "sector": true,
+          "currentContract": true
+        }
+      }
+    },
+    {
+      "id": "web.user.form/collaborator-select",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/components/personnel-department/warning/form/collaborator-select.tsx:60",
+      "consulta": {
+        "include": {
+          "position": true,
+          "sector": {
+            "include": {
+              "leader": {
+                "include": {
+                  "position": true
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1540,6 +3009,145 @@
       }
     },
     {
+      "id": "web.user.throttler/user-name-cell",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/components/server/throttler/user-name-cell.tsx:13",
+      "consulta": {
+        "include": {
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.item.paint-mix-calculator/category-item-selector.ITEM_INCLUDE",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:104 (ITEM_INCLUDE)",
+      "omitidas": [
+        "page",
+        "where"
+      ],
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 20,
+        "isActive": true,
+        "include": {
+          "prices": true,
+          "measures": true,
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.item.paint-mix-calculator/category-item-selector.ITEM_INCLUDE#2",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:57 (ITEM_INCLUDE)",
+      "consulta": {
+        "include": {
+          "prices": true,
+          "measures": true,
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.changelog.ui/changelog-history",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/ui/changelog-history.tsx:2788",
+      "omitidas": [
+        "where",
+        "take"
+      ],
+      "consulta": {
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        }
+      },
+      "origens": [
+        "web/src/components/ui/changelog-history.tsx:2788",
+        "web/src/components/ui/task-with-service-orders-changelog.tsx:3069",
+        "web/src/components/ui/task-with-service-orders-changelog.tsx:3090",
+        "web/src/components/ui/task-with-service-orders-changelog.tsx:3132"
+      ]
+    },
+    {
+      "id": "web.changelog.ui/task-with-service-orders-changelog",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3111",
+      "omitidas": [
+        "take"
+      ],
+      "consulta": {
+        "where": {
+          "entityType": "TRUCK"
+        },
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        }
+      }
+    },
+    {
+      "id": "web.changelog.ui/task-with-service-orders-changelog#2",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3159",
+      "omitidas": [
+        "take"
+      ],
+      "consulta": {
+        "where": {
+          "entityType": "TASK_QUOTE"
+        },
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        }
+      }
+    },
+    {
+      "id": "web.changelog.ui/task-with-service-orders-changelog#3",
+      "rota": "GET /changelogs",
+      "modelo": "ChangeLog",
+      "schema": "changelog.changeLogGetManySchema",
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3180",
+      "omitidas": [
+        "take"
+      ],
+      "consulta": {
+        "where": {
+          "entityType": "TASK_QUOTE_ITEM"
+        },
+        "include": {
+          "user": true
+        },
+        "orderBy": {
+          "createdAt": "desc"
+        }
+      }
+    },
+    {
       "id": "web.task.widgets/installment-table.TASK_INCLUDE",
       "rota": "GET /tasks",
       "modelo": "Task",
@@ -1751,6 +3359,120 @@
       ]
     },
     {
+      "id": "web.user.personnel-department/use-user",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/hooks/personnel-department/use-user.ts:111",
+      "consulta": {
+        "where": {
+          "hasLedSector": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "sector": true,
+          "ledSector": true,
+          "position": true
+        }
+      }
+    },
+    {
+      "id": "web.user.personnel-department/use-user#2",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/hooks/personnel-department/use-user.ts:96",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true
+        }
+      },
+      "origens": [
+        "web/src/hooks/personnel-department/use-user.ts:96",
+        "web/src/hooks/personnel-department/use-user.ts:126"
+      ]
+    },
+    {
+      "id": "web.user.attention/send-warning",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/lib/attention/send-warning.tsx:181",
+      "omitidas": [
+        "skip",
+        "...(target.allowedPrivileges?.length ? { in",
+        "where"
+      ],
+      "consulta": {
+        "take": 50,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "sector": true
+        }
+      },
+      "origens": [
+        "web/src/lib/attention/send-warning.tsx:181",
+        "web/src/components/administration/message/editor/message-metadata-form.tsx:184"
+      ]
+    },
+    {
+      "id": "web.user.collaborators/batch-edit",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/administration/collaborators/batch-edit.tsx:33",
+      "consulta": {
+        "where": {
+          "id": {
+            "in": []
+          }
+        },
+        "include": {
+          "position": true,
+          "sector": true,
+          "ledSector": true
+        }
+      }
+    },
+    {
+      "id": "web.user.edit/id.includeParams",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/pages/administration/collaborators/edit/[id].tsx:51 (includeParams)",
+      "consulta": {
+        "include": {
+          "position": {
+            "include": {
+              "sector": true
+            }
+          },
+          "sector": true,
+          "ledSector": true,
+          "ppeSize": true,
+          "currentContract": true,
+          "tasks": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 5
+          }
+        }
+      }
+    },
+    {
       "id": "web.task.details/id",
       "rota": "GET /tasks/:id",
       "modelo": "Task",
@@ -1903,6 +3625,425 @@
       ]
     },
     {
+      "id": "web.user.secullum/mapping",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/integrations/secullum/mapping.tsx:828",
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "take": 100,
+        "include": {
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.item.details/id",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/inventory/maintenance/schedules/details/[id].tsx:105",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "web.item.details/id#2",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/inventory/orders/schedules/details/[id].tsx:72",
+      "consulta": {
+        "where": {
+          "id": {
+            "in": []
+          }
+        },
+        "include": {
+          "brands": true,
+          "category": true,
+          "measures": true
+        },
+        "limit": 1
+      }
+    },
+    {
+      "id": "web.item.details/id#3",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/pages/inventory/ppe/details/[id].tsx:24",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "activities": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 20
+          },
+          "relatedItems": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "relatedTo": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "orderItems": {
+            "include": {
+              "order": {
+                "include": {
+                  "supplier": true,
+                  "items": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 50
+          },
+          "borrows": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 50
+          },
+          "changeLogs": {
+            "include": {
+              "user": {
+                "select": {
+                  "name": true,
+                  "id": true
+                }
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "web.item.edit/id",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/pages/inventory/ppe/edit/[id].tsx:27",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "ppeConfig": true
+        }
+      }
+    },
+    {
+      "id": "web.item.products/batch-edit",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/inventory/products/batch-edit.tsx:38",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true
+        }
+      }
+    },
+    {
+      "id": "web.item.edit/id#2",
+      "rota": "GET /items/:id",
+      "modelo": "Item",
+      "schema": "item.itemQuerySchema",
+      "origem": "web/src/pages/inventory/products/edit/[id].tsx:29",
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true,
+          "supplier": true,
+          "warehouseLocation": true,
+          "prices": {
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "ppeConfig": true
+        }
+      }
+    },
+    {
+      "id": "web.item.products/stock-balance",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/inventory/products/stock-balance.tsx:38",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.item.statistics/consumption",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/inventory/statistics/consumption.tsx:360",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "limit": 20,
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.supplier.suppliers/batch-edit",
+      "rota": "GET /suppliers",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierGetManySchema",
+      "origem": "web/src/pages/inventory/suppliers/batch-edit.tsx:37",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "logo": true
+        }
+      }
+    },
+    {
+      "id": "web.supplier.details/id",
+      "rota": "GET /suppliers/:id",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierQuerySchema",
+      "origem": "web/src/pages/inventory/suppliers/details/[id].tsx:34",
+      "consulta": {
+        "include": {
+          "logo": true,
+          "items": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "orders": {
+            "include": {
+              "items": true
+            }
+          },
+          "orderRules": true
+        }
+      }
+    },
+    {
+      "id": "web.supplier.edit/id.includeParams",
+      "rota": "GET /suppliers/:id",
+      "modelo": "Supplier",
+      "schema": "supplier.supplierQuerySchema",
+      "origem": "web/src/pages/inventory/suppliers/edit/[id].tsx:39 (includeParams)",
+      "consulta": {
+        "include": {
+          "logo": true,
+          "items": {
+            "include": {
+              "brands": true,
+              "category": true
+            }
+          },
+          "orders": {
+            "include": {
+              "items": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "orderRules": true
+        }
+      }
+    },
+    {
+      "id": "web.user.medical-exams/create",
+      "rota": "GET /users/:id",
+      "modelo": "User",
+      "schema": "user.userQuerySchema",
+      "origem": "web/src/pages/occupational-health/medical-exams/create.tsx:39",
+      "consulta": {
+        "include": {
+          "position": true
+        }
+      }
+    },
+    {
+      "id": "web.item.edit/id#3",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/painting/formulas/edit/[id].tsx:49",
+      "consulta": {
+        "where": {
+          "measures": {
+            "some": {
+              "AND": [
+                {
+                  "type": "WEIGHT"
+                },
+                {
+                  "value": {
+                    "gt": 0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "include": {
+          "measures": true,
+          "brands": true,
+          "category": true
+        }
+      }
+    },
+    {
+      "id": "web.item.my-ppes/request",
+      "rota": "GET /items",
+      "modelo": "Item",
+      "schema": "item.itemGetManySchema",
+      "origem": "web/src/pages/personal/my-ppes/request.tsx:65",
+      "consulta": {
+        "where": {
+          "ppeType": {
+            "not": null
+          },
+          "isActive": true
+        },
+        "include": {
+          "brands": true,
+          "category": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.user.payroll/list",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/personnel-department/payroll/list.tsx:507",
+      "consulta": {
+        "orderBy": {
+          "name": "asc"
+        },
+        "include": {
+          "position": true,
+          "sector": true
+        },
+        "where": {
+          "currentContractStatus": "ACTIVE",
+          "payrollNumber": {
+            "not": null
+          },
+          "secullumEmployeeId": {
+            "not": null
+          }
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.user.statistics/payroll",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/personnel-department/statistics/payroll.tsx:457",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "sector": true,
+          "position": true,
+          "currentContract": true
+        },
+        "orderBy": {
+          "name": "asc"
+        },
+        "limit": 100
+      }
+    },
+    {
       "id": "web.task.schedule/batch-edit",
       "rota": "GET /tasks",
       "modelo": "Task",
@@ -1982,6 +4123,46 @@
           }
         }
       }
+    },
+    {
+      "id": "web.user.tools/collaborator-cost-calculator",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:118",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "position": {
+            "include": {
+              "remunerations": true
+            }
+          }
+        },
+        "take": 1
+      }
+    },
+    {
+      "id": "web.user.tools/overtime-cost-calculator",
+      "rota": "GET /users",
+      "modelo": "User",
+      "schema": "user.userGetManySchema",
+      "origem": "web/src/pages/tools/overtime-cost-calculator.tsx:264",
+      "omitidas": [
+        "where",
+        "take"
+      ],
+      "consulta": {
+        "include": {
+          "position": {
+            "include": {
+              "remunerations": true
+            }
+          }
+        }
+      }
     }
   ],
   "semSchema": [
@@ -2004,18 +4185,6 @@
     {
       "origem": "web/src/api-client/services/payroll.ts:231",
       "chamada": "get"
-    },
-    {
-      "origem": "web/src/components/administration/changelog/list/changelog-list.tsx:171",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/administration/changelog/list/changelog-table.tsx:75 (includeConfig)",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/administration/message/editor/message-metadata-form.tsx:184",
-      "chamada": "getUsers"
     },
     {
       "origem": "web/src/components/administration/notification/list/notification-list.tsx:52",
@@ -2050,88 +4219,24 @@
       "chamada": "useTopics"
     },
     {
-      "origem": "web/src/components/administration/user/detail-page/user-detail-page.tsx:169",
-      "chamada": "useUser"
-    },
-    {
       "origem": "web/src/components/administration/user/detail/employment-history-card.tsx:58",
       "chamada": "useEmploymentContracts"
-    },
-    {
-      "origem": "web/src/components/administration/user/list/user-export.tsx:74",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/administration/user/list/user-table.tsx:111 (includeConfig)",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/administration/user/table/user-table-page.tsx:118 (LIST_INCLUDE)",
-      "chamada": "useUsersInfinite"
-    },
-    {
-      "origem": "web/src/components/common/item-selector/item-selector.tsx:203 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/common/item-selector/item-selector.tsx:315",
-      "chamada": "getSuppliers"
     },
     {
       "origem": "web/src/components/financial/accounts-payable/manage-receipts-dialog.tsx:48",
       "chamada": "useOrder"
     },
     {
-      "origem": "web/src/components/integrations/secullum/calculations/list/calculation-list.tsx:140",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/components/inventory/activity/detail/activity-detail.tsx:21",
       "chamada": "useActivity"
-    },
-    {
-      "origem": "web/src/components/inventory/activity/form/activity-batch-create-form.tsx:69",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/inventory/activity/form/activity-batch-table.tsx:47",
-      "chamada": "useItem"
-    },
-    {
-      "origem": "web/src/components/inventory/activity/form/activity-edit-form.tsx:34",
-      "chamada": "useItem"
     },
     {
       "origem": "web/src/components/inventory/activity/form/activity-edit-wrapper.tsx:21",
       "chamada": "useActivity"
     },
     {
-      "origem": "web/src/components/inventory/activity/form/activity-item-selector.tsx:241 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/components/inventory/activity/list/activity-export.tsx:61",
       "chamada": "getActivities"
-    },
-    {
-      "origem": "web/src/components/inventory/borrow/detail/borrow-history-card.tsx:223",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/inventory/borrow/detail/borrow-timeline.tsx:50",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/inventory/borrow/form/borrow-batch-create-form.tsx:104",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/inventory/borrow/form/borrow-item-selector.tsx:254 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/borrow/form/item-selector.tsx:47",
-      "chamada": "getItems"
     },
     {
       "origem": "web/src/components/inventory/borrow/list/borrow-export.tsx:59",
@@ -2146,60 +4251,12 @@
       "chamada": "useBorrows"
     },
     {
-      "origem": "web/src/components/inventory/common/item-selector/item-selector-filters.tsx:158",
-      "chamada": "getSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:228 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:244 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:268 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:137",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:78",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/components/inventory/epi/delivery/ppe-delivery-table.tsx:110 (includeConfig)",
       "chamada": "usePpeDeliveries"
     },
     {
-      "origem": "web/src/components/inventory/epi/list/ppe-export.tsx:99",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/components/inventory/epi/list/ppe-table.tsx:91",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/components/inventory/epi/schedule/ppe-schedule-table.tsx:97",
       "chamada": "usePpeDeliverySchedules"
-    },
-    {
-      "origem": "web/src/components/inventory/epi/sizes/ppe-sizes-table.tsx:259 (includeConfig)",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/inventory/external-operation/form/external-operation-create-form.tsx:179",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/external-operation/form/external-operation-edit-form.tsx:271",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/external-operation/form/external-operation-item-selector.tsx:239 (includeConfig)",
-      "chamada": "useItems"
     },
     {
       "origem": "web/src/components/inventory/external-operation/list/external-operation-export.tsx:90",
@@ -2234,10 +4291,6 @@
       "chamada": "useItemCategoryTree"
     },
     {
-      "origem": "web/src/components/inventory/item/detail-page/item-detail-page.tsx:87 (DETAIL_INCLUDE)",
-      "chamada": "useItem"
-    },
-    {
       "origem": "web/src/components/inventory/item/form/fispq-item-card.tsx:45",
       "chamada": "useFispqs"
     },
@@ -2246,36 +4299,8 @@
       "chamada": "mutateAsync"
     },
     {
-      "origem": "web/src/components/inventory/item/form/supplier-selector.tsx:57",
-      "chamada": "getSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/item/list/item-export.tsx:95",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/components/inventory/item/list/item-filters.tsx:168",
-      "chamada": "getSuppliers"
-    },
-    {
       "origem": "web/src/components/inventory/item/list/item-table.tsx:127 (includeConfig)",
       "chamada": "stringify"
-    },
-    {
-      "origem": "web/src/components/inventory/item/table/item-table-page.tsx:72 (ITEM_LIST_INCLUDE)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/item/table/item-table-page.tsx:91 (ITEM_LIST_INCLUDE)",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/components/inventory/maintenance/common/items-needed-table.tsx:83 (includeConfig)",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/maintenance/form/item-selector.tsx:44",
-      "chamada": "getItems"
     },
     {
       "origem": "web/src/components/inventory/maintenance/form/maintenance-finish-form.tsx:67",
@@ -2306,52 +4331,12 @@
       "chamada": "useMaintenanceSchedules"
     },
     {
-      "origem": "web/src/components/inventory/order-schedule/form/order-schedule-create-form.tsx:75",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/order-schedule/form/order-schedule-edit-form.tsx:118",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/order-schedule/form/review-items-table.tsx:32",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/components/inventory/order-schedule/list/order-schedule-table.tsx:110",
       "chamada": "useOrderSchedules"
     },
     {
       "origem": "web/src/components/inventory/order/detail-page/order-detail-page.tsx:145",
       "chamada": "useOrder"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-batch-create-form.tsx:76",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-batch-create-form.tsx:84",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-create-form.tsx:245",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-create-form.tsx:264",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-edit-form.tsx:449",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-edit-form.tsx:461",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/inventory/order/form/order-item-selector.tsx:296 (includeConfig)",
-      "chamada": "useItems"
     },
     {
       "origem": "web/src/components/inventory/order/table/order-table-page.tsx:159 (LIST_INCLUDE)",
@@ -2362,28 +4347,12 @@
       "chamada": "getOrders"
     },
     {
-      "origem": "web/src/components/inventory/supplier/list/supplier-export.tsx:70",
-      "chamada": "getSuppliers"
-    },
-    {
-      "origem": "web/src/components/inventory/supplier/list/supplier-table.tsx:96 (includeConfig)",
-      "chamada": "useSuppliers"
-    },
-    {
       "origem": "web/src/components/inventory/warehouse-location/map/warehouse-map.tsx:156",
       "chamada": "useWarehouseLocations"
     },
     {
       "origem": "web/src/components/notes/note-board.tsx:166",
       "chamada": "useNotes"
-    },
-    {
-      "origem": "web/src/components/notes/note-share-dialog.tsx:126",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/occupational-health/fispq/form/fispq-form.tsx:157",
-      "chamada": "useItem"
     },
     {
       "origem": "web/src/components/occupational-health/fispq/list/fispq-list.tsx:246",
@@ -2402,24 +4371,12 @@
       "chamada": "useLeaves"
     },
     {
-      "origem": "web/src/components/occupational-health/medical-exam/form/medical-exam-form.tsx:94",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/components/occupational-health/medical-exam/list/medical-exam-table.tsx:102 (includeConfig)",
       "chamada": "useMedicalExams"
     },
     {
-      "origem": "web/src/components/occupational-health/work-accident/form/work-accident-form.tsx:90",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/components/occupational-health/work-accident/list/work-accident-list.tsx:42",
       "chamada": "useWorkAccidentReports"
-    },
-    {
-      "origem": "web/src/components/painting/catalogue/detail/paint-with-formulas-changelog-history.tsx:93",
-      "chamada": "useChangeLogs"
     },
     {
       "origem": "web/src/components/painting/catalogue/list/paint-catalogue-list.tsx:318",
@@ -2430,20 +4387,8 @@
       "chamada": "createPaint"
     },
     {
-      "origem": "web/src/components/painting/formula/formula-calculator.tsx:84",
-      "chamada": "useItems"
-    },
-    {
-      "origem": "web/src/components/painting/paint-brand/form/component-items-selector.tsx:48",
-      "chamada": "getItems"
-    },
-    {
       "origem": "web/src/components/painting/paint-brand/list/paint-brand-table.tsx:115 (includeConfig)",
       "chamada": "usePaintBrands"
-    },
-    {
-      "origem": "web/src/components/painting/paint-type/form/component-items-selector.tsx:48",
-      "chamada": "getItems"
     },
     {
       "origem": "web/src/components/painting/paint-type/list/paint-type-table.tsx:115 (includeConfig)",
@@ -2474,10 +4419,6 @@
       "chamada": "useAgendaEvents"
     },
     {
-      "origem": "web/src/components/personnel-department/admission/form/admission-new-user-form.tsx:175",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/components/personnel-department/admission/form/admission-new-user-form.tsx:264",
       "chamada": "useAdmissionByUser"
     },
@@ -2498,32 +4439,12 @@
       "chamada": "useBenefits"
     },
     {
-      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-filters.tsx:50",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-interactive-table.tsx:280",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:40",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:75",
       "chamada": "usePositions"
     },
     {
       "origem": "web/src/components/personnel-department/dependent/dependents-card.tsx:77",
       "chamada": "useUserBenefits"
-    },
-    {
-      "origem": "web/src/components/personnel-department/payroll/employee-loan-dialog.tsx:108",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/payroll/list/payroll-filters.tsx:34",
-      "chamada": "useUsers"
     },
     {
       "origem": "web/src/components/personnel-department/payroll/list/payroll-filters.tsx:58",
@@ -2538,28 +4459,8 @@
       "chamada": "usePayrollByUserAndPeriod"
     },
     {
-      "origem": "web/src/components/personnel-department/payroll/payroll-calculation.tsx:72",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/payroll/payroll-form.tsx:87",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/components/personnel-department/payroll/payroll-list.tsx:208",
       "chamada": "usePayrolls"
-    },
-    {
-      "origem": "web/src/components/personnel-department/performance-levels/performance-level-export.tsx:71",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/performance-levels/performance-level-filters.tsx:71",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/performance-levels/performance-level-list.tsx:123",
-      "chamada": "useUsers"
     },
     {
       "origem": "web/src/components/personnel-department/position/list/position-export.tsx:50",
@@ -2568,14 +4469,6 @@
     {
       "origem": "web/src/components/personnel-department/position/list/position-table.tsx:94",
       "chamada": "usePositions"
-    },
-    {
-      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-filters.tsx:51",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-interactive-table.tsx:166",
-      "chamada": "useUsers"
     },
     {
       "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-interactive-table.tsx:94",
@@ -2598,32 +4491,8 @@
       "chamada": null
     },
     {
-      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:140",
-      "chamada": "useUser"
-    },
-    {
-      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:173",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/components/personnel-department/termination/list/termination-table.tsx:66 (includeConfig)",
       "chamada": "useTerminations"
-    },
-    {
-      "origem": "web/src/components/personnel-department/thirteenth/form/thirteenth-form.tsx:77",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/time-clock-entry/time-clock-edit-list.tsx:250",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/time-clock/assinatura-digital/espelho-export-modal.tsx:351",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/user-benefit/form/user-benefit-form.tsx:167",
-      "chamada": "getUsers"
     },
     {
       "origem": "web/src/components/personnel-department/user-benefit/list/user-benefit-table.tsx:80 (includeConfig)",
@@ -2642,24 +4511,8 @@
       "chamada": "useUserPositionHistories"
     },
     {
-      "origem": "web/src/components/personnel-department/user-position-history/promote/promote-dialog.tsx:74",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:109",
-      "chamada": "useUser"
-    },
-    {
-      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:141",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/components/personnel-department/vacation/list/vacation-table.tsx:60 (includeConfig)",
       "chamada": "useVacations"
-    },
-    {
-      "origem": "web/src/components/personnel-department/warning/form/collaborator-select.tsx:60",
-      "chamada": "getUserById"
     },
     {
       "origem": "web/src/components/personnel-department/warning/form/termination-select.tsx:28",
@@ -2770,46 +4623,6 @@
       "chamada": "updateAsync"
     },
     {
-      "origem": "web/src/components/server/throttler/user-name-cell.tsx:13",
-      "chamada": "getUserById"
-    },
-    {
-      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:104 (ITEM_INCLUDE)",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:57 (ITEM_INCLUDE)",
-      "chamada": "getItemById"
-    },
-    {
-      "origem": "web/src/components/ui/changelog-history.tsx:2788",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3069",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3090",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3111",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3132",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3159",
-      "chamada": "useChangeLogs"
-    },
-    {
-      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3180",
-      "chamada": "useChangeLogs"
-    },
-    {
       "origem": "web/src/dashboard/widgets/borrow-table.tsx:450",
       "chamada": null
     },
@@ -2870,18 +4683,6 @@
       "chamada": "getMany"
     },
     {
-      "origem": "web/src/hooks/personnel-department/use-user.ts:111",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/hooks/personnel-department/use-user.ts:126",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/hooks/personnel-department/use-user.ts:96",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/hooks/production/use-cut-item-filters.ts:370",
       "chamada": null
     },
@@ -2904,18 +4705,6 @@
     {
       "origem": "web/src/hooks/skill/use-assessment-entry.ts:80 (ENTRY_DETAIL_INCLUDE)",
       "chamada": null
-    },
-    {
-      "origem": "web/src/lib/attention/send-warning.tsx:181",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/pages/administration/collaborators/batch-edit.tsx:33",
-      "chamada": "useUsers"
-    },
-    {
-      "origem": "web/src/pages/administration/collaborators/edit/[id].tsx:51 (includeParams)",
-      "chamada": "useUser"
     },
     {
       "origem": "web/src/pages/administration/goals/index.tsx:77",
@@ -3006,10 +4795,6 @@
       "chamada": "usePaint"
     },
     {
-      "origem": "web/src/pages/integrations/secullum/mapping.tsx:828",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/pages/inventory/external-operations/details/[id].tsx:55",
       "chamada": "useExternalOperation"
     },
@@ -3058,10 +4843,6 @@
       "chamada": "mutateAsync"
     },
     {
-      "origem": "web/src/pages/inventory/maintenance/schedules/details/[id].tsx:105",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/pages/inventory/maintenance/schedules/details/[id].tsx:56",
       "chamada": "useMaintenanceSchedule"
     },
@@ -3086,10 +4867,6 @@
       "chamada": "useOrderSchedule"
     },
     {
-      "origem": "web/src/pages/inventory/orders/schedules/details/[id].tsx:72",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/pages/inventory/orders/schedules/edit/[id].tsx:36",
       "chamada": "useOrderSchedule"
     },
@@ -3102,24 +4879,12 @@
       "chamada": "usePpeDelivery"
     },
     {
-      "origem": "web/src/pages/inventory/ppe/details/[id].tsx:24",
-      "chamada": "useItem"
-    },
-    {
-      "origem": "web/src/pages/inventory/ppe/edit/[id].tsx:27",
-      "chamada": "useItem"
-    },
-    {
       "origem": "web/src/pages/inventory/ppe/schedules/details/[id].tsx:56",
       "chamada": "usePpeDeliverySchedule"
     },
     {
       "origem": "web/src/pages/inventory/ppe/schedules/edit/[id].tsx:24",
       "chamada": "usePpeDeliverySchedule"
-    },
-    {
-      "origem": "web/src/pages/inventory/products/batch-edit.tsx:38",
-      "chamada": "useItems"
     },
     {
       "origem": "web/src/pages/inventory/products/brands/batch-edit.tsx:29",
@@ -3146,14 +4911,6 @@
       "chamada": "useItemCategoryDetail"
     },
     {
-      "origem": "web/src/pages/inventory/products/edit/[id].tsx:29",
-      "chamada": "useItem"
-    },
-    {
-      "origem": "web/src/pages/inventory/products/stock-balance.tsx:38",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/pages/inventory/root.tsx:124",
       "chamada": "useOrders"
     },
@@ -3164,22 +4921,6 @@
     {
       "origem": "web/src/pages/inventory/root.tsx:168",
       "chamada": "useActivities"
-    },
-    {
-      "origem": "web/src/pages/inventory/statistics/consumption.tsx:360",
-      "chamada": "getItems"
-    },
-    {
-      "origem": "web/src/pages/inventory/suppliers/batch-edit.tsx:37",
-      "chamada": "useSuppliers"
-    },
-    {
-      "origem": "web/src/pages/inventory/suppliers/details/[id].tsx:34",
-      "chamada": "useSupplierDetail"
-    },
-    {
-      "origem": "web/src/pages/inventory/suppliers/edit/[id].tsx:39 (includeParams)",
-      "chamada": "useSupplierDetail"
     },
     {
       "origem": "web/src/pages/inventory/suppliers/edit/[id].tsx:45 (includeParams)",
@@ -3204,10 +4945,6 @@
     {
       "origem": "web/src/pages/occupational-health/leaves/edit/[id].tsx:22",
       "chamada": "useLeave"
-    },
-    {
-      "origem": "web/src/pages/occupational-health/medical-exams/create.tsx:39",
-      "chamada": "useUser"
     },
     {
       "origem": "web/src/pages/occupational-health/medical-exams/details/[id].tsx:36",
@@ -3258,10 +4995,6 @@
       "chamada": "usePaintFormula"
     },
     {
-      "origem": "web/src/pages/painting/formulas/edit/[id].tsx:49",
-      "chamada": "useItems"
-    },
-    {
       "origem": "web/src/pages/painting/formulas/list.tsx:48",
       "chamada": "usePaintFormulas"
     },
@@ -3296,10 +5029,6 @@
     {
       "origem": "web/src/pages/personal/my-ppes/list.tsx:102",
       "chamada": "getMyPpeDeliveries"
-    },
-    {
-      "origem": "web/src/pages/personal/my-ppes/request.tsx:65",
-      "chamada": "useItems"
     },
     {
       "origem": "web/src/pages/personal/my-warnings.tsx:71",
@@ -3342,20 +5071,12 @@
       "chamada": "getById"
     },
     {
-      "origem": "web/src/pages/personnel-department/bonus/list.tsx:635",
-      "chamada": "useUsers"
-    },
-    {
       "origem": "web/src/pages/personnel-department/bonus/list.tsx:748",
       "chamada": "useBonusList"
     },
     {
       "origem": "web/src/pages/personnel-department/payroll/detail.tsx:154",
       "chamada": "getById"
-    },
-    {
-      "origem": "web/src/pages/personnel-department/payroll/list.tsx:507",
-      "chamada": "useUsers"
     },
     {
       "origem": "web/src/pages/personnel-department/payroll/list.tsx:628",
@@ -3396,10 +5117,6 @@
     {
       "origem": "web/src/pages/personnel-department/salary-adjustments/details/[id].tsx:41",
       "chamada": "useSalaryAdjustment"
-    },
-    {
-      "origem": "web/src/pages/personnel-department/statistics/payroll.tsx:457",
-      "chamada": "useUsers"
     },
     {
       "origem": "web/src/pages/personnel-department/statistics/team-performance.tsx:594",
@@ -3482,28 +5199,12 @@
       "chamada": "useDeploymentDetail"
     },
     {
-      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:118",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:146",
       "chamada": "getUserBenefits"
     },
     {
-      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:84",
-      "chamada": "getUsers"
-    },
-    {
       "origem": "web/src/pages/tools/color-palette/color-detail-dialog.tsx:47",
       "chamada": "usePaints"
-    },
-    {
-      "origem": "web/src/pages/tools/overtime-cost-calculator.tsx:216",
-      "chamada": "getUsers"
-    },
-    {
-      "origem": "web/src/pages/tools/overtime-cost-calculator.tsx:264",
-      "chamada": "getUsers"
     },
     {
       "origem": "web/src/pages/tools/paint-mix-calculator.tsx:304",
