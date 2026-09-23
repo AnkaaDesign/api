@@ -456,19 +456,27 @@ type Tx = any;
  * são as RESOLVIDAS — o clone, quando a arte veio da galeria de uma tarefa ou de
  * outro orçamento). Apaga toda linha das artes deste orçamento e dos veículos
  * dele e recria as do plano; em `SHARED` não recria nenhuma.
+ *
+ * `previousFileIds` são as artes que o orçamento tinha ANTES da gravação. Sem
+ * elas, a arte que a própria gravação acabou de tirar de `layoutFiles` (já sem
+ * dono, `quoteLayoutId` nulo) e o veículo que a mesma gravação tirou do
+ * orçamento (já sem `quoteId`) escapavam dos dois critérios acima — e a linha
+ * "arte C → veículo 39089" sobrevivia órfã, pronta para reaparecer.
  */
 export async function writeLayoutCoverageRows(
   tx: Tx,
   quoteId: string,
   scope: QuoteLayoutScopeValue,
   files: ReadonlyArray<{ fileId: string; taskIds: readonly string[] }>,
+  previousFileIds: readonly string[] = [],
 ): Promise<void> {
+  const touchedFileIds = [...new Set([...files.map(f => f.fileId), ...previousFileIds])];
   await tx.budgetLayoutTask.deleteMany({
     where: {
       OR: [
         { file: { quoteLayoutId: quoteId } },
         { task: { quoteId } },
-        ...(files.length ? [{ fileId: { in: files.map(f => f.fileId) } }] : []),
+        ...(touchedFileIds.length ? [{ fileId: { in: touchedFileIds } }] : []),
       ],
     },
   });

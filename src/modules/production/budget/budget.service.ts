@@ -1770,6 +1770,7 @@ export class BudgetService {
             id,
             resolvedLayoutPlan.scope,
             resolvedLayoutPlan.files,
+            (((existing as any).layoutFiles ?? []) as Array<{ id: string }>).map(f => f.id),
           );
           const depois = await tx.budget.findUnique({
             where: { id },
