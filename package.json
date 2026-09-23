@@ -116,6 +116,7 @@
     "test:billing-entity": "tsx tests/billing-entity.test.ts",
     "test:billing-payer-guard": "tsx tests/budget-payer-needs-billing.test.ts",
     "test:billing-status": "tsx tests/billing-status.test.ts",
+    "test:billing-lens": "tsx tests/billing-lens.test.ts",
     "test:invoice-payment-state": "tsx tests/invoice-payment-state.test.ts",
     "test:parcelas-custom": "tsx tests/parcelas-custom.test.ts",
     "test:signature-whatsapp-templates": "tsx tests/signature-whatsapp-templates.test.ts",
