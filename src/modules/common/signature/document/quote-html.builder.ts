@@ -289,6 +289,18 @@ export interface QuoteHtmlInput {
 
   /** data:image/... das imagens de layout já resolvidas em disco. */
   layoutImages: string[];
+  /**
+   * DE QUAL VEÍCULO É CADA ARTE — alinhado com `layoutImages`, posição a posição
+   * ("Veículo 39088", "Veículos 39088, 39089"). Só num orçamento com layout por
+   * veículo.
+   *
+   * AUSENTE num orçamento `SHARED`, e é a ausência que importa: sem legenda o
+   * HTML sai BYTE A BYTE igual ao de antes desta feature. Envelopes antigos são
+   * reconferidos contra a renderização de hoje, então nenhum estilo novo pode
+   * entrar no documento compartilhado — nem uma regra de CSS: por isso a legenda
+   * carrega o estilo inline, e só existe quando há legenda.
+   */
+  layoutCaptions?: Array<string | null>;
   logoDataUri: string | null;
   fontDataUri: string | null;
 
@@ -791,11 +803,23 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // O layout ia SO para a folha de assinaturas. Quando o orcamento cabe em uma
   // folha o render usa o caminho fundido, que nao tem essa folha — e o layout
   // sumia do documento assinado em silencio, embora a pagina publica o exibisse.
+  //
+  // A LEGENDA (layout por veículo) é um título pequeno ACIMA de cada imagem,
+  // DENTRO da `.layout-grid`: é o bloco que o renderizador mede e reparte
+  // (`JS_SIG_LAYOUT_HEIGHT`, `tryFusedRender`), então a altura da legenda entra
+  // na conta da folha em vez de transbordar por fora dela. Irmã da imagem, e não
+  // um invólucro em volta: as regras de flex da folha de assinaturas miram
+  // `.layout-image` como filho direto da grade, e embrulhá-la as desligaria.
+  const layoutCaptionHtml = (i: number): string => {
+    const caption = data.layoutCaptions?.[i];
+    if (!caption) return '';
+    return `<div class="layout-caption" style="flex: 0 0 auto; align-self: stretch; text-align: left; font-size: 9pt; font-weight: 700; color: var(--green); margin-bottom: -2.5mm;">${escapeHtml(caption)}</div>`;
+  };
   const layoutHtml = showLayout && data.layoutImages.length
     ? `<section class="layout-section">
          <h2 class="section-title-green">Layout</h2>
          <div class="layout-grid">
-           ${data.layoutImages.map(src => `<img src="${src}" class="layout-image" alt="Layout" />`).join('')}
+           ${data.layoutImages.map((src, i) => `${layoutCaptionHtml(i)}<img src="${src}" class="layout-image" alt="Layout" />`).join('')}
          </div>
        </section>`
     : '';
