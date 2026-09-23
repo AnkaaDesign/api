@@ -26,18 +26,17 @@ export const customerIncludeSchema = z
         z.object({
           include: z
             .object({
+              // Só relações que existem em `Task` (G1). `budget`, `nfe`, `files` e
+              // `airbrushing` estavam aqui sem existir no modelo: o zod aceitava e o
+              // Prisma respondia 500.
               sector: z.boolean().optional(),
               customer: z.boolean().optional(),
-              budget: z.boolean().optional(),
-              nfe: z.boolean().optional(),
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),
-              files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
-              airbrushing: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -64,8 +63,8 @@ export const customerSelectSchema = z
     cpf: z.boolean().optional(),
     corporateName: z.boolean().optional(),
     email: z.boolean().optional(),
-    phone: z.boolean().optional(),
-    mobilePhone: z.boolean().optional(),
+    // `phone`/`mobilePhone` saíram: não existem em Customer (o telefone mora em
+    // `phones`) e, pedidos, chegavam ao Prisma e davam 500 (G1).
     address: z.boolean().optional(),
     addressNumber: z.boolean().optional(),
     addressComplement: z.boolean().optional(),

@@ -24,6 +24,11 @@ import {
 // Include Schema Based on Prisma Schema
 // =====================
 
+// G1: só relações que existem no DMMF. Saíram `task.include.{files,bonifications,
+// airbrushing}` e as listas de relações de File/Layout copiadas de um modelo
+// antigo (`tasksLayouts`, `taskBudget`, `orderNfe`…): o zod aceitava, o Prisma
+// respondia 500. `layouts` é `Layout` (id, status, file, tasks): nenhuma das
+// chaves que estavam aqui existia nele.
 export const airbrushingIncludeSchema = z
   .object({
     task: z
@@ -53,9 +58,7 @@ export const airbrushingIncludeSchema = z
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),
-              files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
-              bonifications: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
               // `truck` is a KNOWN key, so a nested include here is an invalid_type error (a 400 on
               // the whole list), not a silent strip. The airbrushing table's "Medidas" column needs
@@ -80,7 +83,6 @@ export const airbrushingIncludeSchema = z
                   }),
                 ])
                 .optional(),
-              airbrushing: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -106,20 +108,11 @@ export const airbrushingIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
               supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -131,20 +124,11 @@ export const airbrushingIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
               supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
               airbrushingInvoices: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -156,21 +140,6 @@ export const airbrushingIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksLayouts: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              orderReceipt: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingInvoices: z.boolean().optional(),
-              airbrushingLayouts: z.boolean().optional(),
-              externalOperationBudget: z.boolean().optional(),
-              externalOperationNfe: z.boolean().optional(),
-              externalOperationReceipt: z.boolean().optional(),
             })
             .optional(),
         }),

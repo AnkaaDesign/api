@@ -107,8 +107,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 id: z.boolean().optional(),
                 name: z.boolean().optional(),
-                description: z.boolean().optional(),
-                isActive: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
               })
@@ -128,13 +126,11 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 corporateName: z.boolean().optional(),
                 cnpj: z.boolean().optional(),
                 cpf: z.boolean().optional(),
-                phone: z.boolean().optional(),
                 email: z.boolean().optional(),
                 address: z.boolean().optional(),
                 city: z.boolean().optional(),
                 state: z.boolean().optional(),
                 zipCode: z.boolean().optional(),
-                isActive: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
               })
@@ -150,7 +146,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -169,7 +164,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -188,7 +182,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -228,7 +221,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 code: z.boolean().optional(),
                 hex: z.boolean().optional(),
                 finish: z.boolean().optional(),
-                isActive: z.boolean().optional(),
                 paintTypeId: z.boolean().optional(),
                 paintBrandId: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
@@ -269,7 +261,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 id: z.boolean().optional(),
                 fileId: z.boolean().optional(),
-                taskId: z.boolean().optional(),
                 status: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
@@ -280,7 +271,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                       select: z
                         .object({
                           id: z.boolean().optional(),
-                          name: z.boolean().optional(),
                           path: z.boolean().optional(),
                           mimetype: z.boolean().optional(),
                           size: z.boolean().optional(),
@@ -302,7 +292,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -321,7 +310,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -340,7 +328,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -359,7 +346,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                name: z.boolean().optional(),
                 path: z.boolean().optional(),
                 mimetype: z.boolean().optional(),
                 size: z.boolean().optional(),
@@ -382,7 +368,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 code: z.boolean().optional(),
                 hex: z.boolean().optional(),
                 finish: z.boolean().optional(),
-                isActive: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
                 // Note: formulas excluded by default
@@ -578,8 +563,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      cutRequest: z.boolean().optional(),
-      cutPlan: z.boolean().optional(),
 
       relatedTasks: z
         .union([
@@ -673,8 +656,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
       quote: prismaRelationValue.optional(),
       truck: prismaRelationValue.optional(),
       airbrushings: prismaRelationValue.optional(),
-      cutRequest: prismaRelationValue.optional(),
-      cutPlan: prismaRelationValue.optional(),
       relatedTasks: prismaRelationValue.optional(),
       relatedTo: prismaRelationValue.optional(),
       responsibles: prismaRelationValue.optional(),
@@ -836,9 +817,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       sectorId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
-      invoiceIds: z.array(z.string()).optional(),
-      receiptIds: z.array(z.string()).optional(),
-      bankSlipIds: z.array(z.string()).optional(),
       // Relations
       sector: z.any().optional(),
       customer: z.any().optional(),
@@ -857,13 +835,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         })
         .optional(),
       logoPaints: z
-        .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
-        })
-        .optional(),
-      bonifications: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -900,8 +871,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
        * `some`/`every`/`none`.
        */
       billingEntry: z.any().optional(),
-      cutRequest: z.any().optional(),
-      cutPlan: z.any().optional(),
       relatedTasks: z
         .object({
           some: taskWhereSchema.optional(),

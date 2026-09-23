@@ -36,6 +36,12 @@ const SENSITIVE_FIELDS = [
 /**
  * Whitelist of allowed includes per entity type
  * Only fields listed here can be included in queries
+ *
+ * G1: esta lista é só PERMISSÃO (403). Se a chave existe no modelo quem diz é o
+ * validador derivado do DMMF (`common/query/dmmf-query-validator.ts`), que roda
+ * antes, na rota; `tests/query-contract.test.ts` reprova se aparecer aqui chave
+ * que o modelo não tem (saíram `Task.updatedBy`, e do select `Task.truckId`,
+ * `Task.updatedBy`, `User.role`, `User.ledSectorId`, `User.ppeSizeId`).
  */
 const INCLUDE_WHITELIST: Record<string, string[]> = {
   User: [
@@ -68,7 +74,6 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'observation',
     'generalPainting',
     'createdBy',
-    'updatedBy',
     'layouts',
     'logoPaints',
     'serviceOrders',
@@ -124,13 +129,10 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'name',
     'email',
     'avatar',
-    'role',
     'createdAt',
     'updatedAt',
     'positionId',
     'sectorId',
-    'ledSectorId',
-    'ppeSizeId',
     'preferenceId',
     'position',
     'sector',
@@ -163,13 +165,11 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'paintId',
     'customerId',
     'sectorId',
-    'truckId',
     'createdById',
     'sector',
     'customer',
     'generalPainting',
     'createdBy',
-    'updatedBy',
     'truck',
     'budgets',
     'invoices',

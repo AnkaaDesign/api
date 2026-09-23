@@ -12,21 +12,20 @@ import { orderByDirectionSchema, normalizeOrderBy,
 // Include Schema
 export const fileIncludeSchema = z
   .object({
-    // File associations - matching the types file exactly
+    // File associations — só relações que existem em `File` (G1): `tasksLayouts`,
+    // `airbrushingLayouts` e `externalOperationBudgets` estavam aqui sem existir
+    // no modelo, e o Prisma respondia 500.
     layouts: z.boolean().optional(),
-    tasksLayouts: z.boolean().optional(),
     customerLogo: z.boolean().optional(),
     supplierLogo: z.boolean().optional(),
     observations: z.boolean().optional(),
     warning: z.boolean().optional(),
     airbrushingReceipts: z.boolean().optional(),
     airbrushingInvoices: z.boolean().optional(),
-    airbrushingLayouts: z.boolean().optional(),
     orderReceipts: z.boolean().optional(),
     taskBudgets: z.boolean().optional(),
     taskInvoices: z.boolean().optional(),
     taskReceipts: z.boolean().optional(),
-    externalOperationBudgets: z.boolean().optional(),
     externalOperationInvoices: z.boolean().optional(),
     externalOperationReceipts: z.boolean().optional(),
   })
@@ -206,15 +205,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         ])
         .optional(),
 
-      // Relation filters - matching the types file exactly
-      tasksLayouts: z
-        .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
-        })
-        .optional(),
-
+      // Relation filters — só relações de `File` (G1)
       customerLogo: z
         .object({
           some: z.any().optional(),
@@ -295,13 +286,6 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      externalOperationBudgets: z
-        .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
-        })
-        .optional(),
 
       externalOperationInvoices: z
         .object({
@@ -449,12 +433,19 @@ const fileTransform = (data: any) => {
   }
 
   // Handle isOrphaned filter
+  //
+  // Até 23/09 as duas listas abaixo citavam `tasksLayouts` e
+  // `externalOperationBudgets`, que não existem em `File`: todo pedido com
+  // `isOrphaned`/`hasRelations` dava 500. `layouts` é relação de-UM em File (a
+  // arte que aponta para o arquivo), por isso `is/isNot: null`. A lista continua
+  // parcial — a verdade sobre quem referencia um arquivo é o catálogo de
+  // `file-reference.service.ts` (G10).
   if (isOrphaned !== undefined) {
     if (isOrphaned) {
       // File is orphaned if it has no relations
       andConditions.push({
         AND: [
-          { tasksLayouts: { none: {} } },
+          { layouts: { is: null } },
           { customerLogo: { none: {} } },
           { supplierLogo: { none: {} } },
           { observations: { none: {} } },
@@ -465,7 +456,6 @@ const fileTransform = (data: any) => {
           { taskBudgets: { none: {} } },
           { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
-          { externalOperationBudgets: { none: {} } },
           { externalOperationInvoices: { none: {} } },
           { externalOperationReceipts: { none: {} } },
         ],
@@ -474,7 +464,7 @@ const fileTransform = (data: any) => {
       // File is not orphaned if it has at least one relation
       andConditions.push({
         OR: [
-          { tasksLayouts: { some: {} } },
+          { layouts: { isNot: null } },
           { customerLogo: { some: {} } },
           { supplierLogo: { some: {} } },
           { observations: { some: {} } },
@@ -485,7 +475,6 @@ const fileTransform = (data: any) => {
           { taskBudgets: { some: {} } },
           { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
-          { externalOperationBudgets: { some: {} } },
           { externalOperationInvoices: { some: {} } },
           { externalOperationReceipts: { some: {} } },
         ],
@@ -498,7 +487,7 @@ const fileTransform = (data: any) => {
     if (hasRelations) {
       andConditions.push({
         OR: [
-          { tasksLayouts: { some: {} } },
+          { layouts: { isNot: null } },
           { customerLogo: { some: {} } },
           { supplierLogo: { some: {} } },
           { observations: { some: {} } },
@@ -509,7 +498,6 @@ const fileTransform = (data: any) => {
           { taskBudgets: { some: {} } },
           { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
-          { externalOperationBudgets: { some: {} } },
           { externalOperationInvoices: { some: {} } },
           { externalOperationReceipts: { some: {} } },
         ],
@@ -517,7 +505,7 @@ const fileTransform = (data: any) => {
     } else {
       andConditions.push({
         AND: [
-          { tasksLayouts: { none: {} } },
+          { layouts: { is: null } },
           { customerLogo: { none: {} } },
           { supplierLogo: { none: {} } },
           { observations: { none: {} } },
@@ -528,7 +516,6 @@ const fileTransform = (data: any) => {
           { taskBudgets: { none: {} } },
           { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
-          { externalOperationBudgets: { none: {} } },
           { externalOperationInvoices: { none: {} } },
           { externalOperationReceipts: { none: {} } },
         ],
