@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { INSTALLMENT_STATUS, INVOICE_STATUS } from '@constants';
 import { isBillingFrozen } from '@modules/production/budget/budget.guards';
+import { BillingStatusCascadeService } from './billing-status-cascade.service';
 import {
   documentSearchDigits,
   normalizeSearchTerm,
@@ -21,6 +22,13 @@ export interface BillingNumberRange {
 }
 
 export type BillingOrderDir = 'asc' | 'desc';
+
+/** O que a regra do estado (`resolve`) lê de uma cobrança, mais QUEM paga cada parte. */
+type ResolvableBilling = Parameters<BillingStatusCascadeService['resolve']>[0];
+type LensBilling = Omit<ResolvableBilling, 'customerConfigs'> & {
+  id: string;
+  customerConfigs: Array<ResolvableBilling['customerConfigs'][number] & { customerId: string }>;
+};
 
 /**
  * O QUE ESTA ROTA SABE ORDENAR — e por que é um MAPA e não uma lista de nomes.
@@ -91,7 +99,10 @@ const OPEN_INSTALLMENT_STATUSES = [
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly statusCascade: BillingStatusCascadeService,
+  ) {}
 
   /**
    * O GRAFO DE UMA COBRANÇA — tudo que a página `/faturamento/:billingId` precisa,
@@ -432,7 +443,7 @@ export class BillingService {
     /** Estado do ORÇAMENTO (`TASK_QUOTE_STATUS`) — ver o comentário abaixo. */
     quoteStatuses?: string[];
     budgetNumber?: number;
-    /** "Faturar Para" — os pagadores desta cobrança. */
+    /** "Faturar Para" — os pagadores desta cobrança, e a LENTE (ver `lens` abaixo). */
     customerIds?: string[];
     /** "Cliente da Tarefa" — o dono do veículo coberto. */
     taskCustomerIds?: string[];
@@ -460,10 +471,27 @@ export class BillingService {
     const and: Record<string, unknown>[] = [];
     const quoteWhere: Record<string, unknown> = {};
 
+    // A LENTE — "Faturar Para" RECORTA, não só filtra.
+    //
+    // Dois pagadores do mesmo recorte são UMA cobrança (a Ibiporã e a RKO
+    // dividindo o orçamento 269). Filtrar pela RKO trazia a linha certa com os
+    // números da cobrança INTEIRA: o PDF mandado à RKO cobrava dela os
+    // R$ 14.306,00 da Ibiporã. Com a lente, toda pergunta sobre pagador — faixa
+    // de valor, vencimento, estado — é feita só aos pagadores filtrados, que é o
+    // que a tela passa a mostrar. `customerId` (o singular antigo) é a mesma lente.
+    const lens = [
+      ...new Set([
+        ...(params.customerIds ?? []),
+        ...(params.customerId ? [params.customerId] : []),
+      ]),
+    ];
+    const payerScope = lens.length > 0 ? { customerId: { in: lens } } : {};
+    const statuses = params.statuses ?? [];
+
     if (params.quoteId) where.quoteId = params.quoteId;
     if (params.approved === true) where.approvedAt = { not: null };
     if (params.approved === false) where.approvedAt = null;
-    if (params.customerId) where.customerConfigs = { some: { customerId: params.customerId } };
+    if (lens.length > 0) where.customerConfigs = { some: payerScope };
     // "Entregue" é do VEÍCULO, e a cobrança só está pronta quando TODOS os seus
     // estão: cobrar um lote de vinte com dezenove prontos é cobrar trabalho que
     // ainda não saiu. `none: { finishedAt: null }` é exatamente isso, e vale
@@ -471,8 +499,9 @@ export class BillingService {
     if (params.deliveredOnly) {
       where.tasks = { some: {}, none: { task: { finishedAt: null } } };
     }
-    if (params.statuses && params.statuses.length > 0) {
-      where.status = { in: params.statuses };
+    // Com lente, o estado que se filtra é o da PARTE — ver `payerStatusIds` abaixo.
+    if (statuses.length > 0 && lens.length === 0) {
+      where.status = { in: statuses };
     }
 
     // O ESTADO DO ORÇAMENTO — o filtro sem o qual esta lista mente.
@@ -492,9 +521,6 @@ export class BillingService {
       quoteWhere.budgetNumber = params.budgetNumber;
     }
 
-    if (params.customerIds && params.customerIds.length > 0) {
-      and.push({ customerConfigs: { some: { customerId: { in: params.customerIds } } } });
-    }
     if (params.taskCustomerIds && params.taskCustomerIds.length > 0) {
       and.push({ tasks: { some: { task: { customerId: { in: params.taskCustomerIds } } } } });
     }
@@ -503,13 +529,16 @@ export class BillingService {
     // não se filtra no banco. `some` é a aproximação honesta — num recorte de dois
     // pagadores ela acha a cobrança se QUALQUER um deles cair na faixa, e não a
     // soma dos dois. Errar assim é achar demais; o contrário seria esconder.
+    //
+    // Com lente, só os pagadores dela: a RKO na faixa 14.000–14.500 não pode
+    // trazer o 269 pelos 14.306 da Ibiporã, com a coluna mostrando 13.850,60.
     const totalMin = params.totalRange?.min;
     const totalMax = params.totalRange?.max;
     if (totalMin !== undefined || totalMax !== undefined) {
       const bounds: Record<string, number> = {};
       if (totalMin !== undefined) bounds.gte = totalMin;
       if (totalMax !== undefined) bounds.lte = totalMax;
-      and.push({ customerConfigs: { some: { total: bounds } } });
+      and.push({ customerConfigs: { some: { ...payerScope, total: bounds } } });
     }
 
     // O PEDIDO DE COMPRA: faltar em UM veículo já trava a nota do recorte inteiro,
@@ -527,7 +556,8 @@ export class BillingService {
     // mesma que a coluna mostra. Filtrar só por "existe parcela em aberto na
     // faixa" traria a cobrança cuja PRIMEIRA em aberto venceu antes e cujo atraso
     // é o que interessa; daí o segundo ramo negativo, que exige que não haja
-    // nenhuma mais antiga em aberto.
+    // nenhuma mais antiga em aberto. Com lente, as duas cláusulas olham só as
+    // parcelas dos pagadores dela — é o vencimento que a coluna recortada mostra.
     if (params.dueDateRange?.from || params.dueDateRange?.to) {
       const bounds: Record<string, Date> = {};
       if (params.dueDateRange.from) bounds.gte = params.dueDateRange.from;
@@ -535,6 +565,7 @@ export class BillingService {
       and.push({
         customerConfigs: {
           some: {
+            ...payerScope,
             installments: {
               some: { status: { in: OPEN_INSTALLMENT_STATUSES }, dueDate: bounds },
             },
@@ -545,6 +576,7 @@ export class BillingService {
         and.push({
           customerConfigs: {
             none: {
+              ...payerScope,
               installments: {
                 some: {
                   status: { in: OPEN_INSTALLMENT_STATUSES },
@@ -583,9 +615,41 @@ export class BillingService {
     if (search) and.push(search);
 
     if (Object.keys(quoteWhere).length > 0) where.quote = quoteWhere;
+
+    // O ESTADO DA PARTE. `Billing.status` é derivado das parcelas de TODOS os
+    // pagadores: na lente da RKO, "Parcial" pode querer dizer "a Ibiporã pagou e a
+    // RKO deve tudo", e "pendentes da RKO" traria o que ela já quitou. O estado da
+    // parte não é coluna — é a MESMA regra (`resolve`) aplicada só às parcelas dos
+    // pagadores da lente —, então o filtro roda em duas passadas: os candidatos
+    // (já recortados pelo cliente, dezenas de linhas) e depois a página.
+    if (lens.length > 0 && statuses.length > 0) {
+      const candidates = await (this.prisma as any).billing.findMany({
+        where: and.length > 0 ? { ...where, AND: and } : where,
+        select: {
+          id: true,
+          status: true,
+          approvedAt: true,
+          quote: { select: { status: true } },
+          customerConfigs: {
+            where: payerScope,
+            select: {
+              installments: {
+                select: { status: true, dueDate: true, amount: true, paidAmount: true },
+              },
+            },
+          },
+        },
+      });
+      const wanted = new Set(statuses);
+      const payerStatusIds = candidates
+        .filter((b: ResolvableBilling) => wanted.has(this.statusCascade.resolve(b)))
+        .map((b: { id: string }) => b.id);
+      and.push({ id: { in: payerStatusIds } });
+    }
+
     if (and.length > 0) where.AND = and;
 
-    const [data, totalRecords] = await Promise.all([
+    const [rows, totalRecords] = await Promise.all([
       (this.prisma as any).billing.findMany({
         where,
         orderBy: BillingService.buildOrderBy(params.orderBy, params.orderDir),
@@ -595,6 +659,21 @@ export class BillingService {
       }),
       (this.prisma as any).billing.count({ where }),
     ]);
+
+    // `payerStatus` só existe com lente: o estado da parte dos pagadores
+    // filtrados, pela mesma regra que escreve `Billing.status`. É o que a coluna
+    // Status mostra no recorte — e o que o filtro acima já usou.
+    const lensSet = new Set(lens);
+    const data =
+      lens.length > 0
+        ? rows.map((b: LensBilling) => ({
+            ...b,
+            payerStatus: this.statusCascade.resolve({
+              ...b,
+              customerConfigs: b.customerConfigs.filter(c => lensSet.has(c.customerId)),
+            }),
+          }))
+        : rows;
 
     const totalPages = Math.ceil(totalRecords / limit) || 1;
     return {
