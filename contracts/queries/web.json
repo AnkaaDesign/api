@@ -1,0 +1,3619 @@
+{
+  "cliente": "web",
+  "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
+  "fonte": "web@feat/portal-do-responsavel (6150bafc)",
+  "formas": [
+    {
+      "id": "web.task.detail/customer-tasks-table.includeConfig",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/administration/customer/detail/customer-tasks-table.tsx:102 (includeConfig)",
+      "omitidas": [
+        "...(showSelectedOnly ? { searchingFor: filt",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "customer": true,
+          "sector": true,
+          "serviceOrders": true,
+          "observation": true,
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "createdBy": true,
+          "updatedBy": true,
+          "invoices": true,
+          "receipts": true,
+          "budgets": true,
+          "reimbursements": true,
+          "invoiceReimbursements": true
+        }
+      }
+    },
+    {
+      "id": "web.task.detail/documents-card",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/administration/customer/detail/documents-card.tsx:33",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "budgets": true,
+          "invoices": true,
+          "receipts": true,
+          "reimbursements": true,
+          "reimbursementInvoices": true
+        }
+      }
+    },
+    {
+      "id": "web.customer.list/customer-export",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/components/administration/customer/list/customer-export.tsx:73",
+      "omitidas": [
+        "...filters",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "logo": true,
+          "count": true
+        }
+      },
+      "origens": [
+        "web/src/components/administration/customer/list/customer-export.tsx:73",
+        "web/src/pages/administration/customers/batch-edit.tsx:38"
+      ]
+    },
+    {
+      "id": "web.customer.responsible/responsible-form",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/components/administration/customer/responsible/responsible-form.tsx:140",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "take": 50,
+        "include": {
+          "logo": true
+        }
+      },
+      "origens": [
+        "web/src/components/administration/customer/responsible/responsible-form.tsx:140",
+        "web/src/components/ui/customer-combobox.tsx:65",
+        "web/src/components/administration/customer/form/customer-selector.tsx:66",
+        "web/src/components/financial/shared/quote-table-shared.tsx:276",
+        "web/src/components/financial/billing/steps/billing-step-info.tsx:67",
+        "web/src/components/production/task/form/customer-selector.tsx:81",
+        "web/src/components/financial/budget/steps/budget-step-info.tsx:161",
+        "web/src/components/production/task/batch-edit/cells/customer-cell.tsx:37",
+        "web/src/components/production/task/history/task-history-filters.tsx:40"
+      ]
+    },
+    {
+      "id": "web.airbrushing.accounts-payable/manage-receipts-dialog",
+      "rota": "GET /airbrushings/:id",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingQuerySchema",
+      "origem": "web/src/components/financial/accounts-payable/manage-receipts-dialog.tsx:49",
+      "consulta": {
+        "include": {
+          "receipts": true
+        }
+      }
+    },
+    {
+      "id": "web.customer.steps/billing-step-info",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/components/financial/billing/steps/billing-step-info.tsx:91",
+      "consulta": {
+        "where": {
+          "id": "93dfbeb1-aec0-4829-a297-6a2f09fcfe08"
+        },
+        "take": 1,
+        "include": {
+          "logo": true
+        }
+      },
+      "origens": [
+        "web/src/components/financial/billing/steps/billing-step-info.tsx:91",
+        "web/src/components/financial/budget/steps/budget-step-info.tsx:183"
+      ]
+    },
+    {
+      "id": "web.budget.table/budget-table-page.BUDGET_QUOTE_INCLUDE",
+      "rota": "GET /budgets",
+      "modelo": "Budget",
+      "schema": "budget.budgetGetManySchema",
+      "origem": "web/src/components/financial/budget/table/budget-table-page.tsx:121 (BUDGET_QUOTE_INCLUDE)",
+      "omitidas": [
+        "...listQuery",
+        "page"
+      ],
+      "consulta": {
+        "limit": 200,
+        "include": {
+          "tasks": {
+            "include": {
+              "truck": true,
+              "customer": true
+            }
+          },
+          "customerConfigs": true
+        }
+      }
+    },
+    {
+      "id": "web.budget.table/budget-table-page.BUDGET_QUOTE_INCLUDE#2",
+      "rota": "GET /budgets",
+      "modelo": "Budget",
+      "schema": "budget.budgetGetManySchema",
+      "origem": "web/src/components/financial/budget/table/budget-table-page.tsx:97 (BUDGET_QUOTE_INCLUDE)",
+      "omitidas": [
+        "...listQuery",
+        "page",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "tasks": {
+            "include": {
+              "truck": true,
+              "customer": true
+            }
+          },
+          "customerConfigs": true
+        }
+      }
+    },
+    {
+      "id": "web.task.vehicles/use-budget-vehicles.BUDGET_VEHICLE_TASK_INCLUDE",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/financial/budget/vehicles/use-budget-vehicles.ts:54 (BUDGET_VEHICLE_TASK_INCLUDE)",
+      "consulta": {
+        "include": {
+          "customer": true,
+          "truck": {
+            "include": {
+              "vinPlate": true
+            }
+          },
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "baseFiles": true,
+          "responsibles": true,
+          "generalPainting": true
+        }
+      },
+      "origens": [
+        "web/src/components/financial/budget/vehicles/use-budget-vehicles.ts:54 (BUDGET_VEHICLE_TASK_INCLUDE)",
+        "web/src/pages/financial/budget/details/[taskId].tsx:284 (BUDGET_VEHICLE_TASK_INCLUDE)"
+      ]
+    },
+    {
+      "id": "web.airbrushing.vehicles/use-budget-vehicles.AIRBRUSHING_INCLUDE",
+      "rota": "GET /airbrushings",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingGetManySchema",
+      "origem": "web/src/components/financial/budget/vehicles/use-budget-vehicles.ts:67 (AIRBRUSHING_INCLUDE)",
+      "omitidas": [
+        "taskIds"
+      ],
+      "consulta": {
+        "include": {
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "receipts": true,
+          "invoices": true,
+          "painter": true
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.budget.shared/quote-sibling-nav",
+      "rota": "GET /budgets",
+      "modelo": "Budget",
+      "schema": "budget.budgetGetManySchema",
+      "origem": "web/src/components/financial/shared/quote-sibling-nav.ts:177",
+      "omitidas": [
+        "...(state.listQuery ?? fallbackQuery)"
+      ],
+      "consulta": {
+        "page": 1,
+        "limit": 1000,
+        "include": {
+          "tasks": true
+        }
+      }
+    },
+    {
+      "id": "web.customer.shared/quote-table-shared",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/components/financial/shared/quote-table-shared.tsx:303",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "logo": true
+        },
+        "limit": 100
+      }
+    },
+    {
+      "id": "web.task.payroll/payroll-calculation",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/personnel-department/payroll/payroll-calculation.tsx:91",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "serviceOrders": true,
+          "customer": true
+        }
+      }
+    },
+    {
+      "id": "web.airbrushing.detail-page/airbrushing-detail-page",
+      "rota": "GET /airbrushings/:id",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingQuerySchema",
+      "origem": "web/src/components/production/airbrushing/detail-page/airbrushing-detail-page.tsx:295",
+      "consulta": {
+        "include": {
+          "task": {
+            "include": {
+              "customer": {
+                "include": {
+                  "logo": true
+                }
+              },
+              "sector": true,
+              "truck": true
+            }
+          },
+          "painter": true,
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "invoices": true,
+          "receipts": true
+        }
+      }
+    },
+    {
+      "id": "web.airbrushing.form/airbrushing-form",
+      "rota": "GET /airbrushings/:id",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingQuerySchema",
+      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:165",
+      "consulta": {
+        "include": {
+          "task": {
+            "include": {
+              "customer": {
+                "include": {
+                  "logo": true
+                }
+              },
+              "sector": true
+            }
+          },
+          "receipts": true,
+          "invoices": true,
+          "layouts": true,
+          "painter": true
+        }
+      }
+    },
+    {
+      "id": "web.task.form/airbrushing-form",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:188",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "logo": true
+            }
+          },
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.task.form/task-selector.LIST_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/airbrushing/form/task-selector.tsx:98 (LIST_INCLUDE)",
+      "consulta": {
+        "shouldDisplayInPreparation": true,
+        "hasAirbrushingServiceOrder": true,
+        "include": {
+          "serviceOrders": {
+            "select": {
+              "id": true,
+              "type": true,
+              "status": true,
+              "assignedToId": true,
+              "description": true,
+              "observation": true
+            }
+          },
+          "forecastHistory": {
+            "select": {
+              "source": true,
+              "previousDate": true,
+              "newDate": true,
+              "reason": true,
+              "createdAt": true
+            },
+            "where": {
+              "source": "MANUAL",
+              "previousDate": {
+                "not": null
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true,
+              "logo": true
+            }
+          },
+          "truck": {
+            "select": {
+              "id": true,
+              "plate": true,
+              "category": true,
+              "chassisNumber": true,
+              "implementType": true,
+              "leftSideMeasure": {
+                "select": {
+                  "id": true,
+                  "height": true,
+                  "sections": {
+                    "select": {
+                      "id": true,
+                      "width": true
+                    }
+                  }
+                }
+              },
+              "rightSideMeasure": {
+                "select": {
+                  "id": true,
+                  "height": true,
+                  "sections": {
+                    "select": {
+                      "id": true,
+                      "width": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "quote": {
+            "select": {
+              "id": true,
+              "total": true,
+              "status": true,
+              "customerConfigs": {
+                "select": {
+                  "customer": {
+                    "select": {
+                      "corporateName": true,
+                      "fantasyName": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "generalPainting": {
+            "select": {
+              "id": true,
+              "name": true,
+              "hex": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "responsibles": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          }
+        },
+        "limit": 1000,
+        "orderBy": {
+          "forecastDate": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.airbrushing.table/airbrushing-table-page.LIST_INCLUDE",
+      "rota": "GET /airbrushings",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingGetManySchema",
+      "origem": "web/src/components/production/airbrushing/table/airbrushing-table-page.tsx:183 (LIST_INCLUDE)",
+      "omitidas": [
+        "...buildAirbrushingQuery(params.filters, pa",
+        "page",
+        "limit",
+        "orderBy"
+      ],
+      "consulta": {
+        "include": {
+          "task": {
+            "include": {
+              "customer": true,
+              "truck": {
+                "include": {
+                  "leftSideMeasure": {
+                    "include": {
+                      "sections": true
+                    }
+                  },
+                  "rightSideMeasure": {
+                    "include": {
+                      "sections": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "painter": true,
+          "nfse": true
+        }
+      },
+      "origens": [
+        "web/src/components/production/airbrushing/table/airbrushing-table-page.tsx:183 (LIST_INCLUDE)",
+        "web/src/components/production/airbrushing/table/airbrushing-table-page.tsx:205 (LIST_INCLUDE)"
+      ]
+    },
+    {
+      "id": "web.task.production/bonus-value-day-modal",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/bonus-value-day-modal.tsx:95",
+      "omitidas": [
+        "finishedDateRange",
+        "...(sectorIds?.length ? { sectorIds } : {})"
+      ],
+      "consulta": {
+        "status": [
+          "COMPLETED"
+        ],
+        "limit": 500,
+        "include": {
+          "truck": true,
+          "customer": true
+        }
+      }
+    },
+    {
+      "id": "web.task.garage/truck-detail-modal",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/garage/truck-detail-modal.tsx:54",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "logo": true
+            }
+          },
+          "truck": {
+            "include": {
+              "vinPlate": true,
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          },
+          "sector": true,
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "serviceOrders": true
+        }
+      }
+    },
+    {
+      "id": "web.task.form/observation-form",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/observation/form/observation-form.tsx:114",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "customer": true,
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.task.form/task-selector",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/observation/form/task-selector.tsx:158",
+      "omitidas": [
+        "page"
+      ],
+      "consulta": {
+        "limit": 20,
+        "status": [
+          "COMPLETED"
+        ],
+        "include": {
+          "sector": true,
+          "customer": true,
+          "createdBy": true,
+          "serviceOrders": true,
+          "files": true,
+          "observation": true,
+          "bonifications": true
+        }
+      }
+    },
+    {
+      "id": "web.task.production/performance-period-modal",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/performance-period-modal.tsx:118",
+      "omitidas": [
+        "finishedDateRange",
+        "...(sectorIds?.length ? { sectorIds } : {})"
+      ],
+      "consulta": {
+        "status": [
+          "COMPLETED"
+        ],
+        "limit": 100,
+        "include": {
+          "truck": true,
+          "customer": true,
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.task.production/production-period-tasks-modal",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/production-period-tasks-modal.tsx:85",
+      "omitidas": [
+        "finishedDateRange",
+        "...(sectorIds?.length ? { sectorIds } : {})",
+        "...(bonificationStatuses?.length ? { where:",
+        "...(userIds?.length ? { assigneeIds: userId"
+      ],
+      "consulta": {
+        "status": [
+          "COMPLETED"
+        ],
+        "limit": 300,
+        "include": {
+          "truck": true,
+          "customer": true,
+          "sector": true
+        }
+      }
+    },
+    {
+      "id": "web.task.bulk-operations/AdvancedBulkActionsHandler.include",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/bulk-operations/AdvancedBulkActionsHandler.tsx:235 (include)",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "include": {
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "baseFiles": true,
+          "cuts": {
+            "include": {
+              "file": true
+            }
+          },
+          "logoPaints": {
+            "select": {
+              "id": true,
+              "name": true,
+              "hex": true,
+              "finish": true,
+              "paintType": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              },
+              "_count": {
+                "select": {
+                  "formulas": true
+                }
+              }
+            }
+          },
+          "generalPainting": {
+            "select": {
+              "id": true,
+              "name": true,
+              "hex": true,
+              "finish": true,
+              "paintType": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              },
+              "_count": {
+                "select": {
+                  "formulas": true
+                }
+              }
+            }
+          },
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          },
+          "serviceOrders": {
+            "include": {
+              "assignedTo": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.task.detail/task-detail-page.DETAIL_INCLUDE",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/task/detail/task-detail-page.tsx:348 (DETAIL_INCLUDE)",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "logo": true
+            }
+          },
+          "sector": true,
+          "responsibles": true,
+          "truck": true,
+          "createdBy": true,
+          "serviceOrders": {
+            "include": {
+              "assignedTo": true,
+              "checkinFiles": true,
+              "checkoutFiles": true
+            }
+          },
+          "baseFiles": true,
+          "projectFiles": true,
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "observation": {
+            "include": {
+              "files": true
+            }
+          },
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true,
+              "paintGrounds": {
+                "include": {
+                  "groundPaint": {
+                    "include": {
+                      "paintType": true,
+                      "paintBrand": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "logoPaints": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "quote": {
+            "include": {
+              "services": {
+                "include": {
+                  "invoiceToCustomer": true
+                }
+              },
+              "layoutFiles": true,
+              "customerConfigs": {
+                "include": {
+                  "customer": {
+                    "include": {
+                      "logo": true
+                    }
+                  },
+                  "installments": {
+                    "orderBy": {
+                      "number": "asc"
+                    }
+                  },
+                  "customerSignature": true,
+                  "billing": {
+                    "include": {
+                      "tasks": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.customer.form/customer-selector",
+      "rota": "GET /customers/:id",
+      "modelo": "Customer",
+      "schema": "customer.customerQuerySchema",
+      "origem": "web/src/components/production/task/form/customer-selector.tsx:35",
+      "consulta": {
+        "include": {
+          "logo": true
+        }
+      }
+    },
+    {
+      "id": "web.task.table/task-history-table-page.TASK_HISTORY_LIST_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/history/table/task-history-table-page.tsx:166 (TASK_HISTORY_LIST_INCLUDE)",
+      "omitidas": [
+        "...buildTaskHistoryQuery(params.filters, pa",
+        "page",
+        "limit",
+        "orderBy"
+      ],
+      "consulta": {
+        "include": {
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "responsibles": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "createdBy": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "observation": {
+            "select": {
+              "id": true,
+              "description": true
+            }
+          },
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "serviceOrders": {
+            "select": {
+              "id": true,
+              "status": true,
+              "type": true,
+              "description": true,
+              "assignedToId": true,
+              "assignedTo": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              }
+            }
+          },
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          },
+          "quote": {
+            "include": {
+              "customerConfigs": {
+                "include": {
+                  "customer": {
+                    "select": {
+                      "id": true,
+                      "corporateName": true,
+                      "fantasyName": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "origens": [
+        "web/src/components/production/task/history/table/task-history-table-page.tsx:166 (TASK_HISTORY_LIST_INCLUDE)",
+        "web/src/components/production/task/history/table/task-history-table-page.tsx:184 (TASK_HISTORY_LIST_INCLUDE)"
+      ]
+    },
+    {
+      "id": "web.task.history/task-export",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/history/task-export.tsx:210",
+      "omitidas": [
+        "...filters",
+        "page"
+      ],
+      "consulta": {
+        "limit": 100,
+        "include": {
+          "sector": true,
+          "customer": true,
+          "createdBy": true,
+          "generalPainting": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          },
+          "serviceOrders": true,
+          "observation": true
+        }
+      }
+    },
+    {
+      "id": "web.task.history/task-history-table.includeConfig",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/history/task-history-table.tsx:252 (includeConfig)",
+      "omitidas": [
+        "...filters",
+        "...(statusToUse && { status: statusToUse })",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "serviceOrders": {
+            "select": {
+              "id": true,
+              "status": true,
+              "type": true,
+              "description": true,
+              "assignedToId": true,
+              "assignedTo": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              }
+            }
+          },
+          "observation": {
+            "select": {
+              "id": true,
+              "description": true
+            }
+          },
+          "generalPainting": {
+            "select": {
+              "id": true,
+              "name": true,
+              "hex": true,
+              "finish": true,
+              "paintType": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              },
+              "paintBrand": {
+                "select": {
+                  "id": true,
+                  "name": true
+                }
+              }
+            }
+          },
+          "createdBy": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          },
+          "quote": {
+            "select": {
+              "id": true,
+              "total": true,
+              "vehicleCount": true,
+              "status": true,
+              "customerConfigs": {
+                "include": {
+                  "customer": {
+                    "select": {
+                      "id": true,
+                      "corporateName": true,
+                      "fantasyName": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.task.list/task-export",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/list/task-export.tsx:129",
+      "omitidas": [
+        "...filters",
+        "page"
+      ],
+      "consulta": {
+        "limit": 100,
+        "include": {
+          "sector": true,
+          "customer": true,
+          "createdBy": true,
+          "serviceOrders": true,
+          "files": true,
+          "observation": true
+        }
+      }
+    },
+    {
+      "id": "web.customer.list/task-filters",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/components/production/task/list/task-filters.tsx:45",
+      "consulta": {
+        "orderBy": {
+          "fantasyName": "asc"
+        },
+        "include": {
+          "logo": true
+        }
+      }
+    },
+    {
+      "id": "web.task.list/task-table.includeConfig",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/list/task-table.tsx:129 (includeConfig)",
+      "omitidas": [
+        "...filters",
+        "page",
+        "limit",
+        "...(sortConfigs.length > 0 && {\n        ord",
+        "...(showSelectedOnly &&\n        selectedIds"
+      ],
+      "consulta": {
+        "include": {
+          "sector": true,
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true,
+              "cnpj": true,
+              "logo": true
+            }
+          },
+          "createdBy": true,
+          "serviceOrders": true,
+          "files": true,
+          "observation": true,
+          "generalPainting": true,
+          "logoPaints": true,
+          "truck": true
+        }
+      }
+    },
+    {
+      "id": "web.task.modals/task-duplicate-modal.DUPLICATE_TASK_INCLUDE",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/task/modals/task-duplicate-modal.tsx:115 (DUPLICATE_TASK_INCLUDE)",
+      "consulta": {
+        "include": {
+          "sector": true,
+          "customer": true,
+          "responsibles": true,
+          "serviceOrders": {
+            "include": {
+              "assignedTo": true
+            }
+          },
+          "baseFiles": true,
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "quote": {
+            "include": {
+              "services": true,
+              "layoutFiles": true,
+              "customerConfigs": true
+            }
+          },
+          "budgets": true,
+          "invoices": true,
+          "receipts": true,
+          "bankSlips": true,
+          "reimbursements": true,
+          "reimbursementInvoices": true,
+          "generalPainting": true,
+          "logoPaints": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.task.preparation/task-prep-page.LIST_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/preparation/task-prep-page.tsx:174 (LIST_INCLUDE)",
+      "omitidas": [
+        "...(statuses ? { status: statuses } : {})",
+        "...scope"
+      ],
+      "consulta": {
+        "include": {
+          "serviceOrders": {
+            "select": {
+              "id": true,
+              "type": true,
+              "status": true,
+              "assignedToId": true,
+              "description": true,
+              "observation": true
+            }
+          },
+          "forecastHistory": {
+            "select": {
+              "source": true,
+              "previousDate": true,
+              "newDate": true,
+              "reason": true,
+              "createdAt": true
+            },
+            "where": {
+              "source": "MANUAL",
+              "previousDate": {
+                "not": null
+              }
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 1
+          },
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "truck": {
+            "select": {
+              "id": true,
+              "plate": true,
+              "category": true,
+              "chassisNumber": true,
+              "vinPlateId": true,
+              "implementType": true,
+              "leftSideMeasure": {
+                "select": {
+                  "id": true,
+                  "height": true,
+                  "sections": {
+                    "select": {
+                      "id": true,
+                      "width": true
+                    }
+                  }
+                }
+              },
+              "rightSideMeasure": {
+                "select": {
+                  "id": true,
+                  "height": true,
+                  "sections": {
+                    "select": {
+                      "id": true,
+                      "width": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "quote": {
+            "select": {
+              "id": true,
+              "total": true,
+              "vehicleCount": true,
+              "status": true,
+              "customerConfigs": {
+                "select": {
+                  "customer": {
+                    "select": {
+                      "corporateName": true,
+                      "fantasyName": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "generalPainting": {
+            "select": {
+              "id": true,
+              "name": true,
+              "hex": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          },
+          "responsibles": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          }
+        },
+        "limit": 1000,
+        "orderBy": {
+          "forecastDate": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.task.schedule/set-quote-layout-modal",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/set-quote-layout-modal.tsx:173",
+      "omitidas": [
+        "where",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "quote": {
+            "include": {
+              "layoutFiles": true
+            }
+          },
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.task.schedule/task-schedule-calendar.TASK_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-calendar.tsx:249 (TASK_INCLUDE)",
+      "omitidas": [
+        "sectorIds"
+      ],
+      "consulta": {
+        "take": 500,
+        "status": [
+          "PREPARATION",
+          "WAITING_PRODUCTION",
+          "IN_PRODUCTION",
+          "COMPLETED"
+        ],
+        "include": {
+          "customer": {
+            "select": {
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.task.schedule/task-schedule-content",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-content.tsx:107",
+      "omitidas": [
+        "...filters"
+      ],
+      "consulta": {
+        "include": {
+          "sector": true,
+          "customer": true,
+          "createdBy": true,
+          "serviceOrders": true,
+          "quote": true,
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true
+                }
+              }
+            }
+          }
+        },
+        "orderBy": {
+          "term": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.task.schedule/task-schedule-export",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-export.tsx:108",
+      "omitidas": [
+        "...filters",
+        "limit"
+      ],
+      "consulta": {
+        "include": {
+          "sector": true,
+          "customer": true,
+          "createdBy": true,
+          "serviceOrders": true,
+          "generalPainting": true
+        }
+      }
+    },
+    {
+      "id": "web.task.schedule/task-schedule-table-page.SCHEDULE_LIST_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-table-page.tsx:203 (SCHEDULE_LIST_INCLUDE)",
+      "omitidas": [
+        "...(priv === SECTOR_PRIVILEGES.LOGISTIC || "
+      ],
+      "consulta": {
+        "status": [
+          "WAITING_PRODUCTION",
+          "IN_PRODUCTION"
+        ],
+        "limit": 1000,
+        "include": {
+          "sector": true,
+          "customer": true,
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "truck": true,
+          "serviceOrders": true,
+          "quote": true,
+          "createdBy": true
+        },
+        "orderBy": {
+          "term": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.task.widgets/installment-table.TASK_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/dashboard/widgets/installment-table.tsx:560 (TASK_INCLUDE)",
+      "omitidas": [
+        "...(refetchInterval > 0 && { refetchInterva"
+      ],
+      "consulta": {
+        "page": 1,
+        "limit": 200,
+        "where": {
+          "quote": {
+            "is": {
+              "status": "APPROVED",
+              "billings": {
+                "some": {
+                  "approvedAt": {
+                    "not": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        "include": {
+          "customer": {
+            "select": {
+              "id": true,
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "quote": {
+            "select": {
+              "id": true,
+              "status": true,
+              "statusOrder": true,
+              "total": true,
+              "customerConfigs": {
+                "select": {
+                  "id": true,
+                  "customerId": true,
+                  "billing": {
+                    "select": {
+                      "id": true,
+                      "approvedAt": true,
+                      "status": true,
+                      "statusOrder": true,
+                      "tasks": {
+                        "select": {
+                          "taskId": true
+                        }
+                      }
+                    }
+                  },
+                  "customer": {
+                    "select": {
+                      "id": true,
+                      "fantasyName": true,
+                      "corporateName": true
+                    }
+                  },
+                  "installments": {
+                    "select": {
+                      "id": true,
+                      "number": true,
+                      "dueDate": true,
+                      "amount": true,
+                      "paidAmount": true,
+                      "paidAt": true,
+                      "status": true,
+                      "paymentMethod": true,
+                      "bankSlip": {
+                        "select": {
+                          "id": true,
+                          "nossoNumero": true,
+                          "status": true,
+                          "amount": true,
+                          "dueDate": true,
+                          "paidAt": true,
+                          "paidAmount": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "orderBy": [
+          {
+            "finishedAt": "desc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "web.task.widgets/production-calendar.TASK_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/dashboard/widgets/production-calendar.tsx:248 (TASK_INCLUDE)",
+      "omitidas": [
+        "status"
+      ],
+      "consulta": {
+        "take": 200,
+        "include": {
+          "customer": {
+            "select": {
+              "fantasyName": true,
+              "corporateName": true
+            }
+          },
+          "sector": {
+            "select": {
+              "id": true,
+              "name": true
+            }
+          }
+        },
+        "orderBy": {
+          "name": "asc"
+        }
+      }
+    },
+    {
+      "id": "web.task.widgets/task-table.TASK_INCLUDE",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:1813 (TASK_INCLUDE)",
+      "omitidas": [
+        "where",
+        "searchingFor",
+        "createdByIds",
+        "isOverdue",
+        "orderBy",
+        "take"
+      ],
+      "consulta": {
+        "include": {
+          "customer": true,
+          "sector": true,
+          "generalPainting": true,
+          "logoPaints": true,
+          "serviceOrders": true,
+          "observation": true,
+          "truck": true,
+          "quote": true,
+          "layouts": true,
+          "responsibles": true
+        }
+      }
+    },
+    {
+      "id": "web.task.widgets/task-table",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:2096",
+      "consulta": {
+        "include": {
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "budgets": true,
+          "invoices": true,
+          "receipts": true,
+          "quote": true,
+          "logoPaints": true,
+          "cuts": true,
+          "serviceOrders": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": {
+                "include": {
+                  "sections": true,
+                  "photo": true
+                }
+              },
+              "rightSideMeasure": {
+                "include": {
+                  "sections": true,
+                  "photo": true
+                }
+              },
+              "backSideMeasure": {
+                "include": {
+                  "sections": true,
+                  "photo": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "origens": [
+        "web/src/dashboard/widgets/task-table.tsx:2096",
+        "web/src/components/production/task/schedule/task-schedule-table-page.tsx:475",
+        "web/src/components/production/task/history/table/task-history-table-page.tsx:402",
+        "web/src/components/production/task/preparation/task-prep-page.tsx:355",
+        "web/src/components/production/task/history/task-history-list.tsx:445",
+        "web/src/components/production/task/schedule/task-schedule-content.tsx:199"
+      ]
+    },
+    {
+      "id": "web.task.details/id",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/pages/financial/billing/details/[id].tsx:284",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "logo": true
+            }
+          },
+          "truck": {
+            "include": {
+              "vinPlate": true
+            }
+          },
+          "serviceOrders": {
+            "include": {
+              "checkinFiles": true,
+              "checkoutFiles": true
+            },
+            "orderBy": {
+              "position": "asc"
+            }
+          },
+          "layouts": {
+            "include": {
+              "file": true
+            }
+          },
+          "responsibles": true,
+          "quote": {
+            "include": {
+              "services": true,
+              "layoutFiles": true,
+              "tasks": {
+                "select": {
+                  "id": true,
+                  "name": true,
+                  "serialNumber": true,
+                  "createdAt": true,
+                  "customerOrderNumber": true,
+                  "finishedAt": true,
+                  "truck": {
+                    "select": {
+                      "id": true,
+                      "plate": true,
+                      "chassisNumber": true,
+                      "category": true,
+                      "implementType": true
+                    }
+                  }
+                }
+              },
+              "customerConfigs": {
+                "include": {
+                  "customer": {
+                    "include": {
+                      "logo": true
+                    }
+                  },
+                  "installments": {
+                    "orderBy": {
+                      "number": "asc"
+                    }
+                  }
+                }
+              },
+              "billings": {
+                "orderBy": {
+                  "createdAt": "asc"
+                },
+                "select": {
+                  "id": true,
+                  "approvedAt": true,
+                  "status": true,
+                  "statusOrder": true,
+                  "createdAt": true,
+                  "tasks": {
+                    "select": {
+                      "taskId": true
+                    }
+                  },
+                  "customerConfigs": {
+                    "select": {
+                      "id": true,
+                      "customerId": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.customer.budget/create",
+      "rota": "GET /customers",
+      "modelo": "Customer",
+      "schema": "customer.customerGetManySchema",
+      "origem": "web/src/pages/financial/budget/create.tsx:325",
+      "omitidas": [
+        "where"
+      ],
+      "consulta": {
+        "take": 1,
+        "include": {
+          "logo": true
+        }
+      }
+    },
+    {
+      "id": "web.task.details/taskId",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/pages/financial/budget/details/[taskId].tsx:1731",
+      "consulta": {
+        "include": {
+          "responsibles": true
+        }
+      }
+    },
+    {
+      "id": "web.customer.edit/id.includeParams",
+      "rota": "GET /customers/:id",
+      "modelo": "Customer",
+      "schema": "customer.customerQuerySchema",
+      "origem": "web/src/pages/financial/customers/edit/[id].tsx:34 (includeParams)",
+      "consulta": {
+        "include": {
+          "tasks": {
+            "include": {
+              "user": true,
+              "serviceOrders": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          },
+          "logo": true
+        }
+      },
+      "origens": [
+        "web/src/pages/financial/customers/edit/[id].tsx:34 (includeParams)",
+        "web/src/pages/administration/customers/edit/[id].tsx:34 (includeParams)"
+      ]
+    },
+    {
+      "id": "web.task.schedule/batch-edit",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/pages/production/schedule/batch-edit.tsx:41",
+      "omitidas": [
+        "where",
+        "take"
+      ],
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "logo": true
+            }
+          },
+          "sector": true,
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true
+            }
+          },
+          "truck": true
+        }
+      }
+    },
+    {
+      "id": "web.task.edit/id",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/pages/production/schedule/edit/[id].tsx:101",
+      "consulta": {
+        "include": {
+          "customer": true,
+          "sector": true,
+          "serviceOrders": {
+            "include": {
+              "checkinFiles": true,
+              "checkoutFiles": true
+            }
+          },
+          "generalPainting": true,
+          "layouts": true,
+          "budget": true,
+          "budgets": true,
+          "invoices": true,
+          "receipts": true,
+          "bankSlips": true,
+          "baseFiles": true,
+          "cuts": {
+            "include": {
+              "file": true
+            }
+          },
+          "logoPaints": true,
+          "responsibles": true,
+          "airbrushings": {
+            "include": {
+              "receipts": true,
+              "invoices": true,
+              "layouts": {
+                "include": {
+                  "file": true
+                }
+              },
+              "painter": true
+            }
+          },
+          "createdBy": true,
+          "truck": true,
+          "observation": {
+            "include": {
+              "files": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "semSchema": [
+    {
+      "origem": "web/src/api-client/invoice.ts:11",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/api-client/invoice.ts:24",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/api-client/invoice.ts:44",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/api-client/services/payroll.ts:198",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/api-client/services/payroll.ts:231",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/components/administration/changelog/list/changelog-list.tsx:171",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/administration/changelog/list/changelog-table.tsx:75 (includeConfig)",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/administration/message/editor/message-metadata-form.tsx:184",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/administration/notification/list/notification-list.tsx:52",
+      "chamada": "useNotificationsInfinite"
+    },
+    {
+      "origem": "web/src/components/administration/sector/list/sector-export.tsx:42",
+      "chamada": "getSectors"
+    },
+    {
+      "origem": "web/src/components/administration/sector/list/sector-table.tsx:142",
+      "chamada": "useSectors"
+    },
+    {
+      "origem": "web/src/components/administration/skill-assessment/entries-table.tsx:78",
+      "chamada": "useAssessmentEntries"
+    },
+    {
+      "origem": "web/src/components/administration/skill-assessment/list/skill-assessment-table.tsx:165",
+      "chamada": "useAssessments"
+    },
+    {
+      "origem": "web/src/components/administration/skill-assessment/sector-assessment-config-card.tsx:62",
+      "chamada": "useSector"
+    },
+    {
+      "origem": "web/src/components/administration/skill/list/skill-table.tsx:122",
+      "chamada": "useSkills"
+    },
+    {
+      "origem": "web/src/components/administration/topic/list/topic-table.tsx:137",
+      "chamada": "useTopics"
+    },
+    {
+      "origem": "web/src/components/administration/user/detail-page/user-detail-page.tsx:169",
+      "chamada": "useUser"
+    },
+    {
+      "origem": "web/src/components/administration/user/detail/employment-history-card.tsx:58",
+      "chamada": "useEmploymentContracts"
+    },
+    {
+      "origem": "web/src/components/administration/user/list/user-export.tsx:74",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/administration/user/list/user-table.tsx:111 (includeConfig)",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/administration/user/table/user-table-page.tsx:118 (LIST_INCLUDE)",
+      "chamada": "useUsersInfinite"
+    },
+    {
+      "origem": "web/src/components/common/item-selector/item-selector.tsx:203 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/common/item-selector/item-selector.tsx:315",
+      "chamada": "getSuppliers"
+    },
+    {
+      "origem": "web/src/components/financial/accounts-payable/manage-receipts-dialog.tsx:48",
+      "chamada": "useOrder"
+    },
+    {
+      "origem": "web/src/components/integrations/secullum/calculations/list/calculation-list.tsx:140",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/detail/activity-detail.tsx:21",
+      "chamada": "useActivity"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/form/activity-batch-create-form.tsx:69",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/form/activity-batch-table.tsx:47",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/form/activity-edit-form.tsx:34",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/form/activity-edit-wrapper.tsx:21",
+      "chamada": "useActivity"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/form/activity-item-selector.tsx:241 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/activity/list/activity-export.tsx:61",
+      "chamada": "getActivities"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/detail/borrow-history-card.tsx:223",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/detail/borrow-timeline.tsx:50",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/form/borrow-batch-create-form.tsx:104",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/form/borrow-item-selector.tsx:254 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/form/item-selector.tsx:47",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/list/borrow-export.tsx:59",
+      "chamada": "getBorrows"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/list/borrow-list-mobile.tsx:26",
+      "chamada": "useBorrowsInfinite"
+    },
+    {
+      "origem": "web/src/components/inventory/borrow/list/borrow-table.tsx:153 (includeConfig)",
+      "chamada": "useBorrows"
+    },
+    {
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-filters.tsx:158",
+      "chamada": "getSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:228 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:244 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/common/item-selector/item-selector-table.tsx:268 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:137",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/delivery/item-selector-dropdown.tsx:78",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/delivery/ppe-delivery-table.tsx:110 (includeConfig)",
+      "chamada": "usePpeDeliveries"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/list/ppe-export.tsx:99",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/list/ppe-table.tsx:91",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/schedule/ppe-schedule-table.tsx:97",
+      "chamada": "usePpeDeliverySchedules"
+    },
+    {
+      "origem": "web/src/components/inventory/epi/sizes/ppe-sizes-table.tsx:259 (includeConfig)",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/inventory/external-operation/form/external-operation-create-form.tsx:179",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/external-operation/form/external-operation-edit-form.tsx:271",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/external-operation/form/external-operation-item-selector.tsx:239 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/external-operation/list/external-operation-export.tsx:90",
+      "chamada": "getExternalOperations"
+    },
+    {
+      "origem": "web/src/components/inventory/external-operation/list/external-operation-table.tsx:308 (includeConfig)",
+      "chamada": "useExternalOperations"
+    },
+    {
+      "origem": "web/src/components/inventory/item/brand/batch-edit/brand-batch-edit-table.tsx:50",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/components/inventory/item/brand/form/brand-form.tsx:148",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/components/inventory/item/brand/list/brand-table.tsx:101 (includeConfig)",
+      "chamada": "useItemBrands"
+    },
+    {
+      "origem": "web/src/components/inventory/item/category/batch-edit/category-batch-edit-table.tsx:50",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/components/inventory/item/category/form/category-form.tsx:158",
+      "chamada": "get"
+    },
+    {
+      "origem": "web/src/components/inventory/item/category/list/category-table.tsx:99 (includeConfig)",
+      "chamada": "useItemCategoryTree"
+    },
+    {
+      "origem": "web/src/components/inventory/item/detail-page/item-detail-page.tsx:87 (DETAIL_INCLUDE)",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/components/inventory/item/form/fispq-item-card.tsx:45",
+      "chamada": "useFispqs"
+    },
+    {
+      "origem": "web/src/components/inventory/item/form/fispq-item-card.tsx:69",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/inventory/item/form/supplier-selector.tsx:57",
+      "chamada": "getSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/item/list/item-export.tsx:95",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/item/list/item-filters.tsx:168",
+      "chamada": "getSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/item/list/item-table.tsx:127 (includeConfig)",
+      "chamada": "stringify"
+    },
+    {
+      "origem": "web/src/components/inventory/item/table/item-table-page.tsx:72 (ITEM_LIST_INCLUDE)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/item/table/item-table-page.tsx:91 (ITEM_LIST_INCLUDE)",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/common/items-needed-table.tsx:83 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/form/item-selector.tsx:44",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/form/maintenance-finish-form.tsx:67",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/list/maintenance-export.tsx:50",
+      "chamada": "getMaintenances"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/list/maintenance-table.tsx:154",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/list/maintenance-table.tsx:174",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/list/maintenance-table.tsx:183",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/list/maintenance-table.tsx:97",
+      "chamada": "useMaintenances"
+    },
+    {
+      "origem": "web/src/components/inventory/maintenance/schedule/maintenance-schedule-table.tsx:94",
+      "chamada": "useMaintenanceSchedules"
+    },
+    {
+      "origem": "web/src/components/inventory/order-schedule/form/order-schedule-create-form.tsx:75",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/order-schedule/form/order-schedule-edit-form.tsx:118",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/order-schedule/form/review-items-table.tsx:32",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/order-schedule/list/order-schedule-table.tsx:110",
+      "chamada": "useOrderSchedules"
+    },
+    {
+      "origem": "web/src/components/inventory/order/detail-page/order-detail-page.tsx:145",
+      "chamada": "useOrder"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-batch-create-form.tsx:76",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-batch-create-form.tsx:84",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-create-form.tsx:245",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-create-form.tsx:264",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-edit-form.tsx:449",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-edit-form.tsx:461",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/order/form/order-item-selector.tsx:296 (includeConfig)",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/inventory/order/table/order-table-page.tsx:159 (LIST_INCLUDE)",
+      "chamada": "useOrders"
+    },
+    {
+      "origem": "web/src/components/inventory/order/table/order-table-page.tsx:190 (LIST_INCLUDE)",
+      "chamada": "getOrders"
+    },
+    {
+      "origem": "web/src/components/inventory/supplier/list/supplier-export.tsx:70",
+      "chamada": "getSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/supplier/list/supplier-table.tsx:96 (includeConfig)",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/components/inventory/warehouse-location/map/warehouse-map.tsx:156",
+      "chamada": "useWarehouseLocations"
+    },
+    {
+      "origem": "web/src/components/notes/note-board.tsx:166",
+      "chamada": "useNotes"
+    },
+    {
+      "origem": "web/src/components/notes/note-share-dialog.tsx:126",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/occupational-health/fispq/form/fispq-form.tsx:157",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/components/occupational-health/fispq/list/fispq-list.tsx:246",
+      "chamada": "getFispqs"
+    },
+    {
+      "origem": "web/src/components/occupational-health/fispq/list/fispq-table.tsx:85 (includeConfig)",
+      "chamada": "useFispqs"
+    },
+    {
+      "origem": "web/src/components/occupational-health/leave/detail/leave-files-card.tsx:40",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/components/occupational-health/leave/list/leave-table.tsx:91 (includeConfig)",
+      "chamada": "useLeaves"
+    },
+    {
+      "origem": "web/src/components/occupational-health/medical-exam/form/medical-exam-form.tsx:94",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/occupational-health/medical-exam/list/medical-exam-table.tsx:102 (includeConfig)",
+      "chamada": "useMedicalExams"
+    },
+    {
+      "origem": "web/src/components/occupational-health/work-accident/form/work-accident-form.tsx:90",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/occupational-health/work-accident/list/work-accident-list.tsx:42",
+      "chamada": "useWorkAccidentReports"
+    },
+    {
+      "origem": "web/src/components/painting/catalogue/detail/paint-with-formulas-changelog-history.tsx:93",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/painting/catalogue/list/paint-catalogue-list.tsx:318",
+      "chamada": "usePaints"
+    },
+    {
+      "origem": "web/src/components/painting/form/paint-quick-create-dialog.tsx:98",
+      "chamada": "createPaint"
+    },
+    {
+      "origem": "web/src/components/painting/formula/formula-calculator.tsx:84",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/components/painting/paint-brand/form/component-items-selector.tsx:48",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/painting/paint-brand/list/paint-brand-table.tsx:115 (includeConfig)",
+      "chamada": "usePaintBrands"
+    },
+    {
+      "origem": "web/src/components/painting/paint-type/form/component-items-selector.tsx:48",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/painting/paint-type/list/paint-type-table.tsx:115 (includeConfig)",
+      "chamada": "usePaintTypes"
+    },
+    {
+      "origem": "web/src/components/painting/production-availability/add-paint-combobox.tsx:39",
+      "chamada": "getPaints"
+    },
+    {
+      "origem": "web/src/components/painting/production/list/paint-production-export.tsx:60",
+      "chamada": "getPaintProductions"
+    },
+    {
+      "origem": "web/src/components/painting/production/list/paint-production-list.tsx:235 (includeConfig)",
+      "chamada": "usePaintProductions"
+    },
+    {
+      "origem": "web/src/components/painting/production/search/paint-production-advanced-filters.tsx:29",
+      "chamada": "usePaintFormulas"
+    },
+    {
+      "origem": "web/src/components/personnel-department/absence/calendar/absences-calendar.tsx:283",
+      "chamada": "useLeaves"
+    },
+    {
+      "origem": "web/src/components/personnel-department/absence/calendar/absences-calendar.tsx:299",
+      "chamada": "useAgendaEvents"
+    },
+    {
+      "origem": "web/src/components/personnel-department/admission/form/admission-new-user-form.tsx:175",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/admission/form/admission-new-user-form.tsx:264",
+      "chamada": "useAdmissionByUser"
+    },
+    {
+      "origem": "web/src/components/personnel-department/admission/list/admission-table.tsx:77 (includeConfig)",
+      "chamada": "useAdmissions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/admission/user-documentation-card.tsx:204",
+      "chamada": "useAdmissionByUser"
+    },
+    {
+      "origem": "web/src/components/personnel-department/benefit/detail/benefit-enrollments-card.tsx:29",
+      "chamada": "useUserBenefits"
+    },
+    {
+      "origem": "web/src/components/personnel-department/benefit/list/benefit-table.tsx:60 (includeConfig)",
+      "chamada": "useBenefits"
+    },
+    {
+      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-filters.tsx:50",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/bonus-simulation/bonus-simulation-interactive-table.tsx:280",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:40",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/bonus/list/bonus-filters.tsx:75",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/dependent/dependents-card.tsx:77",
+      "chamada": "useUserBenefits"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/employee-loan-dialog.tsx:108",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/list/payroll-filters.tsx:34",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/list/payroll-filters.tsx:58",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/list/payroll-table.tsx:91",
+      "chamada": "usePayrolls"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/payroll-calculation.tsx:60",
+      "chamada": "usePayrollByUserAndPeriod"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/payroll-calculation.tsx:72",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/payroll-form.tsx:87",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/payroll/payroll-list.tsx:208",
+      "chamada": "usePayrolls"
+    },
+    {
+      "origem": "web/src/components/personnel-department/performance-levels/performance-level-export.tsx:71",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/performance-levels/performance-level-filters.tsx:71",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/performance-levels/performance-level-list.tsx:123",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/position/list/position-export.tsx:50",
+      "chamada": "getPositions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/position/list/position-table.tsx:94",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-filters.tsx:51",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-interactive-table.tsx:166",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/promotions-simulation/promotions-simulation-interactive-table.tsx:94",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/components/personnel-department/salary-adjustment/list/salary-adjustment-table.tsx:60 (includeConfig)",
+      "chamada": "useSalaryAdjustments"
+    },
+    {
+      "origem": "web/src/components/personnel-department/statistics/skill-info-modal.tsx:180",
+      "chamada": "getTopics"
+    },
+    {
+      "origem": "web/src/components/personnel-department/statistics/skill-info-modal.tsx:50",
+      "chamada": "getTopics"
+    },
+    {
+      "origem": "web/src/components/personnel-department/statistics/skill-stats-entries-modal.tsx:234",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:140",
+      "chamada": "useUser"
+    },
+    {
+      "origem": "web/src/components/personnel-department/termination/form/termination-form.tsx:173",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/termination/list/termination-table.tsx:66 (includeConfig)",
+      "chamada": "useTerminations"
+    },
+    {
+      "origem": "web/src/components/personnel-department/thirteenth/form/thirteenth-form.tsx:77",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/time-clock-entry/time-clock-edit-list.tsx:250",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/time-clock/assinatura-digital/espelho-export-modal.tsx:351",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-benefit/form/user-benefit-form.tsx:167",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-benefit/list/user-benefit-table.tsx:80 (includeConfig)",
+      "chamada": "useUserBenefits"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-benefit/user-benefits-card.tsx:54",
+      "chamada": "useUserBenefits"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-position-history/detail/user-position-history-card.tsx:75",
+      "chamada": "useUserPositionHistories"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-position-history/list/user-position-history-table.tsx:61 (includeConfig)",
+      "chamada": "useUserPositionHistories"
+    },
+    {
+      "origem": "web/src/components/personnel-department/user-position-history/promote/promote-dialog.tsx:74",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:109",
+      "chamada": "useUser"
+    },
+    {
+      "origem": "web/src/components/personnel-department/vacation/form/vacation-form.tsx:141",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/components/personnel-department/vacation/list/vacation-table.tsx:60 (includeConfig)",
+      "chamada": "useVacations"
+    },
+    {
+      "origem": "web/src/components/personnel-department/warning/form/collaborator-select.tsx:60",
+      "chamada": "getUserById"
+    },
+    {
+      "origem": "web/src/components/personnel-department/warning/form/termination-select.tsx:28",
+      "chamada": "getTerminations"
+    },
+    {
+      "origem": "web/src/components/personnel-department/warning/list/warning-table.tsx:98",
+      "chamada": "useWarnings"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-batch-operations.tsx:101",
+      "chamada": "batchUpdateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-batch-operations.tsx:134",
+      "chamada": "batchUpdateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-create-form.tsx:121",
+      "chamada": "batchCreateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-create-form.tsx:126",
+      "chamada": "batchCreateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-form.tsx:130",
+      "chamada": "useCut"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-form.tsx:196",
+      "chamada": "createAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-form.tsx:201",
+      "chamada": "createAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-form.tsx:213",
+      "chamada": "updateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-plan-form.tsx:105",
+      "chamada": "batchCreateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-request-modal.tsx:85",
+      "chamada": "batchCreateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-request-modal.tsx:90",
+      "chamada": "batchCreateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/form/cut-status-form.tsx:99",
+      "chamada": "updateAsync"
+    },
+    {
+      "origem": "web/src/components/production/cut/table/cut-table-page.tsx:181 (LIST_INCLUDE)",
+      "chamada": "useCuts"
+    },
+    {
+      "origem": "web/src/components/production/cut/table/cut-table-page.tsx:207 (LIST_INCLUDE)",
+      "chamada": "getCuts"
+    },
+    {
+      "origem": "web/src/components/production/observation/detail/observation-detail-page.tsx:131",
+      "chamada": "useObservation"
+    },
+    {
+      "origem": "web/src/components/production/observation/form/observation-form.tsx:93",
+      "chamada": "useObservation"
+    },
+    {
+      "origem": "web/src/components/production/observation/list/observation-table-page.tsx:129 (LIST_INCLUDE)",
+      "chamada": "useObservations"
+    },
+    {
+      "origem": "web/src/components/production/observation/list/observation-table-page.tsx:145 (LIST_INCLUDE)",
+      "chamada": "getObservations"
+    },
+    {
+      "origem": "web/src/components/production/task/batch-edit/cells/general-painting-cell.tsx:37",
+      "chamada": "getPaints"
+    },
+    {
+      "origem": "web/src/components/production/task/detail/task-detail-page.tsx:363",
+      "chamada": "useCutsByTask"
+    },
+    {
+      "origem": "web/src/components/production/task/detail/task-detail-page.tsx:371",
+      "chamada": "useAirbrushingsByTask"
+    },
+    {
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:181",
+      "chamada": "useCutsByTask"
+    },
+    {
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:1815",
+      "chamada": "updateAsync"
+    },
+    {
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:206",
+      "chamada": "useAirbrushingsByTask"
+    },
+    {
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:2124",
+      "chamada": "updateAsync"
+    },
+    {
+      "origem": "web/src/components/server/throttler/user-name-cell.tsx:13",
+      "chamada": "getUserById"
+    },
+    {
+      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:104 (ITEM_INCLUDE)",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/components/tools/paint-mix-calculator/category-item-selector.tsx:57 (ITEM_INCLUDE)",
+      "chamada": "getItemById"
+    },
+    {
+      "origem": "web/src/components/ui/changelog-history.tsx:2788",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3069",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3090",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3111",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3132",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3159",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/components/ui/task-with-service-orders-changelog.tsx:3180",
+      "chamada": "useChangeLogs"
+    },
+    {
+      "origem": "web/src/dashboard/widgets/borrow-table.tsx:450",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/dashboard/widgets/cut-queue.tsx:250",
+      "chamada": "useCuts"
+    },
+    {
+      "origem": "web/src/dashboard/widgets/item-table.tsx:481",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/dashboard/widgets/order-table.tsx:549 (ORDER_INCLUDE)",
+      "chamada": "useOrders"
+    },
+    {
+      "origem": "web/src/dashboard/widgets/ppe-delivery-table.tsx:389",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/hooks/administration/use-default-goal.ts:144",
+      "chamada": "list"
+    },
+    {
+      "origem": "web/src/hooks/common/use-notification-center.ts:42",
+      "chamada": "useNotifications"
+    },
+    {
+      "origem": "web/src/hooks/painting/use-paint-brand.ts:101",
+      "chamada": "getPaintBrands"
+    },
+    {
+      "origem": "web/src/hooks/painting/use-paint-brand.ts:184",
+      "chamada": "getPaintBrands"
+    },
+    {
+      "origem": "web/src/hooks/painting/use-paint-brand.ts:244",
+      "chamada": "getPaintBrands"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-bonus.ts:292",
+      "chamada": "useBonuses"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-bonus.ts:566",
+      "chamada": "exportBonuses"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-payroll.ts:139",
+      "chamada": "getByUserAndMonth"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-payroll.ts:170",
+      "chamada": "getMany"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-payroll.ts:432",
+      "chamada": "getMany"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-user.ts:111",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-user.ts:126",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-user.ts:96",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/hooks/production/use-cut-item-filters.ts:370",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/hooks/production/use-cut-item-filters.ts:375",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/hooks/questionnaire/use-questionnaire-entry.ts:57 (ENTRY_DETAIL_INCLUDE)",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/hooks/questionnaire/use-questionnaire-entry.ts:88",
+      "chamada": "getQuestionnaireEntries"
+    },
+    {
+      "origem": "web/src/hooks/skill/use-assessment-entry.ts:104",
+      "chamada": "getAssessmentEntries"
+    },
+    {
+      "origem": "web/src/hooks/skill/use-assessment-entry.ts:80 (ENTRY_DETAIL_INCLUDE)",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/lib/attention/send-warning.tsx:181",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/pages/administration/collaborators/batch-edit.tsx:33",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/pages/administration/collaborators/edit/[id].tsx:51 (includeParams)",
+      "chamada": "useUser"
+    },
+    {
+      "origem": "web/src/pages/administration/goals/index.tsx:77",
+      "chamada": "useGoals"
+    },
+    {
+      "origem": "web/src/pages/administration/notifications/details/[id].tsx:149",
+      "chamada": "useNotification"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/create.tsx:102",
+      "chamada": "useQuestionnaireQuestions"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/details/[id].tsx:97",
+      "chamada": "useQuestionnaire"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/list.tsx:59",
+      "chamada": "useQuestionnaires"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/perguntas/details/[id].tsx:57",
+      "chamada": "useQuestionnaireQuestion"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/perguntas/edit/[id].tsx:25",
+      "chamada": "useQuestionnaireQuestion"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/perguntas/list.tsx:64",
+      "chamada": "useQuestionnaireQuestions"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/temas/details/[id].tsx:48",
+      "chamada": "useQuestionnaireGroup"
+    },
+    {
+      "origem": "web/src/pages/administration/questionnaire/temas/list.tsx:47",
+      "chamada": "useQuestionnaireGroups"
+    },
+    {
+      "origem": "web/src/pages/administration/root.tsx:61",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/pages/administration/sectors/details/[id].tsx:29",
+      "chamada": "useSector"
+    },
+    {
+      "origem": "web/src/pages/administration/skill-assessment/details/[id].tsx:96",
+      "chamada": "useAssessment"
+    },
+    {
+      "origem": "web/src/pages/administration/skill-assessment/edit/[id].tsx:20",
+      "chamada": "useAssessment"
+    },
+    {
+      "origem": "web/src/pages/administration/skill-assessment/entry/[entryId].tsx:119",
+      "chamada": "useAssessmentEntry"
+    },
+    {
+      "origem": "web/src/pages/administration/skill-assessment/entry/[entryId].tsx:129",
+      "chamada": "useAssessment"
+    },
+    {
+      "origem": "web/src/pages/administration/skill-assessment/entry/[entryId].tsx:140",
+      "chamada": "useAssessmentEntries"
+    },
+    {
+      "origem": "web/src/pages/administration/skill/details/[id].tsx:62",
+      "chamada": "useSkill"
+    },
+    {
+      "origem": "web/src/pages/administration/topic/batch-edit.tsx:44",
+      "chamada": "useTopics"
+    },
+    {
+      "origem": "web/src/pages/administration/topic/details/[id].tsx:56",
+      "chamada": "useTopic"
+    },
+    {
+      "origem": "web/src/pages/administration/topic/edit/[id].tsx:61",
+      "chamada": "useTopic"
+    },
+    {
+      "origem": "web/src/pages/catalog/details/[id].tsx:33",
+      "chamada": "usePaint"
+    },
+    {
+      "origem": "web/src/pages/integrations/secullum/mapping.tsx:828",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/pages/inventory/external-operations/details/[id].tsx:55",
+      "chamada": "useExternalOperation"
+    },
+    {
+      "origem": "web/src/pages/inventory/external-operations/edit/[id].tsx:29",
+      "chamada": "useExternalOperation"
+    },
+    {
+      "origem": "web/src/pages/inventory/loans/batch-edit.tsx:37",
+      "chamada": "useBorrows"
+    },
+    {
+      "origem": "web/src/pages/inventory/loans/details/[id].tsx:148",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/loans/details/[id].tsx:40",
+      "chamada": "useBorrow"
+    },
+    {
+      "origem": "web/src/pages/inventory/loans/edit/[id].tsx:30",
+      "chamada": "useBorrow"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/create.tsx:25",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/details/[id].tsx:151",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/details/[id].tsx:42",
+      "chamada": "useMaintenance"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/edit/[id].tsx:31",
+      "chamada": "useMaintenance"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/edit/[id].tsx:49",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/schedules/create.tsx:27",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/schedules/details/[id].tsx:105",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/schedules/details/[id].tsx:56",
+      "chamada": "useMaintenanceSchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/schedules/edit/[id].tsx:31",
+      "chamada": "useMaintenanceSchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/maintenance/schedules/edit/[id].tsx:47",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/inventory/movements/batch-edit.tsx:37",
+      "chamada": "useActivities"
+    },
+    {
+      "origem": "web/src/pages/inventory/orders/edit/[id].tsx:29",
+      "chamada": "useOrder"
+    },
+    {
+      "origem": "web/src/pages/inventory/orders/schedules/details/[id].tsx:55",
+      "chamada": "useOrderSchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/orders/schedules/details/[id].tsx:72",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/inventory/orders/schedules/edit/[id].tsx:36",
+      "chamada": "useOrderSchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/deliveries/details/[id].tsx:55",
+      "chamada": "usePpeDelivery"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/deliveries/edit/[id].tsx:24",
+      "chamada": "usePpeDelivery"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/details/[id].tsx:24",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/edit/[id].tsx:27",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/schedules/details/[id].tsx:56",
+      "chamada": "usePpeDeliverySchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/ppe/schedules/edit/[id].tsx:24",
+      "chamada": "usePpeDeliverySchedule"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/batch-edit.tsx:38",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/brands/batch-edit.tsx:29",
+      "chamada": "useItemBrands"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/brands/details/[id].tsx:25",
+      "chamada": "useItemBrandDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/brands/edit/[id].tsx:26",
+      "chamada": "useItemBrandDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/categories/batch-edit.tsx:27",
+      "chamada": "useItemCategories"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/categories/details/[id].tsx:25",
+      "chamada": "useItemCategoryDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/categories/edit/[id].tsx:27",
+      "chamada": "useItemCategoryDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/edit/[id].tsx:29",
+      "chamada": "useItem"
+    },
+    {
+      "origem": "web/src/pages/inventory/products/stock-balance.tsx:38",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/inventory/root.tsx:124",
+      "chamada": "useOrders"
+    },
+    {
+      "origem": "web/src/pages/inventory/root.tsx:161",
+      "chamada": "useActivities"
+    },
+    {
+      "origem": "web/src/pages/inventory/root.tsx:168",
+      "chamada": "useActivities"
+    },
+    {
+      "origem": "web/src/pages/inventory/statistics/consumption.tsx:360",
+      "chamada": "getItems"
+    },
+    {
+      "origem": "web/src/pages/inventory/suppliers/batch-edit.tsx:37",
+      "chamada": "useSuppliers"
+    },
+    {
+      "origem": "web/src/pages/inventory/suppliers/details/[id].tsx:34",
+      "chamada": "useSupplierDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/suppliers/edit/[id].tsx:39 (includeParams)",
+      "chamada": "useSupplierDetail"
+    },
+    {
+      "origem": "web/src/pages/inventory/suppliers/edit/[id].tsx:45 (includeParams)",
+      "chamada": "useUpdateSupplier"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/fispq/details/[id].tsx:33",
+      "chamada": "useFispq"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/fispq/edit/[id].tsx:25",
+      "chamada": "useFispq"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/fispq/edit/[id].tsx:68",
+      "chamada": "mutateAsync"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/leaves/details/[id].tsx:38",
+      "chamada": "useLeave"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/leaves/edit/[id].tsx:22",
+      "chamada": "useLeave"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/medical-exams/create.tsx:39",
+      "chamada": "useUser"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/medical-exams/details/[id].tsx:36",
+      "chamada": "useMedicalExam"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/medical-exams/edit/[id].tsx:24",
+      "chamada": "useMedicalExam"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/work-accidents/details/[id].tsx:33",
+      "chamada": "useWorkAccidentReport"
+    },
+    {
+      "origem": "web/src/pages/occupational-health/work-accidents/edit/[id].tsx:21",
+      "chamada": "useWorkAccidentReport"
+    },
+    {
+      "origem": "web/src/pages/order/statistics/orders.tsx:498",
+      "chamada": "getOrders"
+    },
+    {
+      "origem": "web/src/pages/painting/catalog/details/[id].tsx:70",
+      "chamada": "usePaint"
+    },
+    {
+      "origem": "web/src/pages/painting/catalog/details/[id]/formulas/details/[formulaId].tsx:38",
+      "chamada": "usePaintFormula"
+    },
+    {
+      "origem": "web/src/pages/painting/catalog/details/[id]/formulas/index.tsx:33",
+      "chamada": "usePaint"
+    },
+    {
+      "origem": "web/src/pages/painting/catalog/details/[id]/formulas/index.tsx:48",
+      "chamada": "usePaintFormulasByPaintId"
+    },
+    {
+      "origem": "web/src/pages/painting/catalog/edit/[id].tsx:32",
+      "chamada": "usePaint"
+    },
+    {
+      "origem": "web/src/pages/painting/formulas/details/[id].tsx:29",
+      "chamada": "usePaintFormula"
+    },
+    {
+      "origem": "web/src/pages/painting/formulas/edit/[id].tsx:21",
+      "chamada": "usePaintFormula"
+    },
+    {
+      "origem": "web/src/pages/painting/formulas/edit/[id].tsx:49",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/painting/formulas/list.tsx:48",
+      "chamada": "usePaintFormulas"
+    },
+    {
+      "origem": "web/src/pages/painting/paint-brands/details/[id].tsx:26",
+      "chamada": "usePaintBrand"
+    },
+    {
+      "origem": "web/src/pages/painting/paint-brands/edit/[id].tsx:24",
+      "chamada": "usePaintBrand"
+    },
+    {
+      "origem": "web/src/pages/painting/paint-types/details/[id].tsx:26",
+      "chamada": "usePaintType"
+    },
+    {
+      "origem": "web/src/pages/painting/paint-types/edit/[id].tsx:24",
+      "chamada": "usePaintType"
+    },
+    {
+      "origem": "web/src/pages/painting/productions/details/[id].tsx:28",
+      "chamada": "usePaintProduction"
+    },
+    {
+      "origem": "web/src/pages/personal/my-activities.tsx:88",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personal/my-loans.tsx:87",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personal/my-ppes/list.tsx:102",
+      "chamada": "getMyPpeDeliveries"
+    },
+    {
+      "origem": "web/src/pages/personal/my-ppes/request.tsx:65",
+      "chamada": "useItems"
+    },
+    {
+      "origem": "web/src/pages/personal/my-warnings.tsx:71",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personal/root.tsx:51",
+      "chamada": "useBorrows"
+    },
+    {
+      "origem": "web/src/pages/personal/root.tsx:64",
+      "chamada": "usePpeDeliveries"
+    },
+    {
+      "origem": "web/src/pages/personal/root.tsx:78",
+      "chamada": "useActivities"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/admissions/details/[id].tsx:47",
+      "chamada": "useAdmission"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/admissions/edit/[id].tsx:25",
+      "chamada": "useAdmission"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/benefits/details/[id].tsx:34",
+      "chamada": "useBenefit"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/benefits/enrollments/details/[id].tsx:49",
+      "chamada": "useUserBenefit"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/benefits/enrollments/edit/[id].tsx:22",
+      "chamada": "useUserBenefit"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/bonus/detail.tsx:211",
+      "chamada": "getById"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/bonus/list.tsx:635",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/bonus/list.tsx:748",
+      "chamada": "useBonusList"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/payroll/detail.tsx:154",
+      "chamada": "getById"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/payroll/list.tsx:507",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/payroll/list.tsx:628",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personnel-department/positions/batch-edit.tsx:39",
+      "chamada": "usePositions"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/positions/details/[id].tsx:29",
+      "chamada": "usePosition"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/ppe/deliveries/details/[id].tsx:54",
+      "chamada": "usePpeDelivery"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/ppe/deliveries/edit/[id].tsx:24",
+      "chamada": "usePpeDelivery"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/ppe/schedules/details/[id].tsx:55",
+      "chamada": "usePpeDeliverySchedule"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/ppe/schedules/edit/[id].tsx:24",
+      "chamada": "usePpeDeliverySchedule"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/promotions/details/[id].tsx:37",
+      "chamada": "useUserPositionHistory"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/root.tsx:76",
+      "chamada": "usePpeDeliveries"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/salary-adjustments/details/[id].tsx:41",
+      "chamada": "useSalaryAdjustment"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/statistics/payroll.tsx:457",
+      "chamada": "useUsers"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/statistics/team-performance.tsx:594",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personnel-department/statistics/team-performance.tsx:810",
+      "chamada": null
+    },
+    {
+      "origem": "web/src/pages/personnel-department/terminations/details/[id].tsx:65",
+      "chamada": "useTermination"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/terminations/edit/[id].tsx:27",
+      "chamada": "useTermination"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/vacations/details/[id].tsx:65",
+      "chamada": "useVacation"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/vacations/edit/[id].tsx:27",
+      "chamada": "useVacation"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/warnings/batch-edit.tsx:30",
+      "chamada": "useWarnings"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/warnings/details/[id].tsx:37",
+      "chamada": "useWarning"
+    },
+    {
+      "origem": "web/src/pages/personnel-department/warnings/edit/[id].tsx:21",
+      "chamada": "useWarning"
+    },
+    {
+      "origem": "web/src/pages/production/cutting/details/[id].tsx:103 (DETAIL_INCLUDE)",
+      "chamada": "useCut"
+    },
+    {
+      "origem": "web/src/pages/production/cutting/details/[id].tsx:116",
+      "chamada": "useCuts"
+    },
+    {
+      "origem": "web/src/pages/production/observations/edit/[id].tsx:23",
+      "chamada": "useObservation"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/[campaignId].tsx:68",
+      "chamada": "useAssessment"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/[campaignId].tsx:83",
+      "chamada": "useAssessmentEntries"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/fill/[entryId].tsx:115",
+      "chamada": "useAssessment"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/fill/[entryId].tsx:96",
+      "chamada": "useAssessmentEntry"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/index.tsx:101",
+      "chamada": "useAssessmentEntries"
+    },
+    {
+      "origem": "web/src/pages/production/skill-assessment/index.tsx:121",
+      "chamada": "useAssessments"
+    },
+    {
+      "origem": "web/src/pages/responsibles/details/[id].tsx:31",
+      "chamada": "useResponsible"
+    },
+    {
+      "origem": "web/src/pages/server/deployments/[id].tsx:132",
+      "chamada": "useDeploymentDetail"
+    },
+    {
+      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:118",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:146",
+      "chamada": "getUserBenefits"
+    },
+    {
+      "origem": "web/src/pages/tools/collaborator-cost-calculator.tsx:84",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/pages/tools/color-palette/color-detail-dialog.tsx:47",
+      "chamada": "usePaints"
+    },
+    {
+      "origem": "web/src/pages/tools/overtime-cost-calculator.tsx:216",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/pages/tools/overtime-cost-calculator.tsx:264",
+      "chamada": "getUsers"
+    },
+    {
+      "origem": "web/src/pages/tools/paint-mix-calculator.tsx:304",
+      "chamada": "usePaint"
+    }
+  ],
+  "naoEstaticas": [
+    {
+      "origem": "web/src/components/inventory/item/detail/paint-formulas-card.tsx:37",
+      "motivo": "identificador não constante: item"
+    },
+    {
+      "origem": "web/src/components/inventory/price/list/price-table.tsx:57",
+      "motivo": "identificador não constante: showItemInfo"
+    },
+    {
+      "origem": "web/src/hooks/inventory/use-item-filters.ts:231",
+      "motivo": "expressão não estática: z.object({ brands: z.boolean().optional(), categ"
+    },
+    {
+      "origem": "web/src/hooks/inventory/use-item.ts:50",
+      "motivo": "identificador não constante: params"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-bonus.ts:183",
+      "motivo": "identificador não constante: additionalParams"
+    },
+    {
+      "origem": "web/src/hooks/personnel-department/use-bonus.ts:210",
+      "motivo": "identificador não constante: additionalParams"
+    },
+    {
+      "origem": "web/src/hooks/production/use-cut-item-filters.ts:156",
+      "motivo": "expressão não estática: z.object({ file: z.boolean().optional(), task: z"
+    }
+  ],
+  "foraDoTeste": [
+    {
+      "origem": "web/src/components/administration/customer/list/customer-table.tsx:94 (includeConfig)",
+      "rota": "GET /customers",
+      "schema": "customer.customerGetManySchema",
+      "motivo": "include._count: o repositório da API traduz `_count: {rel: true}` para `{ select }`; o teste vai direto ao Prisma",
+      "consulta": {
+        "include": {
+          "logo": true,
+          "_count": {
+            "tasks": true,
+            "serviceOrders": true
+          }
+        }
+      }
+    },
+    {
+      "origem": "web/src/pages/administration/customers/details/[id].tsx:40",
+      "rota": "GET /customers/:id",
+      "schema": "customer.customerQuerySchema",
+      "motivo": "include._count: o repositório da API traduz `_count: {rel: true}` para `{ select }`; o teste vai direto ao Prisma",
+      "consulta": {
+        "include": {
+          "logo": true,
+          "_count": {
+            "tasks": true,
+            "serviceOrders": true,
+            "services": true
+          },
+          "changelogs": {
+            "include": {
+              "user": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          }
+        }
+      }
+    },
+    {
+      "origem": "web/src/pages/financial/customers/details/[id].tsx:39",
+      "rota": "GET /customers/:id",
+      "schema": "customer.customerQuerySchema",
+      "motivo": "include._count: o repositório da API traduz `_count: {rel: true}` para `{ select }`; o teste vai direto ao Prisma",
+      "consulta": {
+        "include": {
+          "logo": true,
+          "tasks": {
+            "include": {
+              "invoices": true,
+              "receipts": true,
+              "budgets": true,
+              "reimbursements": true,
+              "invoiceReimbursements": true
+            }
+          },
+          "_count": {
+            "tasks": true,
+            "serviceOrders": true,
+            "services": true
+          },
+          "changelogs": {
+            "include": {
+              "user": true
+            },
+            "orderBy": {
+              "createdAt": "desc"
+            },
+            "take": 10
+          }
+        }
+      }
+    }
+  ]
+}

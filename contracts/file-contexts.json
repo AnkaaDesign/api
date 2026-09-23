@@ -5,6 +5,7 @@
     "taskBaseFiles": ["web", "flutter"],
     "quote-layouts": ["web"],
     "truckVinPlate": ["web", "flutter (task_form_screen.dart:933-934)"],
+    "implementMeasurePhotos": ["web (task-create-form.tsx: foto da face na criação, A7 do P03)"],
     "airbrushingLayouts": ["web", "flutter"],
     "installmentReceipts": ["web"],
     "taskProjectFiles": ["web"],
