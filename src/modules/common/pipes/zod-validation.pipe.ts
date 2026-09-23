@@ -2,6 +2,7 @@
 
 import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
 import { ZodSchema, ZodError, ZodIssue } from 'zod';
+import { enforceQueryShape } from '../query/query-shape.guard';
 
 interface ValidationErrorResponse {
   message: string;
@@ -16,11 +17,33 @@ interface FormattedZodError {
   value?: unknown;
 }
 
+export interface ZodValidationPipeOptions {
+  /**
+   * G1: o modelo Prisma da consulta. Com ele, o `include/select/where/orderBy`
+   * que sai do zod passa pelo validador derivado do DMMF (`enforceQueryShape`):
+   * chave inventada vira 400 nomeado em vez do 500 do Prisma, o legado de
+   * `DEPRECATED_QUERY_KEYS` é traduzido, e o que o zod descartou calado é contado.
+   * Só vale para `@Query`.
+   */
+  queryModel?: string;
+}
+
 @Injectable()
 export class ZodValidationPipe implements PipeTransform {
-  constructor(private readonly schema: ZodSchema) {}
+  constructor(
+    private readonly schema: ZodSchema,
+    private readonly options: ZodValidationPipeOptions = {},
+  ) {}
 
   transform(value: unknown, metadata: ArgumentMetadata): unknown {
+    const parsed = this.parse(value, metadata);
+    if (metadata.type === 'query' && this.options.queryModel) {
+      return enforceQueryShape(this.options.queryModel, parsed, { raw: value });
+    }
+    return parsed;
+  }
+
+  private parse(value: unknown, metadata: ArgumentMetadata): unknown {
     try {
       // Skip validation for certain metadata types
       if (metadata.type === 'param' || metadata.type === 'custom') {
@@ -736,8 +759,8 @@ export class ZodValidationPipe implements PipeTransform {
 // Alternative pipe specifically for query parameters with enhanced transformation
 @Injectable()
 export class ZodQueryValidationPipe extends ZodValidationPipe {
-  constructor(schema: ZodSchema) {
-    super(schema);
+  constructor(schema: ZodSchema, options: ZodValidationPipeOptions = {}) {
+    super(schema, options);
   }
 
   transform(value: unknown, metadata: ArgumentMetadata): unknown {

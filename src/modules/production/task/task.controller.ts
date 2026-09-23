@@ -35,6 +35,7 @@ import {
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
+  type ZodValidationPipeOptions,
 } from '@modules/common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import {
@@ -94,6 +95,12 @@ import type {
 import type { SuccessResponse } from '../../../types';
 import { taskBatchCreateWithQuoteSchema } from '../../../schemas/task';
 
+/**
+ * G1: toda consulta de tarefa (include/select/where/orderBy) passa pelo
+ * validador derivado do DMMF depois do zod — chave inventada vira 400 nomeado.
+ */
+const TASK_QUERY_SHAPE: ZodValidationPipeOptions = { queryModel: 'Task' };
+
 @Controller('tasks')
 export class TaskController {
   constructor(
@@ -119,7 +126,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.AIRBRUSHING,
   )
   async findMany(
-    @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
+    @Query(new ZodQueryValidationPipe(taskGetManySchema, TASK_QUERY_SHAPE)) query: TaskGetManyFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<TaskGetManyResponse> {
@@ -191,7 +198,7 @@ export class TaskController {
   )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskCreateResponse> {
@@ -237,7 +244,7 @@ export class TaskController {
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(taskBatchCreateSchema)) data: TaskBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
     return this.tasksService.batchCreate(data, query.include, userId);
@@ -265,7 +272,7 @@ export class TaskController {
   @HttpCode(HttpStatus.CREATED)
   async batchCreateWithQuote(
     @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema)) data: any,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ) {
     return this.tasksService.batchCreateWithQuote(data, query.include, userId);
@@ -308,7 +315,7 @@ export class TaskController {
   async batchUpdate(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema))
     data: TaskBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
@@ -334,7 +341,7 @@ export class TaskController {
   @HttpCode(HttpStatus.OK)
   async bulkAddLayouts(
     @Body(new ZodValidationPipe(taskBulkArtsSchema)) data: TaskBulkArtsFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<{
     success: number;
@@ -350,7 +357,7 @@ export class TaskController {
   @HttpCode(HttpStatus.OK)
   async bulkAddDocuments(
     @Body(new ZodValidationPipe(taskBulkDocumentsSchema)) data: TaskBulkDocumentsFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<{
     success: number;
@@ -372,7 +379,7 @@ export class TaskController {
   @HttpCode(HttpStatus.OK)
   async bulkAddPaints(
     @Body(new ZodValidationPipe(taskBulkPaintsSchema)) data: TaskBulkPaintsFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<{
     success: number;
@@ -388,7 +395,7 @@ export class TaskController {
   @HttpCode(HttpStatus.OK)
   async bulkAddCuttingPlans(
     @Body(new ZodValidationPipe(taskBulkCuttingPlansSchema)) data: TaskBulkCuttingPlansFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<{
     success: number;
@@ -416,7 +423,7 @@ export class TaskController {
   @UseInterceptors(FilesInterceptor('files', 30, multerConfig))
   async bulkUploadFiles(
     @Body(new ZodValidationPipe(taskBulkFileUploadSchema)) data: TaskBulkFileUploadFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Express.Multer.File[],
   ): Promise<{
@@ -453,7 +460,7 @@ export class TaskController {
   )
   async prepareTask(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<SuccessResponse<Task>> {
     return this.tasksService.update(id, { status: TASK_STATUS.PREPARATION }, query.include, userId);
@@ -463,7 +470,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
   async startTask(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<SuccessResponse<Task>> {
     const startedAt = new Date();
@@ -479,7 +486,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.ADMIN)
   async finishTask(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<SuccessResponse<Task>> {
     const finishedAt = new Date();
@@ -516,7 +523,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInPreparationTasks(
-    @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
+    @Query(new ZodQueryValidationPipe(taskGetManySchema, TASK_QUERY_SHAPE)) query: TaskGetManyFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
     // Get tasks with status PREPARATION
@@ -558,7 +565,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInProductionTasks(
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
     // Get tasks with status PENDING or IN_PRODUCTION that have truck implementMeasures (excludes PREPARATION)
@@ -592,7 +599,7 @@ export class TaskController {
   async updateTaskPosition(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskPositionUpdateSchema)) data: TaskPositionUpdateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskUpdateResponse> {
     return this.tasksService.updateTaskPosition(id, data, query.include, userId);
@@ -602,7 +609,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.PRODUCTION_MANAGER, SECTOR_PRIVILEGES.ADMIN)
   async bulkUpdatePositions(
     @Body(new ZodValidationPipe(taskBulkPositionUpdateSchema)) data: TaskBulkPositionUpdateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskBatchUpdateResponse<TaskPositionUpdateFormData>> {
     return this.tasksService.bulkUpdatePositions(data, query.include, userId);
@@ -613,7 +620,7 @@ export class TaskController {
   async swapTaskPositions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskSwapPositionSchema)) data: TaskSwapPositionFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<SuccessResponse<{ task1: Task; task2: Task }>> {
     return this.tasksService.swapTaskPositions(id, data.targetTaskId, query.include, userId);
@@ -633,7 +640,7 @@ export class TaskController {
   async rescheduleForecast(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskRescheduleForecastSchema)) data: TaskRescheduleForecastFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskUpdateResponse> {
     return this.tasksService.rescheduleForecast(
@@ -682,7 +689,7 @@ export class TaskController {
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<TaskGetUniqueResponse> {
@@ -797,7 +804,7 @@ export class TaskController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema))
     data: TaskUpdateFormData = {} as TaskUpdateFormData,
-    @Query(new ZodValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
