@@ -79,6 +79,13 @@ import {
   type QuoteSection,
 } from '../quote-sections';
 import { budgetPdfFilename } from '../document/document-filename';
+import {
+  orderNumberVehicles,
+  resolveOrderNumberSubmission,
+  signerRequiresOrderNumber,
+  ORDER_NUMBER_MAX_LENGTH,
+  type OrderNumberVehicle,
+} from '../order-number-gate';
 import { PadesSignerService } from '../pades/pades-signer.service';
 import {
   acceptanceClauseFor,
@@ -275,6 +282,24 @@ function eventDetailOf(eventType: string, payload: unknown): string | null {
     const changes = data.changes;
     if (typeof changes !== 'string' || !changes.trim()) return null;
     return changes.length > 240 ? `${changes.slice(0, 237)}...` : changes;
+  }
+
+  // Nº DO PEDIDO informado por Compras no ato. O valor é carimbado na lacuna do
+  // documento, mas o carimbo não diz QUEM o pôs lá — é esta linha que diz.
+  if (eventType === 'ORDER_NUMBER_INFORMED') {
+    const rows = Array.isArray(data.informed) ? data.informed : [];
+    const text = rows
+      .map(r => {
+        const row = r as { label?: unknown; value?: unknown };
+        if (typeof row.value !== 'string') return null;
+        return typeof row.label === 'string' && rows.length > 1
+          ? `${row.label}: ${row.value}`
+          : `Nº do pedido: ${row.value}`;
+      })
+      .filter((t): t is string => !!t)
+      .join(' | ');
+    if (!text) return null;
+    return text.length > 240 ? `${text.slice(0, 237)}...` : text;
   }
 
   // REDESIGNAÇÃO DO CONTRA-ASSINANTE. O documento está congelado e a linha de
@@ -3038,7 +3063,21 @@ export class SignatureEnvelopeService {
         user: {
           select: { position: { select: { name: true } }, sector: { select: { name: true } } },
         },
-        envelope: { include: { quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true } } } } } },
+        // `truck.plate` entra pelo nº do pedido de COMPRAS: é com série e placa
+        // que o signatário reconhece de qual veículo é cada campo (ver
+        // `orderNumberGateOf`).
+        envelope: {
+          include: {
+            quote: {
+              include: {
+                tasks: {
+                  orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                  include: { customer: true, truck: { select: { plate: true } } },
+                },
+              },
+            },
+          },
+        },
       },
     });
     if (!signer) throw new NotFoundException('Link de assinatura inválido.');
@@ -3227,6 +3266,15 @@ export class SignatureEnvelopeService {
         kind === 'INTERNAL'
           ? false
           : this.canSignNow(env.status, signer.status, env.deadlineAt),
+      /**
+       * Nº do pedido de compra — `null` para quem NÃO é de Compras (a página
+       * nem desenha o campo). Para Compras vem a lista de veículos do
+       * orçamento, cada um com o número já registrado ou `null`; `required`
+       * diz se falta algum, e é o que a página usa para travar o botão. A
+       * regra de verdade é a do servidor (`signWithOtp`): isto só evita que o
+       * signatário descubra a exigência depois de digitar o código.
+       */
+      orderNumber: kind === 'INTERNAL' ? null : this.orderNumberGateOf(signer),
       ...(kind === 'INTERNAL'
         ? {
             internalNotice:
@@ -3235,6 +3283,109 @@ export class SignatureEnvelopeService {
           }
         : {}),
     };
+  }
+
+  /**
+   * A exigência do nº do pedido para ESTE signatário, ou `null` quando ele não
+   * está sujeito a ela (não é de Compras). Ver `order-number-gate.ts`.
+   *
+   * Lê as tarefas VIVAS, não o congelamento: o que importa é se o número existe
+   * agora — a Ankaa pode tê-lo registrado depois da emissão, e aí não há o que
+   * pedir.
+   */
+  private orderNumberGateOf(signer: {
+    responsible?: { roles?: string[] | null } | null;
+    envelope: { quote: { tasks?: Array<Record<string, any>> | null } };
+  }): { required: boolean; maxLength: number; vehicles: OrderNumberVehicle[] } | null {
+    if (!signerRequiresOrderNumber(signer.responsible?.roles)) return null;
+    const vehicles = orderNumberVehicles(
+      sortQuoteTasks((signer.envelope.quote.tasks ?? []) as any[]) as any[],
+    );
+    return {
+      required: vehicles.some(v => !v.value),
+      maxLength: ORDER_NUMBER_MAX_LENGTH,
+      vehicles,
+    };
+  }
+
+  /**
+   * Grava o nº do pedido que o signatário de Compras informou — na MESMA
+   * transação da linha de ChangeLog de cada tarefa e do evento na trilha.
+   *
+   * Só preenche VAZIO (`updateMany` com o vazio no `where`): se a Ankaa ou outro
+   * signatário de Compras registrou um número entre a leitura e esta escrita, o
+   * número dele fica e este é descartado em silêncio — o veículo já tem pedido,
+   * que é tudo o que a regra exige. A trilha registra só o que de fato entrou.
+   */
+  private async writeInformedOrderNumbers(args: {
+    envelopeId: string;
+    signer: { id: string; declaredName: string };
+    budgetNumber: number | null;
+    vehicles: readonly OrderNumberVehicle[];
+    toWrite: ReadonlyArray<{ taskId: string; value: string }>;
+    ctx: RequestContext;
+  }): Promise<Array<{ taskId: string; label: string; value: string }>> {
+    if (!args.toWrite.length) return [];
+    const labelOf = new Map(args.vehicles.map(v => [v.taskId, v.label]));
+
+    return this.prisma.$transaction(async tx => {
+      const informed: Array<{ taskId: string; label: string; value: string }> = [];
+      for (const row of args.toWrite) {
+        const res = await tx.task.updateMany({
+          where: {
+            id: row.taskId,
+            OR: [{ customerOrderNumber: null }, { customerOrderNumber: '' }],
+          },
+          data: { customerOrderNumber: row.value },
+        });
+        if (res.count === 0) continue;
+        informed.push({ taskId: row.taskId, label: labelOf.get(row.taskId) ?? '', value: row.value });
+
+        // `field: 'customerOrderNumber'` é o que `lateSlotRegistrationDates`
+        // procura para datar a lacuna no aditivo, e o que o histórico da tarefa
+        // mostra. Sem usuário: quem escreveu é um contato do cliente, e ele
+        // está nomeado no motivo e no metadata.
+        await tx.changeLog.create({
+          data: {
+            entityType: 'TASK',
+            entityId: row.taskId,
+            action: 'UPDATE',
+            field: 'customerOrderNumber',
+            oldValue: Prisma.JsonNull,
+            newValue: row.value,
+            reason:
+              `Nº do pedido informado por ${args.signer.declaredName} (Compras) ao assinar ` +
+              `o orçamento${args.budgetNumber != null ? ` nº ${args.budgetNumber}` : ''}`,
+            triggeredBy: 'SYSTEM',
+            triggeredById: args.signer.id,
+            userId: null,
+            metadata: {
+              source: 'SIGNATURE_CEREMONY',
+              envelopeId: args.envelopeId,
+              signerId: args.signer.id,
+              ipAddress: args.ctx.ipAddress ?? null,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        });
+      }
+      if (!informed.length) return informed;
+
+      await this.audit.record(
+        args.envelopeId,
+        {
+          eventType: 'ORDER_NUMBER_INFORMED',
+          actorType: 'SIGNER',
+          actorId: args.signer.id,
+          actorLabel: args.signer.declaredName,
+          ipAddress: args.ctx.ipAddress,
+          userAgent: args.ctx.userAgent,
+          payload: { informed },
+        },
+        tx,
+      );
+      return informed;
+    });
   }
 
   private canSignNow(
@@ -3539,6 +3690,11 @@ export class SignatureEnvelopeService {
      * chamado por script. `normalizeGeo` é quem impõe a forma.
      */
     geo?: { lat?: number; lon?: number; accuracy?: number | null } | null;
+    /**
+     * Nº do pedido por veículo — só é lido quando o signatário é de Compras.
+     * Ver `order-number-gate.ts`.
+     */
+    orderNumbers?: ReadonlyArray<{ taskId?: string; value?: string }> | null;
     ctx: RequestContext;
   }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
     this.assertCeremonyConfigured();
@@ -3556,6 +3712,23 @@ export class SignatureEnvelopeService {
     }
     if (!signer.informedCpf || !signer.informedCargo) {
       throw new BadRequestException('Informe CPF e cargo antes de assinar.');
+    }
+
+    // Nº DO PEDIDO — quem é de Compras só assina com o pedido de cada veículo
+    // registrado, já na tarefa ou informado agora (`order-number-gate.ts`).
+    //
+    // ANTES de verificar o código, de propósito: `verify` consome o desafio de
+    // uso único, e recusar depois dele obrigaria quem só esqueceu o campo a
+    // esperar o cooldown por um código novo. A GRAVAÇÃO, ao contrário, fica para
+    // depois do código: número em `Task` só entra com a identidade provada.
+    //
+    // O que quem NÃO é de Compras manda é ignorado — nunca gravado.
+    const orderGate = this.orderNumberGateOf(signer);
+    const orderResolution = orderGate
+      ? resolveOrderNumberSubmission(orderGate.vehicles, args.orderNumbers)
+      : null;
+    if (orderResolution?.problem) {
+      throw new BadRequestException(orderResolution.problem);
     }
 
     // GUARANTIA DE FRESCOR — verificada no momento do ato, não confiando na
@@ -3637,6 +3810,22 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
     });
 
+    // Com a identidade provada, o número entra na tarefa. Fica FORA do recorte
+    // material e do diff (`QuoteSnapshotVehicle.orderNumber`), então não derruba
+    // esta nem as outras assinaturas; e é carimbado na lacuna reservada do
+    // documento na conclusão (`stampLateValues`).
+    const orderNumbersInformed =
+      orderGate && orderResolution
+        ? await this.writeInformedOrderNumbers({
+            envelopeId: env.id,
+            signer,
+            budgetNumber: env.quote.budgetNumber ?? null,
+            vehicles: orderGate.vehicles,
+            toWrite: orderResolution.toWrite,
+            ctx: args.ctx,
+          })
+        : [];
+
     const customer = primaryTask(env.quote)?.customer ?? null;
     const signerSections = this.sectionsOf(signer.document);
     // Texto EXATO exibido, nunca um booleano: o que importa em juízo é o que
@@ -3696,6 +3885,12 @@ export class SignatureEnvelopeService {
       geoLat: geo ? Number(geo.lat.toFixed(4)) : null,
       geoLon: geo ? Number(geo.lon.toFixed(4)) : null,
       declarations,
+      // Só quando houve: o número informado passa a fazer parte do que o HMAC
+      // sela, amarrado ao mesmo ato. Ausente nas demais evidências, que ficam
+      // com a forma de sempre.
+      ...(orderNumbersInformed.length
+        ? { orderNumbersInformed: orderNumbersInformed.map(o => ({ taskId: o.taskId, value: o.value })) }
+        : {}),
     };
 
     const evidenceHash = sha256Hex(evidence);
@@ -5323,6 +5518,7 @@ export class SignatureEnvelopeService {
         serialNumber: t.serialNumber ?? null,
         plate: t.truck?.plate ?? null,
         chassis: t.truck?.chassisNumber ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
     );
 
@@ -6436,6 +6632,7 @@ export class SignatureEnvelopeService {
         serialNumber: t.serialNumber ?? null,
         plate: t.truck?.plate ?? null,
         chassis: t.truck?.chassisNumber ?? null,
+        orderNumber: t.customerOrderNumber ?? null,
       })),
     );
 

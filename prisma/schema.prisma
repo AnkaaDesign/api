@@ -8510,6 +8510,12 @@ enum SignatureEventType {
   SIGNATURE_APPLIED
   SIGNATURE_REFUSED
 
+  /// O signatário de COMPRAS informou, no ato, o nº do pedido de compra de
+  /// veículo(s) que estavam sem ele — condição para ele assinar. O valor vai
+  /// para `Task.customerOrderNumber` (com linha de ChangeLog) e é carimbado na
+  /// lacuna reservada do documento. Ver `signature/order-number-gate.ts`.
+  ORDER_NUMBER_INFORMED
+
   /// O operador pediu de novo a quem havia recusado, devolvendo a vez dele.
   /// A recusa CONTINUA na trilha e em `EnvelopeSigner.refusalReason` — isto não
   /// a apaga, registra que houve uma segunda pergunta.
