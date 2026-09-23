@@ -60,6 +60,7 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
+import { layoutGateFailure } from '@utils/quote-layout-coverage';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
@@ -540,7 +541,11 @@ export class SignatureEnvelopeService {
         // O preflight existe justamente para dizer isso ANTES do clique: sem
         // esta linha o operador escolheria canal, marcaria recortes, confirmaria
         // e só então tomaria o 400.
-        layoutFiles: { select: { id: true }, take: 1 },
+        //
+        // POR VEÍCULO: com `layoutScope`, a cobertura de cada arte — o portão
+        // pergunta se TODO veículo tem o seu, e nomeia o que falta.
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
         // Os PAGADORES, pelo mesmo motivo do layout: `createEnvelope` recusa dois
         // (o documento congelado descreveria um só) e o preflight existe para
         // dizer isso ANTES do clique. Sem esta linha o operador escolhia canal,
@@ -605,7 +610,14 @@ export class SignatureEnvelopeService {
       );
     }
 
-    if (!quote.layoutFiles?.length) {
+    const layoutGatePreflight = layoutGateFailure(quote as any);
+    if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
+      blockers.push(
+        `${layoutGatePreflight.message} Atribua um layout a cada veículo antes de enviar o ` +
+          'orçamento para assinatura — sem ele o orçamento não poderá ser aprovado depois que o ' +
+          'cliente assinar.',
+      );
+    } else if (layoutGatePreflight) {
       blockers.push(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não poderá ser aprovado depois que o cliente assinar.',
@@ -1043,11 +1055,36 @@ export class SignatureEnvelopeService {
     // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
     // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
     // e o layout pode ser desvinculado entre a emissão e a conclusão.
+    //
+    // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é se TODO veículo tem
+    // o seu layout — o documento é o contrato dos N caminhões, e um caminhão sem
+    // arte chegaria à aprovação pelo mesmo beco sem saída do nº 591. Em `SHARED`,
+    // a pergunta e a frase de sempre.
     const gate = await this.prisma.budget.findUnique({
       where: { id: args.quoteId },
-      select: { layoutFiles: { select: { id: true }, take: 1 } },
+      select: {
+        layoutScope: true,
+        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+        tasks: {
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            createdAt: true,
+            serialNumber: true,
+            truck: { select: { plate: true } },
+          },
+        },
+      },
     });
-    if (!gate?.layoutFiles?.length) {
+    const layoutGate = layoutGateFailure(gate as any);
+    if (layoutGate?.scope === 'PER_VEHICLE') {
+      throw new BadRequestException(
+        `${layoutGate.message} Atribua um layout a cada veículo antes de enviar o orçamento ` +
+          'para assinatura. Sem ele o orçamento não pode ser aprovado depois que o cliente ' +
+          'assinar, e a coleta ficaria concluída com o orçamento parado.',
+      );
+    }
+    if (layoutGate) {
       throw new BadRequestException(
         'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
           'Sem ele o orçamento não pode ser aprovado depois que o cliente assinar, e a coleta ' +
