@@ -1,17 +1,45 @@
 {
-  "descricao": "Os `fileContext` que os clientes mandam no upload (G10). SEMENTE do P01, de `rg fileContext` em web/src e mobile-flutter/lib em 23/09; o P03 (web) e o P24 (app) a trocam pelo extraído. Todo contexto aqui tem de existir em `folderMapping` (files-storage.service.ts), senão o arquivo cai numa pasta genérica pela MIME — foi assim que 32 layouts aprovados viraram 'órfãos' em 07/06.",
+  "descricao": "Os `fileContext` que os clientes mandam no upload (G10). SEMENTE do P01, de `rg fileContext` em web/src e mobile-flutter/lib em 23/09. Desde a revisão da Fase A (R-B-12) o G10 também VARRE web/src e mobile-flutter/lib: todo `fileContext` literal que um cliente manda tem de estar aqui, e todo contexto aqui tem de existir em `folderMapping` (files-storage.service.ts), senão o arquivo cai numa pasta genérica pela MIME — foi assim que 32 layouts aprovados viraram 'órfãos' em 07/06.",
   "contextos": {
-    "tasksLayouts": ["web", "flutter (layout_attach_sheet.dart)"],
-    "taskBaseFiles": ["web", "flutter"],
-    "quote-layouts": ["web"],
-    "truckVinPlate": ["web", "flutter (task_form_screen.dart:933-934)"],
-    "implementMeasurePhotos": ["web (task-create-form.tsx: foto da face na criação, A7 do P03)"],
-    "airbrushingLayouts": ["web", "flutter"],
-    "installmentReceipts": ["web"],
-    "taskProjectFiles": ["web"],
-    "observations": ["web"],
-    "messageImages": ["web"],
-    "documents": ["web"],
-    "cutFiles": ["web"]
+    "tasksLayouts": [
+      "web",
+      "flutter (layout_attach_sheet.dart)"
+    ],
+    "taskBaseFiles": [
+      "web",
+      "flutter"
+    ],
+    "quote-layouts": [
+      "web"
+    ],
+    "truckVinPlate": [
+      "web",
+      "flutter (task_form_screen.dart:933-934)"
+    ],
+    "implementMeasurePhotos": [
+      "web (task-create-form.tsx: foto da face na criação, A7 do P03)"
+    ],
+    "airbrushingLayouts": [
+      "web",
+      "flutter"
+    ],
+    "installmentReceipts": [
+      "web"
+    ],
+    "taskProjectFiles": [
+      "web"
+    ],
+    "observations": [
+      "web"
+    ],
+    "messageImages": [
+      "web"
+    ],
+    "documents": [
+      "web"
+    ],
+    "cutFiles": [
+      "web"
+    ]
   }
 }

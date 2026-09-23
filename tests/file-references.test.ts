@@ -19,8 +19,8 @@
  *
  * Rodar: npm run test:file-references   (lê o catálogo do banco de DATABASE_URL)
  */
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
 import { PrismaClient } from '@prisma/client';
 import {
   FileReferenceService,
@@ -30,6 +30,32 @@ import {
 import { FilesStorageService } from '../src/modules/common/file/services/files-storage.service';
 import { getField } from '../src/modules/common/query/dmmf-query-validator';
 import { fileReferencedWhere } from '../src/schemas/file';
+
+/** `fileContext` literal no código de web e app (repositórios irmãos, se existirem). */
+function contextosDosClientes(): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const padrao = /fileContext["']?\s*[:=]\s*["'`]([A-Za-z][\w-]*)["'`]/g;
+  const raizes: Array<[string, RegExp]> = [
+    [join(__dirname, '../../web/src'), /\.(ts|tsx)$/],
+    [join(__dirname, '../../mobile-flutter/lib'), /\.dart$/],
+  ];
+  const varrer = (dir: string, ext: RegExp) => {
+    for (const nome of readdirSync(dir)) {
+      if (nome === 'node_modules' || nome === 'generated') continue;
+      const p = join(dir, nome);
+      if (statSync(p).isDirectory()) varrer(p, ext);
+      else if (ext.test(nome)) {
+        for (const m of readFileSync(p, 'utf8').matchAll(padrao)) {
+          const lista = out.get(m[1]) ?? [];
+          lista.push(relative(join(__dirname, '../..'), p));
+          out.set(m[1], lista);
+        }
+      }
+    }
+  };
+  for (const [raiz, ext] of raizes) if (existsSync(raiz)) varrer(raiz, ext);
+  return out;
+}
 
 let ok = 0;
 let fail = 0;
@@ -123,6 +149,18 @@ async function main(): Promise<void> {
       'todo fileContext que web e app mandam existe em folderMapping',
       desconhecidos.length === 0,
       desconhecidos.join(', '),
+    );
+
+    // A lista acima é SEMENTE escrita à mão (R-B-12). Aqui ela é conferida
+    // contra o código dos clientes: todo `fileContext` literal que o web e o
+    // app mandam tem de estar nela (e, por ela, em folderMapping). Contexto
+    // novo num cliente sem entrar aqui reprova.
+    const vistos = contextosDosClientes();
+    const foraDaSemente = [...vistos.entries()].filter(([c]) => !(c in clientes.contextos));
+    check(
+      `todo fileContext literal de web/app está em contracts/file-contexts.json (${vistos.size} vistos)`,
+      vistos.size > 0 && foraDaSemente.length === 0,
+      foraDaSemente.map(([c, onde]) => `${c} ← ${onde.slice(0, 3).join(', ')}`).join('; '),
     );
 
     // F10: o filtro de "órfão" sai do DMMF — toda relação de uso de File.
