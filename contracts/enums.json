@@ -1,0 +1,3650 @@
+{
+  "_gerado": "GERADO por api/scripts/export-contracts.ts — NÃO EDITE À MÃO. Regerar: npx tsx scripts/export-contracts.ts",
+  "_fontes": [
+    "src/constants/enums.ts",
+    "src/modules/production/budget/budget.service.ts (validateStatusTransition)",
+    "src/constants/sortOrders.ts (TASK_QUOTE_STATUS_ORDER)",
+    "prisma/scripts/seed-notification-configs.ts",
+    "src/modules/**/*.controller.ts (interceptadores de arquivo)",
+    "src/modules/common/file/services/files-storage.service.ts (folderMapping)"
+  ],
+  "enums": {
+    "ABC_CATEGORY": [
+      "A",
+      "B",
+      "C"
+    ],
+    "ACTIVITY_LEVEL": [
+      "VERY_ACTIVE",
+      "ACTIVE",
+      "OCCASIONAL",
+      "DORMANT",
+      "LOST"
+    ],
+    "ACTIVITY_OPERATION": [
+      "INBOUND",
+      "OUTBOUND"
+    ],
+    "ACTIVITY_REASON": [
+      "ORDER_RECEIVED",
+      "PRODUCTION_USAGE",
+      "PPE_DELIVERY",
+      "RETURN",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_RETURN",
+      "INVENTORY_COUNT",
+      "MANUAL_ADJUSTMENT",
+      "MAINTENANCE",
+      "DAMAGE",
+      "LOSS",
+      "PAINT_PRODUCTION",
+      "OTHER"
+    ],
+    "ADMISSION_DOCUMENT_STATUS": [
+      "PENDING",
+      "RECEIVED",
+      "SIGNED",
+      "WAIVED"
+    ],
+    "ADMISSION_DOCUMENT_TYPE": [
+      "CPF",
+      "RG",
+      "CTPS",
+      "PROOF_OF_RESIDENCE",
+      "VOTER_ID",
+      "MILITARY_CERTIFICATE",
+      "BIRTH_MARRIAGE_CERTIFICATE",
+      "PHOTO",
+      "PIS",
+      "ADMISSION_EXAM",
+      "TRANSPORT_VOUCHER_DECLARATION",
+      "FAMILY_SALARY_FORM",
+      "EMPLOYMENT_CONTRACT",
+      "TIME_BANK_AGREEMENT",
+      "LGPD_TERM",
+      "DRIVER_LICENSE",
+      "OTHER"
+    ],
+    "ADMISSION_STATUS": [
+      "DOCS_PENDING",
+      "MEDICAL_EXAM",
+      "CONTRACT",
+      "REGISTRATION",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "AIRBRUSHING_DUE_DATE_RULE": [
+      "DAYS_AFTER_FINISH",
+      "DAY_OF_MONTH",
+      "FIXED_DATE"
+    ],
+    "AIRBRUSHING_PAYMENT_STATUS": [
+      "PENDING",
+      "PAID"
+    ],
+    "AIRBRUSHING_STATUS": [
+      "PREPARATION",
+      "WAITING_PRODUCTION",
+      "IN_PRODUCTION",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "ALERT_TYPE": [
+      "HIGH_SPENDING",
+      "UNUSUAL_PATTERN",
+      "DISCREPANCY",
+      "LOW_STOCK",
+      "STOCK_OUT",
+      "OVERSTOCK",
+      "SLOW_MOVING",
+      "REORDER_NEEDED",
+      "HIGH_TURNOVER",
+      "ATTENDANCE_ISSUE",
+      "DELIVERY_DELAY",
+      "SERVICE_ISSUE",
+      "PAYMENT_DELAY",
+      "OVERDUE",
+      "CUSTOMER_COMPLAINT",
+      "HIGH_DEMAND",
+      "USER_VIOLATION",
+      "EXPIRING_DAYS",
+      "PLANNING_CONFLICT",
+      "REPEAT_OFFENDER",
+      "ESCALATION_NEEDED",
+      "PATTERN_DETECTED",
+      "STOCK_SHORTAGE",
+      "MISSING_DELIVERY",
+      "DELIVERY_DELAYS"
+    ],
+    "ASSIGNMENT_TYPE": [
+      "ALL",
+      "ALL_EXCEPT",
+      "SPECIFIC"
+    ],
+    "AUDIT_ACTION": [
+      "CREATE",
+      "UPDATE",
+      "DELETE"
+    ],
+    "BANK_SLIP_STATUS": [
+      "CREATING",
+      "REGISTERING",
+      "ACTIVE",
+      "OVERDUE",
+      "PAID",
+      "CANCELLED",
+      "REJECTED",
+      "ERROR"
+    ],
+    "BANK_SLIP_TYPE": [
+      "NORMAL",
+      "HIBRIDO"
+    ],
+    "BATCH_OPERATION_STATUS": [
+      "PENDING",
+      "PROCESSING",
+      "COMPLETED",
+      "FAILED",
+      "PARTIAL"
+    ],
+    "BENEFIT_ENROLLMENT_STATUS": [
+      "ACTIVE",
+      "SUSPENDED",
+      "OPTED_OUT",
+      "TERMINATED"
+    ],
+    "BENEFIT_KIND": [
+      "TRANSPORT_VOUCHER",
+      "MEAL_VOUCHER",
+      "FOOD_VOUCHER",
+      "HEALTH_PLAN",
+      "DENTAL_PLAN",
+      "PHARMACY_AGREEMENT",
+      "PARTNERSHIP",
+      "LIFE_INSURANCE",
+      "OTHER"
+    ],
+    "BILLING_STATUS": [
+      "OVERDUE",
+      "PENDING",
+      "APPROVED",
+      "PARTIAL",
+      "SETTLED",
+      "CANCELLED"
+    ],
+    "BONIFICATION_STATUS": [
+      "NO_BONIFICATION",
+      "PARTIAL_BONIFICATION",
+      "FULL_BONIFICATION",
+      "SUSPENDED_BONIFICATION"
+    ],
+    "BONUS_DISCOUNT_REASON": [
+      "ABSENCE",
+      "LATE_DELIVERY",
+      "QUALITY_ISSUE",
+      "DISCIPLINARY",
+      "OTHER"
+    ],
+    "BONUS_STATUS": [
+      "DRAFT",
+      "CONFIRMED"
+    ],
+    "BOOT_SIZE": [
+      "SIZE_35",
+      "SIZE_36",
+      "SIZE_37",
+      "SIZE_38",
+      "SIZE_39",
+      "SIZE_40",
+      "SIZE_41",
+      "SIZE_42",
+      "SIZE_43",
+      "SIZE_44",
+      "SIZE_45",
+      "SIZE_46",
+      "SIZE_47",
+      "SIZE_48"
+    ],
+    "BORROW_STATUS": [
+      "ACTIVE",
+      "RETURNED",
+      "LOST"
+    ],
+    "BUDGET_STATUS": [
+      "EXPIRED",
+      "SIGNED",
+      "PENDING",
+      "APPROVED",
+      "CANCELLED",
+      "REQUESTED",
+      "IN_NEGOTIATION",
+      "PRE_APPROVED"
+    ],
+    "CAPTCHA_REQUIREMENT_LEVEL": [
+      "NONE",
+      "BASIC",
+      "INTERMEDIATE",
+      "ADVANCED",
+      "MAXIMUM"
+    ],
+    "CHANGE_ACTION": [
+      "CREATE",
+      "UPDATE",
+      "DELETE",
+      "RESTORE",
+      "ROLLBACK",
+      "ARCHIVE",
+      "UNARCHIVE",
+      "ACTIVATE",
+      "DEACTIVATE",
+      "APPROVE",
+      "REJECT",
+      "CANCEL",
+      "COMPLETE",
+      "RESCHEDULE",
+      "BATCH_CREATE",
+      "BATCH_UPDATE",
+      "BATCH_DELETE",
+      "VIEW"
+    ],
+    "CHANGE_LOG_ACTION": [
+      "CREATE",
+      "UPDATE",
+      "DELETE",
+      "RESTORE",
+      "ROLLBACK",
+      "ARCHIVE",
+      "UNARCHIVE",
+      "ACTIVATE",
+      "DEACTIVATE",
+      "APPROVE",
+      "REJECT",
+      "CANCEL",
+      "COMPLETE",
+      "RESCHEDULE",
+      "BATCH_CREATE",
+      "BATCH_UPDATE",
+      "BATCH_DELETE",
+      "VIEW"
+    ],
+    "CHANGE_LOG_ENTITY_TYPE": [
+      "ABSENCE",
+      "ACTIVITY",
+      "ADMISSION",
+      "AGENDA_EVENT",
+      "AIRBRUSHING",
+      "BENEFIT",
+      "BONIFICATION",
+      "BONUS",
+      "BORROW",
+      "CALCULATION",
+      "CALCULATION_DETAIL",
+      "CALCULATION_DECOMPOSITION",
+      "CATEGORY",
+      "COLLECTION",
+      "CUT",
+      "CUT_ITEM",
+      "CUT_PLAN",
+      "CUT_REQUEST",
+      "CUSTOMER",
+      "DEPENDENT",
+      "DEPLOYMENT",
+      "DELIVERY",
+      "DISCOUNT",
+      "ECONOMIC_ACTIVITY",
+      "EXPENSE",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_ITEM",
+      "FILE",
+      "FISPQ",
+      "HOLIDAY",
+      "ITEM",
+      "ITEM_BRAND",
+      "ITEM_CATEGORY",
+      "IMPLEMENT_MEASURE",
+      "LEAVE",
+      "MAINTENANCE",
+      "MAINTENANCE_ITEM",
+      "MAINTENANCE_SCHEDULE",
+      "MEDICAL_EXAM",
+      "NOTIFICATION",
+      "NOTIFICATION_PREFERENCE",
+      "OBSERVATION",
+      "ORDER",
+      "ORDER_ITEM",
+      "ORDER_RULE",
+      "ORDER_SCHEDULE",
+      "PAINT",
+      "PAINT_FORMULA",
+      "PAINT_FORMULA_COMPONENT",
+      "PAINT_GROUND",
+      "PAINT_PRODUCTION",
+      "PAINT_TYPE",
+      "PARKING_SPOT",
+      "PAYROLL",
+      "PIECE",
+      "POSITION",
+      "NOTE",
+      "PPE_CONFIG",
+      "PPE_DELIVERY",
+      "PPE_DELIVERY_ITEM",
+      "PPE_DELIVERY_SCHEDULE",
+      "PPE_REQUEST",
+      "PPE_SIZE",
+      "PREFERENCES",
+      "PRICE",
+      "PRODUCTION",
+      "PURCHASE",
+      "RESPONSIBLE",
+      "SALARY_ADJUSTMENT",
+      "SECTOR",
+      "SEEN_NOTIFICATION",
+      "SERVICE",
+      "SERVICE_ORDER",
+      "SUPPLIER",
+      "WAREHOUSE_LOCATION",
+      "TASK",
+      "TASK_QUOTE",
+      "TASK_QUOTE_ITEM",
+      "TASK_QUOTE_SERVICE",
+      "TASK_QUOTE_CUSTOMER_CONFIG",
+      "TERMINATION",
+      "TIME_CLOCK_ENTRY",
+      "TRUCK",
+      "USER",
+      "USER_BENEFIT",
+      "USER_POSITION_HISTORY",
+      "VACATION",
+      "VACATION_GROUP",
+      "WARNING",
+      "THIRTEENTH",
+      "VERIFICATION",
+      "BANK_TRANSACTION",
+      "RECONCILIATION_MATCH",
+      "FISCAL_DOCUMENT",
+      "INSTALLMENT",
+      "INVOICE",
+      "BANK_SLIP",
+      "RECURRENT_PAYABLE",
+      "RECURRENT_PAYABLE_OCCURRENCE",
+      "AIRBRUSHING_NFSE",
+      "FISCAL_EMITTER_PROFILE",
+      "FISCAL_CERTIFICATE"
+    ],
+    "CHANGE_TRIGGERED_BY": [
+      "TASK_CREATE",
+      "TASK_UPDATE",
+      "ITEM_UPDATE",
+      "USER_ACTION",
+      "BATCH_CREATE",
+      "BATCH_UPDATE",
+      "BATCH_DELETE",
+      "BATCH_OPERATION",
+      "SYSTEM",
+      "SYSTEM_GENERATED",
+      "USER",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_DELETE",
+      "EXTERNAL_OPERATION_RETURN",
+      "EXTERNAL_OPERATION_ITEM",
+      "EXTERNAL_OPERATION_ITEM_UPDATE",
+      "EXTERNAL_OPERATION_ITEM_DELETE",
+      "PAINT_FORMULA_COMPONENT_CREATE",
+      "PAINT_FORMULA_COMPONENT_UPDATE",
+      "PAINT_FORMULA_COMPONENT_DELETE",
+      "PAINT_FORMULA_COMPONENT_BATCH_CREATE",
+      "PAINT_FORMULA_COMPONENT_BATCH_UPDATE",
+      "PAINT_FORMULA_COMPONENT_BATCH_DELETE",
+      "PAINT_PRODUCTION_CREATE",
+      "PAINT_PRODUCTION_UPDATE",
+      "PAINT_PRODUCTION_DELETE",
+      "PAINT_PRODUCTION_BATCH_CREATE",
+      "PAINT_PRODUCTION_BATCH_UPDATE",
+      "PAINT_PRODUCTION_BATCH_DELETE",
+      "PAINT_CREATE",
+      "PAINT_UPDATE",
+      "PAINT_DELETE",
+      "PAINT_BATCH_CREATE",
+      "PAINT_BATCH_UPDATE",
+      "PAINT_BATCH_DELETE",
+      "PAINT_FORMULA_CREATE",
+      "PAINT_FORMULA_UPDATE",
+      "PAINT_FORMULA_DELETE",
+      "PAINT_FORMULA_BATCH_CREATE",
+      "PAINT_FORMULA_BATCH_UPDATE",
+      "PAINT_FORMULA_BATCH_DELETE",
+      "PAINT_TYPE_CREATE",
+      "PAINT_TYPE_UPDATE",
+      "PAINT_TYPE_DELETE",
+      "PAINT_TYPE_BATCH_CREATE",
+      "PAINT_TYPE_BATCH_UPDATE",
+      "PAINT_TYPE_BATCH_DELETE",
+      "PAINT_BRAND_CREATE",
+      "PAINT_BRAND_UPDATE",
+      "PAINT_BRAND_DELETE",
+      "PAINT_BRAND_BATCH_CREATE",
+      "PAINT_BRAND_BATCH_UPDATE",
+      "PAINT_BRAND_BATCH_DELETE",
+      "PAINT_GROUND_CREATE",
+      "PAINT_GROUND_UPDATE",
+      "PAINT_GROUND_DELETE",
+      "PAINT_GROUND_BATCH_CREATE",
+      "PAINT_GROUND_BATCH_UPDATE",
+      "PAINT_GROUND_BATCH_DELETE",
+      "ORDER_UPDATE",
+      "ORDER_CREATE",
+      "ORDER_STATUS_CHANGE",
+      "ORDER_CANCEL",
+      "ORDER_ITEM_UPDATE",
+      "ORDER_ITEM_RECEIVED",
+      "ORDER_ITEM_SYNC",
+      "EXTERNAL_OPERATION_SYNC",
+      "SCHEDULE",
+      "ACTIVITY_CREATE",
+      "ACTIVITY_UPDATE",
+      "ACTIVITY_DELETE",
+      "PPE_DELIVERY",
+      "ACTIVITY_SYNC",
+      "INVENTORY_ADJUSTMENT",
+      "INVENTORY_COUNT",
+      "ITEM_MONTHLY_CONSUMPTION_UPDATE",
+      "AUTOMATIC_MIN_MAX_UPDATE",
+      "SMS_VERIFICATION_CREATE",
+      "SMS_VERIFICATION_SEND",
+      "SMS_VERIFICATION_VERIFY",
+      "SMS_VERIFICATION_EXPIRE",
+      "SMS_VERIFICATION_CANCEL",
+      "EMAIL_SERVICE",
+      "VERIFICATION_CREATE",
+      "VERIFICATION_SEND",
+      "VERIFICATION_VERIFY",
+      "VERIFICATION_EXPIRE",
+      "VERIFICATION_CANCEL",
+      "VERIFICATION_RESEND",
+      "OBSERVATION_CREATE",
+      "OBSERVATION_DELETE",
+      "SCHEDULED_JOB",
+      "API",
+      "WEBHOOK",
+      "ADMIN",
+      "VEHICLE_MOVEMENT",
+      "PARKING_ASSIGNMENT",
+      "TASK_COPY_FROM_TASK"
+    ],
+    "CHART_TYPE": [
+      "PIE",
+      "DONUT",
+      "AREA",
+      "BAR",
+      "LINE",
+      "STACKED"
+    ],
+    "COLOR_SCHEMA": [
+      "LIGHT",
+      "DARK",
+      "SYSTEM"
+    ],
+    "CONFIDENCE_LEVEL": [
+      "LOW",
+      "MEDIUM",
+      "HIGH"
+    ],
+    "CONTRACT_STATUS": [
+      "ACTIVE",
+      "TERMINATED"
+    ],
+    "CONTRACT_TYPE": [
+      "INDETERMINATE",
+      "FIXED_TERM",
+      "INTERMITTENT",
+      "APPRENTICE",
+      "TEMPORARY",
+      "EXPERIENCE_PERIOD_1",
+      "EXPERIENCE_PERIOD_2"
+    ],
+    "CUT_ORIGIN": [
+      "PLAN",
+      "REQUEST"
+    ],
+    "CUT_REQUEST_REASON": [
+      "WRONG_APPLY",
+      "LOST",
+      "WRONG"
+    ],
+    "CUT_STATUS": [
+      "PENDING",
+      "CUTTING",
+      "COMPLETED"
+    ],
+    "CUT_TYPE": [
+      "VINYL",
+      "STENCIL"
+    ],
+    "ChangeLogAction": [
+      "CREATE",
+      "UPDATE",
+      "DELETE",
+      "RESTORE",
+      "ROLLBACK",
+      "ARCHIVE",
+      "UNARCHIVE",
+      "ACTIVATE",
+      "DEACTIVATE",
+      "APPROVE",
+      "REJECT",
+      "CANCEL",
+      "COMPLETE",
+      "RESCHEDULE",
+      "BATCH_CREATE",
+      "BATCH_UPDATE",
+      "BATCH_DELETE",
+      "VIEW"
+    ],
+    "ChangeLogEntityType": [
+      "ABSENCE",
+      "ACTIVITY",
+      "ADMISSION",
+      "AGENDA_EVENT",
+      "AIRBRUSHING",
+      "BENEFIT",
+      "BONIFICATION",
+      "BONUS",
+      "BORROW",
+      "CALCULATION",
+      "CALCULATION_DETAIL",
+      "CALCULATION_DECOMPOSITION",
+      "CATEGORY",
+      "COLLECTION",
+      "CUT",
+      "CUT_ITEM",
+      "CUT_PLAN",
+      "CUT_REQUEST",
+      "CUSTOMER",
+      "DEPENDENT",
+      "DEPLOYMENT",
+      "DELIVERY",
+      "DISCOUNT",
+      "ECONOMIC_ACTIVITY",
+      "EXPENSE",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_ITEM",
+      "FILE",
+      "FISPQ",
+      "HOLIDAY",
+      "ITEM",
+      "ITEM_BRAND",
+      "ITEM_CATEGORY",
+      "IMPLEMENT_MEASURE",
+      "LEAVE",
+      "MAINTENANCE",
+      "MAINTENANCE_ITEM",
+      "MAINTENANCE_SCHEDULE",
+      "MEDICAL_EXAM",
+      "NOTIFICATION",
+      "NOTIFICATION_PREFERENCE",
+      "OBSERVATION",
+      "ORDER",
+      "ORDER_ITEM",
+      "ORDER_RULE",
+      "ORDER_SCHEDULE",
+      "PAINT",
+      "PAINT_FORMULA",
+      "PAINT_FORMULA_COMPONENT",
+      "PAINT_GROUND",
+      "PAINT_PRODUCTION",
+      "PAINT_TYPE",
+      "PARKING_SPOT",
+      "PAYROLL",
+      "PIECE",
+      "POSITION",
+      "NOTE",
+      "PPE_CONFIG",
+      "PPE_DELIVERY",
+      "PPE_DELIVERY_ITEM",
+      "PPE_DELIVERY_SCHEDULE",
+      "PPE_REQUEST",
+      "PPE_SIZE",
+      "PREFERENCES",
+      "PRICE",
+      "PRODUCTION",
+      "PURCHASE",
+      "RESPONSIBLE",
+      "SALARY_ADJUSTMENT",
+      "SECTOR",
+      "SEEN_NOTIFICATION",
+      "SERVICE",
+      "SERVICE_ORDER",
+      "SUPPLIER",
+      "WAREHOUSE_LOCATION",
+      "TASK",
+      "TASK_QUOTE",
+      "TASK_QUOTE_ITEM",
+      "TASK_QUOTE_SERVICE",
+      "TASK_QUOTE_CUSTOMER_CONFIG",
+      "TERMINATION",
+      "TIME_CLOCK_ENTRY",
+      "TRUCK",
+      "USER",
+      "USER_BENEFIT",
+      "USER_POSITION_HISTORY",
+      "VACATION",
+      "VACATION_GROUP",
+      "WARNING",
+      "THIRTEENTH",
+      "VERIFICATION",
+      "BANK_TRANSACTION",
+      "RECONCILIATION_MATCH",
+      "FISCAL_DOCUMENT",
+      "INSTALLMENT",
+      "INVOICE",
+      "BANK_SLIP",
+      "RECURRENT_PAYABLE",
+      "RECURRENT_PAYABLE_OCCURRENCE",
+      "AIRBRUSHING_NFSE",
+      "FISCAL_EMITTER_PROFILE",
+      "FISCAL_CERTIFICATE"
+    ],
+    "ChangeLogTriggeredByType": [
+      "TASK_CREATE",
+      "TASK_UPDATE",
+      "ITEM_UPDATE",
+      "USER_ACTION",
+      "BATCH_CREATE",
+      "BATCH_UPDATE",
+      "BATCH_DELETE",
+      "BATCH_OPERATION",
+      "SYSTEM",
+      "SYSTEM_GENERATED",
+      "USER",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_DELETE",
+      "EXTERNAL_OPERATION_RETURN",
+      "EXTERNAL_OPERATION_ITEM",
+      "EXTERNAL_OPERATION_ITEM_UPDATE",
+      "EXTERNAL_OPERATION_ITEM_DELETE",
+      "PAINT_FORMULA_COMPONENT_CREATE",
+      "PAINT_FORMULA_COMPONENT_UPDATE",
+      "PAINT_FORMULA_COMPONENT_DELETE",
+      "PAINT_FORMULA_COMPONENT_BATCH_CREATE",
+      "PAINT_FORMULA_COMPONENT_BATCH_UPDATE",
+      "PAINT_FORMULA_COMPONENT_BATCH_DELETE",
+      "PAINT_PRODUCTION_CREATE",
+      "PAINT_PRODUCTION_UPDATE",
+      "PAINT_PRODUCTION_DELETE",
+      "PAINT_PRODUCTION_BATCH_CREATE",
+      "PAINT_PRODUCTION_BATCH_UPDATE",
+      "PAINT_PRODUCTION_BATCH_DELETE",
+      "PAINT_CREATE",
+      "PAINT_UPDATE",
+      "PAINT_DELETE",
+      "PAINT_BATCH_CREATE",
+      "PAINT_BATCH_UPDATE",
+      "PAINT_BATCH_DELETE",
+      "PAINT_FORMULA_CREATE",
+      "PAINT_FORMULA_UPDATE",
+      "PAINT_FORMULA_DELETE",
+      "PAINT_FORMULA_BATCH_CREATE",
+      "PAINT_FORMULA_BATCH_UPDATE",
+      "PAINT_FORMULA_BATCH_DELETE",
+      "PAINT_TYPE_CREATE",
+      "PAINT_TYPE_UPDATE",
+      "PAINT_TYPE_DELETE",
+      "PAINT_TYPE_BATCH_CREATE",
+      "PAINT_TYPE_BATCH_UPDATE",
+      "PAINT_TYPE_BATCH_DELETE",
+      "PAINT_BRAND_CREATE",
+      "PAINT_BRAND_UPDATE",
+      "PAINT_BRAND_DELETE",
+      "PAINT_BRAND_BATCH_CREATE",
+      "PAINT_BRAND_BATCH_UPDATE",
+      "PAINT_BRAND_BATCH_DELETE",
+      "PAINT_GROUND_CREATE",
+      "PAINT_GROUND_UPDATE",
+      "PAINT_GROUND_DELETE",
+      "PAINT_GROUND_BATCH_CREATE",
+      "PAINT_GROUND_BATCH_UPDATE",
+      "PAINT_GROUND_BATCH_DELETE",
+      "ORDER_UPDATE",
+      "ORDER_CREATE",
+      "ORDER_STATUS_CHANGE",
+      "ORDER_CANCEL",
+      "ORDER_ITEM_UPDATE",
+      "ORDER_ITEM_RECEIVED",
+      "ORDER_ITEM_SYNC",
+      "EXTERNAL_OPERATION_SYNC",
+      "SCHEDULE",
+      "ACTIVITY_CREATE",
+      "ACTIVITY_UPDATE",
+      "ACTIVITY_DELETE",
+      "PPE_DELIVERY",
+      "ACTIVITY_SYNC",
+      "INVENTORY_ADJUSTMENT",
+      "INVENTORY_COUNT",
+      "ITEM_MONTHLY_CONSUMPTION_UPDATE",
+      "AUTOMATIC_MIN_MAX_UPDATE",
+      "SMS_VERIFICATION_CREATE",
+      "SMS_VERIFICATION_SEND",
+      "SMS_VERIFICATION_VERIFY",
+      "SMS_VERIFICATION_EXPIRE",
+      "SMS_VERIFICATION_CANCEL",
+      "EMAIL_SERVICE",
+      "VERIFICATION_CREATE",
+      "VERIFICATION_SEND",
+      "VERIFICATION_VERIFY",
+      "VERIFICATION_EXPIRE",
+      "VERIFICATION_CANCEL",
+      "VERIFICATION_RESEND",
+      "OBSERVATION_CREATE",
+      "OBSERVATION_DELETE",
+      "SCHEDULED_JOB",
+      "API",
+      "WEBHOOK",
+      "ADMIN",
+      "VEHICLE_MOVEMENT",
+      "PARKING_ASSIGNMENT",
+      "TASK_COPY_FROM_TASK"
+    ],
+    "DASHBOARD_TIME_PERIOD": [
+      "TODAY",
+      "THIS_WEEK",
+      "THIS_MONTH",
+      "THIS_YEAR",
+      "TOTAL",
+      "ALL_TIME"
+    ],
+    "DAY_OF_WEEK": [
+      "MONDAY",
+      "TUESDAY",
+      "WEDNESDAY",
+      "THURSDAY",
+      "FRIDAY",
+      "SATURDAY",
+      "SUNDAY"
+    ],
+    "DEPENDENT_RELATIONSHIP": [
+      "CHILD",
+      "STEPCHILD",
+      "SPOUSE",
+      "PARTNER",
+      "PARENT",
+      "WARD",
+      "DISABLED_ANY_AGE",
+      "OTHER"
+    ],
+    "DEPLOYMENT_APPLICATION": [
+      "API",
+      "WEB",
+      "MOBILE"
+    ],
+    "DEPLOYMENT_ENVIRONMENT": [
+      "DEVELOPMENT",
+      "STAGING",
+      "PRODUCTION"
+    ],
+    "DEPLOYMENT_STATUS": [
+      "PENDING",
+      "IN_PROGRESS",
+      "BUILDING",
+      "TESTING",
+      "DEPLOYING",
+      "COMPLETED",
+      "FAILED",
+      "ROLLED_BACK",
+      "CANCELLED"
+    ],
+    "DEPLOYMENT_TRIGGER": [
+      "MANUAL",
+      "AUTO",
+      "PUSH",
+      "PULL_REQUEST",
+      "TAG",
+      "SCHEDULE",
+      "WEBHOOK",
+      "ROLLBACK",
+      "API"
+    ],
+    "DISCOUNT_TYPE": [
+      "NONE",
+      "PERCENTAGE",
+      "FIXED_VALUE"
+    ],
+    "DOCUMENT_CATEGORY": [
+      "TECHNICAL_SPEC",
+      "CERTIFICATE",
+      "MANUAL",
+      "SAFETY_DATA",
+      "WARRANTY",
+      "INVOICE",
+      "CONTRACT",
+      "COMPLIANCE",
+      "PHOTO",
+      "OTHER"
+    ],
+    "DeploymentApplication": [
+      "API",
+      "WEB",
+      "MOBILE"
+    ],
+    "DeploymentEnvironment": [
+      "DEVELOPMENT",
+      "STAGING",
+      "PRODUCTION"
+    ],
+    "DeploymentStatus": [
+      "PENDING",
+      "IN_PROGRESS",
+      "BUILDING",
+      "TESTING",
+      "DEPLOYING",
+      "COMPLETED",
+      "FAILED",
+      "ROLLED_BACK",
+      "CANCELLED"
+    ],
+    "DeploymentTrigger": [
+      "MANUAL",
+      "AUTO",
+      "PUSH",
+      "PULL_REQUEST",
+      "TAG",
+      "SCHEDULE",
+      "WEBHOOK",
+      "ROLLBACK",
+      "API"
+    ],
+    "EFFORT_LEVEL": [
+      "LOW",
+      "MEDIUM",
+      "HIGH"
+    ],
+    "EMAIL_STATUS": [
+      "PENDING",
+      "SENT",
+      "DELIVERED",
+      "FAILED",
+      "BOUNCED",
+      "CANCELLED"
+    ],
+    "EMAIL_TYPE": [
+      "PASSWORD_RESET",
+      "TEMPORARY_PASSWORD",
+      "ACCOUNT_VERIFICATION",
+      "PASSWORD_CHANGED",
+      "ACCOUNT_STATUS_CHANGE",
+      "WELCOME",
+      "NOTIFICATION"
+    ],
+    "EMPLOYEE_TYPE": [
+      "CLT",
+      "INTERN",
+      "PJ",
+      "AUTONOMOUS"
+    ],
+    "ENTITY_TYPE": [
+      "ACTIVITY",
+      "AIRBRUSHING",
+      "BONIFICATION",
+      "BONUS",
+      "BORROW",
+      "CATEGORY",
+      "COLLECTION",
+      "CUT",
+      "CUT_ITEM",
+      "CUT_PLAN",
+      "CUT_REQUEST",
+      "CUSTOMER",
+      "DASHBOARD",
+      "DEPLOYMENT",
+      "DELIVERY",
+      "DISCOUNT",
+      "PPE_CONFIG",
+      "PPE_DELIVERY",
+      "PPE_REQUEST",
+      "PPE_DELIVERY_SCHEDULE",
+      "PPE_SIZE",
+      "EXTERNAL_OPERATION",
+      "EXTERNAL_OPERATION_ITEM",
+      "FILE",
+      "FISPQ",
+      "HOLIDAY",
+      "ITEM",
+      "ITEM_BRAND",
+      "ITEM_CATEGORY",
+      "IMPLEMENT_MEASURE",
+      "MAINTENANCE",
+      "MAINTENANCE_ITEM",
+      "MAINTENANCE_SCHEDULE",
+      "MEASURE",
+      "NOTIFICATION",
+      "NOTIFICATION_PREFERENCE",
+      "OBSERVATION",
+      "ORDER",
+      "ORDER_ITEM",
+      "ORDER_RULE",
+      "ORDER_SCHEDULE",
+      "PAINT",
+      "PAINT_TYPE",
+      "PAINT_BRAND",
+      "PAINT_GROUND",
+      "PAINT_FORMULA",
+      "PAINT_FORMULA_COMPONENT",
+      "PAINT_PRODUCTION",
+      "PARKING_SPOT",
+      "PAYROLL",
+      "PIECE",
+      "POSITION",
+      "POSITION_REMUNERATION",
+      "PREFERENCES",
+      "PRICE",
+      "PRODUCTION",
+      "PURCHASE",
+      "RESPONSIBLE",
+      "WARNING",
+      "SECTOR",
+      "SEEN_NOTIFICATION",
+      "SERVICE",
+      "SERVICE_ORDER",
+      "SUPPLIER",
+      "WAREHOUSE_LOCATION",
+      "TASK",
+      "TASK_QUOTE",
+      "TASK_QUOTE_ITEM",
+      "TASK_QUOTE_SERVICE",
+      "TASK_QUOTE_CUSTOMER_CONFIG",
+      "TIME_CLOCK_ENTRY",
+      "TRUCK",
+      "USER",
+      "VACATION",
+      "VACATION_GROUP",
+      "THIRTEENTH",
+      "VERIFICATION",
+      "SALARY_ADJUSTMENT",
+      "USER_POSITION_HISTORY",
+      "BENEFIT",
+      "USER_BENEFIT",
+      "ADMISSION",
+      "TERMINATION",
+      "MEDICAL_EXAM",
+      "LEAVE",
+      "DEPENDENT",
+      "AGENDA_EVENT",
+      "NOTE",
+      "BANK_TRANSACTION",
+      "RECONCILIATION_MATCH",
+      "FISCAL_DOCUMENT",
+      "INSTALLMENT",
+      "INVOICE",
+      "BANK_SLIP",
+      "RECURRENT_PAYABLE",
+      "RECURRENT_PAYABLE_OCCURRENCE",
+      "AIRBRUSHING_NFSE",
+      "FISCAL_EMITTER_PROFILE",
+      "FISCAL_CERTIFICATE"
+    ],
+    "EVENT_TYPE": [
+      "CREATED",
+      "STARTED",
+      "PAUSED",
+      "RESUMED",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "EXPORT_FORMAT": [
+      "CSV",
+      "EXCEL",
+      "PDF",
+      "JSON"
+    ],
+    "EXTERNAL_OPERATION_STATUS": [
+      "PENDING",
+      "CANCELLED",
+      "PARTIALLY_RETURNED",
+      "FULLY_RETURNED",
+      "CHARGED",
+      "LIQUIDATED",
+      "DELIVERED"
+    ],
+    "EXTERNAL_OPERATION_TYPE": [
+      "RETURNABLE",
+      "CHARGEABLE",
+      "COMPLIMENTARY"
+    ],
+    "FAVORITE_PAGES": [
+      "/producao/cronograma",
+      "/producao/recorte",
+      "/producao/servicos",
+      "/producao/observacoes",
+      "/producao/aerografia/listar",
+      "/producao/ordens-de-servico",
+      "/producao/historico",
+      "/producao/cronograma/cadastrar",
+      "/producao/recorte/cadastrar",
+      "/producao/servicos/cadastrar",
+      "/producao/observacoes/cadastrar",
+      "/producao/aerografia/cadastrar",
+      "/producao/ordens-de-servico/cadastrar",
+      "/producao/garagens",
+      "/producao/garagens/cadastrar",
+      "/estoque/movimentacoes",
+      "/estoque/produtos",
+      "/estoque/produtos/categorias",
+      "/estoque/produtos/marcas",
+      "/estoque/pedidos",
+      "/estoque/pedidos/agendamentos",
+      "/estoque/pedidos/automaticos",
+      "/estoque/manutencao/listar",
+      "/estoque/manutencao/agendamentos",
+      "/estoque/operacoes-externas",
+      "/estoque/fornecedores",
+      "/estoque/epi",
+      "/estoque/epi/entregas",
+      "/estoque/epi/agendamentos",
+      "/estoque/emprestimos",
+      "/estatisticas",
+      "/estatisticas/estoque",
+      "/estatisticas/estoque/consumo",
+      "/estatisticas/estoque/movimentacao",
+      "/estatisticas/estoque/tendencias",
+      "/estatisticas/estoque/top-itens",
+      "/estoque/movimentacoes/cadastrar",
+      "/estoque/produtos/cadastrar",
+      "/estoque/produtos/categorias/cadastrar",
+      "/estoque/produtos/marcas/cadastrar",
+      "/estoque/pedidos/cadastrar",
+      "/estoque/pedidos/agendamentos/cadastrar",
+      "/estoque/manutencao/cadastrar",
+      "/estoque/manutencao/agendamentos/cadastrar",
+      "/estoque/operacoes-externas/cadastrar",
+      "/estoque/fornecedores/cadastrar",
+      "/estoque/epi/cadastrar",
+      "/estoque/epi/entregas/cadastrar",
+      "/estoque/epi/agendamentos/cadastrar",
+      "/estoque/emprestimos/cadastrar",
+      "/pintura/catalogo",
+      "/pintura/producoes",
+      "/pintura/tipos-de-tinta",
+      "/pintura/formulas/listar",
+      "/pintura/formulacoes/listar",
+      "/pintura/componentes/listar",
+      "/pintura/catalogo/cadastrar",
+      "/pintura/producoes/cadastrar",
+      "/pintura/tipos-de-tinta/cadastrar",
+      "/pintura/formulas/cadastrar",
+      "/pintura/formulacoes/cadastrar",
+      "/pintura/componentes/cadastrar",
+      "/administracao/clientes",
+      "/departamento-pessoal/colaboradores",
+      "/administracao/orcamentos",
+      "/administracao/registros-de-alteracoes",
+      "/administracao/arquivos",
+      "/administracao/setores",
+      "/administracao/notificacoes",
+      "/departamento-pessoal/folha-de-pagamento",
+      "/administracao/clientes/cadastrar",
+      "/departamento-pessoal/colaboradores/cadastrar",
+      "/administracao/orcamentos/cadastrar",
+      "/administracao/arquivos/upload",
+      "/administracao/setores/cadastrar",
+      "/administracao/notificacoes/cadastrar/enviar",
+      "/administracao/notificacoes/editar",
+      "/departamento-pessoal/cargos",
+      "/departamento-pessoal/ferias",
+      "/departamento-pessoal/feriados",
+      "/departamento-pessoal/avisos",
+      "/departamento-pessoal/calculos",
+      "/departamento-pessoal/epi",
+      "/departamento-pessoal/epi/entregas",
+      "/departamento-pessoal/epi/agendamentos",
+      "/departamento-pessoal/epi/tamanhos",
+      "/departamento-pessoal/setores",
+      "/departamento-pessoal/cargos/cadastrar",
+      "/departamento-pessoal/ferias/cadastrar",
+      "/departamento-pessoal/feriados/cadastrar",
+      "/departamento-pessoal/avisos/cadastrar",
+      "/departamento-pessoal/epi/cadastrar",
+      "/departamento-pessoal/epi/entregas/cadastrar",
+      "/departamento-pessoal/epi/agendamentos/cadastrar",
+      "/departamento-pessoal/epi/tamanhos/cadastrar",
+      "/departamento-pessoal/setores/cadastrar",
+      "/pessoal/minhas-ferias",
+      "/pessoal/meus-feriados",
+      "/pessoal/meus-emprestimos",
+      "/pessoal/meus-epis",
+      "/pessoal/meus-avisos",
+      "/pessoal/minhas-notificacoes",
+      "/pintura/catalogo-basico",
+      "/servidor/usuarios",
+      "/departamento-pessoal/cargos/editar/:id",
+      "/departamento-pessoal/ferias/editar/:id",
+      "/departamento-pessoal/feriados/editar/:id",
+      "/departamento-pessoal/avisos/editar/:id",
+      "/departamento-pessoal/setores/editar/:id",
+      "/departamento-pessoal/cargos/detalhes/:id",
+      "/departamento-pessoal/ferias/detalhes/:id",
+      "/departamento-pessoal/feriados/detalhes/:id",
+      "/departamento-pessoal/avisos/detalhes/:id",
+      "/departamento-pessoal/cargos/editar-lote",
+      "/departamento-pessoal/ferias/editar-lote",
+      "/departamento-pessoal/feriados/editar-lote",
+      "/departamento-pessoal/avisos/editar-lote",
+      "/departamento-pessoal/ferias/calendario",
+      "/departamento-pessoal/feriados/calendario",
+      "/departamento-pessoal/cargos/:positionId/remuneracoes",
+      "/administracao/setores/editar/:id",
+      "/administracao/setores/detalhes/:id",
+      "/administracao/setores/editar-lote"
+    ],
+    "FILE_ENTITY_TYPE": [
+      "TASK",
+      "CUSTOMER_LOGO",
+      "SUPPLIER_LOGO",
+      "OBSERVATION",
+      "WARNING",
+      "ORDER_BUDGET",
+      "ORDER_NFE",
+      "ORDER_RECEIPT",
+      "TASK_BUDGET",
+      "TASK_NFE",
+      "TASK_RECEIPT",
+      "AIRBRUSHING_RECEIPT",
+      "AIRBRUSHING_NFE",
+      "EXTERNAL_OPERATION_BUDGET",
+      "EXTERNAL_OPERATION_NFE",
+      "EXTERNAL_OPERATION_RECEIPT",
+      "EXPENSE"
+    ],
+    "FILE_FORMAT": [
+      "JSON",
+      "YAML",
+      "CSV",
+      "EXCEL",
+      "PDF"
+    ],
+    "FISPQ_STATUS": [
+      "DRAFT",
+      "ACTIVE",
+      "EXPIRED",
+      "ARCHIVED"
+    ],
+    "GHS_PICTOGRAM": [
+      "GHS01_EXPLOSIVE",
+      "GHS02_FLAMMABLE",
+      "GHS03_OXIDIZING",
+      "GHS04_GAS_UNDER_PRESSURE",
+      "GHS05_CORROSIVE",
+      "GHS06_TOXIC",
+      "GHS07_HARMFUL",
+      "GHS08_HEALTH_HAZARD",
+      "GHS09_ENVIRONMENTAL"
+    ],
+    "GHS_SIGNAL_WORD": [
+      "DANGER",
+      "WARNING"
+    ],
+    "GLOVES_SIZE": [
+      "P",
+      "M",
+      "G"
+    ],
+    "GOAL_METRIC": [
+      "TASKS_COMPLETED",
+      "TASKS_PER_ACTIVE_USER",
+      "PRODUCTION_AVG_PERFORMANCE",
+      "COLLABORATORS_PER_SECTOR",
+      "HR_HIRES_PER_MONTH",
+      "HR_DISMISSALS_PER_MONTH",
+      "HR_TURNOVER_RATE",
+      "HR_EXPERIENCE_FAILURE_RATE",
+      "HR_ABSENTEEISM_RATE",
+      "HR_PAYROLL_GROSS",
+      "HR_PAYROLL_BONUSES_TOTAL",
+      "INVOICES_PAID",
+      "FINANCE_DSO_DAYS",
+      "FINANCE_OVERDUE_AMOUNT",
+      "FINANCE_COLLECTION_RATE",
+      "FINANCE_QUOTES_PER_PERIOD",
+      "FINANCE_CONVERSION_RATE",
+      "ORDER_COUNT_PER_PERIOD",
+      "ORDER_TOTAL_VALUE",
+      "INVENTORY_CONSUMPTION_VALUE",
+      "INVENTORY_OUTBOUND_VALUE"
+    ],
+    "GROUP_BY": [
+      "DAY",
+      "WEEK",
+      "MONTH",
+      "YEAR",
+      "ITEM",
+      "USER"
+    ],
+    "HEALTH_STATUS": [
+      "EXCELLENT",
+      "GOOD",
+      "FAIR",
+      "POOR",
+      "CRITICAL"
+    ],
+    "HOLIDAY_TYPE": [
+      "NATIONAL",
+      "STATE",
+      "MUNICIPAL",
+      "OPTIONAL"
+    ],
+    "IMPLEMENT_TYPE": [
+      "DRY_CARGO",
+      "REFRIGERATED",
+      "INSULATED",
+      "CURTAIN_SIDE",
+      "TANK",
+      "FLATBED"
+    ],
+    "INSALUBRITY_DEGREE": [
+      "NONE",
+      "MIN",
+      "MED",
+      "MAX"
+    ],
+    "INSS_BENEFIT_SPECIES": [
+      "B31",
+      "B91",
+      "B32",
+      "B92",
+      "B80",
+      "B36",
+      "OTHER"
+    ],
+    "INSTALLMENT_PAYMENT_METHOD": [
+      "PIX",
+      "BANK_SLIP",
+      "CASH",
+      "TRANSFER",
+      "ACCOUNT_GENIVALDO",
+      "ACCOUNT_SERGIO",
+      "MANUAL",
+      "OTHER"
+    ],
+    "INSTALLMENT_STATUS": [
+      "PENDING",
+      "PROCESSING",
+      "PAID",
+      "OVERDUE",
+      "CANCELLED"
+    ],
+    "INVOICE_STATUS": [
+      "DRAFT",
+      "ACTIVE",
+      "PARTIALLY_PAID",
+      "PAID",
+      "CANCELLED"
+    ],
+    "ITEM_CATEGORY_TYPE": [
+      "REGULAR",
+      "TOOL",
+      "PPE"
+    ],
+    "ITEM_ISSUE_TYPE": [
+      "OVERAGE",
+      "SHORTAGE",
+      "DAMAGE",
+      "MISMATCH"
+    ],
+    "LAYOUT_STATUS": [
+      "DRAFT",
+      "APPROVED",
+      "REPROVED"
+    ],
+    "LEAVE_STATUS": [
+      "SCHEDULED",
+      "ACTIVE",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "LEAVE_TYPE": [
+      "ILLNESS_UP_TO_15",
+      "ILLNESS_INSS",
+      "WORK_ACCIDENT",
+      "MATERNITY",
+      "PATERNITY",
+      "MARRIAGE",
+      "BEREAVEMENT",
+      "BLOOD_DONATION",
+      "MILITARY",
+      "COURT_ATTENDANCE",
+      "UNPAID",
+      "SUSPENSION",
+      "OTHER"
+    ],
+    "LINK_TYPE": [
+      "MANUFACTURER",
+      "DOCUMENTATION",
+      "TUTORIAL",
+      "SUPPLIER",
+      "INTERNAL",
+      "OTHER"
+    ],
+    "LOCKOUT_REASON": [
+      "EXCESSIVE_FAILED_ATTEMPTS",
+      "IP_ABUSE_DETECTED",
+      "PATTERN_ABUSE",
+      "CAPTCHA_FAILURES",
+      "MANUAL_ADMIN_LOCK",
+      "SECURITY_VIOLATION"
+    ],
+    "MAINTENANCE_SCHEDULE_STATUS": [
+      "PENDING",
+      "FINISHED",
+      "CANCELLED"
+    ],
+    "MAINTENANCE_STATUS": [
+      "PENDING",
+      "IN_PROGRESS",
+      "COMPLETED",
+      "CANCELLED",
+      "OVERDUE"
+    ],
+    "MASK_SIZE": [
+      "P",
+      "M"
+    ],
+    "MEASURE_SIDE": [
+      "LEFT",
+      "RIGHT",
+      "BACK"
+    ],
+    "MEASURE_TYPE": [
+      "WEIGHT",
+      "VOLUME",
+      "LENGTH",
+      "WIDTH",
+      "THICKNESS",
+      "AREA",
+      "COUNT",
+      "DIAMETER",
+      "THREAD",
+      "ELECTRICAL",
+      "SIZE"
+    ],
+    "MEASURE_UNIT": [
+      "KILOGRAM",
+      "GRAM",
+      "MILLILITER",
+      "LITER",
+      "CUBIC_METER",
+      "CUBIC_CENTIMETER",
+      "MILLIMETER",
+      "CENTIMETER",
+      "METER",
+      "INCHES",
+      "INCH_1_8",
+      "INCH_1_4",
+      "INCH_3_8",
+      "INCH_1_2",
+      "INCH_5_8",
+      "INCH_3_4",
+      "INCH_7_8",
+      "INCH_1",
+      "INCH_1_1_4",
+      "INCH_1_1_2",
+      "INCH_2",
+      "THREAD_MM",
+      "THREAD_TPI",
+      "WATT",
+      "VOLT",
+      "AMPERE",
+      "SQUARE_CENTIMETER",
+      "SQUARE_METER",
+      "UNIT",
+      "PAIR",
+      "DOZEN",
+      "HUNDRED",
+      "THOUSAND",
+      "PACKAGE",
+      "BOX",
+      "ROLL",
+      "SHEET",
+      "SET",
+      "SACK",
+      "P",
+      "M",
+      "G",
+      "GG",
+      "XG",
+      "SIZE_35",
+      "SIZE_36",
+      "SIZE_37",
+      "SIZE_38",
+      "SIZE_39",
+      "SIZE_40",
+      "SIZE_41",
+      "SIZE_42",
+      "SIZE_43",
+      "SIZE_44",
+      "SIZE_45",
+      "SIZE_46",
+      "SIZE_47",
+      "SIZE_48",
+      "SIZE_50"
+    ],
+    "MEDICAL_EXAM_RESULT": [
+      "PENDING",
+      "FIT",
+      "FIT_WITH_RESTRICTIONS",
+      "UNFIT"
+    ],
+    "MEDICAL_EXAM_STATUS": [
+      "SCHEDULED",
+      "COMPLETED",
+      "EXPIRED",
+      "CANCELLED"
+    ],
+    "MEDICAL_EXAM_TYPE": [
+      "ADMISSION",
+      "PERIODIC",
+      "RETURN_TO_WORK",
+      "RISK_CHANGE",
+      "DISMISSAL"
+    ],
+    "MERGE_STRATEGY": [
+      "KEEP_PRIMARY",
+      "KEEP_NEWEST",
+      "MANUAL"
+    ],
+    "MONTH": [
+      "JANUARY",
+      "FEBRUARY",
+      "MARCH",
+      "APRIL",
+      "MAY",
+      "JUNE",
+      "JULY",
+      "AUGUST",
+      "SEPTEMBER",
+      "OCTOBER",
+      "NOVEMBER",
+      "DECEMBER"
+    ],
+    "MONTH_OCCURRENCE": [
+      "FIRST",
+      "SECOND",
+      "THIRD",
+      "FOURTH",
+      "LAST"
+    ],
+    "NFSE_STATUS": [
+      "PENDING",
+      "PROCESSING",
+      "AUTHORIZED",
+      "CANCEL_REQUESTED",
+      "CANCEL_REJECTED",
+      "CANCELLED",
+      "ERROR"
+    ],
+    "NOTE_CATEGORY": [
+      "GENERAL",
+      "QUALITY",
+      "MAINTENANCE",
+      "COMPLIANCE",
+      "SPECIFICATION",
+      "USAGE",
+      "SUPPLIER",
+      "SAFETY",
+      "OTHER"
+    ],
+    "NOTICE_REDUCTION": [
+      "NONE",
+      "TWO_HOURS_PER_DAY",
+      "SEVEN_DAYS_OFF"
+    ],
+    "NOTICE_TYPE": [
+      "WORKED",
+      "INDEMNIFIED",
+      "WAIVED"
+    ],
+    "NOTIFICATION_ACTION_TYPE": [
+      "VIEW_DETAILS",
+      "APPROVE_REQUEST",
+      "REJECT_REQUEST",
+      "COMPLETE_TASK",
+      "TASK_CREATED",
+      "TASK_UPDATED",
+      "VIEW_ORDER",
+      "VIEW_SERVICE_ORDER",
+      "VIEW_REPORT",
+      "ACKNOWLEDGE",
+      "DISMISS"
+    ],
+    "NOTIFICATION_CHANNEL": [
+      "IN_APP",
+      "PUSH",
+      "EMAIL",
+      "WHATSAPP"
+    ],
+    "NOTIFICATION_IMPORTANCE": [
+      "LOW",
+      "NORMAL",
+      "HIGH",
+      "URGENT"
+    ],
+    "NOTIFICATION_TYPE": [
+      "SYSTEM",
+      "PRODUCTION",
+      "STOCK",
+      "USER",
+      "GENERAL"
+    ],
+    "ORDER_INSTALLMENT_STATUS": [
+      "PENDING",
+      "PARTIALLY_PAID",
+      "PAID",
+      "OVERDUE",
+      "CANCELLED"
+    ],
+    "ORDER_PAYMENT_STATUS": [
+      "PENDING",
+      "AWAITING_PAYMENT",
+      "PARTIALLY_PAID",
+      "PAID"
+    ],
+    "ORDER_STATUS": [
+      "CREATED",
+      "PARTIALLY_FULFILLED",
+      "FULFILLED",
+      "OVERDUE",
+      "PARTIALLY_RECEIVED",
+      "RECEIVED",
+      "CANCELLED"
+    ],
+    "ORDER_TRIGGER_TYPE": [
+      "STOCK_LEVEL",
+      "CONSUMPTION_RATE",
+      "SCHEDULED"
+    ],
+    "PAINT_BASE_TYPE": [
+      "TRANSPARENT",
+      "WHITE",
+      "ALUMINUM",
+      "BLACK",
+      "MIXING"
+    ],
+    "PAINT_BRAND": [
+      "PPG",
+      "FARBEN",
+      "LAZZURIL"
+    ],
+    "PAINT_BRAND_STATUS": [
+      "ACTIVE",
+      "INACTIVE"
+    ],
+    "PAINT_FINISH": [
+      "SOLID",
+      "METALLIC",
+      "PEARL",
+      "MATTE",
+      "SATIN"
+    ],
+    "PAINT_TYPE_ENUM": [
+      "POLYESTER",
+      "ACRYLIC",
+      "LACQUER",
+      "POLYURETHANE",
+      "EPOXY"
+    ],
+    "PANTS_SIZE": [
+      "SIZE_36",
+      "SIZE_38",
+      "SIZE_40",
+      "SIZE_42",
+      "SIZE_44",
+      "SIZE_46",
+      "SIZE_48",
+      "SIZE_50"
+    ],
+    "PAYMENT_CONDITION": [
+      "CASH_5",
+      "CASH_40",
+      "INSTALLMENTS_2",
+      "INSTALLMENTS_3",
+      "INSTALLMENTS_4",
+      "INSTALLMENTS_5",
+      "INSTALLMENTS_6",
+      "INSTALLMENTS_7",
+      "CUSTOM"
+    ],
+    "PAYMENT_METHOD": [
+      "PIX",
+      "BANK_SLIP",
+      "CREDIT_CARD"
+    ],
+    "PAYROLL_DISCOUNT_TYPE": [
+      "INSS",
+      "IRRF",
+      "FGTS",
+      "ABSENCE",
+      "PARTIAL_ABSENCE",
+      "DSR_ABSENCE",
+      "LATE_ARRIVAL",
+      "SICK_LEAVE",
+      "UNION",
+      "ALIMONY",
+      "GARNISHMENT",
+      "HEALTH_INSURANCE",
+      "DENTAL_INSURANCE",
+      "MEAL_VOUCHER",
+      "TRANSPORT_VOUCHER",
+      "LOAN",
+      "ADVANCE",
+      "AUTHORIZED_DISCOUNT",
+      "CUSTOM",
+      "FAMILY_ALLOWANCE",
+      "INSALUBRIDADE",
+      "PERICULOSIDADE",
+      "HABITUAL_GRATIFICATION"
+    ],
+    "PAYROLL_MONTH": [
+      "JANUARY",
+      "FEBRUARY",
+      "MARCH",
+      "APRIL",
+      "MAY",
+      "JUNE",
+      "JULY",
+      "AUGUST",
+      "SEPTEMBER",
+      "OCTOBER",
+      "NOVEMBER",
+      "DECEMBER"
+    ],
+    "PAYROLL_STATUS": [
+      "DRAFT",
+      "FINALIZED"
+    ],
+    "PERCENTAGE_ADJUST_TYPE": [
+      "INCREASE",
+      "DECREASE"
+    ],
+    "PERFORMANCE_LEVEL": [
+      "EXCELLENT",
+      "GOOD",
+      "FAIR",
+      "POOR"
+    ],
+    "PERIOD_TYPE": [
+      "DAILY",
+      "WEEKLY",
+      "MONTHLY",
+      "QUARTERLY",
+      "YEARLY"
+    ],
+    "POSITION_CHANGE_REASON": [
+      "ADMISSION",
+      "PROMOTION",
+      "TRANSFER",
+      "DEMOTION",
+      "ADJUSTMENT",
+      "CORRECTION"
+    ],
+    "PPE_DELIVERY_MODE": [
+      "SCHEDULED",
+      "ON_DEMAND",
+      "BOTH"
+    ],
+    "PPE_DELIVERY_STATUS": [
+      "PENDING",
+      "APPROVED",
+      "DELIVERED",
+      "WAITING_SIGNATURE",
+      "COMPLETED",
+      "SIGNATURE_REJECTED",
+      "REPROVED",
+      "CANCELLED"
+    ],
+    "PPE_REQUEST_STATUS": [
+      "PENDING",
+      "APPROVED",
+      "REJECTED",
+      "DELIVERED",
+      "CANCELLED"
+    ],
+    "PPE_SIZE": [
+      "P",
+      "M",
+      "G",
+      "GG",
+      "XG",
+      "SIZE_35",
+      "SIZE_36",
+      "SIZE_37",
+      "SIZE_38",
+      "SIZE_39",
+      "SIZE_40",
+      "SIZE_41",
+      "SIZE_42",
+      "SIZE_43",
+      "SIZE_44",
+      "SIZE_45",
+      "SIZE_46",
+      "SIZE_47",
+      "SIZE_48",
+      "SIZE_50"
+    ],
+    "PPE_SIZE_ENUM": [
+      "P",
+      "M",
+      "G",
+      "GG",
+      "XG",
+      "SIZE_35",
+      "SIZE_36",
+      "SIZE_37",
+      "SIZE_38",
+      "SIZE_39",
+      "SIZE_40",
+      "SIZE_41",
+      "SIZE_42",
+      "SIZE_43",
+      "SIZE_44",
+      "SIZE_45",
+      "SIZE_46",
+      "SIZE_47",
+      "SIZE_48",
+      "SIZE_50"
+    ],
+    "PPE_SIZE_TYPE": [
+      "SHIRT",
+      "PANTS",
+      "SHORT",
+      "BOOT",
+      "GLOVE",
+      "MASK",
+      "SLEEVES",
+      "RAIN_BOOTS",
+      "OVERALL",
+      "HELMET",
+      "UNIFORM"
+    ],
+    "PPE_TYPE": [
+      "SHIRT",
+      "PANTS",
+      "SHORT",
+      "BOOTS",
+      "SLEEVES",
+      "MASK",
+      "GLOVES",
+      "RAIN_BOOTS",
+      "OVERALL",
+      "OTHERS"
+    ],
+    "PRIORITY_TYPE": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "PROGRESSIVE_DELAY_TIER": [
+      "TIER_1",
+      "TIER_2",
+      "TIER_3",
+      "TIER_4",
+      "TIER_5",
+      "TIER_6",
+      "TIER_7",
+      "TIER_8"
+    ],
+    "RAIN_BOOTS_SIZE": [
+      "SIZE_35",
+      "SIZE_36",
+      "SIZE_37",
+      "SIZE_38",
+      "SIZE_39",
+      "SIZE_40",
+      "SIZE_41",
+      "SIZE_42",
+      "SIZE_43",
+      "SIZE_44",
+      "SIZE_45",
+      "SIZE_46",
+      "SIZE_47",
+      "SIZE_48"
+    ],
+    "RATE_LIMIT_TYPE": [
+      "PER_CODE_ATTEMPT",
+      "IP_VERIFICATION",
+      "CODE_SEND_CONTACT",
+      "CODE_SEND_IP",
+      "ACCOUNT_LOCKOUT",
+      "GLOBAL_RATE_LIMIT"
+    ],
+    "REGISTRATION_STATUS": [
+      "ACTIVE",
+      "SUSPENDED",
+      "UNFIT",
+      "ACTIVE_NOT_REGULAR",
+      "DEREGISTERED"
+    ],
+    "RESCHEDULE_REASON": [
+      "CUSTOMER_REQUEST",
+      "RESOURCE_UNAVAILABLE",
+      "MATERIAL_SHORTAGE",
+      "EQUIPMENT_FAILURE",
+      "WEATHER_CONDITIONS",
+      "STAFF_UNAVAILABLE",
+      "PRIORITY_CHANGE",
+      "TECHNICAL_ISSUES",
+      "OTHER"
+    ],
+    "RESPONSIBLE_ROLE": [
+      "COMMERCIAL",
+      "SELLER",
+      "REPRESENTATIVE",
+      "COORDINATOR",
+      "PURCHASING",
+      "MARKETING",
+      "FINANCIAL",
+      "FLEET_MANAGER",
+      "DRIVER"
+    ],
+    "RESPONSIBLE_ROLE_LABELS": [
+      "Comercial",
+      "Vendedor",
+      "Representante",
+      "Coordenador",
+      "Compras",
+      "Marketing",
+      "Financeiro",
+      "Gestor de Frota",
+      "Motorista"
+    ],
+    "RISK_LEVEL": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "SALARY_ADJUSTMENT_TYPE": [
+      "DISSIDIO_CCT",
+      "MERIT",
+      "PROMOTION",
+      "EQUALIZATION",
+      "REFRAME",
+      "OTHER",
+      "BONUS"
+    ],
+    "SCHEDULE_FREQUENCY": [
+      "ONCE",
+      "DAILY",
+      "WEEKLY",
+      "BIWEEKLY",
+      "MONTHLY",
+      "BIMONTHLY",
+      "QUARTERLY",
+      "TRIANNUAL",
+      "QUADRIMESTRAL",
+      "SEMI_ANNUAL",
+      "ANNUAL",
+      "CUSTOM"
+    ],
+    "SCHEDULE_RUN_STATUS": [
+      "SUCCESS",
+      "SKIPPED_NO_ITEMS",
+      "FAILED"
+    ],
+    "SECTOR_PRIVILEGES": [
+      "BASIC",
+      "PRODUCTION",
+      "MAINTENANCE",
+      "WAREHOUSE",
+      "PLOTTING",
+      "ADMIN",
+      "HUMAN_RESOURCES",
+      "EXTERNAL",
+      "DESIGNER",
+      "FINANCIAL",
+      "LOGISTIC",
+      "COMMERCIAL",
+      "PRODUCTION_MANAGER",
+      "AIRBRUSHING",
+      "ACCOUNTING"
+    ],
+    "SERVICE_ORDER_STATUS": [
+      "PENDING",
+      "IN_PROGRESS",
+      "WAITING_ARTWORK",
+      "PAUSED",
+      "WAITING_APPROVE",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "SERVICE_ORDER_TYPE": [
+      "PRODUCTION",
+      "COMMERCIAL",
+      "ARTWORK",
+      "LOGISTIC"
+    ],
+    "SHIRT_SIZE": [
+      "P",
+      "M",
+      "G",
+      "GG",
+      "XG"
+    ],
+    "SKILL_ASSESSMENT_PERIOD_STATUS": [
+      "DRAFT",
+      "ACTIVE",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "SKILL_ASSESSMENT_STATUS": [
+      "DRAFT",
+      "IN_PROGRESS",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "SLEEVES_SIZE": [
+      "P",
+      "M",
+      "G",
+      "GG",
+      "XG"
+    ],
+    "SMS_VERIFICATION_STATUS": [
+      "PENDING",
+      "SENT",
+      "VERIFIED",
+      "EXPIRED",
+      "FAILED",
+      "CANCELLED",
+      "RATE_LIMITED",
+      "BLOCKED"
+    ],
+    "SMS_VERIFICATION_TYPE": [
+      "PHONE_VERIFICATION",
+      "EMAIL_VERIFICATION",
+      "PASSWORD_RESET",
+      "TWO_FACTOR_AUTH",
+      "ACCOUNT_CONFIRMATION"
+    ],
+    "STABILITY_TYPE": [
+      "ACCIDENT",
+      "PREGNANCY",
+      "UNION",
+      "CIPA",
+      "OTHER"
+    ],
+    "STATISTICS_GROUP_BY": [
+      "SECTOR",
+      "USER",
+      "CATEGORY",
+      "BRAND",
+      "SUPPLIER",
+      "ITEM",
+      "DATE",
+      "ACTIVITY_REASON",
+      "ACTIVITY_OPERATION"
+    ],
+    "STATISTICS_METRIC": [
+      "QUANTITY",
+      "TOTAL_PRICE",
+      "UNIT_PRICE",
+      "COUNT",
+      "FREQUENCY",
+      "PERCENTAGE",
+      "AVERAGE",
+      "SUM",
+      "MIN",
+      "MAX"
+    ],
+    "STATISTICS_PERIOD": [
+      "DAILY",
+      "WEEKLY",
+      "MONTHLY",
+      "QUARTERLY",
+      "YEARLY",
+      "CUSTOM",
+      "LAST_7_DAYS",
+      "LAST_30_DAYS",
+      "LAST_90_DAYS",
+      "LAST_YEAR",
+      "THIS_WEEK",
+      "THIS_MONTH",
+      "THIS_QUARTER",
+      "THIS_YEAR"
+    ],
+    "STOCK_LEVEL": [
+      "NEGATIVE_STOCK",
+      "OUT_OF_STOCK",
+      "CRITICAL",
+      "LOW",
+      "OPTIMAL",
+      "OVERSTOCKED"
+    ],
+    "STOCK_MODEL": [
+      "CONSUMPTION",
+      "FIXED_TARGET"
+    ],
+    "TABLER_ICONS": [
+      "home",
+      "dashboard",
+      "calendar",
+      "users",
+      "settings",
+      "logout"
+    ],
+    "TASK_OBSERVATION_TYPE": [
+      "DAMAGE",
+      "OVERDUE",
+      "QUALITY"
+    ],
+    "TASK_QUOTE_STATUS": [
+      "EXPIRED",
+      "SIGNED",
+      "PENDING",
+      "APPROVED",
+      "CANCELLED",
+      "REQUESTED",
+      "IN_NEGOTIATION",
+      "PRE_APPROVED"
+    ],
+    "TASK_STATUS": [
+      "PREPARATION",
+      "WAITING_PRODUCTION",
+      "IN_PRODUCTION",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "TERMINATION_DOCUMENT_STATUS": [
+      "PENDING",
+      "GENERATED",
+      "SIGNED",
+      "DELIVERED"
+    ],
+    "TERMINATION_DOCUMENT_TYPE": [
+      "NOTICE_LETTER",
+      "WARNING_LETTER",
+      "TRCT",
+      "TERM_484A",
+      "HOMOLOGATION_TERM",
+      "FGTS_GUIDE",
+      "FGTS_STATEMENT",
+      "UNEMPLOYMENT_INSURANCE_FORM",
+      "DISMISSAL_EXAM",
+      "PAYMENT_RECEIPT",
+      "DOCUMENT_DELIVERY_RECEIPT",
+      "MUTUAL_AGREEMENT_TERM",
+      "OTHER"
+    ],
+    "TERMINATION_ITEM_TYPE": [
+      "SALARY_BALANCE",
+      "NOTICE_INDEMNIFIED",
+      "NOTICE_DISCOUNT",
+      "THIRTEENTH_PROPORTIONAL",
+      "ACCRUED_VACATION",
+      "PROPORTIONAL_VACATION",
+      "ART479_INDEMNITY",
+      "FGTS_FINE",
+      "ART477_FINE",
+      "INSS_DISCOUNT",
+      "IRRF_DISCOUNT",
+      "ADVANCE_DISCOUNT",
+      "BENEFIT_DISCOUNT",
+      "OTHER_EARNING",
+      "OTHER_DISCOUNT"
+    ],
+    "TERMINATION_STATUS": [
+      "INITIATED",
+      "NOTICE_PERIOD",
+      "DOCUMENTS",
+      "MEDICAL_EXAM",
+      "CALCULATION",
+      "PAYMENT",
+      "HOMOLOGATION",
+      "COMPLETED",
+      "CANCELLED"
+    ],
+    "TERMINATION_TYPE": [
+      "WITHOUT_CAUSE",
+      "WITH_CAUSE",
+      "RESIGNATION",
+      "MUTUAL_AGREEMENT",
+      "EXPERIENCE_END",
+      "EXPERIENCE_EARLY_EMPLOYER",
+      "EXPERIENCE_EARLY_EMPLOYEE",
+      "INDIRECT",
+      "DEATH",
+      "FIXED_TERM_EARLY_EMPLOYEE",
+      "INTERMITTENT_END"
+    ],
+    "THIRTEENTH_STATUS": [
+      "OPEN",
+      "FIRST_PAID",
+      "SECOND_PAID",
+      "PAID",
+      "CANCELLED"
+    ],
+    "TIMELINE_EVENT_TYPE": [
+      "CREATED",
+      "UPDATED",
+      "STATUS_CHANGED",
+      "FILE_ADDED",
+      "FILE_REMOVED",
+      "NOTE_ADDED",
+      "ASSIGNED",
+      "COMPLETED"
+    ],
+    "TIME_RANGE": [
+      "LAST_7_DAYS",
+      "LAST_30_DAYS",
+      "LAST_90_DAYS",
+      "LAST_YEAR",
+      "CUSTOM"
+    ],
+    "TREND_DIRECTION": [
+      "UP",
+      "DOWN",
+      "STABLE"
+    ],
+    "TREND_TYPE": [
+      "POSITIVE",
+      "NEGATIVE",
+      "NEUTRAL",
+      "VOLATILE",
+      "SEASONAL"
+    ],
+    "TRUCK_CATEGORY": [
+      "MINI",
+      "VUC",
+      "THREE_QUARTER",
+      "RIGID",
+      "TRUCK",
+      "SEMI_TRAILER",
+      "SEMI_TRAILER_2_AXLES",
+      "B_DOUBLE_FRONT",
+      "B_DOUBLE_REAR",
+      "BITRUCK"
+    ],
+    "TRUCK_MANUFACTURER": [
+      "SCANIA",
+      "VOLVO",
+      "DAF",
+      "VOLKSWAGEN",
+      "IVECO",
+      "MERCEDES_BENZ",
+      "MAN"
+    ],
+    "TRUCK_SPOT": [
+      "YARD_WAIT",
+      "YARD_EXIT",
+      "B1_F1_V1",
+      "B1_F1_V2",
+      "B1_F1_V3",
+      "B1_F2_V1",
+      "B1_F2_V2",
+      "B1_F2_V3",
+      "B1_F3_V1",
+      "B1_F3_V2",
+      "B1_F3_V3",
+      "B2_F1_V1",
+      "B2_F1_V2",
+      "B2_F1_V3",
+      "B2_F2_V1",
+      "B2_F2_V2",
+      "B2_F2_V3",
+      "B2_F3_V1",
+      "B2_F3_V2",
+      "B2_F3_V3",
+      "B3_F1_V1",
+      "B3_F1_V2",
+      "B3_F1_V3",
+      "B3_F2_V1",
+      "B3_F2_V2",
+      "B3_F2_V3",
+      "B3_F3_V1",
+      "B3_F3_V2",
+      "B3_F3_V3"
+    ],
+    "URGENCY_LEVEL": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "VACATION_GROUP_TYPE": [
+      "ALL",
+      "SECTOR",
+      "POSITION"
+    ],
+    "VACATION_STATUS": [
+      "SCHEDULED",
+      "PAID",
+      "EXPIRED"
+    ],
+    "VALIDATION_SEVERITY": [
+      "ERROR",
+      "WARNING",
+      "INFO"
+    ],
+    "VERIFICATION_ABUSE_LEVEL": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL",
+      "SEVERE"
+    ],
+    "VERIFICATION_ERROR_CATEGORY": [
+      "VALIDATION",
+      "RATE_LIMITING",
+      "AUTHENTICATION",
+      "EXTERNAL_SERVICE",
+      "SYSTEM",
+      "SECURITY"
+    ],
+    "VERIFICATION_ERROR_CODE": [
+      "INVALID_CONTACT",
+      "CONTACT_REQUIRED",
+      "CODE_REQUIRED",
+      "INVALID_CONTACT_FORMAT",
+      "USER_NOT_FOUND",
+      "USER_ALREADY_VERIFIED",
+      "USER_INACTIVE",
+      "INVALID_CODE",
+      "CODE_EXPIRED",
+      "NO_CODE_SENT",
+      "CODE_MISMATCH",
+      "TOO_MANY_ATTEMPTS",
+      "TOO_MANY_REQUESTS",
+      "CONTACT_COOLDOWN",
+      "IP_RATE_LIMITED",
+      "PROGRESSIVE_DELAY",
+      "SMS_SEND_FAILED",
+      "EMAIL_SEND_FAILED",
+      "NOTIFICATION_FAILED",
+      "EXTERNAL_SERVICE_ERROR",
+      "DATABASE_ERROR",
+      "CACHE_ERROR",
+      "CONFIGURATION_ERROR",
+      "INTERNAL_ERROR",
+      "SUSPICIOUS_ACTIVITY",
+      "BLOCKED_IP",
+      "BLACKLISTED_CONTACT",
+      "SECURITY_VIOLATION"
+    ],
+    "VERIFICATION_ERROR_SEVERITY": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "VERIFICATION_METHOD": [
+      "EMAIL",
+      "PHONE",
+      "EMAIL_AND_PHONE"
+    ],
+    "VERIFICATION_PURPOSE": [
+      "ACCOUNT_VERIFICATION",
+      "PASSWORD_RESET",
+      "PHONE_VERIFICATION",
+      "EMAIL_VERIFICATION",
+      "TWO_FACTOR_AUTH",
+      "LOGIN_VERIFICATION"
+    ],
+    "VERIFICATION_SECURITY_ACTION": [
+      "LOG_ATTEMPT",
+      "DELAY_RESPONSE",
+      "REQUIRE_CAPTCHA",
+      "TEMPORARY_BLOCK",
+      "ESCALATE_SECURITY",
+      "NOTIFY_ADMIN",
+      "PERMANENT_BLOCK"
+    ],
+    "VERIFICATION_STATUS": [
+      "PENDING",
+      "SENT",
+      "VERIFIED",
+      "EXPIRED",
+      "FAILED",
+      "CANCELLED"
+    ],
+    "VERIFICATION_TYPE": [
+      "EMAIL",
+      "PHONE",
+      "PASSWORD_RESET",
+      "FIRST_ACCESS"
+    ],
+    "WAREHOUSE_LOCATION_TYPE": [
+      "ESTANTE",
+      "ESTANTE_DUPLA",
+      "ESTANTE_KANBAN",
+      "PAINEL",
+      "PALETE"
+    ],
+    "WARNING_CATEGORY": [
+      "SAFETY",
+      "MISCONDUCT",
+      "INSUBORDINATION",
+      "POLICY_VIOLATION",
+      "ATTENDANCE",
+      "PERFORMANCE",
+      "BEHAVIOR",
+      "OTHER"
+    ],
+    "WARNING_SEVERITY": [
+      "VERBAL",
+      "WRITTEN",
+      "SUSPENSION",
+      "FINAL_WARNING"
+    ],
+    "WEBHOOK_EVENT_STATUS": [
+      "RECEIVED",
+      "PROCESSING",
+      "PROCESSED",
+      "FAILED"
+    ],
+    "WEEK_DAY": [
+      "MONDAY",
+      "TUESDAY",
+      "WEDNESDAY",
+      "THURSDAY",
+      "FRIDAY",
+      "SATURDAY",
+      "SUNDAY"
+    ],
+    "WORKLOAD_LEVEL": [
+      "LOW",
+      "NORMAL",
+      "HIGH",
+      "CRITICAL"
+    ],
+    "WORK_ACCIDENT_REPORT_TYPE": [
+      "INITIAL",
+      "REOPENING",
+      "DEATH"
+    ],
+    "XYZ_CATEGORY": [
+      "X",
+      "Y",
+      "Z"
+    ]
+  },
+  "orcamento": {
+    "status": [
+      "EXPIRED",
+      "SIGNED",
+      "PENDING",
+      "APPROVED",
+      "CANCELLED",
+      "REQUESTED",
+      "IN_NEGOTIATION",
+      "PRE_APPROVED"
+    ],
+    "transicoesManuais": {
+      "EXPIRED": [
+        "PENDING",
+        "CANCELLED",
+        "REQUESTED"
+      ],
+      "SIGNED": [
+        "PENDING",
+        "APPROVED",
+        "CANCELLED"
+      ],
+      "PENDING": [
+        "APPROVED",
+        "CANCELLED",
+        "IN_NEGOTIATION"
+      ],
+      "APPROVED": [
+        "PENDING",
+        "CANCELLED"
+      ],
+      "CANCELLED": [],
+      "REQUESTED": [
+        "PENDING",
+        "CANCELLED",
+        "IN_NEGOTIATION"
+      ],
+      "IN_NEGOTIATION": [
+        "CANCELLED",
+        "REQUESTED",
+        "PRE_APPROVED"
+      ],
+      "PRE_APPROVED": [
+        "PENDING",
+        "CANCELLED",
+        "IN_NEGOTIATION"
+      ]
+    },
+    "ordem": {
+      "REQUESTED": 1,
+      "EXPIRED": 2,
+      "PRE_APPROVED": 3,
+      "SIGNED": 4,
+      "IN_NEGOTIATION": 5,
+      "PENDING": 6,
+      "APPROVED": 7,
+      "CANCELLED": 8
+    }
+  },
+  "notificacoes": [
+    "airbrushing.assigned",
+    "airbrushing.nfse.certificate_expiring",
+    "airbrushing.nfse.issued",
+    "airbrushing.nfse.rejected",
+    "airbrushing.payment.received",
+    "artwork.approved",
+    "artwork.pending_approval_reminder",
+    "artwork.reproved",
+    "assessment.assigned",
+    "assessment.closed",
+    "assessment.entry.submitted",
+    "assessment.reminder",
+    "bank_slip.cancelled",
+    "bank_slip.created",
+    "bank_slip.due",
+    "bank_slip.due_date_changed",
+    "bank_slip.overdue",
+    "bank_slip.paid",
+    "bank_slip.registration_failed",
+    "bank_slip.reversed",
+    "borrow.unreturned.escalation",
+    "borrow.unreturned_manager_reminder",
+    "borrow.unreturned_reminder",
+    "cut.completed",
+    "cut.created",
+    "cut.request.created",
+    "cut.started",
+    "cuts.added.to.task",
+    "external_operation.cancelled",
+    "external_operation.charged",
+    "external_operation.created",
+    "external_operation.liquidated",
+    "external_operation.returned",
+    "fispq.expiring",
+    "invoice.cancelled",
+    "item.low_stock",
+    "item.out_of_stock",
+    "item.overstock",
+    "item.reorder_required",
+    "item.replenished",
+    "maintenance.due",
+    "maintenance.overdue",
+    "medical_exam.expiring",
+    "medical_exam.return_due",
+    "message.published",
+    "message_schedule.run.failed",
+    "nfse.cancel_rejected",
+    "nfse.cancelled",
+    "nfse.issued",
+    "nfse.orphan_live",
+    "nfse.rejected",
+    "order.cancelled",
+    "order.created",
+    "order.item.entered_inventory",
+    "order.item.received",
+    "order.overdue",
+    "order.payment.assigned",
+    "order.payment.fulfilled",
+    "order.status.changed",
+    "order_schedule.run.failed",
+    "paint.produced",
+    "payable.confirmation.stale",
+    "payroll.finalization.failed",
+    "payroll.finalization.succeeded",
+    "ppe.approved",
+    "ppe.ca_expiry",
+    "ppe.delivered",
+    "ppe.rejected",
+    "ppe.requested",
+    "ppe.signature_failed",
+    "ppe.signature_required",
+    "questionnaire.assigned",
+    "questionnaire.closed",
+    "questionnaire.entry.submitted",
+    "questionnaire.reminder",
+    "reconciliation.run.failed",
+    "reconciliation.run.partial",
+    "secullum.absence.unjustified",
+    "secullum.diagnostic.completed",
+    "secullum.health.failed",
+    "secullum.payroll.dataDegraded",
+    "secullum.period.closed",
+    "secullum.request.adjustment.created",
+    "secullum.request.approved",
+    "secullum.request.justifyAbsence.created",
+    "secullum.request.punchInclusion.created",
+    "secullum.request.rejected",
+    "secullum.signature.ready",
+    "secullum.signature.rejected",
+    "secullum.signature.signed",
+    "secullum.sync.conflict",
+    "secullum.sync.failed",
+    "service_order.assigned.artwork",
+    "service_order.assigned.commercial",
+    "service_order.assigned.logistic",
+    "service_order.assigned.production",
+    "service_order.cancelled.artwork",
+    "service_order.cancelled.commercial",
+    "service_order.cancelled.logistic",
+    "service_order.cancelled.production",
+    "service_order.completed.artwork",
+    "service_order.completed.commercial",
+    "service_order.completed.logistic",
+    "service_order.completed.production",
+    "service_order.created.artwork",
+    "service_order.created.commercial",
+    "service_order.created.logistic",
+    "service_order.created.production",
+    "service_order.observation_changed.artwork",
+    "service_order.observation_changed.commercial",
+    "service_order.observation_changed.logistic",
+    "service_order.observation_changed.production",
+    "service_order.paused.artwork",
+    "service_order.paused.commercial",
+    "service_order.paused.logistic",
+    "service_order.paused.production",
+    "service_order.pending.artwork",
+    "service_order.pending.commercial",
+    "service_order.pending.logistic",
+    "service_order.pending.production",
+    "service_order.started.artwork",
+    "service_order.started.commercial",
+    "service_order.started.logistic",
+    "service_order.started.production",
+    "service_order.status_changed_for_creator.artwork",
+    "service_order.status_changed_for_creator.commercial",
+    "service_order.status_changed_for_creator.logistic",
+    "service_order.status_changed_for_creator.production",
+    "service_order.waiting_approval.artwork",
+    "service_order.waiting_approval.commercial",
+    "service_order.waiting_approval.logistic",
+    "service_order.waiting_approval.production",
+    "service_order.waiting_artwork.artwork",
+    "service_order.waiting_artwork.commercial",
+    "service_order.waiting_artwork.logistic",
+    "service_order.waiting_artwork.production",
+    "task.assigned",
+    "task.cancelled",
+    "task.completed",
+    "task.created",
+    "task.deadline_1day",
+    "task.deadline_1hour",
+    "task.deadline_3days",
+    "task.deadline_4hours",
+    "task.deadline_7days",
+    "task.field.bankSlips",
+    "task.field.baseFiles",
+    "task.field.bonification",
+    "task.field.budgets",
+    "task.field.customerId",
+    "task.field.details",
+    "task.field.entryDate",
+    "task.field.finishedAt",
+    "task.field.forecastDate",
+    "task.field.invoiceReimbursements",
+    "task.field.invoices",
+    "task.field.layouts",
+    "task.field.logoPaints",
+    "task.field.name",
+    "task.field.observation",
+    "task.field.paintId",
+    "task.field.priority",
+    "task.field.receipts",
+    "task.field.reimbursements",
+    "task.field.responsibles",
+    "task.field.sectorId",
+    "task.field.serialNumber",
+    "task.field.startedAt",
+    "task.field.status",
+    "task.field.term",
+    "task.field.truck.backSideMeasureId",
+    "task.field.truck.category",
+    "task.field.truck.chassisNumber",
+    "task.field.truck.implementMeasure",
+    "task.field.truck.implementType",
+    "task.field.truck.leftSideMeasureId",
+    "task.field.truck.plate",
+    "task.field.truck.rightSideMeasureId",
+    "task.field.truck.spot",
+    "task.forecast_10days",
+    "task.forecast_1day",
+    "task.forecast_3days",
+    "task.forecast_7days",
+    "task.forecast_overdue",
+    "task.forecast_today",
+    "task.in_production",
+    "task.overdue",
+    "task.ready_for_production",
+    "task.status.changed",
+    "task_quote.approval_pending",
+    "task_quote.billing_approved",
+    "task_quote.budget_approved",
+    "task_quote.commercial_approved",
+    "task_quote.expired",
+    "task_quote.installment_overdue",
+    "task_quote.payment_due",
+    "task_quote.refused",
+    "task_quote.settled",
+    "task_quote.signed",
+    "timeentry.due",
+    "timeentry.missing.escalation",
+    "timeentry.reminder",
+    "truck.movement_request",
+    "vacation.concessive_expired",
+    "vacation.concessive_expiring",
+    "vacation.planning_conflict",
+    "warning.issued",
+    "warning.issued.escalation"
+  ],
+  "multipart": [
+    {
+      "rota": "POST /files/upload",
+      "arquivo": "src/modules/common/file/file.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /files/upload/multiple",
+      "arquivo": "src/modules/common/file/file.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 30
+        }
+      ]
+    },
+    {
+      "rota": "POST /financial/reconciliation/import",
+      "arquivo": "src/modules/financial/reconciliation/reconciliation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 30
+        }
+      ]
+    },
+    {
+      "rota": "POST /financial/reconciliation/fiscal-documents/import",
+      "arquivo": "src/modules/financial/reconciliation/reconciliation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 30
+        }
+      ]
+    },
+    {
+      "rota": "POST /fiscal-emitters/:userId/certificate",
+      "arquivo": "src/modules/integrations/nfse/painter/painter-nfse.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "certificate",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /external-operations",
+      "arquivo": "src/modules/inventory/external-operation/external-operation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PUT /external-operations/:id",
+      "arquivo": "src/modules/inventory/external-operation/external-operation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PATCH /external-operations/:id",
+      "arquivo": "src/modules/inventory/external-operation/external-operation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /fispq/:id/document",
+      "arquivo": "src/modules/inventory/fispq/fispq.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "document",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /orders",
+      "arquivo": "src/modules/inventory/order/order.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PUT /orders/:id/receipts",
+      "arquivo": "src/modules/inventory/order/order.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PUT /orders/:id",
+      "arquivo": "src/modules/inventory/order/order.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /suppliers",
+      "arquivo": "src/modules/inventory/supplier/supplier.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "logo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "PUT /suppliers/:id",
+      "arquivo": "src/modules/inventory/supplier/supplier.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "logo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /paints",
+      "arquivo": "src/modules/paint/paint.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "colorPreview",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "PUT /paints/:id",
+      "arquivo": "src/modules/paint/paint.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "colorPreview",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /painting-analyses/:id/faces",
+      "arquivo": "src/modules/paint/painting-analysis/painting-analysis.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "PATCH /cliente/me/veiculos/:taskId/identificacao",
+      "arquivo": "src/modules/people/portal/portal-identity.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "truckVinPlate",
+          "maxCount": null
+        }
+      ]
+    },
+    {
+      "rota": "POST /cliente/me/orcamentos",
+      "arquivo": "src/modules/people/portal/portal-request.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "baseFiles",
+          "maxCount": null
+        }
+      ]
+    },
+    {
+      "rota": "PUT /profile/photo",
+      "arquivo": "src/modules/people/profile/profile.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "photo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /users",
+      "arquivo": "src/modules/people/user/user.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "avatar",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "PUT /users/:id",
+      "arquivo": "src/modules/people/user/user.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "avatar",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /warnings",
+      "arquivo": "src/modules/people/warning/warning.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "attachments",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PUT /warnings/:id",
+      "arquivo": "src/modules/people/warning/warning.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "attachments",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /admissions/by-user/:userId/documents",
+      "arquivo": "src/modules/personnel-department/admission/admission.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": null
+        }
+      ]
+    },
+    {
+      "rota": "POST /admissions/:id/documents",
+      "arquivo": "src/modules/personnel-department/admission/admission.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": null
+        }
+      ]
+    },
+    {
+      "rota": "POST /user-benefits/:id/declaration",
+      "arquivo": "src/modules/personnel-department/benefit/user-benefit.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "declaration",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /leaves/:id/files",
+      "arquivo": "src/modules/personnel-department/leave/leave.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /medical-exams/:id/document",
+      "arquivo": "src/modules/personnel-department/medical-exam/medical-exam.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "document",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /terminations/:id/documents",
+      "arquivo": "src/modules/personnel-department/termination/termination.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /airbrushings",
+      "arquivo": "src/modules/production/airbrushing/airbrushing.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "layouts",
+          "maxCount": 20
+        }
+      ]
+    },
+    {
+      "rota": "PUT /airbrushings/:id",
+      "arquivo": "src/modules/production/airbrushing/airbrushing.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "layouts",
+          "maxCount": 20
+        }
+      ]
+    },
+    {
+      "rota": "PUT /airbrushings/:id/receipts",
+      "arquivo": "src/modules/production/airbrushing/airbrushing.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /budgets/public/:id/signature",
+      "arquivo": "src/modules/production/budget/budget.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "signature",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /customers",
+      "arquivo": "src/modules/production/customer/customer.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "logo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "PUT /customers/:id",
+      "arquivo": "src/modules/production/customer/customer.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "logo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /cuts",
+      "arquivo": "src/modules/production/cut/cut.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /implement-measure/truck/:truckId/:side",
+      "arquivo": "src/modules/production/implement-measure/implement-measure.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "photo",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /observations",
+      "arquivo": "src/modules/production/task-observation/observation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "PUT /observations/:id",
+      "arquivo": "src/modules/production/task-observation/observation.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /tasks",
+      "arquivo": "src/modules/production/task/task.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "budgets",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "bankSlips",
+          "maxCount": 10
+        },
+        {
+          "nome": "layouts",
+          "maxCount": 10
+        },
+        {
+          "nome": "baseFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "projectFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "checkinFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "checkoutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "cutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "truckVinPlate",
+          "maxCount": 1
+        },
+        {
+          "nome": "airbrushings[0].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[0].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[0].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[1].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[1].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[1].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[2].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[2].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[2].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[3].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[3].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[3].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[4].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[4].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[4].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[5].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[5].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[5].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[6].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[6].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[6].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[7].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[7].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[7].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[8].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[8].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[8].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[9].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[9].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[9].layouts",
+          "maxCount": 20
+        }
+      ]
+    },
+    {
+      "rota": "PUT /tasks/batch",
+      "arquivo": "src/modules/production/task/task.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "budgets",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "bankSlips",
+          "maxCount": 10
+        },
+        {
+          "nome": "layouts",
+          "maxCount": 10
+        },
+        {
+          "nome": "baseFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "projectFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "checkinFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "checkoutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "cutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "truckVinPlate",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.leftSide",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.rightSide",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.backSide",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /tasks/bulk/upload-files",
+      "arquivo": "src/modules/production/task/task.controller.ts",
+      "interceptor": "FilesInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 30
+        }
+      ]
+    },
+    {
+      "rota": "PUT /tasks/:id",
+      "arquivo": "src/modules/production/task/task.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "budgets",
+          "maxCount": 10
+        },
+        {
+          "nome": "invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "bankSlips",
+          "maxCount": 10
+        },
+        {
+          "nome": "layouts",
+          "maxCount": 10
+        },
+        {
+          "nome": "baseFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "projectFiles",
+          "maxCount": 30
+        },
+        {
+          "nome": "checkinFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "checkoutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "soCheckinFiles",
+          "maxCount": 60
+        },
+        {
+          "nome": "soCheckoutFiles",
+          "maxCount": 60
+        },
+        {
+          "nome": "cutFiles",
+          "maxCount": 20
+        },
+        {
+          "nome": "observationFiles",
+          "maxCount": 10
+        },
+        {
+          "nome": "truckVinPlate",
+          "maxCount": 1
+        },
+        {
+          "nome": "quoteLayoutFile",
+          "maxCount": 2
+        },
+        {
+          "nome": "airbrushings[0].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[0].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[0].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[1].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[1].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[1].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[2].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[2].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[2].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[3].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[3].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[3].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[4].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[4].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[4].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[5].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[5].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[5].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[6].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[6].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[6].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[7].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[7].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[7].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[8].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[8].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[8].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "airbrushings[9].receipts",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[9].invoices",
+          "maxCount": 10
+        },
+        {
+          "nome": "airbrushings[9].layouts",
+          "maxCount": 20
+        },
+        {
+          "nome": "implementMeasurePhotos.leftSide",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.rightSide",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.backSide",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /install/publish/ios",
+      "arquivo": "src/modules/system/install/install.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /install/publish/android",
+      "arquivo": "src/modules/system/install/install.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /waste-certificates",
+      "arquivo": "src/modules/waste-certificate/waste-certificate.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    },
+    {
+      "rota": "POST /waste-certificates/public/:id/signed",
+      "arquivo": "src/modules/waste-certificate/waste-certificate.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "file",
+          "maxCount": 1
+        }
+      ]
+    }
+  ],
+  "fileContexts": [
+    "tasksLayouts",
+    "taskBudgets",
+    "taskInvoices",
+    "taskReceipts",
+    "taskBankSlips",
+    "taskReimbursements",
+    "taskNfeReimbursements",
+    "cutFiles",
+    "taskBaseFiles",
+    "taskProjectFiles",
+    "taskCheckinFiles",
+    "taskCheckoutFiles",
+    "serviceOrderCheckinFiles",
+    "serviceOrderCheckoutFiles",
+    "orderReceipts",
+    "airbrushingLayouts",
+    "airbrushingBudgets",
+    "airbrushingInvoices",
+    "airbrushingReceipts",
+    "airbrushingReimbursements",
+    "airbrushingNfeReimbursements",
+    "externalOperationInvoices",
+    "externalOperationReceipts",
+    "externalOperationReimbursements",
+    "externalOperationNfeReimbursements",
+    "customerLogo",
+    "supplierLogo",
+    "userAvatar",
+    "signedPpeDocuments",
+    "admissionDocuments",
+    "terminationDocuments",
+    "medicalExams",
+    "leaveDocuments",
+    "benefitDocuments",
+    "budgetSignatures",
+    "budgetDossiers",
+    "fiscalDocumentXml",
+    "bankStatements",
+    "installmentReceipts",
+    "observations",
+    "warning",
+    "implementMeasurePhotos",
+    "truckVinPlate",
+    "quote-layouts",
+    "plotterEspovo",
+    "plotterAdesivo",
+    "thumbnails",
+    "paintColor",
+    "messageImages",
+    "general",
+    "images",
+    "documents",
+    "archives",
+    "temp"
+  ]
+}

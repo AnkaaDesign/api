@@ -1,0 +1,2597 @@
+{
+  "_gerado": "GERADO por api/scripts/export-contracts.ts — NÃO EDITE À MÃO. Regerar: npx tsx scripts/export-contracts.ts",
+  "_fontes": [
+    "src/constants/document-labels.ts",
+    "src/constants/enum-labels.ts"
+  ],
+  "perfis": {
+    "leitores": {
+      "screen": "telas (api, web, app), changelog da api, notificações, documento do orçamento assinado",
+      "nfseTask": "NFS-e da tarefa (Elotech: discriminação) e as prévias dela no web e no app",
+      "nfsePainter": "NFS-e do aerografista (DPS nacional, xDescServ)",
+      "boleto": "informativo do boleto registrado pela varredura (sicredi-boleto.scheduler)",
+      "invoice": "informativo do boleto registrado na aprovação (invoice-generation) e a prévia do web",
+      "webChangelog": "histórico de alterações do web (changelog-fields.ts)"
+    },
+    "TRUCK_CATEGORY": {
+      "screen": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      },
+      "nfseTask": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      },
+      "nfsePainter": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      },
+      "boleto": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      },
+      "invoice": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      },
+      "webChangelog": {
+        "MINI": "Mini",
+        "VUC": "VUC (Veículo Urbano de Carga)",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Caminhão",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      }
+    },
+    "IMPLEMENT_TYPE": {
+      "screen": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      },
+      "nfseTask": {
+        "DRY_CARGO": "Carga seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isotérmico",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Prancha/Plataforma"
+      },
+      "nfsePainter": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      },
+      "boleto": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      },
+      "invoice": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      },
+      "webChangelog": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      }
+    }
+  },
+  "tela": {
+    "ABC_CATEGORY_LABELS": {
+      "enum": "ABC_CATEGORY",
+      "labels": {
+        "A": "Categoria A - Alto Valor",
+        "B": "Categoria B - Médio Valor",
+        "C": "Categoria C - Baixo Valor"
+      }
+    },
+    "ACTIVITY_LEVEL_LABELS": {
+      "enum": "ACTIVITY_LEVEL",
+      "labels": {
+        "VERY_ACTIVE": "Very Active",
+        "ACTIVE": "Active",
+        "OCCASIONAL": "Ocasional",
+        "DORMANT": "Inactive",
+        "LOST": "Lost"
+      }
+    },
+    "ACTIVITY_OPERATION_LABELS": {
+      "enum": "ACTIVITY_OPERATION",
+      "labels": {
+        "INBOUND": "Inbound",
+        "OUTBOUND": "Outbound"
+      }
+    },
+    "ACTIVITY_REASON_LABELS": {
+      "enum": "ACTIVITY_REASON",
+      "labels": {
+        "ORDER_RECEIVED": "Order Received",
+        "PRODUCTION_USAGE": "Uso em Produção",
+        "PPE_DELIVERY": "Entrega de EPI",
+        "RETURN": "Devolução",
+        "EXTERNAL_OPERATION": "Operação Externa",
+        "INVENTORY_COUNT": "Contagem de Inventário",
+        "MANUAL_ADJUSTMENT": "Ajuste Manual",
+        "MAINTENANCE": "Manutenção",
+        "DAMAGE": "Dano",
+        "LOSS": "Perda",
+        "PAINT_PRODUCTION": "Produção de Tinta",
+        "EXTERNAL_OPERATION_RETURN": "Devolução de Operação Externa",
+        "OTHER": "Other"
+      }
+    },
+    "ADMISSION_DOCUMENT_STATUS_LABELS": {
+      "enum": "ADMISSION_DOCUMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "RECEIVED": "Recebido",
+        "SIGNED": "Assinado",
+        "WAIVED": "Dispensado"
+      }
+    },
+    "ADMISSION_DOCUMENT_TYPE_LABELS": {
+      "enum": "ADMISSION_DOCUMENT_TYPE",
+      "labels": {
+        "CPF": "CPF",
+        "RG": "RG",
+        "CTPS": "CTPS",
+        "PROOF_OF_RESIDENCE": "Comprovante de Residência",
+        "VOTER_ID": "Título de Eleitor",
+        "MILITARY_CERTIFICATE": "Certificado de Reservista",
+        "BIRTH_MARRIAGE_CERTIFICATE": "Certidão de Nascimento/Casamento",
+        "PHOTO": "Foto 3x4",
+        "PIS": "PIS",
+        "ADMISSION_EXAM": "Exame Admissional",
+        "TRANSPORT_VOUCHER_DECLARATION": "Declaração de Vale Transporte",
+        "FAMILY_SALARY_FORM": "Ficha de Salário Família",
+        "EMPLOYMENT_CONTRACT": "Contrato de Trabalho",
+        "TIME_BANK_AGREEMENT": "Acordo de Banco de Horas",
+        "LGPD_TERM": "Termo LGPD",
+        "DRIVER_LICENSE": "CNH",
+        "OTHER": "Outro"
+      }
+    },
+    "ADMISSION_STATUS_LABELS": {
+      "enum": "ADMISSION_STATUS",
+      "labels": {
+        "DOCS_PENDING": "Documentação Pendente",
+        "MEDICAL_EXAM": "Exame Admissional",
+        "CONTRACT": "Contrato",
+        "REGISTRATION": "Registro",
+        "COMPLETED": "Concluída",
+        "CANCELLED": "Cancelada"
+      }
+    },
+    "AIRBRUSHING_DUE_DATE_RULE_LABELS": {
+      "enum": "AIRBRUSHING_DUE_DATE_RULE",
+      "labels": {
+        "DAYS_AFTER_FINISH": "Dias após o término",
+        "DAY_OF_MONTH": "Dia fixo do mês",
+        "FIXED_DATE": "Data específica"
+      }
+    },
+    "AIRBRUSHING_PAYMENT_STATUS_LABELS": {
+      "enum": "AIRBRUSHING_PAYMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "PAID": "Pago"
+      }
+    },
+    "AIRBRUSHING_STATUS_LABELS": {
+      "enum": "AIRBRUSHING_STATUS",
+      "labels": {
+        "PREPARATION": "Em Preparação",
+        "WAITING_PRODUCTION": "Aguardando Produção",
+        "IN_PRODUCTION": "Em Produção",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "ALERT_TYPE_LABELS": {
+      "enum": "ALERT_TYPE",
+      "labels": {
+        "HIGH_SPENDING": "Alto Gasto",
+        "UNUSUAL_PATTERN": "Padrão Incomum",
+        "DISCREPANCY": "Discrepância",
+        "LOW_STOCK": "Estoque Baixo",
+        "STOCK_OUT": "Sem Estoque",
+        "OVERSTOCK": "Excesso de Estoque",
+        "SLOW_MOVING": "Slow Moving",
+        "REORDER_NEEDED": "Reposição Necessária",
+        "HIGH_TURNOVER": "High Turnover",
+        "ATTENDANCE_ISSUE": "Problema de Assiduidade",
+        "DELIVERY_DELAY": "Atraso na Entrega",
+        "SERVICE_ISSUE": "Problema de Serviço",
+        "PAYMENT_DELAY": "Atraso no Pagamento",
+        "OVERDUE": "Atrasado",
+        "CUSTOMER_COMPLAINT": "Reclamação do Cliente",
+        "HIGH_DEMAND": "High Demand",
+        "USER_VIOLATION": "Violação do Usuário",
+        "EXPIRING_DAYS": "Dias Expirando",
+        "PLANNING_CONFLICT": "Conflito de Planejamento",
+        "REPEAT_OFFENDER": "Reincidente",
+        "ESCALATION_NEEDED": "Escalonamento Necessário",
+        "PATTERN_DETECTED": "Padrão Detectado",
+        "STOCK_SHORTAGE": "Falta de Estoque",
+        "MISSING_DELIVERY": "Entrega Faltante",
+        "DELIVERY_DELAYS": "Atrasos na Entrega"
+      }
+    },
+    "ASSIGNMENT_TYPE_LABELS": {
+      "enum": "ASSIGNMENT_TYPE",
+      "labels": {
+        "ALL": "All",
+        "ALL_EXCEPT": "All Except",
+        "SPECIFIC": "Specific"
+      }
+    },
+    "AUDIT_ACTION_LABELS": {
+      "enum": "AUDIT_ACTION",
+      "labels": {
+        "CREATE": "Criar",
+        "UPDATE": "Atualizar",
+        "DELETE": "Excluir"
+      }
+    },
+    "BANK_SLIP_STATUS_LABELS": {
+      "enum": "BANK_SLIP_STATUS",
+      "labels": {
+        "CREATING": "Criando",
+        "REGISTERING": "Registrando",
+        "ACTIVE": "Ativo",
+        "OVERDUE": "Vencido",
+        "PAID": "Pago",
+        "CANCELLED": "Cancelado",
+        "REJECTED": "Rejeitado",
+        "ERROR": "Erro"
+      }
+    },
+    "BATCH_OPERATION_STATUS_LABELS": {
+      "enum": "BATCH_OPERATION_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "PROCESSING": "Processing",
+        "COMPLETED": "Concluído",
+        "FAILED": "Falhou",
+        "PARTIAL": "Parcial"
+      }
+    },
+    "BENEFIT_ENROLLMENT_STATUS_LABELS": {
+      "enum": "BENEFIT_ENROLLMENT_STATUS",
+      "labels": {
+        "ACTIVE": "Ativa",
+        "SUSPENDED": "Suspensa",
+        "OPTED_OUT": "Optou por Não Receber",
+        "TERMINATED": "Encerrada"
+      }
+    },
+    "BENEFIT_KIND_LABELS": {
+      "enum": "BENEFIT_KIND",
+      "labels": {
+        "TRANSPORT_VOUCHER": "Vale Transporte",
+        "MEAL_VOUCHER": "Vale Refeição",
+        "FOOD_VOUCHER": "Vale Alimentação",
+        "HEALTH_PLAN": "Plano de Saúde",
+        "DENTAL_PLAN": "Plano Odontológico",
+        "PHARMACY_AGREEMENT": "Convênio Farmácia",
+        "PARTNERSHIP": "Parceria",
+        "LIFE_INSURANCE": "Seguro de Vida",
+        "OTHER": "Outro"
+      }
+    },
+    "BILLING_STATUS_LABELS": {
+      "enum": "BILLING_STATUS",
+      "labels": {
+        "OVERDUE": "Vencido",
+        "PENDING": "Pendente",
+        "APPROVED": "Aprovado",
+        "PARTIAL": "Parcial",
+        "SETTLED": "Liquidado",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "BONIFICATION_STATUS_LABELS": {
+      "enum": "BONIFICATION_STATUS",
+      "labels": {
+        "NO_BONIFICATION": "Sem Bonificação",
+        "PARTIAL_BONIFICATION": "Bonificação Parcial",
+        "FULL_BONIFICATION": "Bonificação Integral",
+        "SUSPENDED_BONIFICATION": "Bonificação Suspensa"
+      }
+    },
+    "BONUS_DISCOUNT_REASON_LABELS": {
+      "enum": "BONUS_DISCOUNT_REASON",
+      "labels": {
+        "ABSENCE": "Ausência",
+        "LATE_DELIVERY": "Entrega Atrasada",
+        "QUALITY_ISSUE": "Problema de Qualidade",
+        "DISCIPLINARY": "Disciplinar",
+        "OTHER": "Other"
+      }
+    },
+    "BONUS_STATUS_LABELS": {
+      "enum": "BONUS_STATUS",
+      "labels": {
+        "DRAFT": "Rascunho",
+        "CONFIRMED": "Confirmado"
+      }
+    },
+    "BOOT_SIZE_LABELS": {
+      "enum": "BOOT_SIZE",
+      "labels": {
+        "SIZE_35": "35",
+        "SIZE_36": "36",
+        "SIZE_37": "37",
+        "SIZE_38": "38",
+        "SIZE_39": "39",
+        "SIZE_40": "40",
+        "SIZE_41": "41",
+        "SIZE_42": "42",
+        "SIZE_43": "43",
+        "SIZE_44": "44",
+        "SIZE_45": "45",
+        "SIZE_46": "46",
+        "SIZE_47": "47",
+        "SIZE_48": "48"
+      }
+    },
+    "BORROW_STATUS_LABELS": {
+      "enum": "BORROW_STATUS",
+      "labels": {
+        "ACTIVE": "Ativo",
+        "RETURNED": "Devolvido",
+        "LOST": "Perdido"
+      }
+    },
+    "CAPTCHA_REQUIREMENT_LEVEL_LABELS": {
+      "enum": "CAPTCHA_REQUIREMENT_LEVEL",
+      "labels": {
+        "NONE": "None",
+        "BASIC": "Basic",
+        "INTERMEDIATE": "Intermediário",
+        "ADVANCED": "Avançado",
+        "MAXIMUM": "Máximo"
+      }
+    },
+    "CHANGE_ACTION_LABELS": {
+      "enum": "CHANGE_ACTION",
+      "labels": {
+        "CREATE": "Criado",
+        "UPDATE": "Atualizado",
+        "DELETE": "Excluído",
+        "RESTORE": "Restaurado",
+        "ROLLBACK": "Revertido",
+        "ARCHIVE": "Arquivado",
+        "UNARCHIVE": "Desarquivado",
+        "ACTIVATE": "Ativado",
+        "DEACTIVATE": "Desativado",
+        "APPROVE": "Approved",
+        "REJECT": "Rejected",
+        "CANCEL": "Cancelado",
+        "COMPLETE": "Concluído",
+        "RESCHEDULE": "Reagendado",
+        "BATCH_CREATE": "Criado em Lote",
+        "BATCH_UPDATE": "Atualizado em Lote",
+        "BATCH_DELETE": "Excluído em Lote",
+        "VIEW": "Visualizado"
+      }
+    },
+    "CHANGE_LOG_ACTION_LABELS": {
+      "enum": "CHANGE_LOG_ACTION",
+      "labels": {
+        "CREATE": "Criar",
+        "UPDATE": "Atualizar",
+        "DELETE": "Excluir",
+        "RESTORE": "Restaurar",
+        "ROLLBACK": "Reverter",
+        "ARCHIVE": "Arquivar",
+        "UNARCHIVE": "Desarquivar",
+        "ACTIVATE": "Ativar",
+        "DEACTIVATE": "Desativar",
+        "APPROVE": "Aprovar",
+        "REJECT": "Rejeitar",
+        "CANCEL": "Cancelar",
+        "COMPLETE": "Concluir",
+        "RESCHEDULE": "Reagendar",
+        "BATCH_CREATE": "Criar em Lote",
+        "BATCH_UPDATE": "Atualizar em Lote",
+        "BATCH_DELETE": "Excluir em Lote",
+        "VIEW": "Visualizar"
+      }
+    },
+    "CHANGE_LOG_ENTITY_TYPE_LABELS": {
+      "enum": "CHANGE_LOG_ENTITY_TYPE",
+      "labels": {
+        "ABSENCE": "Ausência",
+        "ACTIVITY": "Atividade",
+        "AIRBRUSHING": "Aerografia",
+        "BONUS": "Bônus",
+        "BORROW": "Empréstimo",
+        "CALCULATION": "Cálculo",
+        "CALCULATION_DETAIL": "Detalhe de Cálculo",
+        "CALCULATION_DECOMPOSITION": "Decomposição de Cálculo",
+        "CATEGORY": "Categoria",
+        "COLLECTION": "Coleção",
+        "CUT": "Corte",
+        "CUT_ITEM": "Item de Corte",
+        "CUT_PLAN": "Plano de Corte",
+        "CUT_REQUEST": "Solicitação de Corte",
+        "DELIVERY": "Entrega",
+        "PPE_DELIVERY": "Entrega EPI",
+        "PPE_DELIVERY_ITEM": "Item Entrega EPI",
+        "PPE_REQUEST": "Solicitação de EPI",
+        "PPE_DELIVERY_SCHEDULE": "Agendamento EPI",
+        "PPE_SIZE": "Tamanho EPI",
+        "EXTERNAL_OPERATION": "Operação Externa",
+        "EXTERNAL_OPERATION_ITEM": "Item de Operação Externa",
+        "FILE": "Arquivo",
+        "FISPQ": "FISPQ/FDS",
+        "ITEM": "Item",
+        "ITEM_BRAND": "Marca de Item",
+        "ITEM_CATEGORY": "Categoria de Item",
+        "IMPLEMENT_MEASURE": "Medidas do Implemento",
+        "MAINTENANCE": "Manutenção",
+        "MAINTENANCE_SCHEDULE": "Agendamento de Manutenção",
+        "NOTIFICATION": "Notificação",
+        "OBSERVATION": "Observação",
+        "ORDER": "Pedido",
+        "ORDER_ITEM": "Item do Pedido",
+        "ORDER_RULE": "Regra de Pedido",
+        "ORDER_SCHEDULE": "Agendamento de Pedido",
+        "PAINT": "Tinta",
+        "PAINT_TYPE": "Tipo de Tinta",
+        "SERVICE": "Serviço",
+        "PAINT_GROUND": "Base de Tinta",
+        "PAINT_FORMULA": "Fórmula de Tinta",
+        "PAINT_FORMULA_COMPONENT": "Componente de Fórmula",
+        "PAINT_PRODUCTION": "Produção de Pintura",
+        "PARKING_SPOT": "Vaga de Estacionamento",
+        "PIECE": "Peça",
+        "POSITION": "Cargo",
+        "PREFERENCES": "Preferências",
+        "PRODUCTION": "Produção",
+        "PURCHASE": "Compra",
+        "RESPONSIBLE": "Responsável",
+        "SECTOR": "Setor",
+        "SERVICE_ORDER": "Ordem de Serviço",
+        "SUPPLIER": "Fornecedor",
+        "WAREHOUSE_LOCATION": "Localização de Armazenamento",
+        "TASK": "Tarefa",
+        "TASK_QUOTE": "Precificação de Tarefa",
+        "TASK_QUOTE_ITEM": "Item do Orçamento",
+        "TASK_QUOTE_SERVICE": "Serviço do Orçamento",
+        "TASK_QUOTE_CUSTOMER_CONFIG": "Configuração de Cliente do Orçamento",
+        "TIME_CLOCK_ENTRY": "Registro de Ponto",
+        "USER": "Usuário",
+        "VACATION": "Férias",
+        "VACATION_GROUP": "Férias Coletivas",
+        "WARNING": "Advertência",
+        "THIRTEENTH": "Décimo Terceiro",
+        "MAINTENANCE_ITEM": "Item de Manutenção",
+        "PPE_CONFIG": "Configuração de EPI",
+        "PRICE": "Preço",
+        "HOLIDAY": "Feriado",
+        "CUSTOMER": "Cliente",
+        "TRUCK": "Caminhão",
+        "SEEN_NOTIFICATION": "Notificação Visualizada",
+        "NOTIFICATION_PREFERENCE": "Preferência de Notificação",
+        "VERIFICATION": "Verificação",
+        "EXPENSE": "Despesa",
+        "BONIFICATION": "Bonificação",
+        "DISCOUNT": "Desconto",
+        "ECONOMIC_ACTIVITY": "Atividade Econômica",
+        "PAYROLL": "Folha de Pagamento",
+        "DEPLOYMENT": "Implantação",
+        "SALARY_ADJUSTMENT": "Reajuste Salarial",
+        "USER_POSITION_HISTORY": "Histórico de Cargo",
+        "BENEFIT": "Benefício",
+        "USER_BENEFIT": "Adesão de Benefício",
+        "ADMISSION": "Admissão",
+        "TERMINATION": "Rescisão",
+        "MEDICAL_EXAM": "Exame Médico",
+        "LEAVE": "Afastamento",
+        "DEPENDENT": "Dependente",
+        "AGENDA_EVENT": "Evento de Agenda",
+        "NOTE": "Nota",
+        "BANK_TRANSACTION": "Transação Bancária",
+        "RECONCILIATION_MATCH": "Conciliação",
+        "FISCAL_DOCUMENT": "Nota Fiscal",
+        "INSTALLMENT": "Parcela a Receber",
+        "INVOICE": "Faturamento",
+        "BANK_SLIP": "Boleto",
+        "RECURRENT_PAYABLE": "Conta Recorrente",
+        "RECURRENT_PAYABLE_OCCURRENCE": "Conta a Pagar",
+        "AIRBRUSHING_NFSE": "NFS-e do Aerografista",
+        "FISCAL_EMITTER_PROFILE": "Perfil Fiscal",
+        "FISCAL_CERTIFICATE": "Certificado Digital"
+      }
+    },
+    "CHANGE_TRIGGERED_BY_LABELS": {
+      "enum": "CHANGE_TRIGGERED_BY",
+      "labels": {
+        "TASK_CREATE": "Criação de Tarefa",
+        "TASK_UPDATE": "Atualização de Tarefa",
+        "TASK_COPY_FROM_TASK": "Copiado de Outra Tarefa",
+        "ITEM_UPDATE": "Atualização de Item",
+        "USER_ACTION": "Ação do Usuário",
+        "BATCH_CREATE": "Criação em Lote",
+        "BATCH_UPDATE": "Atualização em Lote",
+        "BATCH_DELETE": "Exclusão em Lote",
+        "BATCH_OPERATION": "Operação em Lote",
+        "SYSTEM": "System",
+        "SYSTEM_GENERATED": "Gerado pelo Sistema",
+        "USER": "Usuário",
+        "EXTERNAL_OPERATION": "Operação Externa",
+        "EXTERNAL_OPERATION_DELETE": "Exclusão de Operação Externa",
+        "EXTERNAL_OPERATION_RETURN": "Devolução de Operação Externa",
+        "EXTERNAL_OPERATION_SYNC": "Sincronização de Operação Externa",
+        "EXTERNAL_OPERATION_ITEM": "Item de Operação Externa",
+        "EXTERNAL_OPERATION_ITEM_UPDATE": "Atualização de Item de Operação Externa",
+        "EXTERNAL_OPERATION_ITEM_DELETE": "Exclusão de Item de Operação Externa",
+        "PAINT_FORMULA_COMPONENT_CREATE": "Criação de Componente de Fórmula",
+        "PAINT_FORMULA_COMPONENT_UPDATE": "Atualização de Componente de Fórmula",
+        "PAINT_FORMULA_COMPONENT_DELETE": "Exclusão de Componente de Fórmula",
+        "PAINT_FORMULA_COMPONENT_BATCH_CREATE": "Criação em Lote de Componente de Fórmula",
+        "PAINT_FORMULA_COMPONENT_BATCH_UPDATE": "Atualização em Lote de Componente de Fórmula",
+        "PAINT_FORMULA_COMPONENT_BATCH_DELETE": "Exclusão em Lote de Componente de Fórmula",
+        "PAINT_PRODUCTION_CREATE": "Criação de Produção de Tinta",
+        "PAINT_PRODUCTION_UPDATE": "Atualização de Produção de Tinta",
+        "PAINT_PRODUCTION_DELETE": "Exclusão de Produção de Tinta",
+        "PAINT_PRODUCTION_BATCH_CREATE": "Criação de Produção de Tinta em Lote",
+        "PAINT_PRODUCTION_BATCH_UPDATE": "Atualização de Produção de Tinta em Lote",
+        "PAINT_PRODUCTION_BATCH_DELETE": "Exclusão de Produção de Tinta em Lote",
+        "PAINT_CREATE": "Criação de Tinta",
+        "PAINT_UPDATE": "Atualização de Tinta",
+        "PAINT_DELETE": "Exclusão de Tinta",
+        "PAINT_BATCH_CREATE": "Criação em Lote de Tinta",
+        "PAINT_BATCH_UPDATE": "Atualização em Lote de Tinta",
+        "PAINT_BATCH_DELETE": "Exclusão em Lote de Tinta",
+        "PAINT_FORMULA_CREATE": "Criação de Fórmula de Tinta",
+        "PAINT_FORMULA_UPDATE": "Atualização de Fórmula de Tinta",
+        "PAINT_FORMULA_DELETE": "Exclusão de Fórmula de Tinta",
+        "PAINT_FORMULA_BATCH_CREATE": "Criação em Lote de Fórmula de Tinta",
+        "PAINT_FORMULA_BATCH_UPDATE": "Atualização em Lote de Fórmula de Tinta",
+        "PAINT_FORMULA_BATCH_DELETE": "Exclusão em Lote de Fórmula de Tinta",
+        "ORDER_UPDATE": "Atualização de Pedido",
+        "ORDER_CREATE": "Criação de Pedido",
+        "ORDER_STATUS_CHANGE": "Alteração de Status do Pedido",
+        "ORDER_CANCEL": "Cancelamento de Pedido",
+        "ORDER_ITEM_UPDATE": "Atualização de Item do Pedido",
+        "ORDER_ITEM_RECEIVED": "Recebimento de Item do Pedido",
+        "ORDER_ITEM_SYNC": "Sincronização de Item do Pedido",
+        "SCHEDULE": "Agendamento",
+        "ACTIVITY_CREATE": "Criação de Atividade",
+        "ACTIVITY_UPDATE": "Atualização de Atividade",
+        "ACTIVITY_DELETE": "Exclusão de Atividade",
+        "PPE_DELIVERY": "Entrega de EPI",
+        "ACTIVITY_SYNC": "Sincronização de Atividade",
+        "INVENTORY_ADJUSTMENT": "Ajuste de Inventário",
+        "INVENTORY_COUNT": "Contagem de Inventário",
+        "ITEM_MONTHLY_CONSUMPTION_UPDATE": "Atualização de Consumo Mensal do Item",
+        "AUTOMATIC_MIN_MAX_UPDATE": "Atualização Automática de Mín/Máx",
+        "PAINT_TYPE_CREATE": "Criação de tipo de tinta",
+        "PAINT_TYPE_UPDATE": "Atualização de tipo de tinta",
+        "PAINT_TYPE_DELETE": "Remoção de tipo de tinta",
+        "PAINT_TYPE_BATCH_CREATE": "Criação em Lote de Tipo de Tinta",
+        "PAINT_TYPE_BATCH_UPDATE": "Atualização em Lote de Tipo de Tinta",
+        "PAINT_TYPE_BATCH_DELETE": "Exclusão em Lote de Tipo de Tinta",
+        "PAINT_BRAND_CREATE": "Criação de marca de tinta",
+        "PAINT_BRAND_UPDATE": "Atualização de marca de tinta",
+        "PAINT_BRAND_DELETE": "Remoção de marca de tinta",
+        "PAINT_BRAND_BATCH_CREATE": "Criação em Lote de Marca de Tinta",
+        "PAINT_BRAND_BATCH_UPDATE": "Atualização em Lote de Marca de Tinta",
+        "PAINT_BRAND_BATCH_DELETE": "Exclusão em Lote de Marca de Tinta",
+        "PAINT_GROUND_CREATE": "Criação de Base de Tinta",
+        "PAINT_GROUND_UPDATE": "Atualização de Base de Tinta",
+        "PAINT_GROUND_DELETE": "Exclusão de Base de Tinta",
+        "PAINT_GROUND_BATCH_CREATE": "Criação em Lote de Base de Tinta",
+        "PAINT_GROUND_BATCH_UPDATE": "Atualização em Lote de Base de Tinta",
+        "PAINT_GROUND_BATCH_DELETE": "Exclusão em Lote de Base de Tinta",
+        "SMS_VERIFICATION_CREATE": "Criação de Verificação SMS",
+        "SMS_VERIFICATION_SEND": "Envio de Verificação SMS",
+        "SMS_VERIFICATION_VERIFY": "Verificação SMS",
+        "SMS_VERIFICATION_EXPIRE": "Expiração de Verificação SMS",
+        "SMS_VERIFICATION_CANCEL": "Cancelamento de Verificação SMS",
+        "EMAIL_SERVICE": "Serviço de Email",
+        "VERIFICATION_CREATE": "Criação de Verificação",
+        "VERIFICATION_SEND": "Envio de Verificação",
+        "VERIFICATION_VERIFY": "Verificação Concluída",
+        "VERIFICATION_EXPIRE": "Expiração de Verificação",
+        "VERIFICATION_CANCEL": "Cancelamento de Verificação",
+        "VERIFICATION_RESEND": "Reenvio de Verificação",
+        "VEHICLE_MOVEMENT": "Movimentação de veículo",
+        "PARKING_ASSIGNMENT": "Atribuição de estacionamento",
+        "OBSERVATION_CREATE": "Criação de observação",
+        "OBSERVATION_DELETE": "Exclusão de observação",
+        "SCHEDULED_JOB": "Tarefa Agendada",
+        "API": "API",
+        "WEBHOOK": "Webhook",
+        "ADMIN": "Admin"
+      }
+    },
+    "CHART_TYPE_LABELS": {
+      "enum": "CHART_TYPE",
+      "labels": {
+        "PIE": "Pizza",
+        "DONUT": "Rosca",
+        "AREA": "Area",
+        "BAR": "Barras",
+        "LINE": "Linhas",
+        "STACKED": "Empilhado"
+      }
+    },
+    "COLOR_SCHEMA_LABELS": {
+      "enum": "COLOR_SCHEMA",
+      "labels": {
+        "LIGHT": "Light",
+        "DARK": "Dark",
+        "SYSTEM": "System"
+      }
+    },
+    "CONFIDENCE_LEVEL_LABELS": {
+      "enum": "CONFIDENCE_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High"
+      }
+    },
+    "CONTRACT_STATUS_LABELS": {
+      "enum": "CONTRACT_STATUS",
+      "labels": {
+        "ACTIVE": "Ativo",
+        "TERMINATED": "Desligado"
+      }
+    },
+    "CONTRACT_TYPE_LABELS": {
+      "enum": "CONTRACT_TYPE",
+      "labels": {
+        "INDETERMINATE": "Prazo indeterminado",
+        "FIXED_TERM": "Prazo determinado",
+        "INTERMITTENT": "Intermitente",
+        "APPRENTICE": "Aprendiz",
+        "TEMPORARY": "Temporário",
+        "EXPERIENCE_PERIOD_1": "Experiência 1",
+        "EXPERIENCE_PERIOD_2": "Experiência 2"
+      }
+    },
+    "CUT_ORIGIN_LABELS": {
+      "enum": "CUT_ORIGIN",
+      "labels": {
+        "PLAN": "Plan",
+        "REQUEST": "Request"
+      }
+    },
+    "CUT_REQUEST_REASON_LABELS": {
+      "enum": "CUT_REQUEST_REASON",
+      "labels": {
+        "WRONG_APPLY": "Wrong Apply",
+        "LOST": "Lost",
+        "WRONG": "Wrong"
+      }
+    },
+    "CUT_STATUS_LABELS": {
+      "enum": "CUT_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "CUTTING": "Cutting",
+        "COMPLETED": "Concluído"
+      }
+    },
+    "CUT_TYPE_LABELS": {
+      "enum": "CUT_TYPE",
+      "labels": {
+        "VINYL": "Vinyl",
+        "STENCIL": "Stencil"
+      }
+    },
+    "DASHBOARD_TIME_PERIOD_LABELS": {
+      "enum": "DASHBOARD_TIME_PERIOD",
+      "labels": {
+        "TODAY": "Hoje",
+        "THIS_WEEK": "Esta Semana",
+        "THIS_MONTH": "Este Mês",
+        "THIS_YEAR": "Este Ano",
+        "TOTAL": "Total",
+        "ALL_TIME": "Todo Período"
+      }
+    },
+    "DELIVERY_MODE_LABELS": {
+      "enum": null,
+      "labels": {
+        "SCHEDULED": "Programada",
+        "ON_DEMAND": "Sob Demanda",
+        "BOTH": "Ambos"
+      }
+    },
+    "DEPENDENT_RELATIONSHIP_LABELS": {
+      "enum": "DEPENDENT_RELATIONSHIP",
+      "labels": {
+        "CHILD": "Filho(a)",
+        "STEPCHILD": "Enteado(a)",
+        "SPOUSE": "Cônjuge",
+        "PARTNER": "Companheiro(a)",
+        "PARENT": "Pai/Mãe",
+        "WARD": "Tutelado(a)",
+        "DISABLED_ANY_AGE": "Inválido(a) qualquer idade",
+        "OTHER": "Outro"
+      }
+    },
+    "DISCOUNT_TYPE_LABELS": {
+      "enum": "DISCOUNT_TYPE",
+      "labels": {
+        "NONE": "Nenhum",
+        "PERCENTAGE": "Porcentagem",
+        "FIXED_VALUE": "Valor Fixo"
+      }
+    },
+    "DOCUMENT_CATEGORY_LABELS": {
+      "enum": "DOCUMENT_CATEGORY",
+      "labels": {
+        "TECHNICAL_SPEC": "Especificação Técnica",
+        "CERTIFICATE": "Certificado",
+        "MANUAL": "Manual",
+        "SAFETY_DATA": "Dados de Segurança",
+        "WARRANTY": "Garantia",
+        "INVOICE": "Nota Fiscal",
+        "CONTRACT": "Contrato",
+        "COMPLIANCE": "Conformidade",
+        "PHOTO": "Foto",
+        "OTHER": "Other"
+      }
+    },
+    "EFFORT_LEVEL_LABELS": {
+      "enum": "EFFORT_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High"
+      }
+    },
+    "EMAIL_STATUS_LABELS": {
+      "enum": "EMAIL_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "SENT": "Sent",
+        "DELIVERED": "Delivered",
+        "FAILED": "Falhou",
+        "BOUNCED": "Rejected",
+        "CANCELLED": "Cancelled"
+      }
+    },
+    "EMAIL_TYPE_LABELS": {
+      "enum": "EMAIL_TYPE",
+      "labels": {
+        "PASSWORD_RESET": "Password Reset",
+        "TEMPORARY_PASSWORD": "Senha Temporária",
+        "ACCOUNT_VERIFICATION": "Verificação de Conta",
+        "PASSWORD_CHANGED": "Senha Alterada",
+        "ACCOUNT_STATUS_CHANGE": "Alteração de Status da Conta",
+        "WELCOME": "Bem-vindo",
+        "NOTIFICATION": "Notificação"
+      }
+    },
+    "EMPLOYEE_TYPE_LABELS": {
+      "enum": "EMPLOYEE_TYPE",
+      "labels": {
+        "CLT": "CLT",
+        "INTERN": "Estagiário",
+        "PJ": "Pessoa Jurídica (PJ)",
+        "AUTONOMOUS": "Autônomo"
+      }
+    },
+    "ENTITY_TYPE_LABELS": {
+      "enum": "ENTITY_TYPE",
+      "labels": {
+        "ACTIVITY": "Atividade",
+        "AIRBRUSHING": "Aerografia",
+        "BONIFICATION": "Bonificação",
+        "BONUS": "Bônus",
+        "BORROW": "Empréstimo",
+        "CATEGORY": "Categoria",
+        "COLLECTION": "Coleção",
+        "CUT": "Corte",
+        "CUT_ITEM": "Item de Corte",
+        "CUT_PLAN": "Plano de Corte",
+        "CUT_REQUEST": "Solicitação de Corte",
+        "CUSTOMER": "Cliente",
+        "DASHBOARD": "Dashboard",
+        "DEPLOYMENT": "Implantação",
+        "DELIVERY": "Entrega",
+        "DISCOUNT": "Desconto",
+        "PPE_CONFIG": "Configuração de EPI",
+        "PPE_DELIVERY": "Entrega de EPI",
+        "PPE_REQUEST": "Solicitação de EPI",
+        "PPE_DELIVERY_SCHEDULE": "Agendamento de EPI",
+        "PPE_SIZE": "Tamanho de EPI",
+        "EXTERNAL_OPERATION": "Operação Externa",
+        "EXTERNAL_OPERATION_ITEM": "Item de Operação Externa",
+        "FILE": "Arquivo",
+        "FISPQ": "FISPQ/FDS",
+        "HOLIDAY": "Feriado",
+        "ITEM": "Item",
+        "ITEM_BRAND": "Marca do Item",
+        "ITEM_CATEGORY": "Categoria do Item",
+        "IMPLEMENT_MEASURE": "Medidas do Implemento",
+        "MAINTENANCE": "Manutenção",
+        "MAINTENANCE_ITEM": "Item de Manutenção",
+        "MAINTENANCE_SCHEDULE": "Agendamento de Manutenção",
+        "MEASURE": "Medida",
+        "NOTIFICATION": "Notificação",
+        "NOTIFICATION_PREFERENCE": "Preferência de Notificação",
+        "OBSERVATION": "Observação",
+        "ORDER": "Pedido",
+        "ORDER_ITEM": "Item do Pedido",
+        "ORDER_RULE": "Regra de Pedido",
+        "ORDER_SCHEDULE": "Agendamento de Pedido",
+        "PAINT": "Tinta",
+        "PAINT_BRAND": "Marca de Tinta",
+        "PAINT_TYPE": "Tipo de Tinta",
+        "PAINT_GROUND": "Fundo de Tinta",
+        "PAINT_FORMULA": "Fórmula de Tinta",
+        "PAINT_FORMULA_COMPONENT": "Componente de Fórmula",
+        "PAINT_PRODUCTION": "Produção de Tinta",
+        "PARKING_SPOT": "Vaga de Estacionamento",
+        "PAYROLL": "Folha de Pagamento",
+        "PIECE": "Peça",
+        "POSITION": "Cargo",
+        "POSITION_REMUNERATION": "Remuneração do Cargo",
+        "PREFERENCES": "Preferências",
+        "PRICE": "Preço",
+        "PRODUCTION": "Produção",
+        "PURCHASE": "Compra",
+        "RESPONSIBLE": "Responsável",
+        "WARNING": "Advertência",
+        "SECTOR": "Setor",
+        "SEEN_NOTIFICATION": "Notificação Vista",
+        "SERVICE": "Serviço",
+        "SERVICE_ORDER": "Ordem de Serviço",
+        "SUPPLIER": "Fornecedor",
+        "WAREHOUSE_LOCATION": "Localização de Armazenamento",
+        "TASK": "Tarefa",
+        "TASK_QUOTE": "Precificação de Tarefa",
+        "TASK_QUOTE_ITEM": "Item do Orçamento",
+        "TASK_QUOTE_SERVICE": "Serviço do Orçamento",
+        "TASK_QUOTE_CUSTOMER_CONFIG": "Configuração de Cliente do Orçamento",
+        "TIME_CLOCK_ENTRY": "Registro de Ponto",
+        "TRUCK": "Caminhão",
+        "USER": "Usuário",
+        "VACATION": "Férias",
+        "VACATION_GROUP": "Férias Coletivas",
+        "THIRTEENTH": "Décimo Terceiro",
+        "VERIFICATION": "Verificação",
+        "SALARY_ADJUSTMENT": "Reajuste Salarial",
+        "USER_POSITION_HISTORY": "Histórico de Cargo",
+        "BENEFIT": "Benefício",
+        "USER_BENEFIT": "Adesão de Benefício",
+        "ADMISSION": "Admissão",
+        "TERMINATION": "Rescisão",
+        "MEDICAL_EXAM": "Exame Médico",
+        "LEAVE": "Afastamento",
+        "DEPENDENT": "Dependente",
+        "AGENDA_EVENT": "Evento de Agenda",
+        "NOTE": "Nota",
+        "BANK_TRANSACTION": "Transação Bancária",
+        "RECONCILIATION_MATCH": "Conciliação",
+        "FISCAL_DOCUMENT": "Nota Fiscal",
+        "INSTALLMENT": "Parcela a Receber",
+        "INVOICE": "Faturamento",
+        "BANK_SLIP": "Boleto",
+        "RECURRENT_PAYABLE": "Conta Recorrente",
+        "RECURRENT_PAYABLE_OCCURRENCE": "Conta a Pagar",
+        "AIRBRUSHING_NFSE": "NFS-e do Aerografista",
+        "FISCAL_EMITTER_PROFILE": "Perfil Fiscal",
+        "FISCAL_CERTIFICATE": "Certificado Digital"
+      }
+    },
+    "EVENT_TYPE_LABELS": {
+      "enum": "EVENT_TYPE",
+      "labels": {
+        "CREATED": "Criado",
+        "STARTED": "Iniciado",
+        "PAUSED": "Pausado",
+        "RESUMED": "Retomado",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "EXPORT_FORMAT_LABELS": {
+      "enum": "EXPORT_FORMAT",
+      "labels": {
+        "CSV": "CSV",
+        "EXCEL": "Excel",
+        "PDF": "PDF",
+        "JSON": "JSON"
+      }
+    },
+    "EXTERNAL_OPERATION_STATUS_LABELS": {
+      "enum": "EXTERNAL_OPERATION_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "CANCELLED": "Cancelado",
+        "PARTIALLY_RETURNED": "Parcialmente Devolvido",
+        "FULLY_RETURNED": "Totalmente Devolvido",
+        "CHARGED": "Cobrado",
+        "LIQUIDATED": "Liquidado",
+        "DELIVERED": "Entregue"
+      }
+    },
+    "EXTERNAL_OPERATION_TYPE_LABELS": {
+      "enum": "EXTERNAL_OPERATION_TYPE",
+      "labels": {
+        "RETURNABLE": "Retornável",
+        "CHARGEABLE": "Cobrável",
+        "COMPLIMENTARY": "Cortesia"
+      }
+    },
+    "FAVORITE_PAGES_LABELS": {
+      "enum": "FAVORITE_PAGES",
+      "labels": {
+        "/producao/cronograma": "Cronograma de Produção",
+        "/producao/recorte": "Lista de Recortes",
+        "/producao/servicos": "Lista de Serviços",
+        "/producao/observacoes": "Lista de Observações",
+        "/producao/aerografia/listar": "Lista de Aerografias",
+        "/producao/garagens": "Lista de Garagens",
+        "/producao/ordens-de-servico": "Lista de Ordens de Serviço",
+        "/producao/historico": "Histórico de Produção",
+        "/producao/cronograma/cadastrar": "Cadastrar Tarefa",
+        "/producao/recorte/cadastrar": "Cadastrar Recorte",
+        "/producao/servicos/cadastrar": "Cadastrar Serviço",
+        "/producao/observacoes/cadastrar": "Cadastrar Observação",
+        "/producao/aerografia/cadastrar": "Cadastrar Aerografia",
+        "/producao/garagens/cadastrar": "Cadastrar Garagem",
+        "/producao/ordens-de-servico/cadastrar": "Cadastrar Ordem de Serviço",
+        "/estoque/movimentacoes": "Movimentações de Estoque",
+        "/estoque/produtos": "Lista de Produtos",
+        "/estoque/produtos/categorias": "Lista de Categorias",
+        "/estoque/produtos/marcas": "Lista de Marcas",
+        "/estoque/pedidos": "Lista de Pedidos",
+        "/estoque/pedidos/agendamentos": "Agendamentos de Pedidos",
+        "/estoque/pedidos/automaticos": "Pedidos Automáticos",
+        "/estoque/manutencao/listar": "Lista de Manutenções",
+        "/estoque/manutencao/agendamentos": "Agendamentos de Manutenção",
+        "/estoque/operacoes-externas": "Lista de Operações Externas",
+        "/estoque/fornecedores": "Lista de Fornecedores",
+        "/estoque/epi": "Lista de EPIs",
+        "/estoque/epi/entregas": "Entregas de EPIs",
+        "/estoque/epi/agendamentos": "Agendamentos de EPIs",
+        "/estoque/emprestimos": "Lista de Empréstimos",
+        "/estatisticas": "Estatísticas",
+        "/estatisticas/estoque": "Estatísticas do Estoque",
+        "/estatisticas/estoque/consumo": "Análise de Consumo",
+        "/estatisticas/estoque/movimentacao": "Movimentação de Estoque",
+        "/estatisticas/estoque/tendencias": "Análise de Tendências",
+        "/estatisticas/estoque/top-itens": "Top Itens - Estatísticas",
+        "/estoque/movimentacoes/cadastrar": "Cadastrar Movimentação",
+        "/estoque/produtos/cadastrar": "Cadastrar Produto",
+        "/estoque/produtos/categorias/cadastrar": "Cadastrar Categoria",
+        "/estoque/produtos/marcas/cadastrar": "Cadastrar Marca",
+        "/estoque/pedidos/cadastrar": "Cadastrar Pedido",
+        "/estoque/pedidos/agendamentos/cadastrar": "Cadastrar Agendamento de Pedido",
+        "/estoque/manutencao/cadastrar": "Cadastrar Manutenção",
+        "/estoque/manutencao/agendamentos/cadastrar": "Cadastrar Agendamento de Manutenção",
+        "/estoque/operacoes-externas/cadastrar": "Cadastrar Operação Externa",
+        "/estoque/fornecedores/cadastrar": "Cadastrar Fornecedor",
+        "/estoque/epi/cadastrar": "Cadastrar EPI",
+        "/estoque/epi/entregas/cadastrar": "Cadastrar Entrega de EPI",
+        "/estoque/epi/agendamentos/cadastrar": "Cadastrar Agendamento de EPI",
+        "/estoque/emprestimos/cadastrar": "Cadastrar Empréstimo",
+        "/pintura/catalogo": "Catálogo de Tintas",
+        "/pintura/producoes": "Lista de Produções",
+        "/pintura/tipos-de-tinta": "Lista de Tipos de Tinta",
+        "/pintura/formulas/listar": "Lista de Fórmulas",
+        "/pintura/formulacoes/listar": "Lista de Formulações",
+        "/pintura/componentes/listar": "Lista de Componentes",
+        "/pintura/catalogo/cadastrar": "Cadastrar Tinta",
+        "/pintura/producoes/cadastrar": "Cadastrar Produção",
+        "/pintura/tipos-de-tinta/cadastrar": "Cadastrar Tipo de Tinta",
+        "/pintura/formulas/cadastrar": "Cadastrar Fórmula",
+        "/pintura/formulacoes/cadastrar": "Cadastrar Formulação",
+        "/pintura/componentes/cadastrar": "Cadastrar Componente",
+        "/administracao/clientes": "Lista de Clientes",
+        "/departamento-pessoal/colaboradores": "Lista de Colaboradores",
+        "/administracao/orcamentos": "Lista de Orçamentos",
+        "/administracao/registros-de-alteracoes": "Registros de Alterações",
+        "/administracao/arquivos": "Lista de Arquivos",
+        "/administracao/setores": "Lista de Setores",
+        "/administracao/notificacoes": "Lista de Notificações",
+        "/departamento-pessoal/folha-de-pagamento": "Folha de Pagamento",
+        "/administracao/clientes/cadastrar": "Cadastrar Cliente",
+        "/departamento-pessoal/colaboradores/cadastrar": "Cadastrar Colaborador",
+        "/administracao/orcamentos/cadastrar": "Cadastrar Orçamento",
+        "/administracao/arquivos/upload": "Upload de Arquivo",
+        "/administracao/setores/cadastrar": "Cadastrar Setor",
+        "/administracao/notificacoes/cadastrar/enviar": "Enviar Notificação",
+        "/administracao/notificacoes/editar": "Editar Notificação",
+        "/departamento-pessoal/cargos": "Lista de Cargos",
+        "/departamento-pessoal/ferias": "Lista de Férias",
+        "/departamento-pessoal/feriados": "Lista de Feriados",
+        "/departamento-pessoal/avisos": "Warnings List",
+        "/departamento-pessoal/calculos": "Cálculos de Ponto",
+        "/departamento-pessoal/epi": "Lista de EPIs (RH)",
+        "/departamento-pessoal/epi/entregas": "Entregas de EPIs (RH)",
+        "/departamento-pessoal/epi/agendamentos": "Agendamentos de EPIs (RH)",
+        "/departamento-pessoal/epi/tamanhos": "Tamanhos de EPIs",
+        "/departamento-pessoal/setores": "Lista de Setores (RH)",
+        "/departamento-pessoal/cargos/cadastrar": "Cadastrar Cargo",
+        "/departamento-pessoal/ferias/cadastrar": "Cadastrar Férias",
+        "/departamento-pessoal/feriados/cadastrar": "Cadastrar Feriado",
+        "/departamento-pessoal/avisos/cadastrar": "Register Warning",
+        "/departamento-pessoal/epi/cadastrar": "Cadastrar EPI (RH)",
+        "/departamento-pessoal/epi/entregas/cadastrar": "Cadastrar Entrega de EPI (RH)",
+        "/departamento-pessoal/epi/agendamentos/cadastrar": "Cadastrar Agendamento de EPI (RH)",
+        "/departamento-pessoal/epi/tamanhos/cadastrar": "Cadastrar Tamanho de EPI",
+        "/departamento-pessoal/setores/cadastrar": "Cadastrar Setor (RH)",
+        "/pessoal/minhas-ferias": "Minhas Férias",
+        "/pessoal/meus-feriados": "Meus Feriados",
+        "/pessoal/meus-emprestimos": "Meus Empréstimos",
+        "/pessoal/meus-epis": "Meus EPIs",
+        "/pessoal/meus-avisos": "My Warnings",
+        "/pessoal/minhas-notificacoes": "Minhas Notificações",
+        "/pintura/catalogo-basico": "Catálogo Básico",
+        "/servidor/usuarios": "Usuários do Sistema",
+        "/departamento-pessoal/cargos/editar/:id": "Editar Cargo",
+        "/departamento-pessoal/ferias/editar/:id": "Editar Férias",
+        "/departamento-pessoal/feriados/editar/:id": "Editar Feriado",
+        "/departamento-pessoal/avisos/editar/:id": "Edit Warning",
+        "/departamento-pessoal/setores/editar/:id": "Editar Setor",
+        "/departamento-pessoal/cargos/detalhes/:id": "Detalhes do Cargo",
+        "/departamento-pessoal/ferias/detalhes/:id": "Detalhes das Férias",
+        "/departamento-pessoal/feriados/detalhes/:id": "Detalhes do Feriado",
+        "/departamento-pessoal/avisos/detalhes/:id": "Warning Details",
+        "/departamento-pessoal/cargos/editar-lote": "Editar Cargos em Lote",
+        "/departamento-pessoal/ferias/editar-lote": "Editar Férias em Lote",
+        "/departamento-pessoal/feriados/editar-lote": "Editar Feriados em Lote",
+        "/departamento-pessoal/avisos/editar-lote": "Batch Edit Warnings",
+        "/departamento-pessoal/ferias/calendario": "Calendário de Férias",
+        "/departamento-pessoal/feriados/calendario": "Calendário de Feriados",
+        "/departamento-pessoal/cargos/:positionId/remuneracoes": "Remunerações do Cargo",
+        "/administracao/setores/editar/:id": "Editar Setor",
+        "/administracao/setores/detalhes/:id": "Detalhes do Setor",
+        "/administracao/setores/editar-lote": "Editar Setores em Lote"
+      }
+    },
+    "FILE_ENTITY_TYPE_LABELS": {
+      "enum": "FILE_ENTITY_TYPE",
+      "labels": {
+        "TASK": "Tarefa",
+        "CUSTOMER_LOGO": "Logo do Cliente",
+        "SUPPLIER_LOGO": "Logo do Fornecedor",
+        "OBSERVATION": "Observação",
+        "WARNING": "Advertência",
+        "ORDER_BUDGET": "Orçamento do Pedido",
+        "ORDER_NFE": "NFe do Pedido",
+        "ORDER_RECEIPT": "Recibo do Pedido",
+        "TASK_BUDGET": "Orçamento da Tarefa",
+        "TASK_NFE": "NFe da Tarefa",
+        "TASK_RECEIPT": "Recibo da Tarefa",
+        "AIRBRUSHING_RECEIPT": "Recibo de Aerografia",
+        "AIRBRUSHING_NFE": "NFe de Aerografia",
+        "EXTERNAL_OPERATION_BUDGET": "Orçamento de Operação Externa",
+        "EXTERNAL_OPERATION_NFE": "NFe de Operação Externa",
+        "EXTERNAL_OPERATION_RECEIPT": "Recibo de Operação Externa",
+        "EXPENSE": "Despesa"
+      }
+    },
+    "FILE_FORMAT_LABELS": {
+      "enum": "FILE_FORMAT",
+      "labels": {
+        "JSON": "JSON",
+        "YAML": "YAML",
+        "CSV": "CSV",
+        "EXCEL": "Excel",
+        "PDF": "PDF"
+      }
+    },
+    "FISPQ_STATUS_LABELS": {
+      "enum": "FISPQ_STATUS",
+      "labels": {
+        "DRAFT": "Rascunho",
+        "ACTIVE": "Vigente",
+        "EXPIRED": "Vencida",
+        "ARCHIVED": "Arquivada"
+      }
+    },
+    "GHS_PICTOGRAM_LABELS": {
+      "enum": "GHS_PICTOGRAM",
+      "labels": {
+        "GHS01_EXPLOSIVE": "Explosivo",
+        "GHS02_FLAMMABLE": "Inflamável",
+        "GHS03_OXIDIZING": "Oxidante",
+        "GHS04_GAS_UNDER_PRESSURE": "Gás sob pressão",
+        "GHS05_CORROSIVE": "Corrosivo",
+        "GHS06_TOXIC": "Tóxico",
+        "GHS07_HARMFUL": "Nocivo / irritante",
+        "GHS08_HEALTH_HAZARD": "Perigo à saúde",
+        "GHS09_ENVIRONMENTAL": "Perigo ao meio ambiente"
+      }
+    },
+    "GHS_SIGNAL_WORD_LABELS": {
+      "enum": "GHS_SIGNAL_WORD",
+      "labels": {
+        "DANGER": "Perigo",
+        "WARNING": "Atenção"
+      }
+    },
+    "GLOVES_SIZE_LABELS": {
+      "enum": "GLOVES_SIZE",
+      "labels": {
+        "P": "Pequeno",
+        "M": "Medium",
+        "G": "Grande"
+      }
+    },
+    "GROUP_BY_LABELS": {
+      "enum": "GROUP_BY",
+      "labels": {
+        "DAY": "Dia",
+        "WEEK": "Semana",
+        "MONTH": "Mês",
+        "YEAR": "Ano",
+        "ITEM": "Item",
+        "USER": "Usuário"
+      }
+    },
+    "GUARANTEE_YEARS_LABELS": {
+      "enum": null,
+      "labels": {
+        "5": "5 anos",
+        "10": "10 anos",
+        "15": "15 anos"
+      }
+    },
+    "HEALTH_STATUS_LABELS": {
+      "enum": "HEALTH_STATUS",
+      "labels": {
+        "EXCELLENT": "Excelente",
+        "GOOD": "Bom",
+        "FAIR": "Regular",
+        "POOR": "Ruim",
+        "CRITICAL": "Critical"
+      }
+    },
+    "HOLIDAY_TYPE_LABELS": {
+      "enum": "HOLIDAY_TYPE",
+      "labels": {
+        "NATIONAL": "National",
+        "STATE": "State",
+        "MUNICIPAL": "Municipal",
+        "OPTIONAL": "Optional"
+      }
+    },
+    "IMPLEMENT_TYPE_LABELS": {
+      "enum": "IMPLEMENT_TYPE",
+      "labels": {
+        "DRY_CARGO": "Carga Seca",
+        "REFRIGERATED": "Refrigerado",
+        "INSULATED": "Isoplastic",
+        "CURTAIN_SIDE": "Sider",
+        "TANK": "Tanque",
+        "FLATBED": "Carroceria"
+      }
+    },
+    "INSALUBRITY_DEGREE_LABELS": {
+      "enum": "INSALUBRITY_DEGREE",
+      "labels": {
+        "NONE": "Sem insalubridade",
+        "MIN": "Grau mínimo (10%)",
+        "MED": "Grau médio (20%)",
+        "MAX": "Grau máximo (40%)"
+      }
+    },
+    "INSS_BENEFIT_SPECIES_LABELS": {
+      "enum": "INSS_BENEFIT_SPECIES",
+      "labels": {
+        "B31": "B31 — Auxílio-doença previdenciário",
+        "B91": "B91 — Auxílio-doença acidentário",
+        "B32": "B32 — Aposentadoria por invalidez previdenciária",
+        "B92": "B92 — Aposentadoria por invalidez acidentária",
+        "B80": "B80 — Salário-maternidade",
+        "B36": "B36 — Auxílio-acidente",
+        "OTHER": "Outra espécie"
+      }
+    },
+    "INSTALLMENT_STATUS_LABELS": {
+      "enum": "INSTALLMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "PROCESSING": "Processando",
+        "PAID": "Paga",
+        "OVERDUE": "Vencida",
+        "CANCELLED": "Cancelada"
+      }
+    },
+    "INVOICE_STATUS_LABELS": {
+      "enum": "INVOICE_STATUS",
+      "labels": {
+        "DRAFT": "Rascunho",
+        "ACTIVE": "Ativa",
+        "PARTIALLY_PAID": "Parcialmente Paga",
+        "PAID": "Paga",
+        "CANCELLED": "Cancelada"
+      }
+    },
+    "ITEM_CATEGORY_TYPE_LABELS": {
+      "enum": "ITEM_CATEGORY_TYPE",
+      "labels": {
+        "REGULAR": "Regular",
+        "TOOL": "Ferramenta",
+        "PPE": "EPI"
+      }
+    },
+    "ITEM_ISSUE_TYPE_LABELS": {
+      "enum": "ITEM_ISSUE_TYPE",
+      "labels": {
+        "OVERAGE": "Excesso",
+        "SHORTAGE": "Falta",
+        "DAMAGE": "Dano",
+        "MISMATCH": "Divergência"
+      }
+    },
+    "LEAVE_STATUS_LABELS": {
+      "enum": "LEAVE_STATUS",
+      "labels": {
+        "SCHEDULED": "Agendado",
+        "ACTIVE": "Em Andamento",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "LEAVE_TYPE_LABELS": {
+      "enum": "LEAVE_TYPE",
+      "labels": {
+        "ILLNESS_UP_TO_15": "Doença (até 15 dias)",
+        "ILLNESS_INSS": "Auxílio-Doença (INSS)",
+        "WORK_ACCIDENT": "Acidente de Trabalho",
+        "MATERNITY": "Licença-Maternidade",
+        "PATERNITY": "Licença-Paternidade",
+        "MARRIAGE": "Casamento",
+        "BEREAVEMENT": "Luto",
+        "BLOOD_DONATION": "Doação de Sangue",
+        "MILITARY": "Serviço Militar",
+        "COURT_ATTENDANCE": "Comparecimento Judicial",
+        "UNPAID": "Licença Não Remunerada",
+        "SUSPENSION": "Suspensão",
+        "OTHER": "Outro"
+      }
+    },
+    "LINK_TYPE_LABELS": {
+      "enum": "LINK_TYPE",
+      "labels": {
+        "MANUFACTURER": "Site do Fabricante",
+        "DOCUMENTATION": "Documentação",
+        "TUTORIAL": "Tutorial",
+        "SUPPLIER": "Fornecedor",
+        "INTERNAL": "Recurso Interno",
+        "OTHER": "Other"
+      }
+    },
+    "LOCKOUT_REASON_LABELS": {
+      "enum": "LOCKOUT_REASON",
+      "labels": {
+        "EXCESSIVE_FAILED_ATTEMPTS": "Excessive Failed Attempts",
+        "IP_ABUSE_DETECTED": "Abuso de IP Detectado",
+        "PATTERN_ABUSE": "Padrão de Abuso",
+        "CAPTCHA_FAILURES": "CAPTCHA Failures",
+        "MANUAL_ADMIN_LOCK": "Bloqueio Manual do Admin",
+        "SECURITY_VIOLATION": "Violação de Segurança"
+      }
+    },
+    "MAINTENANCE_SCHEDULE_STATUS_LABELS": {
+      "enum": "MAINTENANCE_SCHEDULE_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "FINISHED": "Finished",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "MAINTENANCE_STATUS_LABELS": {
+      "enum": "MAINTENANCE_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "IN_PROGRESS": "Em Andamento",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado",
+        "OVERDUE": "Atrasado"
+      }
+    },
+    "MASK_SIZE_LABELS": {
+      "enum": "MASK_SIZE",
+      "labels": {
+        "P": "Pequeno",
+        "M": "Medium"
+      }
+    },
+    "MEASURE_SIDE_LABELS": {
+      "enum": "MEASURE_SIDE",
+      "labels": {
+        "LEFT": "Lateral Esquerda",
+        "RIGHT": "Lateral Direita",
+        "BACK": "Traseira"
+      }
+    },
+    "MEASURE_TYPE_LABELS": {
+      "enum": "MEASURE_TYPE",
+      "labels": {
+        "WEIGHT": "Weight",
+        "VOLUME": "Volume",
+        "LENGTH": "Length",
+        "WIDTH": "Width",
+        "THICKNESS": "Thickness",
+        "AREA": "Area",
+        "COUNT": "Count",
+        "DIAMETER": "Diameter",
+        "THREAD": "Rosca/Passo",
+        "ELECTRICAL": "Electrical",
+        "SIZE": "Size"
+      }
+    },
+    "MEASURE_UNIT_LABELS": {
+      "enum": "MEASURE_UNIT",
+      "labels": {
+        "KILOGRAM": "kg",
+        "GRAM": "g",
+        "MILLILITER": "ml",
+        "LITER": "l",
+        "CUBIC_METER": "m³",
+        "CUBIC_CENTIMETER": "cm³",
+        "MILLIMETER": "mm",
+        "CENTIMETER": "cm",
+        "METER": "m",
+        "INCHES": "pol",
+        "INCH_1_8": "1/8\"",
+        "INCH_1_4": "1/4\"",
+        "INCH_3_8": "3/8\"",
+        "INCH_1_2": "1/2\"",
+        "INCH_5_8": "5/8\"",
+        "INCH_3_4": "3/4\"",
+        "INCH_7_8": "7/8\"",
+        "INCH_1": "1\"",
+        "INCH_1_1_4": "1 1/4\"",
+        "INCH_1_1_2": "1 1/2\"",
+        "INCH_2": "2\"",
+        "THREAD_MM": "mm (passo)",
+        "THREAD_TPI": "TPI",
+        "WATT": "W",
+        "VOLT": "V",
+        "AMPERE": "A",
+        "SQUARE_CENTIMETER": "cm²",
+        "SQUARE_METER": "m²",
+        "UNIT": "un",
+        "PAIR": "pr",
+        "DOZEN": "dz",
+        "HUNDRED": "ct",
+        "THOUSAND": "mil",
+        "PACKAGE": "pc",
+        "BOX": "cx",
+        "ROLL": "rl",
+        "SHEET": "fl",
+        "SET": "cj",
+        "SACK": "sc",
+        "P": "P",
+        "M": "M",
+        "G": "G",
+        "GG": "GG",
+        "XG": "XG",
+        "SIZE_35": "35",
+        "SIZE_36": "36",
+        "SIZE_37": "37",
+        "SIZE_38": "38",
+        "SIZE_39": "39",
+        "SIZE_40": "40",
+        "SIZE_41": "41",
+        "SIZE_42": "42",
+        "SIZE_43": "43",
+        "SIZE_44": "44",
+        "SIZE_45": "45",
+        "SIZE_46": "46",
+        "SIZE_47": "47",
+        "SIZE_48": "48",
+        "SIZE_50": "50"
+      }
+    },
+    "MEDICAL_EXAM_RESULT_LABELS": {
+      "enum": "MEDICAL_EXAM_RESULT",
+      "labels": {
+        "PENDING": "Pendente",
+        "FIT": "Apto",
+        "FIT_WITH_RESTRICTIONS": "Apto com restrições",
+        "UNFIT": "Inapto"
+      }
+    },
+    "MEDICAL_EXAM_STATUS_LABELS": {
+      "enum": "MEDICAL_EXAM_STATUS",
+      "labels": {
+        "SCHEDULED": "Agendado",
+        "COMPLETED": "Realizado",
+        "EXPIRED": "Vencido",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "MEDICAL_EXAM_TYPE_LABELS": {
+      "enum": "MEDICAL_EXAM_TYPE",
+      "labels": {
+        "ADMISSION": "Admissional",
+        "PERIODIC": "Periódico",
+        "RETURN_TO_WORK": "Retorno ao Trabalho",
+        "RISK_CHANGE": "Mudança de Risco",
+        "DISMISSAL": "Demissional"
+      }
+    },
+    "MERGE_STRATEGY_LABELS": {
+      "enum": "MERGE_STRATEGY",
+      "labels": {
+        "KEEP_PRIMARY": "Manter Principal",
+        "KEEP_NEWEST": "Manter Mais Recente",
+        "MANUAL": "Manual"
+      }
+    },
+    "MONTH_LABELS": {
+      "enum": "MONTH",
+      "labels": {
+        "JANUARY": "January",
+        "FEBRUARY": "February",
+        "MARCH": "March",
+        "APRIL": "April",
+        "MAY": "May",
+        "JUNE": "June",
+        "JULY": "July",
+        "AUGUST": "August",
+        "SEPTEMBER": "September",
+        "OCTOBER": "October",
+        "NOVEMBER": "November",
+        "DECEMBER": "December"
+      }
+    },
+    "MONTH_OCCURRENCE_LABELS": {
+      "enum": "MONTH_OCCURRENCE",
+      "labels": {
+        "FIRST": "Primeira",
+        "SECOND": "Segunda",
+        "THIRD": "Terceira",
+        "FOURTH": "Quarta",
+        "LAST": "Última"
+      }
+    },
+    "NFSE_STATUS_LABELS": {
+      "enum": "NFSE_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "PROCESSING": "Processando",
+        "AUTHORIZED": "Autorizada",
+        "CANCEL_REQUESTED": "Cancelamento Solicitado",
+        "CANCEL_REJECTED": "Cancelamento Rejeitado",
+        "CANCELLED": "Cancelada",
+        "ERROR": "Erro"
+      }
+    },
+    "NOTE_CATEGORY_LABELS": {
+      "enum": "NOTE_CATEGORY",
+      "labels": {
+        "GENERAL": "General",
+        "QUALITY": "Qualidade",
+        "MAINTENANCE": "Maintenance",
+        "COMPLIANCE": "Conformidade",
+        "SPECIFICATION": "Especificação",
+        "USAGE": "Uso",
+        "SUPPLIER": "Fornecedor",
+        "SAFETY": "Safety",
+        "OTHER": "Other"
+      }
+    },
+    "NOTICE_REDUCTION_LABELS": {
+      "enum": "NOTICE_REDUCTION",
+      "labels": {
+        "NONE": "Sem redução",
+        "TWO_HOURS_PER_DAY": "2 horas por dia",
+        "SEVEN_DAYS_OFF": "7 dias corridos"
+      }
+    },
+    "NOTICE_TYPE_LABELS": {
+      "enum": "NOTICE_TYPE",
+      "labels": {
+        "WORKED": "Trabalhado",
+        "INDEMNIFIED": "Indenizado",
+        "WAIVED": "Dispensado"
+      }
+    },
+    "NOTIFICATION_ACTION_TYPE_LABELS": {
+      "enum": "NOTIFICATION_ACTION_TYPE",
+      "labels": {
+        "VIEW_DETAILS": "Ver Detalhes",
+        "APPROVE_REQUEST": "Aprovar Solicitação",
+        "REJECT_REQUEST": "Rejeitar Solicitação",
+        "COMPLETE_TASK": "Concluir Tarefa",
+        "TASK_CREATED": "Tarefa Criada",
+        "TASK_UPDATED": "Tarefa Atualizada",
+        "VIEW_ORDER": "Ver Pedido",
+        "VIEW_SERVICE_ORDER": "Ver Ordem de Serviço",
+        "VIEW_REPORT": "Ver Relatório",
+        "ACKNOWLEDGE": "Confirmar",
+        "DISMISS": "Dispensar"
+      }
+    },
+    "NOTIFICATION_CHANNEL_LABELS": {
+      "enum": "NOTIFICATION_CHANNEL",
+      "labels": {
+        "IN_APP": "No Aplicativo",
+        "PUSH": "Push",
+        "EMAIL": "E-mail",
+        "WHATSAPP": "WhatsApp"
+      }
+    },
+    "NOTIFICATION_IMPORTANCE_LABELS": {
+      "enum": "NOTIFICATION_IMPORTANCE",
+      "labels": {
+        "LOW": "Baixa",
+        "NORMAL": "Normal",
+        "HIGH": "Alta",
+        "URGENT": "Urgente"
+      }
+    },
+    "NOTIFICATION_PRIORITY_LABELS": {
+      "enum": null,
+      "labels": {
+        "LOW": "Baixa",
+        "MEDIUM": "Média",
+        "NORMAL": "Normal",
+        "HIGH": "Alta",
+        "URGENT": "Urgente",
+        "CRITICAL": "Crítica"
+      }
+    },
+    "NOTIFICATION_TYPE_LABELS": {
+      "enum": "NOTIFICATION_TYPE",
+      "labels": {
+        "SYSTEM": "Sistema",
+        "PRODUCTION": "Produção",
+        "STOCK": "Estoque",
+        "USER": "Usuário",
+        "GENERAL": "Geral"
+      }
+    },
+    "ORDER_INSTALLMENT_STATUS_LABELS": {
+      "enum": "ORDER_INSTALLMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "PARTIALLY_PAID": "Parcialmente Pago",
+        "PAID": "Pago",
+        "OVERDUE": "Vencido",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "ORDER_PAYMENT_STATUS_LABELS": {
+      "enum": "ORDER_PAYMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "AWAITING_PAYMENT": "Aguardando Pagamento",
+        "PARTIALLY_PAID": "Parcialmente Pago",
+        "PAID": "Pago"
+      }
+    },
+    "ORDER_STATUS_LABELS": {
+      "enum": "ORDER_STATUS",
+      "labels": {
+        "CREATED": "Criado",
+        "PARTIALLY_FULFILLED": "Parcialmente Atendido",
+        "FULFILLED": "Atendido",
+        "OVERDUE": "Atrasado",
+        "PARTIALLY_RECEIVED": "Parcialmente Recebido",
+        "RECEIVED": "Recebido",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "ORDER_TRIGGER_TYPE_LABELS": {
+      "enum": "ORDER_TRIGGER_TYPE",
+      "labels": {
+        "STOCK_LEVEL": "Nível de Estoque",
+        "CONSUMPTION_RATE": "Taxa de Consumo",
+        "SCHEDULED": "Programado"
+      }
+    },
+    "PAINT_BRAND_LABELS": {
+      "enum": "PAINT_BRAND",
+      "labels": {
+        "PPG": "PPG",
+        "FARBEN": "Farben",
+        "LAZZURIL": "Lazzuril"
+      }
+    },
+    "PAINT_FINISH_LABELS": {
+      "enum": "PAINT_FINISH",
+      "labels": {
+        "SOLID": "Solid",
+        "METALLIC": "Metallic",
+        "PEARL": "Pearl",
+        "MATTE": "Matte",
+        "SATIN": "Satin"
+      }
+    },
+    "PAINT_TYPE_ENUM_LABELS": {
+      "enum": "PAINT_TYPE_ENUM",
+      "labels": {
+        "POLYESTER": "Polyester",
+        "ACRYLIC": "Acrylic",
+        "LACQUER": "Lacquer",
+        "POLYURETHANE": "Polyurethane",
+        "EPOXY": "Epoxy"
+      }
+    },
+    "PANTS_SIZE_LABELS": {
+      "enum": "PANTS_SIZE",
+      "labels": {
+        "SIZE_36": "36",
+        "SIZE_38": "38",
+        "SIZE_40": "40",
+        "SIZE_42": "42",
+        "SIZE_44": "44",
+        "SIZE_46": "46",
+        "SIZE_48": "48",
+        "SIZE_50": "50"
+      }
+    },
+    "PAYMENT_CONDITION_LABELS": {
+      "enum": "PAYMENT_CONDITION",
+      "labels": {
+        "CASH_5": "À vista (5 dias)",
+        "CASH_40": "À vista (40 dias)",
+        "INSTALLMENTS_2": "Entrada + 20",
+        "INSTALLMENTS_3": "Entrada + 20/40",
+        "INSTALLMENTS_4": "Entrada + 20/40/60",
+        "INSTALLMENTS_5": "Entrada + 20/40/60/80",
+        "INSTALLMENTS_6": "Entrada + 20/40/60/80/100",
+        "INSTALLMENTS_7": "Entrada + 20/40/60/80/100/120",
+        "CUSTOM": "Personalizado"
+      }
+    },
+    "PAYMENT_METHOD_LABELS": {
+      "enum": "PAYMENT_METHOD",
+      "labels": {
+        "PIX": "Pix",
+        "BANK_SLIP": "Boleto",
+        "CREDIT_CARD": "Cartão de Crédito"
+      }
+    },
+    "PAYROLL_DISCOUNT_TYPE_LABELS": {
+      "enum": "PAYROLL_DISCOUNT_TYPE",
+      "labels": {
+        "INSS": "INSS",
+        "IRRF": "IRRF",
+        "FGTS": "FGTS",
+        "ABSENCE": "Falta",
+        "PARTIAL_ABSENCE": "Falta parcial",
+        "DSR_ABSENCE": "DSR sobre faltas",
+        "LATE_ARRIVAL": "Atraso",
+        "SICK_LEAVE": "Afastamento por doença",
+        "UNION": "Contribuição sindical",
+        "ALIMONY": "Pensão alimentícia",
+        "GARNISHMENT": "Penhora/Consignação",
+        "HEALTH_INSURANCE": "Plano de saúde",
+        "DENTAL_INSURANCE": "Plano odontológico",
+        "MEAL_VOUCHER": "Vale-refeição/alimentação",
+        "TRANSPORT_VOUCHER": "Vale-transporte",
+        "LOAN": "Empréstimo consignado",
+        "ADVANCE": "Adiantamento",
+        "AUTHORIZED_DISCOUNT": "Desconto autorizado",
+        "CUSTOM": "Personalizado",
+        "FAMILY_ALLOWANCE": "Salário-família",
+        "INSALUBRIDADE": "Adicional de insalubridade",
+        "PERICULOSIDADE": "Adicional de periculosidade",
+        "HABITUAL_GRATIFICATION": "Gratificação habitual"
+      }
+    },
+    "PAYROLL_MONTH_LABELS": {
+      "enum": "PAYROLL_MONTH",
+      "labels": {
+        "JANUARY": "January",
+        "FEBRUARY": "February",
+        "MARCH": "March",
+        "APRIL": "April",
+        "MAY": "May",
+        "JUNE": "June",
+        "JULY": "July",
+        "AUGUST": "August",
+        "SEPTEMBER": "September",
+        "OCTOBER": "October",
+        "NOVEMBER": "November",
+        "DECEMBER": "December"
+      }
+    },
+    "PAYROLL_STATUS_LABELS": {
+      "enum": "PAYROLL_STATUS",
+      "labels": {
+        "DRAFT": "Rascunho",
+        "FINALIZED": "Finished"
+      }
+    },
+    "PERCENTAGE_ADJUST_TYPE_LABELS": {
+      "enum": "PERCENTAGE_ADJUST_TYPE",
+      "labels": {
+        "INCREASE": "Aumento",
+        "DECREASE": "Redução"
+      }
+    },
+    "PERFORMANCE_LEVEL_LABELS": {
+      "enum": "PERFORMANCE_LEVEL",
+      "labels": {
+        "EXCELLENT": "Excelente",
+        "GOOD": "Bom",
+        "FAIR": "Regular",
+        "POOR": "Ruim"
+      }
+    },
+    "PERIOD_TYPE_LABELS": {
+      "enum": "PERIOD_TYPE",
+      "labels": {
+        "DAILY": "Diário",
+        "WEEKLY": "Semanal",
+        "MONTHLY": "Mensal",
+        "QUARTERLY": "Trimestral",
+        "YEARLY": "Anual"
+      }
+    },
+    "POSITION_CHANGE_REASON_LABELS": {
+      "enum": "POSITION_CHANGE_REASON",
+      "labels": {
+        "ADMISSION": "Admissão",
+        "PROMOTION": "Promoção",
+        "TRANSFER": "Transferência",
+        "DEMOTION": "Reversão",
+        "ADJUSTMENT": "Readaptação",
+        "CORRECTION": "Reenquadramento"
+      }
+    },
+    "PPE_DELIVERY_MODE_LABELS": {
+      "enum": "PPE_DELIVERY_MODE",
+      "labels": {
+        "SCHEDULED": "Programada",
+        "ON_DEMAND": "Sob Demanda",
+        "BOTH": "Ambas"
+      }
+    },
+    "PPE_DELIVERY_STATUS_LABELS": {
+      "enum": "PPE_DELIVERY_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "APPROVED": "Aprovado",
+        "DELIVERED": "Entregue",
+        "WAITING_SIGNATURE": "Aguardando Assinatura",
+        "COMPLETED": "Concluído",
+        "SIGNATURE_REJECTED": "Assinatura Rejeitada",
+        "REPROVED": "Reprovado",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "PPE_REQUEST_STATUS_LABELS": {
+      "enum": "PPE_REQUEST_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "APPROVED": "Aprovado",
+        "REJECTED": "Rejeitado",
+        "DELIVERED": "Entregue",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "PPE_SIZE_LABELS": {
+      "enum": "PPE_SIZE",
+      "labels": {
+        "P": "P",
+        "M": "M",
+        "G": "G",
+        "GG": "GG",
+        "XG": "XG",
+        "SIZE_35": "35",
+        "SIZE_36": "36",
+        "SIZE_37": "37",
+        "SIZE_38": "38",
+        "SIZE_39": "39",
+        "SIZE_40": "40",
+        "SIZE_41": "41",
+        "SIZE_42": "42",
+        "SIZE_43": "43",
+        "SIZE_44": "44",
+        "SIZE_45": "45",
+        "SIZE_46": "46",
+        "SIZE_47": "47",
+        "SIZE_48": "48",
+        "SIZE_50": "50"
+      }
+    },
+    "PPE_SIZE_TYPE_LABELS": {
+      "enum": "PPE_SIZE_TYPE",
+      "labels": {
+        "SHIRT": "Camisa",
+        "PANTS": "Calça",
+        "SHORT": "Bermuda",
+        "BOOT": "Bota",
+        "GLOVE": "Luva",
+        "MASK": "Máscara",
+        "SLEEVES": "Mangas",
+        "RAIN_BOOTS": "Galocha",
+        "OVERALL": "Macacão",
+        "HELMET": "Capacete",
+        "UNIFORM": "Uniforme"
+      }
+    },
+    "PPE_TYPE_LABELS": {
+      "enum": "PPE_TYPE",
+      "labels": {
+        "SHIRT": "Camisa",
+        "PANTS": "Calça",
+        "SHORT": "Bermuda",
+        "BOOTS": "Botas",
+        "SLEEVES": "Manguito",
+        "MASK": "Máscara",
+        "GLOVES": "Luvas",
+        "RAIN_BOOTS": "Galocha",
+        "OVERALL": "Macacão",
+        "OTHERS": "Outros"
+      }
+    },
+    "PRIORITY_TYPE_LABELS": {
+      "enum": "PRIORITY_TYPE",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      }
+    },
+    "PROGRESSIVE_DELAY_TIER_LABELS": {
+      "enum": "PROGRESSIVE_DELAY_TIER",
+      "labels": {
+        "TIER_1": "5 segundos",
+        "TIER_2": "15 segundos",
+        "TIER_3": "30 segundos",
+        "TIER_4": "1 minuto",
+        "TIER_5": "5 minutos",
+        "TIER_6": "15 minutos",
+        "TIER_7": "30 minutos",
+        "TIER_8": "1 hora"
+      }
+    },
+    "RAIN_BOOTS_SIZE_LABELS": {
+      "enum": "RAIN_BOOTS_SIZE",
+      "labels": {
+        "SIZE_35": "35",
+        "SIZE_36": "36",
+        "SIZE_37": "37",
+        "SIZE_38": "38",
+        "SIZE_39": "39",
+        "SIZE_40": "40",
+        "SIZE_41": "41",
+        "SIZE_42": "42",
+        "SIZE_43": "43",
+        "SIZE_44": "44",
+        "SIZE_45": "45",
+        "SIZE_46": "46",
+        "SIZE_47": "47",
+        "SIZE_48": "48"
+      }
+    },
+    "RATE_LIMIT_TYPE_LABELS": {
+      "enum": "RATE_LIMIT_TYPE",
+      "labels": {
+        "PER_CODE_ATTEMPT": "Tentativas por Código",
+        "IP_VERIFICATION": "Verificação por IP",
+        "CODE_SEND_CONTACT": "Envio por Contato",
+        "CODE_SEND_IP": "Envio por IP",
+        "ACCOUNT_LOCKOUT": "Bloqueio de Conta",
+        "GLOBAL_RATE_LIMIT": "Limite Global"
+      }
+    },
+    "REGISTRATION_STATUS_LABELS": {
+      "enum": "REGISTRATION_STATUS",
+      "labels": {
+        "ACTIVE": "Active",
+        "SUSPENDED": "Suspended",
+        "UNFIT": "Unfit",
+        "ACTIVE_NOT_REGULAR": "Active Not Regular",
+        "DEREGISTERED": "Deregistered"
+      }
+    },
+    "RESCHEDULE_REASON_LABELS": {
+      "enum": "RESCHEDULE_REASON",
+      "labels": {
+        "CUSTOMER_REQUEST": "Solicitação do Cliente",
+        "RESOURCE_UNAVAILABLE": "Recurso Indisponível",
+        "MATERIAL_SHORTAGE": "Falta de Material",
+        "EQUIPMENT_FAILURE": "Falha de Equipamento",
+        "WEATHER_CONDITIONS": "Condições Climáticas",
+        "STAFF_UNAVAILABLE": "Funcionário Indisponível",
+        "PRIORITY_CHANGE": "Mudança de Prioridade",
+        "TECHNICAL_ISSUES": "Problemas Técnicos",
+        "OTHER": "Outro"
+      }
+    },
+    "RISK_LEVEL_LABELS": {
+      "enum": "RISK_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      }
+    },
+    "SALARY_ADJUSTMENT_TYPE_LABELS": {
+      "enum": "SALARY_ADJUSTMENT_TYPE",
+      "labels": {
+        "DISSIDIO_CCT": "Dissídio (CCT)",
+        "MERIT": "Mérito",
+        "PROMOTION": "Promoção",
+        "EQUALIZATION": "Equiparação Salarial",
+        "REFRAME": "Reenquadramento",
+        "OTHER": "Outro",
+        "BONUS": "Bonificação"
+      }
+    },
+    "SCHEDULE_FREQUENCY_LABELS": {
+      "enum": "SCHEDULE_FREQUENCY",
+      "labels": {
+        "ONCE": "Uma Vez",
+        "DAILY": "Diário",
+        "WEEKLY": "Semanal",
+        "BIWEEKLY": "Quinzenal",
+        "MONTHLY": "Mensal",
+        "BIMONTHLY": "Bimestral",
+        "QUARTERLY": "Trimestral",
+        "TRIANNUAL": "Quadrimestral",
+        "QUADRIMESTRAL": "Quadrimestral",
+        "SEMI_ANNUAL": "Semestral",
+        "ANNUAL": "Anual",
+        "CUSTOM": "Personalizado"
+      }
+    },
+    "SECTOR_PRIVILEGES_LABELS": {
+      "enum": "SECTOR_PRIVILEGES",
+      "labels": {
+        "BASIC": "Básico",
+        "MAINTENANCE": "Manutenção",
+        "WAREHOUSE": "Almoxarifado",
+        "PLOTTING": "Plotagem",
+        "DESIGNER": "Designer",
+        "LOGISTIC": "Logística",
+        "FINANCIAL": "Financeiro",
+        "COMMERCIAL": "Comercial",
+        "ADMIN": "Administrador",
+        "PRODUCTION": "Produção",
+        "HUMAN_RESOURCES": "Departamento Pessoal",
+        "EXTERNAL": "Externo",
+        "PRODUCTION_MANAGER": "Gerente de Produção",
+        "AIRBRUSHING": "Aerografia",
+        "ACCOUNTING": "Contabilidade"
+      }
+    },
+    "SERVICE_ORDER_STATUS_LABELS": {
+      "enum": "SERVICE_ORDER_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "IN_PROGRESS": "Em Andamento",
+        "WAITING_ARTWORK": "Aguardando Arte",
+        "PAUSED": "Pausado",
+        "WAITING_APPROVE": "Aguardando Aprovação",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "SERVICE_ORDER_TYPE_LABELS": {
+      "enum": "SERVICE_ORDER_TYPE",
+      "labels": {
+        "PRODUCTION": "Produção",
+        "COMMERCIAL": "Comercial",
+        "ARTWORK": "Arte",
+        "LOGISTIC": "Logística"
+      }
+    },
+    "SHIRT_SIZE_LABELS": {
+      "enum": "SHIRT_SIZE",
+      "labels": {
+        "P": "P",
+        "M": "M",
+        "G": "G",
+        "GG": "GG",
+        "XG": "XG"
+      }
+    },
+    "SLEEVES_SIZE_LABELS": {
+      "enum": "SLEEVES_SIZE",
+      "labels": {
+        "P": "P",
+        "M": "M",
+        "G": "G",
+        "GG": "GG",
+        "XG": "XG"
+      }
+    },
+    "SMS_VERIFICATION_STATUS_LABELS": {
+      "enum": "SMS_VERIFICATION_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "SENT": "Sent",
+        "VERIFIED": "Verificado",
+        "EXPIRED": "Expirado",
+        "FAILED": "Falhou",
+        "CANCELLED": "Cancelled",
+        "RATE_LIMITED": "Limitado por Taxa",
+        "BLOCKED": "Bloqueado"
+      }
+    },
+    "SMS_VERIFICATION_TYPE_LABELS": {
+      "enum": "SMS_VERIFICATION_TYPE",
+      "labels": {
+        "PHONE_VERIFICATION": "Verificação de Telefone",
+        "EMAIL_VERIFICATION": "Verificação de Email",
+        "PASSWORD_RESET": "Password Reset",
+        "TWO_FACTOR_AUTH": "Autenticação de Dois Fatores",
+        "ACCOUNT_CONFIRMATION": "Confirmação de Conta"
+      }
+    },
+    "STABILITY_TYPE_LABELS": {
+      "enum": "STABILITY_TYPE",
+      "labels": {
+        "ACCIDENT": "Acidentária (12 meses)",
+        "PREGNANCY": "Gestante",
+        "UNION": "Dirigente sindical",
+        "CIPA": "Membro da CIPA",
+        "OTHER": "Outra"
+      }
+    },
+    "STATISTICS_GROUP_BY_LABELS": {
+      "enum": "STATISTICS_GROUP_BY",
+      "labels": {
+        "SECTOR": "Setor",
+        "USER": "Usuário",
+        "CATEGORY": "Categoria",
+        "BRAND": "Marca",
+        "SUPPLIER": "Fornecedor",
+        "ITEM": "Item",
+        "DATE": "Data",
+        "ACTIVITY_REASON": "Motivo da Atividade",
+        "ACTIVITY_OPERATION": "Operação da Atividade"
+      }
+    },
+    "STATISTICS_METRIC_LABELS": {
+      "enum": "STATISTICS_METRIC",
+      "labels": {
+        "QUANTITY": "Quantidade",
+        "TOTAL_PRICE": "Preço Total",
+        "UNIT_PRICE": "Preço Unitário",
+        "COUNT": "Count",
+        "FREQUENCY": "Frequência",
+        "PERCENTAGE": "Percentual",
+        "AVERAGE": "Medium",
+        "SUM": "Soma",
+        "MIN": "Mínimo",
+        "MAX": "Máximo"
+      }
+    },
+    "STATISTICS_PERIOD_LABELS": {
+      "enum": "STATISTICS_PERIOD",
+      "labels": {
+        "DAILY": "Diário",
+        "WEEKLY": "Semanal",
+        "MONTHLY": "Mensal",
+        "QUARTERLY": "Trimestral",
+        "YEARLY": "Anual",
+        "CUSTOM": "Personalizado",
+        "LAST_7_DAYS": "Últimos 7 Dias",
+        "LAST_30_DAYS": "Últimos 30 Dias",
+        "LAST_90_DAYS": "Últimos 90 Dias",
+        "LAST_YEAR": "Último Ano",
+        "THIS_WEEK": "Esta Semana",
+        "THIS_MONTH": "Este Mês",
+        "THIS_QUARTER": "Este Trimestre",
+        "THIS_YEAR": "Este Ano"
+      }
+    },
+    "STOCK_LEVEL_LABELS": {
+      "enum": "STOCK_LEVEL",
+      "labels": {
+        "NEGATIVE_STOCK": "Estoque Negativo",
+        "OUT_OF_STOCK": "Sem Estoque",
+        "CRITICAL": "Critical",
+        "LOW": "Low",
+        "OPTIMAL": "Ótimo",
+        "OVERSTOCKED": "Excesso de Estoque"
+      }
+    },
+    "STOCK_MODEL_LABELS": {
+      "enum": "STOCK_MODEL",
+      "labels": {
+        "CONSUMPTION": "Consumo",
+        "FIXED_TARGET": "Alvo fixo"
+      }
+    },
+    "TASK_OBSERVATION_TYPE_LABELS": {
+      "enum": "TASK_OBSERVATION_TYPE",
+      "labels": {
+        "DAMAGE": "Dano Causado",
+        "OVERDUE": "Atrasado",
+        "QUALITY": "Qualidade"
+      }
+    },
+    "TASK_QUOTE_STATUS_LABELS": {
+      "enum": "TASK_QUOTE_STATUS",
+      "labels": {
+        "EXPIRED": "Aguardando Reanálise",
+        "SIGNED": "Assinado",
+        "PENDING": "Aguardando Assinatura",
+        "REQUESTED": "Requisição",
+        "IN_NEGOTIATION": "Em Negociação",
+        "PRE_APPROVED": "Pré-aprovado",
+        "APPROVED": "Aprovado",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "TASK_STATUS_LABELS": {
+      "enum": "TASK_STATUS",
+      "labels": {
+        "PREPARATION": "Em Preparação",
+        "WAITING_PRODUCTION": "Aguardando Produção",
+        "IN_PRODUCTION": "Em Produção",
+        "COMPLETED": "Concluído",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "TERMINATION_DOCUMENT_STATUS_LABELS": {
+      "enum": "TERMINATION_DOCUMENT_STATUS",
+      "labels": {
+        "PENDING": "Pendente",
+        "GENERATED": "Gerado",
+        "SIGNED": "Assinado",
+        "DELIVERED": "Entregue"
+      }
+    },
+    "TERMINATION_DOCUMENT_TYPE_LABELS": {
+      "enum": "TERMINATION_DOCUMENT_TYPE",
+      "labels": {
+        "NOTICE_LETTER": "Carta de Aviso Prévio",
+        "WARNING_LETTER": "Carta de Aviso (Justa Causa)",
+        "TRCT": "TRCT",
+        "TERM_484A": "Termo de Acordo Mútuo (484-A)",
+        "HOMOLOGATION_TERM": "Termo de Homologação",
+        "FGTS_GUIDE": "Guia do FGTS",
+        "FGTS_STATEMENT": "Extrato do FGTS",
+        "UNEMPLOYMENT_INSURANCE_FORM": "Requerimento do Seguro-Desemprego",
+        "DISMISSAL_EXAM": "Exame Demissional",
+        "PAYMENT_RECEIPT": "Comprovante de Pagamento",
+        "DOCUMENT_DELIVERY_RECEIPT": "Recibo de Entrega de Documentos",
+        "MUTUAL_AGREEMENT_TERM": "Termo de Acordo Mútuo",
+        "OTHER": "Outro"
+      }
+    },
+    "TERMINATION_ITEM_TYPE_LABELS": {
+      "enum": "TERMINATION_ITEM_TYPE",
+      "labels": {
+        "SALARY_BALANCE": "Saldo de Salário",
+        "NOTICE_INDEMNIFIED": "Aviso Prévio Indenizado",
+        "NOTICE_DISCOUNT": "Desconto de Aviso Prévio",
+        "THIRTEENTH_PROPORTIONAL": "13º Salário Proporcional",
+        "ACCRUED_VACATION": "Férias Vencidas (+1/3)",
+        "PROPORTIONAL_VACATION": "Férias Proporcionais (+1/3)",
+        "ART479_INDEMNITY": "Indenização Art. 479 CLT",
+        "FGTS_FINE": "Multa do FGTS",
+        "ART477_FINE": "Multa Art. 477 CLT",
+        "INSS_DISCOUNT": "Desconto INSS",
+        "IRRF_DISCOUNT": "Desconto IRRF",
+        "ADVANCE_DISCOUNT": "Desconto de Adiantamento",
+        "BENEFIT_DISCOUNT": "Desconto de Benefício",
+        "OTHER_EARNING": "Outro Provento",
+        "OTHER_DISCOUNT": "Outro Desconto"
+      }
+    },
+    "TERMINATION_STATUS_LABELS": {
+      "enum": "TERMINATION_STATUS",
+      "labels": {
+        "INITIATED": "Iniciada",
+        "NOTICE_PERIOD": "Aviso Prévio",
+        "DOCUMENTS": "Documentação",
+        "MEDICAL_EXAM": "Exame Demissional",
+        "CALCULATION": "Cálculo",
+        "PAYMENT": "Pagamento",
+        "HOMOLOGATION": "Homologação",
+        "COMPLETED": "Concluída",
+        "CANCELLED": "Cancelada"
+      }
+    },
+    "TERMINATION_TYPE_LABELS": {
+      "enum": "TERMINATION_TYPE",
+      "labels": {
+        "WITHOUT_CAUSE": "Dispensa sem justa causa",
+        "WITH_CAUSE": "Dispensa por justa causa",
+        "RESIGNATION": "Pedido de demissão",
+        "MUTUAL_AGREEMENT": "Acordo mútuo (484-A)",
+        "EXPERIENCE_END": "Término do contrato de experiência",
+        "EXPERIENCE_EARLY_EMPLOYER": "Rescisão antecipada da experiência (empregador)",
+        "EXPERIENCE_EARLY_EMPLOYEE": "Rescisão antecipada da experiência (empregado)",
+        "INDIRECT": "Rescisão indireta",
+        "DEATH": "Falecimento",
+        "FIXED_TERM_EARLY_EMPLOYEE": "Rescisão antecipada de contrato a prazo (empregado, art. 480)",
+        "INTERMITTENT_END": "Encerramento de contrato intermitente"
+      }
+    },
+    "THIRTEENTH_STATUS_LABELS": {
+      "enum": "THIRTEENTH_STATUS",
+      "labels": {
+        "OPEN": "Aberto",
+        "FIRST_PAID": "1ª parcela paga",
+        "SECOND_PAID": "2ª parcela paga",
+        "PAID": "Pago",
+        "CANCELLED": "Cancelado"
+      }
+    },
+    "TIMELINE_EVENT_TYPE_LABELS": {
+      "enum": "TIMELINE_EVENT_TYPE",
+      "labels": {
+        "CREATED": "Criado",
+        "UPDATED": "Atualizado",
+        "STATUS_CHANGED": "Status Alterado",
+        "FILE_ADDED": "Arquivo Adicionado",
+        "FILE_REMOVED": "Arquivo Removido",
+        "NOTE_ADDED": "Nota Adicionada",
+        "ASSIGNED": "Atribuído",
+        "COMPLETED": "Concluído"
+      }
+    },
+    "TIME_RANGE_LABELS": {
+      "enum": "TIME_RANGE",
+      "labels": {
+        "LAST_7_DAYS": "Últimos 7 Dias",
+        "LAST_30_DAYS": "Últimos 30 Dias",
+        "LAST_90_DAYS": "Últimos 90 Dias",
+        "LAST_YEAR": "Último Ano",
+        "CUSTOM": "Personalizado"
+      }
+    },
+    "TREND_DIRECTION_LABELS": {
+      "enum": "TREND_DIRECTION",
+      "labels": {
+        "UP": "Crescente",
+        "DOWN": "Decrescente",
+        "STABLE": "Estável"
+      }
+    },
+    "TREND_TYPE_LABELS": {
+      "enum": "TREND_TYPE",
+      "labels": {
+        "POSITIVE": "Positivo",
+        "NEGATIVE": "Negativo",
+        "NEUTRAL": "Neutro",
+        "VOLATILE": "Volátil",
+        "SEASONAL": "Sazonal"
+      }
+    },
+    "TRUCK_CATEGORY_LABELS": {
+      "enum": "TRUCK_CATEGORY",
+      "labels": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      }
+    },
+    "TRUCK_MANUFACTURER_LABELS": {
+      "enum": "TRUCK_MANUFACTURER",
+      "labels": {
+        "SCANIA": "Scania",
+        "VOLVO": "Volvo",
+        "DAF": "DAF",
+        "VOLKSWAGEN": "Volkswagen",
+        "IVECO": "Iveco",
+        "MERCEDES_BENZ": "Mercedes Benz",
+        "MAN": "MAN"
+      }
+    },
+    "TRUCK_SPOT_LABELS": {
+      "enum": "TRUCK_SPOT",
+      "labels": {
+        "YARD_WAIT": "Pátio de Espera",
+        "YARD_EXIT": "Pátio de Saída",
+        "B1_F1_V1": "B1-F1-V1",
+        "B1_F1_V2": "B1-F1-V2",
+        "B1_F1_V3": "B1-F1-V3",
+        "B1_F2_V1": "B1-F2-V1",
+        "B1_F2_V2": "B1-F2-V2",
+        "B1_F2_V3": "B1-F2-V3",
+        "B1_F3_V1": "B1-F3-V1",
+        "B1_F3_V2": "B1-F3-V2",
+        "B1_F3_V3": "B1-F3-V3",
+        "B2_F1_V1": "B2-F1-V1",
+        "B2_F1_V2": "B2-F1-V2",
+        "B2_F1_V3": "B2-F1-V3",
+        "B2_F2_V1": "B2-F2-V1",
+        "B2_F2_V2": "B2-F2-V2",
+        "B2_F2_V3": "B2-F2-V3",
+        "B2_F3_V1": "B2-F3-V1",
+        "B2_F3_V2": "B2-F3-V2",
+        "B2_F3_V3": "B2-F3-V3",
+        "B3_F1_V1": "B3-F1-V1",
+        "B3_F1_V2": "B3-F1-V2",
+        "B3_F1_V3": "B3-F1-V3",
+        "B3_F2_V1": "B3-F2-V1",
+        "B3_F2_V2": "B3-F2-V2",
+        "B3_F2_V3": "B3-F2-V3",
+        "B3_F3_V1": "B3-F3-V1",
+        "B3_F3_V2": "B3-F3-V2",
+        "B3_F3_V3": "B3-F3-V3"
+      }
+    },
+    "URGENCY_LEVEL_LABELS": {
+      "enum": "URGENCY_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      }
+    },
+    "VACATION_STATUS_LABELS": {
+      "enum": "VACATION_STATUS",
+      "labels": {
+        "SCHEDULED": "Agendada",
+        "PAID": "Paga",
+        "EXPIRED": "Vencida"
+      }
+    },
+    "VALIDATION_SEVERITY_LABELS": {
+      "enum": "VALIDATION_SEVERITY",
+      "labels": {
+        "ERROR": "Error",
+        "WARNING": "Warning",
+        "INFO": "Info"
+      }
+    },
+    "VERIFICATION_ABUSE_LEVEL_LABELS": {
+      "enum": "VERIFICATION_ABUSE_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical",
+        "SEVERE": "Severo"
+      }
+    },
+    "VERIFICATION_ERROR_CATEGORY_LABELS": {
+      "enum": "VERIFICATION_ERROR_CATEGORY",
+      "labels": {
+        "VALIDATION": "Validation",
+        "RATE_LIMITING": "Rate Limiting",
+        "AUTHENTICATION": "Authentication",
+        "EXTERNAL_SERVICE": "External Service",
+        "SYSTEM": "System",
+        "SECURITY": "Safety"
+      }
+    },
+    "VERIFICATION_ERROR_CODE_LABELS": {
+      "enum": "VERIFICATION_ERROR_CODE",
+      "labels": {
+        "INVALID_CONTACT": "Invalid Contact",
+        "CONTACT_REQUIRED": "Contact Required",
+        "CODE_REQUIRED": "Code Required",
+        "INVALID_CONTACT_FORMAT": "Invalid Contact Format",
+        "USER_NOT_FOUND": "User Not Found",
+        "USER_ALREADY_VERIFIED": "User Already Verified",
+        "USER_INACTIVE": "User Inactive",
+        "INVALID_CODE": "Invalid Code",
+        "CODE_EXPIRED": "Code Expired",
+        "NO_CODE_SENT": "No Code Sent",
+        "CODE_MISMATCH": "Code Mismatch",
+        "TOO_MANY_ATTEMPTS": "Too Many Attempts",
+        "TOO_MANY_REQUESTS": "Too Many Requests",
+        "CONTACT_COOLDOWN": "Contact Cooldown",
+        "IP_RATE_LIMITED": "IP Rate Limited",
+        "PROGRESSIVE_DELAY": "Progressive Delay",
+        "SMS_SEND_FAILED": "SMS Send Failed",
+        "EMAIL_SEND_FAILED": "Email Send Failed",
+        "NOTIFICATION_FAILED": "Notification Failed",
+        "EXTERNAL_SERVICE_ERROR": "External Service Error",
+        "DATABASE_ERROR": "Database Error",
+        "CACHE_ERROR": "Cache Error",
+        "CONFIGURATION_ERROR": "Configuration Error",
+        "INTERNAL_ERROR": "Internal Error",
+        "SUSPICIOUS_ACTIVITY": "Suspicious Activity",
+        "BLOCKED_IP": "Blocked IP",
+        "BLACKLISTED_CONTACT": "Blacklisted Contact",
+        "SECURITY_VIOLATION": "Security Violation"
+      }
+    },
+    "VERIFICATION_ERROR_SEVERITY_LABELS": {
+      "enum": "VERIFICATION_ERROR_SEVERITY",
+      "labels": {
+        "LOW": "Low",
+        "MEDIUM": "Medium",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      }
+    },
+    "VERIFICATION_METHOD_LABELS": {
+      "enum": "VERIFICATION_METHOD",
+      "labels": {
+        "EMAIL": "E-mail",
+        "PHONE": "Phone",
+        "EMAIL_AND_PHONE": "E-mail e Telefone"
+      }
+    },
+    "VERIFICATION_PURPOSE_LABELS": {
+      "enum": "VERIFICATION_PURPOSE",
+      "labels": {
+        "ACCOUNT_VERIFICATION": "Verificação de Conta",
+        "PASSWORD_RESET": "Password Reset",
+        "PHONE_VERIFICATION": "Verificação de Telefone",
+        "EMAIL_VERIFICATION": "Verificação de E-mail",
+        "TWO_FACTOR_AUTH": "Autenticação de Dois Fatores",
+        "LOGIN_VERIFICATION": "Verificação de Login"
+      }
+    },
+    "VERIFICATION_SECURITY_ACTION_LABELS": {
+      "enum": "VERIFICATION_SECURITY_ACTION",
+      "labels": {
+        "LOG_ATTEMPT": "Registrar Tentativa",
+        "DELAY_RESPONSE": "Atrasar Resposta",
+        "REQUIRE_CAPTCHA": "Requerer CAPTCHA",
+        "TEMPORARY_BLOCK": "Bloqueio Temporário",
+        "ESCALATE_SECURITY": "Escalar Segurança",
+        "NOTIFY_ADMIN": "Notificar Admin",
+        "PERMANENT_BLOCK": "Bloqueio Permanente"
+      }
+    },
+    "VERIFICATION_STATUS_LABELS": {
+      "enum": "VERIFICATION_STATUS",
+      "labels": {
+        "PENDING": "Pending",
+        "SENT": "Sent",
+        "VERIFIED": "Verificado",
+        "EXPIRED": "Expirado",
+        "FAILED": "Falhou",
+        "CANCELLED": "Cancelled"
+      }
+    },
+    "VERIFICATION_TYPE_LABELS": {
+      "enum": "VERIFICATION_TYPE",
+      "labels": {
+        "EMAIL": "E-mail",
+        "PHONE": "Phone",
+        "PASSWORD_RESET": "Password Reset",
+        "FIRST_ACCESS": "Primeiro Acesso"
+      }
+    },
+    "WAREHOUSE_LOCATION_TYPE_LABELS": {
+      "enum": "WAREHOUSE_LOCATION_TYPE",
+      "labels": {
+        "ESTANTE": "Estante",
+        "ESTANTE_DUPLA": "Estante Dupla",
+        "ESTANTE_KANBAN": "Estante com Kanban",
+        "PAINEL": "Painel",
+        "PALETE": "Palete"
+      }
+    },
+    "WARNING_CATEGORY_LABELS": {
+      "enum": "WARNING_CATEGORY",
+      "labels": {
+        "SAFETY": "Safety",
+        "MISCONDUCT": "Misconduct",
+        "INSUBORDINATION": "Insubordination",
+        "POLICY_VIOLATION": "Policy Violation",
+        "ATTENDANCE": "Attendance",
+        "PERFORMANCE": "Performance",
+        "BEHAVIOR": "Behavior",
+        "OTHER": "Other"
+      }
+    },
+    "WARNING_SEVERITY_LABELS": {
+      "enum": "WARNING_SEVERITY",
+      "labels": {
+        "VERBAL": "Verbal",
+        "WRITTEN": "Written",
+        "SUSPENSION": "Suspension",
+        "FINAL_WARNING": "Final Warning"
+      }
+    },
+    "WEEK_DAY_LABELS": {
+      "enum": "WEEK_DAY",
+      "labels": {
+        "MONDAY": "Monday",
+        "TUESDAY": "Tuesday",
+        "WEDNESDAY": "Wednesday",
+        "THURSDAY": "Thursday",
+        "FRIDAY": "Friday",
+        "SATURDAY": "Saturday",
+        "SUNDAY": "Sunday"
+      }
+    },
+    "WORKLOAD_LEVEL_LABELS": {
+      "enum": "WORKLOAD_LEVEL",
+      "labels": {
+        "LOW": "Low",
+        "NORMAL": "Normal",
+        "HIGH": "High",
+        "CRITICAL": "Critical"
+      }
+    },
+    "WORK_ACCIDENT_REPORT_TYPE_LABELS": {
+      "enum": "WORK_ACCIDENT_REPORT_TYPE",
+      "labels": {
+        "INITIAL": "CAT inicial",
+        "REOPENING": "CAT de reabertura",
+        "DEATH": "CAT de óbito"
+      }
+    },
+    "XYZ_CATEGORY_LABELS": {
+      "enum": "XYZ_CATEGORY",
+      "labels": {
+        "X": "Categoria X - Demanda Estável",
+        "Y": "Categoria Y - Demanda Variável",
+        "Z": "Categoria Z - Demanda Irregular"
+      }
+    }
+  }
+}
