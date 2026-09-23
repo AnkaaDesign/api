@@ -1,0 +1,90 @@
+{
+  "cliente": "negativas",
+  "descricao": "Formas que TÊM de ser recusadas: chave que o modelo não tem. O teste exige que o G1 e o Prisma concordem (os dois recusam) — é a prova de que o validador não inventa nem esquece regra.",
+  "formas": [
+    {
+      "id": "neg.include.aninhado-inventado",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "esperado": "recusa",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "tasks": {
+                "include": {
+                  "budget": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "neg.include.servico-da-os",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "esperado": "recusa",
+      "nota": "FORMA REAL do web, quebrada hoje (500): web/src/components/production/task/history/task-export.tsx:216-220 pede `serviceOrders.include.service`, que não existe em ServiceOrder. Com o G1 vira 400 nomeado; o conserto do lado do web é o A12 do P03 — quando ele sair, esta forma continua aqui como negativa.",
+      "consulta": {
+        "include": {
+          "serviceOrders": {
+            "include": {
+              "service": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "neg.select.escalar-inventado",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "esperado": "recusa",
+      "consulta": {
+        "include": {
+          "quote": {
+            "select": {
+              "id": true,
+              "layoutFilesCount": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "neg.where.relacao-inventada",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "esperado": "recusa",
+      "consulta": {
+        "where": {
+          "truck": {
+            "implementFoo": "x"
+          }
+        }
+      }
+    },
+    {
+      "id": "neg.include.escalar-como-relacao",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "esperado": "recusa",
+      "consulta": {
+        "include": {
+          "customer": {
+            "include": {
+              "fantasyName": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

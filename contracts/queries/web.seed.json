@@ -1,0 +1,169 @@
+{
+  "cliente": "web",
+  "descricao": "SEMENTE escrita à mão (P01) com as constantes de include mais usadas do web. O extrator automático é do P03 e gera contracts/queries/web.json ao lado desta.",
+  "fonte": "web@feat/portal-do-responsavel (051a5c04 + P00)",
+  "formas": [
+    {
+      "id": "web.tarefa.detalhe",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/task/detail/task-detail-page.tsx:202 (DETAIL_INCLUDE)",
+      "consulta": {
+        "include": {
+          "customer": { "include": { "logo": true } },
+          "sector": true,
+          "responsibles": true,
+          "truck": true,
+          "createdBy": true,
+          "serviceOrders": { "include": { "assignedTo": true, "checkinFiles": true, "checkoutFiles": true } },
+          "baseFiles": true,
+          "projectFiles": true,
+          "layouts": { "include": { "file": true } },
+          "observation": { "include": { "files": true } },
+          "generalPainting": {
+            "include": {
+              "paintType": true,
+              "paintBrand": true,
+              "paintGrounds": { "include": { "groundPaint": { "include": { "paintType": true, "paintBrand": true } } } }
+            }
+          },
+          "logoPaints": { "include": { "paintType": true, "paintBrand": true } },
+          "quote": {
+            "include": {
+              "services": { "include": { "invoiceToCustomer": true } },
+              "layoutFiles": true,
+              "customerConfigs": {
+                "include": {
+                  "customer": { "include": { "logo": true } },
+                  "installments": { "orderBy": { "number": "asc" } },
+                  "customerSignature": true,
+                  "billing": { "include": { "tasks": true } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.tarefa.cronograma",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-table-page.tsx:88 (SCHEDULE_LIST_INCLUDE)",
+      "consulta": {
+        "page": 1,
+        "limit": 40,
+        "status": ["IN_PRODUCTION", "WAITING_PRODUCTION"],
+        "include": {
+          "sector": true,
+          "customer": true,
+          "generalPainting": { "include": { "paintType": true, "paintBrand": true } },
+          "truck": true,
+          "serviceOrders": true,
+          "quote": true,
+          "createdBy": true
+        },
+        "orderBy": [{ "term": "asc" }]
+      }
+    },
+    {
+      "id": "web.painel.tabela-de-tarefas",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:1644 (TASK_INCLUDE) + :1612 (ORDER_BY_PATH_MAP)",
+      "nota": "orderBy.truck.plate é DESCARTADO pelo zod hoje (taskOrderBySchema não conhece truck): o G1 só registra (modo relatório).",
+      "consulta": {
+        "page": 1,
+        "limit": 20,
+        "include": {
+          "customer": true,
+          "sector": true,
+          "generalPainting": true,
+          "logoPaints": true,
+          "serviceOrders": true,
+          "observation": true,
+          "truck": true,
+          "quote": true,
+          "layouts": true,
+          "responsibles": true
+        },
+        "orderBy": [{ "quote": { "statusOrder": "asc" } }, { "truck": { "plate": "asc" } }, { "customer": { "fantasyName": "desc" } }]
+      }
+    },
+    {
+      "id": "web.tarefa.copiar-de",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/components/production/task/schedule/task-schedule-table-page.tsx:474-492 (origem do copiar-de)",
+      "nota": "include.cuts é DESCARTADO pelo zod hoje (taskIncludeSchema não o declara): modo relatório.",
+      "consulta": {
+        "include": {
+          "layouts": { "include": { "file": true } },
+          "budgets": true,
+          "invoices": true,
+          "receipts": true,
+          "quote": true,
+          "logoPaints": true,
+          "cuts": true,
+          "serviceOrders": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": { "include": { "sections": true, "photo": true } },
+              "rightSideMeasure": { "include": { "sections": true, "photo": true } },
+              "backSideMeasure": { "include": { "sections": true, "photo": true } }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.faturamento.detalhe",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "web/src/pages/financial/billing/details/[id].tsx:284-330",
+      "consulta": {
+        "include": {
+          "customer": { "include": { "logo": true } },
+          "truck": { "include": { "vinPlate": true } },
+          "serviceOrders": { "include": { "checkinFiles": true, "checkoutFiles": true }, "orderBy": { "position": "asc" } },
+          "layouts": { "include": { "file": true } },
+          "responsibles": true,
+          "quote": {
+            "include": {
+              "services": true,
+              "layoutFiles": true,
+              "tasks": {
+                "select": {
+                  "id": true,
+                  "name": true,
+                  "serialNumber": true,
+                  "createdAt": true,
+                  "customerOrderNumber": true,
+                  "finishedAt": true,
+                  "truck": { "select": { "id": true, "plate": true, "chassisNumber": true } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "web.orcamentos.lista",
+      "rota": "GET /budgets",
+      "modelo": "Budget",
+      "schema": "budget.budgetGetManySchema",
+      "origem": "web/src/components/financial/budget/table/budget-table-filters.tsx:59 (BUDGET_QUOTE_INCLUDE)",
+      "consulta": {
+        "page": 1,
+        "limit": 50,
+        "include": { "tasks": { "include": { "truck": true, "customer": true } }, "customerConfigs": true }
+      }
+    }
+  ]
+}

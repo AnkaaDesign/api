@@ -1,0 +1,93 @@
+{
+  "cliente": "ankaa-aero",
+  "descricao": "App nativo iOS 12.5 do iPad da aerografia (sem OTA, instalado por cabo). Escrito à mão a partir do código Swift — é o terceiro cliente achado no P00 (§5.4 do plano).",
+  "fonte": "mobile-flutter/AnkaaAero/AnkaaAero/Networking/APIClient.swift:63-158",
+  "formas": [
+    {
+      "id": "aero.tarefas",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "APIClient.swift:63-72,94-98 (taskCoreInclude + where id in)",
+      "consulta": {
+        "page": 1,
+        "limit": 100,
+        "where": { "id": { "in": ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] } },
+        "include": {
+          "customer": true,
+          "sector": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": { "include": { "sections": true } },
+              "rightSideMeasure": { "include": { "sections": true } }
+            }
+          },
+          "generalPainting": {
+            "select": { "id": true, "name": true, "hex": true, "finish": true, "colorPreview": true }
+          }
+        }
+      }
+    },
+    {
+      "id": "aero.tarefa",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "APIClient.swift:113-126",
+      "consulta": {
+        "include": {
+          "customer": true,
+          "sector": true,
+          "truck": {
+            "include": {
+              "leftSideMeasure": { "include": { "sections": true } },
+              "rightSideMeasure": { "include": { "sections": true } }
+            }
+          },
+          "generalPainting": {
+            "select": { "id": true, "name": true, "hex": true, "finish": true, "colorPreview": true }
+          },
+          "layouts": { "include": { "file": true } },
+          "baseFiles": true,
+          "projectFiles": true,
+          "checkoutFiles": true,
+          "serviceOrders": { "include": { "checkoutFiles": true } }
+        }
+      }
+    },
+    {
+      "id": "aero.aerografias",
+      "rota": "GET /airbrushings",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingGetManySchema",
+      "origem": "APIClient.swift:134-148",
+      "consulta": {
+        "page": 1,
+        "limit": 100,
+        "orderBy": { "createdAt": "desc" },
+        "where": { "painterId": "00000000-0000-4000-8000-000000000003" },
+        "include": {
+          "task": { "include": { "customer": true } },
+          "painter": true,
+          "layouts": { "include": { "file": true } }
+        }
+      }
+    },
+    {
+      "id": "aero.aerografia",
+      "rota": "GET /airbrushings/:id",
+      "modelo": "Airbrushing",
+      "schema": "airbrushing.airbrushingQuerySchema",
+      "origem": "APIClient.swift:150-162",
+      "consulta": {
+        "include": {
+          "task": { "include": { "customer": true, "sector": true, "truck": true } },
+          "painter": true,
+          "receipts": true,
+          "invoices": true,
+          "layouts": { "include": { "file": true } }
+        }
+      }
+    }
+  ]
+}

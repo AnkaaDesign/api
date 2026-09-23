@@ -136,7 +136,8 @@
     "test:portal-identificacao": "tsx -r tsconfig-paths/register tests/portal-identificacao.test.ts",
     "test:portal-e2e": "bash tests/e2e-portal/run.sh",
     "test:paint-purchase": "tsx tests/paint-purchase.test.ts",
-    "test:bonus-modifiers": "tsx tests/bonus-modifiers.test.ts"
+    "test:bonus-modifiers": "tsx tests/bonus-modifiers.test.ts",
+    "test:query-contract": "tsx tests/query-contract.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

@@ -1,0 +1,154 @@
+{
+  "cliente": "flutter",
+  "descricao": "SEMENTE escrita à mão (P01) com os mapas 'include' do app 1.4.1 que mais pesam (detalhe e lista de tarefa, detalhe do orçamento). O extrator Dart é do P24 e gera contracts/queries/flutter.json ao lado desta. Os ramos por permissão entram no MÁXIMO (todos ligados) e, onde são exclusivos, como formas separadas.",
+  "fonte": "mobile-flutter@feat/implemento (origin/main do P00)",
+  "formas": [
+    {
+      "id": "app.tarefa.detalhe.orcamento",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "lib/features/production/task_detail_config.dart:60-205 (buildTaskDetailInclude, audiência do orçamento)",
+      "consulta": {
+        "include": {
+          "sector": { "select": { "id": true, "name": true } },
+          "customer": { "select": { "id": true, "fantasyName": true, "corporateName": true } },
+          "createdBy": { "select": { "id": true, "name": true } },
+          "truck": {
+            "include": {
+              "vinPlate": true,
+              "leftSideMeasure": { "include": { "sections": true } },
+              "rightSideMeasure": { "include": { "sections": true } },
+              "backSideMeasure": { "include": { "sections": true, "photo": true } }
+            }
+          },
+          "serviceOrders": { "include": { "checkinFiles": true, "checkoutFiles": true } },
+          "layouts": { "include": { "file": true } },
+          "observation": { "include": { "files": true } },
+          "responsibles": true,
+          "forecastHistory": {
+            "include": { "changedBy": { "select": { "id": true, "name": true } } },
+            "orderBy": { "createdAt": "asc" }
+          },
+          "quote": {
+            "select": { "id": true, "total": true, "status": true, "statusOrder": true, "budgetNumber": true, "expiresAt": true }
+          },
+          "generalPainting": {
+            "include": {
+              "paintType": { "select": { "id": true, "name": true } },
+              "paintBrand": { "select": { "id": true, "name": true } },
+              "paintGrounds": { "include": { "groundPaint": { "include": { "paintType": true, "paintBrand": true } } } }
+            }
+          },
+          "logoPaints": {
+            "include": {
+              "paintType": { "select": { "id": true, "name": true } },
+              "paintBrand": { "select": { "id": true, "name": true } }
+            }
+          },
+          "baseFiles": true,
+          "projectFiles": true,
+          "budgets": true,
+          "invoices": true,
+          "receipts": true
+        }
+      }
+    },
+    {
+      "id": "app.tarefa.detalhe.faturar-para",
+      "rota": "GET /tasks/:id",
+      "modelo": "Task",
+      "schema": "task.taskQuerySchema",
+      "origem": "lib/features/production/task_detail_config.dart:142-165 (ramo canViewInvoiceTo, sem dinheiro)",
+      "consulta": {
+        "include": {
+          "truck": true,
+          "serviceOrders": true,
+          "layouts": { "include": { "file": true } },
+          "quote": {
+            "select": {
+              "id": true,
+              "customerConfigs": {
+                "select": {
+                  "customer": { "select": { "id": true, "corporateName": true, "fantasyName": true } },
+                  "billing": { "select": { "tasks": { "select": { "taskId": true } } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "app.agenda",
+      "rota": "GET /tasks",
+      "modelo": "Task",
+      "schema": "task.taskGetManySchema",
+      "origem": "lib/features/production/tasks_list_config.dart:91-170 (include) + task_schedule_view.dart:318-323 (orderBy da Agenda, G32)",
+      "consulta": {
+        "page": 1,
+        "limit": 25,
+        "shouldDisplayInPreparation": true,
+        "excludeAwaitingLogistics": true,
+        "orderBy": [
+          { "forecastDate": { "sort": "asc", "nulls": "last" } },
+          { "name": "asc" },
+          { "serialNumber": { "sort": "asc", "nulls": "last" } }
+        ],
+        "include": {
+          "customer": { "select": { "id": true, "fantasyName": true, "corporateName": true } },
+          "sector": { "select": { "id": true, "name": true } },
+          "generalPainting": { "select": { "id": true, "name": true, "hex": true, "finish": true, "colorPreview": true } },
+          "truck": {
+            "include": {
+              "leftSideMeasure": { "include": { "sections": true } },
+              "rightSideMeasure": { "include": { "sections": true } }
+            }
+          },
+          "serviceOrders": {
+            "select": { "id": true, "description": true, "type": true, "status": true, "statusOrder": true, "assignedToId": true, "position": true }
+          },
+          "quote": {
+            "select": {
+              "id": true,
+              "status": true,
+              "total": true,
+              "vehicleCount": true,
+              "customerConfigs": {
+                "select": { "customer": { "select": { "id": true, "corporateName": true, "fantasyName": true } } }
+              }
+            }
+          },
+          "createdBy": { "select": { "id": true, "name": true } },
+          "forecastHistory": true
+        },
+        "where": { "AND": [{ "sectorId": "00000000-0000-4000-8000-000000000004" }] }
+      }
+    },
+    {
+      "id": "app.orcamento.detalhe",
+      "rota": "GET /budgets/:id",
+      "modelo": "Budget",
+      "schema": "budget.budgetQuerySchema",
+      "origem": "lib/features/financial/budget.dart:1157-1210 (kBudgetDetailInclude)",
+      "nota": "`task` (singular) é legado traduzido para `tasks`; `customerConfigs.include.responsible` é legado DESCARTADO (DEPRECATED_QUERY_KEYS).",
+      "consulta": {
+        "include": {
+          "tasks": { "include": { "customer": true, "truck": true } },
+          "task": { "include": { "customer": true, "truck": true, "layouts": { "include": { "file": true } } } },
+          "services": true,
+          "layoutFiles": true,
+          "customerConfigs": {
+            "include": {
+              "customer": true,
+              "responsible": true,
+              "customerSignature": true,
+              "billing": { "include": { "tasks": true } },
+              "installments": { "orderBy": { "number": "asc" } }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
