@@ -115,6 +115,12 @@ import {
   PER_VEHICLE_LEGACY_WRITE_MESSAGE,
   pruneQuoteLayoutCoverage,
 } from '../../../utils/quote-layout-coverage';
+import {
+  measureSideOf,
+  replicateImplementMeasuresToQuoteSiblings,
+  type MeasureSide,
+  type ReplicationLogEntry,
+} from '../../../utils/implement-measure-replication';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -3089,6 +3095,33 @@ export class TaskService {
                   }
                 }
               }
+            }
+
+            // ── O TAMANHO É DO ORÇAMENTO ─────────────────────────────────────
+            //
+            // Os lados que ESTA gravação criou ou alterou (objeto no payload, ou
+            // foto nova) vão para os demais veículos do mesmo orçamento — por
+            // cópia, na mesma transação. `null` (remover o lado) não replica.
+            // Esta porta cria o caminhão quando ele falta, então o irmão sem
+            // caminhão ganha um. Ver `utils/implement-measure-replication.ts`.
+            const ladosEscritos = new Set<MeasureSide>();
+            for (const rel of ['leftSideMeasure', 'rightSideMeasure', 'backSideMeasure'] as const) {
+              const v = (truckData as any)[rel];
+              if (v !== undefined && v !== null) ladosEscritos.add(measureSideOf(rel)!);
+            }
+            for (const key of Object.keys(files ?? {})) {
+              if (!key.startsWith('implementMeasurePhotos.')) continue;
+              const lado = measureSideOf(key.replace('implementMeasurePhotos.', ''));
+              if (lado) ladosEscritos.add(lado);
+            }
+            if (ladosEscritos.size > 0) {
+              await replicateImplementMeasuresToQuoteSiblings(tx, {
+                sourceTaskId: id,
+                sides: [...ladosEscritos],
+                createMissingTruck: true,
+                logChange: (entry: ReplicationLogEntry) =>
+                  this.logReplicatedMeasure(entry, id, userId, tx),
+              });
             }
           }
 
@@ -9035,6 +9068,24 @@ export class TaskService {
               `[batchUpdate] Finished processing implementMeasures for task ${taskId}`,
             );
           }
+
+          // O TAMANHO É DO ORÇAMENTO — depois do lote inteiro, e não tarefa a
+          // tarefa: o irmão que o próprio lote já mediu com os mesmos valores é
+          // pulado (só o lado que DIFERE é escrito), e o que ficou de fora do
+          // lote recebe a medida. Ver `utils/implement-measure-replication.ts`.
+          for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
+            const lados = (['left', 'right', 'back'] as const).filter(
+              lado => !!truckData?.[`${lado}SideMeasure`],
+            );
+            if (lados.length === 0) continue;
+            await replicateImplementMeasuresToQuoteSiblings(tx, {
+              sourceTaskId: taskId,
+              sides: lados,
+              createMissingTruck: true,
+              logChange: (entry: ReplicationLogEntry) =>
+                this.logReplicatedMeasure(entry, taskId, userId, tx),
+            });
+          }
         }
 
         // Track individual field changes for successful updates
@@ -13372,6 +13423,33 @@ export class TaskService {
    * ADMIN/FINANCEIRO/COMERCIAL. O `billingSplit` também não é copiado: a cópia
    * tem um veículo, e a única leitura possível ali é `JOINT`.
    */
+  /**
+   * A trilha de uma medida REPLICADA: na tarefa irmã, no mesmo campo
+   * (`implementMeasures`) que a edição de tarefa usa, dizendo de qual veículo a
+   * medida veio. Gerada pelo sistema, mas atribuída a quem gravou a origem.
+   */
+  private async logReplicatedMeasure(
+    entry: ReplicationLogEntry,
+    sourceTaskId: string,
+    userId: string | null | undefined,
+    tx: PrismaTransaction,
+  ): Promise<void> {
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TASK,
+      entityId: entry.taskId,
+      action: CHANGE_ACTION.UPDATE,
+      field: entry.field,
+      oldValue: entry.oldValue,
+      newValue: entry.newValue,
+      reason: entry.reason,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      triggeredById: sourceTaskId,
+      userId: userId || '',
+      transaction: tx,
+      metadata: { replicatedFromTaskId: sourceTaskId },
+    });
+  }
+
   private async duplicateBudget(
     sourceQuoteId: string,
     tx: PrismaTransaction,
@@ -13933,6 +14011,10 @@ export class TaskService {
         // services + configs survive). Capture it here so we can clean it up
         // after the reassign — but only when it carries no active obligation.
         let orphanedOldQuoteId: string | null = null;
+        // Lados de medida que a cópia escreveu no destino — replicados aos irmãos
+        // DEPOIS do vínculo final com o orçamento (a mesma cópia pode trocar o
+        // orçamento do destino, e replicar antes mediria os irmãos errados).
+        const ladosDeMedidaCopiados: MeasureSide[] = [];
 
         this.logger.log(`[copyFromTask] Processing ${fieldsToProcess.length} fields...`);
         this.logger.debug(`[copyFromTask] Fields to process: ${fieldsToProcess.join(', ')}`);
@@ -14437,6 +14519,9 @@ export class TaskService {
                   });
                 }
                 copiedFields.push(field);
+                if (clonedLeftId) ladosDeMedidaCopiados.push('left');
+                if (clonedRightId) ladosDeMedidaCopiados.push('right');
+                if (clonedBackId) ladosDeMedidaCopiados.push('back');
 
                 // Helper to calculate dimensions from implementMeasure
                 const getImplementMeasureDimensions = (implementMeasure: any) => {
@@ -14684,6 +14769,20 @@ export class TaskService {
           }
         } else {
           this.logger.log(`[copyFromTask] No fields to update via task.update()`);
+        }
+
+        // O TAMANHO É DO ORÇAMENTO: a medida copiada para o destino vale para os
+        // irmãos dele no orçamento em que ele ficou. Esta porta cria o caminhão
+        // quando falta, e o irmão sem caminhão ganha um. Ver
+        // `utils/implement-measure-replication.ts`.
+        if (ladosDeMedidaCopiados.length > 0) {
+          await replicateImplementMeasuresToQuoteSiblings(tx, {
+            sourceTaskId: destinationTaskId,
+            sides: ladosDeMedidaCopiados,
+            createMissingTruck: true,
+            logChange: (entry: ReplicationLogEntry) =>
+              this.logReplicatedMeasure(entry, destinationTaskId, userId, tx),
+          });
         }
 
         // Clean up the destination's now-orphaned previous quote (reassigned

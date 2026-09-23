@@ -9,6 +9,11 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../schemas';
 import { ImplementMeasurePrismaRepository } from './repositories/implement-measure-prisma.repository';
+import {
+  replicateImplementMeasuresToQuoteSiblings,
+  type MeasureSide,
+  type ReplicationLogEntry,
+} from '../../../utils/implement-measure-replication';
 
 @Injectable()
 export class ImplementMeasureService {
@@ -103,11 +108,18 @@ export class ImplementMeasureService {
       back: 'backSideMeasureId',
     };
 
-    await this.prisma.truck.update({
-      where: { id: truckId },
-      data: {
-        [implementMeasureFieldMap[side]]: implementMeasureId,
-      },
+    // Numa transação agora: a medida atribuída vale para os demais veículos do
+    // mesmo orçamento (por CÓPIA — ver `utils/implement-measure-replication.ts`),
+    // e ou ela chega aos N caminhões, ou a nenhum. Este caminho exige o caminhão
+    // e não o cria; o irmão sem caminhão é pulado e o log diz qual.
+    await this.prisma.$transaction(async tx => {
+      await tx.truck.update({
+        where: { id: truckId },
+        data: {
+          [implementMeasureFieldMap[side]]: implementMeasureId,
+        },
+      });
+      await this.replicateToQuoteSiblings(tx, truck.taskId, [side], userId);
     });
 
     // Log the change
@@ -139,6 +151,40 @@ export class ImplementMeasureService {
     });
   }
 
+  /**
+   * Replica os lados escritos para os demais veículos do orçamento da tarefa —
+   * ver `utils/implement-measure-replication.ts`. A trilha vai para a TAREFA
+   * irmã, no campo `implementMeasures`, dizendo de qual veículo a medida veio.
+   */
+  private async replicateToQuoteSiblings(
+    tx: any,
+    sourceTaskId: string,
+    sides: MeasureSide[],
+    userId?: string | null,
+  ): Promise<void> {
+    if (!sourceTaskId || sides.length === 0) return;
+    await replicateImplementMeasuresToQuoteSiblings(tx, {
+      sourceTaskId,
+      sides,
+      createMissingTruck: false,
+      logChange: (entry: ReplicationLogEntry) =>
+        this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: entry.taskId,
+          action: CHANGE_ACTION.UPDATE,
+          field: entry.field,
+          oldValue: entry.oldValue,
+          newValue: entry.newValue,
+          reason: entry.reason,
+          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+          triggeredById: sourceTaskId,
+          userId: userId || null,
+          transaction: tx,
+          metadata: { replicatedFromTaskId: sourceTaskId },
+        }),
+    });
+  }
+
   async create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure> {
     const implementMeasure = await this.implementMeasureRepository.create(data, userId);
 
@@ -165,7 +211,38 @@ export class ImplementMeasureService {
       throw new NotFoundException('ImplementMeasure não encontrado');
     }
 
-    const implementMeasure = await this.implementMeasureRepository.update(id, data, userId);
+    // A edição NO LUGAR muda a medida de todo caminhão ligado a esta linha — e o
+    // tamanho é do orçamento: cada um desses caminhões replica o lado editado
+    // para os irmãos dele, na mesma transação da edição.
+    const implementMeasure = await this.implementMeasureRepository.update(
+      id,
+      data,
+      userId,
+      async tx => {
+        const trucks = await tx.truck.findMany({
+          where: {
+            OR: [
+              { leftSideMeasureId: id },
+              { rightSideMeasureId: id },
+              { backSideMeasureId: id },
+            ],
+          },
+          select: {
+            taskId: true,
+            leftSideMeasureId: true,
+            rightSideMeasureId: true,
+            backSideMeasureId: true,
+          },
+        });
+        for (const t of trucks) {
+          const lados: MeasureSide[] = [];
+          if (t.leftSideMeasureId === id) lados.push('left');
+          if (t.rightSideMeasureId === id) lados.push('right');
+          if (t.backSideMeasureId === id) lados.push('back');
+          await this.replicateToQuoteSiblings(tx, t.taskId, lados, userId);
+        }
+      },
+    );
 
     await this.changeLogService.logChange({
       entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
@@ -675,6 +752,12 @@ export class ImplementMeasureService {
           transaction: tx,
         });
       }
+
+      // ── O TAMANHO É DO ORÇAMENTO ────────────────────────────────────────
+      // A medida deste lado vale para os demais veículos do mesmo orçamento —
+      // por cópia, nesta mesma transação. Este caminho exige o caminhão e não o
+      // cria; o irmão sem caminhão é pulado e o log diz qual.
+      await this.replicateToQuoteSiblings(tx, truck.taskId, [side], userId);
 
       this.logger.log(`[BACKEND] Transaction committed successfully`);
       this.logger.log(`[BACKEND] 🎉 FINAL RESULT:`, {
