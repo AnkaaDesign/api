@@ -657,6 +657,25 @@ export class QuoteSnapshotService {
     };
   }
 
+  /**
+   * Algum veículo que estava no documento congelado COM nº de série tem agora
+   * outro número (ou nenhum)?
+   *
+   * Preencher o que estava vazio NÃO conta — é cadastro tardio, a mesma
+   * tolerância da placa. Veículo que só existe de um dos lados também não:
+   * entrar ou sair veículo já é material pela lista de placas.
+   */
+  serialNumberReplaced(current: QuoteSnapshot, frozen: QuoteSnapshot): boolean {
+    const now = new Map(snapshotVehicles(current).map(v => [v.taskId, v]));
+    return snapshotVehicles(frozen).some(was => {
+      const before = normText(was.serialNumber);
+      if (before === null) return false;
+      const v = now.get(was.taskId);
+      if (!v) return false;
+      return normText(v.serialNumber) !== before;
+    });
+  }
+
   materialHash(
     snapshot: QuoteSnapshot,
     version: number = QUOTE_MATERIAL_SCHEMA_VERSION,
@@ -691,6 +710,14 @@ export class QuoteSnapshotService {
      */
     pendingSignerIds?: readonly string[] | null,
   ): number | null {
+    // TROCA DE Nº DE SÉRIE — veto que vale para QUALQUER versão do recorte.
+    //
+    // Não entrou no hash material (seria uma v8) de propósito: as versões
+    // antigas continuam sendo testadas abaixo, e um envelope congelado sob a v7
+    // casaria pela v7 — que não enxerga série — e a troca passaria. Como
+    // veto, ela alcança também os envelopes já emitidos e os já concluídos.
+    if (frozen && this.serialNumberReplaced(snapshot, frozen)) return null;
+
     const reconciled: QuoteSnapshot[] = [];
     if (frozen) {
       const late = this.tolerateLateRegistration(snapshot, frozen);
