@@ -295,6 +295,15 @@ export const securityConfig = {
       // the conditional re-request after a dropped connection.
       'range',
       'if-range',
+      // Identidade do cliente (G3/G13 do plano do implemento): o web manda
+      // `X-Client: web@<build>`, o app manda `X-App-Version`/`X-App-Patch`/
+      // `X-App-Platform`. Nenhum é safelisted: sem ecoá-los aqui o preflight do
+      // navegador reprova a requisição inteira — por isso o web só liga o
+      // `X-Client` depois que esta lista estiver em produção (R-A).
+      'x-client',
+      'x-app-version',
+      'x-app-patch',
+      'x-app-platform',
     ],
     exposedHeaders: [
       'x-request-id',
