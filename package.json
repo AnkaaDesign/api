@@ -16,6 +16,8 @@
     "debug": "nest start --debug --watch",
     "clean": "rm -rf dist",
     "lint": "eslint '{src,apps,libs}/**/*.ts' --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:full": "tsx scripts/typecheck-ratchet.ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "ci:build": "npm run lint && npm run build",
     "docker:build": "docker build -t ankaa-api .",

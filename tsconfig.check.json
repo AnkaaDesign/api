@@ -1,0 +1,30 @@
+{
+  // G0 — o tipo checado de verdade: src/ + tests/ + scripts/.
+  //
+  // `tsconfig.json` (e o build) só olham src/; os testes rodam em tsx, que NÃO
+  // checa tipo. Este arquivo existe para `npm run typecheck:full`, que roda o tsc
+  // aqui e compara com a catraca `.typecheck-baseline.json` (scripts/typecheck-ratchet.ts):
+  // src/ tem de sair com ZERO erro; tests/ e scripts/ têm uma base por assinatura
+  // (arquivo + código + mensagem) que só pode cair.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "src/scripts/archive/**",
+    // Importa `@xmldom/xmldom`, que não está nas dependências (só chega
+    // transitivo pelo xml-crypto e o pnpm não o içou): não resolve nem em
+    // runtime. Fica fora até alguém declarar a dependência.
+    "src/scripts/audit-painter-nfse-setup.ts",
+    // Specs de jest sem jest instalado (nenhum script os roda).
+    "**/*.spec.ts",
+    "**/*.test-utils.ts",
+    "**/*.example.tsx",
+    "**/*.example.ts",
+    "scripts/output/**",
+    "scripts/data/**"
+  ]
+}

@@ -180,9 +180,13 @@ export class BudgetReceiptService {
       });
       await page.setContent(html, { waitUntil: 'networkidle' });
 
-      const contentHeightPx = await page.evaluate(() => {
-        const roll = document.querySelector('.roll');
-        return roll ? roll.getBoundingClientRect().height : document.body.scrollHeight;
+      // Este callback roda DENTRO do Chromium, onde `document` existe; a api
+      // compila sem `lib: dom` (e não deve ganhá-la: o servidor não tem DOM), então
+      // o global do navegador é lido por `globalThis`. Mesmo código no navegador.
+      const contentHeightPx = await page.evaluate((): number => {
+        const doc = (globalThis as any).document;
+        const roll = doc.querySelector('.roll');
+        return roll ? roll.getBoundingClientRect().height : doc.body.scrollHeight;
       });
       const heightMm = Math.ceil(contentHeightPx * MM_PER_PX) + 2;
 
