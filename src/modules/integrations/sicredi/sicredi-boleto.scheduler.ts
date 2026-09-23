@@ -27,6 +27,10 @@ import {
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 import { BILLING_FROZEN_WHERE } from '../../production/budget/budget.guards';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
+import {
+  IMPLEMENT_TYPE_PROFILE_LABELS,
+  TRUCK_CATEGORY_PROFILE_LABELS,
+} from '@constants/document-labels';
 
 const MAX_WEBHOOK_RETRIES = 3;
 const DEFAULT_WEBHOOK_URL = 'https://api.ankaadesign.com.br/webhooks/sicredi';
@@ -999,31 +1003,17 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     return lines;
   }
 
+  // As palavras do informativo da varredura ("Carga Seca", "Isoplastic",
+  // "Carroceria") — NÃO as da NFS-e da tarefa. Moram na fonte única
+  // (`@constants/document-labels`, perfil `boleto`, D-18) e são travadas por
+  // `tests/fiscal-labels-golden.test.ts`.
   private translateTruckCategory(category?: string | null): string | null {
-    const map: Record<string, string> = {
-      MINI: 'Mini',
-      VUC: 'VUC',
-      THREE_QUARTER: '3/4',
-      RIGID: 'Toco',
-      TRUCK: 'Truck',
-      SEMI_TRAILER: 'Semirreboque',
-      SEMI_TRAILER_2_AXLES: 'Semirreboque 2 Eixos',
-      B_DOUBLE_FRONT: 'Bitrem Composição Dianteira',
-      B_DOUBLE_REAR: 'Bitrem Composição Traseira',
-      BITRUCK: 'Bitruck',
-    };
+    const map: Record<string, string> = TRUCK_CATEGORY_PROFILE_LABELS.boleto;
     return category ? (map[category] ?? category) : null;
   }
 
   private translateImplementType(implement?: string | null): string | null {
-    const map: Record<string, string> = {
-      DRY_CARGO: 'Carga Seca',
-      REFRIGERATED: 'Refrigerado',
-      INSULATED: 'Isoplastic',
-      CURTAIN_SIDE: 'Sider',
-      TANK: 'Tanque',
-      FLATBED: 'Carroceria',
-    };
+    const map: Record<string, string> = IMPLEMENT_TYPE_PROFILE_LABELS.boleto;
     return implement ? (map[implement] ?? implement) : null;
   }
 

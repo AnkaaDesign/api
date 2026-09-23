@@ -183,5 +183,25 @@ console.log('\n8. Tetos: 11 linhas de 255 caracteres, sempre');
   );
 }
 
+console.log('\n9. Sem mapas passados: as palavras são as da NFS-e da tarefa (D-18)');
+{
+  // O perfil `nfseTask` da fonte única — NÃO o da tela ("Isoplastic",
+  // "Carroceria"). Quem chamar o módulo sem mapas não pode mudar a nota.
+  const text = buildDiscriminacao({
+    budgetNumber: 984,
+    services: ['Logomarca Lateral'],
+    orderNumber: '',
+    vehicles: [
+      vehicle(0, { category: 'TRUCK', implementType: 'INSULATED' }),
+      vehicle(1, { category: 'RIGID', implementType: 'FLATBED' }),
+      vehicle(2, { category: 'BITRUCK', implementType: 'DRY_CARGO' }),
+    ],
+  });
+  const lines = text.split('\n');
+  check('Isotérmico', lines[3] === '1) Truck Isotérmico - Série 78000 - Placa TES1T01 - Chassi 9BM97902 6CS006620', lines[3]);
+  check('Prancha/Plataforma', lines[4].startsWith('2) Toco Prancha/Plataforma - Série 78001'), lines[4]);
+  check('Carga seca, com s minúsculo', lines[5].startsWith('3) Bitruck Carga seca - Série 78002'), lines[5]);
+}
+
 console.log(failures === 0 ? '\n✅ discriminação da NFS-e íntegra\n' : `\n❌ ${failures} falha(s)\n`);
 process.exit(failures === 0 ? 0 : 1);

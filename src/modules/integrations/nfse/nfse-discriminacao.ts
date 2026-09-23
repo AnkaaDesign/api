@@ -29,7 +29,22 @@
  * Este módulo é PURO de propósito: a prévia do web
  * (`web/src/components/financial/billing/preview/billing-document-previews.tsx`)
  * espelha estas regras, e `tests/nfse-discriminacao.test.ts` as trava.
+ *
+ * AS PALAVRAS são as da NFS-e da tarefa ("Carga seca", "Isotérmico",
+ * "Prancha/Plataforma"), não as da tela: perfil `nfseTask` da fonte única
+ * (`@constants/document-labels`, D-18). Quem não passa mapas recebe esse
+ * perfil; `tests/fiscal-labels-golden.test.ts` trava o texto.
  */
+import {
+  IMPLEMENT_TYPE_PROFILE_LABELS,
+  TRUCK_CATEGORY_PROFILE_LABELS,
+} from '@constants/document-labels';
+
+/** Os rótulos da NFS-e da tarefa (perfil `nfseTask`). */
+export const NFSE_CATEGORY_LABELS: Readonly<Record<string, string>> =
+  TRUCK_CATEGORY_PROFILE_LABELS.nfseTask;
+export const NFSE_IMPLEMENT_LABELS: Readonly<Record<string, string>> =
+  IMPLEMENT_TYPE_PROFILE_LABELS.nfseTask;
 
 export const DISCRIMINACAO_MAX_LINES = 11;
 export const DISCRIMINACAO_MAX_CHARS = 255;
@@ -58,8 +73,10 @@ export interface DiscriminacaoInput {
   description?: string | null;
   /** Recuo quando nenhum veículo se identifica ("Ref. OS 78000"). */
   fallbackLabel?: string | null;
-  categoryLabels: Record<string, string>;
-  implementLabels: Record<string, string>;
+  /** Padrão: o perfil da NFS-e da tarefa ({@link NFSE_CATEGORY_LABELS}). */
+  categoryLabels?: Readonly<Record<string, string>>;
+  /** Padrão: o perfil da NFS-e da tarefa ({@link NFSE_IMPLEMENT_LABELS}). */
+  implementLabels?: Readonly<Record<string, string>>;
 }
 
 const clamp = (value: string): string => value.slice(0, DISCRIMINACAO_MAX_CHARS);
@@ -67,8 +84,8 @@ const clamp = (value: string): string => value.slice(0, DISCRIMINACAO_MAX_CHARS)
 /** "Toco Refrigerado" — categoria + implemento, como a nota os nomeia. */
 export function vehicleTypeLabel(
   vehicle: DiscriminacaoVehicle,
-  categoryLabels: Record<string, string>,
-  implementLabels: Record<string, string>,
+  categoryLabels: Readonly<Record<string, string>> = NFSE_CATEGORY_LABELS,
+  implementLabels: Readonly<Record<string, string>> = NFSE_IMPLEMENT_LABELS,
 ): string {
   const parts: string[] = [];
   if (vehicle.category) parts.push(categoryLabels[vehicle.category] ?? vehicle.category);
@@ -84,8 +101,8 @@ export function vehicleTypeLabel(
  */
 export function describeOneVehicle(
   vehicle: DiscriminacaoVehicle,
-  categoryLabels: Record<string, string>,
-  implementLabels: Record<string, string>,
+  categoryLabels: Readonly<Record<string, string>> = NFSE_CATEGORY_LABELS,
+  implementLabels: Readonly<Record<string, string>> = NFSE_IMPLEMENT_LABELS,
 ): string {
   const typePart = vehicleTypeLabel(vehicle, categoryLabels, implementLabels);
   const idParts: string[] = [];
@@ -104,8 +121,8 @@ function vehicleListLine(
   options: {
     showType: boolean;
     showOrderNumber: boolean;
-    categoryLabels: Record<string, string>;
-    implementLabels: Record<string, string>;
+    categoryLabels: Readonly<Record<string, string>>;
+    implementLabels: Readonly<Record<string, string>>;
   },
 ): string {
   const parts: string[] = [];
@@ -157,7 +174,8 @@ function serialRange(vehicles: DiscriminacaoVehicle[]): string {
 }
 
 export function buildDiscriminacao(input: DiscriminacaoInput): string {
-  const { categoryLabels, implementLabels } = input;
+  const categoryLabels = input.categoryLabels ?? NFSE_CATEGORY_LABELS;
+  const implementLabels = input.implementLabels ?? NFSE_IMPLEMENT_LABELS;
   const vehicles = (input.vehicles ?? []).filter(
     v => describeOneVehicle(v, categoryLabels, implementLabels).length > 0,
   );
