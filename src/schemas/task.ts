@@ -30,6 +30,7 @@ import {
 } from '@constants';
 import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
 import { cutCreateNestedSchema } from './cut';
+import { implementMeasureFaceInputSchema } from './implement-measure';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { budgetCreateNestedSchema, budgetCreateNestedInBatchSchema } from './budget';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
@@ -2022,25 +2023,9 @@ const taskProductionServiceOrderCreateSchema = z.object({
   checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
-// ImplementMeasure section schema
-const implementMeasureSectionSchema = z.object({
-  id: z.string().uuid().optional(), // Existing section ID for updates
-  width: z.number().positive(),
-  isDoor: z.boolean(),
-  doorHeight: z.number().nullable(),
-  position: z.number(),
-});
-
-// ImplementMeasure side schema
-const implementMeasureSideSchema = z
-  .object({
-    id: z.string().uuid().optional(), // Existing implementMeasure ID for updates
-    height: z.number().positive(),
-    sections: z.array(implementMeasureSectionSchema),
-    photoId: z.string().uuid().nullable().optional(),
-  })
-  .nullable()
-  .optional();
+// A face de medida embutida no caminhão: fonte única em `./implement-measure`
+// (lá está por que ela é mais frouxa que o schema do módulo de medidas).
+const implementMeasureSideSchema = implementMeasureFaceInputSchema;
 
 // Truck category schema
 const truckCategorySchema = z.nativeEnum(TRUCK_CATEGORY);

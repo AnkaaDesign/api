@@ -75,6 +75,41 @@ export const implementMeasureUpdateSchema = z.object({
 });
 
 // =====================
+// A face embutida no caminhão da tarefa (`leftSideMeasure`, `rightSideMeasure`,
+// `backSideMeasure` dentro do objeto do caminhão de `POST/PUT /tasks` e dos lotes)
+// =====================
+//
+// FONTE ÚNICA: `schemas/task.ts` importa daqui (antes tinha uma cópia própria).
+//
+// ⚠️ É MAIS FROUXA que `implementMeasureCreateSchema` DE PROPÓSITO, e continua
+// assim na Fase A do rework do implemento: nenhum cliente instalado (web em
+// produção, app 1.4.1) pode passar a levar 400 num salvamento que hoje passa.
+// As diferenças, medidas contra o schema do módulo:
+//   - largura da seção sem o teto de 20 m; altura sem o teto de 10 m;
+//   - sem a regra "porta ⇒ altura da porta, e só porta tem altura";
+//   - lista de seções pode vir VAZIA (o escritor trata vazia como "manter as
+//     seções atuais" numa edição);
+//   - aceita `id` na face e na seção (o formulário devolve o que leu).
+// O aperto entra com a frente e a porta traseira (P11), junto com os clientes.
+export const implementMeasureFaceSectionInputSchema = z.object({
+  id: z.string().uuid().optional(), // Existing section ID for updates
+  width: z.number().positive(),
+  isDoor: z.boolean(),
+  doorHeight: z.number().nullable(),
+  position: z.number(),
+});
+
+export const implementMeasureFaceInputSchema = z
+  .object({
+    id: z.string().uuid().optional(), // Existing implementMeasure ID for updates
+    height: z.number().positive(),
+    sections: z.array(implementMeasureFaceSectionInputSchema),
+    photoId: z.string().uuid().nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
+// =====================
 // Type Inference
 // =====================
 
@@ -82,6 +117,7 @@ export type ImplementMeasureSectionCreateFormData = z.infer<typeof implementMeas
 export type ImplementMeasureSectionUpdateFormData = z.infer<typeof implementMeasureSectionUpdateSchema>;
 export type ImplementMeasureCreateFormData = z.infer<typeof implementMeasureCreateSchema>;
 export type ImplementMeasureUpdateFormData = z.infer<typeof implementMeasureUpdateSchema>;
+export type ImplementMeasureFaceInputFormData = z.infer<typeof implementMeasureFaceInputSchema>;
 
 // =====================
 // Helper Functions
