@@ -58,7 +58,8 @@ PASSOS=(
   "orcamento-sem-os-negociacao|0|npm run -s test:orcamento-sem-os-negociacao"
   "layout-per-vehicle|1|npm run -s test:layout-per-vehicle"
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
-  # ── P04: (acrescentar aqui) ──
+  # ── P04: escritor único de medida ──
+  "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"
   # ── P05: (acrescentar aqui, na integração) ──
 )
 
