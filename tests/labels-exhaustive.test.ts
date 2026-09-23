@@ -101,8 +101,9 @@ console.log('\n3. Todo mapa X_LABELS rotula todo valor do enum X');
     if (!nome.endsWith('_LABELS') || !mapa || typeof mapa !== 'object') continue;
     const en = (ENUMS as Record<string, unknown>)[nome.slice(0, -'_LABELS'.length)];
     if (!en || typeof en !== 'object') continue;
-    const valores = Object.values(en as object).filter((v): v is string => typeof v === 'string');
-    if (valores.length === 0) continue;
+    // Só enum de TEXTO: o numérico tem o mapa reverso e é rotulado pelo número.
+    const valores = Object.values(en as object);
+    if (valores.length === 0 || !valores.every(v => typeof v === 'string')) continue;
     mapas++;
     const l = lacunas(valores, mapa as Record<string, string>);
     if (l) problemas.push(`${nome}: ${l}`);
