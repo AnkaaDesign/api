@@ -23,6 +23,7 @@
  */
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import type { ZodTypeAny } from 'zod';
 import * as taskSchemas from '../src/schemas/task';
@@ -48,7 +49,10 @@ import {
   enforceQueryShape,
 } from '../src/modules/common/query/query-shape.guard';
 import {
+  MAX_QUERY_KEY_COUNTERS,
+  OVERFLOW_PATH,
   queryKeyCounters,
+  recordQueryKeyEvent,
   resetQueryKeyCounters,
 } from '../src/modules/common/query/query-key-telemetry';
 import { ZodQueryValidationPipe } from '../src/modules/common/pipes/zod-validation.pipe';
@@ -255,6 +259,32 @@ function parteA(): void {
       contadores.includes('dropped|Task|include.inventada'),
     contadores.join(', '),
   );
+}
+
+/** O contador tem teto: caminho vem do cliente (F7). */
+function parteTeto(): void {
+  console.log('\n── A1. contador do G1 com teto');
+  resetQueryKeyCounters();
+  Logger.overrideLogger(false); // 2.500 chaves novas = 2.500 linhas de log
+  for (let i = 0; i < MAX_QUERY_KEY_COUNTERS + 500; i++) {
+    recordQueryKeyEvent('dropped', 'Task', `include.aleatoria${i}`);
+  }
+  recordQueryKeyEvent('dropped', 'Task', `include.${'x'.repeat(5000)}`);
+  const c = queryKeyCounters();
+  const chaves = Object.keys(c);
+  check(
+    'mapa não passa do teto; o excesso cai no balde (outros)',
+    chaves.length <= MAX_QUERY_KEY_COUNTERS + 1 && c[`dropped|Task|${OVERFLOW_PATH}`] === 501,
+    `${chaves.length} chaves; balde=${c[`dropped|Task|${OVERFLOW_PATH}`]}`,
+  );
+  resetQueryKeyCounters();
+  recordQueryKeyEvent('dropped', 'Task', `include.${'x'.repeat(5000)}`);
+  check(
+    'caminho longo é cortado',
+    Object.keys(queryKeyCounters()).every(k => k.length < 300),
+  );
+  resetQueryKeyCounters();
+  Logger.overrideLogger(['log', 'error', 'warn', 'debug', 'verbose']);
 }
 
 /** A porta como a rota a usa: o pipe do Nest com `queryModel`. */
@@ -588,6 +618,7 @@ async function parteCD(): Promise<void> {
 
 async function main(): Promise<void> {
   parteA();
+  parteTeto();
   partePipe();
   parteB();
   if (process.env.SEM_BANCO) {

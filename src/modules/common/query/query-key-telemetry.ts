@@ -17,6 +17,16 @@ export type QueryKeyEventKind = 'deprecated' | 'dropped' | 'rejected';
 const logger = new Logger('ConsultaG1');
 const counters = new Map<string, number>();
 
+/**
+ * O caminho vem do CLIENTE (chaves que ele mandou): sem teto, um usuário
+ * autenticado mandando includes aleatórios faria o mapa crescer sem fim e
+ * geraria uma linha de log por chave nova. Passado o teto de entradas, tudo o
+ * que é novo cai num balde só por espécie e modelo; o caminho é cortado.
+ */
+export const MAX_QUERY_KEY_COUNTERS = 2000;
+export const MAX_QUERY_KEY_PATH = 200;
+export const OVERFLOW_PATH = '(outros)';
+
 /** `kind|Model.clause|caminho` → quantas vezes */
 export function recordQueryKeyEvent(
   kind: QueryKeyEventKind,
@@ -24,13 +34,20 @@ export function recordQueryKeyEvent(
   path: string,
   detail?: string,
 ): void {
-  const k = `${kind}|${model}|${path}`;
+  const cut = path.length > MAX_QUERY_KEY_PATH ? `${path.slice(0, MAX_QUERY_KEY_PATH)}…` : path;
+  let k = `${kind}|${model.slice(0, 64)}|${cut}`;
+  if (!counters.has(k) && counters.size >= MAX_QUERY_KEY_COUNTERS) {
+    k = `${kind}|${model.slice(0, 64)}|${OVERFLOW_PATH}`;
+    detail = undefined;
+  }
+  if (detail && detail.length > 300) detail = `${detail.slice(0, 300)}…`;
   const n = (counters.get(k) ?? 0) + 1;
   counters.set(k, n);
   // Loga a primeira ocorrência e depois a cada 100: o bastante para achar no
   // log sem inundá-lo com a mesma tela aberta o dia inteiro.
   if (n === 1 || n % 100 === 0) {
-    const msg = `[${kind}] ${model} ${path}${detail ? ` — ${detail}` : ''} (×${n})`;
+    const shown = k.slice(k.indexOf('|', k.indexOf('|') + 1) + 1);
+    const msg = `[${kind}] ${model.slice(0, 64)} ${shown}${detail ? ` — ${detail}` : ''} (×${n})`;
     if (kind === 'rejected') logger.warn(msg);
     else logger.log(msg);
   }
