@@ -1,9 +1,40 @@
 // packages/schemas/src/schemas/file.ts
 
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { orderByDirectionSchema, normalizeOrderBy,
   normalizeSearchTerm,
 } from './common';
+
+/**
+ * Relações de `File` que NÃO são uso: nascem DO arquivo e morrem com ele
+ * (o mesmo `DERIVED_TABLES` de `file-reference.service.ts`).
+ */
+export const FILE_DERIVED_RELATIONS: ReadonlySet<string> = new Set(['thumbnailJob']);
+
+/** Toda relação de `File` no DMMF que é USO do arquivo (F10). */
+export function fileUseRelations(): Array<{ name: string; isList: boolean }> {
+  const model = Prisma.dmmf.datamodel.models.find(m => m.name === 'File');
+  return (model?.fields ?? [])
+    .filter(f => f.kind === 'object' && !FILE_DERIVED_RELATIONS.has(f.name))
+    .map(f => ({ name: f.name, isList: f.isList }));
+}
+
+/**
+ * `where` de "tem ao menos uma referência" (`true`) ou "não tem nenhuma"
+ * (`false`), derivado de TODAS as relações de uso de `File`.
+ */
+export function fileReferencedWhere(referenced: boolean): Record<string, unknown> {
+  const rels = fileUseRelations();
+  if (referenced) {
+    return {
+      OR: rels.map(r => ({ [r.name]: r.isList ? { some: {} } : { isNot: null } })),
+    };
+  }
+  return {
+    AND: rels.map(r => ({ [r.name]: r.isList ? { none: {} } : { is: null } })),
+  };
+}
 
 // =====================
 // Base Schema Components
@@ -432,95 +463,24 @@ const fileTransform = (data: any) => {
     }
   }
 
-  // Handle isOrphaned filter
+  // Handle isOrphaned / hasRelations filters
   //
-  // Até 23/09 as duas listas abaixo citavam `tasksLayouts` e
-  // `externalOperationBudgets`, que não existem em `File`: todo pedido com
-  // `isOrphaned`/`hasRelations` dava 500. `layouts` é relação de-UM em File (a
-  // arte que aponta para o arquivo), por isso `is/isNot: null`. A lista continua
-  // parcial — a verdade sobre quem referencia um arquivo é o catálogo de
-  // `file-reference.service.ts` (G10).
+  // "Órfão" = nenhuma relação de `File` aponta para ele. A lista era escrita à
+  // mão e PARCIAL (13 relações): foto de medida do implemento, plaqueta,
+  // documentos do envelope, arte por veículo (BudgetLayoutTask), NFS-e do
+  // aerografista… saíam como "órfãos" ainda referenciados (F10). Agora ela sai
+  // do DMMF — TODA relação de `File`, menos as derivadas do próprio arquivo
+  // (`FILE_DERIVED_RELATIONS`) —, completa por construção.
+  //
+  // ⚠️ Nunca ofereça limpeza em lote sobre este filtro sem passar, arquivo a
+  // arquivo, pelo `FileReferenceService` (G10), que também olha as colunas
+  // de fora do Prisma.
   if (isOrphaned !== undefined) {
-    if (isOrphaned) {
-      // File is orphaned if it has no relations
-      andConditions.push({
-        AND: [
-          { layouts: { is: null } },
-          { customerLogo: { none: {} } },
-          { supplierLogo: { none: {} } },
-          { observations: { none: {} } },
-          { warning: { none: {} } },
-          { airbrushingReceipts: { none: {} } },
-          { airbrushingInvoices: { none: {} } },
-          { orderReceipts: { none: {} } },
-          { taskBudgets: { none: {} } },
-          { taskInvoices: { none: {} } },
-          { taskReceipts: { none: {} } },
-          { externalOperationInvoices: { none: {} } },
-          { externalOperationReceipts: { none: {} } },
-        ],
-      });
-    } else {
-      // File is not orphaned if it has at least one relation
-      andConditions.push({
-        OR: [
-          { layouts: { isNot: null } },
-          { customerLogo: { some: {} } },
-          { supplierLogo: { some: {} } },
-          { observations: { some: {} } },
-          { warning: { some: {} } },
-          { airbrushingReceipts: { some: {} } },
-          { airbrushingInvoices: { some: {} } },
-          { orderReceipts: { some: {} } },
-          { taskBudgets: { some: {} } },
-          { taskInvoices: { some: {} } },
-          { taskReceipts: { some: {} } },
-          { externalOperationInvoices: { some: {} } },
-          { externalOperationReceipts: { some: {} } },
-        ],
-      });
-    }
+    andConditions.push(fileReferencedWhere(!isOrphaned));
   }
 
-  // Handle hasRelations filter (similar to isOrphaned but inverted logic)
   if (hasRelations !== undefined) {
-    if (hasRelations) {
-      andConditions.push({
-        OR: [
-          { layouts: { isNot: null } },
-          { customerLogo: { some: {} } },
-          { supplierLogo: { some: {} } },
-          { observations: { some: {} } },
-          { warning: { some: {} } },
-          { airbrushingReceipts: { some: {} } },
-          { airbrushingInvoices: { some: {} } },
-          { orderReceipts: { some: {} } },
-          { taskBudgets: { some: {} } },
-          { taskInvoices: { some: {} } },
-          { taskReceipts: { some: {} } },
-          { externalOperationInvoices: { some: {} } },
-          { externalOperationReceipts: { some: {} } },
-        ],
-      });
-    } else {
-      andConditions.push({
-        AND: [
-          { layouts: { is: null } },
-          { customerLogo: { none: {} } },
-          { supplierLogo: { none: {} } },
-          { observations: { none: {} } },
-          { warning: { none: {} } },
-          { airbrushingReceipts: { none: {} } },
-          { airbrushingInvoices: { none: {} } },
-          { orderReceipts: { none: {} } },
-          { taskBudgets: { none: {} } },
-          { taskInvoices: { none: {} } },
-          { taskReceipts: { none: {} } },
-          { externalOperationInvoices: { none: {} } },
-          { externalOperationReceipts: { none: {} } },
-        ],
-      });
-    }
+    andConditions.push(fileReferencedWhere(hasRelations));
   }
 
   // Handle file extension filters

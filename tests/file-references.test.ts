@@ -29,6 +29,7 @@ import {
 } from '../src/modules/common/file/services/file-reference.service';
 import { FilesStorageService } from '../src/modules/common/file/services/files-storage.service';
 import { getField } from '../src/modules/common/query/dmmf-query-validator';
+import { fileReferencedWhere } from '../src/schemas/file';
 
 let ok = 0;
 let fail = 0;
@@ -122,6 +123,34 @@ async function main(): Promise<void> {
       'todo fileContext que web e app mandam existe em folderMapping',
       desconhecidos.length === 0,
       desconhecidos.join(', '),
+    );
+
+    // F10: o filtro de "órfão" sai do DMMF — toda relação de uso de File.
+    const semRef = fileReferencedWhere(false) as { AND: Array<Record<string, unknown>> };
+    const cobertas = new Set(semRef.AND.map(c => Object.keys(c)[0]));
+    const devemEstar = [
+      'implementMeasurePhotos',
+      'truckVinPlates',
+      'quoteLayoutTasks',
+      'quoteLayout',
+      'airbrushingNfsePdfs',
+      'envelopeDocumentOriginals',
+      'signatureEnvelopeFinals',
+      'taskBankSlips',
+    ];
+    const faltam = devemEstar.filter(r => !cobertas.has(r));
+    check(
+      'o filtro de órfão cobre toda relação de uso de File (foto de medida, plaqueta, arte por veículo…)',
+      faltam.length === 0 && !cobertas.has('thumbnailJob'),
+      faltam.join(', '),
+    );
+    const orfaos = await prisma.file.count({ where: semRef as any });
+    const referenciados = await prisma.file.count({ where: fileReferencedWhere(true) as any });
+    const total = await prisma.file.count();
+    check(
+      'órfãos + referenciados = todos os arquivos (o Prisma aceita as duas formas)',
+      orfaos + referenciados === total,
+      `${orfaos} + ${referenciados} ≠ ${total}`,
     );
   } finally {
     await prisma.$disconnect();
