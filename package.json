@@ -138,6 +138,7 @@
     "test:paint-purchase": "tsx tests/paint-purchase.test.ts",
     "test:bonus-modifiers": "tsx tests/bonus-modifiers.test.ts",
     "test:query-contract": "tsx tests/query-contract.test.ts",
+    "test:sector-field-matrix": "tsx tests/sector-field-matrix.test.ts",
     "guard:residual": "bash scripts/guard-residual.sh"
   },
   "dependencies": {
