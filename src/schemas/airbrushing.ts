@@ -18,6 +18,7 @@ import {
   AIRBRUSHING_DUE_DATE_RULE,
   PAYMENT_METHOD,
   NFSE_STATUS,
+  EXECUTION_TIME_UNIT,
 } from '@constants';
 
 /** Include canônico das negociações da cotação — ver `quotes` abaixo. */
@@ -873,6 +874,30 @@ const airbrushingPaymentConfigShape = {
   dueDate: nullableDate.optional(),
 };
 
+/**
+ * Tempo de execução e orçamento de abertura da cotação — idênticos em create,
+ * update e no create aninhado da tarefa. O término previsto é DERIVADO do tempo
+ * (AirbrushingService.applyExecutionTime); `finishDate` segue aceito para
+ * aerografias sem tempo informado.
+ */
+const executionTimeSchema = z
+  .number({ invalid_type_error: 'Tempo de execução inválido' })
+  .int('O tempo de execução deve ser um número inteiro')
+  .min(1, 'O tempo de execução deve ser maior que zero')
+  .max(999, 'Tempo de execução acima do permitido');
+
+const airbrushingExecutionShape = {
+  executionTime: executionTimeSchema.nullable().optional(),
+  executionTimeUnit: z.nativeEnum(EXECUTION_TIME_UNIT).nullable().optional(),
+  quotationOfferAmount: z
+    .number({ invalid_type_error: 'Orçamento inválido' })
+    .positive('O orçamento deve ser maior que zero')
+    .nullable()
+    .optional(),
+  quotationOfferExecutionTime: executionTimeSchema.nullable().optional(),
+  quotationOfferExecutionTimeUnit: z.nativeEnum(EXECUTION_TIME_UNIT).nullable().optional(),
+};
+
 export const airbrushingCreateSchema = z.preprocess(
   toFormData,
   z.object({
@@ -895,6 +920,7 @@ export const airbrushingCreateSchema = z.preprocess(
       .nativeEnum(AIRBRUSHING_PAYMENT_STATUS)
       .default(AIRBRUSHING_PAYMENT_STATUS.PENDING),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     taskId: z.string().uuid('Tarefa inválida'),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -965,6 +991,7 @@ export const airbrushingUpdateSchema = z.preprocess(
     status: z.nativeEnum(AIRBRUSHING_STATUS).optional(),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     taskId: z.string().uuid('Tarefa inválida').optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -1098,6 +1125,7 @@ export const airbrushingCreateNestedSchema = z
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PREPARATION),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),

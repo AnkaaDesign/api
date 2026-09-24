@@ -1,4 +1,4 @@
-import { AIRBRUSHING_QUOTE_STATUS, AIRBRUSHING_STATUS } from '@constants';
+import { AIRBRUSHING_QUOTE_STATUS, AIRBRUSHING_STATUS, EXECUTION_TIME_UNIT } from '@constants';
 
 /**
  * =============================================================================
@@ -24,6 +24,23 @@ import { AIRBRUSHING_QUOTE_STATUS, AIRBRUSHING_STATUS } from '@constants';
  * O valor selecionado nunca é digitado: é o `amount` da negociação, que em
  * PROPOSED é o último lance do aerografista e em ACCEPTED é a contraproposta
  * que ele aceitou.
+ *
+ * CONDIÇÕES = VALOR + TEMPO DE EXECUÇÃO (24/09/2026)
+ *   Toda proposta traz as duas coisas; uma contraproposta muda uma, a outra ou
+ *   as duas — a que não mudou continua a da negociação. Selecionar grava as
+ *   duas na aerografia, e o término previsto sai do início + tempo.
+ *
+ * ORÇAMENTO DE ABERTURA
+ *   A empresa pode abrir a cotação já com um valor (e, se quiser, um tempo).
+ *   Para quem ainda não negociou, ele aparece como OFFER_RECEIVED: aceitar,
+ *   contrapropor ou recusar. Aceitar um orçamento COM tempo é aceitar as
+ *   condições da empresa (ACCEPTED); SEM tempo, ele informa o próprio prazo e
+ *   isso é uma proposta (PROPOSED) — o comercial ainda precisa concordar.
+ *
+ * CONTRAPROPOSTA PARA TODOS
+ *   A contraproposta é uma ação da COTAÇÃO: vale para todas as negociações em
+ *   que é a vez da empresa responder a um lance (PROPOSED) ou em que ela revisa
+ *   a própria (COUNTERED). Quem já aceitou fica de fora.
  * =============================================================================
  */
 
@@ -71,6 +88,8 @@ export function canPainterPropose(status: QuoteStatus | null | undefined): boole
 export type PainterQuoteStage =
   /** Em cotação e sem proposta ativa dele: "Envie seu valor". */
   | 'AWAITING_PROPOSAL'
+  /** Em cotação, sem proposta dele, e a empresa abriu com um orçamento. */
+  | 'OFFER_RECEIVED'
   /** Proposta enviada, aguardando o comercial. */
   | 'AWAITING_COMPANY'
   /** Contraproposta recebida: aceitar, recusar ou contrapropor. */
@@ -87,6 +106,8 @@ export type PainterQuoteStage =
 export function painterQuoteStage(
   airbrushingStatus: string | null | undefined,
   quoteStatus: QuoteStatus | null | undefined,
+  /** A aerografia tem orçamento de abertura (quotationOfferAmount). */
+  hasOffer = false,
 ): PainterQuoteStage {
   if (isAirbrushingQuoting(airbrushingStatus)) {
     switch (quoteStatus) {
@@ -100,7 +121,7 @@ export function painterQuoteStage(
         return 'DECLINED';
       default:
         // Nenhuma, ou uma negociação encerrada de uma cotação que foi reaberta.
-        return 'AWAITING_PROPOSAL';
+        return hasOffer ? 'OFFER_RECEIVED' : 'AWAITING_PROPOSAL';
     }
   }
   if (quoteStatus === AIRBRUSHING_QUOTE_STATUS.SELECTED) return 'SELECTED';
@@ -108,9 +129,26 @@ export function painterQuoteStage(
   return 'NOT_SELECTED';
 }
 
-/** Só há o que aceitar quando o comercial fez uma contraproposta. */
-export function canPainterAccept(status: QuoteStatus | null | undefined): boolean {
-  return status === AIRBRUSHING_QUOTE_STATUS.COUNTERED;
+/**
+ * Há o que aceitar quando o comercial fez uma contraproposta, ou quando a
+ * cotação abriu com orçamento e ele ainda não tem negociação ativa (nenhuma,
+ * ou uma encerrada de cotação reaberta).
+ */
+export function canPainterAccept(
+  status: QuoteStatus | null | undefined,
+  hasOffer = false,
+): boolean {
+  if (status === AIRBRUSHING_QUOTE_STATUS.COUNTERED) return true;
+  return hasOffer && isOfferPending(status);
+}
+
+/** O orçamento de abertura ainda está "na mesa" para este aerografista. */
+export function isOfferPending(status: QuoteStatus | null | undefined): boolean {
+  return (
+    !status ||
+    status === AIRBRUSHING_QUOTE_STATUS.SELECTED ||
+    status === AIRBRUSHING_QUOTE_STATUS.NOT_SELECTED
+  );
 }
 
 /**
@@ -169,4 +207,94 @@ export function resolveNewAirbrushingStatus(
     return AIRBRUSHING_STATUS.QUOTING;
   }
   return status as AIRBRUSHING_STATUS;
+}
+
+// =============================================================================
+// Tempo de execução
+// =============================================================================
+
+type ExecutionUnit = EXECUTION_TIME_UNIT | `${EXECUTION_TIME_UNIT}`;
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * Término previsto a partir do início previsto e do tempo de execução.
+ *
+ * DIAS contam o dia do início ("começa dia 29, 2 dias → termina dia 30"), que é
+ * como o chão de fábrica fala; HORAS somam ao horário do início. Sem início ou
+ * sem tempo, não há o que derivar.
+ */
+export function computeExpectedFinishDate(
+  startDate: Date | string | null | undefined,
+  executionTime: number | null | undefined,
+  unit: ExecutionUnit | null | undefined,
+): Date | null {
+  if (!startDate || !executionTime || executionTime <= 0 || !unit) return null;
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  if (unit === EXECUTION_TIME_UNIT.HOURS)
+    return new Date(start.getTime() + executionTime * HOUR_MS);
+  return new Date(start.getTime() + (executionTime - 1) * DAY_MS);
+}
+
+/** "1 dia", "3 dias", "1 hora", "8 horas". */
+export function formatExecutionTime(
+  executionTime: number | null | undefined,
+  unit: ExecutionUnit | null | undefined,
+): string {
+  if (!executionTime || !unit) return '';
+  const hours = unit === EXECUTION_TIME_UNIT.HOURS;
+  const word = hours
+    ? executionTime === 1
+      ? 'hora'
+      : 'horas'
+    : executionTime === 1
+      ? 'dia'
+      : 'dias';
+  return `${executionTime} ${word}`;
+}
+
+/** Condições de uma negociação para texto de notificação: "R$ 820,00 em 2 dias". */
+export function formatQuoteTerms(
+  amount: number | null | undefined,
+  executionTime: number | null | undefined,
+  unit: ExecutionUnit | null | undefined,
+): string {
+  const money =
+    amount === null || amount === undefined || !Number.isFinite(amount)
+      ? ''
+      : amount.toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+  const time = formatExecutionTime(executionTime, unit);
+  if (money && time) return `${money} em ${time}`;
+  return money || time;
+}
+
+/**
+ * Condições de uma contraproposta aplicadas a uma negociação: o que a empresa
+ * mandou vence, o que ela não mandou continua o que estava em jogo.
+ */
+export function mergeCounterTerms(
+  current: {
+    amount: number | null;
+    executionTime: number | null;
+    executionTimeUnit: string | null;
+  },
+  counter: {
+    amount?: number | null;
+    executionTime?: number | null;
+    executionTimeUnit?: string | null;
+  },
+): { amount: number | null; executionTime: number | null; executionTimeUnit: string | null } {
+  const changesTime = counter.executionTime != null && counter.executionTimeUnit != null;
+  return {
+    amount: counter.amount != null ? normalizeQuoteAmount(counter.amount) : current.amount,
+    executionTime: changesTime ? counter.executionTime! : current.executionTime,
+    executionTimeUnit: changesTime ? counter.executionTimeUnit! : current.executionTimeUnit,
+  };
 }

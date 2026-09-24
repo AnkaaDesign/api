@@ -4,6 +4,10 @@
 
 import { AIRBRUSHING_QUOTE_STATUS as Q, AIRBRUSHING_STATUS as S } from '@constants';
 import {
+  computeExpectedFinishDate,
+  formatExecutionTime,
+  formatQuoteTerms,
+  mergeCounterTerms,
   canCompanyCounter,
   canCompanySelect,
   canPainterAccept,
@@ -103,5 +107,61 @@ describe('airbrushing-quote', () => {
   it('rounds amounts to cents', () => {
     expect(normalizeQuoteAmount(1234.567)).toBe(1234.57);
     expect(normalizeQuoteAmount(0.1 + 0.2)).toBe(0.3);
+  });
+
+  describe('opening offer', () => {
+    it('shows OFFER_RECEIVED to a painter without a negotiation', () => {
+      expect(painterQuoteStage(S.QUOTING, undefined, true)).toBe('OFFER_RECEIVED');
+      expect(painterQuoteStage(S.QUOTING, Q.NOT_SELECTED, true)).toBe('OFFER_RECEIVED');
+      // His own proposal outranks the offer.
+      expect(painterQuoteStage(S.QUOTING, Q.PROPOSED, true)).toBe('AWAITING_COMPANY');
+    });
+
+    it('lets him accept the offer only while it is pending', () => {
+      expect(canPainterAccept(undefined, true)).toBe(true);
+      expect(canPainterAccept(undefined, false)).toBe(false);
+      expect(canPainterAccept(Q.PROPOSED, true)).toBe(false);
+      expect(canPainterAccept(Q.COUNTERED, false)).toBe(true);
+    });
+  });
+
+  describe('execution time', () => {
+    const start = new Date('2026-09-29T12:00:00.000Z');
+
+    it('counts days including the start day', () => {
+      expect(computeExpectedFinishDate(start, 1, 'DAYS')?.toISOString()).toBe(start.toISOString());
+      expect(computeExpectedFinishDate(start, 2, 'DAYS')?.toISOString()).toBe(
+        '2026-09-30T12:00:00.000Z',
+      );
+    });
+
+    it('adds hours to the start time', () => {
+      expect(computeExpectedFinishDate(start, 8, 'HOURS')?.toISOString()).toBe(
+        '2026-09-29T20:00:00.000Z',
+      );
+    });
+
+    it('derives nothing without start or time', () => {
+      expect(computeExpectedFinishDate(null, 2, 'DAYS')).toBe(null);
+      expect(computeExpectedFinishDate(start, null, 'DAYS')).toBe(null);
+    });
+
+    it('formats pt-BR', () => {
+      expect(formatExecutionTime(1, 'DAYS')).toBe('1 dia');
+      expect(formatExecutionTime(3, 'HOURS')).toBe('3 horas');
+      expect(formatQuoteTerms(820, 2, 'DAYS')).toBe('R$\u00a0820,00 em 2 dias');
+    });
+  });
+
+  describe('counter merges terms', () => {
+    const current = { amount: 900, executionTime: 3, executionTimeUnit: 'DAYS' };
+    it('changes only what the company sent', () => {
+      const valueOnly = mergeCounterTerms(current, { amount: 820 });
+      expect(valueOnly.amount).toBe(820);
+      expect(valueOnly.executionTime).toBe(3);
+      const timeOnly = mergeCounterTerms(current, { executionTime: 16, executionTimeUnit: 'HOURS' });
+      expect(timeOnly.amount).toBe(900);
+      expect(timeOnly.executionTimeUnit).toBe('HOURS');
+    });
   });
 });

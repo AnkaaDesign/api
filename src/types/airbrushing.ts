@@ -16,6 +16,7 @@ import type {
   AIRBRUSHING_QUOTE_PARTY,
   AIRBRUSHING_QUOTE_ACTION,
   AIRBRUSHING_DUE_DATE_RULE,
+  EXECUTION_TIME_UNIT,
   PAYMENT_METHOD,
   ORDER_BY_DIRECTION,
   NFSE_STATUS,
@@ -80,6 +81,13 @@ export interface Airbrushing extends BaseEntity {
   quotationNotifiedAt?: Date | null;
   /** Quando a cotação terminou (seleção ou cancelamento). */
   quotationClosedAt?: Date | null;
+  /** Tempo de execução combinado; o término previsto é derivado dele. */
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
+  /** Orçamento de abertura da cotação (opcional). */
+  quotationOfferAmount?: number | null;
+  quotationOfferExecutionTime?: number | null;
+  quotationOfferExecutionTimeUnit?: EXECUTION_TIME_UNIT | null;
   /**
    * Negociações da cotação, uma por aerografista. Para o aerografista, a API
    * devolve SÓ a dele — o lance de um nunca chega ao outro.
@@ -95,6 +103,9 @@ export interface AirbrushingQuote {
   status: AIRBRUSHING_QUOTE_STATUS;
   /** Valor em jogo — ver AIRBRUSHING_QUOTE_STATUS. */
   amount: number | null;
+  /** Tempo de execução em jogo, com a mesma regra do valor. */
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
   createdAt: Date;
   updatedAt: Date;
   painter?: Pick<User, 'id' | 'name'> & Partial<User>;
@@ -109,6 +120,8 @@ export interface AirbrushingQuoteEvent {
   party: AIRBRUSHING_QUOTE_PARTY;
   action: AIRBRUSHING_QUOTE_ACTION;
   amount: number | null;
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
   note: string | null;
   userId: string | null;
   createdAt: Date;

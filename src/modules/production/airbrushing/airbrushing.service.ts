@@ -22,6 +22,7 @@ import {
 } from '../../../constants/enums';
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 import {
+  computeExpectedFinishDate,
   isAirbrushingQuoting,
   resolveNewAirbrushingStatus,
 } from '../../../utils/airbrushing-quote';
@@ -85,7 +86,38 @@ export class AirbrushingService {
       data.painterId = null;
       data.price = null;
       data.quotationOpenedAt = new Date();
+    } else {
+      // Orçamento de abertura só existe numa cotação.
+      AirbrushingService.stripQuotationOffer(data);
     }
+  }
+
+  private static stripQuotationOffer(data: Record<string, any>): void {
+    delete data.quotationOfferAmount;
+    delete data.quotationOfferExecutionTime;
+    delete data.quotationOfferExecutionTimeUnit;
+  }
+
+  /**
+   * Deriva o término previsto do início previsto + tempo de execução, sobre o
+   * estado mesclado (payload × persistido). Só age quando esta escrita mexe no
+   * início, no tempo ou na unidade, e quando há tempo informado — uma aerografia
+   * sem tempo continua aceitando `finishDate` como sempre. Mutates `data`.
+   */
+  private applyExecutionTime(
+    existing: Record<string, any> | null,
+    data: Record<string, any>,
+  ): void {
+    const touches =
+      data.startDate !== undefined ||
+      data.executionTime !== undefined ||
+      data.executionTimeUnit !== undefined;
+    if (!touches) return;
+    const pick = (key: string) => (data[key] !== undefined ? data[key] : existing?.[key]);
+    const time = pick('executionTime');
+    const unit = pick('executionTimeUnit');
+    if (time == null || unit == null) return;
+    data.finishDate = computeExpectedFinishDate(pick('startDate'), time, unit);
   }
 
   /**
@@ -112,6 +144,7 @@ export class AirbrushingService {
           'Para colocar esta aerografia em cotação, use "Reabrir cotação" no detalhe da aerografia.',
         );
       }
+      AirbrushingService.stripQuotationOffer(updateData);
       return [];
     }
 
@@ -640,6 +673,8 @@ export class AirbrushingService {
 
         // Sem aerografista, a aerografia nasce EM COTAÇÃO — ver applyQuotingOnCreate.
         this.applyQuotingOnCreate(data as Record<string, any>);
+        // Término previsto = início + tempo de execução.
+        this.applyExecutionTime(null, data as Record<string, any>);
 
         // Criar já como COMPLETED é permitido pelo zod, e este caminho nunca
         // chamava applyStatusTimestamps: a aerografia nascia concluída SEM
@@ -862,6 +897,7 @@ export class AirbrushingService {
         // are populated by simply advancing the job. An explicitly supplied value
         // always wins; an already-stamped timestamp is never overwritten.
         this.applyStatusTimestamps(existingAirbrushing, updateData);
+        this.applyExecutionTime(existingAirbrushing as Record<string, any>, updateData);
 
         // Recalcula o vencimento DEPOIS do carimbo de finishedAt acima — é
         // justamente concluir a aerografia que fixa a data ("vence 3 dias após o
@@ -1269,6 +1305,7 @@ export class AirbrushingService {
             // Mesmas correções do create() individual — este caminho fala com o
             // repositório direto e não herda nada dele.
             this.applyQuotingOnCreate(airbrushingData as Record<string, any>);
+            this.applyExecutionTime(null, airbrushingData as Record<string, any>);
             this.applyStatusTimestamps(null, airbrushingData as Record<string, any>);
             this.applyDueDate(null, airbrushingData as Record<string, any>);
 
@@ -1470,6 +1507,7 @@ export class AirbrushingService {
               userId,
             );
             this.applyStatusTimestamps(existingAirbrushing, batchUpdateData);
+            this.applyExecutionTime(existingAirbrushing as Record<string, any>, batchUpdateData);
             this.applyDueDate(existingAirbrushing as Record<string, any>, batchUpdateData);
 
             // Atualizar a aerografia

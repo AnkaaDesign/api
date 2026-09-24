@@ -232,6 +232,12 @@ export enum AIRBRUSHING_QUOTE_STATUS {
   NOT_SELECTED = 'NOT_SELECTED',
 }
 
+/** Unidade do tempo de execução de um serviço (aerografia). */
+export enum EXECUTION_TIME_UNIT {
+  HOURS = 'HOURS',
+  DAYS = 'DAYS',
+}
+
 export enum AIRBRUSHING_QUOTE_PARTY {
   PAINTER = 'PAINTER',
   COMPANY = 'COMPANY',

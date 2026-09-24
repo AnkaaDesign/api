@@ -24,18 +24,40 @@ import {
   canPainterAccept,
   canPainterDecline,
   canPainterPropose,
+  computeExpectedFinishDate,
   isAirbrushingQuoting,
+  mergeCounterTerms,
   normalizeQuoteAmount,
   painterQuoteStage,
 } from '../../../utils/airbrushing-quote';
 import { getAirbrushingStatusOrder } from '../../../utils/sortOrder';
 import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
 import type {
+  AirbrushingQuoteAcceptFormData,
   AirbrushingQuoteCounterFormData,
   AirbrushingQuoteNoteFormData,
   AirbrushingQuoteProposeFormData,
   AirbrushingQuoteRequestsQuery,
 } from '../../../schemas/airbrushing-quote';
+
+/** Condições de uma negociação: valor e tempo de execução. */
+export interface QuoteTerms {
+  amount: number | null;
+  executionTime: number | null;
+  executionTimeUnit: string | null;
+}
+
+function termsOf(q: {
+  amount: number | null;
+  executionTime?: number | null;
+  executionTimeUnit?: string | null;
+}): QuoteTerms {
+  return {
+    amount: q.amount ?? null,
+    executionTime: q.executionTime ?? null,
+    executionTimeUnit: (q.executionTimeUnit as string | null | undefined) ?? null,
+  };
+}
 
 /** Include canônico de uma negociação: aerografista (id/nome) e a linha do tempo. */
 const QUOTE_INCLUDE = {
@@ -280,9 +302,15 @@ export class AirbrushingQuoteService {
         status: true,
         price: true,
         painterId: true,
+        startDate: true,
+        executionTime: true,
+        executionTimeUnit: true,
         quotationOpenedAt: true,
         quotationNotifiedAt: true,
         quotationClosedAt: true,
+        quotationOfferAmount: true,
+        quotationOfferExecutionTime: true,
+        quotationOfferExecutionTimeUnit: true,
         quotes: { include: QUOTE_INCLUDE, orderBy: { updatedAt: 'desc' } },
       },
     });
@@ -305,9 +333,13 @@ export class AirbrushingQuoteService {
   // Ações do aerografista
   // ===========================================================================
 
-  /** Envia, revisa ou contrapõe com um valor. */
+  /** Envia, revisa ou contrapõe com as suas condições: valor e tempo de execução. */
   async propose(airbrushingId: string, painterId: string, input: AirbrushingQuoteProposeFormData) {
-    const amount = normalizeQuoteAmount(input.amount);
+    const terms: QuoteTerms = {
+      amount: normalizeQuoteAmount(input.amount),
+      executionTime: input.executionTime,
+      executionTimeUnit: input.executionTimeUnit,
+    };
     const intents: AirbrushingQuoteNotifyIntent[] = [];
 
     const quote = await this.prisma.$transaction(async tx => {
@@ -318,29 +350,23 @@ export class AirbrushingQuoteService {
 
       if (!canPainterPropose(existing?.status as any)) {
         throw new BadRequestException(
-          'Você já aceitou a contraproposta desta aerografia. Para mudar o valor, recuse primeiro.',
+          'Você já aceitou as condições desta aerografia. Para mudá-las, recuse primeiro.',
         );
       }
 
-      // Responder a uma contraproposta com outro valor é uma contraproposta do
-      // aerografista; o resto é proposta (primeira, revisão ou reconsideração).
+      // Responder a uma contraproposta com outras condições é uma contraproposta
+      // do aerografista; o resto é proposta (primeira, revisão ou reconsideração).
       const action =
         existing?.status === AIRBRUSHING_QUOTE_STATUS.COUNTERED
           ? AIRBRUSHING_QUOTE_ACTION.COUNTER
           : AIRBRUSHING_QUOTE_ACTION.PROPOSAL;
 
-      const saved = await tx.airbrushingQuote.upsert({
-        where: { airbrushingId_painterId: { airbrushingId, painterId } },
-        create: {
-          airbrushingId,
-          painterId,
-          status: AIRBRUSHING_QUOTE_STATUS.PROPOSED as any,
-          amount,
-        },
-        update: { status: AIRBRUSHING_QUOTE_STATUS.PROPOSED as any, amount },
+      const saved = await this.saveQuote(tx, airbrushingId, painterId, {
+        status: AIRBRUSHING_QUOTE_STATUS.PROPOSED,
+        ...terms,
       });
       await this.recordEvent(tx, saved.id, AIRBRUSHING_QUOTE_PARTY.PAINTER, action, {
-        amount,
+        ...terms,
         note: input.note,
         userId: painterId,
       });
@@ -350,7 +376,7 @@ export class AirbrushingQuoteService {
         airbrushingId,
         painterId,
         actorUserId: painterId,
-        amount,
+        terms,
         note: input.note ?? null,
       });
       return this.reloadQuote(tx, saved.id);
@@ -360,51 +386,99 @@ export class AirbrushingQuoteService {
     return { success: true, message: 'Proposta enviada.', data: quote };
   }
 
-  /** Aceita a contraproposta do comercial. NÃO seleciona — o comercial ainda escolhe. */
-  async accept(airbrushingId: string, painterId: string, input: AirbrushingQuoteNoteFormData) {
+  /**
+   * Aceita as condições da empresa — a contraproposta, ou o orçamento com que a
+   * cotação abriu. NÃO seleciona: o comercial ainda escolhe.
+   *
+   * Orçamento SEM tempo de execução: o aerografista informa o próprio prazo, e
+   * isso vira uma proposta (valor da empresa + prazo dele), porque o comercial
+   * ainda não concordou com o prazo.
+   */
+  async accept(airbrushingId: string, painterId: string, input: AirbrushingQuoteAcceptFormData) {
     const intents: AirbrushingQuoteNotifyIntent[] = [];
 
     const quote = await this.prisma.$transaction(async tx => {
-      await this.lockQuotingAirbrushing(tx, airbrushingId);
+      const airbrushing = await this.lockQuotingAirbrushing(tx, airbrushingId);
       const existing = await tx.airbrushingQuote.findUnique({
         where: { airbrushingId_painterId: { airbrushingId, painterId } },
       });
-      if (!existing || !canPainterAccept(existing.status as any)) {
-        throw new BadRequestException('Não há contraproposta aguardando a sua resposta.');
+      const hasOffer = airbrushing.quotationOfferAmount != null;
+
+      if (!canPainterAccept(existing?.status as any, hasOffer)) {
+        throw new BadRequestException('Não há proposta da empresa aguardando a sua resposta.');
       }
 
-      await tx.airbrushingQuote.update({
-        where: { id: existing.id },
-        data: { status: AIRBRUSHING_QUOTE_STATUS.ACCEPTED as any },
-      });
+      // 1) Contraproposta: as condições em jogo são as da empresa.
+      if (existing?.status === AIRBRUSHING_QUOTE_STATUS.COUNTERED) {
+        const terms = termsOf(existing);
+        await tx.airbrushingQuote.update({
+          where: { id: existing.id },
+          data: { status: AIRBRUSHING_QUOTE_STATUS.ACCEPTED as any },
+        });
+        await this.recordEvent(
+          tx,
+          existing.id,
+          AIRBRUSHING_QUOTE_PARTY.PAINTER,
+          AIRBRUSHING_QUOTE_ACTION.ACCEPT,
+          { ...terms, note: input.note, userId: painterId },
+        );
+        intents.push({
+          kind: 'accepted',
+          airbrushingId,
+          painterId,
+          actorUserId: painterId,
+          terms,
+          note: input.note ?? null,
+        });
+        return this.reloadQuote(tx, existing.id);
+      }
+
+      // 2) Orçamento de abertura.
+      const offerHasTime =
+        airbrushing.quotationOfferExecutionTime != null &&
+        airbrushing.quotationOfferExecutionTimeUnit != null;
+      if (!offerHasTime && (input.executionTime == null || input.executionTimeUnit == null)) {
+        throw new BadRequestException(
+          'O orçamento não define o tempo de execução — informe em quantas horas ou dias você faz.',
+        );
+      }
+      const terms: QuoteTerms = {
+        amount: airbrushing.quotationOfferAmount,
+        executionTime: offerHasTime
+          ? airbrushing.quotationOfferExecutionTime
+          : (input.executionTime ?? null),
+        executionTimeUnit: offerHasTime
+          ? airbrushing.quotationOfferExecutionTimeUnit
+          : (input.executionTimeUnit ?? null),
+      };
+      const status = offerHasTime
+        ? AIRBRUSHING_QUOTE_STATUS.ACCEPTED
+        : AIRBRUSHING_QUOTE_STATUS.PROPOSED;
+
+      const saved = await this.saveQuote(tx, airbrushingId, painterId, { status, ...terms });
       await this.recordEvent(
         tx,
-        existing.id,
+        saved.id,
         AIRBRUSHING_QUOTE_PARTY.PAINTER,
         AIRBRUSHING_QUOTE_ACTION.ACCEPT,
-        {
-          amount: existing.amount,
-          note: input.note,
-          userId: painterId,
-        },
+        { ...terms, note: input.note, userId: painterId },
       );
-
       intents.push({
-        kind: 'accepted',
+        kind: offerHasTime ? 'accepted' : 'proposed',
         airbrushingId,
         painterId,
         actorUserId: painterId,
-        amount: existing.amount,
+        terms,
         note: input.note ?? null,
       });
-      return this.reloadQuote(tx, existing.id);
+      return this.reloadQuote(tx, saved.id);
     });
 
     await this.notifier.flush(intents);
-    return { success: true, message: 'Contraproposta aceita.', data: quote };
+    return { success: true, message: 'Condições aceitas.', data: quote };
   }
 
-  /** Recusa: sem interesse no serviço, ou discordando da contraproposta. */
+  /** Recusa: sem interesse no serviço, ou discordando das condições da empresa. */
   async decline(airbrushingId: string, painterId: string, input: AirbrushingQuoteNoteFormData) {
     const intents: AirbrushingQuoteNotifyIntent[] = [];
 
@@ -437,6 +511,8 @@ export class AirbrushingQuoteService {
         AIRBRUSHING_QUOTE_ACTION.DECLINE,
         {
           amount: null,
+          executionTime: null,
+          executionTimeUnit: null,
           note: input.note,
           userId: painterId,
         },
@@ -447,7 +523,7 @@ export class AirbrushingQuoteService {
         airbrushingId,
         painterId,
         actorUserId: painterId,
-        amount: saved.amount,
+        terms: termsOf(saved),
         note: input.note ?? null,
       });
       return this.reloadQuote(tx, saved.id);
@@ -461,9 +537,49 @@ export class AirbrushingQuoteService {
   // Ações do comercial
   // ===========================================================================
 
-  /** Contraproposta do comercial a uma negociação. */
+  /**
+   * Contraproposta para TODOS os aerografistas que já enviaram proposta — a forma
+   * normal de contrapor. Vale para as negociações em que a empresa responde a um
+   * lance (PROPOSED) ou revisa a própria contraproposta (COUNTERED); quem já
+   * aceitou fica de fora. Valor, tempo ou os dois: o que não vier continua o que
+   * cada um tinha em jogo.
+   */
+  async counterAll(airbrushingId: string, userId: string, input: AirbrushingQuoteCounterFormData) {
+    const intents: AirbrushingQuoteNotifyIntent[] = [];
+
+    await this.prisma.$transaction(async tx => {
+      await this.lockQuotingAirbrushing(tx, airbrushingId);
+      const targets = await tx.airbrushingQuote.findMany({
+        where: {
+          airbrushingId,
+          status: {
+            in: [AIRBRUSHING_QUOTE_STATUS.PROPOSED, AIRBRUSHING_QUOTE_STATUS.COUNTERED] as any,
+          },
+        },
+      });
+      if (!targets.length) {
+        throw new BadRequestException(
+          'Nenhum aerografista com proposta aguardando resposta — a contraproposta vale para quem já enviou a sua.',
+        );
+      }
+      for (const current of targets) {
+        intents.push(await this.applyCounter(tx, current, userId, input));
+      }
+    });
+
+    await this.notifier.flush(intents);
+    const result = await this.listForAirbrushing(airbrushingId);
+    return {
+      ...result,
+      message:
+        intents.length === 1
+          ? 'Contraproposta enviada para 1 aerografista.'
+          : `Contraproposta enviada para ${intents.length} aerografistas.`,
+    };
+  }
+
+  /** Contraproposta a UMA negociação (mantida para integrações; a tela usa counterAll). */
   async counter(quoteId: string, userId: string, input: AirbrushingQuoteCounterFormData) {
-    const amount = normalizeQuoteAmount(input.amount);
     const intents: AirbrushingQuoteNotifyIntent[] = [];
 
     const quote = await this.prisma.$transaction(async tx => {
@@ -477,35 +593,12 @@ export class AirbrushingQuoteService {
           current.status === AIRBRUSHING_QUOTE_STATUS.DECLINED
             ? 'O aerografista recusou esta aerografia.'
             : current.status === AIRBRUSHING_QUOTE_STATUS.ACCEPTED
-              ? 'O aerografista já aceitou este valor. Selecione-o ou escolha outra proposta.'
+              ? 'O aerografista já aceitou estas condições. Selecione-o ou escolha outra proposta.'
               : 'Esta negociação já foi encerrada.',
         );
       }
 
-      await tx.airbrushingQuote.update({
-        where: { id: quoteId },
-        data: { status: AIRBRUSHING_QUOTE_STATUS.COUNTERED as any, amount },
-      });
-      await this.recordEvent(
-        tx,
-        quoteId,
-        AIRBRUSHING_QUOTE_PARTY.COMPANY,
-        AIRBRUSHING_QUOTE_ACTION.COUNTER,
-        {
-          amount,
-          note: input.note,
-          userId,
-        },
-      );
-
-      intents.push({
-        kind: 'countered',
-        airbrushingId: current.airbrushingId,
-        painterId: current.painterId,
-        actorUserId: userId,
-        amount,
-        note: input.note ?? null,
-      });
+      intents.push(await this.applyCounter(tx, current, userId, input));
       return this.reloadQuote(tx, quoteId);
     });
 
@@ -514,9 +607,9 @@ export class AirbrushingQuoteService {
   }
 
   /**
-   * Seleciona a negociação: grava aerografista e valor na aerografia (o valor é
-   * o da negociação — nunca digitado), encerra as demais e tira a aerografia de
-   * cotação para Em Preparação.
+   * Seleciona a negociação: grava aerografista, valor e tempo de execução na
+   * aerografia (tudo da negociação — nunca digitado), deriva o término previsto,
+   * encerra as demais e tira a aerografia de cotação para Em Preparação.
    */
   async select(quoteId: string, userId: string, input: AirbrushingQuoteNoteFormData) {
     const intents: AirbrushingQuoteNotifyIntent[] = [];
@@ -537,6 +630,7 @@ export class AirbrushingQuoteService {
         throw new BadRequestException('Esta negociação não tem valor definido.');
       }
 
+      const terms = termsOf(current);
       const now = new Date();
       await tx.airbrushingQuote.update({
         where: { id: quoteId },
@@ -547,11 +641,7 @@ export class AirbrushingQuoteService {
         quoteId,
         AIRBRUSHING_QUOTE_PARTY.COMPANY,
         AIRBRUSHING_QUOTE_ACTION.SELECT,
-        {
-          amount: current.amount,
-          note: input.note,
-          userId,
-        },
+        { ...terms, note: input.note, userId },
       );
 
       const closedPainterIds = await closeAirbrushingQuotesInTx(tx, current.airbrushingId, {
@@ -560,11 +650,29 @@ export class AirbrushingQuoteService {
         note: 'Outra proposta foi selecionada.',
       });
 
+      // Negociações antigas (antes do tempo de execução) não trazem prazo: aí o
+      // término previsto que já estava na aerografia é mantido.
+      const hasTime = terms.executionTime != null && terms.executionTimeUnit != null;
+      const finishDate = hasTime
+        ? computeExpectedFinishDate(
+            airbrushingBefore.startDate,
+            terms.executionTime,
+            terms.executionTimeUnit as any,
+          )
+        : undefined;
+
       const airbrushingAfter = await tx.airbrushing.update({
         where: { id: current.airbrushingId },
         data: {
           painterId: current.painterId,
           price: current.amount,
+          ...(hasTime
+            ? {
+                executionTime: terms.executionTime,
+                executionTimeUnit: terms.executionTimeUnit as any,
+                ...(finishDate ? { finishDate } : {}),
+              }
+            : {}),
           status: AIRBRUSHING_STATUS.PREPARATION as any,
           statusOrder: getAirbrushingStatusOrder(AIRBRUSHING_STATUS.PREPARATION),
           quotationClosedAt: now,
@@ -590,7 +698,7 @@ export class AirbrushingQuoteService {
         airbrushingId: current.airbrushingId,
         painterId: current.painterId,
         actorUserId: userId,
-        amount: current.amount,
+        terms,
       });
       intents.push({
         kind: 'closed',
@@ -727,7 +835,7 @@ export class AirbrushingQuoteService {
     quoteId: string,
     party: AIRBRUSHING_QUOTE_PARTY,
     action: AIRBRUSHING_QUOTE_ACTION,
-    params: { amount: number | null; note?: string | null; userId: string },
+    params: QuoteTerms & { note?: string | null; userId: string },
   ) {
     return tx.airbrushingQuoteEvent.create({
       data: {
@@ -735,10 +843,69 @@ export class AirbrushingQuoteService {
         party: party as any,
         action: action as any,
         amount: params.amount,
+        executionTime: params.executionTime,
+        executionTimeUnit: (params.executionTimeUnit ?? null) as any,
         note: params.note ?? null,
         userId: params.userId,
       },
     });
+  }
+
+  /** Cria ou atualiza a negociação deste aerografista com as condições dadas. */
+  private saveQuote(
+    tx: PrismaTransaction,
+    airbrushingId: string,
+    painterId: string,
+    data: QuoteTerms & { status: AIRBRUSHING_QUOTE_STATUS },
+  ) {
+    const fields = {
+      status: data.status as any,
+      amount: data.amount,
+      executionTime: data.executionTime,
+      executionTimeUnit: (data.executionTimeUnit ?? null) as any,
+    };
+    return tx.airbrushingQuote.upsert({
+      where: { airbrushingId_painterId: { airbrushingId, painterId } },
+      create: { airbrushingId, painterId, ...fields },
+      update: fields,
+    });
+  }
+
+  /**
+   * Aplica uma contraproposta a uma negociação (já travada): o que a empresa
+   * mandou vence, o resto continua o que estava em jogo.
+   */
+  private async applyCounter(
+    tx: PrismaTransaction,
+    current: { id: string; airbrushingId: string; painterId: string } & QuoteTerms,
+    userId: string,
+    input: AirbrushingQuoteCounterFormData,
+  ): Promise<AirbrushingQuoteNotifyIntent> {
+    const terms = mergeCounterTerms(termsOf(current), input) as QuoteTerms;
+    await tx.airbrushingQuote.update({
+      where: { id: current.id },
+      data: {
+        status: AIRBRUSHING_QUOTE_STATUS.COUNTERED as any,
+        amount: terms.amount,
+        executionTime: terms.executionTime,
+        executionTimeUnit: (terms.executionTimeUnit ?? null) as any,
+      },
+    });
+    await this.recordEvent(
+      tx,
+      current.id,
+      AIRBRUSHING_QUOTE_PARTY.COMPANY,
+      AIRBRUSHING_QUOTE_ACTION.COUNTER,
+      { ...terms, note: input.note, userId },
+    );
+    return {
+      kind: 'countered',
+      airbrushingId: current.airbrushingId,
+      painterId: current.painterId,
+      actorUserId: userId,
+      terms,
+      note: input.note ?? null,
+    };
   }
 
   /**
@@ -755,6 +922,9 @@ export class AirbrushingQuoteService {
       createdAt: true,
       quotationOpenedAt: true,
       quotationClosedAt: true,
+      quotationOfferAmount: true,
+      quotationOfferExecutionTime: true,
+      quotationOfferExecutionTimeUnit: true,
       task: {
         select: {
           id: true,
@@ -775,10 +945,27 @@ export class AirbrushingQuoteService {
   }
 
   private toPainterView(row: any) {
-    const { quotes, layouts, ...rest } = row;
+    const {
+      quotes,
+      layouts,
+      quotationOfferAmount,
+      quotationOfferExecutionTime,
+      quotationOfferExecutionTimeUnit,
+      ...rest
+    } = row;
     const myQuote = quotes?.[0] ?? null;
+    // O orçamento de abertura é a proposta da empresa para quem ainda não negociou.
+    const offer =
+      quotationOfferAmount != null
+        ? {
+            amount: quotationOfferAmount,
+            executionTime: quotationOfferExecutionTime ?? null,
+            executionTimeUnit: quotationOfferExecutionTimeUnit ?? null,
+          }
+        : null;
     return {
       ...rest,
+      offer,
       // Mesmo achatamento do repositório: o cliente espera o File com `status` do layout.
       layouts: (layouts ?? []).map((layout: any) => ({
         ...layout.file,
@@ -787,7 +974,7 @@ export class AirbrushingQuoteService {
         status: layout.status,
       })),
       myQuote,
-      stage: painterQuoteStage(row.status, myQuote?.status),
+      stage: painterQuoteStage(row.status, myQuote?.status, offer != null),
     };
   }
 }

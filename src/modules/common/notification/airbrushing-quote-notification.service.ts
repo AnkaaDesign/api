@@ -2,6 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import { AIRBRUSHING_STATUS } from '../../../constants/enums';
+import { formatQuoteTerms } from '../../../utils/airbrushing-quote';
+
+/** Condições de uma negociação (valor + tempo de execução). */
+export interface AirbrushingQuoteNotifyTerms {
+  amount: number | null;
+  executionTime: number | null;
+  executionTimeUnit: string | null;
+}
 
 /**
  * Chaves do registry (seed-notification-configs) de cada evento da cotação.
@@ -29,7 +37,7 @@ export type AirbrushingQuoteNotifyIntent =
       airbrushingId: string;
       painterId: string;
       actorUserId: string;
-      amount: number | null;
+      terms: AirbrushingQuoteNotifyTerms;
       note: string | null;
     }
   | {
@@ -37,7 +45,7 @@ export type AirbrushingQuoteNotifyIntent =
       airbrushingId: string;
       painterId: string;
       actorUserId: string;
-      amount: number;
+      terms: AirbrushingQuoteNotifyTerms;
       note: string | null;
     }
   | {
@@ -45,7 +53,7 @@ export type AirbrushingQuoteNotifyIntent =
       airbrushingId: string;
       painterId: string;
       actorUserId: string;
-      amount: number;
+      terms: AirbrushingQuoteNotifyTerms;
     }
   | {
       kind: 'closed';
@@ -175,7 +183,7 @@ export class AirbrushingQuoteNotificationService {
             data: {
               ...base,
               painterName,
-              amount: this.formatBRL(intent.amount),
+              amount: this.formatTerms(intent.terms),
               note: intent.note ?? '',
             },
             overrides: { relatedEntityType: 'AIRBRUSHING', relatedEntityId: intent.airbrushingId },
@@ -194,7 +202,7 @@ export class AirbrushingQuoteNotificationService {
           'quote_countered',
           {
             ...base,
-            amount: this.formatBRL(intent.amount),
+            amount: this.formatTerms(intent.terms),
             note: intent.note ?? '',
           },
         );
@@ -209,7 +217,7 @@ export class AirbrushingQuoteNotificationService {
           'quote_selected',
           {
             ...base,
-            amount: this.formatBRL(intent.amount),
+            amount: this.formatTerms(intent.terms),
           },
         );
         return;
@@ -264,6 +272,9 @@ export class AirbrushingQuoteNotificationService {
       select: {
         id: true,
         description: true,
+        quotationOfferAmount: true,
+        quotationOfferExecutionTime: true,
+        quotationOfferExecutionTimeUnit: true,
         task: {
           select: {
             id: true,
@@ -289,6 +300,15 @@ export class AirbrushingQuoteNotificationService {
       serialNumber: row.task?.serialNumber ?? '',
       customerName: row.task?.customer?.fantasyName ?? '',
       description: row.description ?? '',
+      // Orçamento de abertura — só o aviso de cotação nova o cita.
+      offer:
+        row.quotationOfferAmount != null
+          ? formatQuoteTerms(
+              row.quotationOfferAmount,
+              row.quotationOfferExecutionTime,
+              row.quotationOfferExecutionTimeUnit as any,
+            )
+          : '',
     };
   }
 
@@ -300,13 +320,12 @@ export class AirbrushingQuoteNotificationService {
     return painter?.name ?? 'Aerografista';
   }
 
-  private formatBRL(value: number | null | undefined): string {
-    if (value === null || value === undefined || !Number.isFinite(value)) return '';
-    return value.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  /**
+   * `amount` dos templates carrega as CONDIÇÕES ("R$ 820,00 em 2 dias"): os
+   * textos já dizem "propôs {{amount}}", "contraproposta de {{amount}}", e a
+   * frase continua certa com o prazo junto — sem reescrever sete templates.
+   */
+  private formatTerms(terms: AirbrushingQuoteNotifyTerms): string {
+    return formatQuoteTerms(terms.amount, terms.executionTime, terms.executionTimeUnit as any);
   }
 }

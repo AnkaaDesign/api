@@ -17,12 +17,14 @@ import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import {
+  airbrushingQuoteAcceptSchema,
   airbrushingQuoteCounterSchema,
   airbrushingQuoteNoteSchema,
   airbrushingQuoteProposeSchema,
   airbrushingQuoteRequestsQuerySchema,
 } from '../../../schemas/airbrushing-quote';
 import type {
+  AirbrushingQuoteAcceptFormData,
   AirbrushingQuoteCounterFormData,
   AirbrushingQuoteNoteFormData,
   AirbrushingQuoteProposeFormData,
@@ -84,7 +86,7 @@ export class AirbrushingQuoteController {
   @HttpCode(HttpStatus.OK)
   accept(
     @Param('airbrushingId', ParseUUIDPipe) airbrushingId: string,
-    @Body(new ZodValidationPipe(airbrushingQuoteNoteSchema)) body: AirbrushingQuoteNoteFormData,
+    @Body(new ZodValidationPipe(airbrushingQuoteAcceptSchema)) body: AirbrushingQuoteAcceptFormData,
     @UserId() userId: string,
   ) {
     return this.quoteService.accept(airbrushingId, userId, body);
@@ -107,6 +109,19 @@ export class AirbrushingQuoteController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
   listForAirbrushing(@Param('airbrushingId', ParseUUIDPipe) airbrushingId: string) {
     return this.quoteService.listForAirbrushing(airbrushingId);
+  }
+
+  /** Contraproposta para todos que já enviaram proposta — ver counterAll. */
+  @Post('airbrushing/:airbrushingId/counter')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @HttpCode(HttpStatus.OK)
+  counterAll(
+    @Param('airbrushingId', ParseUUIDPipe) airbrushingId: string,
+    @Body(new ZodValidationPipe(airbrushingQuoteCounterSchema))
+    body: AirbrushingQuoteCounterFormData,
+    @UserId() userId: string,
+  ) {
+    return this.quoteService.counterAll(airbrushingId, userId, body);
   }
 
   @Post('airbrushing/:airbrushingId/reopen')

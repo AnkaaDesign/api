@@ -135,7 +135,10 @@ import {
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
 // Cotação da aerografia: o formulário da tarefa cria e edita aerografias por
 // fora do AirbrushingService, então as regras da cotação são repetidas aqui.
-import { resolveNewAirbrushingStatus } from '../../../utils/airbrushing-quote';
+import {
+  computeExpectedFinishDate,
+  resolveNewAirbrushingStatus,
+} from '../../../utils/airbrushing-quote';
 import { AirbrushingQuoteNotificationService } from '@modules/common/notification/airbrushing-quote-notification.service';
 import { applyQuotingToNestedAirbrushingUpdate } from '../airbrushing/airbrushing-quote.service';
 import { BudgetService } from '../budget/budget.service';
@@ -5469,6 +5472,45 @@ export class TaskService {
                 finishDate: airbrushingData.finishDate || null,
               };
 
+              // Tempo de execução: o término previsto é DERIVADO dele (início +
+              // tempo), como no AirbrushingService. Sem tempo, vale o finishDate
+              // enviado, como sempre.
+              if (airbrushingData.executionTime !== undefined) {
+                updatePayload.executionTime = airbrushingData.executionTime ?? null;
+              }
+              if (airbrushingData.executionTimeUnit !== undefined) {
+                updatePayload.executionTimeUnit = airbrushingData.executionTimeUnit ?? null;
+              }
+              {
+                const time =
+                  updatePayload.executionTime !== undefined
+                    ? updatePayload.executionTime
+                    : (existingAirbrushing as any).executionTime;
+                const unit =
+                  updatePayload.executionTimeUnit !== undefined
+                    ? updatePayload.executionTimeUnit
+                    : (existingAirbrushing as any).executionTimeUnit;
+                if (time != null && unit != null) {
+                  updatePayload.finishDate = computeExpectedFinishDate(
+                    updatePayload.startDate,
+                    time,
+                    unit,
+                  );
+                }
+              }
+              // Orçamento de abertura: só enquanto a aerografia está em cotação.
+              if (airbrushingStatus === AIRBRUSHING_STATUS.QUOTING) {
+                for (const key of [
+                  'quotationOfferAmount',
+                  'quotationOfferExecutionTime',
+                  'quotationOfferExecutionTimeUnit',
+                ] as const) {
+                  if (airbrushingData[key] !== undefined) {
+                    updatePayload[key] = airbrushingData[key] ?? null;
+                  }
+                }
+              }
+
               if (airbrushingData.description !== undefined) {
                 updatePayload.description = airbrushingData.description || null;
               }
@@ -5706,7 +5748,25 @@ export class TaskService {
                       : null,
                   description: airbrushingData.description || null,
                   startDate: airbrushingData.startDate || null,
-                  finishDate: airbrushingData.finishDate || null,
+                  // Término previsto derivado do tempo de execução, quando há.
+                  finishDate:
+                    computeExpectedFinishDate(
+                      airbrushingData.startDate,
+                      airbrushingData.executionTime,
+                      airbrushingData.executionTimeUnit,
+                    ) ??
+                    (airbrushingData.finishDate || null),
+                  executionTime: airbrushingData.executionTime ?? null,
+                  executionTimeUnit: airbrushingData.executionTimeUnit ?? null,
+                  quotationOfferAmount: newIsQuoting
+                    ? (airbrushingData.quotationOfferAmount ?? null)
+                    : null,
+                  quotationOfferExecutionTime: newIsQuoting
+                    ? (airbrushingData.quotationOfferExecutionTime ?? null)
+                    : null,
+                  quotationOfferExecutionTimeUnit: newIsQuoting
+                    ? (airbrushingData.quotationOfferExecutionTimeUnit ?? null)
+                    : null,
                   startedAt: airbrushingData.startedAt || null,
                   finishedAt: airbrushingData.finishedAt || null,
                   paymentStatus: airbrushingData.paymentStatus || 'PENDING',

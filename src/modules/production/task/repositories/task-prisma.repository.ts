@@ -22,7 +22,10 @@ import {
   CUT_STATUS,
   AIRBRUSHING_STATUS,
 } from '../../../../constants/enums';
-import { resolveNewAirbrushingStatus } from '../../../../utils/airbrushing-quote';
+import {
+  computeExpectedFinishDate,
+  resolveNewAirbrushingStatus,
+} from '../../../../utils/airbrushing-quote';
 import { getAirbrushingStatusOrder } from '../../../../utils/sortOrder';
 import { TASK_QUOTE_STATUS_ORDER } from '../../../../constants/sortOrders';
 import { TASK_QUOTE_STATUS } from '../../../../constants';
@@ -1167,7 +1170,22 @@ export class TaskPrismaRepository
                 : null,
             description: item.description || null,
             startDate: item.startDate || null,
-            finishDate: item.finishDate || null,
+            finishDate:
+              computeExpectedFinishDate(
+                item.startDate,
+                item.executionTime,
+                item.executionTimeUnit,
+              ) ??
+              (item.finishDate || null),
+            executionTime: item.executionTime ?? null,
+            executionTimeUnit: item.executionTimeUnit ?? null,
+            quotationOfferAmount: quoting ? (item.quotationOfferAmount ?? null) : null,
+            quotationOfferExecutionTime: quoting
+              ? (item.quotationOfferExecutionTime ?? null)
+              : null,
+            quotationOfferExecutionTimeUnit: quoting
+              ? (item.quotationOfferExecutionTimeUnit ?? null)
+              : null,
             startedAt: item.startedAt || null,
             finishedAt: item.finishedAt || null,
             paymentStatus: item.paymentStatus || 'PENDING',
@@ -1631,7 +1649,22 @@ export class TaskPrismaRepository
                   : null,
               description: item.description || null,
               startDate: item.startDate || null,
-              finishDate: item.finishDate || null,
+              finishDate:
+                computeExpectedFinishDate(
+                  item.startDate,
+                  item.executionTime,
+                  item.executionTimeUnit,
+                ) ??
+                (item.finishDate || null),
+              executionTime: item.executionTime ?? null,
+              executionTimeUnit: item.executionTimeUnit ?? null,
+              quotationOfferAmount: quoting ? (item.quotationOfferAmount ?? null) : null,
+              quotationOfferExecutionTime: quoting
+                ? (item.quotationOfferExecutionTime ?? null)
+                : null,
+              quotationOfferExecutionTimeUnit: quoting
+                ? (item.quotationOfferExecutionTimeUnit ?? null)
+                : null,
               startedAt: item.startedAt || null,
               finishedAt: item.finishedAt || null,
               paymentStatus: item.paymentStatus || 'PENDING',
@@ -1663,6 +1696,18 @@ export class TaskPrismaRepository
             if (item.description !== undefined) d.description = item.description || null;
             if (item.startDate !== undefined) d.startDate = item.startDate || null;
             if (item.finishDate !== undefined) d.finishDate = item.finishDate || null;
+            if (item.executionTime !== undefined) d.executionTime = item.executionTime ?? null;
+            if (item.executionTimeUnit !== undefined) {
+              d.executionTimeUnit = item.executionTimeUnit ?? null;
+            }
+            // Término previsto derivado quando o lote traz início + tempo juntos.
+            if (item.startDate !== undefined && item.executionTime && item.executionTimeUnit) {
+              d.finishDate = computeExpectedFinishDate(
+                item.startDate,
+                item.executionTime,
+                item.executionTimeUnit,
+              );
+            }
             if (item.startedAt !== undefined) d.startedAt = item.startedAt || null;
             if (item.finishedAt !== undefined) d.finishedAt = item.finishedAt || null;
             if (item.paymentStatus !== undefined) d.paymentStatus = item.paymentStatus;

@@ -2110,18 +2110,18 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Novo Serviço para Cotar",
-        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}}{{#if offer}} Orçamento da empresa: {{offer}}.{{/if}} Envie as suas condições pelo app.",
       },
       push: {
         title: "Novo Serviço para Cotar",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia aguardando sua proposta",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia aguardando sua proposta{{#if offer}} ({{offer}}){{/if}}",
       },
       email: {
         subject: "Novo Serviço para Cotar — {{taskName}}",
-        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}}{{#if offer}} Orçamento da empresa: {{offer}}.{{/if}} Envie as suas condições pelo app.",
       },
       whatsapp: {
-        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}}{{#if offer}} Orçamento da empresa: {{offer}}.{{/if}} Envie as suas condições pelo app.",
       },
     },
     metadata: {
