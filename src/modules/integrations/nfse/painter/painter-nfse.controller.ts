@@ -39,14 +39,17 @@ import {
 import { PainterNfseService } from './painter-nfse.service';
 
 /**
- * Quem administra dados fiscais de terceiros. Deliberadamente NÃO inclui
- * AIRBRUSHING: o pintor não configura o próprio regime tributário nem sobe o
- * próprio certificado pelo app.
+ * Quem administra dados fiscais de terceiros e opera a NFS-e do aerografista
+ * (emitir, cancelar). Deliberadamente NÃO inclui AIRBRUSHING: o pintor não
+ * configura o próprio regime tributário nem sobe o próprio certificado pelo
+ * app. COMMERCIAL entra porque é dono do sistema de aerografia de ponta a
+ * ponta (decisão do Kennedy, 24/09/2026).
  */
 const FISCAL_ADMIN = [
   SECTOR_PRIVILEGES.ADMIN,
   SECTOR_PRIVILEGES.ACCOUNTING,
   SECTOR_PRIVILEGES.FINANCIAL,
+  SECTOR_PRIVILEGES.COMMERCIAL,
 ] as const;
 
 /** Quem pode ver a nota emitida — mesmo grupo que vê dinheiro em aerografia. */
@@ -264,7 +267,7 @@ export class PainterNfseController {
 
   /** Reemitir: desfaz o estado de erro e tenta na hora. */
   @Post('airbrushings/:id/nfse/emit')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(...FISCAL_ADMIN)
   @HttpCode(HttpStatus.OK)
   async emitNow(@Param('id', ParseUUIDPipe) airbrushingId: string) {
     let nfse = await this.prisma.airbrushingNfse.findUnique({
@@ -319,7 +322,7 @@ export class PainterNfseController {
   }
 
   @Put('airbrushings/:id/nfse/cancel')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.ACCOUNTING, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(...FISCAL_ADMIN)
   async cancelNfse(
     @Param('id', ParseUUIDPipe) airbrushingId: string,
     @Body() body: { reasonCode: number; reason: string },
