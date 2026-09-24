@@ -71,11 +71,12 @@ describe('airbrushing-quote', () => {
       expect(canCompanySelect(Q.NOT_SELECTED)).toBe(false);
     });
 
-    it('counters any open negotiation', () => {
-      for (const status of [Q.PROPOSED, Q.COUNTERED, Q.ACCEPTED]) {
+    it('counters a painter proposal or revises its own counter', () => {
+      for (const status of [Q.PROPOSED, Q.COUNTERED]) {
         expect(canCompanyCounter(status)).toBe(true);
       }
-      for (const status of [Q.DECLINED, Q.SELECTED, Q.NOT_SELECTED, undefined]) {
+      // Already accepted: the value is agreed — select it or not.
+      for (const status of [Q.ACCEPTED, Q.DECLINED, Q.SELECTED, Q.NOT_SELECTED, undefined]) {
         expect(canCompanyCounter(status)).toBe(false);
       }
     });

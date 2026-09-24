@@ -476,7 +476,9 @@ export class AirbrushingQuoteService {
         throw new BadRequestException(
           current.status === AIRBRUSHING_QUOTE_STATUS.DECLINED
             ? 'O aerografista recusou esta aerografia.'
-            : 'Esta negociação já foi encerrada.',
+            : current.status === AIRBRUSHING_QUOTE_STATUS.ACCEPTED
+              ? 'O aerografista já aceitou este valor. Selecione-o ou escolha outra proposta.'
+              : 'Esta negociação já foi encerrada.',
         );
       }
 

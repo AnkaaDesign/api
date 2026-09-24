@@ -121,9 +121,15 @@ export function canPainterDecline(status: QuoteStatus | null | undefined): boole
   return status !== AIRBRUSHING_QUOTE_STATUS.DECLINED;
 }
 
-/** O comercial contrapõe qualquer negociação aberta, inclusive revisando a própria contraproposta. */
+/**
+ * O comercial contrapõe uma proposta do aerografista ou revisa a própria
+ * contraproposta. Depois que ele ACEITOU, o valor está combinado: o que resta é
+ * selecionar (ou não) — contrapor de novo seria renegociar o que já fechou.
+ */
 export function canCompanyCounter(status: QuoteStatus | null | undefined): boolean {
-  return !!status && OPEN_AIRBRUSHING_QUOTE_STATUSES.includes(status as AIRBRUSHING_QUOTE_STATUS);
+  return (
+    status === AIRBRUSHING_QUOTE_STATUS.PROPOSED || status === AIRBRUSHING_QUOTE_STATUS.COUNTERED
+  );
 }
 
 /**
