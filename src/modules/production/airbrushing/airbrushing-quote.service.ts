@@ -669,7 +669,7 @@ export class AirbrushingQuoteService {
         airbrushingId,
         painterIds: closedPainterIds,
         actorUserId: userId,
-        reason: 'CANCELLED',
+        reason: 'REOPENED',
       });
     });
 

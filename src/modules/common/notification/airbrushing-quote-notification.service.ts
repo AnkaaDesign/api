@@ -52,7 +52,7 @@ export type AirbrushingQuoteNotifyIntent =
       airbrushingId: string;
       painterIds: string[];
       actorUserId: string | null;
-      reason: 'OTHER_SELECTED' | 'CANCELLED';
+      reason: 'OTHER_SELECTED' | 'CANCELLED' | 'REOPENED';
     };
 
 /**
@@ -224,10 +224,11 @@ export class AirbrushingQuoteNotificationService {
           'quote_closed',
           {
             ...base,
-            reason:
-              intent.reason === 'CANCELLED'
-                ? 'o serviço foi cancelado'
-                : 'outra proposta foi selecionada',
+            reason: {
+              CANCELLED: 'o serviço foi cancelado',
+              REOPENED: 'a cotação foi reaberta e o serviço voltou para todos os aerografistas',
+              OTHER_SELECTED: 'outra proposta foi selecionada',
+            }[intent.reason],
           },
         );
         return;
