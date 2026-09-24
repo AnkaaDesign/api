@@ -75,12 +75,11 @@ describe('airbrushing-quote', () => {
       expect(canCompanySelect(Q.NOT_SELECTED)).toBe(false);
     });
 
-    it('counters a painter proposal or revises its own counter', () => {
-      for (const status of [Q.PROPOSED, Q.COUNTERED]) {
+    it('counters every active negotiation, accepted ones included', () => {
+      for (const status of [Q.PROPOSED, Q.COUNTERED, Q.ACCEPTED]) {
         expect(canCompanyCounter(status)).toBe(true);
       }
-      // Already accepted: the value is agreed — select it or not.
-      for (const status of [Q.ACCEPTED, Q.DECLINED, Q.SELECTED, Q.NOT_SELECTED, undefined]) {
+      for (const status of [Q.DECLINED, Q.SELECTED, Q.NOT_SELECTED, undefined]) {
         expect(canCompanyCounter(status)).toBe(false);
       }
     });
@@ -159,7 +158,10 @@ describe('airbrushing-quote', () => {
       const valueOnly = mergeCounterTerms(current, { amount: 820 });
       expect(valueOnly.amount).toBe(820);
       expect(valueOnly.executionTime).toBe(3);
-      const timeOnly = mergeCounterTerms(current, { executionTime: 16, executionTimeUnit: 'HOURS' });
+      const timeOnly = mergeCounterTerms(current, {
+        executionTime: 16,
+        executionTimeUnit: 'HOURS',
+      });
       expect(timeOnly.amount).toBe(900);
       expect(timeOnly.executionTimeUnit).toBe('HOURS');
     });

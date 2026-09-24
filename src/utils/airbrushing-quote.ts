@@ -38,9 +38,10 @@ import { AIRBRUSHING_QUOTE_STATUS, AIRBRUSHING_STATUS, EXECUTION_TIME_UNIT } fro
  *   isso é uma proposta (PROPOSED) — o comercial ainda precisa concordar.
  *
  * CONTRAPROPOSTA PARA TODOS
- *   A contraproposta é uma ação da COTAÇÃO: vale para todas as negociações em
- *   que é a vez da empresa responder a um lance (PROPOSED) ou em que ela revisa
- *   a própria (COUNTERED). Quem já aceitou fica de fora.
+ *   A contraproposta é uma ação da COTAÇÃO: vale para TODAS as negociações
+ *   ativas — lance do aerografista (PROPOSED), a própria contraproposta
+ *   (COUNTERED) e também quem já ACEITOU, que volta a ter o que responder
+ *   (decisão do Kennedy, 24/09/2026). Só quem recusou fica de fora.
  * =============================================================================
  */
 
@@ -160,14 +161,12 @@ export function canPainterDecline(status: QuoteStatus | null | undefined): boole
 }
 
 /**
- * O comercial contrapõe uma proposta do aerografista ou revisa a própria
- * contraproposta. Depois que ele ACEITOU, o valor está combinado: o que resta é
- * selecionar (ou não) — contrapor de novo seria renegociar o que já fechou.
+ * O comercial contrapõe qualquer negociação ativa: a proposta do aerografista,
+ * a própria contraproposta (revisão) e também quem já ACEITOU — aceitar não
+ * encerra a conversa enquanto ninguém foi selecionado.
  */
 export function canCompanyCounter(status: QuoteStatus | null | undefined): boolean {
-  return (
-    status === AIRBRUSHING_QUOTE_STATUS.PROPOSED || status === AIRBRUSHING_QUOTE_STATUS.COUNTERED
-  );
+  return !!status && OPEN_AIRBRUSHING_QUOTE_STATUSES.includes(status as AIRBRUSHING_QUOTE_STATUS);
 }
 
 /**

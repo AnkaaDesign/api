@@ -542,11 +542,11 @@ export class AirbrushingQuoteService {
   // ===========================================================================
 
   /**
-   * Contraproposta para TODOS os aerografistas que já enviaram proposta — a forma
-   * normal de contrapor. Vale para as negociações em que a empresa responde a um
-   * lance (PROPOSED) ou revisa a própria contraproposta (COUNTERED); quem já
-   * aceitou fica de fora. Valor, tempo ou os dois: o que não vier continua o que
-   * cada um tinha em jogo.
+   * Contraproposta para TODOS os aerografistas com negociação ativa — a forma
+   * normal de contrapor: proposta recebida, contraproposta anterior e também
+   * quem já aceitou (que volta a ter o que responder). Só quem recusou fica de
+   * fora. Valor, tempo ou os dois: o que não vier continua o que cada um tinha
+   * em jogo.
    */
   async counterAll(airbrushingId: string, userId: string, input: AirbrushingQuoteCounterFormData) {
     const intents: AirbrushingQuoteNotifyIntent[] = [];
@@ -557,13 +557,13 @@ export class AirbrushingQuoteService {
         where: {
           airbrushingId,
           status: {
-            in: [AIRBRUSHING_QUOTE_STATUS.PROPOSED, AIRBRUSHING_QUOTE_STATUS.COUNTERED] as any,
+            in: OPEN_AIRBRUSHING_QUOTE_STATUSES as any,
           },
         },
       });
       if (!targets.length) {
         throw new BadRequestException(
-          'Nenhum aerografista com proposta aguardando resposta — a contraproposta vale para quem já enviou a sua.',
+          'Nenhum aerografista com negociação ativa — a contraproposta vale para quem já enviou proposta.',
         );
       }
       for (const current of targets) {
@@ -596,9 +596,7 @@ export class AirbrushingQuoteService {
         throw new BadRequestException(
           current.status === AIRBRUSHING_QUOTE_STATUS.DECLINED
             ? 'O aerografista recusou esta aerografia.'
-            : current.status === AIRBRUSHING_QUOTE_STATUS.ACCEPTED
-              ? 'O aerografista já aceitou estas condições. Selecione-o ou escolha outra proposta.'
-              : 'Esta negociação já foi encerrada.',
+            : 'Esta negociação já foi encerrada.',
         );
       }
 
