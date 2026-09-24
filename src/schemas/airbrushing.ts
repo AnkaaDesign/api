@@ -886,16 +886,38 @@ const executionTimeSchema = z
   .min(1, 'O tempo de execução deve ser maior que zero')
   .max(999, 'Tempo de execução acima do permitido');
 
+/**
+ * No multipart (criação/edição com arquivo de layout) todo valor chega como
+ * TEXTO, e o `toFormData` só devolve a número os campos de nome conhecido
+ * (price, amount…). Tempo de execução não está nessa lista: sem converter aqui,
+ * "2" chegava ao zod como string e a criação inteira caía em 400.
+ */
+const numericFromForm = (schema: z.ZodTypeAny) =>
+  z.preprocess(value => {
+    if (value === '' || value === 'null') return null;
+    if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+      return Number(value);
+    }
+    return value;
+  }, schema);
+
+/** Unidade vazia no multipart ("" / "null") é ausência de unidade. */
+const unitFromForm = z.preprocess(
+  value => (value === '' || value === 'null' ? null : value),
+  z.nativeEnum(EXECUTION_TIME_UNIT).nullable(),
+);
+
 const airbrushingExecutionShape = {
-  executionTime: executionTimeSchema.nullable().optional(),
-  executionTimeUnit: z.nativeEnum(EXECUTION_TIME_UNIT).nullable().optional(),
-  quotationOfferAmount: z
-    .number({ invalid_type_error: 'Orçamento inválido' })
-    .positive('O orçamento deve ser maior que zero')
-    .nullable()
-    .optional(),
-  quotationOfferExecutionTime: executionTimeSchema.nullable().optional(),
-  quotationOfferExecutionTimeUnit: z.nativeEnum(EXECUTION_TIME_UNIT).nullable().optional(),
+  executionTime: numericFromForm(executionTimeSchema.nullable()).optional(),
+  executionTimeUnit: unitFromForm.optional(),
+  quotationOfferAmount: numericFromForm(
+    z
+      .number({ invalid_type_error: 'Orçamento inválido' })
+      .positive('O orçamento deve ser maior que zero')
+      .nullable(),
+  ).optional(),
+  quotationOfferExecutionTime: numericFromForm(executionTimeSchema.nullable()).optional(),
+  quotationOfferExecutionTimeUnit: unitFromForm.optional(),
 };
 
 export const airbrushingCreateSchema = z.preprocess(
