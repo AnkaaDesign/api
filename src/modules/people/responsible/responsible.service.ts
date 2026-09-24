@@ -25,7 +25,15 @@ import {
   RESPONSIBLE_ROLE_LABELS,
   formatResponsibleRoles,
 } from '@/constants/enums';
-import { ResponsibleRole } from '@prisma/client';
+import { Prisma, ResponsibleRole } from '@prisma/client';
+import { normalizeSearchTerm } from '@/schemas/common';
+
+type ServedCustomer = {
+  id: string;
+  fantasyName: string;
+  corporateName: string | null;
+  cnpj: string | null;
+};
 import { PrismaService } from '@/modules/common/prisma/prisma.service';
 
 // Re-exported for backwards compatibility. The values and labels live in
@@ -197,15 +205,8 @@ export class ResponsibleService {
     }
 
     // Apply search
-    if (options?.search) {
-      where = {
-        ...where,
-        OR: [
-          { name: { contains: options.search, mode: 'insensitive' } },
-          { phone: { contains: options.search } },
-          { email: { contains: options.search, mode: 'insensitive' } },
-        ],
-      };
+    if (options?.search?.trim()) {
+      where = { ...where, OR: this.buildSearchConditions(options.search) };
     }
 
     const [data, total] = await Promise.all([
@@ -220,9 +221,13 @@ export class ResponsibleService {
     ]);
 
     const pageCount = Math.ceil(total / pageSize);
+    const servedCustomers = await this.findServedCustomers(data.map(r => r.id));
 
     return {
-      data: data as ResponsibleResponse[],
+      data: data.map(r => ({
+        ...r,
+        servedCustomers: servedCustomers.get(r.id) ?? [],
+      })) as ResponsibleResponse[],
       meta: {
         total,
         page,
@@ -230,6 +235,76 @@ export class ResponsibleService {
         pageCount,
       },
     };
+  }
+
+  /**
+   * A contact is looked up by who they are AND by whom they work for: the
+   * company they are registered under and every customer whose tasks they are
+   * responsible for. Typing "Transportes Silva" or a CNPJ finds the people of
+   * that customer; typing "financeiro" finds the contacts holding that role.
+   */
+  private buildSearchConditions(search: string): ResponsibleWhere['OR'] {
+    const term = normalizeSearchTerm(search);
+    const digits = search.replace(/\D/g, '');
+
+    const customerConditions: Prisma.CustomerWhereInput[] = [
+      { fantasyNameNormalized: { contains: term } },
+      { corporateNameNormalized: { contains: term } },
+    ];
+    if (digits.length >= 3) {
+      customerConditions.push({ cnpj: { contains: digits } }, { cpf: { contains: digits } });
+    }
+    const customerMatch: Prisma.CustomerWhereInput = { OR: customerConditions };
+
+    const conditions: Prisma.ResponsibleWhereInput[] = [
+      { nameNormalized: { contains: term } },
+      { emailNormalized: { contains: term } },
+      { phone: { contains: search.trim() } },
+      { company: customerMatch },
+      { tasks: { some: { customer: customerMatch } } },
+    ];
+    if (digits.length >= 3) {
+      conditions.push({ phone: { contains: digits } }, { cpf: { contains: digits } });
+    }
+
+    const matchedRoles = (Object.entries(RESPONSIBLE_ROLE_LABELS) as [ResponsibleRole, string][])
+      .filter(([, label]) => normalizeSearchTerm(label).includes(term))
+      .map(([role]) => role);
+    if (matchedRoles.length) {
+      conditions.push({ roles: { hasSome: matchedRoles } });
+    }
+
+    return conditions as ResponsibleWhere['OR'];
+  }
+
+  /**
+   * Customers each contact serves through their tasks, other than the company
+   * they are registered under. One query over the task join table for the whole
+   * page, so the selector can show whom each contact works for without
+   * loading their tasks.
+   */
+  private async findServedCustomers(
+    responsibleIds: string[],
+  ): Promise<Map<string, ServedCustomer[]>> {
+    const result = new Map<string, ServedCustomer[]>();
+    if (!responsibleIds.length) return result;
+
+    const rows = await this.prisma.$queryRaw<(ServedCustomer & { responsibleId: string })[]>`
+      SELECT DISTINCT tr."A" AS "responsibleId", c."id", c."fantasyName", c."corporateName", c."cnpj"
+      FROM "_TaskResponsibles" tr
+      JOIN "Task" t ON t."id" = tr."B"
+      JOIN "Customer" c ON c."id" = t."customerId"
+      JOIN "Representative" r ON r."id" = tr."A"
+      WHERE tr."A" IN (${Prisma.join(responsibleIds)})
+        AND (r."customerId" IS NULL OR r."customerId" <> c."id")
+      ORDER BY c."fantasyName"
+    `;
+    for (const { responsibleId, ...customer } of rows) {
+      const list = result.get(responsibleId) ?? [];
+      list.push(customer);
+      result.set(responsibleId, list);
+    }
+    return result;
   }
 
   async update(id: string, data: ResponsibleUpdateFormData): Promise<ResponsibleResponse> {
