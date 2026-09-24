@@ -20,6 +20,18 @@ import {
   NFSE_STATUS,
 } from '@constants';
 
+/** Include canônico das negociações da cotação — ver `quotes` abaixo. */
+export const AIRBRUSHING_QUOTES_SAFE_INCLUDE = {
+  orderBy: { updatedAt: 'desc' as const },
+  include: {
+    painter: { select: { id: true, name: true, avatarId: true } },
+    events: {
+      orderBy: { createdAt: 'asc' as const },
+      include: { user: { select: { id: true, name: true } } },
+    },
+  },
+};
+
 // =====================
 // Include Schema Based on Prisma Schema
 // =====================
@@ -193,6 +205,24 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
+    // Negociações da cotação. Qualquer forma pedida vira o MESMO include seguro:
+    // o aerografista só com id/nome (nunca o User inteiro) e os lances em ordem
+    // cronológica. O recorte por papel (o aerografista vê só a negociação dele)
+    // é feito no serviço — ver AirbrushingService.filterQuotesForRole.
+    quotes: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              painter: z.boolean().optional(),
+              events: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional()
+      .transform(value => (value ? AIRBRUSHING_QUOTES_SAFE_INCLUDE : undefined)),
   })
   .partial();
 

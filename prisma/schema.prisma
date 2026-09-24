@@ -77,6 +77,15 @@ model Airbrushing {
   /// NFS-e que o aerografista (prestador) emite contra a Ankaa (tomadora) quando
   /// esta aerografia é concluída. 1-1: a linha é a trava de idempotência.
   nfse                  AirbrushingNfse?
+  /// Cotação: uma negociação por aerografista enquanto o status é QUOTING.
+  quotes                AirbrushingQuote[]
+  /// Quando a aerografia entrou em cotação (criação sem aerografista).
+  quotationOpenedAt     DateTime?
+  /// Quando os aerografistas foram avisados da cotação. Nulo = aviso pendente;
+  /// é a trava de idempotência do aviso "novo serviço para cotar".
+  quotationNotifiedAt   DateTime?
+  /// Quando a cotação terminou (proposta selecionada ou aerografia cancelada).
+  quotationClosedAt     DateTime?
 
   descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -2730,6 +2739,8 @@ model User {
   airbrushingsAsPainter          Airbrushing[]                @relation("AIRBRUSHING_PAINTER")
   fiscalEmitterProfile           FiscalEmitterProfile?        @relation("USER_FISCAL_EMITTER")
   airbrushingNfses               AirbrushingNfse[]            @relation("AIRBRUSHING_NFSE_PAINTER")
+  airbrushingQuotes              AirbrushingQuote[]           @relation("AIRBRUSHING_QUOTE_PAINTER")
+  airbrushingQuoteEvents         AirbrushingQuoteEvent[]      @relation("AIRBRUSHING_QUOTE_EVENT_USER")
   salaryAdjustmentsApplied       SalaryAdjustment[]           @relation("SALARY_ADJUSTMENT_APPLIED_BY")
   positionHistories              UserPositionHistory[]        @relation("USER_POSITION_HISTORY_USER")
   positionHistoriesChanged       UserPositionHistory[]        @relation("USER_POSITION_HISTORY_CHANGED_BY")
@@ -3881,6 +3892,9 @@ enum ServiceOrderStatus {
 /// Mirrors TaskStatus: an airbrushing is prepared, then released to the floor
 /// ("Disponibilizar para Produção" — admin/commercial only), then painted.
 enum AirbrushingStatus {
+  /// Sem aerografista nem valor: os aerografistas enviam propostas e o
+  /// comercial seleciona uma. Ver AirbrushingQuote.
+  QUOTING
   PREPARATION
   WAITING_PRODUCTION
   IN_PRODUCTION
@@ -5284,6 +5298,75 @@ model FiscalDpsSequence {
 ///
 /// A linha é criada dentro da mesma transação que conclui a aerografia, mas a
 /// chamada à SEFIN acontece SEMPRE fora dela.
+/// Estado da negociação de UM aerografista numa aerografia em cotação.
+enum AirbrushingQuoteStatus {
+  /// Proposta do aerografista aguardando o comercial.
+  PROPOSED
+  /// Contraproposta do comercial aguardando o aerografista.
+  COUNTERED
+  /// O aerografista aceitou a contraproposta. NÃO é seleção: o comercial ainda escolhe.
+  ACCEPTED
+  /// O aerografista recusou (ou não tem interesse).
+  DECLINED
+  /// Proposta escolhida: o aerografista e o valor foram gravados na aerografia.
+  SELECTED
+  /// Cotação encerrada sem esta proposta (outra selecionada ou aerografia cancelada).
+  NOT_SELECTED
+}
+
+enum AirbrushingQuoteParty {
+  PAINTER
+  COMPANY
+}
+
+enum AirbrushingQuoteAction {
+  PROPOSAL
+  COUNTER
+  ACCEPT
+  DECLINE
+  SELECT
+  CLOSE
+}
+
+/// Negociação de um aerografista numa aerografia em cotação. Uma linha por par
+/// (aerografia, aerografista); o histórico de lances fica em AirbrushingQuoteEvent.
+model AirbrushingQuote {
+  id            String                 @id @default(uuid())
+  airbrushingId String
+  painterId     String
+  status        AirbrushingQuoteStatus @default(PROPOSED)
+  /// Valor em jogo: o último lance do aerografista (PROPOSED), a contraproposta
+  /// do comercial (COUNTERED/ACCEPTED) ou o valor fechado (SELECTED). Nulo só
+  /// quando o aerografista recusou sem nunca propor.
+  amount        Float?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  airbrushing Airbrushing             @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  painter     User                    @relation("AIRBRUSHING_QUOTE_PAINTER", fields: [painterId], references: [id], onDelete: Cascade)
+  events      AirbrushingQuoteEvent[]
+
+  @@unique([airbrushingId, painterId])
+  @@index([painterId, status])
+}
+
+/// Um lance ou decisão dentro de uma negociação — a linha do tempo da cotação.
+model AirbrushingQuoteEvent {
+  id        String                 @id @default(uuid())
+  quoteId   String
+  party     AirbrushingQuoteParty
+  action    AirbrushingQuoteAction
+  amount    Float?
+  note      String?
+  userId    String?
+  createdAt DateTime               @default(now())
+
+  quote AirbrushingQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  user  User?            @relation("AIRBRUSHING_QUOTE_EVENT_USER", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId, createdAt])
+}
+
 model AirbrushingNfse {
   id            String  @id @default(uuid())
   airbrushingId String  @unique

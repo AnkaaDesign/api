@@ -29,6 +29,7 @@ import { NotificationDispatchService } from './notification-dispatch.service';
 // aqui, e não no AirbrushingModule, porque o TaskService também escreve
 // painterId/paymentStatus e precisa do mesmo gancho sem criar ciclo de módulos.
 import { AirbrushingNotificationService } from './airbrushing-notification.service';
+import { AirbrushingQuoteNotificationService } from './airbrushing-quote-notification.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationRecipientResolverService } from './notification-recipient-resolver.service';
@@ -119,6 +120,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationReminderSchedulerService,
     NotificationDispatchService,
     AirbrushingNotificationService,
+    AirbrushingQuoteNotificationService,
     NotificationFilterService,
     EmailTemplateService,
     DeepLinkService,
@@ -164,6 +166,7 @@ import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
     NotificationReminderSchedulerService,
     NotificationDispatchService,
     AirbrushingNotificationService,
+    AirbrushingQuoteNotificationService,
     NotificationConfigurationService,
     EmailTemplateService,
     DeepLinkService,

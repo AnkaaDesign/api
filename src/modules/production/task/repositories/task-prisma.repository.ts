@@ -16,7 +16,14 @@ import { TaskRepository } from './task.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
-import { TASK_STATUS, SERVICE_ORDER_STATUS, CUT_STATUS } from '../../../../constants/enums';
+import {
+  TASK_STATUS,
+  SERVICE_ORDER_STATUS,
+  CUT_STATUS,
+  AIRBRUSHING_STATUS,
+} from '../../../../constants/enums';
+import { resolveNewAirbrushingStatus } from '../../../../utils/airbrushing-quote';
+import { getAirbrushingStatusOrder } from '../../../../utils/sortOrder';
 import { TASK_QUOTE_STATUS_ORDER } from '../../../../constants/sortOrders';
 import { TASK_QUOTE_STATUS } from '../../../../constants';
 import {
@@ -38,10 +45,7 @@ import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layo
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
-import {
-  QUOTE_BILLING_INCLUDE,
-  withCoverageInclude,
-} from '../../../../utils/quote-tasks';
+import { QUOTE_BILLING_INCLUDE, withCoverageInclude } from '../../../../utils/quote-tasks';
 import {
   PER_VEHICLE_LEGACY_WRITE_MESSAGE,
   pruneQuoteLayoutCoverage,
@@ -677,9 +681,7 @@ function resolveCurrentInstallmentDueDate(row: any): Date | null {
   // A cobrança desta linha. Sem ela (orçamento de acervo, sem cobertura), cai no
   // orçamento inteiro — que é o comportamento antigo, e o melhor disponível ali.
   const billingId = row?.billingEntry?.billingId ?? null;
-  const doRecorte = billingId
-    ? configs.filter((c: any) => c?.billingId === billingId)
-    : configs;
+  const doRecorte = billingId ? configs.filter((c: any) => c?.billingId === billingId) : configs;
   const escopo = doRecorte.length > 0 ? doRecorte : configs;
 
   let emAberto: Date | null = null;
@@ -960,7 +962,9 @@ export class TaskPrismaRepository
       status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
       statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
       bonification: (bonification as any) || 'FULL_BONIFICATION',
-      bonificationOrder: getBonificationStatusOrder((bonification as string) || 'FULL_BONIFICATION'),
+      bonificationOrder: getBonificationStatusOrder(
+        (bonification as string) || 'FULL_BONIFICATION',
+      ),
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
@@ -1148,29 +1152,40 @@ export class TaskPrismaRepository
         }
       }
       taskData.airbrushings = {
-        create: airbrushings.map((item: any) => ({
-          status: item.status || 'PENDING',
-          price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
-          description: item.description || null,
-          startDate: item.startDate || null,
-          finishDate: item.finishDate || null,
-          startedAt: item.startedAt || null,
-          finishedAt: item.finishedAt || null,
-          paymentStatus: item.paymentStatus || 'PENDING',
-          painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
-          receipts:
-            item.receiptIds && item.receiptIds.length > 0
-              ? { connect: item.receiptIds.map((id: string) => ({ id })) }
-              : undefined,
-          invoices:
-            item.invoiceIds && item.invoiceIds.length > 0
-              ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
-              : undefined,
-          layouts:
-            item.layoutIds && item.layoutIds.length > 0
-              ? { connect: item.layoutIds.map((id: string) => ({ id })) }
-              : undefined,
-        })),
+        create: airbrushings.map((item: any) => {
+          // Sem aerografista, a aerografia nasce EM COTAÇÃO: sem valor, e os
+          // aerografistas são avisados depois do commit (TaskService.create).
+          const status = resolveNewAirbrushingStatus(item.status, item.painterId);
+          const quoting = status === AIRBRUSHING_STATUS.QUOTING;
+          return {
+            status,
+            statusOrder: getAirbrushingStatusOrder(status),
+            quotationOpenedAt: quoting ? new Date() : null,
+            price:
+              !quoting && item.price !== undefined && item.price !== null
+                ? Number(item.price)
+                : null,
+            description: item.description || null,
+            startDate: item.startDate || null,
+            finishDate: item.finishDate || null,
+            startedAt: item.startedAt || null,
+            finishedAt: item.finishedAt || null,
+            paymentStatus: item.paymentStatus || 'PENDING',
+            painter: !quoting && item.painterId ? { connect: { id: item.painterId } } : undefined,
+            receipts:
+              item.receiptIds && item.receiptIds.length > 0
+                ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+                : undefined,
+            invoices:
+              item.invoiceIds && item.invoiceIds.length > 0
+                ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+                : undefined,
+            layouts:
+              item.layoutIds && item.layoutIds.length > 0
+                ? { connect: item.layoutIds.map((id: string) => ({ id })) }
+                : undefined,
+          };
+        }),
       };
     }
 
@@ -1602,29 +1617,39 @@ export class TaskPrismaRepository
           // layouts. (Existing-airbrushing UPDATES below still leave layouts
           // untouched — resolving File→Layout there needs the service helper the
           // repository can't reach, so absence = preserve.)
-          const buildCreate = (item: any) => ({
-            status: item.status || 'PENDING',
-            price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
-            description: item.description || null,
-            startDate: item.startDate || null,
-            finishDate: item.finishDate || null,
-            startedAt: item.startedAt || null,
-            finishedAt: item.finishedAt || null,
-            paymentStatus: item.paymentStatus || 'PENDING',
-            painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
-            layouts:
-              item.layoutIds && item.layoutIds.length > 0
-                ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
-                : undefined,
-            receipts:
-              item.receiptIds && item.receiptIds.length > 0
-                ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
-                : undefined,
-            invoices:
-              item.invoiceIds && item.invoiceIds.length > 0
-                ? { connect: item.invoiceIds.map((fid: string) => ({ id: fid })) }
-                : undefined,
-          });
+          // Sem aerografista, nasce em cotação — mesma regra do caminho de criação.
+          const buildCreate = (item: any) => {
+            const status = resolveNewAirbrushingStatus(item.status, item.painterId);
+            const quoting = status === AIRBRUSHING_STATUS.QUOTING;
+            return {
+              status,
+              statusOrder: getAirbrushingStatusOrder(status),
+              quotationOpenedAt: quoting ? new Date() : null,
+              price:
+                !quoting && item.price !== undefined && item.price !== null
+                  ? Number(item.price)
+                  : null,
+              description: item.description || null,
+              startDate: item.startDate || null,
+              finishDate: item.finishDate || null,
+              startedAt: item.startedAt || null,
+              finishedAt: item.finishedAt || null,
+              paymentStatus: item.paymentStatus || 'PENDING',
+              painter: !quoting && item.painterId ? { connect: { id: item.painterId } } : undefined,
+              layouts:
+                item.layoutIds && item.layoutIds.length > 0
+                  ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
+                  : undefined,
+              receipts:
+                item.receiptIds && item.receiptIds.length > 0
+                  ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
+                  : undefined,
+              invoices:
+                item.invoiceIds && item.invoiceIds.length > 0
+                  ? { connect: item.invoiceIds.map((fid: string) => ({ id: fid })) }
+                  : undefined,
+            };
+          };
 
           // Build a scalar/relation update payload for an existing airbrushing.
           // Only fields actually sent are written (absence = preserve). File
@@ -1659,8 +1684,7 @@ export class TaskPrismaRepository
           // Delete only the airbrushings the form dropped (notIn the kept set).
           // When every submitted airbrushing is new there is nothing to keep, so
           // wipe the prior set before recreating.
-          airbrushingsUpdate.deleteMany =
-            idsToKeep.length > 0 ? { id: { notIn: idsToKeep } } : {};
+          airbrushingsUpdate.deleteMany = idsToKeep.length > 0 ? { id: { notIn: idsToKeep } } : {};
           if (newAirbrushings.length > 0) {
             airbrushingsUpdate.create = newAirbrushings.map(buildCreate);
           }
@@ -1913,7 +1937,8 @@ export class TaskPrismaRepository
             // Persist the status sort key on create too — omitting it stored the
             // column @default(1) on every new quote (PENDING's real order is 8),
             // corrupting statusOrder-based sorting until the next update.
-            statusOrder: TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
+            statusOrder:
+              TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
             guaranteeYears: quoteData.guaranteeYears || null,
             customGuaranteeText: quoteData.customGuaranteeText || null,
             customForecastDays: quoteData.customForecastDays || null,
@@ -2149,8 +2174,10 @@ export class TaskPrismaRepository
 
     rows.sort((a, b) => {
       for (const entry of sortEntries) {
-        const aValue = entry.path === DUE_DATE_SORT_KEY ? a.dueDate : resolveSortValue(a.row, entry.path);
-        const bValue = entry.path === DUE_DATE_SORT_KEY ? b.dueDate : resolveSortValue(b.row, entry.path);
+        const aValue =
+          entry.path === DUE_DATE_SORT_KEY ? a.dueDate : resolveSortValue(a.row, entry.path);
+        const bValue =
+          entry.path === DUE_DATE_SORT_KEY ? b.dueDate : resolveSortValue(b.row, entry.path);
 
         const aNull = aValue === null || aValue === undefined;
         const bNull = bValue === null || bValue === undefined;
@@ -2239,8 +2266,7 @@ export class TaskPrismaRepository
           typeof quoteData === 'object' &&
           Array.isArray(quoteData.services) &&
           quoteData.services.length > 0;
-        const hasConfigs =
-          typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
+        const hasConfigs = typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
         const hasImplementMeasure =
           typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined;
         const hasQuoteScalars =
@@ -2258,8 +2284,7 @@ export class TaskPrismaRepository
         // services.length>0 silently dropped discount-only edits (200 OK, change
         // vanished on reload).
         if (hasServices || hasConfigs || hasImplementMeasure || hasQuoteScalars) {
-          const hasNewItems =
-            hasServices && quoteData.services.some((item: any) => !item.id);
+          const hasNewItems = hasServices && quoteData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
             where: { id },
@@ -2285,7 +2310,8 @@ export class TaskPrismaRepository
               if (quoteData.status !== undefined) forbiddenHere.push('status');
               if (hasServices) forbiddenHere.push('serviços');
               if (hasConfigs) forbiddenHere.push('faturamentos');
-              if ((quoteData as any).billingSplit !== undefined) forbiddenHere.push('forma de faturamento');
+              if ((quoteData as any).billingSplit !== undefined)
+                forbiddenHere.push('forma de faturamento');
 
               // ── OS ESCALARES MATERIAIS TAMBÉM SÃO MATERIAIS ────────────────
               //
@@ -2383,7 +2409,11 @@ export class TaskPrismaRepository
                 : undefined;
             const layoutFileUpdate =
               resolvedImplementMeasureIds !== undefined
-                ? { layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
+                ? {
+                    layoutFiles: {
+                      set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
+                    },
+                  }
                 : {};
 
             await transaction.budget.update({
@@ -2469,7 +2499,11 @@ export class TaskPrismaRepository
                 : undefined;
             const layoutFileConnect =
               resolvedImplementMeasureIds !== undefined
-                ? { layoutFiles: { connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
+                ? {
+                    layoutFiles: {
+                      connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
+                    },
+                  }
                 : {};
 
             const newQuote = await transaction.budget.create({
@@ -2546,9 +2580,8 @@ export class TaskPrismaRepository
       // update porque depois o vínculo anterior já se foi.
       const linkChanging = (data as any).quoteId !== undefined;
       const previousQuoteId = linkChanging
-        ? ((
-            await transaction.task.findUnique({ where: { id }, select: { quoteId: true } })
-          )?.quoteId ?? null)
+        ? ((await transaction.task.findUnique({ where: { id }, select: { quoteId: true } }))
+            ?.quoteId ?? null)
         : null;
 
       const result = await transaction.task.update({

@@ -133,6 +133,11 @@ import {
 } from '@modules/common/notification/airbrushing-notification.service';
 // Fonte única do vencimento da aerografia — a mesma que o AirbrushingService usa.
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
+// Cotação da aerografia: o formulário da tarefa cria e edita aerografias por
+// fora do AirbrushingService, então as regras da cotação são repetidas aqui.
+import { resolveNewAirbrushingStatus } from '../../../utils/airbrushing-quote';
+import { AirbrushingQuoteNotificationService } from '@modules/common/notification/airbrushing-quote-notification.service';
+import { applyQuotingToNestedAirbrushingUpdate } from '../airbrushing/airbrushing-quote.service';
 import { BudgetService } from '../budget/budget.service';
 import { SignatureDeletionService } from '@modules/common/signature/services/signature-deletion.service';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
@@ -189,6 +194,8 @@ export class TaskService {
     // formulário grava painterId/paymentStatus por fora do AirbrushingService,
     // então o gancho que avisa o pintor precisa ser repetido aqui.
     private readonly airbrushingNotifier: AirbrushingNotificationService,
+    // Aviso "novo serviço para cotar" e "cotação encerrada" — ver a cotação da aerografia.
+    private readonly airbrushingQuoteNotifier: AirbrushingQuoteNotificationService,
     @Inject(forwardRef(() => BudgetService))
     private readonly budgetService: BudgetService,
     @Inject(forwardRef(() => SignatureDeletionService))
@@ -1835,6 +1842,10 @@ export class TaskService {
         }
       }
 
+      // Aerografias criadas junto com a tarefa sem aerografista entram em cotação:
+      // anuncia aos aerografistas (idempotente; o cron repete se isto falhar).
+      await this.airbrushingQuoteNotifier.notifyPendingRequests(undefined, userId);
+
       return {
         success: true,
         message: 'Tarefa criada com sucesso.',
@@ -2161,7 +2172,9 @@ export class TaskService {
         };
       };
 
-      const result = externalTx ? await runBatch(externalTx) : await this.prisma.$transaction(runBatch);
+      const result = externalTx
+        ? await runBatch(externalTx)
+        : await this.prisma.$transaction(runBatch);
 
       // Emit task.created events for all successfully created tasks (outside transaction).
       // Com transação externa quem emite é o dono dela, DEPOIS do commit.
@@ -2274,7 +2287,10 @@ export class TaskService {
             return sharedResponsibleIds.length > 0
               ? {
                   ...rest,
-                  responsibleIds: [...((rest.responsibleIds ?? []) as string[]), ...sharedResponsibleIds],
+                  responsibleIds: [
+                    ...((rest.responsibleIds ?? []) as string[]),
+                    ...sharedResponsibleIds,
+                  ],
                 }
               : rest;
           });
@@ -2426,6 +2442,9 @@ export class TaskService {
       // dentro da transação, onde o estado anterior existe, e o despacho roda
       // depois do commit — ver AirbrushingNotificationService.
       const airbrushingNotifyIntents: AirbrushingNotifyIntent[] = [];
+      // Aerografistas cujas negociações foram encerradas por um cancelamento feito
+      // pelo formulário da tarefa, por aerografia.
+      const closedQuotePainters: Array<{ airbrushingId: string; painterIds: string[] }> = [];
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // ── Optimistic concurrency (opt-in) ──────────────────────────────────
@@ -5365,6 +5384,22 @@ export class TaskService {
                 throw new NotFoundException('Aerografia não encontrada nesta tarefa.');
               }
 
+              // Em cotação continua em cotação (o schema aninhado manda PREPARATION
+              // por padrão); cancelar encerra as negociações. Tira painterId/price
+              // do payload antes das guardas abaixo.
+              const closedPainterIds = await applyQuotingToNestedAirbrushingUpdate(
+                tx,
+                existingAirbrushing,
+                airbrushingData,
+                userId ?? null,
+              );
+              if (closedPainterIds.length) {
+                closedQuotePainters.push({
+                  airbrushingId: existingAirbrushing.id,
+                  painterIds: closedPainterIds,
+                });
+              }
+
               // Security (B7): payment fields are gated on the PERSISTED status —
               // mirrors AirbrushingService. A nested write through the task
               // endpoint may not change paymentStatus/painterId/price unless the
@@ -5650,15 +5685,23 @@ export class TaskService {
                 );
               }
 
-              const newAirbrushingStatus = airbrushingData.status || AIRBRUSHING_STATUS.PREPARATION;
+              // Sem aerografista, nasce em cotação — sem valor e sem aerografista.
+              const newAirbrushingStatus = resolveNewAirbrushingStatus(
+                airbrushingData.status,
+                airbrushingData.painterId,
+              );
+              const newIsQuoting = newAirbrushingStatus === AIRBRUSHING_STATUS.QUOTING;
               const newAirbrushing = await tx.airbrushing.create({
                 data: {
                   taskId: id,
                   status: newAirbrushingStatus,
                   // See the update branch: statusOrder is not defaulted per-status by Prisma.
                   statusOrder: getAirbrushingStatusOrder(newAirbrushingStatus),
+                  quotationOpenedAt: newIsQuoting ? new Date() : null,
                   price:
-                    airbrushingData.price !== undefined && airbrushingData.price !== null
+                    !newIsQuoting &&
+                    airbrushingData.price !== undefined &&
+                    airbrushingData.price !== null
                       ? Number(airbrushingData.price)
                       : null,
                   description: airbrushingData.description || null,
@@ -7292,6 +7335,19 @@ export class TaskService {
       // o despacho grava fora da `tx` e dispara push.
       await this.airbrushingNotifier.flush(airbrushingNotifyIntents);
 
+      // Cotação da aerografia: quem negociava uma aerografia cancelada por este
+      // formulário fica sabendo; aerografias novas sem aerografista são anunciadas.
+      await this.airbrushingQuoteNotifier.flush(
+        closedQuotePainters.map(c => ({
+          kind: 'closed' as const,
+          airbrushingId: c.airbrushingId,
+          painterIds: c.painterIds,
+          actorUserId: userId ?? null,
+          reason: 'CANCELLED' as const,
+        })),
+      );
+      await this.airbrushingQuoteNotifier.notifyPendingRequests(undefined, userId);
+
       // When this update transitioned the task INTO CANCELLED (a direct cancel or
       // the all-COMMERCIAL-SOs-cancelled auto-cancel), cascade-cancel its quote:
       // set the quote to CANCELLED and tear down any billing (delete invoices,
@@ -7720,6 +7776,34 @@ export class TaskService {
 
                 // Note: startedAt and finishedAt are no longer required as they are auto-filled
                 // when task status changes to IN_PRODUCTION or COMPLETED respectively
+              }
+
+              // Cotação da aerografia: o mapper do lote grava `status` direto, e o
+              // schema aninhado manda PREPARATION por padrão — sem isto o lote tirava
+              // aerografias de cotação. Mesma regra do update individual.
+              if (Array.isArray((update.data as any).airbrushings)) {
+                const nested = (update.data as any).airbrushings as Array<Record<string, any>>;
+                const persistedIds = nested
+                  .map(item => item.id)
+                  .filter((aid: any) => typeof aid === 'string' && !aid.startsWith('airbrushing-'));
+                if (persistedIds.length) {
+                  const persisted = await tx.airbrushing.findMany({
+                    where: { id: { in: persistedIds }, taskId: update.id },
+                    select: { id: true, status: true },
+                  });
+                  const byId = new Map(persisted.map(a => [a.id, a]));
+                  for (const item of nested) {
+                    const current = byId.get(item.id);
+                    if (current) {
+                      await applyQuotingToNestedAirbrushingUpdate(
+                        tx,
+                        current,
+                        item,
+                        userId ?? null,
+                      );
+                    }
+                  }
+                }
               }
 
               // Ensure statusOrder and bonificationOrder are updated when status/bonification changes
@@ -13496,9 +13580,7 @@ export class TaskService {
     // mantém em pé de igualdade), então a primeira de cada cliente descreve as
     // outras — e é a única que cabe num orçamento de um veículo.
     const configsByCustomer = Array.from(
-      new Map(
-        (sourceQuote.customerConfigs ?? []).map(c => [c.customerId, c] as const),
-      ).values(),
+      new Map((sourceQuote.customerConfigs ?? []).map(c => [c.customerId, c] as const)).values(),
     );
 
     // Get next budget number (advisory-locked — a bulk copy mints one per target
@@ -14300,16 +14382,21 @@ export class TaskService {
                     return await tx.airbrushing.create({
                       data: {
                         taskId: destinationTaskId,
-                        price: airbrushing.price,
+                        // Sem aerografista a cópia vai para cotação, e o valor sai dela.
+                        price: airbrushing.painterId ? airbrushing.price : null,
                         // Job spec, not runtime progress — copies with the definition.
                         description: airbrushing.description ?? null,
                         // Assigned painter carries over with the airbrushing definition.
                         painterId: airbrushing.painterId ?? null,
                         // Fresh work item: status resets and start/finish clear — those are
                         // runtime progress, not template data to copy. A copy must be
-                        // released to the floor again, so it starts in Em Preparação.
-                        status: AIRBRUSHING_STATUS.PREPARATION,
-                        statusOrder: getAirbrushingStatusOrder(AIRBRUSHING_STATUS.PREPARATION),
+                        // released to the floor again, so it starts in Em Preparação —
+                        // or, sem aerografista, em cotação (ver resolveNewAirbrushingStatus).
+                        status: resolveNewAirbrushingStatus(null, airbrushing.painterId),
+                        statusOrder: getAirbrushingStatusOrder(
+                          resolveNewAirbrushingStatus(null, airbrushing.painterId),
+                        ),
+                        quotationOpenedAt: airbrushing.painterId ? null : new Date(),
                         startDate: null,
                         finishDate: null,
                         // Shared files (M2M) can be connected; layouts are cloned.
@@ -14990,6 +15077,9 @@ export class TaskService {
           }
         }
       }
+
+      // Aerografias copiadas sem aerografista entram em cotação — anuncia.
+      await this.airbrushingQuoteNotifier.notifyPendingRequests(undefined, userId);
 
       return {
         success: transactionResult.success,

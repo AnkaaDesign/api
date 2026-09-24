@@ -2081,6 +2081,313 @@ const CONFIGS: ConfigDef[] = [
       targeted: true,
     },
   },
+  // ─── cotação da aerografia (proposta ⇄ contraproposta → seleção) ─────────────
+  //
+  // `requested` vai para o setor Aerografia inteiro: todo aerografista pode cotar.
+  // As demais do aerografista são DIRECIONADAS (sectors: []) pelo mesmo motivo de
+  // airbrushing.assigned — o lance de um nunca pode chegar ao outro. As do
+  // comercial seguem por setor.
+  {
+    key: "airbrushing.quote.requested",
+    name: "Novo Serviço para Cotar",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.requested",
+    description:
+      "Aerografia criada sem aerografista entrou em cotação: os aerografistas enviam o valor pelo qual fazem o serviço.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["AIRBRUSHING"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Novo Serviço para Cotar",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+      },
+      push: {
+        title: "Novo Serviço para Cotar",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia aguardando sua proposta",
+      },
+      email: {
+        subject: "Novo Serviço para Cotar — {{taskName}}",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+      },
+      whatsapp: {
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} está em cotação.{{#if description}} Serviço: {{description}}.{{/if}} Envie o seu valor pelo app.",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteNotificationService.notifyPendingRequests — pós-commit da criação e varredura do AirbrushingQuoteScheduler",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "airbrushing.quote.proposed",
+    name: "Proposta de Aerografia Recebida",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.proposed",
+    description:
+      "Um aerografista enviou (ou revisou) o valor de uma aerografia em cotação, inclusive em resposta a uma contraproposta.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Proposta de Aerografia Recebida",
+        body: "{{painterName}} propôs {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}}",
+      },
+      push: {
+        title: "Proposta de Aerografia Recebida",
+        body: "{{painterName}}: {{amount}} — {{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}",
+      },
+      email: {
+        subject: "Proposta de Aerografia Recebida — {{taskName}}",
+        body: "{{painterName}} propôs {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{painterName}} propôs {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}}",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.propose",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "airbrushing.quote.countered",
+    name: "Contraproposta de Aerografia",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.countered",
+    description:
+      "O comercial respondeu à proposta do aerografista com outro valor (notificação direcionada ao aerografista da proposta).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Contraproposta Recebida",
+        body: "Você recebeu uma contraproposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}} Aceite, recuse ou envie outro valor.",
+      },
+      push: {
+        title: "Contraproposta Recebida",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — contraproposta de {{amount}}",
+      },
+      email: {
+        subject: "Contraproposta Recebida — {{taskName}}",
+        body: "Você recebeu uma contraproposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}} Aceite, recuse ou envie outro valor.",
+      },
+      whatsapp: {
+        body: "Você recebeu uma contraproposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Observação: {{note}}{{/if}} Aceite, recuse ou envie outro valor.",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.counter",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
+  {
+    key: "airbrushing.quote.accepted",
+    name: "Contraproposta de Aerografia Aceita",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.accepted",
+    description:
+      "O aerografista aceitou a contraproposta. Aceitar não seleciona: a escolha entre os que aceitaram continua com o comercial.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Contraproposta Aceita",
+        body: "{{painterName}} aceitou fazer a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} por {{amount}}.{{#if note}} Observação: {{note}}{{/if}} Selecione o aerografista para fechar a cotação.",
+      },
+      push: {
+        title: "Contraproposta Aceita",
+        body: "{{painterName}} aceitou {{amount}} — {{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}",
+      },
+      email: {
+        subject: "Contraproposta Aceita — {{taskName}}",
+        body: "{{painterName}} aceitou fazer a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} por {{amount}}.{{#if note}} Observação: {{note}}{{/if}} Selecione o aerografista para fechar a cotação.",
+      },
+      whatsapp: {
+        body: "{{painterName}} aceitou fazer a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} por {{amount}}.{{#if note}} Observação: {{note}}{{/if}} Selecione o aerografista para fechar a cotação.",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.accept",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "airbrushing.quote.declined",
+    name: "Aerografia Recusada pelo Aerografista",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.declined",
+    description:
+      "Um aerografista recusou uma aerografia em cotação (sem interesse ou discordando da contraproposta).",
+    enabled: true,
+    importance: "NORMAL",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Aerografista Recusou",
+        body: "{{painterName}} recusou a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Motivo: {{note}}{{/if}}",
+      },
+      push: {
+        title: "Aerografista Recusou",
+        body: "{{painterName}} recusou — {{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}",
+      },
+      email: {
+        subject: "Aerografista Recusou — {{taskName}}",
+        body: "{{painterName}} recusou a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Motivo: {{note}}{{/if}}",
+      },
+      whatsapp: {
+        body: "{{painterName}} recusou a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}.{{#if note}} Motivo: {{note}}{{/if}}",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.decline",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "airbrushing.quote.selected",
+    name: "Proposta de Aerografia Selecionada",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.selected",
+    description:
+      "A proposta do aerografista foi escolhida: ele passa a ser o responsável pela aerografia, pelo valor combinado (notificação direcionada ao aerografista selecionado).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Sua Proposta Foi Selecionada",
+        body: "Sua proposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi selecionada. O serviço agora é seu.",
+      },
+      push: {
+        title: "Sua Proposta Foi Selecionada",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — proposta de {{amount}} selecionada",
+      },
+      email: {
+        subject: "Sua Proposta Foi Selecionada — {{taskName}}",
+        body: "Sua proposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi selecionada. O serviço agora é seu.",
+      },
+      whatsapp: {
+        body: "Sua proposta de {{amount}} para a aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi selecionada. O serviço agora é seu.",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.select",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
+  {
+    key: "airbrushing.quote.closed",
+    name: "Cotação de Aerografia Encerrada",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.quote.closed",
+    description:
+      "A cotação terminou sem a proposta do aerografista — outra foi selecionada ou o serviço foi cancelado (notificação direcionada aos demais participantes).",
+    enabled: true,
+    importance: "NORMAL",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Cotação Encerrada",
+        body: "A cotação da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi encerrada: {{reason}}.",
+      },
+      push: {
+        title: "Cotação Encerrada",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — cotação encerrada",
+      },
+      email: {
+        subject: "Cotação Encerrada — {{taskName}}",
+        body: "A cotação da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi encerrada: {{reason}}.",
+      },
+      whatsapp: {
+        body: "A cotação da aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi encerrada: {{reason}}.",
+      },
+    },
+    metadata: {
+      trigger: "AirbrushingQuoteService.select / cancelamento da aerografia em cotação",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
   // ─── NFS-e do aerografista (prestador MEI, Sistema Nacional) ─────────────────
   {
     key: "airbrushing.nfse.issued",

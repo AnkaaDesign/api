@@ -282,6 +282,8 @@ export const MAINTENANCE_FREQUENCY_ORDER: Record<string, number> = {
   [SCHEDULE_FREQUENCY.CUSTOM]: 12,
 };
 export const AIRBRUSHING_STATUS_ORDER: Record<string, number> = {
+  // Em Cotação vem antes de tudo: é a fase anterior à preparação.
+  [AIRBRUSHING_STATUS.QUOTING]: 0,
   [AIRBRUSHING_STATUS.PREPARATION]: 1,
   [AIRBRUSHING_STATUS.WAITING_PRODUCTION]: 2,
   [AIRBRUSHING_STATUS.IN_PRODUCTION]: 3,

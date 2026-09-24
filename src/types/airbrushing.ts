@@ -12,6 +12,9 @@ import type {
 import type {
   AIRBRUSHING_STATUS,
   AIRBRUSHING_PAYMENT_STATUS,
+  AIRBRUSHING_QUOTE_STATUS,
+  AIRBRUSHING_QUOTE_PARTY,
+  AIRBRUSHING_QUOTE_ACTION,
   AIRBRUSHING_DUE_DATE_RULE,
   PAYMENT_METHOD,
   ORDER_BY_DIRECTION,
@@ -71,6 +74,45 @@ export interface Airbrushing extends BaseEntity {
    * arquivos de nota anexados à mão.
    */
   nfse?: AirbrushingNfse | null;
+  /** Quando entrou em cotação (criada sem aerografista). */
+  quotationOpenedAt?: Date | null;
+  /** Quando os aerografistas foram avisados da cotação. */
+  quotationNotifiedAt?: Date | null;
+  /** Quando a cotação terminou (seleção ou cancelamento). */
+  quotationClosedAt?: Date | null;
+  /**
+   * Negociações da cotação, uma por aerografista. Para o aerografista, a API
+   * devolve SÓ a dele — o lance de um nunca chega ao outro.
+   */
+  quotes?: AirbrushingQuote[];
+}
+
+/** Negociação de um aerografista numa aerografia em cotação. */
+export interface AirbrushingQuote {
+  id: string;
+  airbrushingId: string;
+  painterId: string;
+  status: AIRBRUSHING_QUOTE_STATUS;
+  /** Valor em jogo — ver AIRBRUSHING_QUOTE_STATUS. */
+  amount: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  painter?: Pick<User, 'id' | 'name'> & Partial<User>;
+  events?: AirbrushingQuoteEvent[];
+  airbrushing?: Airbrushing;
+}
+
+/** Um lance ou decisão dentro da negociação. */
+export interface AirbrushingQuoteEvent {
+  id: string;
+  quoteId: string;
+  party: AIRBRUSHING_QUOTE_PARTY;
+  action: AIRBRUSHING_QUOTE_ACTION;
+  amount: number | null;
+  note: string | null;
+  userId: string | null;
+  createdAt: Date;
+  user?: Pick<User, 'id' | 'name'> | null;
 }
 
 /**
@@ -138,6 +180,7 @@ export interface AirbrushingIncludes {
     | {
         include?: LayoutIncludes;
       };
+  quotes?: boolean | { include?: { painter?: boolean; events?: boolean } };
 }
 
 // =====================
