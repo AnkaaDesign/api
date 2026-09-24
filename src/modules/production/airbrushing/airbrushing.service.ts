@@ -743,6 +743,7 @@ export class AirbrushingService {
           next: {
             painterId: (newAirbrushing as any).painterId,
             paymentStatus: (newAirbrushing as any).paymentStatus,
+            status: (newAirbrushing as any).status,
           },
         });
 
@@ -953,10 +954,12 @@ export class AirbrushingService {
           previous: {
             painterId: (existingAirbrushing as any).painterId,
             paymentStatus: (existingAirbrushing as any).paymentStatus,
+            status: (existingAirbrushing as any).status,
           },
           next: {
             painterId: (updatedAirbrushing as any).painterId,
             paymentStatus: (updatedAirbrushing as any).paymentStatus,
+            status: (updatedAirbrushing as any).status,
           },
         });
 
@@ -1352,6 +1355,7 @@ export class AirbrushingService {
               next: {
                 painterId: (newAirbrushing as any).painterId,
                 paymentStatus: (newAirbrushing as any).paymentStatus,
+                status: (newAirbrushing as any).status,
               },
             });
 
@@ -1539,10 +1543,12 @@ export class AirbrushingService {
               previous: {
                 painterId: (existingAirbrushing as any).painterId,
                 paymentStatus: (existingAirbrushing as any).paymentStatus,
+                status: (existingAirbrushing as any).status,
               },
               next: {
                 painterId: (updatedAirbrushing as any).painterId,
                 paymentStatus: (updatedAirbrushing as any).paymentStatus,
+                status: (updatedAirbrushing as any).status,
               },
             });
 

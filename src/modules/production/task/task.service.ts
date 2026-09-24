@@ -5688,10 +5688,12 @@ export class TaskService {
                 previous: {
                   painterId: existingAirbrushing?.painterId,
                   paymentStatus: existingAirbrushing?.paymentStatus,
+                  status: existingAirbrushing?.status,
                 },
                 next: {
                   painterId: updatedAirbrushing.painterId,
                   paymentStatus: updatedAirbrushing.paymentStatus,
+                  status: updatedAirbrushing.status,
                 },
               });
 
@@ -5801,6 +5803,7 @@ export class TaskService {
                 next: {
                   painterId: newAirbrushing.painterId,
                   paymentStatus: newAirbrushing.paymentStatus,
+                  status: newAirbrushing.status,
                 },
               });
 

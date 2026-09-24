@@ -2081,6 +2081,182 @@ const CONFIGS: ConfigDef[] = [
       targeted: true,
     },
   },
+  {
+    key: "airbrushing.released",
+    name: "Aerografia Liberada para Produção",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.released",
+    description:
+      "A aerografia do aerografista foi disponibilizada para produção (Aguardando Produção): ele já pode iniciar (notificação direcionada ao aerografista designado).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Aerografia Liberada para Produção",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi liberada para produção. Você já pode iniciar.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+      push: {
+        title: "Aerografia Liberada para Produção",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — liberada para produção",
+      },
+      email: {
+        subject: "Aerografia Liberada para Produção — {{taskName}}",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi liberada para produção. Você já pode iniciar.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+      whatsapp: {
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi liberada para produção. Você já pode iniciar.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — create/update/batchCreate/batchUpdate do AirbrushingService e a seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
+  {
+    key: "airbrushing.cancelled",
+    name: "Aerografia Cancelada",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.cancelled",
+    description:
+      "Uma aerografia designada ao aerografista foi cancelada (notificação direcionada ao aerografista designado).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Aerografia Cancelada",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi cancelada.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+      push: {
+        title: "Aerografia Cancelada",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia cancelada",
+      },
+      email: {
+        subject: "Aerografia Cancelada — {{taskName}}",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi cancelada.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+      whatsapp: {
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi cancelada.{{#if description}} Serviço: {{description}}.{{/if}}",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — create/update/batchCreate/batchUpdate do AirbrushingService e a seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
+  {
+    key: "airbrushing.unassigned",
+    name: "Aerografia Transferida",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.unassigned",
+    description:
+      "O aerografista deixou de ser o responsável pela aerografia — trocado por outro ou retirado (notificação direcionada ao aerografista anterior).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Você Não É Mais o Responsável",
+        body: "Você não é mais o responsável pela aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.",
+      },
+      push: {
+        title: "Você Não É Mais o Responsável",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia transferida",
+      },
+      email: {
+        subject: "Você Não É Mais o Responsável — {{taskName}}",
+        body: "Você não é mais o responsável pela aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.",
+      },
+      whatsapp: {
+        body: "Você não é mais o responsável pela aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}}.",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — create/update/batchCreate/batchUpdate do AirbrushingService e a seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
+  {
+    key: "airbrushing.reopened",
+    name: "Aerografia Reaberta",
+    notificationType: "PRODUCTION",
+    eventType: "airbrushing.reopened",
+    description:
+      "Uma aerografia concluída do aerografista foi reaberta pela empresa (notificação direcionada ao aerografista designado).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: [],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Aerografia Reaberta",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi reaberta{{#if statusLabel}} e voltou para {{statusLabel}}{{/if}}.",
+      },
+      push: {
+        title: "Aerografia Reaberta",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — aerografia reaberta",
+      },
+      email: {
+        subject: "Aerografia Reaberta — {{taskName}}",
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi reaberta{{#if statusLabel}} e voltou para {{statusLabel}}{{/if}}.",
+      },
+      whatsapp: {
+        body: "A aerografia da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if customerName}} — {{customerName}}{{/if}} foi reaberta{{#if statusLabel}} e voltou para {{statusLabel}}{{/if}}.",
+      },
+    },
+    metadata: {
+      trigger:
+        "AirbrushingNotificationService.registerIntent — create/update/batchCreate/batchUpdate do AirbrushingService e a seção de aerografia do TaskService.update",
+      registry: "seed-notification-configs",
+      targeted: true,
+    },
+  },
   // ─── cotação da aerografia (proposta ⇄ contraproposta → seleção) ─────────────
   //
   // `requested` vai para o setor Aerografia inteiro: todo aerografista pode cotar.
