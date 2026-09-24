@@ -347,6 +347,10 @@ export class OrderScheduleScheduler {
     const orderData = await this.orderScheduleService.buildOrderDataForCoverage(scheduleId, {
       asOfDate: now,
       coverageDays,
+      // GAP_PLUS_CYCLE skips the next run, so the order must also carry that
+      // run's cycle of demand on top of each item's target — otherwise it is
+      // the same quantity as GAP_ONLY and the skipped month runs the shelf dry.
+      extraCycleDays: cascadeMode === 'GAP_PLUS_CYCLE' ? interval : 0,
     });
 
     if (!orderData) {

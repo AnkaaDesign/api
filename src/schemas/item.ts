@@ -2774,6 +2774,11 @@ export const itemCreateSchemaBase = z.object({
     .positive('Cobertura deve ser positiva')
     .nullable()
     .optional(),
+  minStockQuantity: z
+    .number()
+    .min(0, 'Estoque mínimo não pode ser negativo')
+    .nullable()
+    .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
   brandIds: z.array(z.string().uuid({ message: 'Marca inválida' })).optional(),
@@ -2891,6 +2896,11 @@ export const itemUpdateSchemaBase = z.object({
     .number()
     .int('Cobertura deve ser um número inteiro de dias')
     .positive('Cobertura deve ser positiva')
+    .nullable()
+    .optional(),
+  minStockQuantity: z
+    .number()
+    .min(0, 'Estoque mínimo não pode ser negativo')
     .nullable()
     .optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
@@ -3255,6 +3265,7 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   stockModel: item.stockModel ?? undefined,
   fixedTargetQuantity: item.fixedTargetQuantity ?? undefined,
   targetCoverageDays: item.targetCoverageDays ?? undefined,
+  minStockQuantity: item.minStockQuantity ?? undefined,
   brandIds: item.brands?.map(b => b.id) ?? [],
   categoryId: item.categoryId || undefined,
   supplierId: item.supplierId || undefined,

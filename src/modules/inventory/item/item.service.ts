@@ -1065,6 +1065,15 @@ export class ItemService {
         });
       }
 
+      // Replenishment knobs feed maxQuantity/reorderQuantity — apply them now
+      // instead of waiting for the nightly recompute.
+      if (
+        data.targetCoverageDays !== undefined ||
+        data.minStockQuantity !== undefined
+      ) {
+        await this.updateItemMonthlyConsumption(id, userId);
+      }
+
       // Check stock thresholds if quantity was updated
       if (data.quantity !== undefined) {
         // Use setImmediate to emit events asynchronously
@@ -2779,6 +2788,7 @@ export class ItemService {
       leadTimeDays,
       reorderPoint,
       targetStockDays: cell.targetStockDays,
+      overrideCoverageDays: item.targetCoverageDays ?? null,
       now,
     });
     const previousMaxQuantity = item.maxQuantity ?? 0;

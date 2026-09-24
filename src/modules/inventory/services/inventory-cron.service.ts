@@ -518,6 +518,7 @@ export class InventoryCronService {
           // Per-item absolute coverage override (e.g. "hold ~2 months") wins over
           // the matrix, even during the transient UNCLASSIFIED window.
           overrideCoverageDays: p.item.targetCoverageDays ?? null,
+          monthlyHistory: p.monthlyHistory,
           seasonalCtx,
           now,
         });
@@ -1122,6 +1123,7 @@ export class InventoryCronService {
         : null,
       stockModel: (item.stockModel as string | null) ?? null,
       fixedTargetQuantity: item.fixedTargetQuantity ?? null,
+      minStockQuantity: item.minStockQuantity ?? null,
       abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
       xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
       ppeType: (item.ppeType ?? null) as ItemLike['ppeType'],

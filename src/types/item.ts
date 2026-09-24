@@ -93,6 +93,7 @@ export interface Item extends BaseEntity {
   stockModel: STOCK_MODEL;
   fixedTargetQuantity: number | null;
   targetCoverageDays: number | null;
+  minStockQuantity: number | null;
   categoryId?: string;
   supplierId: string | null;
   warehouseLocationId: string | null;
@@ -280,6 +281,7 @@ export interface ItemSelect {
   stockModel?: boolean;
   fixedTargetQuantity?: boolean;
   targetCoverageDays?: boolean;
+  minStockQuantity?: boolean;
   isActive?: boolean;
 
   // Category fields
@@ -1010,6 +1012,7 @@ export interface ItemOrderBy {
   stockModel?: ORDER_BY_DIRECTION;
   fixedTargetQuantity?: ORDER_BY_DIRECTION;
   targetCoverageDays?: ORDER_BY_DIRECTION;
+  minStockQuantity?: ORDER_BY_DIRECTION;
   estimatedLeadTime?: ORDER_BY_DIRECTION;
   isActive?: ORDER_BY_DIRECTION;
   abcCategory?: ORDER_BY_DIRECTION;

@@ -317,6 +317,7 @@ export class AutoOrderService {
       category: item.category ? { type: item.category.type } : null,
       stockModel: item.stockModel ?? null,
       fixedTargetQuantity: item.fixedTargetQuantity ?? null,
+      minStockQuantity: item.minStockQuantity ?? null,
       abcCategory: item.abcCategory ?? null,
       xyzCategory: item.xyzCategory ?? null,
       ppeType: item.ppeType ?? null,
@@ -357,22 +358,32 @@ export class AutoOrderService {
     );
     const adjustedSafetyFactor = applyTrendAdjustment(cell.safetyFactor, trendPercentage);
 
-    // rp / max — FIXED_TARGET branch short-circuits inside the util layer.
-    const reorderPoint = calculateReorderPoint({
-      item: itemLike,
-      monthlyConsumption,
-      leadTimeDays,
-      safetyFactor: adjustedSafetyFactor,
-      now,
-    });
-    const maxQuantity = calculateMaxQuantity({
-      item: itemLike,
-      monthlyConsumption,
-      leadTimeDays,
-      reorderPoint,
-      targetStockDays: cell.targetStockDays,
-      now,
-    });
+    // rp / max — the persisted values are authoritative (nightly recompute +
+    // write-time recompute: layered safety stock, peak-week floor, coverage
+    // override with the conservative rate). This path only has the legacy
+    // fraction-of-cycle formula, so it merely FILLS IN items the engine hasn't
+    // computed yet. It used to overwrite them, silently undoing the targets the
+    // order schedules fill to every time the auto-order page was opened.
+    const reorderPoint =
+      item.reorderPoint ??
+      calculateReorderPoint({
+        item: itemLike,
+        monthlyConsumption,
+        leadTimeDays,
+        safetyFactor: adjustedSafetyFactor,
+        now,
+      });
+    const maxQuantity =
+      item.maxQuantity ??
+      calculateMaxQuantity({
+        item: itemLike,
+        monthlyConsumption,
+        leadTimeDays,
+        reorderPoint,
+        targetStockDays: cell.targetStockDays,
+        overrideCoverageDays: item.targetCoverageDays ?? null,
+        now,
+      });
 
     // Incoming pending order quantity feeds reorder-qty shortfall.
     const incomingOrderedQuantity = this.sumIncomingOrderedQuantity(item.orderItems);
@@ -824,6 +835,7 @@ export class AutoOrderService {
           category: item.category ? { type: item.category.type } : null,
           stockModel: item.stockModel ?? null,
           fixedTargetQuantity: item.fixedTargetQuantity ?? null,
+          minStockQuantity: item.minStockQuantity ?? null,
           abcCategory: item.abcCategory ?? null,
           xyzCategory: item.xyzCategory ?? null,
           ppeType: item.ppeType ?? null,
@@ -866,6 +878,7 @@ export class AutoOrderService {
           leadTimeDays,
           reorderPoint: rp,
           targetStockDays: cell.targetStockDays,
+          overrideCoverageDays: item.targetCoverageDays ?? null,
           now,
         });
 
@@ -1208,11 +1221,10 @@ export class AutoOrderService {
         for (const r of chunk) {
           await tx.item.update({
             where: { id: r.itemId },
+            // Only the live shortfall. mc / trend / rp / max belong to the
+            // nightly + write-time recompute; persisting this path's own
+            // versions made them flap between two formulas.
             data: {
-              monthlyConsumption: r.monthlyConsumption,
-              monthlyConsumptionTrendPercent: r.trendPercentage,
-              reorderPoint: r.reorderPoint,
-              maxQuantity: r.maxQuantity,
               reorderQuantity: r.reorderQuantity,
             },
           });

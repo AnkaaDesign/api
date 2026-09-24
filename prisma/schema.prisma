@@ -930,6 +930,10 @@ model Item {
   // low-stock recommendation and the order schedule fill up to the resulting
   // maxQuantity, so this is the single knob for "how much of this item to hold".
   targetCoverageDays             Int?
+  // Hard floor on maxQuantity for CONSUMPTION items: "always keep at least this
+  // much". Honored even with zero consumption history, so the order schedule
+  // still restocks slow movers that would otherwise be skipped.
+  minStockQuantity               Float?
   ppeType                        PpeType?
   ppeCA                          String?
   // Validade do Certificado de Aprovação (CA) do EPI. Entrega de EPI com CA vencido

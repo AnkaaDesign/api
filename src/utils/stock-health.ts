@@ -42,6 +42,8 @@ import {
   RP_PEAK_WEEK_FLOOR_FACTOR,
   WINSORIZE_FACTOR,
   WINSORIZE_MIN_NONZERO_MONTHS,
+  AVG_WORKDAYS_PER_MONTH,
+  COVERAGE_RATE_RECENT_MONTHS,
   SAFETY_FACTOR_MAX,
   SAFETY_FACTOR_MIN,
   SafetyTargetCell,
@@ -90,6 +92,9 @@ export interface ItemLike extends PpeItemLike {
   category?: { type?: ITEM_CATEGORY_TYPE | null } | null;
   stockModel?: string | null;
   fixedTargetQuantity?: number | null;
+  /** Hard floor for maxQuantity on CONSUMPTION items ("always keep at least N
+   *  on hand"), honored even when mc is 0. */
+  minStockQuantity?: number | null;
   abcCategory?: ABC_CATEGORY | null;
   xyzCategory?: XYZ_CATEGORY | null;
 }
@@ -447,20 +452,41 @@ export interface MaxQuantityInput {
   seasonalCtx?: SeasonalContext;
   now?: Date;
   /**
-   * Per-item ABSOLUTE coverage override (days of consumption the total on-hand
-   * target should represent). When set (> 0), `maxQuantity` becomes
-   * `max(reorderPoint, avgDaily × overrideCoverageDays × seasonal)` — i.e. a
-   * total "N days of usage" target, NOT the matrix's reorderPoint + horizon.
-   * This is the knob for "hold ~2 months of this item" (60 → ~2× monthly usage).
-   * Floored at reorderPoint so the order-up-to level is never below the reorder
-   * trigger. Null/unset → normal matrix behaviour.
+   * Per-item coverage override: days of consumption to have ON THE SHELF when
+   * an order arrives, ON TOP of the reorder point (lead-time demand + safety
+   * stock). When set (> 0), `maxQuantity = reorderPoint + dailyRate × days ×
+   * seasonal`, where dailyRate = max(mc, recent monthly average) converted to
+   * calendar days (see AVG_WORKDAYS_PER_MONTH / COVERAGE_RATE_RECENT_MONTHS).
+   * Ordering up to that position means the delivery lands with ~`days` of
+   * stock plus the safety buffer intact. Null/unset → normal matrix behaviour.
    */
   overrideCoverageDays?: number | null;
+  /** Cleaned trailing monthly series (oldest-first, normalized to 20 working
+   *  days — `buildTrailingMonthlyHistory`). Floors the override's demand rate. */
+  monthlyHistory?: ReadonlyArray<number>;
 }
 
 export function calculateMaxQuantity(input: MaxQuantityInput): number {
   // Fixed-target items top up to their target (no consumption-based buffer).
   if (isFixedTarget(input.item)) return getFixedTarget(input.item);
+  const minStock = Math.max(0, Math.ceil(input.item.minStockQuantity ?? 0));
+  return Math.max(minStock, calculateConsumptionMaxQuantity(input));
+}
+
+/** Rate behind a coverage-override target, in units per CALENDAR day:
+ *  max(mc, plain mean of the last COVERAGE_RATE_RECENT_MONTHS months), then
+ *  converted from the 20-working-day normalization to calendar days. */
+export function coverageDailyRate(
+  monthlyConsumption: number,
+  monthlyHistory?: ReadonlyArray<number>,
+): number {
+  const recent = (monthlyHistory ?? []).slice(-COVERAGE_RATE_RECENT_MONTHS);
+  const recentMean = recent.length >= 3 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  const monthly = Math.max(monthlyConsumption, recentMean);
+  return (monthly * AVG_WORKDAYS_PER_MONTH) / 20 / 30;
+}
+
+function calculateConsumptionMaxQuantity(input: MaxQuantityInput): number {
   if (input.monthlyConsumption === 0) return 0;
 
   const avgDaily = input.monthlyConsumption / 30;
@@ -475,16 +501,18 @@ export function calculateMaxQuantity(input: MaxQuantityInput): number {
   // rp already covers more days than the target). At least ~1 week of demand.
   const minBand = Math.max(1, Math.ceil(avgDaily * MIN_REORDER_BAND_DAYS));
 
-  // Absolute per-item coverage override: total target = N days of usage,
-  // floored at reorderPoint + minBand. Overrides the matrix reorderPoint + horizon model.
+  // Per-item coverage override: reorderPoint (lead-time demand + safety) plus
+  // N days of usage at the conservative rate → the order lands with N days on
+  // the shelf and the safety buffer still intact.
   if (input.overrideCoverageDays != null && input.overrideCoverageDays > 0) {
     const seasonalOverride = blendedFactorAcrossDays(
       projectionStart,
       input.overrideCoverageDays,
       input.seasonalCtx,
     );
-    const target = Math.ceil(avgDaily * input.overrideCoverageDays * seasonalOverride);
-    return Math.max(target, input.reorderPoint + minBand);
+    const rate = coverageDailyRate(input.monthlyConsumption, input.monthlyHistory);
+    const horizon = Math.ceil(rate * input.overrideCoverageDays * seasonalOverride);
+    return input.reorderPoint + Math.max(horizon, minBand);
   }
 
   const seasonalAtTarget = blendedFactorAcrossDays(
