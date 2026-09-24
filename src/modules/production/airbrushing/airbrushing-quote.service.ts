@@ -249,6 +249,7 @@ export class AirbrushingQuoteService {
     if (query.scope === 'open') {
       const rank: Record<string, number> = {
         COUNTER_RECEIVED: 0,
+        OFFER_RECEIVED: 1,
         AWAITING_PROPOSAL: 1,
         AWAITING_COMPANY: 2,
         ACCEPTED: 3,
@@ -263,7 +264,10 @@ export class AirbrushingQuoteService {
       data,
       meta: {
         awaitingAction: data.filter(
-          d => d.stage === 'COUNTER_RECEIVED' || d.stage === 'AWAITING_PROPOSAL',
+          d =>
+            d.stage === 'COUNTER_RECEIVED' ||
+            d.stage === 'OFFER_RECEIVED' ||
+            d.stage === 'AWAITING_PROPOSAL',
         ).length,
       },
     };
