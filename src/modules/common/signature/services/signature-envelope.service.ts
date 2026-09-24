@@ -279,6 +279,23 @@ function formatContactList(names: readonly string[]): string | null {
   return `${clean.slice(0, 2).join(', ')} e mais ${clean.length - 2}`;
 }
 
+/**
+ * O nome do responsável como pedaço de nome de arquivo: sem acento, minúsculo,
+ * só letras e dígitos. Distingue as cópias pessoais do mesmo orçamento no disco
+ * e nos anexos do dossiê, onde dois "orcamento-997-assinado.pdf" colidiriam.
+ */
+function fileSlug(name: string): string {
+  return (
+    name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'responsavel'
+  );
+}
+
 function eventDetailOf(eventType: string, payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const data = payload as Record<string, unknown>;
@@ -1234,9 +1251,8 @@ export class SignatureEnvelopeService {
 
     // ---- Os RECORTES -------------------------------------------------------
     //
-    // Contatos com o mesmo recorte compartilham o mesmo PDF. É essa deduplicação
-    // que faz a coleta comum — todo mundo COMERCIAL, todo mundo recebendo tudo —
-    // continuar congelando UM arquivo, exatamente como antes deste recurso.
+    // Um PDF por responsável que assina (ver "UM DOCUMENTO POR RESPONSÁVEL"
+    // abaixo), mais o instrumento completo quando nenhum deles recebe tudo.
     const ankaaSignerId = randomUUID();
     // ⚠️ RESOLVIDO UMA VEZ, aqui, e usado nos dois lugares que precisam dele: o
     // subtítulo IMPRESSO na linha de assinatura do PDF que está prestes a ser
@@ -1304,36 +1320,67 @@ export class SignatureEnvelopeService {
       }>;
     }
 
-    const variants = new Map<string, VariantPlan>();
+    // ── UM DOCUMENTO POR RESPONSÁVEL ──────────────────────────────────────────
+    //
+    // Até 24/09/2026 os contatos com o MESMO recorte compartilhavam o mesmo PDF,
+    // e a folha de assinaturas dele listava todos: no nº 997 (Machadão, duas
+    // tarefas) o Paulo e o Luiz assinavam um documento com a linha um do outro,
+    // o "À" endereçado aos dois, e cada um via pela página pública quem já tinha
+    // assinado. O responsável não tem por que ver — nem saber — quem mais assina
+    // pela empresa dele: cada um recebe o SEU documento, endereçado a ele, com a
+    // linha dele e a da Ankaa, e nada mais. É a regra que o recorte parcial já
+    // seguia; agora vale sempre.
+    //
+    // O agrupamento por seções deixou de existir como critério. Dois
+    // responsáveis que recebem tudo geram dois PDFs de conteúdo idêntico e
+    // folhas de assinatura diferentes — cada um com hash próprio, que é o que
+    // cada um assina e o que a evidência dele aponta.
+    //
+    // O INSTRUMENTO (`isFull`) continua sendo UM por envelope: o documento
+    // completo do PRIMEIRO responsável que recebe tudo (ordem do elenco da
+    // tarefa, a mesma do snapshot). É ele que as colunas do envelope espelham.
+    // Os demais completos são cópias pessoais do mesmo teor. Sem nenhum
+    // responsável recebendo tudo, o instrumento nasce só com a Ankaa, como já
+    // acontecia.
+    //
+    // ⚠️ SÓ VALE PARA COLETAS EMITIDAS DAQUI EM DIANTE. As já emitidas têm bytes
+    // congelados e hashes assinados — nada aqui as relê nem as reescreve, e
+    // `variantKey` é só a chave de unicidade por envelope (ninguém a interpreta).
+    const fullKey = variantKeyOf([...FULL_SECTIONS]);
+    const plans: VariantPlan[] = [];
+    let instrumentTaken = false;
     for (const entry of signing) {
-      const key = variantKeyOf(entry.sections);
-      let plan = variants.get(key);
-      if (!plan) {
-        plan = {
-          sections: entry.sections,
-          variantKey: key,
-          isFull: isFullSections(entry.sections),
-          seeds: [],
-        };
-        variants.set(key, plan);
-      }
-      plan.seeds.push({
-        id: randomUUID(),
-        responsibleId: entry.responsible.id,
-        // Âncora de identidade: quando o contato já tem CPF no cadastro, o
-        // signatário completa só os dígitos ocultos, e completar certo é o que
-        // vale como conferência. Sem CPF cadastrado ele digita o número inteiro
-        // — e a primeira assinatura o grava (ver `persistCpfToResponsible`).
-        cpf: entry.responsible.cpf ?? null,
-        // O cliente declara o cargo dele no ato, na tela pública.
-        cargo: null,
-        userId: null,
-        name: entry.responsible.name,
-        phone: onlyDigits(entry.responsible.phone),
-        email: entry.responsible.email,
-        orderGroup: 0,
-        side: 'CUSTOMER',
-        subtitle: customerCompany,
+      const sectionsKey = variantKeyOf(entry.sections);
+      const complete = isFullSections(entry.sections);
+      const isFull = complete && !instrumentTaken;
+      if (isFull) instrumentTaken = true;
+      plans.push({
+        sections: entry.sections,
+        // O instrumento mantém a chave de sempre; as cópias pessoais levam o id
+        // do responsável, que é o que as distingue no `@@unique` do envelope.
+        variantKey: isFull ? fullKey : `${sectionsKey}@${entry.responsible.id}`,
+        isFull,
+        seeds: [
+          {
+            id: randomUUID(),
+            responsibleId: entry.responsible.id,
+            // Âncora de identidade: quando o contato já tem CPF no cadastro, o
+            // signatário completa só os dígitos ocultos, e completar certo é o
+            // que vale como conferência. Sem CPF cadastrado ele digita o número
+            // inteiro — e a primeira assinatura o grava (ver
+            // `persistCpfToResponsible`).
+            cpf: entry.responsible.cpf ?? null,
+            // O cliente declara o cargo dele no ato, na tela pública.
+            cargo: null,
+            userId: null,
+            name: entry.responsible.name,
+            phone: onlyDigits(entry.responsible.phone),
+            email: entry.responsible.email,
+            orderGroup: 0,
+            side: 'CUSTOMER',
+            subtitle: customerCompany,
+          },
+        ],
       });
     }
 
@@ -1343,9 +1390,8 @@ export class SignatureEnvelopeService {
     // pedaços do contrato e nenhum contrato. Também é ele que o dossiê copia, que
     // o portal de verificação descreve e que as colunas do próprio envelope
     // espelham.
-    const fullKey = variantKeyOf([...FULL_SECTIONS]);
-    if (!variants.has(fullKey)) {
-      variants.set(fullKey, {
+    if (!instrumentTaken) {
+      plans.push({
         sections: [...FULL_SECTIONS],
         variantKey: fullKey,
         isFull: true,
@@ -1353,13 +1399,10 @@ export class SignatureEnvelopeService {
       });
     }
 
-    // Ordem determinística: o completo primeiro, depois os recortes por chave.
-    // Sem ela a ordem viria do `Map`, que segue a ordem de inserção do roster —
-    // e o mesmo orçamento emitido duas vezes produziria arquivos com sufixos
-    // trocados, o que só apareceria como confusão no painel.
-    const plans = [...variants.values()].sort((a, b) =>
-      a.isFull === b.isFull ? a.variantKey.localeCompare(b.variantKey) : a.isFull ? -1 : 1,
-    );
+    // O instrumento primeiro; os demais na ordem do elenco, que é
+    // determinística (a mesma do snapshot) — o mesmo orçamento emitido duas
+    // vezes produz os arquivos na mesma ordem.
+    plans.sort((a, b) => (a.isFull === b.isFull ? 0 : a.isFull ? -1 : 1));
 
     // A Ankaa aparece — e assina — em TODOS os recortes. Cada recorte é um
     // documento bilateral: sem a linha dela, o financeiro assinaria sozinho um
@@ -1408,7 +1451,9 @@ export class SignatureEnvelopeService {
         fileId: await this.persistPdf(
           quote,
           rendered[i].pdf,
-          `original${variantFilenameSuffix(plan.sections)}`,
+          `original${variantFilenameSuffix(plan.sections)}${
+            plan.isFull || !plan.seeds[0] ? '' : `-${fileSlug(plan.seeds[0].name)}`
+          }`,
           verificationCode,
         ),
       })),
@@ -4270,7 +4315,6 @@ export class SignatureEnvelopeService {
     });
     if (!env) return;
 
-    const refusedBy = env.signers.find(s => s.id === refusedBySignerId);
     const peers = env.signers.filter(
       s =>
         s.id !== refusedBySignerId &&
@@ -4286,9 +4330,16 @@ export class SignatureEnvelopeService {
     );
     if (peers.length === 0) return;
 
+    // QUEM recusou não vai no aviso. Cada responsável assina o seu próprio
+    // documento e não vê quem mais assina pela empresa dele (ver "UM DOCUMENTO
+    // POR RESPONSÁVEL" em `createEnvelope`); nomear o colega aqui desfaria isso
+    // pela porta do aviso. O que ele precisa saber é que a coleta parou e que a
+    // Ankaa retoma o contato — quem recusou, e por quê, vai ao nosso comercial.
+    // O parâmetro do template continua existindo: só o valor ficou genérico
+    // ("…foi pausada: *Um dos responsáveis* não aprovou a proposta.").
     const payload = {
       budgetNumber: env.quote.budgetNumber,
-      refusedByName: refusedBy?.declaredName ?? 'Um responsável',
+      refusedByName: 'Um dos responsáveis',
     };
 
     for (const peer of peers) {

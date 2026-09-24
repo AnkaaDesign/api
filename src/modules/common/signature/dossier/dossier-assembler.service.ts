@@ -835,7 +835,23 @@ export class DossierAssemblerService {
         const label = artifact.isFull
           ? ''
           : variantFilenameSuffix(canonicalSections(artifact.sections));
-        const name = `orcamento-${quote.budgetNumber}-assinado${label}.pdf`;
+        // Desde 24/09/2026 cada responsável assina o SEU documento, e dois que
+        // recebem tudo produzem dois artefatos de mesmo recorte — o mesmo nome
+        // de anexo, e o segundo apagaria o primeiro no leitor de PDF. O nome de
+        // quem assinou desempata.
+        let name = `orcamento-${quote.budgetNumber}-assinado${label}.pdf`;
+        if (attachedNames.includes(name)) {
+          const who = artifact.signers.find(s => s.orderGroup === 0)?.declaredName ?? '';
+          const slug =
+            who
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 40) || String(attachedNames.length + 1);
+          name = `orcamento-${quote.budgetNumber}-assinado${label}-${slug}.pdf`;
+        }
         await container.attach(new Uint8Array(bytes), name, {
           mimeType: 'application/pdf',
           description:
