@@ -36,98 +36,6 @@ import { Budget as PrismaBudget, Prisma } from '@prisma/client';
  * Prisma implementation of BudgetRepository
  */
 /**
- * Traduz o filtro to-one `task` — a forma anterior ao orçamento multitarefa —
- * para a relação de LISTA `tasks`.
- *
- * POR QUE EXISTE. `Task.quoteId` deixou de ser `@unique`, então
- * `BudgetWhereInput.task` não existe mais: mandá-lo ao Prisma derruba a
- * consulta inteira com "Unknown argument `task`". E o `where` chega aqui como
- * `Record<string, unknown>` — o `tsc` não vê nada. Quem ainda manda a chave
- * antiga é o app instalado nos aparelhos, que não se atualiza no mesmo instante
- * que a API; recusar a consulta deixaria a lista de Orçamentos vazia em campo.
- *
- * A tradução é `some`: "existe uma tarefa do orçamento que casa". Com um veículo
- * é exatamente a consulta de antes; com sessenta, é a única leitura útil —
- * procurar pela série de qualquer um dos caminhões tem de achar o orçamento.
- *
- * Recorre por `AND`/`OR`/`NOT` porque é lá que os filtros compostos da lista
- * montam suas condições, e uma chave `task` escondida dentro de um `OR` estoura
- * do mesmo jeito que no topo.
- *
- * O IRMÃO ESQUECIDO: `taskId`. A COLUNA também se foi — a FK mudou de lado e
- * hoje mora em `Task.quoteId` —, e o zod continuava declarando `taskId` no
- * `where` sem nada que o traduzisse. Declarado e não traduzido é o pior dos dois
- * mundos: o `.strict()` deixa passar, o Prisma recusa, e a lista devolve 500
- * ("Unknown argument `taskId`"). Basta um filtro salvo ou um link antigo com
- * `?taskId=` para derrubar a tela. Aqui ele vira `tasks: { some: { id } }` — o
- * valor pode ser o id cru ou um filtro (`{ in: [...] }`), e os dois passam para
- * `id` sem interpretação.
- */
-export function translateLegacyTaskFilter(where: any): any {
-  if (!where || typeof where !== 'object') return where;
-  if (Array.isArray(where)) return where.map(translateLegacyTaskFilter);
-
-  const out: any = {};
-  for (const [key, value] of Object.entries(where)) {
-    if (key === 'AND' || key === 'OR' || key === 'NOT') {
-      out[key] = translateLegacyTaskFilter(value);
-      continue;
-    }
-    if (key === 'taskId') {
-      // `task` é MAIS EXPRESSIVO que `taskId` (casa por qualquer campo da
-      // tarefa, não só pelo id), e `tasks` é a forma corrente: qualquer uma das
-      // duas presente descarta esta. Sem essa precedência, um cliente que manda
-      // as duas formas teria o filtro decidido pela ordem das chaves do JSON.
-      if ('tasks' in where || 'task' in where) continue;
-      if (value === null || value === undefined) continue;
-      out.tasks = { some: { id: value } };
-      continue;
-    }
-    if (key !== 'task') {
-      out[key] = value;
-      continue;
-    }
-    // Cliente que manda as DUAS formas: a corrente vence. Mesclar dois `some`
-    // seria adivinhar (um `AND` ou um `OR`?), e sobrescrever com a legada
-    // desfaria o filtro que o cliente novo quis.
-    if ('tasks' in where) continue;
-
-    // `task: null` — "orçamento SEM tarefa". No to-many é `none: {}`.
-    if (value === null || value === undefined) {
-      out.tasks = { none: {} };
-      continue;
-    }
-    if (typeof value !== 'object') continue;
-
-    const v = value as Record<string, unknown>;
-    if ('is' in v || 'isNot' in v) {
-      // `isNot: null` era "tem tarefa" ⇒ `some: {}`. `is: null` era "não tem"
-      // ⇒ `none: {}`. Com um objeto, `is` vira `some` e `isNot` vira `none`.
-      if ('is' in v) out.tasks = v.is === null ? { none: {} } : { some: v.is as object };
-      if ('isNot' in v) {
-        const asNone = v.isNot === null ? { some: {} } : { none: v.isNot as object };
-        out.tasks = { ...(out.tasks as object), ...asNone };
-      }
-      continue;
-    }
-    // Nested where direto (ex.: `{ id }`, `{ status }`).
-    out.tasks = { some: v };
-  }
-  return out;
-}
-
-/**
- * Remove as entradas de ordenação por campo da TAREFA.
- *
- * O Prisma não ordena um pai por campo de relação de lista, e não existe
- * resposta certa a inventar: num orçamento de sessenta caminhões, qual dos
- * sessenta prazos ordenaria a linha? O app instalado manda
- * `[{statusOrder:'asc'},{task:{term:'asc'}}]`; descartar a segunda entrada
- * degrada a ordenação, mandá-la ao banco derruba a tela. Ordenações por campo
- * do próprio orçamento (`budgetNumber`, `createdAt`, `expiresAt`) passam
- * intactas, e é para elas que os clientes novos apontam.
- */
-/**
  * A FILA, como último critério — sempre.
  *
  * `queueRank` é coluna GERADA: o instante de criação em segundos, negado para
@@ -137,33 +45,20 @@ export function translateLegacyTaskFilter(where: any): any {
 export const BUDGET_QUEUE_TIEBREAKER = { queueRank: 'asc' as const };
 export const BUDGET_QUEUE_ORDER = [{ statusOrder: 'asc' as const }, BUDGET_QUEUE_TIEBREAKER];
 
-export function stripUnorderableTaskEntries(orderBy: any): any {
-  const clean = (entry: any): any | null => {
-    if (!entry || typeof entry !== 'object') return entry;
-    // `taskId` sai junto: a coluna não existe mais em `Budget` (a FK está em
-    // `Task.quoteId`), então ordenar por ela é o mesmo 500 de `task`.
-    const { task: _dropped, taskId: _droppedId, ...rest } = entry as Record<string, unknown>;
-    return Object.keys(rest).length > 0 ? rest : null;
-  };
+export function withQueueTiebreaker(orderBy: any): any {
+  // Entrada vazia (`{}`) é o que sobra quando o zod descarta uma chave que o
+  // `orderBy` não declara — ex.: `{task: {term: 'asc'}}`. O Prisma não sabe o
+  // que fazer com ela, então sai daqui.
+  const clean = (entry: any): any | null =>
+    entry && typeof entry === 'object' && Object.keys(entry).length === 0 ? null : entry;
 
   const hasQueueKey = (es: any[]) => es.some(e => e && typeof e === 'object' && 'queueRank' in e);
 
-  // ── O DESEMPATE ENTRA AQUI, E NÃO SÓ NO SERVIÇO ──────────────────────────
-  //
-  // O APP INSTALADO manda `[{statusOrder:'asc'}, {'task.term':'asc'}]`. O prazo
-  // é da TAREFA, e são N por orçamento desde o multitarefa, então a segunda
-  // entrada é descartada logo acima — e o que sobrava era `statusOrder`
-  // sozinho: dentro de "pendente" o Postgres devolvia a ordem física do heap,
-  // que muda a cada UPDATE. A lista parecia ordenada e não era.
-  //
-  // O padrão do serviço não alcança esse caso, porque o app MANDA um `orderBy`
-  // — ele só não sobrevive à limpeza. E aparelho em campo não se atualiza
-  // sozinho: se a correção morasse só no app, cada celular que não baixasse a
-  // versão nova continuaria com a lista embaralhada.
-  //
-  // Anexar sempre também é o que torna a PAGINAÇÃO estável: sem uma última
-  // chave praticamente única, duas linhas de mesmo valor trocam de lugar entre
-  // uma página e outra, e a página 2 repete uma linha e some com outra.
+  // Anexar sempre é o que torna a PAGINAÇÃO estável: sem uma última chave
+  // praticamente única, duas linhas de mesmo valor trocam de lugar entre uma
+  // página e outra, e a página 2 repete uma linha e some com outra. Dentro de
+  // "pendente", só `statusOrder` deixaria o Postgres devolver a ordem física do
+  // heap, que muda a cada UPDATE.
   if (Array.isArray(orderBy)) {
     const kept = orderBy.map(clean).filter((e): e is object => e !== null);
     if (kept.length === 0) return BUDGET_QUEUE_ORDER;
@@ -372,13 +267,8 @@ export class BudgetPrismaRepository
             }
           : include.services;
     }
-    // `include: { task: … }` do cliente é traduzido para a relação de LISTA.
-    //
-    // A chave `task` continua aceita de propósito: ela vem do app Flutter
-    // instalado nos aparelhos e do `kTaskQuoteDetailInclude` gravado em cache, e
-    // recusá-la faria a tela de detalhe do orçamento voltar sem tarefa nenhuma.
-    // A ordem canônica é imposta aqui, não pelo cliente.
-    const requestedTaskInclude = (include as any).tasks ?? (include as any).task;
+    // A ordem canônica das tarefas é imposta aqui, não pelo cliente.
+    const requestedTaskInclude = include.tasks;
     if (requestedTaskInclude !== undefined) {
       // ⚠️ O `select` TAMBÉM PASSA. Só `include` era repassado, e um `select`
       // chegava aqui para ser DESCARTADO em silêncio: o Prisma devolvia todos os
@@ -441,14 +331,14 @@ export class BudgetPrismaRepository
     orderBy?: BudgetOrderBy,
   ): Prisma.BudgetOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
-    return stripUnorderableTaskEntries(orderBy) as any;
+    return withQueueTiebreaker(orderBy) as any;
   }
 
   protected mapWhereToDatabaseWhere(
     where?: BudgetWhere,
   ): Prisma.BudgetWhereInput | undefined {
     if (!where) return undefined;
-    return translateLegacyTaskFilter(where) as any;
+    return where as any;
   }
 
   protected getDefaultInclude(): Prisma.BudgetInclude | undefined {

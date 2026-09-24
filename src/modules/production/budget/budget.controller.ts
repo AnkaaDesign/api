@@ -59,10 +59,7 @@ import type {
  * - FINANCIAL: Can view all, do financial verification and billing approval
  * - ADMIN: Full access to everything
  */
-// A rota canônica é `/budgets`. `/task-quotes` fica como ALIAS no MESMO
-// handler porque o app instalado em campo ainda chama o caminho antigo — um
-// binário que ninguém pode forçar a atualizar. Remover o alias derruba o app.
-@Controller(['budgets', 'task-quotes'])
+@Controller('budgets')
 export class BudgetController {
   constructor(
     private readonly budgetService: BudgetService,
@@ -71,7 +68,7 @@ export class BudgetController {
   ) {}
 
   /**
-   * GET /task-quotes
+   * GET /budgets
    * List all quotes with filtering and pagination
    *
    * Query params:
@@ -90,7 +87,7 @@ export class BudgetController {
   }
 
   /**
-   * GET /task-quotes/suggest
+   * GET /budgets/suggest
    * Find the most recent quote matching task name, customer, truck category, and implement type.
    * Used to pre-fill services when creating a new budget.
    *
@@ -113,7 +110,7 @@ export class BudgetController {
   }
 
   /**
-   * GET /task-quotes/:id
+   * GET /budgets/:id
    * Get single quote by ID
    */
   @Get(':id')
@@ -126,7 +123,7 @@ export class BudgetController {
   }
 
   /**
-   * GET /task-quotes/task/:taskId
+   * GET /budgets/task/:taskId
    * Get quote for specific task
    */
   @Get('task/:taskId')
@@ -136,7 +133,7 @@ export class BudgetController {
   }
 
   /**
-   * POST /task-quotes
+   * POST /budgets
    * Create new quote
    *
    * Access: COMMERCIAL, ADMIN
@@ -153,7 +150,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id
+   * PUT /budgets/:id
    * Update existing quote
    *
    * Access: FINANCIAL, COMMERCIAL, ADMIN
@@ -173,7 +170,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id/status
+   * PUT /budgets/:id/status
    * Update quote status
    *
    * Access: FINANCIAL, ADMIN, COMMERCIAL
@@ -210,7 +207,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id/budget-approve
+   * PUT /budgets/:id/budget-approve
    * Commercial approves the budget (PENDING → APPROVED).
    * This is the single commercial approval gate — there is no separate
    * second commercial double-check before billing.
@@ -224,7 +221,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id/internal-approve
+   * PUT /budgets/:id/internal-approve
    * Aprova TODAS as cobranças pendentes do orçamento de uma vez.
    *
    * ⚠️ SEM ENDEREÇO, ESTA ROTA FATURA TUDO. Num orçamento de sessenta caminhões
@@ -267,7 +264,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id/internal-approve/:taskId
+   * PUT /budgets/:id/internal-approve/:taskId
    * Aprova o faturamento de UM VEÍCULO de um orçamento que cobra veículo a
    * veículo (`billingSplit = PER_TASK`).
    *
@@ -294,7 +291,7 @@ export class BudgetController {
   }
 
   /**
-   * PUT /task-quotes/:id/revert-billing
+   * PUT /budgets/:id/revert-billing
    * Revert billing approval back to BUDGET_APPROVED — requires all bank slips and NFS-e cancelled.
    *
    * Access: FINANCIAL, ADMIN
@@ -306,7 +303,7 @@ export class BudgetController {
   }
 
   /**
-   * POST /task-quotes/:id/sync-em-negociacao
+   * POST /budgets/:id/sync-em-negociacao
    * Force a reconciliation of the "Em Negociação" SO against current quote/layout
    * state. Idempotent — safe to call any time to recover from a stuck state.
    *
@@ -320,7 +317,7 @@ export class BudgetController {
   }
 
   /**
-   * GET /task-quotes/:id/receipt
+   * GET /budgets/:id/receipt
    * Recibo de quitação (PDF) — só existe depois que o orçamento chega a SETTLED.
    * Pensado para o último passo do wizard de faturamento (Resumo/Revisão final).
    *
@@ -362,13 +359,13 @@ export class BudgetController {
   // ⚠️ `merge` é um SEGMENTO LITERAL num controller cheio de `:id`. Hoje não há
   // `@Post(':id')` registrado, então nada o sombreia — mas o Nest casa por ordem
   // de registro dentro do controller, e um `@Post(':id')` acrescentado ACIMA
-  // destas linhas engoliria `POST /task-quotes/merge` sem erro nenhum, só um 400
+  // destas linhas engoliria `POST /budgets/merge` sem erro nenhum, só um 400
   // de UUID inválido. Se isso for preciso um dia, estas duas rotas sobem para
   // antes dele.
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * POST /task-quotes/merge/preview — julga sem escrever.
+   * POST /budgets/merge/preview — julga sem escrever.
    *
    * Obrigatório antes do botão: a tela de Agenda não carrega o que decide "são
    * iguais" (lista de serviços, desconto, condições de pagamento), então sem
@@ -383,7 +380,7 @@ export class BudgetController {
     return this.budgetService.previewMergeQuotes(body.taskIds);
   }
 
-  /** POST /task-quotes/merge — executa. Julga de novo por dentro. */
+  /** POST /budgets/merge — executa. Julga de novo por dentro. */
   @Post('merge')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.OK)
@@ -397,8 +394,8 @@ export class BudgetController {
   }
 
   /**
-   * PATCH /task-quotes/:id/customer-config-order-number
-   * Update only the orderNumber field on a CustomerConfig.
+   * PATCH /budgets/:id/customer-config-order-number
+   * Grava o número do pedido de compra de UM veículo do orçamento.
    * Safe to call on locked quotes (BILLING_APPROVED+) — skips the financial obligation guard
    * because orderNumber is metadata used in NFS-e discriminacao, not a financial value.
    *
@@ -412,26 +409,15 @@ export class BudgetController {
     @Body(new ZodValidationPipe(customerConfigOrderNumberSchema))
     body: CustomerConfigOrderNumberFormData,
   ) {
-    // `customerId` deixou de ser obrigatório e `taskId` entrou: o número do
-    // pedido é do VEÍCULO desde a migração `20260909170000`, e num orçamento de
-    // sessenta caminhões escrever nos sessenta a cada edição é o defeito que a
-    // mudança de dono existe para acabar. Sem `taskId` o comportamento antigo
-    // (todos) é mantido — é o que o app instalado pede.
-    //
-    // ⚠️ A exigência de um dos dois mora no zod agora, junto com o resto: esta
-    // era a única rota de escrita do módulo com `@Body()` cru, e a validação à
-    // mão cobria só essa regra — não o tipo, não o tamanho, não o formato dos
-    // ids.
     return this.budgetService.updateCustomerConfigOrderNumber(
       id,
-      body.customerId ?? null,
+      body.taskId,
       body.orderNumber ?? null,
-      body.taskId ?? null,
     );
   }
 
   /**
-   * DELETE /task-quotes/:id
+   * DELETE /budgets/:id
    * Delete quote
    *
    * Access: ADMIN only
@@ -444,7 +430,7 @@ export class BudgetController {
   }
 
   /**
-   * GET /task-quotes/expired/list
+   * GET /budgets/expired/list
    * Get all expired quotes
    *
    * Access: FINANCIAL, ADMIN
@@ -465,7 +451,7 @@ export class BudgetController {
   // =====================
 
   /**
-   * GET /task-quotes/public/:id
+   * GET /budgets/public/:id
    * Get quote for public view (customer budget page)
    * - For authenticated users: returns quote even if expired
    * - For non-authenticated users: only returns if not expired
@@ -517,7 +503,7 @@ export class BudgetController {
   }
 
   /**
-   * POST /task-quotes/public/:id/signature
+   * POST /budgets/public/:id/signature
    * Upload customer signature for quote
    *
    * Access: PUBLIC (no authentication required). There is no dedicated share

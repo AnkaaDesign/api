@@ -240,15 +240,6 @@ export class TaskService {
       customPaymentText: c.customPaymentText ?? null,
       generateInvoice: c.generateInvoice !== false,
       generateBankSlip: c.generateBankSlip !== false,
-      // ⚠️ `orderNumber` NÃO ENTRA NA CANONICALIZAÇÃO, e a gêmea em
-      // `BudgetService.canonicalizeQuoteCustomerConfig` já o excluía por este
-      // exato motivo. A coluna foi DROPADA em `20260909170000` e o número do
-      // pedido virou `Task.customerOrderNumber` — o que está gravado nunca tem a
-      // chave, e um cliente antigo (app instalado, aba aberta desde ontem) manda
-      // a string. Comparar os dois respondia "mudou" em TODA gravação de tarefa
-      // com bloco `quote`: em APPROVED/SIGNED isso revertia o orçamento para
-      // PENDING em silêncio, e com cobrança aprovada devolvia 400 pela trava do
-      // dinheiro, porque `customerConfigs` não está na lista segura.
       paymentConfig: c.paymentConfig ?? null,
     });
   }
@@ -795,7 +786,7 @@ export class TaskService {
     }
 
     // Explicit status changes mirror the per-stage roles of the dedicated
-    // /task-quotes status endpoints.
+    // /budgets status endpoints.
     if (quoteData.status !== undefined && quoteData.status !== currentStatus) {
       validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
     }
@@ -2272,7 +2263,6 @@ export class TaskService {
               data: {
                 ...r,
                 companyId: r.companyId || (data.tasks[0] as any)?.customerId || null,
-                password: r.password || null,
               },
               select: { id: true },
             });
@@ -11683,10 +11673,6 @@ export class TaskService {
                       config.generateInvoice !== undefined ? config.generateInvoice : true,
                     generateBankSlip:
                       config.generateBankSlip !== undefined ? config.generateBankSlip : true,
-                    // Aceito e TRADUZIDO — ver o bloco logo abaixo. O snapshot de
-                    // um orçamento antigo ainda carrega o número no pagador, e
-                    // descartá-lo aqui perderia o dado que o rollback restaura.
-                    orderNumber: config.orderNumber ?? null,
                     paymentCondition: config.paymentCondition ?? null,
                     paymentConfig: config.paymentConfig ?? null,
                     customerSignatureId: config.customerSignatureId ?? null,
@@ -11694,8 +11680,9 @@ export class TaskService {
                 );
 
                 // O número do pedido do SNAPSHOT desce para a tarefa, que é onde
-                // ele mora agora. Primeiro valor não vazio; vazio não apaga o que
-                // a tarefa já tem — a mesma regra de compat das outras portas.
+                // ele mora agora: o snapshot de um orçamento antigo ainda o
+                // carrega no pagador. Primeiro valor não vazio; vazio não apaga o
+                // que a tarefa já tem.
                 const legacyOrderNumber = quoteData.customerConfigs
                   .map((c: any) => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
                   .find((v: string) => v.length > 0);
@@ -13652,7 +13639,7 @@ export class TaskService {
     // quote, repoints `task.quoteId` at the copy, then deletes the task's previous
     // quote as "orphaned" — which, when source === destination, is the very quote
     // it just copied FROM. The user's original quote is deleted and any editor
-    // still holding its id 404s on save (PUT /task-quotes/<id>). The UI must not
+    // still holding its id 404s on save (PUT /budgets/<id>). The UI must not
     // offer this, but the guard belongs here: this is where the damage happens.
     if (destinationTaskId === sourceTaskId) {
       throw new BadRequestException('A tarefa de origem não pode ser a mesma tarefa de destino.');

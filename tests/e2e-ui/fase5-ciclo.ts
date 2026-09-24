@@ -786,7 +786,7 @@ async function main() {
     //
     // A interface OFERECE esse caminho? O campo de faixa de séries
     // (`SerialNumberRangeInput`) só é renderizado na CRIAÇÃO: em modo edição o
-    // passo 1 mostra a série de UMA tarefa. A API aceita (`PUT /task-quotes/:id`
+    // passo 1 mostra a série de UMA tarefa. A API aceita (`PUT /budgets/:id`
     // com `taskIds`, e `resliceQuoteCoverage` já trata fatia congelada, fatia
     // nova e veículo retirado) — o que falta é a tela.
     //

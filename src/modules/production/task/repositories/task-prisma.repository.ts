@@ -889,7 +889,6 @@ export class TaskPrismaRepository
             data: {
               ...responsibleData,
               companyId,
-              password: responsibleData.password || null,
             },
           });
         }),
@@ -1203,7 +1202,6 @@ export class TaskPrismaRepository
             data: {
               ...responsibleData,
               companyId,
-              password: responsibleData.password || null,
             },
           });
         }),
@@ -1868,7 +1866,6 @@ export class TaskPrismaRepository
 
       const quoteData = (data as any).quote;
       let createdPricingId: string | null = null;
-      let legacyOrderNumber: string | null = null;
 
       if (
         quoteData &&
@@ -1952,12 +1949,6 @@ export class TaskPrismaRepository
         });
 
         createdPricingId = newQuote.id;
-        // O pedido de compra que o app instalado ainda manda na FATIA. A coluna
-        // não existe mais; o destino é a tarefa, e ela só existe logo abaixo.
-        legacyOrderNumber =
-          (quoteData.customerConfigs ?? [])
-            .map((c: any) => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-            .find((v: string) => v.length > 0) || null;
 
         // Os totais ficam para DEPOIS do vínculo com a tarefa: `recalcQuoteTotals`
         // conta os veículos do orçamento, e neste instante ele ainda não tem
@@ -2002,16 +1993,6 @@ export class TaskPrismaRepository
         // chamada elas ficariam sem resposta para "de qual veículo é isto?" — e a
         // aritmética, que multiplica pelo que a fatura cobre, cairia no padrão.
         await resliceQuoteCoverage(transaction, createdPricingId);
-
-        // O pedido de compra legado da fatia desce para o VEÍCULO, que é onde ele
-        // mora desde a migração `20260909170000`. Só quando a tarefa não trouxe o
-        // seu: o campo novo é o que manda.
-        if (legacyOrderNumber && !(createInput as any).customerOrderNumber) {
-          await transaction.task.update({
-            where: { id: result.id },
-            data: { customerOrderNumber: legacyOrderNumber },
-          });
-        }
 
         // Só agora os totais: `recalcQuoteTotals` conta os veículos e multiplica
         // por eles, e o veículo passou a existir nesta linha.
@@ -2372,7 +2353,7 @@ export class TaskPrismaRepository
             if (forbiddenHere.length > 0) {
               throw new BadRequestException(
                 `Alteração de ${forbiddenHere.join(', ')} do orçamento não pode ser feita pela tarefa. ` +
-                  'Use a tela de Orçamento (PUT /task-quotes/:id), que valida a transição, recalcula os ' +
+                  'Use a tela de Orçamento (PUT /budgets/:id), que valida a transição, recalcula os ' +
                   'totais e reavalia as assinaturas já coletadas.',
               );
             }
@@ -2461,29 +2442,6 @@ export class TaskPrismaRepository
                 currentTask.quoteId,
                 quoteData.customerConfigs as any,
               );
-
-              // ⚠️ O PEDIDO DE COMPRA LEGADO DESCE PARA O VEÍCULO — e faltava
-              // aqui, no caminho de UPDATE, enquanto o de CREATE (logo acima)
-              // sempre o fez.
-              //
-              // `reconcileQuoteCustomerConfigs` DESCARTA `orderNumber` de
-              // propósito: a coluna foi dropada em `20260909170000` e o número é
-              // do veículo. Quem manda a forma antiga — o app instalado, uma aba
-              // aberta desde ontem — recebia 200 e nada era gravado. É a falha
-              // silenciosa que `tests/task-order-number.test.ts` existe para
-              // impedir, aberta na rota irmã.
-              //
-              // Primeiro valor não vazio; vazio NÃO apaga, e o campo próprio da
-              // tarefa manda quando ele veio no mesmo corpo.
-              const legacyConfigOrderNumber = (quoteData.customerConfigs as any[])
-                .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-                .find(v => v.length > 0);
-              if (legacyConfigOrderNumber && (data as any).customerOrderNumber === undefined) {
-                await transaction.task.updateMany({
-                  where: { quoteId: currentTask.quoteId },
-                  data: { customerOrderNumber: legacyConfigOrderNumber },
-                });
-              }
             }
 
             // Authoritative, discount-aware recompute from the persisted services +

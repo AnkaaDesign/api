@@ -11,7 +11,6 @@ export interface ResponsibleCreateFormData {
   email?: string | null; // Optional - can be added later
   phone: string;
   name: string;
-  password?: string | null; // Optional - only required for system access
   companyId?: string | null; // Optional - responsible can exist without company
   roles: ResponsibleRole[]; // Non-empty; a contact may hold several roles at once
   isActive?: boolean;

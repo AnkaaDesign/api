@@ -534,7 +534,8 @@ export class SignatureEnvelopeService {
       { ready: boolean; missing: string[]; ankaaMissing: string | null }
     >;
     /**
-     * Identificação do veículo NO MOMENTO do envio.
+     * Identificação de cada veículo do orçamento NO MOMENTO do envio, na ordem
+     * do documento.
      *
      * Não impede nada — é aviso, e desde as lacunas de cadastro tardio ele deixou
      * de ser um aviso de perda. O caso comum é o implemento 0 km, orçado antes de
@@ -548,8 +549,6 @@ export class SignatureEnvelopeService {
      * sem carimbo e sem folha extra. Por isso o aviso continua existindo — mas
      * ele não descreve mais uma porta que se fecha.
      */
-    vehicle: { plate: string | null; chassisNumber: string | null; missing: string[] } | null;
-    /** Um por veículo do orçamento, na ordem do documento. */
     vehicles: Array<{
       taskId: string;
       serialNumber: string | null;
@@ -777,8 +776,6 @@ export class SignatureEnvelopeService {
         missing,
       };
     });
-    const truck = quoteTaskRows[0]?.truck ?? null;
-    const missingVehicle = vehicleRows[0]?.missing ?? [];
 
     return {
       ...settings,
@@ -798,18 +795,6 @@ export class SignatureEnvelopeService {
         EMAIL: statusFor('EMAIL'),
       },
       vehicles: vehicleRows,
-      // ⚠️ MANTIDO DE PROPÓSITO, apontando para o PRIMEIRO veículo.
-      //
-      // O app Flutter está instalado nos aparelhos e não é atualizado no mesmo
-      // instante que a API. Uma versão anterior a esta feature lê `vehicle` e
-      // quebraria a tela de envio se o campo sumisse. Ele é redundante com
-      // `vehicles[0]` e deve sair quando não houver mais cliente antigo em
-      // circulação.
-      vehicle: {
-        plate: truck?.plate ?? null,
-        chassisNumber: truck?.chassisNumber ?? null,
-        missing: missingVehicle,
-      },
     };
   }
 
@@ -6340,7 +6325,7 @@ export class SignatureEnvelopeService {
     // O aviso de anulação sai pelo MESMO transporte com ritmo humano que os
     // convites usam: a guarda de saída espaça mensagens consecutivas (ver
     // `WhatsAppOutboundGuard`). Com dois signatários isso somava ~32 s de espera
-    // DELIBERADA dentro do `PUT /task-quotes/:id` — medido em 24/08/2026,
+    // DELIBERADA dentro do `PUT /budgets/:id` — medido em 24/08/2026,
     // 16:20:22→16:20:54, com um intervalo de 15.394 ms entre os dois envios. O
     // operador via "Salvando" esse tempo todo por causa de uma mensagem que não
     // tem nada a ver com o salvamento.
@@ -7426,7 +7411,7 @@ export class SignatureEnvelopeService {
   ): Promise<{ pdf: Buffer; etag: string; filename: string }> {
     // Prefere a coleta CONCLUÍDA: uma reemissão invalidada não pode fazer o
     // artefato assinado sumir da vista do cliente. E, para coletas em
-    // andamento, o prazo é respeitado — o `GET /task-quotes/public/:id`
+    // andamento, o prazo é respeitado — o `GET /budgets/public/:id`
     // pré-existente recusa orçamento expirado, e esta rota tem a MESMA
     // capability, então não pode ser mais permissiva.
     // Chave: EXISTE ARTEFATO (`finalFileId`), não `status COMPLETED`. Só o
