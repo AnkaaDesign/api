@@ -282,14 +282,15 @@ export class AirbrushingService {
    * Transições de status permitidas ao pintor (SECTOR_PRIVILEGES.AIRBRUSHING).
    *
    * The painter owns the work, not the schedule: they may start a job that was
-   * released to the floor, conclude it, and reopen a job they concluded by
-   * mistake. Moving a job into (or out of) Em Preparação / Aguardando Produção,
-   * and cancelling, stay with admin/commercial.
+   * released to the floor and conclude it. Everything else — moving a job into
+   * (or out of) Em Preparação / Aguardando Produção, cancelling and REOPENING a
+   * concluded job — stays with admin/commercial. Concluir fixa o término, o
+   * vencimento e dispara a NFS-e do aerografista; desfazer isso é decisão da
+   * empresa, não de quem vai receber (decisão do Kennedy, 24/09/2026).
    */
   private static readonly PAINTER_STATUS_TRANSITIONS: Record<string, AIRBRUSHING_STATUS[]> = {
     [AIRBRUSHING_STATUS.WAITING_PRODUCTION]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
     [AIRBRUSHING_STATUS.IN_PRODUCTION]: [AIRBRUSHING_STATUS.COMPLETED],
-    [AIRBRUSHING_STATUS.COMPLETED]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
   };
 
   private assertPainterStatusTransition(currentStatus: string, nextStatus: unknown): void {
@@ -305,6 +306,12 @@ export class AirbrushingService {
     if (currentStatus === AIRBRUSHING_STATUS.PREPARATION) {
       throw new BadRequestException(
         'Esta aerografia ainda não foi disponibilizada para produção. Peça ao setor comercial ou a um administrador para liberá-la.',
+      );
+    }
+
+    if (currentStatus === AIRBRUSHING_STATUS.COMPLETED) {
+      throw new BadRequestException(
+        'Esta aerografia já foi concluída. Para reabri-la, fale com o setor comercial ou um administrador.',
       );
     }
 
