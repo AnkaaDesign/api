@@ -94,7 +94,7 @@ export interface OrderNumberTask {
  * documento — `sortQuoteTasks`).
  *
  * Tarefa cancelada sai: cobrar pedido de um veículo que não vai ser pintado
- * travaria a assinatura por um caminhão que não existe mais no negócio. Se
+ * travaria a assinatura por um implemento que não existe mais no negócio. Se
  * TODAS estiverem canceladas, o conjunto inteiro volta — um orçamento vivo
  * nessa condição é anomalia, e a regra não pode desaparecer por causa dela.
  */

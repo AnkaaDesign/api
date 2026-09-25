@@ -1,9 +1,9 @@
-// IMPLEMENTO (era `Truck`) — schemas das rotas `/implements` (e do alias `/trucks`).
+// IMPLEMENTO (era `Implement`) — schemas das rotas `/implements` (e do alias `/implements`).
 //
 // PLANO §5.1/§5.3 (P11a): include/where/orderBy ESTRITOS, corpo de edição
 // `.strict()` só com o que é gravável, e a SÉRIE fora do corpo (S-9: a rota
 // aceita WAREHOUSE; a série se edita na tarefa, domínio `identity`, ou pelo
-// portal). O corpo velho (`implementType`, `truckId`) chega traduzido pelo alias.
+// portal). O corpo velho (`implementType`, `implementId`) chega traduzido pelo alias.
 
 import { z } from 'zod';
 import {
@@ -14,13 +14,17 @@ import {
   plateSchema,
   chassisNumberSchema,
 } from './common';
-import { TRUCK_SPOT, IMPLEMENT_CATEGORY, IMPLEMENT_TYPE } from '@constants';
+import { IMPLEMENT_SPOT, IMPLEMENT_CATEGORY, IMPLEMENT_TYPE } from '@constants';
+
+/** DD1: toda tarefa tem exatamente um implemento; ele não se remove, se limpa. */
+export const IMPLEMENT_NOT_REMOVABLE_MESSAGE =
+  'O implemento não pode ser removido da tarefa; limpe os campos.';
 
 // =====================
 // Enums
 // =====================
 
-export const implementSpotSchema = z.nativeEnum(TRUCK_SPOT);
+export const implementSpotSchema = z.nativeEnum(IMPLEMENT_SPOT);
 export const implementCategorySchema = z.nativeEnum(IMPLEMENT_CATEGORY);
 export const implementTypeSchema = z.nativeEnum(IMPLEMENT_TYPE);
 
@@ -216,7 +220,7 @@ const implementTransform = (data: any): any => {
   // Barracão (B1, B2, B3): vagas com o prefixo do barracão
   if (data.garageNumber && typeof data.garageNumber === 'string') {
     const prefix = `B${data.garageNumber}_`;
-    const garageSpots = Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
+    const garageSpots = Object.values(IMPLEMENT_SPOT).filter(spot => spot.startsWith(prefix));
     if (garageSpots.length > 0) andConditions.push({ spot: { in: garageSpots } });
   }
   delete data.garageNumber;
@@ -224,7 +228,7 @@ const implementTransform = (data: any): any => {
   // Pátio = as duas vagas de pátio (espera e saída). O filtro antigo `inPatio`
   // procurava `spot: null`, que na verdade é "fora das instalações".
   if (data.inPatio === true) {
-    andConditions.push({ spot: { in: [TRUCK_SPOT.YARD_WAIT, TRUCK_SPOT.YARD_EXIT] } });
+    andConditions.push({ spot: { in: [IMPLEMENT_SPOT.YARD_WAIT, IMPLEMENT_SPOT.YARD_EXIT] } });
   }
   delete data.inPatio;
 
@@ -246,7 +250,7 @@ const implementTransform = (data: any): any => {
 
 /**
  * `GET /implements`. Sem `limit`, devolve TODOS (é o que o pátio e o barracão do
- * web e do app pedem hoje em `GET /trucks`); com `limit`, pagina.
+ * web e do app pedem hoje em `GET /implements`); com `limit`, pagina.
  */
 export const implementGetManySchema = z
   .object({

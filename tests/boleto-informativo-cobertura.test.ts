@@ -48,7 +48,7 @@ const veiculo = (serial: string, pedido: string | null) => ({
   id: `t-${serial}`,
   serialNumber: serial,
   customerOrderNumber: pedido,
-  truck: { plate: `ABC${serial.slice(-4)}`, chassisNumber: null, category: 'TRUCK', implementType: 'REFRIGERATED' },
+  implement: { plate: `ABC${serial.slice(-4)}`, chassisNumber: null, category: 'TRUCK', type: 'REFRIGERATED' },
 });
 
 const FROTA = [

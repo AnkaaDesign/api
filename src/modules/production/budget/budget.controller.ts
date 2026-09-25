@@ -88,7 +88,7 @@ export class BudgetController {
 
   /**
    * GET /budgets/suggest
-   * Find the most recent quote matching task name, customer, truck category, and implement type.
+   * Find the most recent quote matching task name, customer, implement category, and implement type.
    * Used to pre-fill services when creating a new budget.
    *
    * Query params: name, customerId, category, implementType (all required)
@@ -237,7 +237,7 @@ export class BudgetController {
    * PUT /budgets/:id/internal-approve
    * Aprova TODAS as cobranças pendentes do orçamento de uma vez.
    *
-   * ⚠️ SEM ENDEREÇO, ESTA ROTA FATURA TUDO. Num orçamento de sessenta caminhões
+   * ⚠️ SEM ENDEREÇO, ESTA ROTA FATURA TUDO. Num orçamento de sessenta implementos
    * cobrados um a um, ela emite as sessenta notas e os sessenta boletos. Era o
    * comportamento silencioso de antes, quando o faturamento não era entidade e
    * "aprovar o faturamento do orçamento" tinha um sentido só — e o app ainda cai
@@ -283,10 +283,10 @@ export class BudgetController {
    *
    * POR QUE UMA ROTA SEPARADA e não um parâmetro opcional na de cima: são
    * privilégios idênticos mas atos diferentes, e a distinção precisa aparecer na
-   * trilha de acesso. "Faturei o orçamento inteiro" e "faturei o caminhão 37"
+   * trilha de acesso. "Faturei o orçamento inteiro" e "faturei o implemento 37"
    * não podem chegar ao log como a mesma linha.
    *
-   * Os sessenta caminhões do Marquespan não terminam no mesmo dia: cada
+   * Os sessenta implementos do Marquespan não terminam no mesmo dia: cada
    * aprovação emite a fatura, a NFS-e e os boletos daquele veículo com o
    * vencimento contado dali. O orçamento só grava `billingApprovedAt` quando a
    * última fatia fecha.

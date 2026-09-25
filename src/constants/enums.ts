@@ -1261,21 +1261,21 @@ export enum PAINT_BASE_TYPE {
 }
 
 // =====================
-// Truck & Garage Enums
+// Implement & Garage Enums
 // =====================
 
 /**
- * Truck parking spots in garages (Barracões)
+ * Implement parking spots in garages (Barracões)
  * Format: B{garage}_F{lane}_V{spot} where garage=1-3, lane=1-3, spot=1-3
- * null spot = trucks in the company but not assigned to a garage spot (patio)
+ * null spot = implements in the company but not assigned to a garage spot (patio)
  *
  * Static garage configuration:
  * - 3 Garages: B1, B2, B3
  * - Each garage has 3 lanes (F1, F2, F3): 3m width
  * - Each lane can have up to 3 spots (V1, V2, V3)
- * - Minimum spacing between trucks: 2m
+ * - Minimum spacing between implements: 2m
  */
-export enum TRUCK_SPOT {
+export enum IMPLEMENT_SPOT {
   // Yard (Patio)
   YARD_WAIT = 'YARD_WAIT',
   YARD_EXIT = 'YARD_EXIT',
@@ -1323,41 +1323,31 @@ export enum TRUCK_MANUFACTURER {
 
 /**
  * Categoria do implemento (o veículo que a tarefa pinta): porte e configuração.
- * Espelho de `$Enums.ImplementCategory` (a M1 renomeou o tipo `TruckCategory`).
+ * Espelho de `$Enums.ImplementCategory`: o TIPO do caminhão que leva o implemento.
  */
 export enum IMPLEMENT_CATEGORY {
-  MINI = 'MINI', // Mini truck (small urban delivery)
+  MINI = 'MINI', // Mini (entrega urbana)
   VUC = 'VUC', // VUC - Veículo Urbano de Carga (Urban Cargo Vehicle)
-  THREE_QUARTER = 'THREE_QUARTER', // 3/4 truck (light commercial)
-  RIGID = 'RIGID', // Toco - Rigid truck with single rear axle
-  TRUCK = 'TRUCK', // Standard truck
-  SEMI_TRAILER = 'SEMI_TRAILER', // Carreta - Semi-trailer truck
+  THREE_QUARTER = 'THREE_QUARTER', // 3/4 (comercial leve)
+  RIGID = 'RIGID', // Toco - eixo traseiro simples
+  TRUCK = 'TRUCK', // eixo traseiro duplo (valor do mercado, não o nome antigo do implemento)
+  SEMI_TRAILER = 'SEMI_TRAILER', // Carreta - semirreboque
   SEMI_TRAILER_2_AXLES = 'SEMI_TRAILER_2_AXLES', // Semirreboque 2 Eixos
   B_DOUBLE_FRONT = 'B_DOUBLE_FRONT', // Bitrem Composição Dianteira - front compartment of B-Double trailer
   B_DOUBLE_REAR = 'B_DOUBLE_REAR', // Bitrem Composição Traseira - rear compartment of B-Double trailer
-  BITRUCK = 'BITRUCK', // Bitruck - Rigid truck with dual steering axle
+  BITRUCK = 'BITRUCK', // dois eixos direcionais
 }
 
-/**
- * JANELA BILÍNGUE (até a R-D, P32): o nome velho do enum de categoria. O
- * contrato exportado (G5) MANTÉM a chave `TRUCK_CATEGORY` — o teste do web e o
- * `labels.dart` do app a leem. Código novo usa `IMPLEMENT_CATEGORY`.
- * @deprecated use IMPLEMENT_CATEGORY
- */
-export const TRUCK_CATEGORY = IMPLEMENT_CATEGORY;
-/** @deprecated use IMPLEMENT_CATEGORY */
-export type TRUCK_CATEGORY = IMPLEMENT_CATEGORY;
 
 /**
- * Truck body/implement types
- * Defines the type of body or implement mounted on the truck
+ * Tipo do implemento: a carroceria montada sobre o caminhão
  */
 export enum IMPLEMENT_TYPE {
   DRY_CARGO = 'DRY_CARGO', // Carga Seca - Dry cargo body
   REFRIGERATED = 'REFRIGERATED', // Refrigerado - Refrigerated body
   INSULATED = 'INSULATED', // Isoplastic - Insulated body
   CURTAIN_SIDE = 'CURTAIN_SIDE', // Sider - Curtain-side body
-  TANK = 'TANK', // Tanque - Tank truck
+  TANK = 'TANK', // Tanque
   FLATBED = 'FLATBED', // Carroceria - Open flatbed/stake body
 }
 
@@ -1448,7 +1438,7 @@ export enum ENTITY_TYPE {
   TASK_QUOTE_SERVICE = 'TASK_QUOTE_SERVICE',
   TASK_QUOTE_CUSTOMER_CONFIG = 'TASK_QUOTE_CUSTOMER_CONFIG',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
-  TRUCK = 'TRUCK',
+  IMPLEMENT = 'IMPLEMENT',
   USER = 'USER',
   VACATION = 'VACATION',
   VACATION_GROUP = 'VACATION_GROUP',
@@ -2117,7 +2107,7 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   TASK_QUOTE_CUSTOMER_CONFIG = 'TASK_QUOTE_CUSTOMER_CONFIG',
   TERMINATION = 'TERMINATION',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
-  TRUCK = 'TRUCK',
+  IMPLEMENT = 'IMPLEMENT',
   USER = 'USER',
   USER_BENEFIT = 'USER_BENEFIT',
   USER_POSITION_HISTORY = 'USER_POSITION_HISTORY',

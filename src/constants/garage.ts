@@ -1,7 +1,7 @@
-// Static garage configuration for the truck painting company
+// Static garage configuration for the implement painting company
 // Garages (Barracões) are static - they never change
 
-import { TRUCK_SPOT } from './enums';
+import { IMPLEMENT_SPOT } from './enums';
 
 // =====================
 // Garage Dimensions (in meters)
@@ -50,19 +50,19 @@ export const GARAGE_CONFIG = {
   GARAGE_WIDTH: 25, // meters (across the lanes) - DEPRECATED: Use GARAGE_CONFIGS[garageId].width
 
   // Lane dimensions
-  LANE_LENGTH: 35, // meters (truck capacity) - DEPRECATED: Use GARAGE_CONFIGS[garageId].laneLength
-  LANE_WIDTH: 3, // meters (truck width in top view)
+  LANE_LENGTH: 35, // meters (implement capacity) - DEPRECATED: Use GARAGE_CONFIGS[garageId].laneLength
+  LANE_WIDTH: 3, // meters (implement width in top view)
 
   // Spacing
   LANE_SPACING: 4, // meters between lanes and at edges - DEPRECATED: Use GARAGE_CONFIGS[garageId].laneSpacing
-  TRUCK_MIN_SPACING: 1, // meters minimum between trucks
+  IMPLEMENT_MIN_SPACING: 1, // meters minimum between implements
 
-  // Truck dimensions
-  TRUCK_WIDTH_TOP_VIEW: 2.8, // meters (width when viewed from top = truck's actual width)
+  // Implement dimensions
+  IMPLEMENT_WIDTH_TOP_VIEW: 2.8, // meters (width when viewed from top = the implement's actual width)
 
-  // Cabin dimensions - two-tier system based on truck body length
-  CABIN_LENGTH_SMALL: 2.0, // meters - for trucks with body < 7m
-  CABIN_LENGTH_LARGE: 2.4, // meters - for trucks with body >= 7m and < 10m
+  // Cabin dimensions - two-tier system based on implement body length
+  CABIN_LENGTH_SMALL: 2.0, // meters - for implements with body < 7m
+  CABIN_LENGTH_LARGE: 2.4, // meters - for implements with body >= 7m and < 10m
   CABIN_THRESHOLD_SMALL: 7, // meters - below this uses small cabin (2m)
   CABIN_THRESHOLD_LARGE: 10, // meters - below this but >= 7m uses large cabin (2.4m), >= 10m no cabin
 
@@ -71,8 +71,8 @@ export const GARAGE_CONFIG = {
   CABIN_THRESHOLD: 10, // DEPRECATED: Use CABIN_THRESHOLD_SMALL and CABIN_THRESHOLD_LARGE
 
   // Limits
-  MAX_TRUCKS_PER_LANE: 3,
-  MIN_TRUCK_LENGTH: 5, // meters
+  MAX_IMPLEMENTS_PER_LANE: 3,
+  MIN_IMPLEMENT_LENGTH: 5, // meters
 } as const;
 
 // =====================
@@ -182,27 +182,27 @@ export const GARAGES: Garage[] = [
 // Yard & Garage Spot Helpers
 // =====================
 
-export const YARD_SPOTS = [TRUCK_SPOT.YARD_WAIT, TRUCK_SPOT.YARD_EXIT] as const;
+export const YARD_SPOTS = [IMPLEMENT_SPOT.YARD_WAIT, IMPLEMENT_SPOT.YARD_EXIT] as const;
 
 /**
  * Check if a spot is a yard spot (YARD_WAIT or YARD_EXIT)
  */
-export function isYardSpot(spot: TRUCK_SPOT | string | null | undefined): boolean {
-  return spot === TRUCK_SPOT.YARD_WAIT || spot === TRUCK_SPOT.YARD_EXIT;
+export function isYardSpot(spot: IMPLEMENT_SPOT | string | null | undefined): boolean {
+  return spot === IMPLEMENT_SPOT.YARD_WAIT || spot === IMPLEMENT_SPOT.YARD_EXIT;
 }
 
 /**
  * Check if a spot is a garage spot (B1/B2/B3 lane spots)
  */
-export function isGarageSpot(spot: TRUCK_SPOT | string | null | undefined): boolean {
+export function isGarageSpot(spot: IMPLEMENT_SPOT | string | null | undefined): boolean {
   if (!spot) return false;
   return /^B\d_F\d_V\d$/.test(spot);
 }
 
 /**
- * Parse a TRUCK_SPOT enum value to extract garage, lane, and spot number
+ * Parse a IMPLEMENT_SPOT enum value to extract garage, lane, and spot number
  */
-export function parseSpot(spot: TRUCK_SPOT): {
+export function parseSpot(spot: IMPLEMENT_SPOT): {
   garage: GarageId | null;
   lane: LaneId | null;
   spotNumber: SpotNumber | null;
@@ -221,27 +221,27 @@ export function parseSpot(spot: TRUCK_SPOT): {
 }
 
 /**
- * Build a TRUCK_SPOT enum value from garage, lane, and spot number
+ * Build a IMPLEMENT_SPOT enum value from garage, lane, and spot number
  */
-export function buildSpot(garage: GarageId, lane: LaneId, spotNumber: SpotNumber): TRUCK_SPOT {
-  const key = `${garage}_${lane}_V${spotNumber}` as keyof typeof TRUCK_SPOT;
-  return TRUCK_SPOT[key];
+export function buildSpot(garage: GarageId, lane: LaneId, spotNumber: SpotNumber): IMPLEMENT_SPOT {
+  const key = `${garage}_${lane}_V${spotNumber}` as keyof typeof IMPLEMENT_SPOT;
+  return IMPLEMENT_SPOT[key];
 }
 
 /**
  * Get all spots for a specific garage
  */
-export function getGarageSpots(garage: GarageId): TRUCK_SPOT[] {
+export function getGarageSpots(garage: GarageId): IMPLEMENT_SPOT[] {
   const prefix = `${garage}_`;
-  return Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
+  return Object.values(IMPLEMENT_SPOT).filter(spot => spot.startsWith(prefix));
 }
 
 /**
  * Get all spots for a specific lane in a garage
  */
-export function getLaneSpots(garage: GarageId, lane: LaneId): TRUCK_SPOT[] {
+export function getLaneSpots(garage: GarageId, lane: LaneId): IMPLEMENT_SPOT[] {
   const prefix = `${garage}_${lane}`;
-  return Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
+  return Object.values(IMPLEMENT_SPOT).filter(spot => spot.startsWith(prefix));
 }
 
 /**
@@ -260,22 +260,22 @@ export function getLane(garageId: GarageId, laneId: LaneId): Lane | undefined {
 }
 
 // =====================
-// Truck Length Calculation
+// Implement Length Calculation
 // =====================
 
 /**
- * Calculate the actual length of a truck in the garage (top view)
+ * Calculate the actual length of a implement in the garage (top view)
  * The layout sections width sum represents the side view length (body only)
  *
  * Two-tier cabin system:
- * - Trucks with body < 7m: add 2.0m cabin (small trucks)
- * - Trucks with body >= 7m and < 10m: add 2.4m cabin (larger trucks)
- * - Trucks with body >= 10m: no cabin added (semi-trailers)
+ * - Implements with body < 7m: add 2.0m cabin (small implements)
+ * - Implements with body >= 7m and < 10m: add 2.4m cabin (larger implements)
+ * - Implements with body >= 10m: no cabin added (semi-trailers)
  *
  * @param sectionsWidthSum - Sum of all section widths (in meters)
- * @returns Actual truck length in the garage (in meters)
+ * @returns Actual implement length in the garage (in meters)
  */
-export function calculateTruckGarageLength(sectionsWidthSum: number): number {
+export function calculateImplementGarageLength(sectionsWidthSum: number): number {
   if (sectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_SMALL) {
     return sectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_SMALL;
   }
@@ -296,48 +296,48 @@ export function calculateSectionsSum(sections: { width: number }[]): number {
 // Spot Labels for Display
 // =====================
 
-export const SPOT_LABELS: Record<TRUCK_SPOT, string> = {
+export const SPOT_LABELS: Record<IMPLEMENT_SPOT, string> = {
   // Yard
-  [TRUCK_SPOT.YARD_WAIT]: 'Pátio de Espera',
-  [TRUCK_SPOT.YARD_EXIT]: 'Pátio de Saída',
+  [IMPLEMENT_SPOT.YARD_WAIT]: 'Pátio de Espera',
+  [IMPLEMENT_SPOT.YARD_EXIT]: 'Pátio de Saída',
   // Garage 1
-  [TRUCK_SPOT.B1_F1_V1]: 'B1-F1-V1',
-  [TRUCK_SPOT.B1_F1_V2]: 'B1-F1-V2',
-  [TRUCK_SPOT.B1_F1_V3]: 'B1-F1-V3',
-  [TRUCK_SPOT.B1_F2_V1]: 'B1-F2-V1',
-  [TRUCK_SPOT.B1_F2_V2]: 'B1-F2-V2',
-  [TRUCK_SPOT.B1_F2_V3]: 'B1-F2-V3',
-  [TRUCK_SPOT.B1_F3_V1]: 'B1-F3-V1',
-  [TRUCK_SPOT.B1_F3_V2]: 'B1-F3-V2',
-  [TRUCK_SPOT.B1_F3_V3]: 'B1-F3-V3',
+  [IMPLEMENT_SPOT.B1_F1_V1]: 'B1-F1-V1',
+  [IMPLEMENT_SPOT.B1_F1_V2]: 'B1-F1-V2',
+  [IMPLEMENT_SPOT.B1_F1_V3]: 'B1-F1-V3',
+  [IMPLEMENT_SPOT.B1_F2_V1]: 'B1-F2-V1',
+  [IMPLEMENT_SPOT.B1_F2_V2]: 'B1-F2-V2',
+  [IMPLEMENT_SPOT.B1_F2_V3]: 'B1-F2-V3',
+  [IMPLEMENT_SPOT.B1_F3_V1]: 'B1-F3-V1',
+  [IMPLEMENT_SPOT.B1_F3_V2]: 'B1-F3-V2',
+  [IMPLEMENT_SPOT.B1_F3_V3]: 'B1-F3-V3',
   // Garage 2
-  [TRUCK_SPOT.B2_F1_V1]: 'B2-F1-V1',
-  [TRUCK_SPOT.B2_F1_V2]: 'B2-F1-V2',
-  [TRUCK_SPOT.B2_F1_V3]: 'B2-F1-V3',
-  [TRUCK_SPOT.B2_F2_V1]: 'B2-F2-V1',
-  [TRUCK_SPOT.B2_F2_V2]: 'B2-F2-V2',
-  [TRUCK_SPOT.B2_F2_V3]: 'B2-F2-V3',
-  [TRUCK_SPOT.B2_F3_V1]: 'B2-F3-V1',
-  [TRUCK_SPOT.B2_F3_V2]: 'B2-F3-V2',
-  [TRUCK_SPOT.B2_F3_V3]: 'B2-F3-V3',
+  [IMPLEMENT_SPOT.B2_F1_V1]: 'B2-F1-V1',
+  [IMPLEMENT_SPOT.B2_F1_V2]: 'B2-F1-V2',
+  [IMPLEMENT_SPOT.B2_F1_V3]: 'B2-F1-V3',
+  [IMPLEMENT_SPOT.B2_F2_V1]: 'B2-F2-V1',
+  [IMPLEMENT_SPOT.B2_F2_V2]: 'B2-F2-V2',
+  [IMPLEMENT_SPOT.B2_F2_V3]: 'B2-F2-V3',
+  [IMPLEMENT_SPOT.B2_F3_V1]: 'B2-F3-V1',
+  [IMPLEMENT_SPOT.B2_F3_V2]: 'B2-F3-V2',
+  [IMPLEMENT_SPOT.B2_F3_V3]: 'B2-F3-V3',
   // Garage 3
-  [TRUCK_SPOT.B3_F1_V1]: 'B3-F1-V1',
-  [TRUCK_SPOT.B3_F1_V2]: 'B3-F1-V2',
-  [TRUCK_SPOT.B3_F1_V3]: 'B3-F1-V3',
-  [TRUCK_SPOT.B3_F2_V1]: 'B3-F2-V1',
-  [TRUCK_SPOT.B3_F2_V2]: 'B3-F2-V2',
-  [TRUCK_SPOT.B3_F2_V3]: 'B3-F2-V3',
-  [TRUCK_SPOT.B3_F3_V1]: 'B3-F3-V1',
-  [TRUCK_SPOT.B3_F3_V2]: 'B3-F3-V2',
-  [TRUCK_SPOT.B3_F3_V3]: 'B3-F3-V3',
+  [IMPLEMENT_SPOT.B3_F1_V1]: 'B3-F1-V1',
+  [IMPLEMENT_SPOT.B3_F1_V2]: 'B3-F1-V2',
+  [IMPLEMENT_SPOT.B3_F1_V3]: 'B3-F1-V3',
+  [IMPLEMENT_SPOT.B3_F2_V1]: 'B3-F2-V1',
+  [IMPLEMENT_SPOT.B3_F2_V2]: 'B3-F2-V2',
+  [IMPLEMENT_SPOT.B3_F2_V3]: 'B3-F2-V3',
+  [IMPLEMENT_SPOT.B3_F3_V1]: 'B3-F3-V1',
+  [IMPLEMENT_SPOT.B3_F3_V2]: 'B3-F3-V2',
+  [IMPLEMENT_SPOT.B3_F3_V3]: 'B3-F3-V3',
 };
 
 /**
  * Get the display label for a spot
  */
-export function getSpotLabel(spot: TRUCK_SPOT | string | null | undefined): string {
+export function getSpotLabel(spot: IMPLEMENT_SPOT | string | null | undefined): string {
   if (!spot) return 'Não atribuído';
-  return SPOT_LABELS[spot as TRUCK_SPOT] || spot;
+  return SPOT_LABELS[spot as IMPLEMENT_SPOT] || spot;
 }
 
 // =====================

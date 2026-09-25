@@ -3,7 +3,7 @@ import {
   MEASURE_UNIT_LABELS,
   CHANGE_LOG_ACTION,
   CHANGE_TRIGGERED_BY,
-  TRUCK_CATEGORY_LABELS,
+  IMPLEMENT_CATEGORY_LABELS,
   IMPLEMENT_TYPE_LABELS,
   STOCK_MODEL_LABELS,
   formatResponsibleRoles,
@@ -237,7 +237,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     paint: 'Tinta',
     observation: 'Observação',
     createdBy: 'Criado por',
-    truck: 'Caminhão',
     implement: 'Implemento',
     layouts: 'Layouts',
     baseFiles: 'Arquivos Base',
@@ -251,20 +250,12 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     cutPlan: 'Planos de Corte',
     relatedTasks: 'Tarefas Relacionadas',
     relatedTo: 'Relacionado a',
-    // Direct truck fields (when truck data is embedded in task changelog)
-    category: 'Categoria do Caminhão',
-    implementType: 'Tipo de Implemento',
     // Nested relationship fields
     'customer.fantasyName': 'Nome Fantasia do Cliente',
     'customer.corporateName': 'Razão Social do Cliente',
     'customer.cnpj': 'CNPJ do Cliente',
     'sector.name': 'Nome do Setor',
-    'truck.plate': 'Placa do Caminhão',
-    'truck.chassisNumber': 'Chassi do Caminhão',
-    'truck.vinPlateId': 'Foto da Plaqueta',
-    'truck.category': 'Categoria do Caminhão',
-    'truck.implementType': 'Tipo de Implemento',
-    // As linhas novas do histórico gravam `implement.*` (P11a); as duas grafias valem.
+    // Campos do implemento gravados no histórico da tarefa
     'implement.plate': 'Placa do Implemento',
     'implement.chassisNumber': 'Chassi do Implemento',
     'implement.vinPlateId': 'Foto da Plaqueta',
@@ -640,7 +631,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     // Nested relationship fields
     'file.filename': 'Nome do Arquivo',
     'task.serialNumber': 'Número de Série da Tarefa',
-    'truck.plate': 'Placa do Caminhão',
+    'implement.plate': 'Placa do Implemento',
     'task.title': 'Título da Tarefa',
     'parentCut.id': 'ID do Corte Pai',
   },
@@ -758,13 +749,11 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'user.position.name': 'Cargo do Funcionário',
     'user.sector.name': 'Setor do Funcionário',
   },
-  [CHANGE_LOG_ENTITY_TYPE.TRUCK]: {
+  [CHANGE_LOG_ENTITY_TYPE.IMPLEMENT]: {
     plate: 'Placa',
     chassisNumber: 'Número do Chassi',
     vinPlateId: 'Foto da Plaqueta',
     category: 'Categoria',
-    implementType: 'Tipo de Implemento',
-    // a coluna depois da M1 (as linhas novas da trilha do implemento)
     type: 'Tipo de Implemento',
     serialNumber: 'Número de Série',
     spot: 'Localização',
@@ -773,9 +762,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     year: 'Ano',
     color: 'Cor',
     notes: 'Observações',
-    // Truck implementMeasure (renamed from "Medidas do Caminhão" to "ImplementMeasure do Caminhão").
+    // Medidas do implemento
     // Sides standardized to Motorista / Sapo / Traseira to match the UI.
-    implementMeasure: 'ImplementMeasure do Caminhão',
+    implementMeasure: 'Medidas do Implemento',
     leftSideMeasureId: 'Motorista',
     rightSideMeasureId: 'Sapo',
     backSideMeasureId: 'Traseira',
@@ -1083,22 +1072,19 @@ export function formatFieldValue(
     return taskStatusLabels[value] || value;
   }
 
-  // Handle truck category
+  // Categoria do implemento
   if (
-    (field === 'truck.category' || field === 'implement.category' || field === 'category') &&
-    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
+    (field === 'implement.category' || field === 'category') &&
+    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.IMPLEMENT) &&
     typeof value === 'string'
   ) {
-    return TRUCK_CATEGORY_LABELS[value as keyof typeof TRUCK_CATEGORY_LABELS] || value;
+    return IMPLEMENT_CATEGORY_LABELS[value as keyof typeof IMPLEMENT_CATEGORY_LABELS] || value;
   }
 
-  // Handle truck implement type
+  // Tipo do implemento
   if (
-    (field === 'truck.implementType' ||
-      field === 'implement.type' ||
-      field === 'implementType' ||
-      (field === 'type' && entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK)) &&
-    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
+    (field === 'implement.type' || (field === 'type' && entityType === CHANGE_LOG_ENTITY_TYPE.IMPLEMENT)) &&
+    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.IMPLEMENT) &&
     typeof value === 'string'
   ) {
     // Include legacy CORRUGATED value for old changelog records

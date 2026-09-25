@@ -93,7 +93,7 @@ const semPedidoSchema = z
  *
  * ⛔ A tela manda `campo:direção` (`name:asc`, `plate:desc`), exatamente como a
  * lista de Faturamento já manda (`BILLING_SORT_FIELD_MAP` no `web`). NUNCA um
- * `{ truck: { plate: 'asc' } }` vindo do cliente: além de ser injeção de
+ * `{ implement: { plate: 'asc' } }` vindo do cliente: além de ser injeção de
  * consulta, uma rodada anterior mandou justamente isso e o `orderBy` daqui era
  * um `z.enum(['fila','recentes'])` — TODO clique de cabeçalho voltava 400.
  *

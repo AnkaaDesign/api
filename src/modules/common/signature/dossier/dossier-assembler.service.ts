@@ -972,7 +972,7 @@ export class DossierAssemblerService {
     /**
      * TODAS as tarefas do orçamento, na ordem do documento.
      *
-     * Era uma tarefa só. Num orçamento de sessenta caminhões, mandar as fotos de
+     * Era uma tarefa só. Num orçamento de sessenta implementos, mandar as fotos de
      * um e omitir as dos outros cinquenta e nove entregaria ao cliente um dossiê
      * que parece completo e não é — o pior formato possível para uma peça que
      * existe para provar o que foi feito.
@@ -985,7 +985,7 @@ export class DossierAssemblerService {
     const orders = await this.prisma.serviceOrder.findMany({
       where: { taskId: { in: taskIds } },
       // Agrupado POR TAREFA antes de por posição: o dossiê fotográfico se lê
-      // caminhão a caminhão, e intercalar as ordens de sessenta veículos por
+      // implemento a implemento, e intercalar as ordens de sessenta veículos por
       // número de posição produziria sessenta blocos de "Logomarca Laterais"
       // seguidos de sessenta de "Logomarca Traseira".
       orderBy: [{ taskId: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
@@ -1109,7 +1109,7 @@ export class DossierAssemblerService {
       // Só sai quando o orçamento cobre mais de um. Com um veículo, dizer o
       // número de série em cada folha é repetir na sessenta e primeira vez o que
       // a capa já disse; com sessenta, é a ÚNICA coisa que distingue duas folhas
-      // de "Logomarca Laterais" cujas fotos são de caminhões diferentes.
+      // de "Logomarca Laterais" cujas fotos são de implementos diferentes.
       //
       // O rótulo vai acima do cartão, e não dentro: dentro ele competiria com a
       // descrição do serviço, que é o título do cartão.
@@ -1490,7 +1490,7 @@ export class DossierAssemblerService {
    * As notas do ORÇAMENTO — e só as do cliente pedido, quando há um.
    *
    * O escopo era a tarefa. Passou a ser o orçamento porque uma nota pode não ter
-   * tarefa: quando os sessenta caminhões são faturados juntos, `NfseDocument.taskId`
+   * tarefa: quando os sessenta implementos são faturados juntos, `NfseDocument.taskId`
    * é NULO de propósito (a nota não é de nenhum deles em particular) e quem liga é
    * `quoteId`. Buscar por tarefa deixaria o dossiê de um faturamento conjunto SEM
    * nota fiscal nenhuma.

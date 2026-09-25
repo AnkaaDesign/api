@@ -966,7 +966,7 @@ export class QuoteRendererService {
    * errada.
    *
    * ⚠️ COM MUITOS VEÍCULOS ISSO DEIXA DE SER RARO E PASSA A SER A REGRA.
-   * A tabela de sessenta caminhões ocupa quase três folhas sozinha, então da
+   * A tabela de sessenta implementos ocupa quase três folhas sozinha, então da
    * linha ~35 em diante nenhuma lacuna é carimbável. Isso NÃO é uma perda de
    * informação, e é importante entender por quê: o carimbo é um atalho visual
    * para o caso simples. O canal GARANTIDO do cadastro tardio é o ADITIVO

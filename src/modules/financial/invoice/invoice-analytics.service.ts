@@ -620,7 +620,7 @@ export class InvoiceAnalyticsService {
   // `TASK_QUOTE_STATUS` — o ciclo do PAGAMENTO morando na linha da VENDA. O
   // faturamento agora é `Billing`, 1..N por orçamento, com estado próprio
   // (`BILLING_STATUS`), e é dele que este funil lê "faturou?" e "liquidou?".
-  // Um orçamento de sessenta caminhões cobrados um a um tem sessenta cobranças:
+  // Um orçamento de sessenta implementos cobrados um a um tem sessenta cobranças:
   // perguntar ao orçamento se "está pago" não tinha resposta possível.
   //
   // ⚠️ NÃO USE `Budget.statusOrder` AQUI. Foi o que este código fazia, e
@@ -710,7 +710,7 @@ export class InvoiceAnalyticsService {
      * Quanto deste orçamento já entrou como LIQUIDADO, em reais.
      *
      * O valor de uma cobrança é a fatia por veículo (`total ÷ N`) vezes os
-     * veículos que ela cobre: num orçamento de sessenta caminhões cobrados um a
+     * veículos que ela cobre: num orçamento de sessenta implementos cobrados um a
      * um, trinta pagos são metade do contrato — nem o contrato inteiro (o que o
      * `status === SETTLED` do orçamento fazia, porque não havia meio termo) nem
      * zero.
@@ -770,7 +770,7 @@ export class InvoiceAnalyticsService {
       // com filtro de cliente ou de setor devolvia 500, e só com filtro.
       //
       // `some` é a semântica certa: o funil quer os orçamentos que TOCAM aquele
-      // cliente ou setor, e num orçamento de sessenta caminhões basta um.
+      // cliente ou setor, e num orçamento de sessenta implementos basta um.
       where.tasks = {
         some: {
           ...(customerIds?.length && { customerId: { in: customerIds } }),
@@ -962,10 +962,10 @@ export class InvoiceAnalyticsService {
       { id: string; name: string; count: number; total: number; settled: number }
     >();
     // POR VEÍCULO, não pelo primeiro. Um orçamento multitarefa pode cobrir
-    // sessenta caminhões, e creditar o contrato inteiro ao cliente do primeiro
+    // sessenta implementos, e creditar o contrato inteiro ao cliente do primeiro
     // some com os demais quando eles diferem. O valor de cada veículo é a fatia
     // (`total ÷ N`), e a soma das fatias reconstrói o contrato. A CONTAGEM de
-    // orçamentos é por orçamento, não por veículo: sessenta caminhões de um
+    // orçamentos é por orçamento, não por veículo: sessenta implementos de um
     // cliente são um orçamento dele, e contá-los sessenta vezes inflaria o
     // "quoteCount" que a tela chama de "orçamentos".
     for (const q of quotes) {
@@ -1010,7 +1010,7 @@ export class InvoiceAnalyticsService {
       string,
       { id: string; name: string; count: number; total: number; settled: number }
     >();
-    // Mesma distribuição do bloco de clientes: os sessenta caminhões podem estar
+    // Mesma distribuição do bloco de clientes: os sessenta implementos podem estar
     // repartidos entre setores, e o setor do primeiro não responde pelos outros.
     for (const q of quotes) {
       const share = perVehicleAmount(q.total, q.tasks?.length);

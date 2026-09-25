@@ -398,7 +398,7 @@ export class BudgetService {
       //
       // `layouts` é a forma nova: cada arte diz de quais veículos é. Normalizada
       // AQUI, antes de qualquer escrita, porque é aqui que ela pode ser recusada
-      // (veículo que não é do orçamento, arte demais por caminhão) — e recusar
+      // (veículo que não é do orçamento, arte demais por implemento) — e recusar
       // depois de alocar número e criar faturamento seria desfazer tudo isso.
       // `layoutFileIds` continua aceito (app instalado, criação em lote) e cria
       // um orçamento `SHARED`, como sempre.
@@ -458,10 +458,10 @@ export class BudgetService {
       //
       // `configTotal` já vem no escopo certo, porque a conta é `por veículo ×
       // veículos COBERTOS`: o total geral quando a fatura cobre os sessenta, o de
-      // um caminhão quando cobre um, o do lote quando cobre vinte.
+      // um implemento quando cobre um, o do lote quando cobre vinte.
       //
       // ⚠️ UM CLIENTE, não UMA FATURA. Um orçamento cobrado veículo a veículo tem
-      // uma fatura por VEÍCULO: quatro caminhões do mesmo cliente são quatro
+      // uma fatura por VEÍCULO: quatro implementos do mesmo cliente são quatro
       // faturas, e contá-las fazia o filtro abaixo rodar — deixando as quatro com
       // ZERO serviços, porque num orçamento de um cliente só ninguém preenche
       // `invoiceToCustomerId`. Ver a nota em `utils/quote-tasks.ts`.
@@ -484,7 +484,7 @@ export class BudgetService {
       // faz o `CUSTOM` recém-declarado nascer um-por-veículo). Chamando-a uma vez
       // por CONFIGURAÇÃO, com um grupo só, cada fatia reivindicava o seu lote e
       // recebia os lotes das outras como veículos isolados: num orçamento de
-      // quatro caminhões em dois lotes, cada caminhão aparecia DUAS vezes no
+      // quatro implementos em dois lotes, cada implemento aparecia DUAS vezes no
       // plano, e o `createMany` de `BillingTask` — cuja unicidade é global — caía
       // em P2002 ("Já existe registro com estes dados") na criação inteira.
       //
@@ -663,7 +663,7 @@ export class BudgetService {
         //
         // DOIS PAGADORES DO MESMO RECORTE CAEM NO MESMO FATURAMENTO, com dois
         // `customerConfigs` dentro: o que difere entre eles é quem paga o quê
-        // (`BudgetItem.invoiceToCustomerId`), não quais caminhões a cobrança
+        // (`BudgetItem.invoiceToCustomerId`), não quais implementos a cobrança
         // cobre. Era este colapso que a modelagem antiga não sabia fazer — ela
         // respondia "dois faturamentos" para um recorte só.
         //
@@ -777,13 +777,13 @@ export class BudgetService {
         // veículo recebe o SEU conjunto de ordens de serviço. É literalmente o
         // trabalho a executar: os três serviços do Marquespan (Logomarca
         // Laterais, Logomarca Traseira, Aerografia Parcial) viram três O.S. em
-        // cada um dos sessenta caminhões — cento e oitenta ordens, que é o
+        // cada um dos sessenta implementos — cento e oitenta ordens, que é o
         // número de coisas que a produção de fato vai fazer.
         //
         // O laço é por TAREFA e o conjunto de O.S. existentes é lido por tarefa:
-        // um único `existingSOs` compartilhado faria o segundo caminhão "já ter"
+        // um único `existingSOs` compartilhado faria o segundo implemento "já ter"
         // a O.S. que acabou de ser criada no primeiro, e cinquenta e nove
-        // caminhões ficariam sem ordem nenhuma.
+        // implementos ficariam sem ordem nenhuma.
         // =====================================================================
         try {
           for (const targetTaskId of taskIds) {
@@ -899,7 +899,7 @@ export class BudgetService {
   //
   // The budget detail form on web/mobile always re-submits the full quote
   // (customerConfigs + services + scalar fields), even when the user only
-  // changed a Task field like truck.plate. Without filtering, every save
+  // changed a Task field like implement.plate. Without filtering, every save
   // would trip STATUS_LOCKED at BILLING_APPROVED+, run the destructive
   // customerConfigs delete+recreate, and auto-revert status on no-op
   // resubmissions. We canonicalize both sides and pass through only fields
@@ -927,7 +927,7 @@ export class BudgetService {
    * A RECOMPOSIÇÃO DE LOTES É ALTERAÇÃO MATERIAL.
    *
    * `canonicalizeCustomerConfig` compara TERMOS (cliente, desconto, condição), e
-   * mover um caminhão do lote 1 para o lote 2 não mexe em termo nenhum: com o
+   * mover um implemento do lote 1 para o lote 2 não mexe em termo nenhum: com o
    * mesmo NÚMERO de lotes e os mesmos valores, a gravação era descartada com
    * "Nenhuma alteração detectada." e `success: true`. A tela mostrava o arranjo
    * novo, o banco guardava o velho, e nada acusava.
@@ -1124,7 +1124,7 @@ export class BudgetService {
     if (data.services !== undefined) return true;
 
     // A FROTA MUDOU → O VALOR MUDOU. O total do orçamento é `por veículo × N`;
-    // acrescentar ou retirar um caminhão muda o CONTRATO, e o contrato é o que o
+    // acrescentar ou retirar um implemento muda o CONTRATO, e o contrato é o que o
     // cliente assinou. Sem este teste, mexer em `taskIds` mudava o valor sem
     // derrubar a aprovação nem a coleta de assinaturas em andamento — o PDF
     // assinado dizia "×4" e a cobrança saía "×5".
@@ -1190,7 +1190,7 @@ export class BudgetService {
           // ⚠️ OS VEÍCULOS. Sem esta linha `existingTaskIds` sai VAZIO e leva
           // junto tudo o que depende de quantos veículos o orçamento cobre:
           // `updateVehicleCount` cai para 1 (e `computeQuoteMoney` calcula o
-          // contrato como se fosse um caminhão só), `nextTaskIds` fica vazio e a
+          // contrato como se fosse um implemento só), `nextTaskIds` fica vazio e a
           // reconciliação de fatias, com `PER_TASK`, produz UMA fatia conjunta
           // em vez de uma por veículo — o que faz a aprovação "veículo a
           // veículo" faturar os sessenta de uma vez.
@@ -1252,7 +1252,7 @@ export class BudgetService {
         delete (data as any).layoutFileIds;
       }
       // O pedido `layouts`, normalizado contra os veículos FINAIS desta gravação
-      // (a mesma gravação pode acrescentar ou retirar caminhão). Recusa aqui —
+      // (a mesma gravação pode acrescentar ou retirar implemento). Recusa aqui —
       // veículo estranho, arte demais — sai antes de qualquer escrita.
       let layoutPlan: LayoutCoveragePlan | null = null;
       if (layoutsRequested) {
@@ -1292,7 +1292,7 @@ export class BudgetService {
       //
       // The budget detail form re-submits the full quote snapshot on every
       // save (including when the user only edited a Task field like
-      // truck.plate). Without this filter, those no-op resubmissions would
+      // implement.plate). Without this filter, those no-op resubmissions would
       // trip STATUS_LOCKED, run the destructive customerConfigs
       // delete+recreate, and emit spurious changelogs. Internal callers
       // (updateStatus, internalApprove, revertBilling, …) pass _internal
@@ -1812,7 +1812,7 @@ export class BudgetService {
         // deixava o orçamento afirmando `PER_TASK` com UMA fatia conjunta.
         //
         // O estrago não é cosmético: `internalApprove` por veículo procura a
-        // fatia daquele caminhão, acha a conjunta — que cobre todos — e aprova
+        // fatia daquele implemento, acha a conjunta — que cobre todos — e aprova
         // o faturamento dos sessenta de uma vez, emitindo sessenta notas com
         // vencimento contado de hoje. Exatamente o que a escolha "separado"
         // existe para impedir.
@@ -1827,7 +1827,7 @@ export class BudgetService {
         //
         // A cobertura de uma fatura já aprovada é congelada — ela sustenta uma
         // nota fiscal autorizada e boletos registrados, e mudá-la
-        // retroativamente alteraria de quais caminhões é um documento fiscal que
+        // retroativamente alteraria de quais implementos é um documento fiscal que
         // já saiu. A reconciliação respeita isso sozinha, mas em silêncio: o
         // pedido "separe os sessenta" numa `JOINT` já faturada não teria efeito
         // nenhum e a tela mostraria "separado" sobre uma fatura única. Recusar é
@@ -1985,7 +1985,7 @@ export class BudgetService {
           // reemitir fatura, boleto e NFS-e.
           // ⚠️ SÓ OS FATURAMENTOS QUE PERDERAM A FATURA. Era
           // `where: { quoteId: id }` — TODOS os do orçamento. Num orçamento de
-          // sessenta caminhões, remover um pagador do lote 3 levantava o carimbo
+          // sessenta implementos, remover um pagador do lote 3 levantava o carimbo
           // dos lotes 1 e 2, que estavam faturados, com nota autorizada na
           // prefeitura e boleto registrado no Sicredi.
           //
@@ -2210,7 +2210,7 @@ export class BudgetService {
               },
             });
             // TODAS as tarefas: a O.S. é por veículo, e num orçamento de
-            // sessenta caminhões mexer só na primeira deixaria cinquenta e nove
+            // sessenta implementos mexer só na primeira deixaria cinquenta e nove
             // com a lista de serviços antiga.
             const syncTaskIds = (quoteWithTask?.tasks ?? []).map(t => t.id);
             const taskId = syncTaskIds[0];
@@ -2317,7 +2317,7 @@ export class BudgetService {
         //
         // `taskIds` entra na condição junto: mudar o CONJUNTO de veículos muda o
         // multiplicador de todo total (`por veículo × N`) e a contagem
-        // desnormalizada, e uma edição que só acrescenta ou retira caminhão não
+        // desnormalizada, e uma edição que só acrescenta ou retira implemento não
         // manda serviços nem configurações. Sem esta chave, tirar um veículo de
         // sessenta deixava o contrato afirmando sessenta.
         //
@@ -2336,7 +2336,7 @@ export class BudgetService {
           // A COBERTURA antes do total. Uma gravação que só mexe em `taskIds`
           // não passa pela reconciliação acima (ela só roda com
           // `customerConfigs` ou com troca de modo), e sem refatiar aqui o
-          // caminhão acrescentado ficaria fora de toda fatura — ou o retirado
+          // implemento acrescentado ficaria fora de toda fatura — ou o retirado
           // continuaria dentro de uma. Não toca em nenhum termo: ver
           // `resliceQuoteCoverage`.
           await resliceQuoteCoverage(tx, id, {
@@ -2471,7 +2471,7 @@ export class BudgetService {
   // ═════════════════════════════════════════════════════════════════════════
   // SIMPLIFICAR ORÇAMENTO — N orçamentos de 1 veículo viram 1 de N veículos
   //
-  // A tela de criação produziu um orçamento POR caminhão durante meses, e o
+  // A tela de criação produziu um orçamento POR implemento durante meses, e o
   // acervo herdou isso: 72 grupos de orçamentos irmãos em produção (mesmo
   // cliente, mesmo dia, mesmo total), o maior com TRINTA. São trinta números,
   // trinta PDFs e trinta cerimônias de assinatura para um negócio só.
@@ -2590,7 +2590,7 @@ export class BudgetService {
 
     // Veículo sem orçamento na seleção BLOQUEIA. Unir não é atribuir: dar a ele
     // o orçamento do vizinho cobraria do cliente um serviço que ninguém orçou
-    // para aquele caminhão.
+    // para aquele implemento.
     if (semOrcamento > 0) {
       verdict.blockers.unshift({
         code: 'NO_QUOTE',
@@ -2736,7 +2736,7 @@ export class BudgetService {
 
         // 7. A trilha. No sobrevivente, dizendo quem ele absorveu; e em cada
         //    veículo movido, dizendo de onde ele veio — sem isso o histórico do
-        //    caminhão mostraria o orçamento trocando sozinho.
+        //    implemento mostraria o orçamento trocando sozinho.
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: survivor.id,
@@ -2843,7 +2843,7 @@ export class BudgetService {
    * `resolveLayoutFileIdMapForQuote` troca a arte da galeria de uma tarefa (ou a
    * de outro orçamento) por um clone privado deste — é o que impede um orçamento
    * de roubar o arquivo do outro. A cobertura pedida era do arquivo ORIGINAL, e
-   * tem de cair no clone: sem o mapa, "a arte X vale para o caminhão 39088"
+   * tem de cair no clone: sem o mapa, "a arte X vale para o implemento 39088"
    * apontaria para um arquivo que não é deste orçamento, e a leitura (que parte
    * da arte do orçamento) não a encontraria.
    *
@@ -2962,7 +2962,7 @@ export class BudgetService {
 
         // Desvincula TODAS as tarefas antes de apagar.
         //
-        // Era uma. Num orçamento de sessenta caminhões, desvincular só a
+        // Era uma. Num orçamento de sessenta implementos, desvincular só a
         // primeira deixaria cinquenta e nove com `quoteId` apontando para uma
         // linha apagada — e como a FK é `SetNull` sem `onDelete` declarado no
         // lado da tarefa, o `delete` abaixo falharia ou zeraria em silêncio, sem
@@ -2996,8 +2996,8 @@ export class BudgetService {
 
         // A COBERTURA DE LAYOUT sai junto. O `SetNull` de `File.quoteLayoutId`
         // solta as artes do orçamento, mas as linhas de `BudgetLayoutTask`
-        // continuariam afirmando "esta arte vale para este caminhão" — e o
-        // caminhão, já sem orçamento, poderia ganhar outro com essa afirmação
+        // continuariam afirmando "esta arte vale para este implemento" — e o
+        // implemento, já sem orçamento, poderia ganhar outro com essa afirmação
         // pendurada nele.
         await tx.budgetLayoutTask.deleteMany({
           where: {
@@ -3218,7 +3218,7 @@ export class BudgetService {
    *
    * Era alcançada mandando `status: 'SETTLED'` para o endpoint de status do
    * ORÇAMENTO, e naquele desenho ela quitava tudo: num orçamento de sessenta
-   * caminhões, liquidar o primeiro à mão marcava os sessenta como pagos, porque
+   * implementos, liquidar o primeiro à mão marcava os sessenta como pagos, porque
    * o estado era um só. Com `billingId`, quita as parcelas daquela cobrança e de
    * nenhuma outra. Sem `billingId`, mantém o comportamento antigo (o orçamento
    * inteiro), que é o certo para o orçamento de fatura única.
@@ -3230,7 +3230,7 @@ export class BudgetService {
     // primeira. Aplicá-lo só na pré-checagem foi o defeito: a checagem media a
     // cobrança e a liquidação varria o orçamento inteiro — marcando pagas as
     // parcelas das outras cobranças e CANCELANDO os boletos delas no Sicredi.
-    // Num orçamento de sessenta caminhões, liquidar o primeiro dava baixa nos
+    // Num orçamento de sessenta implementos, liquidar o primeiro dava baixa nos
     // duzentos e quarenta boletos.
     const configScope = billingId ? { quoteId, billingId } : { quoteId };
     const existingInstallmentCount = await this.prisma.installment.count({
@@ -4013,7 +4013,7 @@ export class BudgetService {
    *   e é também o "faturar os sessenta de uma vez".
    *
    * COMO O ESTADO SE MOVE COM FATIAS
-   *   Os sessenta caminhões do Marquespan não terminam no mesmo dia, então o
+   *   Os sessenta implementos do Marquespan não terminam no mesmo dia, então o
    *   orçamento passa meses parcialmente faturado. O STATUS DO ORÇAMENTO não
    *   descreve isso e não tenta: ele entra em `APPROVED` e fica. Quem tem ciclo
    *   de pagamento é a COBRANÇA — `Billing.status`, escrito só por
@@ -4111,7 +4111,7 @@ export class BudgetService {
     //     nenhuma outra, sem ambiguidade nenhuma.
     //   · POR VEÍCULO (`sliceTaskId`) — o endereçamento anterior, mantido porque
     //     o app e os links antigos ainda o usam. A pergunta é de COBERTURA, não
-    //     de igualdade: aprovar o caminhão 37 fecha o faturamento do lote 21–60,
+    //     de igualdade: aprovar o implemento 37 fecha o faturamento do lote 21–60,
     //     porque é ele que cobra o 37 — e fecha os quarenta de uma vez, que é o
     //     que o lote significa.
     //   · SEM ENDEREÇO — todos os faturamentos ainda pendentes. É o "faturar os
@@ -4331,7 +4331,7 @@ export class BudgetService {
     const claimedConfigs = claimedBillings.flatMap(b => b.customerConfigs);
     // `Budget.billingApprovedAt` significa "orçamento INTEIRAMENTE faturado" —
     // e continua sendo do orçamento, porque é sobre o contrato, não sobre uma
-    // cobrança. Num orçamento de sessenta caminhões ele é gravado quando o
+    // cobrança. Num orçamento de sessenta implementos ele é gravado quando o
     // sexagésimo fecha.
     if (await fechaOOrcamento()) {
       await this.prisma.budget.update({
@@ -4382,7 +4382,7 @@ export class BudgetService {
           task.id,
           userId,
           approvalDate,
-          // O VEÍCULO PEDIDO. Sem isto, aprovar o caminhão 1 de um orçamento
+          // O VEÍCULO PEDIDO. Sem isto, aprovar o implemento 1 de um orçamento
           // cobrado veículo a veículo emitiria as sessenta faturas, as sessenta
           // notas fiscais e os duzentos e quarenta boletos de uma vez — exatamente
           // o que "veículo a veículo" existe para não fazer.
@@ -4393,7 +4393,7 @@ export class BudgetService {
           // primeiro buraco apareceu quando a tela passou a endereçar por cobrança:
           // em `PUT /billings/:id/approve` o `sliceTaskId` é NULO, o escopo saía
           // `undefined`, e a geração faturava TODAS as configurações pendentes do
-          // orçamento — aprovar o caminhão 1 de sessenta emitia as sessenta notas e
+          // orçamento — aprovar o implemento 1 de sessenta emitia as sessenta notas e
           // os sessenta boletos.
           //
           // O segundo estava na correção: escopar pela COBERTURA ainda dá a volta
@@ -4460,7 +4460,7 @@ export class BudgetService {
       }
 
       // Only register bank slips for invoices that are ready:
-      //   (a) generateInvoice=false — no NFS-e required, seuNumero uses truck plate
+      //   (a) generateInvoice=false — no NFS-e required, seuNumero uses implement plate
       //   (b) generateInvoice=true  — a note with a usable number exists at the prefeitura
       // Invoices in (b) that failed NFS-e keep their bank slips in CREATING state.
       // The bank slip scheduler picks them up once the NFS-e scheduler retries and authorizes.
@@ -4522,7 +4522,7 @@ export class BudgetService {
       //
       // Aqui havia uma transição automática do ORÇAMENTO para "A Vencer", e ela
       // só podia rodar na primeira aprovação — porque na segunda ela apagaria um
-      // vencido legítimo (parcela do caminhão 1 em atraso) só porque o caminhão 2
+      // vencido legítimo (parcela do implemento 1 em atraso) só porque o implemento 2
       // acabou de ser faturado. Era um remendo para um estado que estava na
       // entidade errada.
       //
@@ -4543,12 +4543,12 @@ export class BudgetService {
       // ─── DESFAZER EXATAMENTE O QUE ESTA TENTATIVA FEZ ─────────────────────
       //
       // O rollback antigo forçava `BUDGET_APPROVED` CEGAMENTE. Num orçamento de
-      // sessenta caminhões, falhar ao aprovar o 31º rebaixava o orçamento INTEIRO
+      // sessenta implementos, falhar ao aprovar o 31º rebaixava o orçamento INTEIRO
       // para "Orçamento Aprovado" — com trinta já faturados, boletos registrados no
       // Sicredi e notas autorizadas na prefeitura. A tela passava a mentir sobre
       // dinheiro que existe. E os carimbos de fatia reivindicados logo acima
       // ficavam de pé, de modo que a tentativa seguinte respondia "esta fatia já
-      // teve o faturamento aprovado" sobre um caminhão que nunca foi faturado.
+      // teve o faturamento aprovado" sobre um implemento que nunca foi faturado.
       //
       // O desfazer é escopado à tentativa: as cobranças que ELA reivindicou.
       //
@@ -4581,7 +4581,7 @@ export class BudgetService {
         // estado certo de um orçamento aprovado cuja cobrança falhou.
         //
         // O que cai é o carimbo de "inteiramente faturado", se esta tentativa o
-        // escreveu: deixá-lo de pé afirmaria que os sessenta caminhões estão
+        // escreveu: deixá-lo de pé afirmaria que os sessenta implementos estão
         // faturados por causa de uma emissão que não aconteceu, e envenenaria
         // `avgSalesCycleDays`.
         // O carimbo do contrato é RE-DERIVADO, não desfeito. Zerá-lo porque "esta
@@ -4629,7 +4629,7 @@ export class BudgetService {
       // ── O AVISO LEVA À COBRANÇA, NÃO AO ORÇAMENTO ─────────────────────────
       //
       // O link ia para `/financeiro/orcamento/detalhes/<taskId>` — a tela da
-      // PROPOSTA, de um dos sessenta caminhões, escolhido como âncora. Quem
+      // PROPOSTA, de um dos sessenta implementos, escolhido como âncora. Quem
       // recebe "Faturamento Aprovado" quer ver a COBRANÇA que acabou de sair: a
       // fatura, as parcelas, o boleto. Endereçar por `billingId` é a rota
       // própria dela, e existe desde que o faturamento virou entidade.
@@ -4727,7 +4727,7 @@ export class BudgetService {
    *
    * `Invoice.taskId` só é preenchido quando a fatura cobre UM veículo
    * (`sliceAnchorTaskId`): numa fatura conjunta ou de lote ele é NULO de
-   * propósito, porque a fatura não é de nenhum dos sessenta caminhões em
+   * propósito, porque a fatura não é de nenhum dos sessenta implementos em
    * particular. Escopar a desmontagem por ele — como toda a reversão fazia —
    * significa que num orçamento conjunto NADA é encontrado: o `deleteMany`
    * apaga zero linhas, a guarda de parcela paga não vê a parcela paga, e a baixa
@@ -5176,7 +5176,7 @@ export class BudgetService {
     // A tarefa ÂNCORA — a primeira na ordem canônica. Serve só de contexto de
     // mensagem; o que se desmonta é escopado pelo ORÇAMENTO (ver
     // `invoicesOfQuote`). Sem `orderBy` a escolha mudava entre duas leituras, e
-    // âncora que anda é como o mesmo orçamento passa a apontar para caminhões
+    // âncora que anda é como o mesmo orçamento passa a apontar para implementos
     // diferentes.
     const task = await this.prisma.task.findFirst({
       where: { quoteId: id },
@@ -5198,7 +5198,7 @@ export class BudgetService {
       where: {
         // TODAS as notas deste orçamento. Era `taskId: task.id` — uma tarefa só,
         // e por `findFirst` sem ordem. Numa nota CONJUNTA `NfseDocument.taskId` é
-        // nulo (a nota não é de nenhum dos caminhões), então a leitura antiga
+        // nulo (a nota não é de nenhum dos implementos), então a leitura antiga
         // perdia exatamente a nota que mais importa.
         // Escopado à cobrança quando ela é dita: uma nota conjunta de OUTRO
         // faturamento não pode bloquear (nem ser levada por) a reversão deste.
@@ -5319,7 +5319,7 @@ export class BudgetService {
       });
       // O status do ORÇAMENTO não é revertido porque ele não foi movido: aprovar
       // faturamento deixou de mexer nele. O que cai é o carimbo de "inteiramente
-      // faturado" — deixá-lo de pé afirmaria que os sessenta caminhões estão
+      // faturado" — deixá-lo de pé afirmaria que os sessenta implementos estão
       // faturados depois de a cobrança ter sido desmontada, e envenenaria o
       // `avgSalesCycleDays`.
       await tx.budget.update({
@@ -5394,7 +5394,7 @@ export class BudgetService {
     //
     // A cascata dispara quando UMA tarefa entra em CANCELADA, e isso era correto
     // enquanto um orçamento tinha uma tarefa. Com o multitarefa virou defeito:
-    // cancelar o caminhão 1 de quatro cancelava o ORÇAMENTO INTEIRO — e com ele o
+    // cancelar o implemento 1 de quatro cancelava o ORÇAMENTO INTEIRO — e com ele o
     // desmonte da cobrança dos outros três, que ninguém pediu para cancelar.
     //
     // A pergunta certa é "sobrou algum veículo ATIVO?". Tarefa apagada nem conta
@@ -5402,7 +5402,7 @@ export class BudgetService {
     // exclusão: zero tarefas também é zero tarefas ativas.
     //
     // Sai em silêncio de propósito: não é erro nem recusa, é a cascata
-    // concluindo que ainda não é hora. Quem cancelou o caminhão não precisa ser
+    // concluindo que ainda não é hora. Quem cancelou o implemento não precisa ser
     // avisado de que o orçamento dos outros três segue de pé.
     const activeVehicles = await this.prisma.task.count({
       where: { quoteId: id, status: { not: TASK_STATUS.CANCELLED } },
@@ -5638,7 +5638,7 @@ export class BudgetService {
    * O número do pedido de compra de UM veículo (`Task.customerOrderNumber`).
    *
    * A guarda garante que a tarefa é DESTE orçamento — senão a rota carimbaria o
-   * pedido no caminhão de outro contrato.
+   * pedido no implemento de outro contrato.
    */
   async updateCustomerConfigOrderNumber(
     quoteId: string,
@@ -5681,7 +5681,7 @@ export class BudgetService {
   }
 
   /**
-   * Find suggestion: most recent quote matching task name, customer, truck category, and implement type.
+   * Find suggestion: most recent quote matching task name, customer, implement category, and implement type.
    * All four fields must match exactly.
    */
   async findSuggestion(params: {
@@ -5797,7 +5797,7 @@ export class BudgetService {
               customerId: true,
               // A COBERTURA — de quais veículos esta fatura é. A página pública é
               // onde o cliente CONFERE antes de assinar: num orçamento em lotes,
-              // sem isto ele leria "3 faturas" sem saber qual caminhão está em
+              // sem isto ele leria "3 faturas" sem saber qual implemento está em
               // qual, que é justamente o que o lote resolve.
               billing: {
                 select: {

@@ -1138,7 +1138,7 @@ async function dbChecks() {
         { width: 1.1, isDoor: true, doorHeight: 2.1, position: 1 },
       ],
     };
-    await measures.createOrUpdateTruckImplementMeasure(implement1.id, 'left', medida as any, user.id);
+    await measures.createOrUpdateImplementMeasure(implement1.id, 'left', medida as any, user.id);
     const leftOf = (implementId: string) =>
       prisma.implement.findUnique({
         where: { id: implementId },
@@ -1180,7 +1180,7 @@ async function dbChecks() {
       log?.reason,
     );
     const idAntes = m2.leftSideMeasure.id;
-    await measures.createOrUpdateTruckImplementMeasure(implement1.id, 'left', medida as any, user.id);
+    await measures.createOrUpdateImplementMeasure(implement1.id, 'left', medida as any, user.id);
     m2 = await leftOf(implement2.id);
     check(
       'regravar a mesma medida não reescreve o irmão (só o lado que DIFERE)',

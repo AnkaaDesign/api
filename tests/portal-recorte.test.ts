@@ -23,7 +23,7 @@
  *     receber a união dos dois recortes. Recortar pela interseção faria
  *     ACUMULAR papéis TIRAR poder — que é o inverso do que quem cadastra espera.
  *  4. CAMPO INTERNO VAZANDO. `totalActiveTimeSeconds`, `assignedTo`, `pausedAt`,
- *     `Truck.spot`, bonificação, `Task.details`, `Task.term` — e as O.S.
+ *     `Implement.spot`, bonificação, `Task.details`, `Task.term` — e as O.S.
  *     COMERCIAIS, que incluem "Aplicar Desconto", "Contraproposta" e "Tratar
  *     Reclamação", e que `GET /task-quotes/public/:id` já devolve hoje.
  *
@@ -612,7 +612,7 @@ const LINHA_CRUA: any = {
       forecastDate: new Date('2026-10-05T12:00:00Z'),
       customerId: 'cust-rko',
       customer: { id: 'cust-rko', fantasyName: 'RKO Alimentos', corporateName: 'RKO SA' },
-      // o implemento como o select do portal o devolve (P11a: era `truck`/`implementType`)
+      // o implemento como o select do portal o devolve
       implement: {
         serialNumber: 'ABC-123456',
         plate: 'ABC1D23',

@@ -12,7 +12,7 @@ import {
   GARAGE_CONFIG,
   parseSpot,
   getGarageSpots,
-  calculateTruckGarageLength,
+  calculateImplementGarageLength,
   isYardSpot,
   isGarageSpot,
   getGarageForSectorName,
@@ -56,18 +56,16 @@ export interface GarageAvailability {
 }
 
 /**
- * Campo do implemento → chave de NOTIFICAÇÃO `task.field.truck.<campo>` (D-04:
- * as chaves persistidas em NotificationConfiguration e nas preferências de
- * silenciar NÃO mudam). Mapa explícito: montar a chave pelo nome novo
- * (`task.field.implement.type`) deixaria a notificação muda (G9).
+ * Campo do implemento → nome do evento `implement.<campo>` (a chave de
+ * notificação é `task.field.implement.<campo>`, que o seed registra; G9).
  */
 export const IMPLEMENT_FIELD_NOTIFICATION_KEY: Readonly<Record<string, string>> = {
-  plate: 'truck.plate',
-  chassisNumber: 'truck.chassisNumber',
-  vinPlateId: 'truck.vinPlateId',
-  category: 'truck.category',
-  type: 'truck.implementType',
-  spot: 'truck.spot',
+  plate: 'implement.plate',
+  chassisNumber: 'implement.chassisNumber',
+  vinPlateId: 'implement.vinPlateId',
+  category: 'implement.category',
+  type: 'implement.type',
+  spot: 'implement.spot',
 };
 
 @Injectable()
@@ -205,7 +203,7 @@ export class ImplementService {
       // Log changes
       await trackAndLogFieldChanges({
         changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.TRUCK,
+        entityType: ENTITY_TYPE.IMPLEMENT,
         entityId: id,
         oldEntity: existing,
         newEntity: updated,
@@ -219,7 +217,7 @@ export class ImplementService {
     });
 
     // Depois do commit: os eventos task.field.changed de cada campo que mudou, para o
-    // task.listener.ts disparar as notificações task.field.truck.* (chaves mantidas).
+    // task.listener.ts disparar as notificações task.field.implement.* (chaves mantidas).
     const fieldChanges = ImplementService.TRACKED_FIELDS.filter(
       field => (existing as any)[field] !== (updated as any)[field],
     ).map(field => ({
@@ -272,12 +270,12 @@ export class ImplementService {
     const withLengths = implementsInGarage.map(implement => {
       // Use left or right side implementMeasure to calculate length
       const implementMeasure = implement.leftSideMeasure || implement.rightSideMeasure;
-      let length: number = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
+      let length: number = GARAGE_CONFIG.MIN_IMPLEMENT_LENGTH; // Default minimum
 
       if (implementMeasure?.sections) {
         const sectionsSum = implementMeasure.sections.reduce((sum, s) => sum + s.width, 0);
         // comprimento total com a cabine (sistema de duas faixas)
-        length = calculateTruckGarageLength(sectionsSum);
+        length = calculateImplementGarageLength(sectionsSum);
       }
 
       const parsed = parseSpot(implement.spot! as any);
@@ -321,7 +319,7 @@ export class ImplementService {
       // - 1 veículo: sem folga (só V1 no topo)
       // - 2 veículos: sem folga obrigatória (V1 no topo, V2 embaixo)
       // - 3 veículos: 2 m de folga (V2 no meio, 1 m de cada lado)
-      const currentGaps = inLane.length === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      const currentGaps = inLane.length === 3 ? 2 * GARAGE_CONFIG.IMPLEMENT_MIN_SPACING : 0;
       const margins = 2 * 0.2; // 0.4m total (small margin at top and bottom)
 
       // Available space = lane length - occupied - margins - current gaps
@@ -335,7 +333,7 @@ export class ImplementService {
       const newCount = inLane.length + 1;
       const newTotalLength = totalOccupiedLength + implementLength;
       // folgas depois de acrescentá-lo
-      const newGaps = newCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      const newGaps = newCount === 3 ? 2 * GARAGE_CONFIG.IMPLEMENT_MIN_SPACING : 0;
       const totalRequiredSpace = newTotalLength + margins + newGaps;
 
       // cabe em V1 ou V2 (caso normal)
@@ -390,7 +388,7 @@ export class ImplementService {
     // spot null = saiu das instalações
 
     // Mudanças de vaga, para os eventos task.field.changed DEPOIS do commit
-    // (notificação `task.field.truck.spot`, chave mantida).
+    // (notificação `task.field.implement.spot`, chave mantida).
     const spotChanges: Array<{ implementId: string; oldValue: any; newValue: any }> = [];
 
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -417,7 +415,7 @@ export class ImplementService {
 
           await trackAndLogFieldChanges({
             changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.TRUCK,
+            entityType: ENTITY_TYPE.IMPLEMENT,
             entityId: conflicting.id,
             oldEntity: conflicting,
             newEntity: { ...conflicting, spot: null },
@@ -459,7 +457,7 @@ export class ImplementService {
           const expectedGarage = getGarageForSectorName(task.sector.name);
           if (expectedGarage && expectedGarage !== parsed.garage) {
             throw new BadRequestException(
-              `Este caminhão pertence ao setor ${task.sector.name} e só pode ir no Barracão ${expectedGarage.slice(1)}`,
+              `Este implemento pertence ao setor ${task.sector.name} e só pode ir no Barracão ${expectedGarage.slice(1)}`,
             );
           }
         } else if (!task.sectorId) {
@@ -494,7 +492,7 @@ export class ImplementService {
         if (existing.spot !== updated.spot) {
           await trackAndLogFieldChanges({
             changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.TRUCK,
+            entityType: ENTITY_TYPE.IMPLEMENT,
             entityId: update.implementId,
             oldEntity: existing,
             newEntity: updated,
@@ -514,7 +512,7 @@ export class ImplementService {
     });
 
     // Depois do commit: um evento por implemento cuja vaga mudou (notificação
-    // `task.field.truck.spot`). A vaga tirada de quem conflitava é efeito do sistema
+    // `task.field.implement.spot`). A vaga tirada de quem conflitava é efeito do sistema
     // e, de propósito, não notifica.
     for (const change of spotChanges) {
       await this.emitImplementTaskFieldChanges(
@@ -559,7 +557,7 @@ export class ImplementService {
 
   /**
    * Pedido de movimentação (quem não move o implemento direto, como o gerente de
-   * produção): notifica a logística. A chave `truck.movement_request` fica (D-04).
+   * produção): notifica a logística. A chave `implement.movement_request` fica (D-04).
    */
   async requestMovement(
     data: {
@@ -582,10 +580,10 @@ export class ImplementService {
 
     // Dispatch notification to logistics
     await this.notificationDispatchService.dispatchByConfiguration(
-      'truck.movement_request',
+      'implement.movement_request',
       userId,
       {
-        entityType: 'TRUCK',
+        entityType: 'IMPLEMENT',
         entityId: data.implementId,
         action: 'movement_request',
         data: {
@@ -595,7 +593,7 @@ export class ImplementService {
           fromSpot: fromLabel,
           toSpot: toLabel,
         },
-        // 'TRUCK' isn't in the deep-link switch — the caminhão lives on the TASK
+        // 'IMPLEMENT' isn't in the deep-link switch — the implement lives on the TASK
         // detail page, so point the tap there using the request's taskId.
         overrides: {
           webUrl: `/producao/cronograma/detalhes/${data.taskId}`,

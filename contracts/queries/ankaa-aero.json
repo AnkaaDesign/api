@@ -16,7 +16,7 @@
         "include": {
           "customer": true,
           "sector": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": { "include": { "sections": true } },
               "rightSideMeasure": { "include": { "sections": true } }
@@ -38,7 +38,7 @@
         "include": {
           "customer": true,
           "sector": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": { "include": { "sections": true } },
               "rightSideMeasure": { "include": { "sections": true } }
@@ -81,7 +81,7 @@
       "origem": "APIClient.swift:150-162",
       "consulta": {
         "include": {
-          "task": { "include": { "customer": true, "sector": true, "truck": true } },
+          "task": { "include": { "customer": true, "sector": true, "implement": true } },
           "painter": true,
           "receipts": true,
           "invoices": true,

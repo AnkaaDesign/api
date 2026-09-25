@@ -34,7 +34,7 @@
  *                  embutido na aprovação);
  *   webChangelog → o histórico de alterações do web
  *                  (`web/src/utils/changelog-fields.ts`), que tem palavras
- *                  próprias ("VUC (Veículo Urbano de Carga)", "Caminhão").
+ *                  próprias ("VUC (Veículo Urbano de Carga)", "Implemento").
  *
  * Web e app recebem estes perfis pelo contrato gerado
  * (`scripts/export-contracts.ts` → `contracts/labels.json`); ninguém copia

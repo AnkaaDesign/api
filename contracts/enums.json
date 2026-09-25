@@ -371,7 +371,7 @@
       "TASK_QUOTE_CUSTOMER_CONFIG",
       "TERMINATION",
       "TIME_CLOCK_ENTRY",
-      "TRUCK",
+      "IMPLEMENT",
       "USER",
       "USER_BENEFIT",
       "USER_POSITION_HISTORY",
@@ -644,7 +644,7 @@
       "TASK_QUOTE_CUSTOMER_CONFIG",
       "TERMINATION",
       "TIME_CLOCK_ENTRY",
-      "TRUCK",
+      "IMPLEMENT",
       "USER",
       "USER_BENEFIT",
       "USER_POSITION_HISTORY",
@@ -973,7 +973,7 @@
       "TASK_QUOTE_SERVICE",
       "TASK_QUOTE_CUSTOMER_CONFIG",
       "TIME_CLOCK_ENTRY",
-      "TRUCK",
+      "IMPLEMENT",
       "USER",
       "VACATION",
       "VACATION_GROUP",
@@ -1266,6 +1266,37 @@
       "B_DOUBLE_FRONT",
       "B_DOUBLE_REAR",
       "BITRUCK"
+    ],
+    "IMPLEMENT_SPOT": [
+      "YARD_WAIT",
+      "YARD_EXIT",
+      "B1_F1_V1",
+      "B1_F1_V2",
+      "B1_F1_V3",
+      "B1_F2_V1",
+      "B1_F2_V2",
+      "B1_F2_V3",
+      "B1_F3_V1",
+      "B1_F3_V2",
+      "B1_F3_V3",
+      "B2_F1_V1",
+      "B2_F1_V2",
+      "B2_F1_V3",
+      "B2_F2_V1",
+      "B2_F2_V2",
+      "B2_F2_V3",
+      "B2_F3_V1",
+      "B2_F3_V2",
+      "B2_F3_V3",
+      "B3_F1_V1",
+      "B3_F1_V2",
+      "B3_F1_V3",
+      "B3_F2_V1",
+      "B3_F2_V2",
+      "B3_F2_V3",
+      "B3_F3_V1",
+      "B3_F3_V2",
+      "B3_F3_V3"
     ],
     "IMPLEMENT_TYPE": [
       "DRY_CARGO",
@@ -2186,18 +2217,6 @@
       "VOLATILE",
       "SEASONAL"
     ],
-    "TRUCK_CATEGORY": [
-      "MINI",
-      "VUC",
-      "THREE_QUARTER",
-      "RIGID",
-      "TRUCK",
-      "SEMI_TRAILER",
-      "SEMI_TRAILER_2_AXLES",
-      "B_DOUBLE_FRONT",
-      "B_DOUBLE_REAR",
-      "BITRUCK"
-    ],
     "TRUCK_MANUFACTURER": [
       "SCANIA",
       "VOLVO",
@@ -2206,37 +2225,6 @@
       "IVECO",
       "MERCEDES_BENZ",
       "MAN"
-    ],
-    "TRUCK_SPOT": [
-      "YARD_WAIT",
-      "YARD_EXIT",
-      "B1_F1_V1",
-      "B1_F1_V2",
-      "B1_F1_V3",
-      "B1_F2_V1",
-      "B1_F2_V2",
-      "B1_F2_V3",
-      "B1_F3_V1",
-      "B1_F3_V2",
-      "B1_F3_V3",
-      "B2_F1_V1",
-      "B2_F1_V2",
-      "B2_F1_V3",
-      "B2_F2_V1",
-      "B2_F2_V2",
-      "B2_F2_V3",
-      "B2_F3_V1",
-      "B2_F3_V2",
-      "B2_F3_V3",
-      "B3_F1_V1",
-      "B3_F1_V2",
-      "B3_F1_V3",
-      "B3_F2_V1",
-      "B3_F2_V2",
-      "B3_F2_V3",
-      "B3_F3_V1",
-      "B3_F3_V2",
-      "B3_F3_V3"
     ],
     "URGENCY_LEVEL": [
       "LOW",
@@ -2506,6 +2494,7 @@
     "external_operation.liquidated",
     "external_operation.returned",
     "fispq.expiring",
+    "implement.movement_request",
     "invoice.cancelled",
     "item.low_stock",
     "item.out_of_stock",
@@ -2626,6 +2615,15 @@
     "task.field.entryDate",
     "task.field.finishedAt",
     "task.field.forecastDate",
+    "task.field.implement.backSideMeasureId",
+    "task.field.implement.category",
+    "task.field.implement.chassisNumber",
+    "task.field.implement.leftSideMeasureId",
+    "task.field.implement.measures",
+    "task.field.implement.plate",
+    "task.field.implement.rightSideMeasureId",
+    "task.field.implement.spot",
+    "task.field.implement.type",
     "task.field.invoiceReimbursements",
     "task.field.invoices",
     "task.field.layouts",
@@ -2642,15 +2640,6 @@
     "task.field.startedAt",
     "task.field.status",
     "task.field.term",
-    "task.field.truck.backSideMeasureId",
-    "task.field.truck.category",
-    "task.field.truck.chassisNumber",
-    "task.field.truck.implementMeasure",
-    "task.field.truck.implementType",
-    "task.field.truck.leftSideMeasureId",
-    "task.field.truck.plate",
-    "task.field.truck.rightSideMeasureId",
-    "task.field.truck.spot",
     "task.forecast_10days",
     "task.forecast_1day",
     "task.forecast_3days",
@@ -2674,7 +2663,6 @@
     "timeentry.due",
     "timeentry.missing.escalation",
     "timeentry.reminder",
-    "truck.movement_request",
     "vacation.concessive_expired",
     "vacation.concessive_expiring",
     "vacation.planning_conflict",
@@ -2887,7 +2875,7 @@
       "interceptor": "FileFieldsInterceptor",
       "campos": [
         {
-          "nome": "truckVinPlate",
+          "nome": "implementVinPlate",
           "maxCount": null
         }
       ]
@@ -3118,7 +3106,7 @@
       ]
     },
     {
-      "rota": "POST /implement-measure/truck/:truckId/:side",
+      "rota": "POST /implement-measure/implement/:implementId/:side",
       "arquivo": "src/modules/production/implement-measure/implement-measure.controller.ts",
       "interceptor": "FileFieldsInterceptor",
       "campos": [
@@ -3194,10 +3182,6 @@
         {
           "nome": "cutFiles",
           "maxCount": 20
-        },
-        {
-          "nome": "truckVinPlate",
-          "maxCount": 1
         },
         {
           "nome": "implementVinPlate",
@@ -3371,10 +3355,6 @@
           "maxCount": 20
         },
         {
-          "nome": "truckVinPlate",
-          "maxCount": 1
-        },
-        {
           "nome": "implementVinPlate",
           "maxCount": 1
         },
@@ -3459,10 +3439,6 @@
         {
           "nome": "observationFiles",
           "maxCount": 10
-        },
-        {
-          "nome": "truckVinPlate",
-          "maxCount": 1
         },
         {
           "nome": "implementVinPlate",
@@ -3694,7 +3670,6 @@
     "observations",
     "warning",
     "implementMeasurePhotos",
-    "truckVinPlate",
     "implementVinPlate",
     "quote-layouts",
     "plotterEspovo",

@@ -12,7 +12,7 @@
 //   · CHASSI tem 17 caracteres e recusa I/O/Q — com mensagens DIFERENTES para
 //     cada caso, porque "17 caracteres" não ajuda quem digitou O no lugar de 0;
 //   · PLAQUETA é ARQUIVO, não texto (a coluna de texto morreu na migration
-//     `20260727150000`) — sobe por multipart no campo `truckVinPlate`, ou já
+//     `20260727150000`) — sobe por multipart no campo `implementVinPlate`, ou já
 //     vem como `File.id` em `vinPlateFileId`;
 //   · PEDIDO DE COMPRA tem portão PRÓPRIO (`WRITE_PURCHASE_ORDER`) e escrita
 //     dupla — o serviço o delega ao `PurchaseOrderService`, nunca grava a
@@ -34,12 +34,12 @@
 //
 //  3. CORPO VAZIO É ERRO — mas a checagem NÃO é um `.refine`. `{}` sem arquivo
 //     seria uma escrita que não escreve, com 200 na cara do cliente; `{}` COM a
-//     parte `truckVinPlate` é o `PATCH` legítimo de quem só trocou a foto. Zod
+//     parte `implementVinPlate` é o `PATCH` legítimo de quem só trocou a foto. Zod
 //     não enxerga arquivo, então quem decide é `temAlgoParaMudar()`, no fim
 //     deste arquivo — pura, e por isso testável sem Nest.
 //
 // ⚠️ A FORMA DO MULTIPART é a MESMA da requisição: UMA parte `payload` com o
-// JSON inteiro + a parte `truckVinPlate`. É o que `web/src/api-client/portal.ts`
+// JSON inteiro + a parte `implementVinPlate`. É o que `web/src/api-client/portal.ts`
 // → `multipart()` manda (`form.append("payload", JSON.stringify(payload))`), e o
 // desembrulho é `desempacotarPayload`, REUSADO de `portal-request.ts` — não uma
 // segunda cópia. Ver a nota de exportação lá.
@@ -147,13 +147,13 @@ export const portalIdentificacaoCorpoSchema = z
     /**
      * A PLAQUETA já enviada, por id.
      *
-     * A IMAGEM nova sobe por multipart no campo `truckVinPlate` — este campo é
+     * A IMAGEM nova sobe por multipart no campo `implementVinPlate` — este campo é
      * o outro lado do mesmo par, e é a forma que `web/src/api-client/portal.ts`
      * declara (`PortalVehicleIdentityInput.vinPlateFileId`). O par é o mesmo
      * que o `task-edit-form` interno já usa.
      *
-     * ⚠️ A plaqueta NÃO é texto. A coluna `Truck.vinPlate` de texto foi
-     * removida em `20260727150000_truck_vin_plate_image`: "a plaqueta era um
+     * ⚠️ A plaqueta NÃO é texto. A coluna `Implement.vinPlate` de texto foi
+     * removida em `20260727150000_implement_vin_plate_image`: "a plaqueta era um
      * campo de texto que ninguém preenchia — o que a produção precisa é da foto
      * legível". Quem mandar texto aqui recebe "uuid inválido", que é honesto.
      */
@@ -179,7 +179,7 @@ export const portalIdentificacaoCorpoSchema = z
      * A PREVISÃO DE LIBERAÇÃO — quando o CLIENTE entrega o veículo à Ankaa.
      *
      * ⚠️ É `Task.forecastDate`, o mesmo campo que o quadro de preparação
-     * interno mostra como "Previsão". Quem sabe a data é o cliente: o caminhão
+     * interno mostra como "Previsão". Quem sabe a data é o cliente: o implemento
      * está rodando na frota dele até o dia em que ele o libera, e hoje essa
      * data chegava por telefone ao comercial, que a digitava do lado de cá.
      *
@@ -204,7 +204,7 @@ export const portalIdentificacaoCorpoSchema = z
      * ⛔ O cliente DESENHA o implemento no assistente de requisição e, até
      * aqui, não tinha como corrigi-lo depois: o portal mostrava três tabelas de
      * leitura. Medida errada trava o layout e a pintura, e quem a conhece é
-     * quem opera o caminhão.
+     * quem opera o implemento.
      *
      * ⚠️ MESMA UNIDADE DA REQUISIÇÃO (centímetros na borda; o serviço divide
      * por 100). Duas rotas do mesmo portal falando unidades diferentes sobre a
@@ -262,7 +262,7 @@ export const CAMPOS_DE_IDENTIFICACAO = [
  * HÁ ALGO PARA MUDAR? (a regra 3 do cabeçalho, com o arquivo incluído)
  *
  * ⛔ NÃO É UM `.refine` DO SCHEMA, e a razão é o multipart: o upload da
- * plaqueta sozinho — `payload` vazio + a parte `truckVinPlate` — é um `PATCH`
+ * plaqueta sozinho — `payload` vazio + a parte `implementVinPlate` — é um `PATCH`
  * PERFEITAMENTE VÁLIDO, e um `.refine` dentro do zod nunca o veria, porque
  * arquivo não atravessa o schema. A checagem viveria numa borda que não conhece
  * metade da entrada, e recusaria a única forma de trocar só a foto.

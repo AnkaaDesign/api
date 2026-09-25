@@ -57,8 +57,8 @@ export class TaskFieldChangedEvent {
       changedAt: Date;
       changedBy: string;
     },
-    // Set only for the consolidated 'truck.implementMeasure' synthetic event: a human-readable
-    // pt-BR summary of which truck-implementMeasure sides changed (Motorista/Sapo/Traseira).
+    // Set only for the consolidated 'implement.measures' synthetic event: a human-readable
+    // pt-BR summary of which implement measure sides changed (Motorista/Sapo/Traseira).
     public readonly implementMeasureChangeSummary?: string,
   ) {}
 }

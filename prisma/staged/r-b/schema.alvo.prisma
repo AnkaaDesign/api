@@ -2721,7 +2721,7 @@ model Implement {
   category           ImplementCategory?
   /// [M1s] D-03: fica aqui; SEM default (S-8): com a criação universal de implemento, o
   /// default poria todo veículo não chegado "no pátio". Todo INSERT passa `spot` explícito.
-  spot               TRUCK_SPOT?
+  spot               IMPLEMENT_SPOT?
   taskId             String             @unique
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
@@ -4507,7 +4507,7 @@ enum MonthOccurrence {
   LAST
 }
 
-enum TRUCK_SPOT {
+enum IMPLEMENT_SPOT {
   YARD_WAIT
   YARD_EXIT
   B1_F1_V1
@@ -4759,7 +4759,7 @@ enum ChangeLogEntityType {
   TASK_QUOTE_CUSTOMER_CONFIG
   TERMINATION
   TIME_CLOCK_ENTRY
-  TRUCK
+  IMPLEMENT
   USER
   USER_BENEFIT
   USER_POSITION_HISTORY

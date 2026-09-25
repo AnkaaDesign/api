@@ -496,11 +496,11 @@ export interface ProductionDashboardData {
     utilizationRate: DashboardMetric; // percentage
     spotsByGarage: DashboardChartData;
   };
-  truckMetrics: {
-    totalTrucks: DashboardMetric;
-    trucksInProduction: DashboardMetric;
-    trucksByManufacturer: DashboardChartData;
-    trucksByPosition: DashboardListItem[]; // current garage positions
+  implementMetrics: {
+    totalImplements: DashboardMetric;
+    implementsInProduction: DashboardMetric;
+    implementsByManufacturer: DashboardChartData;
+    implementsByPosition: DashboardListItem[]; // current garage positions
   };
   cuttingOperations: {
     totalCuts: DashboardMetric;

@@ -93,7 +93,7 @@ const definitions: Def[] = [
       ),
       list([
         "Todos os **detalhes da tarefa** — serviços, prazos e situação atual",
-        "O **Layout** do caminhão — veja exatamente onde cada arte/adesivo deve ser aplicado",
+        "O **Layout** do implemento — veja exatamente onde cada arte/adesivo deve ser aplicado",
         "As **Tintas** e fórmulas usadas na tarefa, com as cores certas para o serviço",
         "As **Ordens de Serviço** ligadas àquela tarefa",
       ]),

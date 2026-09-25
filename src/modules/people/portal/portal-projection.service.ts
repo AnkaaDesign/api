@@ -48,7 +48,7 @@ import { portalSectionsFor } from './portal-capabilities';
  *    `pausedAt` — quem trabalhou, quanto tempo e quando parou é gestão interna.
  *    "Pausado" ainda é o pior: para o cliente é sinal de problema, e a pausa é
  *    quase sempre almoço, troca de turno ou fila de cabine.
- *  · `spot` — onde o caminhão está no pátio.
+ *  · `spot` — onde o implemento está no pátio.
  *  · `bonification`, `bonificationOrder`, `bonusDiscountId` — folha.
  *  · `details` — texto interno da tarefa, escrito sem plateia.
  *  · `term` — o prazo INTERNO. `forecastDate` é o que se promete ao cliente;
@@ -602,7 +602,7 @@ export interface PortalBudgetView {
   /**
    * AS ETIQUETAS DOS VEÍCULOS — `VEHICLE`.
    *
-   * O cliente não procura orçamento por número: procura pelo CAMINHÃO ("o 1042",
+   * O cliente não procura orçamento por número: procura pelo IMPLEMENTO ("o 1042",
    * "o da placa ABC1D23"). A lista precisa dessas duas palavras por linha, e
    * antes disto ela as obtinha cruzando `GET /cliente/me/veiculos` com
    * `take=300` — uma segunda consulta paginada que degradava em silêncio assim
@@ -838,24 +838,24 @@ export class PortalProjectionService {
     };
 
     if (hasSection(sections, 'VEHICLE')) {
-      const truck = row.implement ?? null;
+      const implement = row.implement ?? null;
       view.identity = {
         serialNumber: row.serialNumber ?? null,
-        plate: truck?.plate ?? null,
-        chassisNumber: truck?.chassisNumber ?? null,
-        category: truck?.category ?? null,
+        plate: implement?.plate ?? null,
+        chassisNumber: implement?.chassisNumber ?? null,
+        category: implement?.category ?? null,
         // a chave PÚBLICA do portal continua `implementType` (o portal não muda aqui)
-        implementType: truck?.type ?? null,
-        // A plaqueta é IMAGEM, não texto, desde `20260727150000_truck_vin_plate_image`.
-        vinPlate: truck?.vinPlate ? this.projectFile(truck.vinPlate) : null,
+        implementType: implement?.type ?? null,
+        // A plaqueta é IMAGEM, não texto, desde `20260727150000_implement_vin_plate_image`.
+        vinPlate: implement?.vinPlate ? this.projectFile(implement.vinPlate) : null,
         // ⚠️ MEDIDAS SAEM EM METROS, como estão no banco. A conversão para
         // centímetros é da BORDA (o formulário divide por 100 ao enviar e
         // multiplica ao exibir). Convertê-las aqui faria o portal ter uma
         // unidade diferente do resto do sistema para o mesmo campo.
         measures: {
-          left: this.projectMeasure(truck?.leftSideMeasure),
-          right: this.projectMeasure(truck?.rightSideMeasure),
-          back: this.projectMeasure(truck?.backSideMeasure),
+          left: this.projectMeasure(implement?.leftSideMeasure),
+          right: this.projectMeasure(implement?.rightSideMeasure),
+          back: this.projectMeasure(implement?.backSideMeasure),
         },
         // O número do pedido de compra é do cliente, escrito pelo cliente. Fica
         // na identidade do veículo porque é isso que ele é: o endereço

@@ -61,7 +61,7 @@ export class BudgetReceiptService {
     }
     // LIQUIDADO É DO FATURAMENTO, e o recibo é do contrato inteiro: só sai
     // quando TODAS as cobranças estão pagas. Antes isto lia `quote.status ===
-    // SETTLED`, um campo que num orçamento de sessenta caminhões faturados um a
+    // SETTLED`, um campo que num orçamento de sessenta implementos faturados um a
     // um respondia por todos ao mesmo tempo.
     const billings = (quote as any).billings as Array<{ status: string }> | undefined;
     const todasLiquidadas =
@@ -86,12 +86,12 @@ export class BudgetReceiptService {
     const nfseNoticeEnabled = primaryConfig ? primaryConfig.generateInvoice !== false : true;
 
     // Identidade do veículo é SEMPRE nº de série (Task.serialNumber) e/ou placa
-    // (Truck.plate) — nunca o nome da tarefa, que é texto livre e não identifica
+    // (Implement.plate) — nunca o nome da tarefa, que é texto livre e não identifica
     // o veículo. Pelo menos um dos dois está disponível quando o orçamento chega
     // a SETTLED; mostra os dois quando ambos existirem.
-    const truck = quoteTaskRows[0]?.implement ?? null;
+    const implement = quoteTaskRows[0]?.implement ?? null;
     const serialNumber = quoteTaskRows[0]?.serialNumber ?? null;
-    const plate = truck?.plate ?? null;
+    const plate = implement?.plate ?? null;
 
     /** `Série 38781 · Placa ABC1D23` para um veículo. */
     const describeVehicle = (t: (typeof quoteTaskRows)[number]): string | null => {

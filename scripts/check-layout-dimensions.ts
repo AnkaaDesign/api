@@ -64,7 +64,7 @@ const fakePrisma = {
       filename: pdf.split('/').pop(),
     }),
   },
-  truck: {
+  implement: {
     findUnique: async () => ({
       leftSideMeasure: left,
       rightSideMeasure: right,
@@ -81,11 +81,11 @@ async function main(): Promise<void> {
   // do primeiro pedido depois de um deploy, e só dele. A SEGUNDA é o que a API
   // paga em regime, e é a que se compara com os 62 ms de mediana do acervo.
   const coldAt = Date.now();
-  await service.dimensions('file-id', { truckId: 'truck-id' });
+  await service.dimensions('file-id', { implementId: 'implement-id' });
   const cold = Date.now() - coldAt;
 
   const startedAt = Date.now();
-  const dto = await service.dimensions('file-id', { truckId: 'truck-id' });
+  const dto = await service.dimensions('file-id', { implementId: 'implement-id' });
   const ms = Date.now() - startedAt;
   const bytes = Buffer.byteLength(JSON.stringify(dto));
 

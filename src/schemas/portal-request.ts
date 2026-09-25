@@ -25,7 +25,7 @@
 //      centímetros, e a conversão é UMA, aqui na borda — ver
 //      `centimetrosParaMetros`.
 //
-//   4. PAR (SÉRIE, PLACA) EXPLÍCITO. `Task.serialNumber` e `Truck.plate` são
+//   4. PAR (SÉRIE, PLACA) EXPLÍCITO. `Task.serialNumber` e `Implement.plate` são
 //      `@unique` GLOBAIS. O formulário interno emite o PRODUTO CARTESIANO de
 //      placas × séries, que viola as duas unicidades por construção. Aqui
 //      `veiculos[]` é uma lista de tuplas — N placas com a mesma série é
@@ -103,7 +103,7 @@ export const PAYLOAD_INVALIDO_MENSAGEM =
  *
  * ⚠️ EXPORTADO porque a requisição não é a única rota multipart do portal:
  * `PATCH /cliente/me/veiculos/:taskId/identificacao` chega pela MESMA forma
- * (um campo `payload` + o arquivo `truckVinPlate`), e `schemas/portal-vehicle-
+ * (um campo `payload` + o arquivo `implementVinPlate`), e `schemas/portal-vehicle-
  * identity.ts` reusa este desembrulho em vez de copiá-lo. Duas cópias do mesmo
  * `preprocess` divergiriam na primeira vez que o cliente HTTP mudasse de
  * convenção — e a que não fosse atualizada acusaria "campo obrigatório" em

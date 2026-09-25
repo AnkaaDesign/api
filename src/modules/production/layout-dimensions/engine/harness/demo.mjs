@@ -1,4 +1,4 @@
-/** Gera a face cotada a partir de uma arte de layout + medidas do caminhão. */
+/** Gera a face cotada a partir de uma arte de layout + medidas do implemento. */
 import { readFileSync, writeFileSync } from 'node:fs';
 const pdfjs = await import(process.env.PDFJS ??
   new URL('../../../../../../node_modules/pdfjs-dist/legacy/build/pdf.mjs', import.meta.url).href);

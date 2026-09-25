@@ -115,7 +115,7 @@ async function main() {
     });
 
     // O número do pedido mora na TAREFA desde que um orçamento passou a cobrir N
-    // veículos (`Task.customerOrderNumber`). Este orçamento tem um caminhão só.
+    // veículos (`Task.customerOrderNumber`). Este orçamento tem um implemento só.
     const quoteTasksForOrder = await prisma.task.findMany({
       where: { quoteId: QUOTE_ID },
       select: { customerOrderNumber: true },

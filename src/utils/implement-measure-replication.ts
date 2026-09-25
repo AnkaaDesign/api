@@ -2,16 +2,16 @@
  * O TAMANHO É DO ORÇAMENTO — as medidas do implemento, replicadas aos irmãos.
  *
  * Decisão do dono (23/09/2026): mesmo orçamento ⇒ mesmo tamanho. O preço de um
- * orçamento é UM por veículo justamente porque os N caminhões são o mesmo
+ * orçamento é UM por veículo justamente porque os N implementos são o mesmo
  * implemento; o que pode variar entre eles é a PINTURA (o layout aprovado, que
  * passou a poder ser por veículo), não a medida. Quando a Logística mede um dos
- * caminhões, os demais do mesmo orçamento recebem as MESMAS medidas — sem isso,
- * a produção abria o segundo caminhão e o encontrava sem medida nenhuma, ou com
+ * implementos, os demais do mesmo orçamento recebem as MESMAS medidas — sem isso,
+ * a produção abria o segundo implemento e o encontrava sem medida nenhuma, ou com
  * uma de outra visita.
  *
  * POR CÓPIA, NUNCA COMPARTILHANDO A LINHA
  *   Cada irmão ganha uma linha `ImplementMeasure` nova (mesma altura, mesmas
- *   seções, mesma foto). Compartilhar a linha amarraria os caminhões para sempre:
+ *   seções, mesma foto). Compartilhar a linha amarraria os implementos para sempre:
  *   um veículo pode sair do orçamento amanhã, e editar a medida dele não pode
  *   mexer na dos que ficaram. A escrita passa pelo escritor único
  *   (`implement-measure-writer.ts`, modo `replace`), que é quem decide o que
@@ -23,8 +23,8 @@
  *
  * O QUE REPLICA E O QUE NÃO
  *   - criação e atualização de um lado replicam;
- *   - EXCLUSÃO NÃO replica — tirar a medida de um caminhão é quase sempre
- *     corrigir aquele caminhão, e apagar a dos irmãos por tabela seria destruir
+ *   - EXCLUSÃO NÃO replica — tirar a medida de um implemento é quase sempre
+ *     corrigir aquele implemento, e apagar a dos irmãos por tabela seria destruir
  *     trabalho medido;
  *   - só o lado que DIFERE é escrito: o irmão que já tem exatamente a mesma
  *     medida não ganha linha nova nem entrada na trilha (é o que torna a rotina
@@ -32,7 +32,7 @@
  *   - todo irmão tem implemento (DD1); se um faltasse (defeito de dado), ele é
  *     pulado e o log diz qual — esta rotina não cria implemento.
  *
- * Mesma transação da escrita de origem: ou a medida existe nos N caminhões, ou
+ * Mesma transação da escrita de origem: ou a medida existe nos N implementos, ou
  * em nenhum.
  */
 import { Logger } from '@nestjs/common';
@@ -123,14 +123,14 @@ export interface ReplicationLogEntry {
 export interface ReplicationResult {
   /** Lados escritos nos irmãos: `taskId` → lados. */
   replicated: Array<{ taskId: string; side: ImplementFace; implementMeasureId: string }>;
-  /** Irmãos pulados, com o motivo (sem caminhão, por exemplo). */
+  /** Irmãos pulados, com o motivo (sem implemento, por exemplo). */
   skipped: Array<{ taskId: string; side: ImplementFace; reason: string }>;
 }
 
 type Tx = any;
 
 /**
- * Replica os lados `sides` do caminhão de `sourceTaskId` para os demais veículos
+ * Replica os lados `sides` do implemento de `sourceTaskId` para os demais veículos
  * do mesmo orçamento.
  *
  * @param logChange  Quem grava a trilha — o `ChangeLogService.logChange` do
@@ -190,7 +190,7 @@ export async function replicateImplementMeasuresToQuoteSiblings(
 
     for (const sibling of ordered) {
       if (sibling.id === source.id) continue;
-      // DD1: toda tarefa tem implemento. O ramo que criava o caminhão do irmão
+      // DD1: toda tarefa tem implemento. O ramo que criava o implemento do irmão
       // "se faltasse" saiu (seria uma segunda fonte de criação sem `spot`).
       const implement = sibling.implement;
       if (!implement) {

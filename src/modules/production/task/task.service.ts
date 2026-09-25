@@ -43,7 +43,7 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
-  TRUCK_SPOT,
+  IMPLEMENT_SPOT,
   SECTOR_PRIVILEGES,
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
@@ -68,9 +68,9 @@ import { SERIAL_NUMBER_PATTERN, SERIAL_NUMBER_PATTERN_MESSAGE } from '../../../s
 import {
   isImplementHistoryField,
   resolveImplementColumn,
-} from '../../common/legacy-implement/implement-field-aliases';
-import { IMPLEMENT_NOT_REMOVABLE_MESSAGE } from '../../common/legacy-implement/legacy-implement-keys';
-import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
+} from '../implement/implement-history-field';
+import { IMPLEMENT_NOT_REMOVABLE_MESSAGE } from '../../../schemas/implement';
+import { syncImplementSpotWithCleared } from '../../../utils/task-implement-spot';
 import { hasEntered } from '../../../utils/task-cleared';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
@@ -1118,9 +1118,7 @@ export class TaskService {
       projectFiles?: Express.Multer.File[];
       checkinFiles?: Express.Multer.File[];
       checkoutFiles?: Express.Multer.File[];
-      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
-      truckVinPlate?: Express.Multer.File[];
-      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
       implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
@@ -1327,14 +1325,14 @@ export class TaskService {
         // Medidas do implemento: uma linha NOVA por face. O implemento em si
         // (série, placa, chassi, vaga, categoria, tipo) nasceu com a tarefa no
         // repositório (W1, DD1) — SEMPRE, mesmo sem nenhum campo.
-        const truckData = (data as any).implement;
+        const implementData = (data as any).implement;
         const hasImplementMeasures =
-          truckData &&
-          (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure);
+          implementData &&
+          (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure);
 
         if (hasImplementMeasures) {
-          const truck = await tx.implement.findUnique({ where: { taskId: newTask.id } });
-          if (!truck) {
+          const implement = await tx.implement.findUnique({ where: { taskId: newTask.id } });
+          if (!implement) {
             throw new InternalServerErrorException(
               'Tarefa criada sem implemento: toda tarefa tem exatamente um implemento.',
             );
@@ -1343,12 +1341,12 @@ export class TaskService {
           // Uma face por vez, pelo escritor único (a tarefa é nova: toda face
           // nasce com a SUA linha). A trilha continua a de sempre.
           for (const face of FACES) {
-            const implementMeasureData = truckData[FACE_REL[face]];
+            const implementMeasureData = implementData[FACE_REL[face]];
             if (!implementMeasureData) continue;
             const implementMeasureField = FACE_FK[face];
 
             this.logger.log(`[Task Create] Creating ${face} implementMeasure`);
-            const written = await setFace(tx, truck.id, face, implementMeasureData);
+            const written = await setFace(tx, implement.id, face, implementMeasureData);
             const implementMeasure = written.after!;
 
             // Create changelog for implementMeasure creation
@@ -1369,7 +1367,7 @@ export class TaskService {
             );
           }
 
-          this.logger.log(`[Task Create] ImplementMeasures created for truck ${truck.id}`);
+          this.logger.log(`[Task Create] ImplementMeasures created for implement ${implement.id}`);
         }
 
         // Log task creation
@@ -1512,13 +1510,13 @@ export class TaskService {
             // Get task name for file renaming
             const taskNameForFile = newTask.name || 'Tarefa';
 
-            // Construct task-like object with truck implementMeasure data for measures calculation
-            // The truck implementMeasures come from the input data (truckData)
-            const taskWithTruck = {
-              implement: truckData
+            // Construct task-like object with implement implementMeasure data for measures calculation
+            // The implement implementMeasures come from the input data (implementData)
+            const taskWithImplement = {
+              implement: implementData
                 ? {
-                    leftSideMeasure: truckData.leftSideMeasure || null,
-                    rightSideMeasure: truckData.rightSideMeasure || null,
+                    leftSideMeasure: implementData.leftSideMeasure || null,
+                    rightSideMeasure: implementData.rightSideMeasure || null,
                   }
                 : null,
             };
@@ -1530,7 +1528,7 @@ export class TaskService {
               // Pass file index (1-based) to add suffix for multiple files
               const newFilename = generateBaseFileName(
                 taskNameForFile,
-                taskWithTruck,
+                taskWithImplement,
                 baseFile.originalname,
                 i + 1, // 1-based index for file numbering
               );
@@ -1558,33 +1556,33 @@ export class TaskService {
             fileUpdates.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
           }
 
-          // Foto da plaqueta de identificação (VIN). Imagem ÚNICA e gravada no Truck, não na
+          // Foto da plaqueta de identificação (VIN). Imagem ÚNICA e gravada no Implement, não na
           // Task — por isso não entra em `fileUpdates` (que conecta arquivos à tarefa).
-          const vinPlateUpload = files.implementVinPlate?.[0] ?? files.truckVinPlate?.[0];
+          const vinPlateUpload = files.implementVinPlate?.[0];
           if (vinPlateUpload) {
-            const truckForVinPlate = await tx.implement.findUnique({
+            const implementForVinPlate = await tx.implement.findUnique({
               where: { taskId: newTask.id },
               select: { id: true },
             });
 
-            if (truckForVinPlate) {
+            if (implementForVinPlate) {
               const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 vinPlateUpload,
                 'implementVinPlate',
                 userId,
-                { entityId: truckForVinPlate.id, entityType: 'TRUCK', customerName },
+                { entityId: implementForVinPlate.id, entityType: 'IMPLEMENT', customerName },
               );
               await tx.implement.update({
-                where: { id: truckForVinPlate.id },
+                where: { id: implementForVinPlate.id },
                 data: { vinPlateId: vinPlateFile.id },
               });
               this.logger.log(
-                `[Task Create] Foto da plaqueta ${vinPlateFile.id} vinculada ao caminhão ${truckForVinPlate.id}`,
+                `[Task Create] Foto da plaqueta ${vinPlateFile.id} vinculada ao implemento ${implementForVinPlate.id}`,
               );
             } else {
               this.logger.warn(
-                `[Task Create] Foto da plaqueta enviada para a tarefa ${newTask.id}, mas nenhum caminhão foi criado — arquivo ignorado`,
+                `[Task Create] Foto da plaqueta enviada para a tarefa ${newTask.id}, mas nenhum implemento foi criado — arquivo ignorado`,
               );
             }
           }
@@ -1824,7 +1822,6 @@ export class TaskService {
           ...(files.bankSlips || []),
           ...(files.layouts || []),
           ...(files.cutFiles || []),
-          ...(files.truckVinPlate || []),
           ...(files.implementVinPlate || []),
         ];
 
@@ -1866,9 +1863,7 @@ export class TaskService {
       layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
-      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
-      truckVinPlate?: Express.Multer.File[];
-      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
       implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
@@ -1953,22 +1948,22 @@ export class TaskService {
           { leftSideMeasure: any; rightSideMeasure: any; backSideMeasure: any }
         >();
         for (const [index, task] of data.tasks.entries()) {
-          const truckData = (task as any).implement;
+          const implementData = (task as any).implement;
           if (
-            truckData &&
-            (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
+            implementData &&
+            (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure)
           ) {
             taskImplementMeasureDataMap.set(index, {
-              leftSideMeasure: truckData.leftSideMeasure ? { ...truckData.leftSideMeasure } : null,
-              rightSideMeasure: truckData.rightSideMeasure
-                ? { ...truckData.rightSideMeasure }
+              leftSideMeasure: implementData.leftSideMeasure ? { ...implementData.leftSideMeasure } : null,
+              rightSideMeasure: implementData.rightSideMeasure
+                ? { ...implementData.rightSideMeasure }
                 : null,
-              backSideMeasure: truckData.backSideMeasure ? { ...truckData.backSideMeasure } : null,
+              backSideMeasure: implementData.backSideMeasure ? { ...implementData.backSideMeasure } : null,
             });
-            // Remove implementMeasure data from truck so repository doesn't try to handle it
-            delete truckData.leftSideMeasure;
-            delete truckData.rightSideMeasure;
-            delete truckData.backSideMeasure;
+            // Remove implementMeasure data from implement so repository doesn't try to handle it
+            delete implementData.leftSideMeasure;
+            delete implementData.rightSideMeasure;
+            delete implementData.backSideMeasure;
           }
         }
 
@@ -2020,17 +2015,17 @@ export class TaskService {
               },
             );
 
-            // Create individual implementMeasures for this task and connect to the truck
+            // Create individual implementMeasures for this task and connect to the implement
             // (escritor único: cada tarefa do lote ganha as SUAS linhas).
             const savedImplementMeasureData = taskImplementMeasureDataMap.get(index);
             if (savedImplementMeasureData) {
-              const truck = await tx.implement.findUnique({ where: { taskId: createdTask.id } });
-              if (truck) {
+              const implement = await tx.implement.findUnique({ where: { taskId: createdTask.id } });
+              if (implement) {
                 let wroteAny = false;
                 for (const face of FACES) {
                   const implementMeasureData = savedImplementMeasureData[FACE_REL[face]];
                   if (!implementMeasureData || !implementMeasureData.sections) continue;
-                  const written = await setFace(tx, truck.id, face, implementMeasureData);
+                  const written = await setFace(tx, implement.id, face, implementMeasureData);
                   wroteAny = true;
                   this.logger.log(
                     `[batchCreate] Individual ${face} implementMeasure created: ${written.measureId} for task index ${index}`,
@@ -2038,7 +2033,7 @@ export class TaskService {
                 }
                 if (wroteAny) {
                   this.logger.log(
-                    `[batchCreate] Created individual implementMeasures for truck ${truck.id} on task ${createdTask.id}`,
+                    `[batchCreate] Created individual implementMeasures for implement ${implement.id} on task ${createdTask.id}`,
                   );
                 }
               }
@@ -2169,8 +2164,8 @@ export class TaskService {
    * orçamento nasce ligado às N tarefas dentro da mesma transação.
    *
    * O tempo limite é maior que o padrão da casa (60s) porque o trabalho cresce
-   * com o número de veículos: sessenta caminhões são sessenta tarefas com
-   * caminhão, layouts, responsáveis e seis ordens de serviço cada, mais o
+   * com o número de veículos: sessenta implementos são sessenta tarefas com
+   * implemento, layouts, responsáveis e seis ordens de serviço cada, mais o
    * orçamento com as suas fatias — e uma transação que estoura o relógio no meio
    * é indistinguível, para quem está na tela, de um defeito de regra.
    */
@@ -2243,7 +2238,7 @@ export class TaskService {
 
           // TUDO OU NADA. `batchCreate` é "melhor esforço" por item — devolve o
           // que deu certo e o que não deu. Aqui a falha de uma tarefa desfaz as
-          // outras e o orçamento: um orçamento que cobre 10 dos 11 caminhões que
+          // outras e o orçamento: um orçamento que cobre 10 dos 11 implementos que
           // o operador digitou é pior do que nenhum, porque ninguém confere o
           // que não aparece.
           if (failed.length > 0 || created.length !== data.tasks.length) {
@@ -2336,9 +2331,7 @@ export class TaskService {
       soCheckinFiles?: Express.Multer.File[];
       soCheckoutFiles?: Express.Multer.File[];
       quoteLayoutFile?: Express.Multer.File[];
-      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
-      truckVinPlate?: Express.Multer.File[];
-      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
       implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
@@ -2410,7 +2403,7 @@ export class TaskService {
 
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
-        // Include truck implementMeasures with sections for file naming with measures
+        // Include implement implementMeasures with sections for file naming with measures
         const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
           include: {
             ...include,
@@ -2437,7 +2430,7 @@ export class TaskService {
                 leftSideMeasure: { include: { sections: true } },
                 rightSideMeasure: { include: { sections: true } },
               },
-            }, // Include truck with implementMeasures for file naming with measures
+            }, // Include implement with its measures for file naming with measures
             serviceOrders: {
               include: {
                 checkinFiles: { select: { id: true } },
@@ -2513,29 +2506,29 @@ export class TaskService {
         // Validate task data
         await this.validateTask(data, id, tx);
 
-        // Handle truck and implementMeasure updates (consolidated in single truck object)
-        const truckData = (data as any).implement;
+        // Handle implement and implementMeasure updates (consolidated in single implement object)
+        const implementData = (data as any).implement;
 
-        // Foto NOVA da plaqueta vence o `truck.vinPlateId` do payload. O front manda o objeto
-        // `truck` inteiro quando QUALQUER campo dele muda (chassi, placa...), e nesse objeto o
+        // Foto NOVA da plaqueta vence o `implement.vinPlateId` do payload. O front manda o objeto
+        // `implement` inteiro quando QUALQUER campo dele muda (chassi, placa...), e nesse objeto o
         // `vinPlateId` de um arquivo ainda não enviado vem null. Sem isso, o upsert do
         // repositório (que roda DEPOIS do upload) gravava null por cima do id recém-criado —
         // salvar chassi + foto juntos perdia a foto, e só o segundo save é que a gravava.
-        if ((files?.implementVinPlate?.[0] ?? files?.truckVinPlate?.[0]) && truckData && typeof truckData === 'object') {
-          delete truckData.vinPlateId;
+        if (files?.implementVinPlate?.[0] && implementData && typeof implementData === 'object') {
+          delete implementData.vinPlateId;
         }
-        if (truckData !== undefined) {
-          if (truckData === null) {
+        if (implementData !== undefined) {
+          if (implementData === null) {
             // DD1: o implemento não sai da tarefa (o tradutor já recusa o corpo
-            // velho `truck: null`; isto é a segunda cerca, antes do gatilho
+            // velho `implement: null`; isto é a segunda cerca, antes do gatilho
             // diferido que daria 500 no COMMIT).
             throw new BadRequestException(IMPLEMENT_NOT_REMOVABLE_MESSAGE);
           }
           {
             // O implemento SEMPRE existe (DD1): o ramo que o criava aqui saiu.
-            const truckId = existingTask.implement?.id;
-            const existingTruck = existingTask.implement;
-            if (!truckId) {
+            const implementId = existingTask.implement?.id;
+            const existingImplement = existingTask.implement;
+            if (!implementId) {
               throw new InternalServerErrorException(
                 'Tarefa sem implemento: toda tarefa tem exatamente um implemento.',
               );
@@ -2545,35 +2538,35 @@ export class TaskService {
               // Campos do implemento (a SÉRIE fica de fora: ela vai pelo
               // repositório, W2, e a trilha dela é TASK/serialNumber, S-5).
               const updateFields: any = {};
-              if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
-              if (truckData.chassisNumber !== undefined)
-                updateFields.chassisNumber = truckData.chassisNumber;
-              if (truckData.vinPlateId !== undefined)
-                updateFields.vinPlateId = truckData.vinPlateId;
-              if (truckData.category !== undefined) updateFields.category = truckData.category;
-              if (truckData.type !== undefined) updateFields.type = truckData.type;
-              if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
+              if (implementData.plate !== undefined) updateFields.plate = implementData.plate;
+              if (implementData.chassisNumber !== undefined)
+                updateFields.chassisNumber = implementData.chassisNumber;
+              if (implementData.vinPlateId !== undefined)
+                updateFields.vinPlateId = implementData.vinPlateId;
+              if (implementData.category !== undefined) updateFields.category = implementData.category;
+              if (implementData.type !== undefined) updateFields.type = implementData.type;
+              if (implementData.spot !== undefined) updateFields.spot = implementData.spot;
 
               if (Object.keys(updateFields).length > 0) {
-                const updatedTruck = await tx.implement.update({
-                  where: { id: truckId },
+                const updatedImplement = await tx.implement.update({
+                  where: { id: implementId },
                   data: updateFields,
                 });
-                this.logger.log(`[Task Update] Truck basic fields updated`);
+                this.logger.log(`[Task Update] implement basic fields updated`);
 
                 // Create changelog for each changed field
                 for (const [field, newValue] of Object.entries(updateFields)) {
-                  const oldValue = (existingTruck as any)?.[field];
+                  const oldValue = (existingImplement as any)?.[field];
                   if (oldValue !== newValue) {
                     await logEntityChange({
                       changeLogService: this.changeLogService,
-                      entityType: ENTITY_TYPE.TRUCK,
-                      entityId: truckId,
+                      entityType: ENTITY_TYPE.IMPLEMENT,
+                      entityId: implementId,
                       action: CHANGE_ACTION.UPDATE,
-                      entity: updatedTruck,
+                      entity: updatedImplement,
                       userId: userId || '',
                       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                      reason: `Caminhão atualizado`,
+                      reason: `Implemento atualizado`,
                       field,
                       oldValue,
                       newValue,
@@ -2582,7 +2575,7 @@ export class TaskService {
                   }
                 }
 
-                this.logger.log(`[Task Update] Truck field changes logged to changelog`);
+                this.logger.log(`[Task Update] implement field changes logged to changelog`);
               }
             }
 
@@ -2597,9 +2590,9 @@ export class TaskService {
               const implementMeasureField = FACE_FK[face];
 
               if (implementMeasureData === null) {
-                const removed = await setFace(tx, truckId!, face, null);
+                const removed = await setFace(tx, implementId!, face, null);
                 if (removed.action !== 'removed') return;
-                this.logger.log(`[Task Update] Removing ${implementMeasureField} from truck`);
+                this.logger.log(`[Task Update] Removing ${implementMeasureField} from implement`);
 
                 if (removed.before) {
                   // Log implementMeasure removal to TASK entity changelog
@@ -2643,7 +2636,7 @@ export class TaskService {
                 return;
               }
 
-              const written = await setFace(tx, truckId!, face, implementMeasureData);
+              const written = await setFace(tx, implementId!, face, implementMeasureData);
 
               if (written.action === 'created') {
                 const newImplementMeasure = written.after!;
@@ -2728,7 +2721,7 @@ export class TaskService {
 
             // Process each implementMeasure side
             for (const face of FACES) {
-              await processImplementMeasure(truckData[FACE_REL[face]], face);
+              await processImplementMeasure(implementData[FACE_REL[face]], face);
             }
 
             // Handle implementMeasure photo uploads (a foto é da face: linha usada
@@ -2754,7 +2747,7 @@ export class TaskService {
                     { entityId: id, entityType: 'IMPLEMENT_MEASURE', customerName },
                   );
 
-                  await setFacePhoto(tx, truckId!, face, uploadedPhoto.id);
+                  await setFacePhoto(tx, implementId!, face, uploadedPhoto.id);
                 }
               }
             }
@@ -2764,11 +2757,11 @@ export class TaskService {
             // Os lados que ESTA gravação criou ou alterou (objeto no payload, ou
             // foto nova) vão para os demais veículos do mesmo orçamento — por
             // cópia, na mesma transação. `null` (remover o lado) não replica.
-            // Esta porta cria o caminhão quando ele falta, então o irmão sem
-            // caminhão ganha um. Ver `utils/implement-measure-replication.ts`.
+            // Esta porta cria o implemento quando ele falta, então o irmão sem
+            // implemento ganha um. Ver `utils/implement-measure-replication.ts`.
             const ladosEscritos = new Set<ImplementFace>();
             for (const face of FACES) {
-              const v = (truckData as any)[FACE_REL[face]];
+              const v = (implementData as any)[FACE_REL[face]];
               if (v !== undefined && v !== null) ladosEscritos.add(face);
             }
             for (const key of Object.keys(files ?? {})) {
@@ -2786,28 +2779,28 @@ export class TaskService {
             }
           }
 
-          // After processing implementMeasures in service, remove implementMeasure fields from truck data
+          // After processing implementMeasures in service, remove implementMeasure fields from implement data
           // so the repository doesn't try to process them again
-          if (truckData) {
-            delete truckData.leftSideMeasure;
-            delete truckData.rightSideMeasure;
-            delete truckData.backSideMeasure;
+          if (implementData) {
+            delete implementData.leftSideMeasure;
+            delete implementData.rightSideMeasure;
+            delete implementData.backSideMeasure;
           }
         }
 
         // Foto da plaqueta de identificação (VIN) enviada por multipart. Fica FORA do bloco
-        // `truckData !== undefined` de propósito: trocar só a foto é uma edição legítima e o
-        // payload não precisa carregar um objeto `truck` de fachada só para o upload valer.
+        // `implementData !== undefined` de propósito: trocar só a foto é uma edição legítima e o
+        // payload não precisa carregar um objeto `implement` de fachada só para o upload valer.
         //
         // Substitui a anterior — o campo é uma imagem só. O arquivo antigo NÃO é apagado:
         // continua acessível pelo changelog e o File pode estar referenciado em outro lugar.
-        const vinPlateUpload = files?.implementVinPlate?.[0] ?? files?.truckVinPlate?.[0];
+        const vinPlateUpload = files?.implementVinPlate?.[0];
         if (vinPlateUpload) {
-          const vinPlateTruckId =
+          const vinPlateImplementId =
             (await tx.implement.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ??
             null;
 
-          if (vinPlateTruckId) {
+          if (vinPlateImplementId) {
             const previousVinPlateId = existingTask.implement?.vinPlateId ?? null;
             const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
               tx,
@@ -2815,22 +2808,22 @@ export class TaskService {
               'implementVinPlate',
               userId,
               {
-                entityId: vinPlateTruckId,
-                entityType: 'TRUCK',
+                entityId: vinPlateImplementId,
+                entityType: 'IMPLEMENT',
                 customerName: existingTask.customer?.fantasyName,
               },
             );
-            const truckWithVinPlate = await tx.implement.update({
-              where: { id: vinPlateTruckId },
+            const implementWithVinPlate = await tx.implement.update({
+              where: { id: vinPlateImplementId },
               data: { vinPlateId: vinPlateFile.id },
             });
 
             await logEntityChange({
               changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.TRUCK,
-              entityId: vinPlateTruckId,
+              entityType: ENTITY_TYPE.IMPLEMENT,
+              entityId: vinPlateImplementId,
               action: CHANGE_ACTION.UPDATE,
-              entity: truckWithVinPlate,
+              entity: implementWithVinPlate,
               userId: userId || '',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               reason: 'Foto da plaqueta atualizada',
@@ -2841,11 +2834,11 @@ export class TaskService {
             });
 
             this.logger.log(
-              `[Task Update] Foto da plaqueta ${vinPlateFile.id} vinculada ao caminhão ${vinPlateTruckId}`,
+              `[Task Update] Foto da plaqueta ${vinPlateFile.id} vinculada ao implemento ${vinPlateImplementId}`,
             );
           } else {
             this.logger.warn(
-              `[Task Update] Foto da plaqueta enviada para a tarefa ${id}, que não tem caminhão — arquivo ignorado`,
+              `[Task Update] Foto da plaqueta enviada para a tarefa ${id}, que não tem implemento — arquivo ignorado`,
             );
           }
         }
@@ -3164,7 +3157,7 @@ export class TaskService {
         // order-preserving, with any existing-selected ids the client sent in layoutFileIds.
         if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
           // Arte NOVA num orçamento com layout por veículo: a porta da tarefa não
-          // sabe de qual caminhão ela é, e o repositório recusaria a lista
+          // sabe de qual implemento ela é, e o repositório recusaria a lista
           // mudada logo adiante — mas DEPOIS de os bytes irem para o disco, onde
           // o rollback da transação não alcança. Recusar antes do upload.
           if (existingTask.quoteId) {
@@ -3286,7 +3279,7 @@ export class TaskService {
               baseFiles: true, // Include for changelog tracking
               logoPaints: true, // Include for changelog tracking
               observation: { include: { files: true } }, // Include for changelog tracking
-              implement: true, // Include for truck field changelog tracking
+              implement: true, // Include for implement field changelog tracking
               serviceOrders: {
                 include: {
                   checkinFiles: { select: { id: true } },
@@ -5914,7 +5907,7 @@ export class TaskService {
                 // Pass file index (1-based) to add suffix for multiple files
                 const newFilename = generateBaseFileName(
                   taskNameForFile,
-                  existingTask, // existingTask has truck with implementMeasures for measures
+                  existingTask, // existingTask has the implement with its measures
                   baseFile.originalname,
                   i + 1, // 1-based index for file numbering
                 );
@@ -6301,7 +6294,7 @@ export class TaskService {
           'bankSlipIds', // Bank slip documents (file array)
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
-          // Note: chassisNumber and plate are now on Truck entity, not Task
+          // Note: chassisNumber and plate are on the Implement entity, not Task
           // Note: quoteId is handled separately below with enriched data
         ];
 
@@ -7188,7 +7181,6 @@ export class TaskService {
           ...(files.bankSlips || []),
           ...(files.layouts || []),
           ...(files.cutFiles || []),
-          ...(files.truckVinPlate || []),
           ...(files.implementVinPlate || []),
         ];
 
@@ -7234,9 +7226,7 @@ export class TaskService {
       layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
-      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
-      truckVinPlate?: Express.Multer.File[];
-      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
       implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
@@ -7785,7 +7775,7 @@ export class TaskService {
           }
 
           // Process implementMeasure photo files for bulk implementMeasure operations
-          // Upload photos and inject photoId into truck data for all tasks
+          // Upload photos and inject photoId into implement data for all tasks
           this.logger.log(`[batchUpdate] ===== LAYOUT PHOTO PROCESSING START =====`);
           this.logger.log(`[batchUpdate] All file keys: ${Object.keys(files).join(', ')}`);
           const uploadedImplementMeasurePhotoIds: {
@@ -7797,7 +7787,7 @@ export class TaskService {
             k.startsWith('implementMeasurePhotos.'),
           );
           this.logger.log(
-            `[batchUpdate] ImplementMeasure photo keys found: ${implementMeasurePhotoKeys.length > 0 ? implementMeasurePhotoKeys.join(', ') : 'NONE'}`,
+            `[batchUpdate] implement measure photo keys found: ${implementMeasurePhotoKeys.length > 0 ? implementMeasurePhotoKeys.join(', ') : 'NONE'}`,
           );
           if (implementMeasurePhotoKeys.length > 0) {
             this.logger.log(
@@ -7824,29 +7814,29 @@ export class TaskService {
                 );
                 uploadedImplementMeasurePhotoIds[side] = uploadedPhoto.id;
                 this.logger.log(
-                  `[batchUpdate] ImplementMeasure photo uploaded for ${side}: ${uploadedPhoto.id}`,
+                  `[batchUpdate] implement measure photo uploaded for ${side}: ${uploadedPhoto.id}`,
                 );
               }
             }
 
-            // Inject uploaded photo IDs into truck data for all tasks
+            // Inject uploaded photo IDs into implement data for all tasks
             if (Object.keys(uploadedImplementMeasurePhotoIds).length > 0) {
               for (const task of data.tasks) {
-                const truckData = (task.data as any)?.implement;
-                if (truckData) {
-                  if (uploadedImplementMeasurePhotoIds.leftSide && truckData.leftSideMeasure) {
-                    truckData.leftSideMeasure.photoId = uploadedImplementMeasurePhotoIds.leftSide;
+                const implementData = (task.data as any)?.implement;
+                if (implementData) {
+                  if (uploadedImplementMeasurePhotoIds.leftSide && implementData.leftSideMeasure) {
+                    implementData.leftSideMeasure.photoId = uploadedImplementMeasurePhotoIds.leftSide;
                   }
-                  if (uploadedImplementMeasurePhotoIds.rightSide && truckData.rightSideMeasure) {
-                    truckData.rightSideMeasure.photoId = uploadedImplementMeasurePhotoIds.rightSide;
+                  if (uploadedImplementMeasurePhotoIds.rightSide && implementData.rightSideMeasure) {
+                    implementData.rightSideMeasure.photoId = uploadedImplementMeasurePhotoIds.rightSide;
                   }
-                  if (uploadedImplementMeasurePhotoIds.backSide && truckData.backSideMeasure) {
-                    truckData.backSideMeasure.photoId = uploadedImplementMeasurePhotoIds.backSide;
+                  if (uploadedImplementMeasurePhotoIds.backSide && implementData.backSideMeasure) {
+                    implementData.backSideMeasure.photoId = uploadedImplementMeasurePhotoIds.backSide;
                   }
                 }
               }
               this.logger.log(
-                '[batchUpdate] Injected implementMeasure photo IDs into truck data for all tasks',
+                '[batchUpdate] Injected implementMeasure photo IDs into implement data for all tasks',
               );
             }
           }
@@ -8428,21 +8418,21 @@ export class TaskService {
           result.totalFailed = (result.totalFailed || 0) + failedItems.length;
         }
 
-        // Process consolidated truck data with implementMeasures for each successfully updated task
+        // Process consolidated implement data with implementMeasures for each successfully updated task
         // Phase 1: Collect all tasks that need implementMeasure updates
         const tasksNeedingImplementMeasureUpdate: Array<{
           taskId: string;
-          truckData: any;
+          implementData: any;
         }> = [];
 
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
-          const truckData = (updateData as any)?.implement;
+          const implementData = (updateData as any)?.implement;
           if (
-            truckData &&
-            (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
+            implementData &&
+            (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure)
           ) {
-            tasksNeedingImplementMeasureUpdate.push({ taskId: task.id, truckData });
+            tasksNeedingImplementMeasureUpdate.push({ taskId: task.id, implementData });
           }
         }
 
@@ -8452,17 +8442,17 @@ export class TaskService {
           );
 
           // Cada face passa pelo escritor único (I38: a linha que é só deste
-          // caminhão é editada NO LUGAR — sem trocar o id da medida a cada lote,
+          // implemento é editada NO LUGAR — sem trocar o id da medida a cada lote,
           // o que disparava um falso "medidas mudaram"; a que é de mais alguém
           // ganha cópia; face sem linha ganha uma). O escritor devolve o ANTES
           // de cada face, lido antes da escrita.
 
-          // Phase 2: For each task, ensure truck exists, then write each face through the writer
-          for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
-            this.logger.log(`[batchUpdate] Processing truck implementMeasures for task ${taskId}`);
+          // Phase 2: For each task, ensure implement exists, then write each face through the writer
+          for (const { taskId, implementData } of tasksNeedingImplementMeasureUpdate) {
+            this.logger.log(`[batchUpdate] Processing implement implementMeasures for task ${taskId}`);
 
-            // Get the task with truck info
-            const taskWithTruck = await tx.task.findUnique({
+            // Get the task with implement info
+            const taskWithImplement = await tx.task.findUnique({
               where: { id: taskId },
               include: {
                 implement: {
@@ -8476,8 +8466,8 @@ export class TaskService {
             });
 
             // O implemento SEMPRE existe (DD1): o ramo que o criava aqui saiu.
-            const truckId = taskWithTruck?.implement?.id;
-            if (!truckId) {
+            const implementId = taskWithImplement?.implement?.id;
+            if (!implementId) {
               throw new InternalServerErrorException(
                 `Tarefa ${taskId} sem implemento: toda tarefa tem exatamente um implemento.`,
               );
@@ -8490,16 +8480,16 @@ export class TaskService {
             };
             const writtenFaces: FaceWriteResult[] = [];
             for (const face of FACES) {
-              const implementMeasureData = truckData[FACE_REL[face]];
+              const implementMeasureData = implementData[FACE_REL[face]];
               if (!implementMeasureData) continue;
-              const written = await setFace(tx, truckId, face, implementMeasureData);
+              const written = await setFace(tx, implementId, face, implementMeasureData);
               this.logger.log(
                 `[batchUpdate] Individual ${face} implementMeasure ${written.action}: ${written.measureId} for task ${taskId}`,
               );
               writtenFaces.push(written);
             }
 
-            // As faces escritas (o escritor já apontou o caminhão para cada uma)
+            // As faces escritas (o escritor já apontou o implemento para cada uma)
             const implementMeasureUpdate: Record<string, string> = {};
             for (const written of writtenFaces) {
               if (written.measureId) implementMeasureUpdate[written.fk] = written.measureId;
@@ -8507,7 +8497,7 @@ export class TaskService {
 
             if (Object.keys(implementMeasureUpdate).length > 0) {
               this.logger.log(
-                `[batchUpdate] Truck ${truckId} pointed to individual implementMeasures: ${JSON.stringify(implementMeasureUpdate)}`,
+                `[batchUpdate] Implement ${implementId} pointed to individual implementMeasures: ${JSON.stringify(implementMeasureUpdate)}`,
               );
 
               // Track implementMeasure changes in changelog with formatted summaries
@@ -8555,16 +8545,16 @@ export class TaskService {
                 `[batchUpdate] Changelog created for task ${taskId}: implementMeasures applied for ${sides.join(', ')}`,
               );
 
-              // Collect truck-implementMeasure side changes for post-commit notification emission.
-              // These are routed through fieldTracker.emitFieldChangeEvents which collapses
-              // the trio (truck.leftSideMeasureId/rightSideMeasureId/backSideMeasureId) into a
-              // SINGLE consolidated 'truck.implementMeasure' event — mirroring the single-update path.
+              // As faces da medida que mudaram, para a notificação depois do commit.
+              // Passam por fieldTracker.emitFieldChangeEvents, que junta as três
+              // (implement.leftSideMeasureId/rightSideMeasureId/backSideMeasureId) num
+              // ÚNICO evento 'implement.measures' — como na edição de uma tarefa só.
               for (const pair of implementMeasureSidePairs) {
                 if (pair.oldId === pair.newId) continue;
                 fieldChangesForEvents.push({
                   taskId,
                   task: { id: taskId },
-                  field: `truck.${pair.field}`,
+                  field: `implement.${pair.field}`,
                   oldValue: pair.oldId,
                   newValue: pair.newId,
                   isFileArray: false,
@@ -8581,8 +8571,8 @@ export class TaskService {
           // tarefa: o irmão que o próprio lote já mediu com os mesmos valores é
           // pulado (só o lado que DIFERE é escrito), e o que ficou de fora do
           // lote recebe a medida. Ver `utils/implement-measure-replication.ts`.
-          for (const { taskId, truckData } of tasksNeedingImplementMeasureUpdate) {
-            const lados = FACES.filter(face => !!truckData?.[FACE_REL[face]]);
+          for (const { taskId, implementData } of tasksNeedingImplementMeasureUpdate) {
+            const lados = FACES.filter(face => !!implementData?.[FACE_REL[face]]);
             if (lados.length === 0) continue;
             await replicateImplementMeasuresToQuoteSiblings(tx, {
               sourceTaskId: taskId,
@@ -9195,7 +9185,7 @@ export class TaskService {
       // TaskFieldTrackerService), route every changed task through the SAME logic the
       // single-update path uses:
       //   (a) status changes -> dedicated 'task.status.changed' event (NOT a generic field),
-      //   (b) the truck-implementMeasure side trio -> ONE consolidated 'truck.implementMeasure' event,
+      //   (b) the implement measure side trio -> ONE consolidated 'implement.measures' event,
       //   (c) all other tracked fields -> fieldTracker.emitFieldChangeEvents (with proper
       //       file-array add/remove analysis).
       if (result.fieldChangesForEvents && result.fieldChangesForEvents.length > 0) {
@@ -9216,7 +9206,7 @@ export class TaskService {
           }
         };
 
-        // Group changes by task so each task emits one consolidated truck.implementMeasure event.
+        // Group changes by task so each task emits one consolidated implement.measures event.
         const changesByTask = new Map<
           string,
           { task: any; changes: Array<{ field: string; oldValue: any; newValue: any }> }
@@ -9224,7 +9214,7 @@ export class TaskService {
         for (const change of result.fieldChangesForEvents) {
           const entry = changesByTask.get(change.taskId);
           // Prefer a task object that actually carries a name (full fetch) over the
-          // lightweight { id } placeholders pushed for truck-implementMeasure entries.
+          // lightweight { id } placeholders pushed for implement measure entries.
           const candidateTask = change.task;
           if (entry) {
             if (!entry.task?.name && candidateTask?.name) {
@@ -9284,7 +9274,7 @@ export class TaskService {
           }
 
           // (b)+(c) Remaining tracked fields -> route through the field tracker so the
-          // truck-implementMeasure trio collapses into one event and file arrays get add/remove analysis.
+          // implement measure trio collapses into one event and file arrays get add/remove analysis.
           const trackerChanges = group.changes
             .filter(c => c.field !== 'status')
             .map(c => ({
@@ -9522,7 +9512,7 @@ export class TaskService {
    * `findProtectedTaskIds` — a guarda de ASSINATURA. `isQuoteMoneyLocked` nunca
    * era chamada em caminho de exclusão nenhum, e o banco apagava antes de
    * qualquer código opinar: `BillingTask.task` e `Invoice.task` eram os dois
-   * `onDelete: Cascade`, de modo que apagar o caminhão levava junto a linha de
+   * `onDelete: Cascade`, de modo que apagar o implemento levava junto a linha de
    * cobertura E a fatura emitida sobre ele. A guarda `orphanedFrozen` da
    * reconciliação — que existe exatamente para recusar isto — ficava cega,
    * porque quando ela roda a linha de cobertura já não está mais lá. No acervo
@@ -9654,7 +9644,7 @@ export class TaskService {
         // que o cliente tem no e-mail. Cancelar tira das telas operacionais (que
         // filtram por estado), preserva o registro e é reversível.
         //
-        // Só quando foi o ÚLTIMO: num orçamento de quatro caminhões, apagar um
+        // Só quando foi o ÚLTIMO: num orçamento de quatro implementos, apagar um
         // deixa três, e aí o que cabe é recalcular — que é o que
         // `deleteWithTransaction` já faz.
         await this.cancelBudgetsLeftWithoutVehicles(tx, [task.quoteId], userId);
@@ -9697,7 +9687,7 @@ export class TaskService {
    * Cancelar tira das telas operacionais (que filtram por estado), preserva o
    * registro e é reversível.
    *
-   * Só quando foi o ÚLTIMO: num orçamento de quatro caminhões, apagar um deixa
+   * Só quando foi o ÚLTIMO: num orçamento de quatro implementos, apagar um deixa
    * três, e aí o que cabe é recalcular — que é o que `deleteWithTransaction` faz.
    *
    * ⚠️ EXTRAÍDA DE DENTRO DO `delete` UNITÁRIO. O bloco existia lá e NÃO existia
@@ -10496,11 +10486,11 @@ export class TaskService {
         throw new NotFoundException('Entrada de changelog não encontrada');
       }
 
-      // Support TASK, SERVICE_ORDER, and TRUCK entity types
+      // Support TASK, SERVICE_ORDER, and IMPLEMENT entity types
       const supportedEntityTypes = [
         'TASK',
         'SERVICE_ORDER',
-        'TRUCK',
+        'IMPLEMENT',
         'TASK_QUOTE',
         'TASK_QUOTE_SERVICE',
       ];
@@ -10592,7 +10582,7 @@ export class TaskService {
         };
       }
 
-      if (changeLog.entityType === 'TRUCK') {
+      if (changeLog.entityType === 'IMPLEMENT') {
         const loggedField = changeLog.field;
         if (!loggedField) {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
@@ -10631,7 +10621,7 @@ export class TaskService {
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TRUCK,
+          entityType: ENTITY_TYPE.IMPLEMENT,
           entityId: changeLog.entityId,
           action: CHANGE_ACTION.ROLLBACK,
           field: fieldToRevert,
@@ -10991,7 +10981,7 @@ export class TaskService {
         ].includes(fieldToRevert)
       ) {
         convertedValue = oldValue;
-        // Note: chassisNumber and plate are now on Truck entity, not Task
+        // Note: chassisNumber and plate are on the Implement entity, not Task
       }
       // Handle required string fields (name) - keep as is
       else if (['name'].includes(fieldToRevert)) {
@@ -11457,40 +11447,40 @@ export class TaskService {
         };
       }
 
-      // 5d. Campo do IMPLEMENTO gravado como `truck.*` (histórico) ou `implement.*`.
-      // O nome gravado passa por `LEGACY_FIELD_ALIASES` (`truck.implementType` →
+      // 5d. Campo do IMPLEMENTO gravado como `implement.*` (histórico) ou `implement.*`.
+      // O nome gravado passa por `LEGACY_FIELD_ALIASES` (`implement.type` →
       // `type`); nome sem coluna hoje → 400 com mensagem, nunca o 500 do Prisma.
       if (isImplementHistoryField(fieldToRevert)) {
-        const truckField = resolveImplementColumn(fieldToRevert);
-        if (!truckField) {
+        const implementField = resolveImplementColumn(fieldToRevert);
+        if (!implementField) {
           throw new BadRequestException(
             `Não é possível reverter "${fieldToRevert}": o campo não existe mais no implemento.`,
           );
         }
-        const taskWithTruck = await tx.task.findUnique({
+        const taskWithImplement = await tx.task.findUnique({
           where: { id: changeLog.entityId },
           include: { implement: true },
         });
 
-        if (!taskWithTruck?.implement) {
+        if (!taskWithImplement?.implement) {
           throw new BadRequestException('Tarefa sem implemento: nada a reverter.');
         }
-        if (truckField === 'serialNumber') {
+        if (implementField === 'serialNumber') {
           await this.assertSerialFreeForRollback(tx, convertedValue, changeLog.entityId);
         }
 
-        const revertedFace = faceOf(truckField);
-        if (revertedFace && FACE_FK[revertedFace] === truckField) {
+        const revertedFace = faceOf(implementField);
+        if (revertedFace && FACE_FK[revertedFace] === implementField) {
           await this.restoreFaceFromChangelog(
             tx,
-            taskWithTruck.implement.id,
+            taskWithImplement.implement.id,
             revertedFace,
             convertedValue,
           );
         } else {
           await tx.implement.update({
-            where: { id: taskWithTruck.implement.id },
-            data: { [truckField]: convertedValue },
+            where: { id: taskWithImplement.implement.id },
+            data: { [implementField]: convertedValue },
           });
         }
 
@@ -11665,7 +11655,7 @@ export class TaskService {
         };
       }
 
-      // 5g. Special handling for implementMeasures (composite relation on truck)
+      // 5g. Special handling for implementMeasures (composite relation on implement)
       if (fieldToRevert === 'implementMeasures') {
         this.logger.log(
           `[Rollback] Starting implementMeasures rollback for task ${changeLog.entityId}`,
@@ -11681,8 +11671,8 @@ export class TaskService {
         }
         if (parsedOldValue === undefined) parsedOldValue = null;
 
-        // Find the truck for this task
-        const truck = await tx.implement.findUnique({
+        // Find the implement for this task
+        const implement = await tx.implement.findUnique({
           where: { taskId: changeLog.entityId },
           include: {
             leftSideMeasure: { include: { sections: true } },
@@ -11691,9 +11681,9 @@ export class TaskService {
           },
         });
 
-        if (!truck) {
+        if (!implement) {
           throw new BadRequestException(
-            'Tarefa não possui caminhão associado para reverter implementMeasures',
+            'Tarefa não possui implemento associado para reverter implementMeasures',
           );
         }
 
@@ -11701,7 +11691,7 @@ export class TaskService {
           const key = FACE_FK[face];
           // Only process sides that appear in the old value
           if (parsedOldValue !== null && parsedOldValue[key] === undefined) continue;
-          await this.restoreFaceFromChangelog(tx, truck.id, face, parsedOldValue?.[key] ?? null);
+          await this.restoreFaceFromChangelog(tx, implement.id, face, parsedOldValue?.[key] ?? null);
         }
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
@@ -11859,18 +11849,18 @@ export class TaskService {
   // =====================
 
   /**
-   * Update the spot (parking position) of a truck associated with a task
+   * Update the spot (parking position) of a implement associated with a task
    */
   async updateTaskPosition(
     taskId: string,
     positionData: {
-      spot?: TRUCK_SPOT | null;
+      spot?: IMPLEMENT_SPOT | null;
     },
     include?: TaskInclude,
     userId?: string,
   ): Promise<TaskUpdateResponse> {
     return this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Find the task with its truck
+      // Find the task with its implement
       const task = await tx.task.findUnique({
         where: { id: taskId },
         include: {
@@ -11889,10 +11879,10 @@ export class TaskService {
       }
 
       if (!task.implement) {
-        throw new BadRequestException(`Tarefa ${taskId} não possui caminhão associado`);
+        throw new BadRequestException(`Tarefa ${taskId} não possui implemento associado`);
       }
 
-      // Validate that truck has implementMeasure before positioning
+      // Validate that implement has implementMeasure before positioning
       if (
         positionData.spot &&
         !task.implement.leftSideMeasure &&
@@ -11900,29 +11890,29 @@ export class TaskService {
         !task.implement.backSideMeasure
       ) {
         throw new BadRequestException(
-          `O caminhão da tarefa "${task.name}" não possui implementMeasure configurado. Configure pelo menos um implementMeasure (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
+          `O implemento da tarefa "${task.name}" não possui implementMeasure configurado. Configure pelo menos um implementMeasure (Motorista, Sapo ou Traseira) antes de posicionar o implemento na garagem.`,
         );
       }
 
       // Validate spot availability (check if spot is already occupied)
       if (positionData.spot) {
-        const existingTruck = await tx.implement.findFirst({
+        const existingImplement = await tx.implement.findFirst({
           where: {
             spot: positionData.spot,
             id: { not: task.implement.id },
           },
         });
 
-        if (existingTruck) {
+        if (existingImplement) {
           throw new BadRequestException(
-            `A vaga ${positionData.spot} já está ocupada por outro caminhão`,
+            `A vaga ${positionData.spot} já está ocupada por outro implemento`,
           );
         }
       }
 
       const oldSpot = task.implement.spot;
 
-      // Update truck spot
+      // Update implement spot
       await tx.implement.update({
         where: { id: task.implement.id },
         data: {
@@ -11933,7 +11923,7 @@ export class TaskService {
       // Log the change
       if (userId) {
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TRUCK,
+          entityType: ENTITY_TYPE.IMPLEMENT,
           entityId: task.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
@@ -11951,14 +11941,14 @@ export class TaskService {
 
       return {
         success: true,
-        message: 'Vaga do caminhão atualizada com sucesso',
+        message: 'Vaga do implemento atualizada com sucesso',
         data: updatedTask,
       };
     });
   }
 
   /**
-   * Bulk update positions for multiple trucks
+   * Bulk update positions for multiple implements
    */
   async bulkUpdatePositions(
     data: TaskBulkPositionUpdateFormData,
@@ -12020,7 +12010,7 @@ export class TaskService {
   }
 
   /**
-   * Swap spots of two trucks
+   * Swap spots of two implements
    */
   async swapTaskPositions(
     taskId1: string,
@@ -12029,7 +12019,7 @@ export class TaskService {
     userId?: string,
   ): Promise<{ success: boolean; message: string; data: { task1: Task; task2: Task } }> {
     return this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Fetch both tasks with trucks
+      // Fetch both tasks with implements
       const task1 = await tx.task.findUnique({
         where: { id: taskId1 },
         include: { implement: true },
@@ -12045,47 +12035,47 @@ export class TaskService {
       }
 
       if (!task1.implement || !task2.implement) {
-        throw new BadRequestException('Ambas as tarefas devem ter caminhões associados');
+        throw new BadRequestException('Ambas as tarefas devem ter implementos associados');
       }
 
       // Store original spots
-      const truck1Spot = task1.implement.spot;
-      const truck2Spot = task2.implement.spot;
+      const implement1Spot = task1.implement.spot;
+      const implement2Spot = task2.implement.spot;
 
       // Swap spots
       await tx.implement.update({
         where: { id: task1.implement.id },
-        data: { spot: truck2Spot },
+        data: { spot: implement2Spot },
       });
 
       await tx.implement.update({
         where: { id: task2.implement.id },
-        data: { spot: truck1Spot },
+        data: { spot: implement1Spot },
       });
 
       // Log changes
       if (userId) {
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TRUCK,
+          entityType: ENTITY_TYPE.IMPLEMENT,
           entityId: task1.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          oldValue: { spot: truck1Spot },
-          newValue: { spot: truck2Spot },
-          reason: `Spot swapped with truck ${task2.implement.id}`,
+          oldValue: { spot: implement1Spot },
+          newValue: { spot: implement2Spot },
+          reason: `Spot swapped with implement ${task2.implement.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
         });
 
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TRUCK,
+          entityType: ENTITY_TYPE.IMPLEMENT,
           entityId: task2.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          oldValue: { spot: truck2Spot },
-          newValue: { spot: truck1Spot },
-          reason: `Spot swapped with truck ${task1.implement.id}`,
+          oldValue: { spot: implement2Spot },
+          newValue: { spot: implement1Spot },
+          reason: `Spot swapped with implement ${task1.implement.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -12098,7 +12088,7 @@ export class TaskService {
 
       return {
         success: true,
-        message: 'Vagas dos caminhões trocadas com sucesso',
+        message: 'Vagas dos implementos trocadas com sucesso',
         data: {
           task1: updatedTask1,
           task2: updatedTask2,
@@ -12108,18 +12098,18 @@ export class TaskService {
   }
 
   /**
-   * Calculate truck width from implementMeasures (sum of implementMeasure section widths)
+   * Calculate implement width from implementMeasures (sum of implementMeasure section widths)
    */
-  private calculateTruckWidth(truck: any): number {
+  private calculateImplementWidth(implement: any): number {
     // Width is the sum of section widths from side implementMeasures
     const leftWidth =
-      truck.leftSideMeasure?.sections?.reduce(
+      implement.leftSideMeasure?.sections?.reduce(
         (sum: number, section: any) => sum + section.width,
         0,
       ) || 0;
 
     const rightWidth =
-      truck.rightSideMeasure?.sections?.reduce(
+      implement.rightSideMeasure?.sections?.reduce(
         (sum: number, section: any) => sum + section.width,
         0,
       ) || 0;
@@ -12127,7 +12117,7 @@ export class TaskService {
     // Use the maximum width from available implementMeasures, default to 5m if no implementMeasure
     const baseLength = Math.max(leftWidth, rightWidth) || 5;
 
-    // Add cabin length for trucks under 10m
+    // Add cabin length for implements under 10m
     if (baseLength < 10) {
       return baseLength + 2.8;
     }
@@ -12135,13 +12125,13 @@ export class TaskService {
   }
 
   /**
-   * Calculate truck length from implementMeasures
+   * Calculate implement length from implementMeasures
    */
-  private calculateTruckLength(truck: any): number {
+  private calculateImplementLength(implement: any): number {
     // Length is typically the height from implementMeasures, use back implementMeasure as primary
-    const backLength = truck.backSideMeasure?.height || 0;
-    const leftLength = truck.leftSideMeasure?.height || 0;
-    const rightLength = truck.rightSideMeasure?.height || 0;
+    const backLength = implement.backSideMeasure?.height || 0;
+    const leftLength = implement.leftSideMeasure?.height || 0;
+    const rightLength = implement.rightSideMeasure?.height || 0;
 
     // Use the maximum length from available implementMeasures, default to 12.5m if no implementMeasure
     return Math.max(backLength, leftLength, rightLength) || 12.5;
@@ -12985,19 +12975,19 @@ export class TaskService {
    */
   private async restoreFaceFromChangelog(
     tx: PrismaTransaction,
-    truckId: string,
+    implementId: string,
     face: ImplementFace,
     value: string | { id?: string | null; height?: number; sections?: any[] } | null,
   ): Promise<void> {
     const old = typeof value === 'string' ? { id: value } : value;
     const currentId =
-      ((await tx.implement.findUnique({ where: { id: truckId }, select: { [FACE_FK[face]]: true } })) as
+      ((await tx.implement.findUnique({ where: { id: implementId }, select: { [FACE_FK[face]]: true } })) as
         | Record<string, string | null>
         | null)?.[FACE_FK[face]] ?? null;
     const isCurrent = !!old?.id && old.id === currentId;
 
     if (old?.id && !isCurrent) {
-      const attached = await attachMeasure(tx, truckId, face, old.id);
+      const attached = await attachMeasure(tx, implementId, face, old.id);
       if (attached) {
         this.logger.log(
           `[Rollback] ${face} implementMeasure restored (${attached.action}): ${attached.measureId}`,
@@ -13009,7 +12999,7 @@ export class TaskService {
     if (old && Array.isArray(old.sections) && old.sections.length > 0) {
       const restored = await setFace(
         tx,
-        truckId,
+        implementId,
         face,
         {
           height: old.height || 0,
@@ -13031,7 +13021,7 @@ export class TaskService {
     if (isCurrent) return;
 
     if (currentId) {
-      const removed = await setFace(tx, truckId, face, null);
+      const removed = await setFace(tx, implementId, face, null);
       if (removed.previous === 'deleted') {
         this.logger.log(`[Rollback] Deleted orphaned ${face} implementMeasure: ${currentId}`);
       }
@@ -13070,8 +13060,8 @@ export class TaskService {
     tx: PrismaTransaction,
     /**
      * O VEÍCULO de origem da cópia. Num orçamento com layout por veículo, a
-     * cópia (que é de um caminhão só) leva só as artes DESTE veículo — levar
-     * todas daria ao destino a pintura dos outros caminhões como layout aprovado.
+     * cópia (que é de um implemento só) leva só as artes DESTE veículo — levar
+     * todas daria ao destino a pintura dos outros implementos como layout aprovado.
      */
     sourceTaskId?: string | null,
   ): Promise<string> {
@@ -13166,7 +13156,7 @@ export class TaskService {
         // que AFIRMAVA "uma fatura para todos". Num orçamento de um veículo —
         // que é o que a cópia é no instante em que nasce — os três modos são
         // indistinguíveis, então nada acusava; o estrago aparecia depois, quando
-        // a cópia recebia o segundo caminhão e a reconciliação fatiava pelo modo
+        // a cópia recebia o segundo implemento e a reconciliação fatiava pelo modo
         // errado, emitindo UMA nota para os dois.
         billingSplit: (sourceQuote as any).billingSplit,
         guaranteeYears: sourceQuote.guaranteeYears,
@@ -13201,7 +13191,7 @@ export class TaskService {
     //
     // UM só, sem cobertura: a cópia nasce sem veículo (quem vincula a tarefa é o
     // chamador), e um faturamento sem cobertura é a afirmação honesta nesse
-    // instante — "cobra este orçamento, e quais caminhões ainda não se sabe".
+    // instante — "cobra este orçamento, e quais implementos ainda não se sabe".
     // Quando a tarefa entrar, a reconciliação lhe dá a cobertura.
     //
     // Não pode ser aninhado no `create` acima: o pagador tem FK obrigatória para o
@@ -13300,7 +13290,7 @@ export class TaskService {
     //
     // Copiar `quoteId` REPONTA o vínculo do veículo de destino: ele deixa o
     // orçamento em que está e passa a um duplicado do orçamento de origem. Se o
-    // caminhão já está na cobertura de um faturamento CONGELADO — com fatura
+    // implemento já está na cobertura de um faturamento CONGELADO — com fatura
     // emitida, boleto registrado no Sicredi e NFS-e autorizada na prefeitura —,
     // isso o arranca de debaixo da cobrança que já saiu.
     //
@@ -13481,7 +13471,7 @@ export class TaskService {
         this.logger.debug(
           `[copyFromTask] Source task loaded: ${sourceTask.name} (${sourceTask.id})`,
         );
-        this.logger.debug(`[copyFromTask] Source has truck: ${!!sourceTask.implement}`);
+        this.logger.debug(`[copyFromTask] Source has implement: ${!!sourceTask.implement}`);
         this.logger.debug(`[copyFromTask] Source has cuts: ${sourceTask.cuts?.length || 0}`);
         this.logger.debug(
           `[copyFromTask] Source has airbrushings: ${sourceTask.airbrushings?.length || 0}`,
@@ -13993,7 +13983,7 @@ export class TaskService {
             // ===== LAYOUTS (Individual Clones) =====
             case 'implementMeasures':
               if (hasData(sourceTask.implement)) {
-                const existingTruck = await tx.implement.findUnique({
+                const existingImplement = await tx.implement.findUnique({
                   where: { taskId: destinationTaskId },
                   select: { id: true },
                 });
@@ -14002,8 +13992,8 @@ export class TaskService {
                 // único, `cloneFaces`); a anterior do destino só sai se ficou sem
                 // uso. Face vazia na origem não mexe no destino.
                 // DD1: o implemento do destino SEMPRE existe (o ramo que o criava saiu).
-                const destinationTruckId = existingTruck?.id;
-                if (!destinationTruckId) {
+                const destinationImplementId = existingImplement?.id;
+                if (!destinationImplementId) {
                   throw new InternalServerErrorException(
                     'Tarefa de destino sem implemento: toda tarefa tem exatamente um implemento.',
                   );
@@ -14011,7 +14001,7 @@ export class TaskService {
                 const clonedFaces = await cloneFaces(
                   tx,
                   sourceTask.implement.id,
-                  destinationTruckId,
+                  destinationImplementId,
                 );
 
                 const implementMeasureData: Record<string, string> = {};
@@ -14192,7 +14182,7 @@ export class TaskService {
           `[copyFromTask] UpdateData keys: ${JSON.stringify(Object.keys(updateData))}`,
         );
 
-        // Copiar a previsão zera `cleared` (acima) — mas não quando o caminhão já
+        // Copiar a previsão zera `cleared` (acima) — mas não quando o implemento já
         // entrou: com data de entrada a tarefa segue liberada (utils/task-cleared.ts).
         if (updateData.cleared === false) {
           const effectiveEntryDate =
@@ -14214,9 +14204,9 @@ export class TaskService {
           });
           this.logger.log(`[copyFromTask] Task update successful`);
 
-          // Mudou a liberação (acima)? Mova o caminhão junto.
+          // Mudou a liberação (acima)? Mova o implemento junto.
           if (typeof updateData.cleared === 'boolean') {
-            await syncTruckSpotWithCleared(tx, destinationTaskId, updateData.cleared);
+            await syncImplementSpotWithCleared(tx, destinationTaskId, updateData.cleared);
           }
 
           // A copied quote brings its own (cloned) layout files but no task
@@ -14233,12 +14223,12 @@ export class TaskService {
             //
             // Sem o refatiamento, o `Billing` do orçamento duplicado nasce SEM
             // cobertura (a cópia é criada antes de a tarefa existir para ela): a
-            // fatura não sabe que caminhão cobra, a nota não tem a quem se ligar e
+            // fatura não sabe que implemento cobra, a nota não tem a quem se ligar e
             // a lista de Faturamento mostra uma cobrança sem veículo.
             //
             // Sem o recálculo do orçamento de ORIGEM DO DESTINO — quando ele
             // sobrevive por ter outros veículos —, ele segue cobrando por um
-            // caminhão que não é mais dele.
+            // implemento que não é mais dele.
             await resliceQuoteCoverage(tx, updateData.quoteId as string);
             await this.recalcQuoteTotals(tx, updateData.quoteId as string);
             // A cobertura de LAYOUT que o destino trazia era das artes do
@@ -14270,8 +14260,8 @@ export class TaskService {
         }
 
         // O TAMANHO É DO ORÇAMENTO: a medida copiada para o destino vale para os
-        // irmãos dele no orçamento em que ele ficou. Esta porta cria o caminhão
-        // quando falta, e o irmão sem caminhão ganha um. Ver
+        // irmãos dele no orçamento em que ele ficou. Esta porta cria o implemento
+        // quando falta, e o irmão sem implemento ganha um. Ver
         // `utils/implement-measure-replication.ts`.
         if (ladosDeMedidaCopiados.length > 0) {
           await replicateImplementMeasuresToQuoteSiblings(tx, {
@@ -14577,8 +14567,8 @@ export class TaskService {
 
     const previousDate = existingTask.forecastDate;
 
-    // Reagendar desfaz a liberação — MENOS quando o caminhão já entrou: aí a previsão
-    // é só a expectativa de saída e a liberação segue o caminhão (utils/task-cleared.ts).
+    // Reagendar desfaz a liberação — MENOS quando o implemento já entrou: aí a previsão
+    // é só a expectativa de saída e a liberação segue o implemento (utils/task-cleared.ts).
     const clearedAfterReschedule = hasEntered(existingTask.entryDate);
 
     const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -14588,8 +14578,8 @@ export class TaskService {
         include: include || undefined,
       });
 
-      // Perdeu a liberação? O caminhão sai do pátio junto.
-      await syncTruckSpotWithCleared(tx, taskId, clearedAfterReschedule);
+      // Perdeu a liberação? O implemento sai do pátio junto.
+      await syncImplementSpotWithCleared(tx, taskId, clearedAfterReschedule);
 
       // Only create reschedule history when there was a previous forecast date.
       // Setting a forecast for the first time (previousDate is null) is not a reschedule.

@@ -20,7 +20,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * PASSO 2 · ORÇAMENTO SEM NENHUM VEÍCULO  (105 linhas, 83 com faturamento)
  * ─────────────────────────────────────────────────────────────────────────────
- * A FK mora na TAREFA, então apagar o último caminhão deixava o orçamento de pé,
+ * A FK mora na TAREFA, então apagar o último implemento deixava o orçamento de pé,
  * sem ninguém. Eram invisíveis enquanto a lista consultava tarefas; quando ela
  * passou a consultar orçamentos, tomaram a primeira página — e 81 das 355 linhas
  * "Pendente" da lista de Faturamento são cobranças desses órfãos.

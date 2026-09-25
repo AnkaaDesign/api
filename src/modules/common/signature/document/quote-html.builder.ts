@@ -34,7 +34,7 @@ import {
   formatGuaranteeHtml,
   implementTypeLabel,
   serviceLineText,
-  truckCategoryLabel,
+  implementCategoryLabel,
 } from './quote-text';
 
 /**
@@ -97,10 +97,10 @@ const LATE_SLOT_WIDTH_CH: Record<LateSlotKey, number> = {
  * que um dia ganhasse conteúdo faria o documento afirmar algo que ninguém leu.
  */
 function lateSlotHtml(key: LateSlotKey, taskId: string): string {
-  // A chave leva a TAREFA junto. Sem isso, num orçamento de sessenta caminhões as
+  // A chave leva a TAREFA junto. Sem isso, num orçamento de sessenta implementos as
   // sessenta lacunas de chassi teriam a mesma chave `chassis`, o mapa de âncoras
-  // guardaria só a última medida e o chassi do caminhão 3 seria carimbado no
-  // espaço reservado do caminhão 60. Ver `lateSlotKey()` em `utils/quote-tasks`.
+  // guardaria só a última medida e o chassi do implemento 3 seria carimbado no
+  // espaço reservado do implemento 60. Ver `lateSlotKey()` em `utils/quote-tasks`.
   return `<span class="late-slot" data-late-slot="${escapeHtml(key)}#${escapeHtml(taskId)}" style="min-width:${LATE_SLOT_WIDTH_CH[key]}ch">a registrar</span>`;
 }
 
@@ -127,7 +127,7 @@ export interface QuoteHtmlVehicle {
   /**
    * Aceita o valor CRU do enum (`SEMI_TRAILER_2_AXLES`) ou o rótulo já
    * resolvido. O builder mapeia com `@constants/enum-labels` — ver
-   * `truckCategoryLabel()`. Até esta correção o enum cru ia direto para o
+   * `implementCategoryLabel()`. Até esta correção o enum cru ia direto para o
    * documento assinado.
    */
   categoryLabel: string | null;
@@ -138,7 +138,7 @@ export interface QuoteHtmlVehicle {
    *
    * Sai como COLUNA da tabela, e não como linha do quadro do tomador: o pedido
    * identifica a ENTREGA, como a série e a placa, e um orçamento de quatro
-   * caminhões comprados em pedidos diferentes não cabe numa linha só.
+   * implementos comprados em pedidos diferentes não cabe numa linha só.
    */
   orderNumber: string | null;
 }
@@ -163,7 +163,7 @@ export interface QuoteHtmlBilling {
   /**
    * @deprecated O número do pedido virou COLUNA da tabela de veículos
    * (`QuoteHtmlVehicle.orderNumber`): ele identifica a ENTREGA, e um orçamento
-   * de quatro caminhões pode ter quatro pedidos, que numa linha só não cabem.
+   * de quatro implementos pode ter quatro pedidos, que numa linha só não cabem.
    *
    * Segue no tipo porque os envelopes CONGELADOS antes desta mudança guardam o
    * campo no snapshot, e o material que os re-renderiza tem de aceitá-lo.
@@ -223,7 +223,7 @@ export interface QuoteHtmlInput {
    * Era um veículo só, escrito em prosa dentro do parágrafo de abertura
    * ("…no veículo nº série: 39239, placa: a registrar, chassi: 953677…"). Virou
    * lista por duas razões que se somam: a prosa não escala para sessenta
-   * caminhões, e mesmo com um só ela alinhava mal — as lacunas "a registrar"
+   * implementos, e mesmo com um só ela alinhava mal — as lacunas "a registrar"
    * apareciam no meio da frase, em posições diferentes a cada orçamento, quando
    * o que o leitor faz com elas é CONFERIR campo a campo.
    */
@@ -461,7 +461,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // A partir de dois, os rótulos ganham "por veículo" e o bloco fecha com a
   // multiplicação explícita. A alternativa — só o total geral — obrigaria o
   // cliente a dividir R$ 730.224,00 por sessenta para conferir se o preço
-  // combinado por caminhão é o que ele aceitou, que é a única conta que ele de
+  // combinado por implemento é o que ele aceitou, que é a única conta que ele de
   // fato quer fazer.
   //
   // O total geral é `total × N` e NÃO um desconto recalculado sobre a soma: é
@@ -510,7 +510,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   //
   // A frase de abertura terminava enumerando o veículo dentro dela mesma:
   // "…para execução dos serviços abaixo discriminados no veículo nº série:
-  // 39239, placa: a registrar, chassi: 953677TGXTR031467, categoria: Truck,
+  // 39239, placa: a registrar, chassi: 953677TGXTR031467, categoria: Implement,
   // implemento: Refrigerado."
   //
   // Isso deixou de funcionar por dois motivos, e o segundo já valia antes do
@@ -519,17 +519,17 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   //   1. Um orçamento pode cobrir SESSENTA veículos. A prosa viraria um
   //      parágrafo de vinte linhas em que ninguém acha nada.
   //   2. Mesmo com um veículo só, o que o leitor FAZ com esses campos é
-  //      conferi-los um a um contra o documento do caminhão. Em prosa, as
+  //      conferi-los um a um contra o documento do implemento. Em prosa, as
   //      lacunas "a registrar" caem em posições diferentes a cada orçamento e o
   //      olho precisa varrer a frase para achar o chassi. Em coluna, ele desce.
   //
   // A frase agora termina em "nos veículos:" e a tabela responde.
   const vehicles = data.vehicles ?? [];
-  const anyCategory = vehicles.some(v => !!truckCategoryLabel(v.categoryLabel));
+  const anyCategory = vehicles.some(v => !!implementCategoryLabel(v.categoryLabel));
   const anyImplement = vehicles.some(v => !!implementTypeLabel(v.implementLabel));
 
   // Só se fala do veículo quando existe veículo. Sem isto, um orçamento sem
-  // caminhão nenhum ganharia uma tabela de lacunas a preencher e uma frase sobre
+  // implemento nenhum ganharia uma tabela de lacunas a preencher e uma frase sobre
   // um objeto que não existe.
   //
   // A tabela NÃO é recortável: ela é o endereço do serviço, e um documento que
@@ -550,7 +550,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // emissão — o que chega depois é identidade, não classificação.
   //
   // O PEDIDO DE COMPRA sai SEMPRE, com os de identidade, e não com a
-  // classificação. Ele é por VEÍCULO — dois caminhões do mesmo orçamento podem
+  // classificação. Ele é por VEÍCULO — dois implementos do mesmo orçamento podem
   // ter vindo em pedidos diferentes —, e é por isso que deixou de ser uma linha
   // do quadro do tomador, onde só cabia um número. Sair só quando já está
   // preenchido escondia justamente a coluna que o cliente precisa conferir: o
@@ -587,8 +587,8 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
           ? vehicleValueHtml(v.orderNumber!.trim())
           : lateSlotHtml('orderNumber', v.taskId);
       case 'category':
-        return truckCategoryLabel(v.categoryLabel)
-          ? vehicleValueHtml(truckCategoryLabel(v.categoryLabel)!)
+        return implementCategoryLabel(v.categoryLabel)
+          ? vehicleValueHtml(implementCategoryLabel(v.categoryLabel)!)
           : '<span class="vehicle-empty">&mdash;</span>';
       case 'implement':
         return implementTypeLabel(v.implementLabel)
@@ -666,7 +666,7 @@ export function buildQuoteHtml(data: QuoteHtmlInput, part: QuoteHtmlPart = 'cont
   // veículos disputando a mesma folha.
   //
   // O NÚMERO DO PEDIDO saiu daqui: virou coluna da tabela de veículos, porque
-  // ele identifica a ENTREGA e um orçamento de quatro caminhões pode ter quatro
+  // ele identifica a ENTREGA e um orçamento de quatro implementos pode ter quatro
   // pedidos diferentes — que numa linha só não cabem.
   const joinBillingAddress = (a: string | null, b: string | null): string | null => {
     const parts = [a, b].map(p => (p ?? '').trim()).filter(Boolean);

@@ -14,6 +14,7 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -80,14 +81,14 @@ export class ImplementMeasureController {
     if (!implementMeasure) {
       return {
         success: false,
-        message: 'ImplementMeasure não encontrado',
+        message: 'Medida não encontrada',
         data: null,
       };
     }
 
     return {
       success: true,
-      message: 'ImplementMeasure encontrado com sucesso',
+      message: 'Medida encontrada com sucesso',
       data: implementMeasure,
     };
   }
@@ -105,16 +106,16 @@ export class ImplementMeasureController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getImplementMeasureUsage(@Param('id') id: string, @UserId() userId: string) {
-    const usage = await this.implementMeasureService.getTrucksUsingImplementMeasure(id);
+    const usage = await this.implementMeasureService.getImplementsUsingImplementMeasure(id);
 
     return {
       success: true,
-      message: 'Detalhes de uso do implementMeasure obtidos com sucesso',
+      message: 'Uso da medida obtido com sucesso',
       data: usage,
     };
   }
 
-  @Get('truck/:truckId')
+  @Get('implement/:implementId')
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
@@ -125,18 +126,18 @@ export class ImplementMeasureController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async findByTruckId(
-    @Param('truckId') truckId: string,
+  async findByImplementId(
+    @Param('implementId') implementId: string,
     @Query('includePhoto') includePhoto: string,
     @UserId() userId: string,
   ) {
-    const implementMeasures = await this.implementMeasureService.findByTruckId(truckId, {
+    const implementMeasures = await this.implementMeasureService.findByImplementId(implementId, {
       includePhoto: includePhoto === 'true',
     });
 
     return {
       success: true,
-      message: 'ImplementMeasures do caminhão encontrados com sucesso',
+      message: 'Medidas do implemento encontradas com sucesso',
       data: implementMeasures,
     };
   }
@@ -154,7 +155,7 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: 'ImplementMeasure criado com sucesso',
+      message: 'Medida criada com sucesso',
       data: implementMeasure,
     };
   }
@@ -176,7 +177,7 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: 'ImplementMeasure atualizado com sucesso',
+      message: 'Medida atualizada com sucesso',
       data: implementMeasure,
     };
   }
@@ -188,41 +189,47 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: 'ImplementMeasure excluído com sucesso',
+      message: 'Medida excluída com sucesso',
     };
   }
 
-  // NEW: Assign existing implementMeasure to truck
-  @Post(':id/assign-to-truck')
+  // NEW: Assign existing implementMeasure to implement
+  @Post(':id/assign-to-implement')
   @Roles(
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async assignImplementMeasureToTruck(
+  async assignImplementMeasureToImplement(
     @Param('id') implementMeasureId: string,
-    @Body() data: { truckId: string; side: 'left' | 'right' | 'back' },
+    @Body() data: { implementId: string; side: 'left' | 'right' | 'back' },
     @UserId() userId: string,
   ) {
-    await this.implementMeasureService.assignImplementMeasureToTruck(data.truckId, data.side, implementMeasureId, userId);
+    if (!data?.implementId) throw new BadRequestException('Informe o implemento (implementId).');
+    await this.implementMeasureService.assignImplementMeasureToImplement(
+      data.implementId,
+      data.side,
+      implementMeasureId,
+      userId,
+    );
 
     return {
       success: true,
-      message: `ImplementMeasure atribuído ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do caminhão com sucesso`,
+      message: `Medida atribuída ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do implemento com sucesso`,
     };
   }
 
-  // NEW: Batch-update multiple truck implementMeasure sides with a SINGLE consolidated notification
-  @Post('truck/:truckId/batch')
+  // Várias faces do implemento de uma vez, com UMA notificação consolidada.
+  @Post('implement/:implementId/batch')
   @Roles(
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async updateTruckImplementMeasureBatch(
-    @Param('truckId') truckId: string,
+  async updateImplementMeasureBatch(
+    @Param('implementId') implementId: string,
     @Body()
     data: {
       left?: ImplementMeasureCreateFormData;
@@ -231,8 +238,8 @@ export class ImplementMeasureController {
     },
     @UserId() userId: string,
   ) {
-    const implementMeasures = await this.implementMeasureService.updateTruckImplementMeasureBatch(
-      truckId,
+    const implementMeasures = await this.implementMeasureService.updateImplementMeasureBatch(
+      implementId,
       {
         left: data.left ? implementMeasureCreateSchema.parse(data.left) : undefined,
         right: data.right ? implementMeasureCreateSchema.parse(data.right) : undefined,
@@ -243,12 +250,12 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: 'ImplementMeasure do caminhão salvo com sucesso',
+      message: 'Medidas do implemento salvas com sucesso',
       data: implementMeasures,
     };
   }
 
-  @Post('truck/:truckId/:side')
+  @Post('implement/:implementId/:side')
   @Roles(
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
@@ -256,8 +263,8 @@ export class ImplementMeasureController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
-  async createOrUpdateTruckImplementMeasure(
-    @Param('truckId') truckId: string,
+  async createOrUpdateImplementMeasure(
+    @Param('implementId') implementId: string,
     @Param('side') side: 'left' | 'right' | 'back',
     @Body(new ZodValidationPipe(implementMeasureCreateSchema)) data: ImplementMeasureCreateFormData,
     @Query('existingImplementMeasureId') existingImplementMeasureId: string | undefined, // NEW: Optional existing implementMeasure ID
@@ -267,8 +274,8 @@ export class ImplementMeasureController {
     // Extract photo file if uploaded
     const photoFile = files?.photo?.[0];
 
-    const implementMeasure = await this.implementMeasureService.createOrUpdateTruckImplementMeasure(
-      truckId,
+    const implementMeasure = await this.implementMeasureService.createOrUpdateImplementMeasure(
+      implementId,
       side,
       data,
       userId,
@@ -278,7 +285,7 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: `ImplementMeasure ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do caminhão salvo com sucesso`,
+      message: `Medida ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do implemento salva com sucesso`,
       data: implementMeasure,
     };
   }
@@ -304,7 +311,7 @@ export class ImplementMeasureController {
     } catch (error) {
       res.status(HttpStatus.NOT_FOUND).json({
         success: false,
-        message: 'ImplementMeasure não encontrado',
+        message: 'Medida não encontrada',
       });
     }
   }

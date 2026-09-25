@@ -5,7 +5,7 @@
 // Módulo PRÓPRIO, e não um controlador dentro de `PortalModule`, pela razão que
 // aquele arquivo declara no cabeçalho: `PortalModule` é a FUNDAÇÃO (escopo e
 // projeção), sem Prisma e sem controlador, e é isso que permite testá-lo sem
-// banco. Pendurar aqui um controlador que ESCREVE orçamento, tarefa, caminhão,
+// banco. Pendurar aqui um controlador que ESCREVE orçamento, tarefa, implemento,
 // medida, arquivo e cliente arrastaria `PaintModule` e `FileModule` para dentro
 // da fundação — e todo pacote que só quisesse o `where` do escopo passaria a
 // carregar o motor de tinta junto.

@@ -145,7 +145,7 @@ function assertEnumList(values: string[] | undefined, allowed: string[], label: 
  * O FATURAMENTO TEM ENDEREÇO PRÓPRIO.
  *
  * Antes desta rota, cobrança só se abria por veículo — e num orçamento de quatro
- * caminhões cobrados um a um, os quatro abriam a MESMA página, que então
+ * implementos cobrados um a um, os quatro abriam a MESMA página, que então
  * desenhava "Fatura 1 · 2 · 3 · 4" lado a lado. Não era defeito de tela: não
  * havia quatro endereços porque não havia quatro coisas.
  *
@@ -366,7 +366,7 @@ export class BillingController {
    *
    * Substitui o caminho antigo, que era mandar `status: 'SETTLED'` para o
    * endpoint de status do ORÇAMENTO. Naquele desenho, liquidar o primeiro de
-   * sessenta caminhões marcava os sessenta — o estado era um só. Aqui o escopo é
+   * sessenta implementos marcava os sessenta — o estado era um só. Aqui o escopo é
    * a cobrança, e nenhuma outra é tocada.
    */
   @Put(':id/settle')

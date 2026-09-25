@@ -573,14 +573,14 @@ console.log('\n⛔ O ESCOPO DO PEDIDO DE COMPRA — O CASO FURGÕES');
   const CONTATO = 'resp-compras-ibipora';
 
   /** O caminhão da RKO que a Ibiporã PAGA — o caso 259–262. */
-  const caminhaoDaRkoPagoPelaIbipora = {
+  const implementoDaRkoPagoPelaIbipora = {
     id: 't-rko',
     customerId: RKO,
     billingEntry: { billing: { customerConfigs: [{ customerId: IBIPORA }] } },
   };
 
   /** Um caminhão da própria Ibiporã. */
-  const caminhaoDaIbipora = {
+  const implementoDaIbipora = {
     id: 't-ibi',
     customerId: IBIPORA,
     billingEntry: { billing: { customerConfigs: [] } },
@@ -591,7 +591,7 @@ console.log('\n⛔ O ESCOPO DO PEDIDO DE COMPRA — O CASO FURGÕES');
    * cadastro — e que a empresa dele não paga. É o caminho (c), e é o que NÃO
    * pode autorizar um pedido de compra.
    */
-  const caminhaoDeTerceiroOndeSouContato = {
+  const implementoDeTerceiroOndeSouContato = {
     id: 't-terceiro',
     customerId: 'cust-outro',
     billingEntry: { billing: { customerConfigs: [] } },
@@ -600,13 +600,13 @@ console.log('\n⛔ O ESCOPO DO PEDIDO DE COMPRA — O CASO FURGÕES');
   // ── O PREDICADO, nos dois sentidos ──────────────────────────────────────
   check(
     '⛔ PAGADOR-mas-não-dono é PERMITIDO (o caso Furgões)',
-    commercialTaskLink(caminhaoDaRkoPagoPelaIbipora, IBIPORA) === 'PAYER',
+    commercialTaskLink(implementoDaRkoPagoPelaIbipora, IBIPORA) === 'PAYER',
     'se esta linha falhar, o Compras da Furgões voltou a não conseguir lançar pedido nenhum',
   );
-  check('DONO é permitido', commercialTaskLink(caminhaoDaIbipora, IBIPORA) === 'OWNER');
+  check('DONO é permitido', commercialTaskLink(implementoDaIbipora, IBIPORA) === 'OWNER');
   check(
     '⛔ CONTATO-apenas é RECUSADO',
-    commercialTaskLink(caminhaoDeTerceiroOndeSouContato, IBIPORA) === null,
+    commercialTaskLink(implementoDeTerceiroOndeSouContato, IBIPORA) === null,
     'ser contato de um veículo não cria conta entre as duas empresas',
   );
 
@@ -614,7 +614,7 @@ console.log('\n⛔ O ESCOPO DO PEDIDO DE COMPRA — O CASO FURGÕES');
   // da RKO, é dela por posse.
   check(
     'e o mesmo caminhão é da RKO por posse',
-    commercialTaskLink(caminhaoDaRkoPagoPelaIbipora, RKO) === 'OWNER',
+    commercialTaskLink(implementoDaRkoPagoPelaIbipora, RKO) === 'OWNER',
   );
 
   // ── AS BORDAS QUE DEVOLVERIAM "SIM" POR ACIDENTE ────────────────────────

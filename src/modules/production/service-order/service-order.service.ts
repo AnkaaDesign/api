@@ -256,7 +256,7 @@ export class ServiceOrderService {
    *
    * ⚠️ A pergunta é do ORÇAMENTO, nunca da TAREFA. A guarda perguntava
    * `invoice.findFirst({ taskId })` — e `Invoice.taskId` é NULO de propósito
-   * numa fatura CONJUNTA ou de LOTE (ela não é de nenhum dos sessenta caminhões
+   * numa fatura CONJUNTA ou de LOTE (ela não é de nenhum dos sessenta implementos
    * em particular, ver `sliceAnchorTaskId`). Resultado: no caso mais caro —
    * orçamento conjunto, fatura emitida, boletos registrados, NFS-e autorizada —
    * a guarda não encontrava nada e o cancelamento em cascata passava por cima de

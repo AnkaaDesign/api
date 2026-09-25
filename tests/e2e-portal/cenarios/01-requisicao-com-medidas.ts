@@ -137,7 +137,7 @@ async function main() {
         check(
           `${t.serialNumber} · ${nome}: a face existe`,
           !!medida,
-          medida ? '' : 'a coluna do Truck ficou nula',
+          medida ? '' : 'a coluna do implemento ficou nula',
         );
         if (!medida) continue;
         check(

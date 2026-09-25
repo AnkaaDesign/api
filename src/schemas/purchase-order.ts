@@ -10,7 +10,7 @@
 //
 // ⚠️ NADA AQUI É `.strict()`, como nada no projeto é. Uma chave fora do lugar
 // some em SILÊNCIO — foi assim que `chassisNumber` no topo do corpo (em vez de
-// dentro de `truck`) sumiu com 200 no Flutter. Quem escrever cliente para estas
+// dentro de `implement`) sumiu com 200 no Flutter. Quem escrever cliente para estas
 // rotas manda `taskIds`, não `tasks`, e manda `number`, não `orderNumber`.
 
 import { z } from 'zod';
@@ -101,7 +101,7 @@ export type PortalPurchaseOrderCreateFormData = z.infer<typeof portalPurchaseOrd
  * Aqui `customerId` É aceito, e é opcional: quando omitido, sai do cliente das
  * tarefas — que tem de ser UM só, e o serviço recusa quando não é. O
  * funcionário pode precisar registrar o pedido de um intermediário que não é o
- * dono do caminhão (o caso Furgões), e é para isso que o campo existe.
+ * dono do implemento (o caso Furgões), e é para isso que o campo existe.
  */
 export const purchaseOrderCreateSchema = z.object({
   customerId: z.string().uuid('Cliente inválido.').nullish(),

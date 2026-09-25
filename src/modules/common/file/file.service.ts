@@ -564,7 +564,7 @@ export class FileService {
    * A mesma resolução, devolvendo o MAPA pedido → resolvido.
    *
    * Existe para o layout aprovado POR VEÍCULO: o pedido diz "a arte X vale para o
-   * caminhão 39088", e X costuma ser o arquivo da galeria da tarefa — que esta
+   * implemento 39088", e X costuma ser o arquivo da galeria da tarefa — que esta
    * função troca por um CLONE privado do orçamento. A cobertura precisa cair no
    * clone, e só o mapa diz qual clone nasceu de qual pedido. Id que não existe
    * mais fica fora do mapa (descartado, como sempre foi).

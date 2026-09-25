@@ -94,8 +94,8 @@ import { TASK_QUERY_SHAPE } from './task-query-shape';
 
 /**
  * Include padrão do implemento com as três faces e as seções, MESCLADO com o do
- * cliente: quem manda só `implement: true` (ou o nome velho, já traduzido)
- * continua recebendo as medidas — o spread antigo apagava o include aninhado.
+ * cliente: quem manda só `implement: true` continua recebendo as medidas — o
+ * spread antigo apagava o include aninhado.
  */
 const DEFAULT_IMPLEMENT_INCLUDE = {
   include: {
@@ -177,8 +177,6 @@ export class TaskController {
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
-        { name: 'truckVinPlate', maxCount: 1 },
-        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
         { name: 'implementVinPlate', maxCount: 1 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
@@ -216,7 +214,7 @@ export class TaskController {
     ),
   )
   async create(
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema, { legacyImplementBody: true })) data: TaskCreateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
@@ -262,7 +260,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
-    @Body(new ZodValidationPipe(taskBatchCreateSchema, { legacyImplementBody: true })) data: TaskBatchCreateFormData,
+    @Body(new ZodValidationPipe(taskBatchCreateSchema)) data: TaskBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
@@ -290,7 +288,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreateWithQuote(
-    @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema, { legacyImplementBody: true })) data: any,
+    @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema)) data: any,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ) {
@@ -322,8 +320,6 @@ export class TaskController {
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
-        { name: 'truckVinPlate', maxCount: 1 },
-        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
         { name: 'implementVinPlate', maxCount: 1 },
         // ImplementMeasure photos for bulk implementMeasure operations
         { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
@@ -334,7 +330,7 @@ export class TaskController {
     ),
   )
   async batchUpdate(
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema, { legacyImplementBody: true }))
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema))
     data: TaskBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
@@ -763,8 +759,6 @@ export class TaskController {
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
-        { name: 'truckVinPlate', maxCount: 1 },
-        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
         { name: 'implementVinPlate', maxCount: 1 },
         // Quote implementMeasure file
         { name: 'quoteLayoutFile', maxCount: 2 },
@@ -809,7 +803,7 @@ export class TaskController {
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema, { legacyImplementBody: true }))
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema))
     data: TaskUpdateFormData = {} as TaskUpdateFormData,
     @Query(new ZodValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,

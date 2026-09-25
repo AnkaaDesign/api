@@ -12,14 +12,14 @@
  *
  * Todos passam por aqui agora, e a regra é UMA:
  *
- *   1. Cada face de cada caminhão tem a SUA linha. Nada daqui para frente
+ *   1. Cada face de cada implemento tem a SUA linha. Nada daqui para frente
  *      compartilha linha: replicar é COPIAR.
  *   2. Editar (`setFace`, modo `patch`) atualiza a própria linha quando mais
- *      ninguém a usa; se outra face — deste ou de outro caminhão — aponta para
+ *      ninguém a usa; se outra face — deste ou de outro implemento — aponta para
  *      ela, nasce uma cópia só deste lado (copy-on-write) e a antiga fica com
  *      quem a usa.
  *   3. Apagar a face desconecta e só remove a linha quando NINGUÉM mais a usa
- *      (nenhuma face de nenhum caminhão) E nenhuma `PaintingAnalysis` a aponta
+ *      (nenhuma face de nenhum implemento) E nenhuma `PaintingAnalysis` a aponta
  *      — a análise de pintura perdia o vínculo em silêncio (`SetNull`).
  *   4. Nada de `.catch()` dentro da transação: no Postgres, um comando que
  *      falha aborta a transação inteira, e o erro seguinte vira "current
@@ -32,7 +32,7 @@
  * Funções puras sobre a transação do chamador, sem Nest — os testes (G15) e o
  * portal as chamam direto.
  *
- * ⚠️ A tabela que carrega as colunas de face ainda se chama como o caminhão no
+ * ⚠️ A tabela que carrega as colunas de face ainda se chama como o implemento no
  * Prisma; ela aparece em DOIS pontos deste arquivo (`holderOf` e `HolderKey`),
  * que são o que muda quando o P11 renomear o modelo.
  */
@@ -50,7 +50,7 @@ export const FACES: readonly ImplementFace[] = IMPLEMENT_FACES;
 /** As chaves da tabela que carrega as faces (colunas e relações). */
 type HolderKey = keyof Prisma.ImplementSelect;
 
-/** Face → coluna (FK) no caminhão. Tipado contra o Prisma: renomear a coluna quebra o `tsc`. */
+/** Face → coluna (FK) no implemento. Tipado contra o Prisma: renomear a coluna quebra o `tsc`. */
 export const FACE_FK = {
   left: 'leftSideMeasureId',
   right: 'rightSideMeasureId',
@@ -175,14 +175,14 @@ async function readMeasure(tx: MeasureTx, id: string): Promise<MeasureWithSectio
   return tx.implementMeasure.findUnique({ where: { id }, include: WITH_SECTIONS });
 }
 
-/** A coluna de face atual de um caminhão (lança quando o caminhão não existe). */
+/** A coluna de face atual de um implemento (lança quando o implemento não existe). */
 async function currentFaceId(tx: MeasureTx, holderId: string, face: ImplementFace) {
   const fk = assertFace(face);
   const row = (await holderOf(tx).findUnique({
     where: { id: holderId },
     select: { id: true, [fk]: true },
   })) as Record<string, string | null> | null;
-  if (!row) throw new Error(`Caminhão ${holderId} não encontrado para gravar a medida (${face}).`);
+  if (!row) throw new Error(`Implemento ${holderId} não encontrado para gravar a medida (${face}).`);
   return row[fk] ?? null;
 }
 
@@ -192,7 +192,7 @@ export interface MeasureReference {
   face: ImplementFace;
 }
 
-/** Toda face (de qualquer caminhão) que aponta para a linha, na ordem de `FACES`. */
+/** Toda face (de qualquer implemento) que aponta para a linha, na ordem de `FACES`. */
 export async function referencesOf(tx: MeasureTx, measureId: string): Promise<MeasureReference[]> {
   const refs: MeasureReference[] = [];
   for (const face of FACES) {
@@ -215,7 +215,7 @@ async function referenceCount(tx: MeasureTx, measureId: string): Promise<number>
 }
 
 /**
- * Remove a linha SE ninguém mais a usa (nenhuma face de nenhum caminhão) e
+ * Remove a linha SE ninguém mais a usa (nenhuma face de nenhum implemento) e
  * nenhuma análise de pintura a aponta. Chamar DEPOIS de desconectar a face.
  */
 export async function releaseMeasure(
@@ -256,7 +256,7 @@ function hasSections(sections: MeasureSectionInput[] | null | undefined): boolea
 }
 
 /**
- * Cria uma linha de medida SEM caminhão (a biblioteca de `POST /implement-measure`)
+ * Cria uma linha de medida SEM implemento (a biblioteca de `POST /implement-measure`)
  * — e é o único `create` de medida do sistema.
  */
 export async function createMeasure(
@@ -294,7 +294,7 @@ async function pointFace(tx: MeasureTx, holderId: string, fk: FaceFk, measureId:
 }
 
 /**
- * Grava (ou apaga, com `null`) a medida de UMA face de um caminhão.
+ * Grava (ou apaga, com `null`) a medida de UMA face de um implemento.
  *
  * `undefined` não é aceito aqui: "o lado não veio no pedido" é decisão do
  * chamador (pular), não do escritor.
@@ -325,7 +325,7 @@ export async function setFace(
 
   // ── editar a própria linha, ou copiar se ela é de mais alguém ──────────
   if (mode === 'patch' && previousId && before) {
-    // Outras faces (deste ou de outro caminhão) que apontam para a mesma linha.
+    // Outras faces (deste ou de outro implemento) que apontam para a mesma linha.
     const others = (await referenceCount(tx, previousId)) - 1;
 
     if (others <= 0) {
@@ -389,7 +389,7 @@ export async function setFacePhoto(
  * Pendura na face uma linha que JÁ existe (atribuir da biblioteca, reverter
  * pelo histórico). Se ninguém a usa, a face passa a apontá-la; se alguma face
  * já a usa, a face ganha uma CÓPIA — é aqui que "atribuir a mesma medida a dois
- * caminhões" deixou de amarrá-los para sempre.
+ * implementos" deixou de amarrá-los para sempre.
  *
  * Devolve `null` quando a linha não existe (o chamador decide o que fazer).
  */
@@ -427,7 +427,7 @@ export async function attachMeasure(
 }
 
 /**
- * Copia as faces de um caminhão para outro, cada uma como linha NOVA (cópia
+ * Copia as faces de um implemento para outro, cada uma como linha NOVA (cópia
  * entre tarefas). Face vazia na origem não mexe no destino.
  */
 export async function cloneFaces(
@@ -448,10 +448,10 @@ export async function cloneFaces(
 
 /**
  * Edita uma linha pelo ID (`PUT /implement-measure/:id`) — sem contexto de
- * caminhão. A edição vale para toda face que usava a linha (como sempre valeu),
+ * implemento. A edição vale para toda face que usava a linha (como sempre valeu),
  * mas cada uma termina com a SUA linha: a primeira referência fica com esta, as
  * demais ganham cópias do resultado. Devolve as referências de ANTES, para o
- * chamador replicar aos irmãos de cada caminhão.
+ * chamador replicar aos irmãos de cada implemento.
  */
 export async function rewriteMeasure(
   tx: MeasureTx,

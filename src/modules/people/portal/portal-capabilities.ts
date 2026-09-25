@@ -296,7 +296,7 @@ export function rolesWithAnyCapability(
  * régua da assinatura, byte a byte, e ninguém a "ajusta".
  */
 export const SECTION_IMPLIED_BY_CAPABILITY: Record<PORTAL_CAPABILITY, readonly string[]> = {
-  // Descrever o serviço é dizer QUAL caminhão e QUE arte. Preço não entra: a
+  // Descrever o serviço é dizer QUAL implemento e QUE arte. Preço não entra: a
   // requisição não tem preço por construção — é o que ela vai pedir.
   [PORTAL_CAPABILITY.REQUEST_BUDGET]: ['VEHICLE', 'LAYOUT'],
   // Não se aprova um preço que não se pode ver.

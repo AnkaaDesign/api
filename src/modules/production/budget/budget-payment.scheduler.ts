@@ -79,7 +79,7 @@ export class BudgetPaymentScheduler {
           customerConfig: {
             include: {
               // A COBERTURA — o aviso de vencimento cita o veículo desta fatura,
-              // e sem ela a âncora cairia sempre no primeiro caminhão do
+              // e sem ela a âncora cairia sempre no primeiro implemento do
               // orçamento, inclusive numa parcela que é de outro.
               billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } },
               quote: {
@@ -139,7 +139,7 @@ export class BudgetPaymentScheduler {
         // O aviso é sobre esta parcela vencida, e mandava `quote.total` — o valor
         // do CONTRATO. Com o orçamento multitarefa isso passou a ser
         // `por veículo × N`: numa cobrança veículo a veículo o aviso de uma
-        // parcela do caminhão 12 anunciava o valor dos sessenta. O que o
+        // parcela do implemento 12 anunciava o valor dos sessenta. O que o
         // financeiro precisa ler é o que venceu.
         const dueAmount = Number(installment.amount ?? 0).toFixed(2);
 

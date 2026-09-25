@@ -27,7 +27,6 @@ import {
   validateSectorFieldAccess,
 } from '../src/modules/production/task/task.permissions';
 import { SECTOR_PRIVILEGES } from '../src/constants/enums';
-import { translateLegacyImplementBody } from '../src/modules/common/legacy-implement/legacy-implement-keys';
 
 let ok = 0;
 let fail = 0;
@@ -57,7 +56,7 @@ interface Corpo {
  * ramos por permissão ligados. BASE do P01 — escritos à mão a partir da origem
  * citada (não extraídos); o formato de cada campo é o que o zod da rota aceita.
  * O P11 os completa com `implement`/série e com os corpos exatos dos
- * formulários (cada corpo que hoje leva `truck` ganha a variante nova aqui).
+ * formulários.
  */
 const CORPOS: Corpo[] = [
   // ── edição ──
@@ -92,7 +91,7 @@ const CORPOS: Corpo[] = [
     corpo: {
       entryDate: AGORA,
       forecastDate: AGORA,
-      truck: { plate: 'ABC1D23', spot: 'B1_F1_V1', category: 'TRUCK', implementType: 'DRY_CARGO' },
+      implement: { plate: 'ABC1D23', spot: 'B1_F1_V1', category: 'TRUCK', type: 'DRY_CARGO' },
       responsibleIds: [U(20)],
       checkinFileIds: [U(21)],
       layoutIds: [U(22)],
@@ -124,11 +123,11 @@ const CORPOS: Corpo[] = [
       customerOrderNumber: 'PC-1234',
       forecastDate: AGORA,
       status: 'PREPARATION',
-      truck: {
+      implement: {
         plate: 'ABC1D23',
         chassisNumber: '9BWZZZ377VT004251',
         category: 'TRUCK',
-        implementType: 'DRY_CARGO',
+        type: 'DRY_CARGO',
       },
       responsibleIds: [U(41)],
       layoutIds: [U(42)],
@@ -146,7 +145,7 @@ const CORPOS: Corpo[] = [
     setor: SECTOR_PRIVILEGES.FINANCIAL,
     modo: 'update',
     origem:
-      'web billing/details/[id].tsx (documentos, nº do pedido) — layout/base/truck em passthrough',
+      'web billing/details/[id].tsx (documentos, nº do pedido) — layout/base/implemento em passthrough',
     corpo: {
       customerOrderNumber: 'PC-9',
       budgetIds: [U(50)],
@@ -155,7 +154,7 @@ const CORPOS: Corpo[] = [
       bankSlipIds: [U(53)],
       layoutIds: [U(54)],
       baseFileIds: [U(55)],
-      truck: { plate: 'ABC1D23' },
+      implement: { plate: 'ABC1D23' },
     },
   },
   {
@@ -171,7 +170,7 @@ const CORPOS: Corpo[] = [
         { id: U(61), description: 'Pintura', type: 'PRODUCTION', status: 'IN_PROGRESS' },
       ],
       checkinFileIds: [U(62)],
-      truck: { spot: 'B1_F1_V2' },
+      implement: { spot: 'B1_F1_V2' },
       removeLayoutIds: [U(63)],
       expectedUpdatedAt: AGORA,
     },
@@ -187,7 +186,7 @@ const CORPOS: Corpo[] = [
       serialNumber: '38175',
       status: 'PREPARATION',
       forecastDate: AGORA,
-      truck: { plate: 'XYZ9A87', category: 'TRUCK', implementType: 'DRY_CARGO' },
+      implement: { plate: 'XYZ9A87', category: 'TRUCK', type: 'DRY_CARGO' },
       responsibleIds: [U(71)],
       serviceOrders: [
         { description: 'Aprovar com o Cliente', type: 'COMMERCIAL', status: 'PENDING' },
@@ -203,7 +202,7 @@ const CORPOS: Corpo[] = [
       name: 'Cliente do orçamento',
       customerId: U(80),
       status: 'PREPARATION',
-      truck: { plate: 'QWE1R23' },
+      implement: { plate: 'QWE1R23' },
       budgetIds: [U(81)],
     },
   },
@@ -216,7 +215,7 @@ const CORPOS: Corpo[] = [
       customerId: U(90),
       status: 'PREPARATION',
       entryDate: AGORA,
-      truck: { plate: 'RTY4U56', spot: 'B1_F1_V1' },
+      implement: { plate: 'RTY4U56', spot: 'B1_F1_V1' },
       checkinFileIds: [U(91)],
     },
   },
@@ -231,7 +230,7 @@ const CORPOS: Corpo[] = [
       term: PRAZO,
       entryDate: AGORA,
       sectorId: U(101),
-      truck: { plate: 'UIO7P89' },
+      implement: { plate: 'UIO7P89' },
     },
   },
   // ── P11a: o implemento pelo nome NOVO, e a série dentro dele (DD1) ──
@@ -265,17 +264,6 @@ const CORPOS: Corpo[] = [
       customerId: U(110),
       status: 'PREPARATION',
       implement: { serialNumber: '38176', plate: 'XYZ9A87', type: 'DRY_CARGO' },
-    },
-  },
-  {
-    setor: SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
-    modo: 'create',
-    origem: 'app 1.4.1: série no topo + `truck` (G23, janela bilíngue)',
-    corpo: {
-      name: 'Veículo da produção',
-      serialNumber: '38177',
-      status: 'PREPARATION',
-      truck: { plate: 'UIO7P88', implementType: 'REFRIGERATED', leftSideMeasureId: U(120) },
     },
   },
 ];
@@ -333,8 +321,7 @@ function main(): void {
   // cada corpo real: zod da rota → validateSectorFieldAccess do setor
   for (const c of CORPOS) {
     const schema = c.modo === 'create' ? taskCreateSchema : taskUpdateSchema;
-    // Como o pipe da rota (`legacyImplementBody`): o corpo velho é traduzido ANTES do zod.
-    const r = schema.safeParse(translateLegacyImplementBody(c.corpo));
+    const r = schema.safeParse(c.corpo);
     if (!r.success) {
       check(
         `${c.setor} ${c.modo} — o zod aceita o corpo (${c.origem})`,
@@ -406,9 +393,20 @@ function main(): void {
     check('…e o implemento sem série passa com só `implement`', !semSerie, semSerie);
   }
   check(
-    'o domínio `implement` aceita o nome velho na janela (quem valida o corpo cru não toma 400)',
-    (TASK_FIELD_DOMAINS.implement as readonly string[]).includes('truck'),
+    'o domínio `implement` só conhece o nome novo (migração completa, DD13)',
+    JSON.stringify(TASK_FIELD_DOMAINS.implement) === JSON.stringify(['implement']),
   );
+  // O corpo do app antigo (1.4.1: `truck` com `implementType`) é RECUSADO: não
+  // há nome antigo aceito nem para compatibilidade (DD13). Quem não atualizou
+  // leva o 426 antes de chegar aqui.
+  {
+    const velho = taskCreateSchema.safeParse({
+      name: 'Veículo da produção',
+      status: 'PREPARATION',
+      truck: { plate: 'UIO7P88', implementType: 'REFRIGERATED' },
+    });
+    check('o corpo com `truck` (app 1.4.1) é recusado pelo zod', !velho.success);
+  }
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);
   if (fail > 0) process.exit(1);

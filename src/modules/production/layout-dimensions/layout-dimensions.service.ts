@@ -136,17 +136,17 @@ export class LayoutDimensionsService implements OnModuleInit {
    * CENTÍMETRO real, e a conversão é aqui, uma vez só — era o ponto em que a
    * web e o celular podiam divergir sem que nada acusasse.
    */
-  private async panelsForTruck(truckId: string): Promise<Panel[]> {
+  private async panelsForImplement(implementId: string): Promise<Panel[]> {
     const sections = { orderBy: { position: 'asc' as const } };
-    const truck = await this.prisma.implement.findUnique({
-      where: { id: truckId },
+    const implement = await this.prisma.implement.findUnique({
+      where: { id: implementId },
       select: {
         leftSideMeasure: { select: { height: true, sections } },
         rightSideMeasure: { select: { height: true, sections } },
         backSideMeasure: { select: { height: true, sections } },
       },
     });
-    if (!truck) throw new NotFoundException('Caminhão não encontrado.');
+    if (!implement) throw new NotFoundException('Implemento não encontrado.');
 
     type Measure = {
       height: number;
@@ -165,9 +165,9 @@ export class LayoutDimensionsService implements OnModuleInit {
       };
     };
     return [
-      toPanel('MOTORISTA', truck.leftSideMeasure as Measure | null),
-      toPanel('SAPO', truck.rightSideMeasure as Measure | null),
-      toPanel('TRASEIRA', truck.backSideMeasure as Measure | null),
+      toPanel('MOTORISTA', implement.leftSideMeasure as Measure | null),
+      toPanel('SAPO', implement.rightSideMeasure as Measure | null),
+      toPanel('TRASEIRA', implement.backSideMeasure as Measure | null),
     ].filter((p): p is Panel => p !== null);
   }
 
@@ -223,12 +223,12 @@ export class LayoutDimensionsService implements OnModuleInit {
   /** O plano de cotas do arquivo, pronto para desenhar. */
   async dimensions(
     fileId: string,
-    options: { truckId: string; pageNumber?: number; rotation?: number },
+    options: { implementId: string; pageNumber?: number; rotation?: number },
   ): Promise<LayoutDimensionsDto> {
     const pageNumber = options.pageNumber ?? 1;
     const rotation = options.rotation ?? 0;
     const [panels, path] = await Promise.all([
-      this.panelsForTruck(options.truckId),
+      this.panelsForImplement(options.implementId),
       this.pdfPath(fileId),
     ]);
 

@@ -97,29 +97,29 @@ console.log('\nArredondamento: a fatia é dinheiro, não fração');
 console.log('\n`sliceTask`: a parcela do caminhão 37 abre o caminhão 37');
 {
   const tasks = [
-    { id: 'truck-1', name: 'Caminhão 1' },
-    { id: 'truck-37', name: 'Caminhão 37' },
+    { id: 'veiculo-1', name: 'Caminhão 1' },
+    { id: 'veiculo-37', name: 'Caminhão 37' },
   ];
   const cov = (...ids: string[]) => ids.map(taskId => ({ taskId }));
   check(
     'fatura de um veículo devolve a tarefa DELA',
-    sliceTask({ tasks: cov('truck-37'), quote: { tasks } })?.id === 'truck-37',
+    sliceTask({ tasks: cov('veiculo-37'), quote: { tasks } })?.id === 'veiculo-37',
   );
   check(
     'fatura conjunta ancora no primeiro veículo — qualquer um serve para o link',
-    sliceTask({ tasks: cov('truck-1', 'truck-37'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('veiculo-1', 'veiculo-37'), quote: { tasks } })?.id === 'veiculo-1',
   );
   check(
     'a âncora segue a ordem do ORÇAMENTO, não a ordem em que a cobertura veio',
-    sliceTask({ tasks: cov('truck-37', 'truck-1'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('veiculo-37', 'veiculo-1'), quote: { tasks } })?.id === 'veiculo-1',
   );
   check(
     'cobertura que a consulta não trouxe cai no primeiro, nunca em nulo',
-    sliceTask({ tasks: [], quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: [], quote: { tasks } })?.id === 'veiculo-1',
   );
   check(
     'cobertura de uma tarefa fora da consulta cai no primeiro',
-    sliceTask({ tasks: cov('truck-99'), quote: { tasks } })?.id === 'truck-1',
+    sliceTask({ tasks: cov('veiculo-99'), quote: { tasks } })?.id === 'veiculo-1',
   );
   check(
     'orçamento sem tarefa nenhuma devolve nulo',
@@ -134,11 +134,11 @@ console.log('\n`sliceAnchorTaskId`: o `Invoice.taskId` só existe quando a fatur
   const cov = (...ids: string[]) => ids.map(taskId => ({ taskId }));
   check(
     'fatura de um veículo carimba o veículo — inclusive no orçamento de UMA tarefa, que é o acervo inteiro',
-    sliceAnchorTaskId({ tasks: cov('truck-1') }) === 'truck-1',
+    sliceAnchorTaskId({ tasks: cov('veiculo-1') }) === 'veiculo-1',
   );
   check(
     'fatura de um lote não é de nenhum veículo: nulo',
-    sliceAnchorTaskId({ tasks: cov('truck-1', 'truck-2') }) === null,
+    sliceAnchorTaskId({ tasks: cov('veiculo-1', 'veiculo-2') }) === null,
   );
   check('sem cobertura, nulo', sliceAnchorTaskId({ tasks: [] }) === null);
 }

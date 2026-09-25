@@ -81,7 +81,7 @@ export class PortalRequestController {
    * RESPOSTA — 201 com o envelope de sempre (`{ success, message, data }`).
    * `data` traz `budgetId` e `budgetNumber` (para navegar), `requestId`,
    * `billingId`/`payerId` (o pagador que nasceu), e uma linha por veículo com
-   * `taskId`, `truckId` e os ids das medidas criadas.
+   * `taskId`, `implementId` e os ids das medidas criadas.
    *
    * ERRO DE UNICIDADE — 400 com `conflicts[]`, cada item
    * `{ field: 'serialNumber' | 'plate', value, scope: 'payload' | 'database',

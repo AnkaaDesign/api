@@ -24,7 +24,7 @@
 // 2. ⛔ O ESCOPO É O COMERCIAL, NÃO O DE LEITURA. `taskScopeWhere` tem o
 //    caminho (c) — "eu sou contato deste veículo" —, que é PESSOAL, atravessa
 //    empresas de propósito e não carrega laço comercial nenhum. Escrever a
-//    placa de um caminhão é ato comercial: vale `commercialTaskScopeWhere`,
+//    placa de um implemento é ato comercial: vale `commercialTaskScopeWhere`,
 //    (a) PAGADOR ∨ (b) DONO, o MESMO predicado do pedido de compra. E a
 //    conferência é feita DUAS vezes — no `where` e, sobre a linha carregada,
 //    por `commercialTaskLink`, que falha FECHADO quando o `select` não trouxe a
@@ -33,15 +33,15 @@
 // 3. ⛔ FORA DO ESCOPO É 404, NUNCA 403. A existência de um veículo de outra
 //    empresa não é informação que o portal confirme — 403 confirmaria.
 //
-// 4. ⛔ `Truck` PODE NÃO EXISTIR. É 1:1 com `Task` e NULLABLE, e os editores
-//    internos simplesmente desaparecem quando não há linha. Um `truck.update`
+// 4. ⛔ `Implement` PODE NÃO EXISTIR. É 1:1 com `Task` e NULLABLE, e os editores
+//    internos simplesmente desaparecem quando não há linha. Um `implement.update`
 //    otimista estoura P2025 e derruba a transação; o portal CRIA a linha quando
 //    chega placa, chassi ou plaqueta para uma tarefa que não a tem.
 //
 // 5. ⛔ NUNCA `plate` NO TOPO. `taskUpdateSchema` não é `.strict()` e chave fora
 //    do lugar SOME EM SILÊNCIO — o formulário diria "salvo", e a placa não
 //    existiria. Aqui não se passa por `TaskService`: escreve-se direto em
-//    `tx.truck`, que é o modelo que tem as colunas.
+//    `tx.implement`, que é o modelo que tem as colunas.
 //
 // 6. ⛔ O PEDIDO DE COMPRA NÃO É ESCRITO AQUI. Ele é DUAL
 //    (`Task.purchaseOrderId` + `Task.customerOrderNumber`), porque a regra de
@@ -109,7 +109,7 @@ import {
 
 /** O que o multipart entrega. Só a plaqueta importa nesta rota. */
 export interface PortalIdentificacaoArquivos {
-  truckVinPlate?: Express.Multer.File[];
+  implementVinPlate?: Express.Multer.File[];
 }
 
 /**
@@ -156,7 +156,7 @@ const taskSelectFor = (customerId: string) =>
     },
   }) as const;
 
-/** Os lados da medida no portal, a face de cada um e a coluna dela no caminhão. */
+/** Os lados da medida no portal, a face de cada um e a coluna dela no implemento. */
 const LADOS_DA_MEDIDA = [
   { chave: 'esquerda', face: 'left', coluna: FACE_FK.left },
   { chave: 'direita', face: 'right', coluna: FACE_FK.right },
@@ -194,7 +194,7 @@ export class PortalIdentityService {
     // daqui para baixo se usa `companyId` e nunca `principal.companyId`.
     const { companyId, responsibleId } = this.scope.assertScoped(principal);
 
-    const plaqueta = arquivos?.truckVinPlate?.[0] ?? null;
+    const plaqueta = arquivos?.implementVinPlate?.[0] ?? null;
 
     if (!temAlgoParaMudar(dados, { temPlaqueta: Boolean(plaqueta) })) {
       throw new BadRequestException(NADA_PARA_MUDAR_MENSAGEM);
@@ -268,7 +268,7 @@ export class PortalIdentityService {
     //
     // O caso não é hipotético. O congelado e o cadastro de hoje PODEM divergir
     // sem que ninguém tenha passado por aqui: `PUT /tasks/:id` escreve placa e
-    // chassi por escrita aninhada em `truck` e NÃO chama
+    // chassi por escrita aninhada em `implement` e NÃO chama
     // `onQuoteContentChanged` — é o buraco medido no orçamento nº 945. Nesse
     // estado, um reenvio do formulário do portal com os valores que ele acabou
     // de LER seria recusado por uma alteração que outra pessoa fez.
@@ -481,14 +481,14 @@ export class PortalIdentityService {
     // ⛔ CATEGORIA E IMPLEMENTO ENTRAM NESTA CONTA, e esquecê-los custou um
     // `200 OK` que não gravou nada: a rota aceitava os dois, a guarda do
     // documento os classificava, e então este `false` pulava o bloco inteiro do
-    // caminhão em silêncio. Um "salvo com sucesso" que não salvou é pior do que
+    // implemento em silêncio. Um "salvo com sucesso" que não salvou é pior do que
     // um erro — o cliente fecha a tela achando que corrigiu o cadastro.
-    const mexeNoCaminhao =
+    const mexeNoImplemento =
       placa !== undefined ||
       chassi !== undefined ||
       categoria !== undefined ||
       implemento !== undefined ||
-      // ⚠️ A MEDIDA TAMBÉM É DO CAMINHÃO: as três colunas de `ImplementMeasure`
+      // ⚠️ A MEDIDA TAMBÉM É DO IMPLEMENTO: as três colunas de `ImplementMeasure`
       // penduram no implemento, e sem passar por aqui o id do implemento fica nulo e o
       // bloco das medidas é pulado — 200 sem gravar, o mesmo defeito que
       // categoria e implemento tiveram antes de entrarem nesta conta.
@@ -496,15 +496,15 @@ export class PortalIdentityService {
       plaquetaId !== undefined ||
       Boolean(plaqueta);
 
-    // ⚠️ UMA TRANSAÇÃO. Tarefa, caminhão, arquivo e as linhas de auditoria
-    // descrevem UM fato; metade aplicada é o pior estado possível — um caminhão
+    // ⚠️ UMA TRANSAÇÃO. Tarefa, implemento, arquivo e as linhas de auditoria
+    // descrevem UM fato; metade aplicada é o pior estado possível — um implemento
     // criado com a placa e a série antiga na tarefa, ou um `File` gravado sem
     // ninguém apontando para ele.
     await this.prisma.$transaction(async tx => {
       // ── A PREVISÃO DE LIBERAÇÃO, em `Task` ────────────────────────────────
       //
       // Mesma coluna que o quadro de preparação interno usa. Quem sabe quando o
-      // caminhão sai da frota é o cliente; até aqui a data entrava por telefone.
+      // implemento sai da frota é o cliente; até aqui a data entrava por telefone.
       if (previsao !== undefined) {
         const antes = task.forecastDate ?? null;
         const depois = previsao ?? null;
@@ -544,12 +544,12 @@ export class PortalIdentityService {
         });
       }
 
-      if (!mexeNoCaminhao) return;
+      if (!mexeNoImplemento) return;
 
       // ── O IMPLEMENTO SEMPRE EXISTE (DD1) ──────────────────────────────────
       //
       // Toda tarefa nasce com implemento (gatilho diferido da M1s). O ramo que
-      // "criava o caminhão se não existisse" saiu: seria uma segunda fonte de
+      // "criava o implemento se não existisse" saiu: seria uma segunda fonte de
       // criação sem `spot` explícito.
       //
       // ⚠️ E NUNCA por `taskUpdateSchema` com `plate` no topo: aqui se escreve no
@@ -598,7 +598,7 @@ export class PortalIdentityService {
           ] as const) {
             if (depois === undefined || (depois ?? null) === antes) continue;
             await this.auditar(tx, {
-              entityType: ENTITY_TYPE.TRUCK,
+              entityType: ENTITY_TYPE.IMPLEMENT,
               entityId: implementId,
               field: campo,
               oldValue: antes,
@@ -614,7 +614,7 @@ export class PortalIdentityService {
       // ⛔ O cliente DESENHA o implemento ao pedir o orçamento e, até aqui, não
       // tinha como corrigi-lo: o portal mostrava tabelas de leitura. Medida
       // errada trava o layout e a pintura, e quem a conhece é quem opera o
-      // caminhão.
+      // implemento.
       //
       // ⚠️ CENTÍMETROS ENTRAM, METROS SÃO GRAVADOS — `medidaParaPrisma` é a
       // MESMA função da requisição, e a conversão acontece num lugar só nas
@@ -632,7 +632,7 @@ export class PortalIdentityService {
 
           // Pelo escritor único: `null` explícito apaga a face (a linha só sai se
           // mais ninguém a usa — antes, `.delete().catch()` dentro da transação
-          // abortava tudo quando a linha era de outro caminhão); editar mexe na
+          // abortava tudo quando a linha era de outro implemento); editar mexe na
           // linha só se ela é deste lado, senão ganha uma cópia — corrigir o
           // próprio furgão não pode mudar o de outro cliente.
           if (entrada === null) {
@@ -643,7 +643,7 @@ export class PortalIdentityService {
           await setFace(tx, implementId, lado.face, medidaParaPrisma(entrada as never));
 
           await this.auditar(tx, {
-            entityType: ENTITY_TYPE.TRUCK,
+            entityType: ENTITY_TYPE.IMPLEMENT,
             entityId: implementId,
             field: lado.coluna,
             oldValue: atualId,
@@ -656,7 +656,7 @@ export class PortalIdentityService {
       // ── A PLAQUETA, quando veio como ARQUIVO ──────────────────────────────
       //
       // Mesmo caminho de `task.service.ts` (`createFromUploadWithTransaction`
-      // com o contexto `truckVinPlate`, que `files-storage.service.ts` mapeia
+      // com o contexto `implementVinPlate`, que `files-storage.service.ts` mapeia
       // para a pasta `Plaquetas`). Gravar o `File` na MESMA transação da tarefa
       // é o que impede um arquivo órfão quando algo adiante falha.
       //
@@ -667,11 +667,11 @@ export class PortalIdentityService {
         const arquivo = await this.files.createFromUploadWithTransaction(
           tx,
           plaqueta,
-          'truckVinPlate',
+          'implementVinPlate',
           undefined,
           {
             entityId: implementId,
-            entityType: 'TRUCK',
+            entityType: 'IMPLEMENT',
             customerName: task.customer?.fantasyName ?? undefined,
           },
         );
@@ -683,7 +683,7 @@ export class PortalIdentityService {
         // acessível pelo changelog, e o `File` pode estar referenciado em outro
         // lugar. É a mesma escolha de `task.service.ts`.
         await this.auditar(tx, {
-          entityType: ENTITY_TYPE.TRUCK,
+          entityType: ENTITY_TYPE.IMPLEMENT,
           entityId: implementId,
           field: 'vinPlateId',
           oldValue: antes,

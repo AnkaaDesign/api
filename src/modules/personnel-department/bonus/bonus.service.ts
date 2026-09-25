@@ -3628,7 +3628,7 @@ export class BonusService {
                   // • MESMA projeção da linha sem save, logo abaixo. Com 5
                   //   campos aqui e 9 lá, a mesma página devolvia duas formas de
                   //   tarefa: quem tinha bônus salvo vinha sem `serialNumber`,
-                  //   `customer`, `sector` e `truck`, e quem não tinha vinha
+                  //   `customer`, `sector` e `implement`, e quem não tinha vinha
                   //   completo — "Identificador: -" em metade das linhas.
                   ...(Array.isArray(savedBonus.tasks)
                     ? {

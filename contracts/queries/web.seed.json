@@ -14,7 +14,7 @@
           "customer": { "include": { "logo": true } },
           "sector": true,
           "responsibles": true,
-          "truck": true,
+          "implement": true,
           "createdBy": true,
           "serviceOrders": { "include": { "assignedTo": true, "checkinFiles": true, "checkoutFiles": true } },
           "baseFiles": true,
@@ -60,7 +60,7 @@
           "sector": true,
           "customer": true,
           "generalPainting": { "include": { "paintType": true, "paintBrand": true } },
-          "truck": true,
+          "implement": true,
           "serviceOrders": true,
           "quote": true,
           "createdBy": true
@@ -74,7 +74,7 @@
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
       "origem": "web/src/dashboard/widgets/task-table.tsx:1644 (TASK_INCLUDE) + :1612 (ORDER_BY_PATH_MAP)",
-      "nota": "orderBy.truck.plate é DESCARTADO pelo zod hoje (taskOrderBySchema não conhece truck): o G1 só registra (modo relatório).",
+      "nota": "orderBy.implement.plate: o G1 só registra (modo relatório).",
       "consulta": {
         "page": 1,
         "limit": 20,
@@ -85,12 +85,12 @@
           "logoPaints": true,
           "serviceOrders": true,
           "observation": true,
-          "truck": true,
+          "implement": true,
           "quote": true,
           "layouts": true,
           "responsibles": true
         },
-        "orderBy": [{ "quote": { "statusOrder": "asc" } }, { "truck": { "plate": "asc" } }, { "customer": { "fantasyName": "desc" } }]
+        "orderBy": [{ "quote": { "statusOrder": "asc" } }, { "implement": { "plate": "asc" } }, { "customer": { "fantasyName": "desc" } }]
       }
     },
     {
@@ -110,7 +110,7 @@
           "logoPaints": true,
           "cuts": true,
           "serviceOrders": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": { "include": { "sections": true, "photo": true } },
               "rightSideMeasure": { "include": { "sections": true, "photo": true } },
@@ -129,7 +129,7 @@
       "consulta": {
         "include": {
           "customer": { "include": { "logo": true } },
-          "truck": { "include": { "vinPlate": true } },
+          "implement": { "include": { "vinPlate": true } },
           "serviceOrders": { "include": { "checkinFiles": true, "checkoutFiles": true }, "orderBy": { "position": "asc" } },
           "layouts": { "include": { "file": true } },
           "responsibles": true,
@@ -145,7 +145,7 @@
                   "createdAt": true,
                   "customerOrderNumber": true,
                   "finishedAt": true,
-                  "truck": { "select": { "id": true, "plate": true, "chassisNumber": true } }
+                  "implement": { "select": { "id": true, "plate": true, "chassisNumber": true } }
                 }
               }
             }
@@ -162,7 +162,7 @@
       "consulta": {
         "page": 1,
         "limit": 50,
-        "include": { "tasks": { "include": { "truck": true, "customer": true } }, "customerConfigs": true }
+        "include": { "tasks": { "include": { "implement": true, "customer": true } }, "customerConfigs": true }
       }
     }
   ]

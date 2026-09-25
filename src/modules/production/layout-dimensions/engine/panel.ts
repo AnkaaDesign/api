@@ -1,7 +1,7 @@
 /**
  * A face e a escala.
  *
- * Quem manda na geometria são as medidas do caminhão (`ImplementMeasure`): a
+ * Quem manda na geometria são as medidas do implemento (`ImplementMeasure`): a
  * altura e a soma das seções. O PDF só diz onde, dentro da página, essa face
  * está desenhada — e daí sai a única constante que interessa, `ptPerCm`.
  */

@@ -7,7 +7,7 @@
 // aquele arquivo declara no cabeçalho: `PortalModule` é a FUNDAÇÃO (escopo e
 // projeção), sem Prisma e sem controlador, e é isso que permite testá-lo sem
 // banco (`test:portal-escopo`, `test:portal-recorte`). Pendurar aqui um
-// controlador que escreve tarefa, caminhão, arquivo e pedido de compra
+// controlador que escreve tarefa, implemento, arquivo e pedido de compra
 // arrastaria `FileModule` e `PurchaseOrderModule` para dentro da fundação — e
 // todo pacote que só quisesse o `where` do escopo passaria a carregar o motor de
 // arquivo junto.
@@ -22,7 +22,7 @@
 //  · NENHUM `TaskModule`. A escrita NÃO passa por `TaskService.update`: aquele
 //    caminho valida por `taskUpdateSchema`, que não é `.strict()` — `plate` no
 //    topo some em silêncio (contrato §5, armadilha 4) — e faria o ator ser um
-//    `User`, que no portal não existe. As colunas moram em `Truck`, e é lá que
+//    `User`, que no portal não existe. As colunas moram em `Implement`, e é lá que
 //    se escreve.
 //
 //  · NENHUM `SignatureModule`. A guarda do documento assinado LÊ o snapshot
@@ -64,7 +64,7 @@ import { PortalIdentityService } from './portal-identity.service';
     // contato em `metadata` (id de responsável não existe em `User`).
     ChangeLogModule,
     // `FileService.createFromUploadWithTransaction` — a foto da plaqueta, que
-    // tem de nascer no MESMO commit do caminhão a que se liga.
+    // tem de nascer no MESMO commit do implemento a que se liga.
     FileModule,
     // `PurchaseOrderService` — a ESCRITA DUPLA do número do pedido
     // (`Task.purchaseOrderId` + `customerOrderNumber`). Escrever a coluna

@@ -31,7 +31,7 @@ export const COPYABLE_TASK_FIELDS = [
   'serviceOrders:COMMERCIAL',
   'serviceOrders:LOGISTIC',
   'serviceOrders:ARTWORK',
-  // Truck/Vehicle related
+  // Implement/Vehicle related
   'implementType',
   'category',
   'implementMeasures',
@@ -268,7 +268,7 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.MAINTENANCE,
   ],
 
-  // Medidas do Caminhão - hidden for Warehouse, Financial, Designer, Commercial
+  // Medidas do Implemento - hidden for Warehouse, Financial, Designer, Commercial
   implementMeasures: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.LOGISTIC,

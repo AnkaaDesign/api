@@ -55,7 +55,7 @@ const resolveGlobalDiscount = (
    * veículos cobertos (`svc.amount` é o preço de UM). Medir sobre o unitário
    * fazia o `gap` ficar NEGATIVO em toda fatura de mais de um veículo — e o
    * ramo do negativo devolve o desconto declarado sem acusar nada, que é
-   * exatamente como uma nota de um caminhão saía contra um boleto de sessenta.
+   * exatamente como uma nota de um implemento saía contra um boleto de sessenta.
    */
   quantity = 1,
 ): { type: string; value: number } | undefined => {
@@ -387,7 +387,7 @@ export class NfseEmissionScheduler {
               },
               // O ORÇAMENTO da nota, pelo vínculo direto (`NfseDocument.quoteId`) e
               // pela configuração de faturamento. É por aqui que a nota CONJUNTA
-              // — a que cobre os sessenta caminhões e por isso tem
+              // — a que cobre os sessenta implementos e por isso tem
               // `Invoice.taskId` nulo — encontra os serviços e os veículos.
               customerConfig: {
                 select: {
@@ -485,7 +485,7 @@ export class NfseEmissionScheduler {
           const isWithdrawal = !!invoice.externalOperationId;
           // Fatura sem tarefa é ESPERADO em dois casos: "Operação Externa" e a
           // nota CONJUNTA de um orçamento multitarefa, em que `Invoice.taskId` é
-          // nulo de propósito (a nota cobre os sessenta caminhões e não é de
+          // nulo de propósito (a nota cobre os sessenta implementos e não é de
           // nenhum deles). O que não pode faltar é o vínculo com o ORÇAMENTO —
           // sem ele não há serviço nem veículo para discriminar, e marcar ERROR
           // é a resposta certa.
@@ -500,7 +500,7 @@ export class NfseEmissionScheduler {
           }
 
           let emitTask: { id: string; name: string; serialNumber?: string };
-          let emitTruck:
+          let emitImplement:
             | {
                 plate?: string;
                 chassisNumber?: string;
@@ -526,9 +526,9 @@ export class NfseEmissionScheduler {
           let emitServiceQuantity = 1;
 
           if (isWithdrawal) {
-            // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
+            // Operação Externa: discriminate services + withdrawn items; no implement/order/discount.
             emitTask = { id: invoice.externalOperationId!, name: 'Operação Externa' };
-            emitTruck = undefined;
+            emitImplement = undefined;
             orderNumber = undefined;
             globalDiscount = undefined;
             services = [
@@ -544,7 +544,7 @@ export class NfseEmissionScheduler {
           } else {
             // O ORÇAMENTO da nota. Vem pela configuração de faturamento, e não
             // pela tarefa: numa nota CONJUNTA `Invoice.taskId` é nulo de
-            // propósito (ela não é de nenhum dos sessenta caminhões em
+            // propósito (ela não é de nenhum dos sessenta implementos em
             // particular) e `task` aqui é null. Ler os serviços por
             // `task.quote` deixaria a nota conjunta sem nenhum item de serviço —
             // a Elotech receberia uma linha só, com a descrição de fallback.
@@ -609,20 +609,20 @@ export class NfseEmissionScheduler {
             // A tarefa da FATIA: a PRIMEIRA que esta nota cobre. Serve de
             // contexto (rótulo de fallback, placa do cabeçalho); quais veículos a
             // nota cobre é `emitVehicles`, abaixo. Era `quoteTaskRows[0]` — o
-            // primeiro do ORÇAMENTO —, que num lote é um caminhão de outra nota.
+            // primeiro do ORÇAMENTO —, que num lote é um implemento de outra nota.
             const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
-            const truck = sliceTask?.implement;
+            const implement = sliceTask?.implement;
             emitTask = {
               id: sliceTask?.id ?? invoice.id,
               name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
               serialNumber: sliceTask?.serialNumber || undefined,
             };
-            emitTruck = truck
+            emitImplement = implement
               ? {
-                  plate: truck.plate || undefined,
-                  chassisNumber: truck.chassisNumber || undefined,
-                  category: truck.category || undefined,
-                  implementType: truck.type || undefined,
+                  plate: implement.plate || undefined,
+                  chassisNumber: implement.chassisNumber || undefined,
+                  category: implement.category || undefined,
+                  implementType: implement.type || undefined,
                 }
               : undefined;
 
@@ -642,9 +642,9 @@ export class NfseEmissionScheduler {
             }));
             emitBudgetNumber = nfseQuote?.budgetNumber ?? null;
 
-            // O pedido de compra dos VEÍCULOS DESTA fatura — o do caminhão
+            // O pedido de compra dos VEÍCULOS DESTA fatura — o do implemento
             // quando ela cobra um; os do lote quando cobra vinte. É o campo em
-            // que a Elotech procura o empenho, e citar o pedido de um caminhão
+            // que a Elotech procura o empenho, e citar o pedido de um implemento
             // que está noutra nota é errar de nota.
             // `240` e não sem limite: a discriminação tem teto de 11 LINHAS de 255
             // caracteres, e o cabeçalho (pedido + veículos) disputa essas linhas
@@ -670,7 +670,7 @@ export class NfseEmissionScheduler {
             totalAmount: Number(invoice.totalAmount),
             customer: buildNfseCustomer(customer),
             task: emitTask,
-            implement: emitTruck,
+            implement: emitImplement,
             vehicles: emitVehicles,
             budgetNumber: emitBudgetNumber,
             orderNumber,
@@ -905,7 +905,7 @@ export class NfseEmissionScheduler {
         }
 
         let emitTask: { id: string; name: string; serialNumber?: string };
-        let emitTruck:
+        let emitImplement:
           | {
               plate?: string;
               chassisNumber?: string;
@@ -930,9 +930,9 @@ export class NfseEmissionScheduler {
         let emitServiceQuantity = 1;
 
         if (isWithdrawal) {
-          // Operação Externa: discriminate services + withdrawn items; no truck/order/discount.
+          // Operação Externa: discriminate services + withdrawn items; no implement/order/discount.
           emitTask = { id: invoice.externalOperationId!, name: 'Operação Externa' };
-          emitTruck = undefined;
+          emitImplement = undefined;
           orderNumber = undefined;
           globalDiscount = undefined;
           services = [
@@ -1001,18 +1001,18 @@ export class NfseEmissionScheduler {
           }
           const coveredRows = coverage.rows;
           const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
-          const truck = sliceTask?.implement;
+          const implement = sliceTask?.implement;
           emitTask = {
             id: sliceTask?.id ?? invoice.id,
             name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
             serialNumber: sliceTask?.serialNumber || undefined,
           };
-          emitTruck = truck
+          emitImplement = implement
             ? {
-                plate: truck.plate || undefined,
-                chassisNumber: truck.chassisNumber || undefined,
-                category: truck.category || undefined,
-                implementType: truck.type || undefined,
+                plate: implement.plate || undefined,
+                chassisNumber: implement.chassisNumber || undefined,
+                category: implement.category || undefined,
+                implementType: implement.type || undefined,
               }
             : undefined;
           emitVehicles = coveredRows.map((t: any) => ({
@@ -1043,7 +1043,7 @@ export class NfseEmissionScheduler {
           totalAmount: Number(invoice.totalAmount),
           customer: buildNfseCustomer(customer),
           task: emitTask,
-          implement: emitTruck,
+          implement: emitImplement,
           vehicles: emitVehicles,
           budgetNumber: emitBudgetNumber,
           orderNumber,

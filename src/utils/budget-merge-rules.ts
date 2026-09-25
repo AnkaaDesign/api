@@ -9,7 +9,7 @@
  * ── POR QUE A UNIÃO EXISTE ──────────────────────────────────────────────────
  *
  * Um orçamento passou a cobrir N veículos, mas a tela de criação continuou
- * produzindo um orçamento POR caminhão durante meses. O acervo herdou isso: em
+ * produzindo um orçamento POR implemento durante meses. O acervo herdou isso: em
  * produção, 17/09/2026, há 72 grupos de orçamentos irmãos — mesmo cliente, mesmo
  * dia, mesmo total, um veículo cada. O maior tem 30 (nº 448 a 480), o seguinte
  * 29, o terceiro 27. São trinta números, trinta PDFs e trinta cerimônias de
@@ -336,7 +336,7 @@ export function judgeMerge(candidates: MergeCandidate[]): MergeVerdict {
   }
 
   // O SOBREVIVENTE TEM LAYOUT POR VEÍCULO: quem chega não herda arte nenhuma.
-  // A cobertura é uma afirmação sobre CADA caminhão, e inventá-la para os que
+  // A cobertura é uma afirmação sobre CADA implemento, e inventá-la para os que
   // vieram de outro orçamento seria aprovar para eles uma pintura que ninguém
   // escolheu. Eles entram descobertos, e o portão da assinatura e da aprovação
   // acusa até alguém atribuir.

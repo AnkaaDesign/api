@@ -310,10 +310,10 @@ export class InvoiceController {
    * As faturas de TODOS os veículos de um orçamento.
    *
    * `Invoice.taskId` aponta para UM veículo. Com `billingSplit = PER_TASK` um
-   * orçamento de sessenta caminhões tem sessenta faturas, cada uma na sua
+   * orçamento de sessenta implementos tem sessenta faturas, cada uma na sua
    * tarefa, e perguntar pela rota `/task/:taskId` responde com UMA — a do
    * veículo por onde a tela entrou. A tela de ORÇAMENTO (o app abre o orçamento
-   * inteiro, não um caminhão) precisa das sessenta, e pedi-las uma a uma seriam
+   * inteiro, não um implemento) precisa das sessenta, e pedi-las uma a uma seriam
    * sessenta requisições.
    */
   @Get('quote/:quoteId')
@@ -2090,7 +2090,7 @@ export class InvoiceController {
         // TRÊS ELOS, porque `taskId` sozinho é NULO POR CONSTRUÇÃO na nota conjunta.
         //
         // `NfseDocument.taskId` sai de `sliceAnchorTaskId`, que só devolve tarefa
-        // quando a cobertura tem UM veículo. Num JOINT de quatro caminhões com nota
+        // quando a cobertura tem UM veículo. Num JOINT de quatro implementos com nota
         // autorizada, os quatro exibiam histórico fiscal VAZIO — e é justamente para
         // cá que as notificações de `nfse.cancel_rejected` / `nfse.orphan_live`
         // mandam o contador.

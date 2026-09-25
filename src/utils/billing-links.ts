@@ -6,7 +6,7 @@ import { QUOTE_TASKS_ORDER_BY } from './quote-tasks';
  * A tela de faturamento é endereçada por TAREFA, e três avisos diferentes montavam
  * a URL com `invoice.taskId` direto. Só que `Invoice.taskId` é preenchido por
  * `sliceAnchorTaskId`, que devolve a tarefa **apenas quando a cobertura tem
- * exatamente um veículo**. Numa fatura conjunta de quatro caminhões, ou num lote,
+ * exatamente um veículo**. Numa fatura conjunta de quatro implementos, ou num lote,
  * ele é `null` — e o aviso de "boleto pago" mandava o financeiro para
  * `/financeiro/faturamento/detalhes/null`, uma tela morta, no exato momento em que
  * ele tinha dinheiro para conferir.
@@ -43,7 +43,7 @@ export async function billingDeepLinkForInvoice(
       );
       if (coveredIds.length > 0) {
         // A âncora da cobertura precisa ser ESTÁVEL entre duas leituras — o mesmo
-        // lote tem de apontar sempre para o mesmo caminhão.
+        // lote tem de apontar sempre para o mesmo implemento.
         const anchor = await prisma.task.findFirst({
           where: { id: { in: coveredIds } },
           select: { id: true },

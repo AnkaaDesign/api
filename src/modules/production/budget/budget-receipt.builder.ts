@@ -17,7 +17,7 @@ export interface BudgetReceiptData {
    *
    * Os preços da lista de serviços são POR VEÍCULO. Com mais de um, o cupom
    * precisa da linha de multiplicação: sem ela a soma dos itens não fecha com o
-   * TOTAL PAGO — num orçamento de sessenta caminhões, por um fator de sessenta —
+   * TOTAL PAGO — num orçamento de sessenta implementos, por um fator de sessenta —
    * e um recibo cujos números não fecham é um recibo que não serve de recibo.
    */
   vehicleCount: number;

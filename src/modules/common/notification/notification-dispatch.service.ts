@@ -31,8 +31,8 @@ import {
   CUT_STATUS_LABELS,
   SECTOR_PRIVILEGES_LABELS,
   NOTIFICATION_PRIORITY_LABELS,
-  TRUCK_SPOT_LABELS,
-  TRUCK_CATEGORY_LABELS,
+  IMPLEMENT_SPOT_LABELS,
+  IMPLEMENT_CATEGORY_LABELS,
   IMPLEMENT_TYPE_LABELS,
   BONIFICATION_STATUS_LABELS,
 } from '../../../constants';
@@ -2638,9 +2638,9 @@ export class NotificationDispatchService {
    * "de \"B1_F3_V1\" para \"YARD_EXIT\"" in every channel.
    */
   private static readonly FIELD_VALUE_LABEL_MAPS: Record<string, Record<string, string>> = {
-    'truck.spot': TRUCK_SPOT_LABELS as Record<string, string>,
-    'truck.category': TRUCK_CATEGORY_LABELS as Record<string, string>,
-    'truck.implementType': IMPLEMENT_TYPE_LABELS as Record<string, string>,
+    'implement.spot': IMPLEMENT_SPOT_LABELS as Record<string, string>,
+    'implement.category': IMPLEMENT_CATEGORY_LABELS as Record<string, string>,
+    'implement.type': IMPLEMENT_TYPE_LABELS as Record<string, string>,
     bonification: BONIFICATION_STATUS_LABELS as Record<string, string>,
   };
 
@@ -2698,7 +2698,7 @@ export class NotificationDispatchService {
     }
 
     // oldValue/newValue carry a bare enum string. Prefer the map keyed by the
-    // changed field (truck spot/category/implement type, bonification); fall
+    // changed field (implement spot/category/implement type, bonification); fall
     // back to the status map, which covers the status field itself. Values
     // absent from both pass through unchanged so free-form text is never lost.
     const fieldValueMap =

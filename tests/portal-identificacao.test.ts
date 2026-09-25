@@ -34,7 +34,7 @@
  *   5. `''` GRAVADO NO LUGAR DE `null` — e `undefined` confundido com `null`,
  *      que faria um formulario que manda so a placa apagar serie e chassi.
  *
- *   6. O P2002 DO PRISMA VAZANDO. `Task.serialNumber` e `Truck.plate` sao
+ *   6. O P2002 DO PRISMA VAZANDO. `Implement.serialNumber` e `Implement.plate` sao
  *      `@unique` GLOBAIS; "Unique constraint failed on the fields:
  *      (`serialNumber`)" e' um 500 na tela que nao diz qual valor esta
  *      repetido.
@@ -89,7 +89,7 @@ import {
   CHASSIS_FORBIDDEN_LETTERS_MESSAGE,
   CHASSIS_INVALID_MESSAGE,
   PLATE_INVALID_MESSAGE,
-} from '../src/utils/truck';
+} from '../src/utils/implement';
 
 let failures = 0;
 
@@ -697,7 +697,7 @@ console.log('\nA BORDA — normalizacao, `\'\'` -> null e as duas mensagens de c
   check(
     "`''` vira null nos cinco campos (nunca a string vazia gravada)",
     vazios.success &&
-      VEHICLE_IDENTITY_FIELDS.length === 4 &&
+      VEHICLE_IDENTITY_FIELDS.length === 6 &&
       (vazios as any).data.serialNumber === null &&
       (vazios as any).data.plate === null &&
       (vazios as any).data.chassisNumber === null &&
@@ -787,8 +787,8 @@ console.log('\nO MULTIPART — um campo `payload` com o corpo inteiro dentro');
       /from '\.\/portal-request'/.test(fonte('src/schemas/portal-vehicle-identity.ts')),
   );
   check(
-    'o campo de arquivo e `truckVinPlate`, no maximo 1',
-    /name:\s*'truckVinPlate',\s*maxCount:\s*MAXIMO_PLAQUETAS/.test(CONTROLLER) &&
+    'o campo de arquivo e `implementVinPlate`, no maximo 1',
+    /name:\s*'implementVinPlate',\s*maxCount:\s*MAXIMO_PLAQUETAS/.test(CONTROLLER) &&
       /MAXIMO_PLAQUETAS\s*=\s*1/.test(CONTROLLER),
   );
 }
@@ -798,20 +798,20 @@ console.log('\nA PLAQUETA e ARQUIVO, e vai para a pasta `Plaquetas`');
 // ═══════════════════════════════════════════════════════════════════════════
 {
   check(
-    'sobe pelo mesmo caminho da tarefa (`createFromUploadWithTransaction`, contexto truckVinPlate)',
-    /createFromUploadWithTransaction\(/.test(SERVICO) && /'truckVinPlate',/.test(SERVICO),
+    'sobe pelo mesmo caminho da tarefa (`createFromUploadWithTransaction`, contexto implementVinPlate)',
+    /createFromUploadWithTransaction\(/.test(SERVICO) && /'implementVinPlate',/.test(SERVICO),
   );
   check(
-    'o contexto `truckVinPlate` mapeia para a pasta `Plaquetas`',
-    /truckVinPlate:\s*'Plaquetas'/.test(
+    'o contexto `implementVinPlate` mapeia para a pasta `Plaquetas`',
+    /implementVinPlate:\s*'Plaquetas'/.test(
       fonte('src/modules/common/file/services/files-storage.service.ts'),
     ),
   );
   check(
     '⚠️ o upload vai SEM userId (File.createdById e FK de User)',
-    /'truckVinPlate',\s*\n\s*undefined,/.test(SERVICO),
+    /'implementVinPlate',\s*\n\s*undefined,/.test(SERVICO),
   );
-  check('e grava em `Truck.vinPlateId`', /vinPlateId:\s*arquivo\.id/.test(SERVICO));
+  check('e grava em `Implement.vinPlateId`', /vinPlateId:\s*arquivo\.id/.test(SERVICO));
   check(
     'so aceita imagem (a plaqueta e uma FOTO; a coluna de texto morreu em 20260727150000)',
     /startsWith\('image\/'\)/.test(SERVICO),
@@ -819,19 +819,26 @@ console.log('\nA PLAQUETA e ARQUIVO, e vai para a pasta `Plaquetas`');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n⛔ `Truck` PODE NAO EXISTIR — e `plate` NUNCA vai no topo');
+console.log('\n⛔ O IMPLEMENTO SEMPRE EXISTE (DD1) — e `plate` NUNCA vai no topo');
 // ═══════════════════════════════════════════════════════════════════════════
 {
   check(
-    'cria a linha de `Truck` quando ela nao existe',
-    /tx\.truck\.create\(/.test(SERVICO),
+    'NAO cria implemento aqui: toda tarefa ja nasce com um (o gatilho diferido da M1s recusa a que nascer sem)',
+    !/tx\.implement\.create\(/.test(SERVICO),
   );
   check(
-    'e so atualiza quando existe (nada de update otimista => P2025)',
-    /if \(!truckId\) \{/.test(SERVICO) && /tx\.truck\.update\(/.test(SERVICO),
+    'tarefa sem implemento e 500 nomeado, nunca um update otimista (P2025)',
+    /if \(!implementId\) \{/.test(SERVICO) &&
+      /Tarefa sem implemento/.test(SERVICO) &&
+      /tx\.implement\.update\(/.test(SERVICO),
   );
   check(
-    '⛔ escreve placa e chassi em `tx.truck`, NUNCA no topo de `task`',
+    'a SERIE e gravada no implemento (W5), nunca em `task` (espelho somente leitura)',
+    /tx\.implement\.update\(\{\s*where:\s*\{\s*taskId:\s*task\.id\s*\},\s*data:\s*\{\s*serialNumber/.test(SERVICO) &&
+      !/tx\.task\.update\(\{[\s\S]{0,200}serialNumber/.test(SERVICO),
+  );
+  check(
+    '⛔ escreve placa e chassi em `tx.implement`, NUNCA no topo de `task`',
     !/tx\.task\.update\([^)]*plate/.test(SERVICO) &&
       !/data:\s*\{[^}]*\bplate:\s*[^}]*\}\s*\}\s*\)\s*;?\s*\/\/\s*task/.test(SERVICO),
   );
@@ -847,16 +854,16 @@ console.log('\nAS UNICIDADES GLOBAIS — o contrato de erro, nunca o P2002');
 // ═══════════════════════════════════════════════════════════════════════════
 {
   check(
-    'a serie e conferida em `Task` antes de escrever',
-    /prisma\.task\.findFirst\(\{[\s\S]{0,200}serialNumber: serie/.test(SERVICO),
+    'a serie e conferida no IMPLEMENTO antes de escrever (DD1)',
+    /prisma\.implement\.findFirst\(\{[\s\S]{0,400}serialNumber: serie/.test(SERVICO),
   );
   check(
-    'a placa e conferida em `Truck` antes de escrever',
-    /prisma\.truck\.findFirst\(\{[\s\S]{0,200}plate: placa/.test(SERVICO),
+    'a placa e conferida no implemento antes de escrever',
+    /prisma\.implement\.findFirst\(\{[\s\S]{0,200}plate: placa/.test(SERVICO),
   );
   check(
     '⚠️ o PROPRIO veiculo e excluido da busca (reenviar o mesmo valor nao e colisao)',
-    /NOT:\s*\{\s*id:\s*taskId\s*\}/.test(SERVICO) && /NOT:\s*\{\s*taskId\s*\}/.test(SERVICO),
+    (SERVICO.match(/NOT:\s*\{\s*taskId\s*\}/g) ?? []).length >= 2,
   );
   check(
     'o erro e 400 com `{ message, errors[], conflicts[] }` — o mesmo da requisicao',
@@ -902,7 +909,10 @@ console.log('\nA REGRA DA ASSINATURA e um modulo PURO (testavel sem banco)');
     'usa `snapshotVehicles`, a unica porta de entrada dos veiculos de um snapshot',
     /import \{ snapshotVehicles \}/.test(REGRA),
   );
-  check('cobre os QUATRO campos que o documento imprime', VEHICLE_IDENTITY_FIELDS.length === 4);
+  check(
+    'cobre os SEIS campos que o documento imprime (série, placa, chassi, pedido, categoria, implemento)',
+    VEHICLE_IDENTITY_FIELDS.length === 6,
+  );
 }
 
 // ===========================================================================
@@ -992,7 +1002,7 @@ async function caminhosDeEscrita() {
             customerOrderNumber: cadastro,
             purchaseOrderId: null,
             quoteId: QUOTE,
-            truck: { plate: null },
+            implement: { plate: null },
             billingEntry: null,
           },
         ],
@@ -1028,7 +1038,7 @@ async function caminhosDeEscrita() {
       null,
     );
     const desejado = servico.apenasOQueMuda(
-      { serialNumber: '1003', customerOrderNumber: cadastro, truck: null },
+      { serialNumber: '1003', customerOrderNumber: cadastro, implement: null },
       {},
       novo,
     );

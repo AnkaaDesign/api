@@ -75,8 +75,8 @@ function selectedImageKeysByTask(quote: any): Map<string, Set<string>> {
  * `Layout.fileId` é `@unique`: a linha `Layout` de uma imagem é UMA, e as N
  * tarefas que a exibem a compartilham pelo m2m `Task.layouts`. O status é da
  * LINHA, não da tarefa. Então, num orçamento por veículo em que a arte A é do
- * caminhão 1 e está ligada também à galeria do caminhão 2 (o `SHARED` de antes a
- * materializou nos dois), reprovar A "no caminhão 2" reprovaria A no caminhão 1 —
+ * implemento 1 e está ligada também à galeria do implemento 2 (o `SHARED` de antes a
+ * materializou nos dois), reprovar A "no implemento 2" reprovaria A no implemento 1 —
  * exatamente o defeito da Carlotti, por outra porta.
  *
  * Por isso a linha só é reprovada quando NENHUMA tarefa deste orçamento ligada a
@@ -168,11 +168,11 @@ export async function syncTaskLayoutsFromQuote(
     if (quoteFiles.length === 0) return; // nothing added — removal is not our concern
 
     // UMA VEZ POR VEÍCULO, e cada um com a SUA seleção. Em `SHARED` a seleção
-    // de todo veículo é a lista inteira do orçamento — o caminhão 37 precisa da
+    // de todo veículo é a lista inteira do orçamento — o implemento 37 precisa da
     // arte aprovada na SUA galeria tanto quanto o primeiro, e materializar só na
     // âncora deixaria 59 veículos sem layout. Em `PER_VEHICLE` cada veículo
-    // recebe só as artes dele: materializar a arte do caminhão 1 na galeria do
-    // caminhão 2 é o que fazia a pintura de um aparecer aprovada no outro.
+    // recebe só as artes dele: materializar a arte do implemento 1 na galeria do
+    // implemento 2 é o que fazia a pintura de um aparecer aprovada no outro.
     const selection = selectedFilesByTask(quote);
     let linkedTotal = 0;
     for (const task of tasks) {
@@ -203,7 +203,7 @@ export async function syncTaskLayoutsFromQuote(
  *
  * Extraído porque o laço por veículo precisa dele N vezes e porque cada tarefa
  * tem a SUA galeria: os mapas por File id e por imagem são reconstruídos a cada
- * volta. Compartilhá-los entre veículos faria o segundo caminhão em diante achar
+ * volta. Compartilhá-los entre veículos faria o segundo implemento em diante achar
  * que a arte já estava na galeria dele quando estava na do primeiro — e ele
  * terminaria sem layout.
  *
@@ -428,7 +428,7 @@ export async function reproveDroppedTaskLayoutsFromQuote(
  *
  * POR VEÍCULO. A seleção que manda em cada galeria é a DAQUELE veículo: em
  * `SHARED`, a lista inteira do orçamento (o de sempre); em `PER_VEHICLE`, as
- * artes com linha para ele. Escolher a arte B para o caminhão 39089 não diz
+ * artes com linha para ele. Escolher a arte B para o implemento 39089 não diz
  * nada sobre a galeria do 39088 — e reprovar a arte A lá era o defeito da
  * Carlotti (orçamento nº 990).
  *

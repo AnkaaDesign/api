@@ -5,7 +5,7 @@
 // O QUE EXISTIA ANTES
 //   `Task.customerOrderNumber`: texto livre, não-único, máximo 100, um por
 //   veículo. Ele nasceu no PAGADOR (`BudgetPayer`) e desceu para a tarefa em
-//   17/09, quando um orçamento passou a cobrir N caminhões — porque o pedido é
+//   17/09, quando um orçamento passou a cobrir N implementos — porque o pedido é
 //   por ENTREGA, não por fatura. O que a coluna nunca soube representar é o fato
 //   óbvio: um pedido COBRE VÁRIOS VEÍCULOS. "Os vinte primeiros no pedido 8842,
 //   os quarenta no 9013" existia só como a mesma string repetida em sessenta
@@ -292,9 +292,9 @@ export class PurchaseOrderService {
    * A diferença é o caminho (c), "eu sou contato deste veículo", que é PESSOAL e
    * atravessa empresas sem nenhum laço comercial. Ver a nota longa em
    * `portal-scope.service.ts`: com o escopo inteiro, um contato pendurado por
-   * engano num caminhão de outra empresa carimbaria o pedido da empresa dele
+   * engano num implemento de outra empresa carimbaria o pedido da empresa dele
    * nele; com a igualdade `task.customerId === companyId`, o Compras da Furgões
-   * não conseguiria ligar o pedido a caminhão NENHUM — que é o caso que a
+   * não conseguiria ligar o pedido a implemento NENHUM — que é o caso que a
    * feature existe para atender.
    */
   async createFromPortal(
@@ -418,8 +418,8 @@ export class PurchaseOrderService {
     //
     // A versão anterior desta checagem era `t.customerId !== args.customerId`, e
     // ela RECUSAVA o caso principal da feature: a Furgões Ibiporã emite o pedido
-    // e o caminhão é da RKO (orçamentos 259–262, migration `20260917150100`). O
-    // Compras da Furgões não conseguia ligar o pedido dela a caminhão nenhum.
+    // e o implemento é da RKO (orçamentos 259–262, migration `20260917150100`). O
+    // Compras da Furgões não conseguia ligar o pedido dela a implemento nenhum.
     //
     // A intenção original era boa e continua valendo: impedir que um comprador
     // carimbe o pedido dele num veículo com que não tem nenhuma relação

@@ -320,7 +320,7 @@ export class ChangeLogService {
    *
    * O `where` da segunda consulta filtrava por `entityType = SERVICE_ORDER` e
    * PARAVA AÍ — não havia `taskId` em lugar nenhum. `GET /changelogs/task/:id/
-   * history` respondia, no lugar das O.S. daquele caminhão, as vinte alterações
+   * history` respondia, no lugar das O.S. daquele implemento, as vinte alterações
    * de O.S. mais ANTIGAS de toda a base (vinte porque o `take` do repositório
    * é 20 por padrão), iguais para qualquer tarefa consultada.
    *

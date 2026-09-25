@@ -268,7 +268,7 @@ async function bootstrap() {
     // plain Express middleware registered before app.init(), so it never
     // reaches Nest's APP_GUARD — express.static ends the response without ever
     // calling next(), and no guard, interceptor or filter runs. That is the
-    // intended behaviour here: truck geometry and HDRIs carry no customer
+    // intended behaviour here: Truck Studio geometry and HDRIs carry no customer
     // data, and three.js loaders cannot attach an Authorization header to the
     // sub-requests a GLB triggers for its own buffers and textures. The
     // invariant to protect is on the other side: nothing but public artwork
@@ -404,7 +404,7 @@ async function bootstrap() {
 
         // Wide-open CORS. The Studio runs on the web origin and pulls these
         // through three.js loaders (fetch/XHR, not <script>), and there is no
-        // secret in a truck mesh worth an origin allow-list.
+        // secret in a Truck Studio mesh worth an origin allow-list.
         res.setHeader('Access-Control-Allow-Origin', '*');
         // Cross-origin readers can otherwise only see the CORS-safelisted
         // response headers, which do not include Content-Length — GLTFLoader's

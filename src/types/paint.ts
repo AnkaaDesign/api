@@ -823,7 +823,7 @@ export interface StudioColor {
   /** `Paint.paintBrand.name` achatado (Farben, PPG, ...). */
   brand: string | null;
   /**
-   * A MONTADORA do caminhão, já no id do catálogo do estúdio
+   * A MONTADORA do implemento, já no id do catálogo do estúdio
    * (`scania`, `volvo`, `daf`, `iveco`, `mb`, `vw`) — NÃO o enum do banco.
    *
    * A tradução acontece no servidor (ver `STUDIO_MANUFACTURER_BY_ENUM` em

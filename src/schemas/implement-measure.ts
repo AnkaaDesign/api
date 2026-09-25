@@ -75,8 +75,8 @@ export const implementMeasureUpdateSchema = z.object({
 });
 
 // =====================
-// A face embutida no caminhão da tarefa (`leftSideMeasure`, `rightSideMeasure`,
-// `backSideMeasure` dentro do objeto do caminhão de `POST/PUT /tasks` e dos lotes)
+// A face embutida no implemento da tarefa (`leftSideMeasure`, `rightSideMeasure`,
+// `backSideMeasure` dentro do objeto do implemento de `POST/PUT /tasks` e dos lotes)
 // =====================
 //
 // FONTE ÚNICA: `schemas/task.ts` importa daqui (antes tinha uma cópia própria).

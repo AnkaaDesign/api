@@ -67,8 +67,8 @@ import { LIVE_INVOICE_WHERE, liveInvoiceOf } from '../../../utils/billing-invoic
  * este serviço empurrava o ORÇAMENTO para `BILLING_APPROVED` e deixava a
  * cascata levá-lo a `PARTIAL`/`SETTLED` — porque o ciclo do pagamento morava
  * em `Budget.status`. Não mora mais: quem tem estado de pagamento é
- * `Billing`, 1..N por orçamento, e num orçamento de sessenta caminhões
- * faturados um a um o crédito que paga o caminhão 7 não diz nada sobre o 8.
+ * `Billing`, 1..N por orçamento, e num orçamento de sessenta implementos
+ * faturados um a um o crédito que paga o implemento 7 não diz nada sobre o 8.
  *
  * O que este serviço escreve, então, é o CARIMBO da cobrança que cobre o
  * veículo conciliado (`Billing.approvedAt`) — dinheiro recebido por um veículo
@@ -984,7 +984,7 @@ export class ReceivableTaskMatchService {
     //
     // Nasce cobrindo o veículo desta conciliação: é o único que existe, e um
     // faturamento sem cobertura faria a tela de cobrança não saber de que
-    // caminhão fala.
+    // implemento fala.
     const billing = await db.billing.create({
       data: {
         quote: { connect: { id: quote.id } },
@@ -1078,7 +1078,7 @@ export class ReceivableTaskMatchService {
     // A tarefa ÂNCORA do orçamento, só como reserva para a fatia `JOINT` (que
     // não tem tarefa própria). `orderBy` explícito porque um `findFirst` sem
     // ordem devolve o que o plano do Postgres entregar primeiro: em duas
-    // execuções o mesmo orçamento apontaria a fatura para caminhões diferentes.
+    // execuções o mesmo orçamento apontaria a fatura para implementos diferentes.
     const anchorTask = await db.task.findFirst({
       where: { quoteId: quote.id },
       orderBy: QUOTE_TASKS_ORDER_BY,
@@ -1100,7 +1100,7 @@ export class ReceivableTaskMatchService {
             customerConfigId: config.id,
             // O veículo DESTA fatura quando ela é de um só; a âncora do
             // orçamento como reserva para a fatia sem cobertura. Usar a âncora
-            // para todas faria as sessenta faturas apontarem para o caminhão 1;
+            // para todas faria as sessenta faturas apontarem para o implemento 1;
             // usá-la numa fatura de lote afirmaria que os vinte são um.
             taskId: sliceAnchorTaskId(config as any) ?? anchorTask?.id ?? null,
             customerId: config.customerId,
@@ -1158,7 +1158,7 @@ export class ReceivableTaskMatchService {
     //
     // Esta rotina cria um `BudgetItem` e soma o mesmo número UMA vez a
     // `Budget.subtotal/total`. A conta canônica (`recalcQuoteTotals`) é
-    // `Σ itens × vehicleCount`: num orçamento de 4 caminhões, um acréscimo de
+    // `Σ itens × vehicleCount`: num orçamento de 4 implementos, um acréscimo de
     // R$ 500 grava 4.500 aqui e o primeiro recálculo devolve 6.000 — mil reais
     // que ninguém cobrou e que a fatura seguinte cobraria.
     //
@@ -1213,7 +1213,7 @@ export class ReceivableTaskMatchService {
         customerId: created.customerId,
         // Cobertura VAZIA: esta fatia de reparo nasce sem veículo escolhido, e
         // quem a completa é a reconciliação de faturamento (que a estende para o
-        // orçamento inteiro no modo `JOINT`). Amarrá-la aqui a um caminhão faria
+        // orçamento inteiro no modo `JOINT`). Amarrá-la aqui a um implemento faria
         // a fatura nascer recortada num veículo que ninguém escolheu.
         billing: { tasks: [] },
         subtotal: created.subtotal,
@@ -1353,7 +1353,7 @@ export class ReceivableTaskMatchService {
    * Sem o carimbo, `isQuoteMoneyLocked` deixaria o orçamento editável por cima
    * de um recebimento já conciliado, e `Billing` ficaria "Pendente" com dinheiro
    * dentro. Carimbamos SÓ as cobranças que cobrem este veículo: num orçamento
-   * faturado um a um, o crédito do caminhão 7 não aprova a cobrança do 8.
+   * faturado um a um, o crédito do implemento 7 não aprova a cobrança do 8.
    *
    * `Billing.status` continua sendo escrito por um só lugar
    * (`BillingStatusCascadeService`, via `cascadeFromInstallment` depois do
@@ -1398,7 +1398,7 @@ export class ReceivableTaskMatchService {
 
     // O carimbo do CONTRATO é outra coisa: a data em que o orçamento INTEIRO
     // ficou faturado. Só cai quando a última cobrança fecha — com metade dos
-    // caminhões ainda sem cobrar, dizer que o contrato está faturado envenena o
+    // implementos ainda sem cobrar, dizer que o contrato está faturado envenena o
     // ciclo de venda do painel.
     const stamped = new Set(toStamp.map(b => b.id));
     const allBilled = quote.billings.every(b => b.approvedAt !== null || stamped.has(b.id));

@@ -76,7 +76,7 @@ export interface RoutingParams {
    *
    * Quase nada, e de propósito. A extensão é fio de cabelo, e no acervo ela tem
    * mediana de 63 cm e p90 de 171 — o projetista não hesita em puxá-la meio
-   * caminhão para levar o número à margem limpa. Cobrando caro por ela, o
+   * implemento para levar o número à margem limpa. Cobrando caro por ela, o
    * roteador fazia a conta errada: no TRANSGENIO o quadro externo saía a 83 e a
    * posição interna a 81, e a cota vertical ficava plantada no meio do desenho
    * por dois pontos de diferença.
@@ -465,7 +465,7 @@ export function routeDimensions(
   // esquerda até um item atrás de uma faixa que ocupa a altura inteira cruza
   // arte em qualquer posição. Cobrar dela um preço que não tem como evitar
   // fazia o laço esgotar e jogar a cota na margem, com a extensão atravessando
-  // o caminhão — foi assim que o "196" do TRANSGENIO foi parar lá em cima.
+  // o implemento — foi assim que o "196" do TRANSGENIO foi parar lá em cima.
   const artFloor = artOf.map((list) => (list.length ? Math.min(...list) : 0));
 
   const chosen = movable.map(() => 0);

@@ -86,7 +86,7 @@ console.log('\nWhere legado `task` / `taskId` é RECUSADO (400), nunca chega ao 
   check('a forma corrente `tasks: { some }` passa', modern.success);
   check(
     '`taskId` DENTRO de `tasks.some` é de outro modelo e passa intacto',
-    budgetWhereSchema.safeParse({ tasks: { some: { truck: { taskId: 'x' } } } }).success,
+    budgetWhereSchema.safeParse({ tasks: { some: { implement: { taskId: 'x' } } } }).success,
   );
 }
 
@@ -133,12 +133,12 @@ const FILA = { queueRank: 'asc' };
 console.log('\nO zod não pode APAGAR `tasks` em silêncio');
 {
   const include = budgetIncludeSchema.parse({
-    tasks: { include: { truck: true, customer: true } },
+    tasks: { include: { implement: true, customer: true } },
     services: true,
   });
   check('include `tasks` sobrevive ao parse', (include as any).tasks !== undefined);
-  check('include `tasks.include` chega inteiro', (include as any).tasks?.include?.truck === true);
-  const legacyInclude = budgetIncludeSchema.parse({ task: { include: { truck: true } } });
+  check('include `tasks.include` chega inteiro', (include as any).tasks?.include?.implement === true);
+  const legacyInclude = budgetIncludeSchema.parse({ task: { include: { implement: true } } });
   check(
     'include `task` legado é descartado (não chega ao repositório)',
     (legacyInclude as any).task === undefined,

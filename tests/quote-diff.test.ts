@@ -304,7 +304,7 @@ console.log('\nChassi preenchido depois da assinatura');
   const after = clone(before);
   after.truck!.chassisNumber = '93KP0Y1C1TE216711';
   const changes = diffQuoteSnapshots(before, after);
-  const chassis = find(changes, 'truckChassis');
+  const chassis = find(changes, 'implementChassis');
 
   check('aparece na lista', !!chassis);
   check('classificado como cosmético', chassis?.severity === 'COSMETIC', chassis?.severity);
@@ -321,12 +321,12 @@ console.log('\nChassi preenchido depois da assinatura');
   );
 
   // A placa continua sendo o identificador material do objeto do contrato.
-  const otherTruck = clone(after);
-  otherTruck.truck!.plate = 'XYZ9K88';
+  const otherImplement = clone(after);
+  otherImplement.truck!.plate = 'XYZ9K88';
   check(
     'trocar a placa continua derrubando',
-    find(diffQuoteSnapshots(before, otherTruck), 'truckPlate')?.severity === 'MATERIAL' &&
-      snapshots.matchesFrozenTerms(otherTruck, snapshots.materialHash(before, 2), before) === null,
+    find(diffQuoteSnapshots(before, otherImplement), 'implementPlate')?.severity === 'MATERIAL' &&
+      snapshots.matchesFrozenTerms(otherImplement, snapshots.materialHash(before, 2), before) === null,
   );
 
   // A tolerância vale só para o chassi: qualquer outra diferença no recorte
@@ -350,7 +350,7 @@ console.log('\nPlaca: preencher não derruba, trocar derruba');
   const emplacado = clone(semPlaca);
   emplacado.truck!.plate = 'ABC1D23';
 
-  const fillIn = find(diffQuoteSnapshots(semPlaca, emplacado), 'truckPlate');
+  const fillIn = find(diffQuoteSnapshots(semPlaca, emplacado), 'implementPlate');
   check('preenchimento aparece na lista', !!fillIn);
   check('preenchimento é cosmético', fillIn?.severity === 'COSMETIC', fillIn?.severity);
   check(
@@ -368,7 +368,7 @@ console.log('\nPlaca: preencher não derruba, trocar derruba');
   // A outra metade da regra: havia placa congelada, então ela tem de bater.
   const trocada = clone(emplacado);
   trocada.truck!.plate = 'XYZ9K88';
-  const swap = find(diffQuoteSnapshots(emplacado, trocada), 'truckPlate');
+  const swap = find(diffQuoteSnapshots(emplacado, trocada), 'implementPlate');
   check('troca de placa é material', swap?.severity === 'MATERIAL', swap?.severity);
   check(
     'troca de placa derruba mesmo com o congelado em mãos',
@@ -380,7 +380,7 @@ console.log('\nPlaca: preencher não derruba, trocar derruba');
   apagada.truck!.plate = null;
   check(
     'apagar a placa continua material',
-    find(diffQuoteSnapshots(emplacado, apagada), 'truckPlate')?.severity === 'MATERIAL',
+    find(diffQuoteSnapshots(emplacado, apagada), 'implementPlate')?.severity === 'MATERIAL',
   );
   check(
     'apagar a placa derruba',

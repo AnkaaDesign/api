@@ -249,7 +249,7 @@ async function main() {
       //    recorte.
       //
       //    ⚠️ COM MUITOS VEÍCULOS ISSO DEIXA DE VALER, e o teto é a primeira
-      //    folha (`resolveLateSlots`): a tabela de sessenta caminhões ocupa quase
+      //    folha (`resolveLateSlots`): a tabela de sessenta implementos ocupa quase
       //    três, e da linha ~35 em diante nenhuma lacuna é carimbável. Não é
       //    perda de informação — o ADITIVO declara esses campos e é montado a
       //    partir dos veículos, não das lacunas medidas —, então o que se exige
@@ -268,8 +268,8 @@ async function main() {
           Object.keys(r.lateSlots).length === 2,
         );
       }
-      // Toda chave reservada leva a TAREFA junto: sem isso o chassi do caminhão
-      // 3 seria carimbado no espaço do caminhão 1.
+      // Toda chave reservada leva a TAREFA junto: sem isso o chassi do implemento
+      // 3 seria carimbado no espaço do implemento 1.
       check(
         `[${scenario}] as lacunas são chaveadas por veículo`,
         Object.keys(r.lateSlots).every(k => k.includes('#')),

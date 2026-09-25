@@ -355,17 +355,17 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                   quote: {
                     select: {
                       // O NÚMERO DO PEDIDO é do VEÍCULO desde o orçamento
-                      // multitarefa — o boleto cita o dos caminhões que ele
+                      // multitarefa — o boleto cita o dos implementos que ele
                       // cobra. Ver `orderNumberLabel`.
                       tasks: {
                         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                         select: {
                           id: true,
                           customerOrderNumber: true,
-                          // SÉRIE E CAMINHÃO: o informativo do boleto diz de
+                          // SÉRIE E IMPLEMENTO: o informativo do boleto diz de
                           // quais veículos ele é, e numa fatura conjunta
                           // `Invoice.task` é nulo — sem estes campos o boleto de
-                          // R$ 4.401,76 saía sem citar caminhão nenhum.
+                          // R$ 4.401,76 saía sem citar implemento nenhum.
                           serialNumber: true,
                           implement: {
                             select: {
@@ -800,10 +800,10 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
   /**
    * Build the seuNumero field for a Sicredi boleto.
-   * Priority: NfSe number (if enabled + authorized) → truck plate → installment ID fragment.
+   * Priority: NfSe number (if enabled + authorized) → implement plate → installment ID fragment.
    * Max 10 alphanumeric chars per API spec.
    * The installment number is always embedded so each boleto on the same invoice
-   * has a unique seuNumero even when they share the same NFSe or truck plate.
+   * has a unique seuNumero even when they share the same NFSe or implement plate.
    */
   private buildSeuNumero(installment: any): string {
     // Withdrawal-backed invoices carry the NFS-e flag on the withdrawal itself;
@@ -812,7 +812,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       ? installment.invoice?.externalOperation?.generateInvoice !== false
       : installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
-    const truckPlate = installment.invoice?.task?.implement?.plate;
+    const implementPlate = installment.invoice?.task?.implement?.plate;
     // Installment numbers are 1-7 (single digit) — always 1 char.
     const num = String(installment.number ?? 1);
 
@@ -823,8 +823,8 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2));
       return `NF${nfseStr}`;
     }
-    if (truckPlate) {
-      const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
+    if (implementPlate) {
+      const plateClean = implementPlate.replace(/[^A-Za-z0-9]/g, '');
       return (plateClean.slice(0, 10 - num.length) + num).slice(0, 10);
     }
     // UUID fragment is already unique per installment — no suffix needed.
@@ -849,7 +849,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
    *
    * Output format (each item = one line in the boleto PDF):
    *   Pedido: 4564619 - NF 3039
-   *   Veiculo: Caminhao / Carga Seca
+   *   Veiculo: Implemento / Carga Seca
    *   Serie: 456489 | Placa: RHN8D02 | Chassi: AS451620151A65155
    *   Pintura Parcial
    */
@@ -858,7 +858,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
 
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
 
-    // External-operation-backed invoice ("Operação Externa"): no truck/order — lines are
+    // External-operation-backed invoice ("Operação Externa"): no implement/order — lines are
     // the NF number (when authorized) followed by service descriptions and item lines.
     const withdrawal = installment.invoice?.externalOperation;
     if (installment.invoice?.externalOperationId && withdrawal) {
@@ -911,7 +911,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
     // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
     const task = installment.invoice?.task ?? coveredRows[0] ?? null;
-    const truck = task?.implement;
+    const implement = task?.implement;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
     // Line 1: "Pedido: XXXXX - NF YYYY"
@@ -926,23 +926,23 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     }
 
     // Lines 2-3: Vehicle description
-    // Line 2: "Referente aos servicos no veiculo Caminhao Carga Seca"
+    // Line 2: "Referente aos servicos no veiculo Implemento Carga Seca"
     // Line 3: "N.º serie: X, chassi: Z" or "Placa: Y, chassi: Z"
-    const category = this.translateTruckCategory(truck?.category);
-    const implement = this.translateImplementType(truck?.type);
-    const vehicleType = [category, implement].filter(Boolean).join(' ');
+    const category = this.translateImplementCategory(implement?.category);
+    const typeLabel = this.translateImplementType(implement?.type);
+    const vehicleType = [category, typeLabel].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];
     if (task?.serialNumber) identifiers.push(`N.º serie: ${task.serialNumber}`);
-    else if (truck?.plate) identifiers.push(`Placa: ${truck.plate}`);
-    if (task?.serialNumber && truck?.plate) identifiers.push(`placa: ${truck.plate}`);
-    if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
+    else if (implement?.plate) identifiers.push(`Placa: ${implement.plate}`);
+    if (task?.serialNumber && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
+    if (implement?.chassisNumber) identifiers.push(`chassi: ${implement.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
     if (coveredRows.length > 1) {
       // MAIS DE UM VEÍCULO: o boleto declara a CONTAGEM e a faixa de séries,
       // como a discriminação da nota — cinco linhas de 80 caracteres não cabem
-      // sessenta caminhões por extenso, e o que o cliente confere é quantos são
+      // sessenta implementos por extenso, e o que o cliente confere é quantos são
       // e a que faixa pertencem.
       const series = coveredRows
         .map((t: any) => t.serialNumber)
@@ -1007,7 +1007,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
   // "Carroceria") — NÃO as da NFS-e da tarefa. Moram na fonte única
   // (`@constants/document-labels`, perfil `boleto`, D-18) e são travadas por
   // `tests/fiscal-labels-golden.test.ts`.
-  private translateTruckCategory(category?: string | null): string | null {
+  private translateImplementCategory(category?: string | null): string | null {
     const map: Record<string, string> = CATEGORY_PROFILE_LABELS.boleto;
     return category ? (map[category] ?? category) : null;
   }

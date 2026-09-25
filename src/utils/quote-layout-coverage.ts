@@ -1,11 +1,11 @@
 /**
  * O LAYOUT APROVADO DE CADA VEÍCULO — a fonte única sobre "que arte vale para
- * que caminhão".
+ * que implemento".
  *
  * O PROBLEMA QUE ISTO RESOLVE
  *   O layout aprovado era do ORÇAMENTO (`Budget.layoutFiles`, no máximo dois) e
  *   valia para todos os veículos dele. O orçamento nº 990 (Carlotti, 22/09/2026)
- *   tem dois caminhões com o mesmo preço e pinturas diferentes: escolher a arte
+ *   tem dois implementos com o mesmo preço e pinturas diferentes: escolher a arte
  *   do segundo reprovava a do primeiro na galeria dele, escolher as duas deixava
  *   as duas aprovadas nos dois, e três veículos com três artes não cabiam.
  *
@@ -20,7 +20,7 @@
  *
  *   Toda tela, portão, sincronizador e documento pergunta por aqui. Responder
  *   à mão — `quote.layoutFiles.length > 0` — é exatamente o teste que deixava um
- *   orçamento de dois caminhões seguir para a assinatura com a arte de um só.
+ *   orçamento de dois implementos seguir para a assinatura com a arte de um só.
  *
  * A LINHA SÓ VALE QUANDO A ARTE E O VEÍCULO SÃO DO MESMO ORÇAMENTO
  *   `BudgetLayoutTask` não guarda o orçamento: quem diz de qual orçamento a arte
@@ -36,9 +36,9 @@ import { sortQuoteTasks, type QuoteTaskLike } from './quote-tasks';
 
 export type QuoteLayoutScopeValue = 'SHARED' | 'PER_VEHICLE';
 
-/** Teto de artes por veículo num orçamento `PER_VEHICLE` — o mesmo `max(2)` de sempre, agora por caminhão. */
+/** Teto de artes por veículo num orçamento `PER_VEHICLE` — o mesmo `max(2)` de sempre, agora por implemento. */
 export const LAYOUT_MAX_PER_VEHICLE = 2;
-/** Teto de artes DISTINTAS num orçamento `PER_VEHICLE`. Sessenta caminhões com sessenta pinturas não é um orçamento, é um catálogo. */
+/** Teto de artes DISTINTAS num orçamento `PER_VEHICLE`. Sessenta implementos com sessenta pinturas não é um orçamento, é um catálogo. */
 export const LAYOUT_MAX_DISTINCT_PER_QUOTE = 20;
 /** Teto do `SHARED` — o de sempre. */
 export const LAYOUT_MAX_SHARED = 2;
@@ -205,7 +205,7 @@ export function vehicleLabel(task: VehicleTaskLike | null | undefined, index: nu
   return String(index + 1);
 }
 
-/** "do veículo 39089" / "dos veículos 39088, 39089" — com teto, para sessenta caminhões não virarem um parágrafo. */
+/** "do veículo 39089" / "dos veículos 39088, 39089" — com teto, para sessenta implementos não virarem um parágrafo. */
 export function describeVehicleList(labels: readonly string[], max = 10): string {
   if (labels.length === 1) return `do veículo ${labels[0]}`;
   const shown = labels.slice(0, max).join(', ');
@@ -232,7 +232,7 @@ export type LayoutGateFailure =
  * `PER_VEHICLE` a falta é nomeada: "Falta o layout aprovado do veículo 39089."
  *
  * ⚠️ Orçamento `PER_VEHICLE` sem veículo nenhum (o registro existe antes do
- * vínculo em alguns caminhões de criação) cai na regra do `SHARED`: não há de
+ * vínculo em alguns implementos de criação) cai na regra do `SHARED`: não há de
  * quem dizer que falta, e dizer "passa" a um orçamento sem arte seria pior.
  */
 export function layoutGateFailure<T extends VehicleTaskLike>(
@@ -319,7 +319,7 @@ export function planLayoutCoverage<T extends VehicleTaskLike>(
     /**
      * Veículos que estão SAINDO do orçamento nesta mesma gravação. A tela
      * reenvia o formulário inteiro, e a cobertura que ela manda ainda pode citar
-     * o caminhão que o mesmo corpo retira — recusar seria punir o eco. Eles são
+     * o implemento que o mesmo corpo retira — recusar seria punir o eco. Eles são
      * descartados em silêncio: quem sai perde a cobertura, que é a regra.
      */
     leavingTaskIds?: readonly string[] | null;

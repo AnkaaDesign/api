@@ -76,9 +76,9 @@ export class PortalIdentityController {
    * `fixArrays` antes do `parse`, e `fixArrays` desserializa toda string que
    * seja JSON válido). O desembrulho trata as duas.
    *
-   * ARQUIVO — campo `truckVinPlate`, no MÁXIMO 1, e o serviço exige
+   * ARQUIVO — campo `implementVinPlate`, no MÁXIMO 1, e o serviço exige
    * `image/*`: é a FOTO da plaqueta rebitada no chassi. O campo de TEXTO
-   * `Truck.vinPlate` foi removido em `20260727150000_truck_vin_plate_image`
+   * `Implement.vinPlate` foi removido em `20260727150000_implement_vin_plate_image`
    * porque "a plaqueta era um campo de texto que ninguém preenchia".
    *
    * `taskId` passa por `ParseUUIDPipe`: um id malformado é 400 aqui, e não uma
@@ -104,7 +104,7 @@ export class PortalIdentityController {
   @PortalCapability(PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY)
   @UseInterceptors(
     FileFieldsInterceptor(
-      [{ name: 'truckVinPlate', maxCount: MAXIMO_PLAQUETAS }],
+      [{ name: 'implementVinPlate', maxCount: MAXIMO_PLAQUETAS }],
       multerConfig,
     ),
   )
@@ -116,7 +116,7 @@ export class PortalIdentityController {
     @UploadedFiles() arquivos?: Record<string, Express.Multer.File[]>,
   ) {
     return this.identity.atualizarIdentificacao(principal, taskId, dados, {
-      truckVinPlate: arquivos?.truckVinPlate,
+      implementVinPlate: arquivos?.implementVinPlate,
     });
   }
 }

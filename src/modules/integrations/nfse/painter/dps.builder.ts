@@ -27,7 +27,7 @@ import {
   CATEGORY_PROFILE_LABELS,
 } from '@constants/document-labels';
 
-const TRUCK_CATEGORY_LABELS: Record<string, string> = CATEGORY_PROFILE_LABELS.nfsePainter;
+const IMPLEMENT_CATEGORY_LABELS: Record<string, string> = CATEGORY_PROFILE_LABELS.nfsePainter;
 const IMPLEMENT_TYPE_LABELS: Record<string, string> = IMPLEMENT_TYPE_PROFILE_LABELS.nfsePainter;
 
 export const NFSE_NAMESPACE = 'http://www.sped.fazenda.gov.br/nfse';
@@ -476,7 +476,7 @@ export interface ServicoTaskRef {
  * genérico:
  *   - as 42 NFS-e que o próprio aerografista emitiu pelo portal citam o
  *     serviço e o veículo ("PRESTAÇÃO DE SERVIÇOS EM REFORMA E PINTURA DE
- *     CAMINHÃO BETONEIRA", "Caminhão Confiança (Morango Lado Esquerdo)
+ *     IMPLEMENTO BETONEIRA", "Implemento Confiança (Morango Lado Esquerdo)
  *     Placa: FIB-9473");
  *   - as notas que a empresa emite pela Elotech usam
  *     "Referente aos serviços executados no veículo {categoria} {implemento}
@@ -520,11 +520,11 @@ export function buildServiceDescription(
 
   // 3. O veículo, no formato das notas da Elotech.
   const task = airbrushing.task;
-  const truck = task?.implement;
+  const implement = task?.implement;
   const tipo = [
-    truck?.category ? (TRUCK_CATEGORY_LABELS[truck.category as never] ?? truck.category) : null,
-    truck?.type
-      ? (IMPLEMENT_TYPE_LABELS[truck.type as never] ?? truck.type)
+    implement?.category ? (IMPLEMENT_CATEGORY_LABELS[implement.category as never] ?? implement.category) : null,
+    implement?.type
+      ? (IMPLEMENT_TYPE_LABELS[implement.type as never] ?? implement.type)
       : null,
   ]
     .filter(Boolean)
@@ -535,12 +535,12 @@ export function buildServiceDescription(
   // calculado por campo): implemento só com série não é "veículo identificado",
   // e a frase "no veículo de n série: 999" afirmaria algo que o cadastro não diz.
   // O texto da nota não muda (D-18).
-  const temVeiculo = Boolean(truck?.plate || truck?.chassisNumber || tipo);
+  const temVeiculo = Boolean(implement?.plate || implement?.chassisNumber || tipo);
   const identificadores = temVeiculo
     ? [
         task?.serialNumber ? `n série: ${task.serialNumber}` : null,
-        truck?.plate ? `placa: ${truck.plate}` : null,
-        truck?.chassisNumber ? `chassi: ${truck.chassisNumber}` : null,
+        implement?.plate ? `placa: ${implement.plate}` : null,
+        implement?.chassisNumber ? `chassi: ${implement.chassisNumber}` : null,
       ]
         .filter(Boolean)
         .join(', ')

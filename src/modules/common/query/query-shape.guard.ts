@@ -182,7 +182,7 @@ function reportDroppedKeys(
   parsed: Record<string, unknown>,
 ): void {
   // `where` fica de fora: no topo ele é `.strict()` nas rotas que têm where
-  // enumerado (recusa, não descarta), e as conveniências (`hasTruck`…) viram
+  // enumerado (recusa, não descarta), e as conveniências (`hasImplement`…) viram
   // where no transform, o que faria toda chave parecer "descartada".
   for (const clause of ['include', 'select', 'orderBy'] as const) {
     const r = raw[clause];
@@ -225,7 +225,7 @@ function resolveDroppedKey(model: string, path: string): DroppedKey | null {
     let f = getField(current, seg);
     if (i === parts.length - 1) return { model: current, clause, key: seg, exists: !!f };
     // atravessa o legado da tabela pelo nome novo (`Budget.task` → `tasks`,
-    // `Task.truck` → `implement`): a chave velha do caminho foi traduzida
+    // `Task.implement` → `implement`): a chave velha do caminho foi traduzida
     if (!f) {
       const dep = findDeprecatedQueryKey(current, clause, seg);
       if (dep?.action === 'translate' && dep.to) f = getField(current, dep.to);

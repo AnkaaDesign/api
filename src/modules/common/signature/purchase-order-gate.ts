@@ -13,7 +13,7 @@
 //   o que a NFS-e imprime, o que vai no `seuNumero` do boleto e o que a regra de
 //   atenção `budget.ibipora-missing-order-number` cobra. O portão põe a cobrança
 //   no instante em que ela ainda é barata — antes da assinatura, com a pessoa
-//   certa na tela —, em vez de virar um telefonema semanas depois com o caminhão
+//   certa na tela —, em vez de virar um telefonema semanas depois com o implemento
 //   pronto no pátio.
 //
 // POR QUE O TESTE É LITERALMENTE `roles.length === 1`
@@ -106,7 +106,7 @@ export interface PurchaseOrderGateVerdict {
 /**
  * O veredito do portão.
  *
- * ⚠️ TODOS OS VEÍCULOS, e não "algum". Um orçamento cobre N caminhões e o
+ * ⚠️ TODOS OS VEÍCULOS, e não "algum". Um orçamento cobre N implementos e o
  * documento que este contato assina cobre todos eles; o pedido de compra é por
  * ENTREGA (foi por isso que o número desceu do pagador para a tarefa). Deixar
  * passar porque UM dos sessenta tem número faria a nota dos outros cinquenta e

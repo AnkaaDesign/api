@@ -12,7 +12,7 @@
 // AS CINCO ARMADILHAS DO CONTRATO §5 — E A SEXTA, QUE O DONO ACHOU NA TELA
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// 1. PRODUTO CARTESIANO × UNICIDADE GLOBAL. `Task.serialNumber` e `Truck.plate`
+// 1. PRODUTO CARTESIANO × UNICIDADE GLOBAL. `Task.serialNumber` e `Implement.plate`
 //    são `@unique` GLOBAIS. `garantirUnicidade()` recusa ANTES de escrever, com
 //    400 nomeando a série/placa culpada — nunca deixando o Prisma responder
 //    "Unique constraint failed on the fields: (`serialNumber`)", que não diz ao
@@ -26,8 +26,8 @@
 // 3. CENTÍMETROS → METROS. `medidaParaPrisma()` divide por 100 na borda, uma
 //    vez, e o teste puro fixa a conta.
 //
-// 4. `truck.plate`, NUNCA `plate` NO TOPO. Nada aqui é `.strict()`; uma placa no
-//    nível errado do objeto some em silêncio e a tarefa nasce sem caminhão. As
+// 4. `implement.plate`, NUNCA `plate` NO TOPO. Nada aqui é `.strict()`; uma placa no
+//    nível errado do objeto some em silêncio e a tarefa nasce sem implemento. As
 //    escritas abaixo são explícitas, campo a campo, e nunca espalham o objeto do
 //    cliente dentro de um `data:` do Prisma.
 //
@@ -124,7 +124,7 @@ export interface PortalRequisicaoArquivos {
 
 export interface PortalRequisicaoVeiculoCriado {
   taskId: string;
-  truckId: string | null;
+  implementId: string | null;
   serialNumber: string | null;
   plate: string | null;
   chassisNumber: string | null;
@@ -887,7 +887,7 @@ export class PortalRequestService {
         // contato de um dos veículos". Sem este vínculo, quem abriu a
         // requisição só a reencontraria pelo caminho da empresa — e o caso
         // Furgões existe justamente porque a empresa do contato não é
-        // necessariamente a dona do caminhão.
+        // necessariamente a dona do implemento.
         responsibles: { connect: { id: contexto.responsibleId } },
         // ⚠️ `implement.plate`, NUNCA `plate` no topo (armadilha 4).
         //
@@ -912,14 +912,14 @@ export class PortalRequestService {
       select: { id: true, implement: { select: { id: true, serialNumber: true } } },
     });
 
-    const truckId = task.implement?.id ?? null;
+    const implementId = task.implement?.id ?? null;
     const measureIds: PortalRequisicaoVeiculoCriado['measureIds'] = {
       esquerda: null,
       direita: null,
       traseira: null,
     };
 
-    if (truckId && veiculo.medidas) {
+    if (implementId && veiculo.medidas) {
       for (const lado of LADOS) {
         const entrada = (veiculo.medidas as any)?.[lado.chave];
         if (!entrada) continue;
@@ -927,9 +927,9 @@ export class PortalRequestService {
         // ⚠️ AQUI, E SÓ AQUI, CENTÍMETROS VIRAM METROS (armadilha 3).
         const emMetros = medidaParaPrisma(entrada);
 
-        // Pelo escritor único: o caminhão acabou de nascer, então a face ganha
+        // Pelo escritor único: o implemento acabou de nascer, então a face ganha
         // a SUA linha.
-        const medida = await setFace(tx, truckId, lado.face, emMetros);
+        const medida = await setFace(tx, implementId, lado.face, emMetros);
 
         measureIds[lado.chave] = medida.measureId;
       }
@@ -937,7 +937,7 @@ export class PortalRequestService {
 
     return {
       taskId: task.id,
-      truckId,
+      implementId,
       serialNumber: task.implement?.serialNumber ?? null,
       plate: veiculo.plate ?? null,
       chassisNumber: veiculo.chassisNumber ?? null,

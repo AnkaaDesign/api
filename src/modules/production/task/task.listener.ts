@@ -250,15 +250,14 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
-      // Consolidated truck implementMeasure change. The TaskFieldTrackerService collapses all
-      // changed truck-implementMeasure side fields into a single synthetic 'truck.implementMeasure' event,
-      // so we dispatch ONE notification instead of one per side. The legacy per-side
-      // configs (task.field.truck.*SideImplementMeasureId) go dormant since they are no longer emitted.
-      if (event.field === 'truck.implementMeasure') {
+      // Medidas do implemento consolidadas: o TaskFieldTrackerService junta as faces que
+      // mudaram num único evento sintético 'implement.measures' — UMA notificação, não
+      // uma por face.
+      if (event.field === 'implement.measures') {
         const implementMeasureChangeSummary = event.implementMeasureChangeSummary || 'lados atualizados';
 
         await this.dispatchService.dispatchByConfiguration(
-          'task.field.truck.implementMeasure',
+          'task.field.implement.measures',
           event.changedBy,
           {
             entityType: 'Task',
@@ -269,7 +268,7 @@ export class TaskListener {
               taskName: event.task.name,
               serialNumber: event.task.serialNumber,
               taskSectorId: event.task.sectorId || null,
-              fieldName: 'truck.implementMeasure',
+              fieldName: 'implement.measures',
               changedBy: changedByName,
               implementMeasureChangeSummary,
             },
@@ -282,7 +281,7 @@ export class TaskListener {
         );
 
         this.logger.log(
-          `Consolidated truck implementMeasure notification dispatched (task.field.truck.implementMeasure): ${implementMeasureChangeSummary}`,
+          `Consolidated implement measures notification dispatched (task.field.implement.measures): ${implementMeasureChangeSummary}`,
         );
         return;
       }

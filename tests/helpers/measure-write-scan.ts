@@ -9,7 +9,7 @@
  *   2. uma chave de face (`leftSideMeasure`, `rightSideMeasureId`… e `front…`,
  *      a face do P11) num objeto que ESCREVE: dentro do `data`/`create`/
  *      `update`/`upsert`/`connectOrCreate` de uma chamada de escrita, inclusive
- *      aninhado (`task.create({ data: { truck: { create: { leftSideMeasure:
+ *      aninhado (`task.create({ data: { implement: { create: { leftSideMeasure:
  *      { create } } } } })`) — é o defeito que o P04 corrigiu: copiar a FK
  *      compartilha a linha;
  *   3. uma chave de face cujo VALOR é uma operação aninhada do Prisma
@@ -70,7 +70,7 @@ const nameOf = (n: ts.PropertyName | ts.Expression): string | undefined =>
     ? n.text
     : undefined;
 
-/** O nome do método chamado: `tx.truck.update(…)` → `update`. */
+/** O nome do método chamado: `tx.implement.update(…)` → `update`. */
 const methodOf = (call: ts.CallExpression): string | undefined => {
   const e = call.expression;
   if (ts.isPropertyAccessExpression(e)) return e.name.text;
@@ -211,7 +211,7 @@ export function scanMeasureWriteSource(rel: string, text: string): MeasureWriteH
           const call = holder.parent.parent;
           const callee = call.expression.getText();
           if (
-            /(^|\.)(truck|implement)\s*\.\s*(create|createMany|update|updateMany|upsert)$/.test(
+            /(^|\.)implement\s*\.\s*(create|createMany|update|updateMany|upsert)$/.test(
               callee,
             ) &&
             !guardedByFaceFk(call)

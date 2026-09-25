@@ -13,7 +13,7 @@
       "invoice": "informativo do boleto registrado na aprovação (invoice-generation) e a prévia do web",
       "webChangelog": "histórico de alterações do web (changelog-fields.ts)"
     },
-    "TRUCK_CATEGORY": {
+    "IMPLEMENT_CATEGORY": {
       "screen": {
         "MINI": "Mini",
         "VUC": "VUC",
@@ -557,7 +557,7 @@
         "PRICE": "Preço",
         "HOLIDAY": "Feriado",
         "CUSTOMER": "Cliente",
-        "TRUCK": "Caminhão",
+        "IMPLEMENT": "Implemento",
         "SEEN_NOTIFICATION": "Notificação Visualizada",
         "NOTIFICATION_PREFERENCE": "Preferência de Notificação",
         "VERIFICATION": "Verificação",
@@ -939,7 +939,7 @@
         "TASK_QUOTE_SERVICE": "Serviço do Orçamento",
         "TASK_QUOTE_CUSTOMER_CONFIG": "Configuração de Cliente do Orçamento",
         "TIME_CLOCK_ENTRY": "Registro de Ponto",
-        "TRUCK": "Caminhão",
+        "IMPLEMENT": "Implemento",
         "USER": "Usuário",
         "VACATION": "Férias",
         "VACATION_GROUP": "Férias Coletivas",
@@ -1265,6 +1265,40 @@
         "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
         "B_DOUBLE_REAR": "Bitrem Composição Traseira",
         "BITRUCK": "Bitruck"
+      }
+    },
+    "IMPLEMENT_SPOT_LABELS": {
+      "enum": "IMPLEMENT_SPOT",
+      "labels": {
+        "YARD_WAIT": "Pátio de Espera",
+        "YARD_EXIT": "Pátio de Saída",
+        "B1_F1_V1": "B1-F1-V1",
+        "B1_F1_V2": "B1-F1-V2",
+        "B1_F1_V3": "B1-F1-V3",
+        "B1_F2_V1": "B1-F2-V1",
+        "B1_F2_V2": "B1-F2-V2",
+        "B1_F2_V3": "B1-F2-V3",
+        "B1_F3_V1": "B1-F3-V1",
+        "B1_F3_V2": "B1-F3-V2",
+        "B1_F3_V3": "B1-F3-V3",
+        "B2_F1_V1": "B2-F1-V1",
+        "B2_F1_V2": "B2-F1-V2",
+        "B2_F1_V3": "B2-F1-V3",
+        "B2_F2_V1": "B2-F2-V1",
+        "B2_F2_V2": "B2-F2-V2",
+        "B2_F2_V3": "B2-F2-V3",
+        "B2_F3_V1": "B2-F3-V1",
+        "B2_F3_V2": "B2-F3-V2",
+        "B2_F3_V3": "B2-F3-V3",
+        "B3_F1_V1": "B3-F1-V1",
+        "B3_F1_V2": "B3-F1-V2",
+        "B3_F1_V3": "B3-F1-V3",
+        "B3_F2_V1": "B3-F2-V1",
+        "B3_F2_V2": "B3-F2-V2",
+        "B3_F2_V3": "B3-F2-V3",
+        "B3_F3_V1": "B3-F3-V1",
+        "B3_F3_V2": "B3-F3-V2",
+        "B3_F3_V3": "B3-F3-V3"
       }
     },
     "IMPLEMENT_TYPE_LABELS": {
@@ -2369,21 +2403,6 @@
         "SEASONAL": "Sazonal"
       }
     },
-    "TRUCK_CATEGORY_LABELS": {
-      "enum": "TRUCK_CATEGORY",
-      "labels": {
-        "MINI": "Mini",
-        "VUC": "VUC",
-        "THREE_QUARTER": "3/4",
-        "RIGID": "Toco",
-        "TRUCK": "Truck",
-        "SEMI_TRAILER": "Semirreboque",
-        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
-        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
-        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
-        "BITRUCK": "Bitruck"
-      }
-    },
     "TRUCK_MANUFACTURER_LABELS": {
       "enum": "TRUCK_MANUFACTURER",
       "labels": {
@@ -2394,40 +2413,6 @@
         "IVECO": "Iveco",
         "MERCEDES_BENZ": "Mercedes Benz",
         "MAN": "MAN"
-      }
-    },
-    "TRUCK_SPOT_LABELS": {
-      "enum": "TRUCK_SPOT",
-      "labels": {
-        "YARD_WAIT": "Pátio de Espera",
-        "YARD_EXIT": "Pátio de Saída",
-        "B1_F1_V1": "B1-F1-V1",
-        "B1_F1_V2": "B1-F1-V2",
-        "B1_F1_V3": "B1-F1-V3",
-        "B1_F2_V1": "B1-F2-V1",
-        "B1_F2_V2": "B1-F2-V2",
-        "B1_F2_V3": "B1-F2-V3",
-        "B1_F3_V1": "B1-F3-V1",
-        "B1_F3_V2": "B1-F3-V2",
-        "B1_F3_V3": "B1-F3-V3",
-        "B2_F1_V1": "B2-F1-V1",
-        "B2_F1_V2": "B2-F1-V2",
-        "B2_F1_V3": "B2-F1-V3",
-        "B2_F2_V1": "B2-F2-V1",
-        "B2_F2_V2": "B2-F2-V2",
-        "B2_F2_V3": "B2-F2-V3",
-        "B2_F3_V1": "B2-F3-V1",
-        "B2_F3_V2": "B2-F3-V2",
-        "B2_F3_V3": "B2-F3-V3",
-        "B3_F1_V1": "B3-F1-V1",
-        "B3_F1_V2": "B3-F1-V2",
-        "B3_F1_V3": "B3-F1-V3",
-        "B3_F2_V1": "B3-F2-V1",
-        "B3_F2_V2": "B3-F2-V2",
-        "B3_F2_V3": "B3-F2-V3",
-        "B3_F3_V1": "B3-F3-V1",
-        "B3_F3_V2": "B3-F3-V2",
-        "B3_F3_V3": "B3-F3-V3"
       }
     },
     "URGENCY_LEVEL_LABELS": {

@@ -438,7 +438,7 @@ const COMPANY_SUFFIXES = new Set([
  * Words with 2-3 characters become entirely uppercase (except prepositions)
  * Company suffixes (LTDA, EIRELI, S/A, etc.) remain uppercase
  * Example: "pintura de cabine" -> "Pintura de Cabine"
- * Example: "TROCA DA LONA DO CAMINHAO" -> "Troca da Lona do Caminhão"
+ * Example: "TROCA DA LONA DO CAMINHAO" -> "Troca da Lona do Caminhao"
  * Example: "AZUL FIRENZE" -> "Azul Firenze"
  * Example: "Tp Transportes" -> "TP Transportes"
  * Example: "Tmr Transportes" -> "TMR Transportes"

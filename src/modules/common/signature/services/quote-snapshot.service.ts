@@ -143,7 +143,7 @@ export interface QuoteSnapshot {
    * OS VEÍCULOS, na ordem em que o documento os lista — um por tarefa.
    *
    * Substituiu `task` + `truck` singulares na v3 do snapshot, quando um
-   * orçamento passou a poder cobrir sessenta caminhões. Os dois campos antigos
+   * orçamento passou a poder cobrir sessenta implementos. Os dois campos antigos
    * continuam DECLARADOS abaixo porque todo envelope congelado antes disso os
    * tem gravados no JSONB, e reler coleta de meses atrás é rotina (o portal de
    * verificação faz isso). Quem consome deve ir por `snapshotVehicles()`, que
@@ -262,7 +262,7 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
  */
 /**
  * v5 (2026-09-03): o recorte material passou a levar a LISTA de veículos e o
- * `billingSplit`, porque um orçamento passou a poder cobrir sessenta caminhões.
+ * `billingSplit`, porque um orçamento passou a poder cobrir sessenta implementos.
  *
  * Acrescentar um veículo à lista muda o total e muda o objeto do contrato;
  * trocar `JOINT` por `PER_TASK` troca um plano de quatro parcelas de
@@ -321,7 +321,7 @@ export const QUOTE_SNAPSHOT_SCHEMA_VERSION = 4;
  *     versão (nenhuma assinatura colhida cai por esta mudança);
  *   - um envelope congelado sob qualquer versão, cujo orçamento depois passou a
  *     `PER_VEHICLE`, ganha a chave no recálculo e deixa de bater — e é o certo:
- *     dizer que a arte A é só do caminhão 1 muda o que o cliente aprovou;
+ *     dizer que a arte A é só do implemento 1 muda o que o cliente aprovou;
  *   - subir para v8 faria o contrário do que se quer: os congelados sob v7
  *     seriam recalculados SEM a chave, e a troca de cobertura passaria calada
  *     (o buraco que a nota da v7 descreve, reaberto por outra porta).
@@ -380,7 +380,7 @@ export interface QuoteMaterialProjection {
    * A LISTA de placas, na ordem do documento — emitida só na v5.
    *
    * A ordem entra no recorte de propósito: ela é a ordem em que a tabela de
-   * identificação lista os veículos, e é o que faz "acrescentei o caminhão 61"
+   * identificação lista os veículos, e é o que faz "acrescentei o implemento 61"
    * sair do diff como UM veículo novo no fim, em vez de sessenta e uma linhas
    * deslocadas.
    */
@@ -507,7 +507,7 @@ export class QuoteSnapshotService {
   build(quote: QuoteWithSnapshotGraph): QuoteSnapshot {
     const tasks = sortQuoteTasks(quote.tasks ?? []);
     // A tarefa ÂNCORA só responde por cliente: o cadastro do tomador é do
-    // orçamento, não do veículo, e num orçamento de sessenta caminhões os
+    // orçamento, não do veículo, e num orçamento de sessenta implementos os
     // sessenta são do mesmo cliente por construção (a tela de criação parte de um
     // cliente só). Tudo o mais que era `task.*` virou lista.
     const anchor = tasks[0] ?? null;
@@ -887,7 +887,7 @@ export class QuoteSnapshotService {
     // PAREADO POR `taskId`, nunca por posição.
     //
     // Com um veículo os dois critérios coincidiam. Com sessenta, não: excluir o
-    // caminhão 12 desloca os quarenta e oito seguintes, e a comparação por
+    // implemento 12 desloca os quarenta e oito seguintes, e a comparação por
     // posição passaria a confrontar a placa do 13 com a congelada do 12 — o que
     // leria como "a placa mudou" em quarenta e oito veículos que ninguém tocou,
     // e ao mesmo tempo deixaria de ver a exclusão, que é a mudança real.

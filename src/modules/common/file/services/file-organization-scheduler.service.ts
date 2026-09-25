@@ -63,7 +63,6 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   // (`if (!entityType) continue`) e o arquivo ficava onde estivesse. A auditoria de
   // 2026-08-04 achou 53 comprovantes de parcela parados em Auxiliares/ por causa disto.
   installmentReceipts: 'customer',
-  truckVinPlate: 'customer',
   implementVinPlate: 'customer',
   budgetSignatures: 'customer',
   budgetDossiers: 'customer',

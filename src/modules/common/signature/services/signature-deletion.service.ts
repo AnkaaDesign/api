@@ -153,7 +153,7 @@ export class SignatureDeletionService {
       ...new Set(
         // TODAS as tarefas do orçamento, não a primeira: a pergunta é "quais das
         // tarefas que me pediram têm assinatura colhida?", e num orçamento de
-        // sessenta caminhões a coleta protege os sessenta. Devolver só o primeiro
+        // sessenta implementos a coleta protege os sessenta. Devolver só o primeiro
         // deixaria os outros cinquenta e nove passarem por uma guarda de exclusão
         // que existe justamente para não apagar tarefa com assinatura viva.
         envelopes

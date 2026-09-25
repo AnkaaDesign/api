@@ -575,7 +575,7 @@ function withDefaults(s: QuoteSnapshot): QuoteSnapshot {
  *   Havia quatro comparações escalares (placa, chassi, categoria, implemento) e
  *   duas de tarefa (nome, número de série), todas sobre um veículo só. Um
  *   orçamento passou a poder cobrir sessenta, e com isso a comparação por
- *   posição deixou de servir: excluir o caminhão 12 desloca os quarenta e oito
+ *   posição deixou de servir: excluir o implemento 12 desloca os quarenta e oito
  *   seguintes, e comparar por índice confrontaria a placa do 13 com a congelada
  *   do 12 — quarenta e oito "a placa mudou" em veículos que ninguém tocou, e a
  *   exclusão, que é a mudança real, invisível.
@@ -586,7 +586,7 @@ function withDefaults(s: QuoteSnapshot): QuoteSnapshot {
  * GRAVIDADES
  *   · Veículo ACRESCENTADO ou REMOVIDO é MATERIAL. Não é uma questão de opinião:
  *     muda o total (o "× N" do documento) e muda o objeto do contrato. Quem
- *     assinou por três caminhões não assinou por quatro.
+ *     assinou por três implementos não assinou por quatro.
  *   · Nos veículos pareados as gravidades são as que sempre foram: placa
  *     material na TROCA e cosmética no preenchimento (cadastro tardio); chassi,
  *     categoria, implemento, nome e série cosméticos.
@@ -655,7 +655,7 @@ function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[
     const subject = multi ? (describe(nowV) || describe(wasV)) : null;
 
     scalar(out, {
-      key: `truckPlate:${nowV.taskId}`,
+      key: `implementPlate:${nowV.taskId}`,
       severity: 'MATERIAL',
       // CADASTRO TARDIO: implemento 0 km sai da fábrica sem emplacar e é orçado
       // assim — a placa chega depois, junto com o chassi. Preencher o que estava
@@ -678,7 +678,7 @@ function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[
     // motivo para reconsiderar a assinatura. Quem identifica materialmente o
     // objeto do contrato é a PLACA, logo acima.
     scalar(out, {
-      key: `truckChassis:${nowV.taskId}`,
+      key: `implementChassis:${nowV.taskId}`,
       severity: 'COSMETIC',
       group: 'VEHICLE',
       label: 'Chassi',
@@ -687,7 +687,7 @@ function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[
       after: normText(nowV.chassisNumber),
     });
     scalar(out, {
-      key: `truckCategory:${nowV.taskId}`,
+      key: `implementCategory:${nowV.taskId}`,
       severity: 'COSMETIC',
       group: 'VEHICLE',
       label: 'Categoria do veículo',
@@ -696,7 +696,7 @@ function diffVehicles(before: QuoteSnapshot, after: QuoteSnapshot): QuoteChange[
       after: normText(nowV.category),
     });
     scalar(out, {
-      key: `truckImplement:${nowV.taskId}`,
+      key: `implementType:${nowV.taskId}`,
       severity: 'COSMETIC',
       group: 'VEHICLE',
       label: 'Tipo de implemento',
@@ -947,7 +947,7 @@ export function diffQuoteSnapshots(
     before: normText(before.customPaymentText),
     after: normText(after.customPaymentText),
   });
-  // JUNTO OU SEPARADO é material, e não é uma sutileza. Nos sessenta caminhões do
+  // JUNTO OU SEPARADO é material, e não é uma sutileza. Nos sessenta implementos do
   // Marquespan, `JOINT` é uma fatura de R$ 730.224,00 em quatro parcelas de
   // R$ 182.556,00; `PER_TASK` são sessenta faturas de R$ 12.170,40, sessenta
   // notas fiscais e duzentos e quarenta boletos de R$ 3.042,60. São obrigações
@@ -997,7 +997,7 @@ export function diffQuoteSnapshots(
     let depois = billingGroupsLabel(after.billingGroups) ?? billingSplitLabel(after.billingSplit);
     // MESMO TAMANHO, OUTRA DISTRIBUIÇÃO — e sem isto a alteração ficava MUDA.
     //
-    // Trocar quais caminhões vão em cada lote, mantendo os tamanhos, muda o
+    // Trocar quais implementos vão em cada lote, mantendo os tamanhos, muda o
     // conteúdo de cada fatura e não muda uma vírgula do rótulo: "2 faturas de 2
     // veículos" antes e depois. O hash material difere, então a coleta É
     // invalidada — e a lista de alterações saía vazia, dizendo ao signatário que
@@ -1128,11 +1128,11 @@ export function diffQuoteSnapshots(
   } else {
     // ---- Layout por veículo ------------------------------------------------
     // As MESMAS imagens, atribuídas a outros veículos — ou o orçamento passando
-    // de "vale para todos" a "cada caminhão com a sua". O hash material já
+    // de "vale para todos" a "cada implemento com a sua". O hash material já
     // enxerga isso (`layoutCoverage`); sem esta linha a invalidação sairia sem
     // nenhuma frase que a explicasse. MATERIAL pela mesma razão da troca de
-    // imagem: quem aprovou a arte A para o caminhão 1 não aprovou a arte A para
-    // o caminhão 2. Só existe quando uma das pontas é por veículo — entre dois
+    // imagem: quem aprovou a arte A para o implemento 1 não aprovou a arte A para
+    // o implemento 2. Só existe quando uma das pontas é por veículo — entre dois
     // `SHARED` a chave nem está no snapshot.
     const coverageKey = (s: QuoteSnapshot): string =>
       Array.isArray(s.layoutCoverage)

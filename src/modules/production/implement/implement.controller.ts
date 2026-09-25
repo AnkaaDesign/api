@@ -80,8 +80,8 @@ export function sectorGarageMapping() {
 }
 
 /**
- * IMPLEMENTO (era `/trucks`, que continua como alias fino até a R-D:
- * `truck-alias.controller.ts`). Toda entrada validada em runtime (G12).
+ * IMPLEMENTO (era `/implements`, que continua como alias fino até a R-D:
+ * `implement-alias.controller.ts`). Toda entrada validada em runtime (G12).
  */
 @Controller('implements')
 export class ImplementController {

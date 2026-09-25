@@ -8,7 +8,7 @@ import { coveredTaskIds } from './quote-tasks';
  * leitura antiga continuou compilando porque passava por `as any`: a condição
  * era sempre falsa, e toda nota que não tivesse `Invoice.taskId` caía no ramo
  * "os veículos do orçamento". Para a nota de um LOTE — vinte dos sessenta — isso
- * é declarar à prefeitura quarenta caminhões que ela não cobra.
+ * é declarar à prefeitura quarenta implementos que ela não cobra.
  *
  * A resposta é a COBERTURA (`BillingTask`), e é a cobertura inteira: a
  * âncora (`sliceTask`) seria uma afirmação falsa sobre os outros dezenove.
@@ -52,7 +52,7 @@ export const resolveCoveredVehicles = (
  * por construção — o recuo declarava SESSENTA: o líquido ainda fechava (o
  * desconto por diferença absorve a sobra), então o boleto batia, a conciliação
  * casava pelo líquido e ninguém via. O que saiu autorizado foi um documento
- * fiscal irreversível declarando quarenta caminhões que ninguém cobrou e um
+ * fiscal irreversível declarando quarenta implementos que ninguém cobrou e um
  * "desconto incondicionado" que nunca existiu.
  *
  * A separação NÃO é "recuo = erro", porque no acervo cobertura vazia significa

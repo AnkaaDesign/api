@@ -30,7 +30,7 @@ export abstract class InvoiceRepository {
   abstract findByTaskId(taskId: string, include?: InvoiceInclude): Promise<Invoice[]>;
   /**
    * As faturas de TODOS os veículos de um orçamento — `PER_TASK` gera uma por
-   * caminhão, e a rota por tarefa só devolve a de um deles.
+   * implemento, e a rota por tarefa só devolve a de um deles.
    */
   abstract findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]>;
 

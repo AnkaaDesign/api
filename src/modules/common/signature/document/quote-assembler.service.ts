@@ -812,7 +812,7 @@ export class QuoteAssemblerService {
    * POR QUE ELE EXISTE, E POR QUE NÃO É UM REMENDO NO DOCUMENTO ASSINADO
    *   O orçamento de um implemento 0 km é assinado — e selado — semanas antes de
    *   o veículo existir. A ordem é do negócio, não do software: a assinatura É a
-   *   aprovação, o caminhão só vem para a empresa depois de aprovado, e o chassi
+   *   aprovação, o implemento só vem para a empresa depois de aprovado, e o chassi
    *   só se lê com ele no pátio. O documento reserva o espaço com "a registrar" e
    *   o selo PAdES congela os bytes ali.
    *

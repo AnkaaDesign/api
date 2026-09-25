@@ -325,7 +325,7 @@ export class DashboardService {
         serviceOrderMetrics,
         customerMetrics,
         garageUtilization,
-        truckMetrics,
+        implementMetrics,
         cuttingOperations,
         airbrushingMetrics,
         revenueAnalysis,
@@ -337,7 +337,7 @@ export class DashboardService {
           : this.getEmptyServiceOrderMetrics(),
         this.getProductionCustomerMetrics(query.customerId),
         this.getProductionGarageUtilization(query.garageId),
-        query.includeTrucks ? this.getProductionTruckMetrics() : this.getEmptyTruckMetrics(),
+        query.includeImplements ? this.getProductionImplementMetrics() : this.getEmptyImplementMetrics(),
         query.includeCuts
           ? this.getProductionCuttingOperations(baseWhere)
           : this.getEmptyCuttingMetrics(),
@@ -356,7 +356,7 @@ export class DashboardService {
           serviceOrders: serviceOrderMetrics,
           customerMetrics,
           garageUtilization,
-          truckMetrics,
+          implementMetrics,
           cuttingOperations,
           airbrushingMetrics,
           revenueAnalysis,
@@ -1283,20 +1283,20 @@ export class DashboardService {
     };
   }
 
-  private async getProductionTruckMetrics() {
-    const stats = await this.dashboardRepository.getTruckMetrics();
+  private async getProductionImplementMetrics() {
+    const stats = await this.dashboardRepository.getImplementMetrics();
 
     return {
-      totalTrucks: {
-        label: 'Total de Caminhões',
+      totalImplements: {
+        label: 'Total de Implementos',
         value: stats.total,
       },
-      trucksInProduction: {
+      implementsInProduction: {
         label: 'Em Produção',
         value: stats.inProduction,
       },
-      trucksByManufacturer: stats.byManufacturer,
-      trucksByPosition: stats.byPosition,
+      implementsByManufacturer: stats.byManufacturer,
+      implementsByPosition: stats.byPosition,
     };
   }
 
@@ -1422,12 +1422,12 @@ export class DashboardService {
     };
   }
 
-  private getEmptyTruckMetrics() {
+  private getEmptyImplementMetrics() {
     return {
-      totalTrucks: { label: 'Total de Caminhões', value: 0 },
-      trucksInProduction: { label: 'Em Produção', value: 0 },
-      trucksByManufacturer: { labels: [], datasets: [] },
-      trucksByPosition: [],
+      totalImplements: { label: 'Total de Implementos', value: 0 },
+      implementsInProduction: { label: 'Em Produção', value: 0 },
+      implementsByManufacturer: { labels: [], datasets: [] },
+      implementsByPosition: [],
     };
   }
 

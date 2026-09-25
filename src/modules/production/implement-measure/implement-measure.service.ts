@@ -21,6 +21,17 @@ const RESPONSE_INCLUDE = {
   sections: { orderBy: { position: 'asc' as const } },
 };
 
+/** Quem usa uma medida. */
+interface ImplementMeasureUser {
+  implementId: string;
+  taskId: string;
+  plate: string | null;
+}
+
+function implementMeasureUser(i: { id: string; taskId: string; plate: string | null }): ImplementMeasureUser {
+  return { implementId: i.id, taskId: i.taskId, plate: i.plate };
+}
+
 @Injectable()
 export class ImplementMeasureService {
   private readonly logger = new Logger(ImplementMeasureService.name);
@@ -37,20 +48,20 @@ export class ImplementMeasureService {
     return this.implementMeasureRepository.findById(id, include);
   }
 
-  async findByTruckId(
-    truckId: string,
+  async findByImplementId(
+    implementId: string,
     options?: { includePhoto?: boolean },
   ): Promise<{
     leftSideMeasure: ImplementMeasure | null;
     rightSideMeasure: ImplementMeasure | null;
     backSideMeasure: ImplementMeasure | null;
   }> {
-    return this.implementMeasureRepository.findByTruckId(truckId, options);
+    return this.implementMeasureRepository.findByImplementId(implementId, options);
   }
 
   /**
    * Find all implementMeasures (for implementMeasure library/selection)
-   * Returns implementMeasures with usage count and which trucks use them
+   * Returns implementMeasures with usage count and which implements use them
    */
   async findAll(options?: {
     includeUsage?: boolean;
@@ -87,11 +98,11 @@ export class ImplementMeasureService {
   }
 
   /**
-   * Assign an existing implementMeasure to a truck side
-   * This is a simpler alternative to createOrUpdateTruckImplementMeasure when you just want to assign existing
+   * Assign an existing implementMeasure to a implement side
+   * This is a simpler alternative to createOrUpdateImplementMeasure when you just want to assign existing
    */
-  async assignImplementMeasureToTruck(
-    truckId: string,
+  async assignImplementMeasureToImplement(
+    implementId: string,
     side: 'left' | 'right' | 'back',
     implementMeasureId: string,
     userId?: string,
@@ -102,36 +113,36 @@ export class ImplementMeasureService {
       throw new NotFoundException(`ImplementMeasure ${implementMeasureId} não encontrado`);
     }
 
-    // Verify truck exists
-    const truck = await this.prisma.implement.findUnique({ where: { id: truckId } });
-    if (!truck) {
-      throw new NotFoundException(`Caminhão ${truckId} não encontrado`);
+    // Verify implement exists
+    const implement = await this.prisma.implement.findUnique({ where: { id: implementId } });
+    if (!implement) {
+      throw new NotFoundException(`Implemento ${implementId} não encontrado`);
     }
 
     // Numa transação agora: a medida atribuída vale para os demais veículos do
     // mesmo orçamento (por CÓPIA — ver `utils/implement-measure-replication.ts`),
-    // e ou ela chega aos N caminhões, ou a nenhum. Este caminho exige o caminhão
-    // e não o cria; o irmão sem caminhão é pulado e o log diz qual.
+    // e ou ela chega aos N implementos, ou a nenhum. Este caminho exige o implemento
+    // e não o cria; o irmão sem implemento é pulado e o log diz qual.
     //
     // Atribuir não compartilha: se outra face já usa a linha, esta ganha uma
     // cópia (escritor único); a linha anterior da face só sai se ficou sem uso.
     await this.prisma.$transaction(async tx => {
-      await attachMeasure(tx, truckId, side, implementMeasureId);
-      await this.replicateToQuoteSiblings(tx, truck.taskId, [side], userId);
+      await attachMeasure(tx, implementId, side, implementMeasureId);
+      await this.replicateToQuoteSiblings(tx, implement.taskId, [side], userId);
     });
 
     // Log the change
     await this.changeLogService.logChange({
-      entityType: ENTITY_TYPE.TRUCK,
-      entityId: truckId,
+      entityType: ENTITY_TYPE.IMPLEMENT,
+      entityId: implementId,
       action: CHANGE_ACTION.UPDATE,
-      reason: `ImplementMeasure ${implementMeasureId} atribuído ao lado ${side} do caminhão`,
+      reason: `ImplementMeasure ${implementMeasureId} atribuído ao lado ${side} do implemento`,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId || null,
       userId: userId || null,
     });
 
-    // Dispatch the consolidated task.field.truck.implementMeasure notification (reusing the
+    // Dispatch the consolidated task.field.implement.measures notification (reusing the
     // same helper the other implementMeasure paths use). Fired AFTER the update; failures are
     // swallowed inside the helper so they never break the assign flow.
     const sideLabels: Record<string, string> = {
@@ -141,7 +152,7 @@ export class ImplementMeasureService {
     };
     const sideLabel = sideLabels[side] || side;
     await this.dispatchConsolidatedImplementMeasureNotification(
-      truckId,
+      implementId,
       `${sideLabel}: implementMeasure atribuído`,
       userId,
     ).catch(err => {
@@ -189,7 +200,7 @@ export class ImplementMeasureService {
       entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
       entityId: implementMeasure.id,
       action: CHANGE_ACTION.CREATE,
-      reason: 'ImplementMeasure criado',
+      reason: 'Medida criada',
       oldValue: null,
       newValue: implementMeasure,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
@@ -205,12 +216,12 @@ export class ImplementMeasureService {
       sections: { orderBy: { position: 'asc' } },
     });
     if (!existingImplementMeasure) {
-      throw new NotFoundException('ImplementMeasure não encontrado');
+      throw new NotFoundException('Medida não encontrada');
     }
 
-    // A edição pelo ID muda a medida de todo caminhão ligado a esta linha (cada
+    // A edição pelo ID muda a medida de todo implemento ligado a esta linha (cada
     // um termina com a SUA linha — escritor único) — e o tamanho é do
-    // orçamento: cada um desses caminhões replica o lado editado para os irmãos
+    // orçamento: cada um desses implementos replica o lado editado para os irmãos
     // dele, na mesma transação da edição.
     const implementMeasure = await this.implementMeasureRepository.update(
       id,
@@ -233,7 +244,7 @@ export class ImplementMeasureService {
       entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
       entityId: id,
       action: CHANGE_ACTION.UPDATE,
-      reason: 'ImplementMeasure atualizado',
+      reason: 'Medida atualizada',
       oldValue: existingImplementMeasure,
       newValue: implementMeasure,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
@@ -248,16 +259,16 @@ export class ImplementMeasureService {
     // Check if implementMeasure exists
     const existingImplementMeasure = await this.implementMeasureRepository.findById(id);
     if (!existingImplementMeasure) {
-      throw new NotFoundException('ImplementMeasure não encontrado');
+      throw new NotFoundException('Medida não encontrada');
     }
 
-    // Check if implementMeasure is being used by any trucks (SHARED RESOURCE PROTECTION)
+    // Check if implementMeasure is being used by any implements (SHARED RESOURCE PROTECTION)
     const usageCount = await this.getImplementMeasureUsageCount(id);
     if (usageCount > 0 && !force) {
       throw new Error(
-        `Este implementMeasure está sendo usado por ${usageCount} caminhão(ões). ` +
+        `Este implementMeasure está sendo usado por ${usageCount} implemento(ões). ` +
           `Não é possível deletar um implementMeasure compartilhado. ` +
-          `Primeiro, remova o implementMeasure de todos os caminhões ou use force=true para deletar mesmo assim.`,
+          `Primeiro, remova o implementMeasure de todos os implementos ou use force=true para deletar mesmo assim.`,
       );
     }
 
@@ -268,7 +279,7 @@ export class ImplementMeasureService {
       entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
       entityId: id,
       action: CHANGE_ACTION.DELETE,
-      reason: force ? 'ImplementMeasure deletado (forçado)' : 'ImplementMeasure deletado',
+      reason: force ? 'Medida excluída (forçado)' : 'Medida excluída',
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId || null,
       userId: userId || null,
@@ -276,7 +287,7 @@ export class ImplementMeasureService {
   }
 
   /**
-   * Get count of trucks using this implementMeasure
+   * Get count of implements using this implementMeasure
    * Returns total count across all three sides (back, left, right)
    */
   async getImplementMeasureUsageCount(implementMeasureId: string): Promise<number> {
@@ -289,16 +300,16 @@ export class ImplementMeasureService {
   }
 
   /**
-   * Get all trucks using this implementMeasure (detailed)
-   * Returns which trucks use this implementMeasure and on which sides
+   * Get all implements using this implementMeasure (detailed)
+   * Returns which implements use this implementMeasure and on which sides
    */
-  async getTrucksUsingImplementMeasure(implementMeasureId: string): Promise<{
-    backSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
-    leftSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
-    rightSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
+  async getImplementsUsingImplementMeasure(implementMeasureId: string): Promise<{
+    backSide: ImplementMeasureUser[];
+    leftSide: ImplementMeasureUser[];
+    rightSide: ImplementMeasureUser[];
     totalCount: number;
   }> {
-    const [backTrucks, leftTrucks, rightTrucks] = await Promise.all([
+    const [backImplements, leftImplements, rightImplements] = await Promise.all([
       this.prisma.implement.findMany({
         where: { backSideMeasureId: implementMeasureId },
         select: { id: true, taskId: true, plate: true },
@@ -314,10 +325,10 @@ export class ImplementMeasureService {
     ]);
 
     return {
-      backSide: backTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
-      leftSide: leftTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
-      rightSide: rightTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
-      totalCount: backTrucks.length + leftTrucks.length + rightTrucks.length,
+      backSide: backImplements.map(implementMeasureUser),
+      leftSide: leftImplements.map(implementMeasureUser),
+      rightSide: rightImplements.map(implementMeasureUser),
+      totalCount: backImplements.length + leftImplements.length + rightImplements.length,
     };
   }
 
@@ -389,8 +400,8 @@ export class ImplementMeasureService {
     return `ImplementMeasure ${sideLabel} atualizado: ${newSummary}`;
   }
 
-  async createOrUpdateTruckImplementMeasure(
-    truckId: string,
+  async createOrUpdateImplementMeasure(
+    implementId: string,
     side: 'left' | 'right' | 'back',
     data: ImplementMeasureCreateFormData,
     userId?: string,
@@ -400,10 +411,10 @@ export class ImplementMeasureService {
   ): Promise<ImplementMeasure> {
     this.logger.log('');
     this.logger.log('═══════════════════════════════════════════════════════════════');
-    this.logger.log('🚚 [BACKEND] createOrUpdateTruckImplementMeasure - REQUEST RECEIVED');
+    this.logger.log('🚚 [BACKEND] createOrUpdateImplementMeasure - REQUEST RECEIVED');
     this.logger.log('═══════════════════════════════════════════════════════════════');
     this.logger.log(`[BACKEND] Input parameters:`, {
-      truckId,
+      implementId,
       side,
       userId,
       hasPhotoFile: !!photoFile,
@@ -430,10 +441,10 @@ export class ImplementMeasureService {
     const result = await this.prisma.$transaction(async tx => {
       this.logger.log('[BACKEND] Transaction started');
 
-      // Get the truck
-      this.logger.log(`[BACKEND] Fetching truck with ID: ${truckId}`);
-      const truck = await tx.implement.findUnique({
-        where: { id: truckId },
+      // Get the implement
+      this.logger.log(`[BACKEND] Fetching implement with ID: ${implementId}`);
+      const implement = await tx.implement.findUnique({
+        where: { id: implementId },
         include: {
           leftSideMeasure: {
             include: { sections: { orderBy: { position: 'asc' as const } } },
@@ -447,23 +458,23 @@ export class ImplementMeasureService {
         },
       });
 
-      if (!truck) {
-        this.logger.error(`[BACKEND] ❌ Truck NOT FOUND: ${truckId}`);
+      if (!implement) {
+        this.logger.error(`[BACKEND] ❌ Implement NOT FOUND: ${implementId}`);
         throw new NotFoundException(
-          `Caminhão não encontrado para ID ${truckId}. Certifique-se de que a tarefa foi criada corretamente antes de adicionar implementMeasures.`,
+          `Implemento não encontrado para ID ${implementId}. Certifique-se de que a tarefa foi criada corretamente antes de adicionar implementMeasures.`,
         );
       }
 
-      this.logger.log(`[BACKEND] ✅ Truck found:`, {
-        id: truck.id,
-        hasLeftImplementMeasure: !!truck.leftSideMeasure,
-        hasRightImplementMeasure: !!truck.rightSideMeasure,
-        hasBackImplementMeasure: !!truck.backSideMeasure,
+      this.logger.log(`[BACKEND] ✅ implement found:`, {
+        id: implement.id,
+        hasLeftImplementMeasure: !!implement.leftSideMeasure,
+        hasRightImplementMeasure: !!implement.rightSideMeasure,
+        hasBackImplementMeasure: !!implement.backSideMeasure,
       });
 
       // A medida atual desta face (para o log e a notificação; a escrita é do
       // escritor único, que relê a face dentro da transação)
-      const existingImplementMeasure = truck[FACE_REL[side]];
+      const existingImplementMeasure = implement[FACE_REL[side]];
 
       // Capture old implementMeasure snapshot for notification comparison (before any modifications)
       if (existingImplementMeasure && (existingImplementMeasure as any).sections) {
@@ -513,9 +524,9 @@ export class ImplementMeasureService {
           `[BACKEND] 🔗 SHARED LAYOUT MODE - Assigning existing implementMeasure ${existingImplementMeasureId}`,
         );
 
-        const attached = await attachMeasure(tx, truckId, side, existingImplementMeasureId);
+        const attached = await attachMeasure(tx, implementId, side, existingImplementMeasureId);
         if (!attached) {
-          throw new NotFoundException(`ImplementMeasure compartilhado ${existingImplementMeasureId} não encontrado`);
+          throw new NotFoundException(`Medida compartilhada ${existingImplementMeasureId} não encontrada`);
         }
         this.logger.log(
           `[BACKEND] ✅ ImplementMeasure ${existingImplementMeasureId} attached (${attached.action}) as ${attached.measureId}`,
@@ -527,10 +538,10 @@ export class ImplementMeasureService {
         });
 
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TRUCK,
-          entityId: truckId,
+          entityType: ENTITY_TYPE.IMPLEMENT,
+          entityId: implementId,
           action: CHANGE_ACTION.UPDATE,
-          reason: `ImplementMeasure compartilhado atribuído ao lado ${side} do caminhão`,
+          reason: `Medida compartilhada atribuída ao lado ${side} do implemento`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId || null,
           userId: userId || null,
@@ -545,7 +556,7 @@ export class ImplementMeasureService {
 
         const written = await setFace(
           tx,
-          truckId,
+          implementId,
           side,
           { height: data.height, sections: data.sections, photoId },
           { mode: 'replace' },
@@ -568,8 +579,8 @@ export class ImplementMeasureService {
           entityId: implementMeasure.id,
           action: CHANGE_ACTION.CREATE,
           reason: written.previousId
-            ? `ImplementMeasure do lado ${side} do caminhão substituído (deletar e criar novo)`
-            : `ImplementMeasure do lado ${side} do caminhão criado`,
+            ? `Medidas do lado ${side} do implemento substituído (deletar e criar novo)`
+            : `Medidas do lado ${side} do implemento criado`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId || null,
           userId: userId || null,
@@ -579,9 +590,9 @@ export class ImplementMeasureService {
 
       // ── O TAMANHO É DO ORÇAMENTO ────────────────────────────────────────
       // A medida deste lado vale para os demais veículos do mesmo orçamento —
-      // por cópia, nesta mesma transação. Este caminho exige o caminhão e não o
-      // cria; o irmão sem caminhão é pulado e o log diz qual.
-      await this.replicateToQuoteSiblings(tx, truck.taskId, [side], userId);
+      // por cópia, nesta mesma transação. Este caminho exige o implemento e não o
+      // cria; o irmão sem implemento é pulado e o log diz qual.
+      await this.replicateToQuoteSiblings(tx, implement.taskId, [side], userId);
 
       this.logger.log(`[BACKEND] Transaction committed successfully`);
       this.logger.log(`[BACKEND] 🎉 FINAL RESULT:`, {
@@ -589,7 +600,7 @@ export class ImplementMeasureService {
         height: implementMeasure.height,
         sectionsCount: (implementMeasure as any).sections?.length || 0,
         side,
-        truckId,
+        implementId,
       });
       this.logger.log('═══════════════════════════════════════════════════════════════');
       this.logger.log('');
@@ -608,10 +619,10 @@ export class ImplementMeasureService {
 
     // Send notifications for implementMeasure change (outside transaction to not block it).
     // Skipped when suppressNotification is set (the batch path dispatches ONE
-    // consolidated 'task.field.truck.implementMeasure' notification covering all sides).
+    // consolidated 'task.field.implement.measures' notification covering all sides).
     if (!suppressNotification) {
       this.sendImplementMeasureChangeNotifications(
-        truckId,
+        implementId,
         side,
         existingImplementMeasureId ? 'assign' : 'update',
         userId,
@@ -628,7 +639,7 @@ export class ImplementMeasureService {
   async generateSVG(implementMeasureId: string): Promise<string> {
     const implementMeasure = await this.implementMeasureRepository.findById(implementMeasureId);
     if (!implementMeasure) {
-      throw new NotFoundException('ImplementMeasure não encontrado');
+      throw new NotFoundException('Medida não encontrada');
     }
 
     // Use sections from database
@@ -719,10 +730,10 @@ export class ImplementMeasureService {
 
   /**
    * Send notifications to relevant users when a implementMeasure is created/updated via the standalone endpoint.
-   * Looks up the associated task from the truck to determine notification targets.
+   * Looks up the associated task from the implement to determine notification targets.
    */
   private async sendImplementMeasureChangeNotifications(
-    truckId: string,
+    implementId: string,
     side: 'left' | 'right' | 'back',
     action: 'update' | 'assign',
     userId?: string,
@@ -749,9 +760,9 @@ export class ImplementMeasureService {
     const oldImplementMeasureSummary = oldImplementMeasure ? this.formatImplementMeasureSummary(oldImplementMeasure) : '';
     const newImplementMeasureSummary = newImplementMeasure ? this.formatImplementMeasureSummary(newImplementMeasure) : '';
 
-    // Find the task associated with this truck
-    const truck = await this.prisma.implement.findUnique({
-      where: { id: truckId },
+    // Find the task associated with this implement
+    const implement = await this.prisma.implement.findUnique({
+      where: { id: implementId },
       select: {
         taskId: true,
         task: {
@@ -767,12 +778,12 @@ export class ImplementMeasureService {
       },
     });
 
-    if (!truck?.task) {
-      this.logger.warn(`[sendImplementMeasureChangeNotifications] No task found for truck ${truckId}`);
+    if (!implement?.task) {
+      this.logger.warn(`[sendImplementMeasureChangeNotifications] No task found for implement ${implementId}`);
       return;
     }
 
-    const task = truck.task;
+    const task = implement.task;
 
     const changedByUser = userId
       ? await this.prisma.user.findUnique({
@@ -783,8 +794,8 @@ export class ImplementMeasureService {
     const changedByName = changedByUser?.name || 'Sistema';
 
     // Use the consolidated config key. The legacy per-side keys
-    // (task.field.truck.*SideImplementMeasureId) are no longer dispatched so they go dormant.
-    const configKey = 'task.field.truck.implementMeasure';
+    // (task.field.implement.*SideImplementMeasureId) are no longer dispatched so they go dormant.
+    const configKey = 'task.field.implement.measures';
     const implementMeasureChangeSummary = `${sideLabel}: ${implementMeasureChangeDescription}`;
 
     try {
@@ -795,7 +806,7 @@ export class ImplementMeasureService {
         data: {
           taskName: task.name,
           sideLabel,
-          truckId,
+          implementId,
           side,
           actorId: userId,
           changedBy: changedByName,
@@ -805,8 +816,8 @@ export class ImplementMeasureService {
           newImplementMeasureSummary,
         },
         overrides: {
-          title: 'ImplementMeasure do Caminhão atualizado',
-          body: `ImplementMeasure do caminhão da tarefa "${task.name}" atualizado: ${implementMeasureChangeSummary}`,
+          title: 'Medidas do Implemento atualizado',
+          body: `Medidas do implemento da tarefa "${task.name}" atualizado: ${implementMeasureChangeSummary}`,
           webUrl: `/producao/cronograma/detalhes/${task.id}`,
         },
       });
@@ -820,15 +831,15 @@ export class ImplementMeasureService {
   }
 
   /**
-   * Batch-update multiple truck implementMeasure sides in a single operation and dispatch ONE
-   * consolidated 'task.field.truck.implementMeasure' notification summarizing all changed sides.
+   * Batch-update multiple implement implementMeasure sides in a single operation and dispatch ONE
+   * consolidated 'task.field.implement.measures' notification summarizing all changed sides.
    *
-   * Each provided side is processed via createOrUpdateTruckImplementMeasure with
+   * Each provided side is processed via createOrUpdateImplementMeasure with
    * suppressNotification=true so no per-side notifications fire; this method then sends
    * a single notification describing only the sides that actually changed.
    */
-  async updateTruckImplementMeasureBatch(
-    truckId: string,
+  async updateImplementMeasureBatch(
+    implementId: string,
     sides: {
       left?: ImplementMeasureCreateFormData;
       right?: ImplementMeasureCreateFormData;
@@ -847,8 +858,8 @@ export class ImplementMeasureService {
     };
 
     // Capture old implementMeasure snapshots BEFORE any update so we can describe the changes.
-    const truckBefore = await this.prisma.implement.findUnique({
-      where: { id: truckId },
+    const implementBefore = await this.prisma.implement.findUnique({
+      where: { id: implementId },
       include: {
         leftSideMeasure: {
           include: { sections: { orderBy: { position: 'asc' as const } } },
@@ -862,34 +873,34 @@ export class ImplementMeasureService {
       },
     });
 
-    if (!truckBefore) {
-      throw new NotFoundException(`Caminhão não encontrado para ID ${truckId}.`);
+    if (!implementBefore) {
+      throw new NotFoundException(`Implemento não encontrado para ID ${implementId}.`);
     }
 
     const oldImplementMeasureBySide: Record<
       string,
       { height: number; sections: Array<{ width: number; isDoor: boolean }> } | null
     > = {
-      left: truckBefore.leftSideMeasure
+      left: implementBefore.leftSideMeasure
         ? {
-            height: (truckBefore.leftSideMeasure as any).height,
-            sections: ((truckBefore.leftSideMeasure as any).sections || []).map(
+            height: (implementBefore.leftSideMeasure as any).height,
+            sections: ((implementBefore.leftSideMeasure as any).sections || []).map(
               (s: any) => ({ width: s.width, isDoor: s.isDoor }),
             ),
           }
         : null,
-      right: truckBefore.rightSideMeasure
+      right: implementBefore.rightSideMeasure
         ? {
-            height: (truckBefore.rightSideMeasure as any).height,
-            sections: ((truckBefore.rightSideMeasure as any).sections || []).map(
+            height: (implementBefore.rightSideMeasure as any).height,
+            sections: ((implementBefore.rightSideMeasure as any).sections || []).map(
               (s: any) => ({ width: s.width, isDoor: s.isDoor }),
             ),
           }
         : null,
-      back: truckBefore.backSideMeasure
+      back: implementBefore.backSideMeasure
         ? {
-            height: (truckBefore.backSideMeasure as any).height,
-            sections: ((truckBefore.backSideMeasure as any).sections || []).map(
+            height: (implementBefore.backSideMeasure as any).height,
+            sections: ((implementBefore.backSideMeasure as any).sections || []).map(
               (s: any) => ({ width: s.width, isDoor: s.isDoor }),
             ),
           }
@@ -904,8 +915,8 @@ export class ImplementMeasureService {
       if (!data) continue;
 
       // Process this side, suppressing its individual notification.
-      result[side] = await this.createOrUpdateTruckImplementMeasure(
-        truckId,
+      result[side] = await this.createOrUpdateImplementMeasure(
+        implementId,
         side,
         data,
         userId,
@@ -933,7 +944,7 @@ export class ImplementMeasureService {
     // Dispatch ONE consolidated notification for all changed sides.
     if (changedSideDescriptions.length > 0) {
       await this.dispatchConsolidatedImplementMeasureNotification(
-        truckId,
+        implementId,
         changedSideDescriptions.join('; '),
         userId,
       ).catch(err => {
@@ -945,15 +956,15 @@ export class ImplementMeasureService {
   }
 
   /**
-   * Dispatch a single consolidated 'task.field.truck.implementMeasure' notification for a truck.
+   * Dispatch a single consolidated 'task.field.implement.measures' notification for a implement.
    */
   private async dispatchConsolidatedImplementMeasureNotification(
-    truckId: string,
+    implementId: string,
     implementMeasureChangeSummary: string,
     userId?: string,
   ): Promise<void> {
-    const truck = await this.prisma.implement.findUnique({
-      where: { id: truckId },
+    const implement = await this.prisma.implement.findUnique({
+      where: { id: implementId },
       select: {
         task: {
           select: { id: true, name: true, sectorId: true },
@@ -961,14 +972,14 @@ export class ImplementMeasureService {
       },
     });
 
-    if (!truck?.task) {
+    if (!implement?.task) {
       this.logger.warn(
-        `[dispatchConsolidatedImplementMeasureNotification] No task found for truck ${truckId}`,
+        `[dispatchConsolidatedImplementMeasureNotification] No task found for implement ${implementId}`,
       );
       return;
     }
 
-    const task = truck.task;
+    const task = implement.task;
 
     const changedByUser = userId
       ? await this.prisma.user.findUnique({
@@ -980,7 +991,7 @@ export class ImplementMeasureService {
 
     try {
       await this.dispatchService.dispatchByConfiguration(
-        'task.field.truck.implementMeasure',
+        'task.field.implement.measures',
         userId || 'system',
         {
           entityType: 'Task',
@@ -990,21 +1001,21 @@ export class ImplementMeasureService {
             taskId: task.id,
             taskName: task.name,
             taskSectorId: task.sectorId || null,
-            fieldName: 'truck.implementMeasure',
-            truckId,
+            fieldName: 'implement.measures',
+            implementId,
             changedBy: changedByName,
             implementMeasureChangeSummary,
           },
           overrides: {
-            title: 'ImplementMeasure do Caminhão atualizado',
-            body: `ImplementMeasure do caminhão da tarefa "${task.name}" atualizado: ${implementMeasureChangeSummary}`,
+            title: 'Medidas do Implemento atualizado',
+            body: `Medidas do implemento da tarefa "${task.name}" atualizado: ${implementMeasureChangeSummary}`,
             webUrl: `/producao/cronograma/detalhes/${task.id}`,
           },
         },
       );
 
       this.logger.log(
-        `[dispatchConsolidatedImplementMeasureNotification] Dispatched task.field.truck.implementMeasure: ${implementMeasureChangeSummary}`,
+        `[dispatchConsolidatedImplementMeasureNotification] Dispatched task.field.implement.measures: ${implementMeasureChangeSummary}`,
       );
     } catch (err) {
       this.logger.error(

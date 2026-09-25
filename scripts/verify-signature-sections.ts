@@ -572,7 +572,7 @@ async function verifySalutation(): Promise<void> {
         createdAt: new Date('2026-08-12T12:00:00Z'),
         serialNumber: '4821',
         customer: { corporateName: 'TRANSPORTES XYZ LTDA', cnpj: '12345678000199' },
-        truck: { plate: 'ABB8468', chassisNumber: '9BW1', category: null, implementType: null },
+        implement: { plate: 'ABB8468', chassisNumber: '9BW1', category: null, type: null },
         responsibles: [responsible('r-bia', 'Beatriz'), responsible('r-ken', 'Kennedy')],
       },
     ],
@@ -678,7 +678,7 @@ async function verifyLateSlotGuard(): Promise<void> {
           id: 'task-1',
           createdAt: new Date('2026-08-12T12:00:00Z'),
           serialNumber: registry.serialNumber ?? null,
-          truck: { plate: registry.plate ?? null, chassisNumber: registry.chassis ?? null },
+          implement: { plate: registry.plate ?? null, chassisNumber: registry.chassis ?? null },
         },
       ],
     },
@@ -740,7 +740,7 @@ async function verifyLateSlotGuard(): Promise<void> {
 // ===========================================================================
 //
 // A identidade do veículo NUNCA cabe no orçamento assinado de um implemento
-// 0 km, e isso é da ordem do negócio: a assinatura É a aprovação, o caminhão só
+// 0 km, e isso é da ordem do negócio: a assinatura É a aprovação, o implemento só
 // vem para a empresa depois de aprovado, e o chassi só se lê com ele no pátio.
 // O aditivo é a resposta por ACRÉSCIMO — e o que se verifica aqui é que ele
 // carrega tudo que liga uma folha avulsa ao contrato: o hash do assinado, o

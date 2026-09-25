@@ -26,7 +26,7 @@
 // a minha empresa, quem é dono de um veículo que eu vejo, e quem paga um
 // orçamento que eu vejo. É essa terceira que faz o caso Furgões funcionar nos
 // dois sentidos — o contato da Ibiporã precisa achar a RKO para dizer de quem é
-// o caminhão, e o contato da RKO precisa achar a Ibiporã para dizer quem paga.
+// o implemento, e o contato da RKO precisa achar a Ibiporã para dizer quem paga.
 //
 // TINTAS e TIPOS DE TINTA são CATÁLOGO DA ANKAA, sem dono: não há `customerId`
 // em `Paint` nem em `PaintType`, e a mesma cor atende clientes diferentes. Não

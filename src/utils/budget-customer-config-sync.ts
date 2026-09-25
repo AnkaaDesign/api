@@ -44,7 +44,7 @@
  * com fatura viva não muda de cobertura nem é removido, em nenhum modo. A
  * cobertura dele é semeada no plano ANTES de tudo, e os veículos dela saem do
  * bolo que os outros modos repartem. É o que impede "trocar para separado"
- * depois de faturar de mudar, retroativamente, de quais caminhões é uma nota
+ * depois de faturar de mudar, retroativamente, de quais implementos é uma nota
  * fiscal que já foi autorizada.
  */
 import { BadRequestException } from '@nestjs/common';
@@ -115,7 +115,7 @@ function buildConfigWriteData(config: IncomingCustomerConfig): Record<string, un
   if (config.generateInvoice !== undefined) d.generateInvoice = config.generateInvoice;
   if (config.generateBankSlip !== undefined) d.generateBankSlip = config.generateBankSlip;
   // `orderNumber` NÃO é campo da fatia: o número do pedido de compra é do
-  // VEÍCULO (`Task.customerOrderNumber`), porque um orçamento cobre N caminhões e
+  // VEÍCULO (`Task.customerOrderNumber`), porque um orçamento cobre N implementos e
   // o pedido é por entrega.
   if (config.paymentCondition !== undefined) d.paymentCondition = config.paymentCondition ?? null;
   if (config.paymentConfig !== undefined) d.paymentConfig = (config.paymentConfig ?? null) as any;
@@ -146,7 +146,7 @@ export interface ReconcileConfigsResult {
    *
    * Existe porque o chamador precisava desaprovar EXATAMENTE esses e só tinha o
    * booleano acima — então desaprovava TODOS os faturamentos do orçamento.
-   * Num orçamento de sessenta caminhões, remover um pagador do lote 3 levantava
+   * Num orçamento de sessenta implementos, remover um pagador do lote 3 levantava
    * o carimbo dos lotes 1 e 2, que estavam faturados, com nota autorizada e
    * boleto registrado.
    */
@@ -318,7 +318,7 @@ export async function reconcileQuoteCustomerConfigs(
   // assistentes web, edição em linha da tarefa, app e edição em lote.
   //
   // ⚠️ A troca é detectada por CLIENTE, nunca por fatia. Num orçamento de
-  // sessenta caminhões cobrado veículo a veículo, substituir o cliente decompõe
+  // sessenta implementos cobrado veículo a veículo, substituir o cliente decompõe
   // em sessenta remoções e sessenta criações, e uma heurística que exigisse
   // exatamente 1+1 nunca dispararia — o desconto se perderia nas sessenta
   // faturas de uma vez, que é a versão em escala do prejuízo que ela evita.
@@ -339,7 +339,7 @@ export async function reconcileQuoteCustomerConfigs(
    * ENTREGUE a `reconcileBillingsForQuote`, que a aplica de uma vez com o quadro
    * inteiro na mão. O motivo é a regra nova: `BillingTask.@@unique([taskId])` é
    * GLOBAL — um veículo, um faturamento. Escrevendo fatia a fatia, mover um
-   * caminhão de um recorte para outro colide com a própria linha antiga, e a
+   * implemento de um recorte para outro colide com a própria linha antiga, e a
    * versão anterior precisava de um `deleteMany` defensivo por cliente antes de
    * cada insert só para não ser descartada em silêncio por `skipDuplicates`.
    * Com o plano, a ordem "apaga tudo que muda, depois insere" é possível porque
@@ -591,7 +591,7 @@ export async function reconcileQuoteCustomerConfigs(
       //
       //  1. OUTRA FATIA DO MESMO CLIENTE neste orçamento. É o caso mais
       //     frequente: trocar `JOINT` por `PER_TASK` cria sessenta, dividir um
-      //     lote cria mais uma, acrescentar um caminhão cria a sexagésima
+      //     lote cria mais uma, acrescentar um implemento cria a sexagésima
       //     primeira. Sem herança, cada uma nasceria com
       //     `discountType DEFAULT 'NONE'`, `recalcQuoteTotals` levantaria o total
       //     ao subtotal e a aprovação congelaria o valor inflado em
@@ -808,14 +808,14 @@ export async function reconcileQuoteCustomerConfigs(
  * Existe porque a cobertura é derivada de duas coisas que mudam por caminhos que
  * não trazem `customerConfigs` no corpo:
  *
- *   · o CONJUNTO DE VEÍCULOS — acrescentar ou retirar um caminhão, criar a
+ *   · o CONJUNTO DE VEÍCULOS — acrescentar ou retirar um implemento, criar a
  *     tarefa depois do orçamento (a criação aninhada por `POST /tasks` faz
  *     exatamente isso: o orçamento nasce primeiro, a tarefa depois), mover uma
  *     tarefa de um orçamento para outro;
  *   · o MODO (`billingSplit`), editável sozinho pelo seletor da tela.
  *
  * Sem esta chamada, o primeiro caso deixa a fatura sem o veículo novo (ou com
- * linha de cobertura apontando para um caminhão que saiu) e o segundo deixa o
+ * linha de cobertura apontando para um implemento que saiu) e o segundo deixa o
  * orçamento afirmando um modo que a cobertura contradiz.
  *
  * ⚠️ NÃO PASSA NENHUM TERMO. Os objetos de entrada levam só `customerId`, e

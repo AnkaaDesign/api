@@ -46,7 +46,7 @@ import {
 } from '../../../../utils/budget-customer-config-sync';
 import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
-import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
+import { syncImplementSpotWithCleared } from '../../../../utils/task-implement-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
 import { QUOTE_BILLING_INCLUDE, withCoverageInclude } from '../../../../utils/quote-tasks';
 import {
@@ -237,7 +237,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
       plate: true,
       chassisNumber: true,
       // Só o escalar: a regra de atenção R3c ("Entrada sem foto da plaqueta") testa
-      // `truck.vinPlateId`, e undefined seria lido como null e dispararia em tudo.
+      // `implement.vinPlateId`, e undefined seria lido como null e dispararia em tudo.
       // O File da foto vem apenas no include de detalhe.
       vinPlateId: true,
       spot: true,
@@ -671,7 +671,7 @@ function flattenOrderBy(orderBy: any): FlatSortEntry[] {
  * data que ninguém deve, ao lado de um selo dizendo que se deve.
  *
  * ⚠️ E varria os pagadores do ORÇAMENTO inteiro. Num orçamento de sessenta
- * caminhões faturados um a um, as sessenta linhas mostravam o mesmo vencimento —
+ * implementos faturados um a um, as sessenta linhas mostravam o mesmo vencimento —
  * o da primeira parcela de quem calhasse de ter a parcela nº 1.
  *
  * Espelhado em `findFirstInstallmentDueDate` no web (colunas de faturamento). Os
@@ -955,7 +955,7 @@ export class TaskPrismaRepository
       responsibleIds,
       serviceOrders,
       observation,
-      implement: truck,
+      implement: implement,
       cut,
       cuts,
     } = extendedData;
@@ -1078,7 +1078,7 @@ export class TaskPrismaRepository
     // quando o corpo não a trouxe dentro do implemento.
     {
       const implementInput: Record<string, any> =
-        truck && typeof truck === 'object' ? truck : {};
+        implement && typeof implement === 'object' ? implement : {};
       const implementData: Record<string, unknown> = {
         spot: implementInput.spot !== undefined ? implementInput.spot : null,
       };
@@ -1314,7 +1314,7 @@ export class TaskPrismaRepository
       responsibleIds,
       serviceOrders,
       observation,
-      implement: truck,
+      implement: implement,
       cut,
       cuts,
     } = extendedData as any;
@@ -1329,7 +1329,7 @@ export class TaskPrismaRepository
     if (details !== undefined) updateData.details = details;
     if (entryDate !== undefined) {
       updateData.entryDate = entryDate;
-      // Setting an entry date means the truck has arrived — auto-clear if not already cleared
+      // Setting an entry date means the implement has arrived — auto-clear if not already cleared
       if (entryDate !== null && cleared === undefined) {
         updateData.cleared = true;
       }
@@ -1501,17 +1501,17 @@ export class TaskPrismaRepository
     }
 
     // W2 (DD1): o implemento SEMPRE existe — `update`, nunca `upsert`/`delete`.
-    // `implement: null` (ou o velho `truck: null`) já foi recusado com 400 pelo
+    // `implement: null` (ou o velho `implement: null`) já foi recusado com 400 pelo
     // tradutor; aqui é a segunda cerca. A série do topo (legado, D-32) cai no
     // implemento quando o corpo não a trouxe dentro dele.
-    if (truck === null) {
+    if (implement === null) {
       throw new BadRequestException(
         'O implemento não pode ser removido da tarefa; limpe os campos.',
       );
     }
     {
       const implementInput: Record<string, any> =
-        truck && typeof truck === 'object' ? truck : {};
+        implement && typeof implement === 'object' ? implement : {};
       const implementUpdate: Record<string, unknown> = {};
       const serial =
         implementInput.serialNumber !== undefined ? implementInput.serialNumber : serialNumber;
@@ -1855,7 +1855,7 @@ export class TaskPrismaRepository
     // O merge acima deixa o `customerConfigs` do CHAMADOR substituir o do padrão,
     // e é isso que a tela de Faturamento faz (ela pede cliente, parcelas e
     // responsável). Sem esta injeção, ela receberia as faturas sem a cobertura e
-    // não teria como dizer de qual caminhão é cada uma — que é justamente o que
+    // não teria como dizer de qual implemento é cada uma — que é justamente o que
     // ela precisa mostrar. Um único ponto de injeção, no fim, para que nenhuma
     // tela futura possa esquecer.
     const quoteNode = databaseInclude.quote;
@@ -1868,7 +1868,7 @@ export class TaskPrismaRepository
       //
       // A tela de Faturamento lê o orçamento por AQUI (`quote: { include: {
       // layoutFiles: true } }`), e num orçamento com layout por veículo a arte
-      // sem `quoteLayoutTasks` não diz de qual caminhão é. `layoutScope` chega
+      // sem `quoteLayoutTasks` não diz de qual implemento é. `layoutScope` chega
       // sozinho quando o nó é `include` (escalar); num `select` à mão ele só vem
       // se pedido, então é pendurado junto.
       if (nested && nested.layoutFiles !== undefined && nested.layoutFiles !== false) {
@@ -2285,7 +2285,7 @@ export class TaskPrismaRepository
     try {
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data, userId);
 
-      // A liberação segue o caminhão, não a previsão (ver utils/task-cleared.ts): se a
+      // A liberação segue o implemento, não a previsão (ver utils/task-cleared.ts): se a
       // tarefa já tem data de entrada, o auto-unclear derivado de `forecastDate` acima
       // não pode revogá-la. Um `cleared` explícito no payload já venceu a derivação lá
       // dentro e não é tocado aqui. Data de entrada efetiva = a do payload quando ele a
@@ -2418,7 +2418,7 @@ export class TaskPrismaRepository
                     .sort()
                     .join('|');
                   // LAYOUT POR VEÍCULO: a lista crua de ids não diz de qual
-                  // caminhão cada arte é. Conjunto igual é o eco do formulário e
+                  // implemento cada arte é. Conjunto igual é o eco do formulário e
                   // passa SEM TOCAR em nada (ver `layoutEcho` abaixo); diferente
                   // é recusado com o endereço da única tela que atribui arte a
                   // veículo.
@@ -2658,7 +2658,7 @@ export class TaskPrismaRepository
           // Mover uma tarefa não apaga a linha de cobertura dela: o `onDelete:
           // Cascade` de `BillingTask` dispara quando a TAREFA morre, não
           // quando ela troca de orçamento. Sem refatiar, a fatura do orçamento de
-          // origem continuaria cobrando um caminhão que não é mais dela — e a do
+          // origem continuaria cobrando um implemento que não é mais dela — e a do
           // destino não cobraria o que recebeu.
           await resliceQuoteCoverage(transaction, quoteId);
           await recalcQuoteTotals(transaction, quoteId);
@@ -2679,9 +2679,9 @@ export class TaskPrismaRepository
       // Keep the yard position in sync with `cleared`. Read the *effective* value from
       // updateInput, not from `data` — `cleared` is also derived here from entryDate
       // (auto-clear) and forecastDate (auto-unclear), and those derivations must move
-      // the truck too.
+      // the implement too.
       if (typeof updateInput.cleared === 'boolean') {
-        await syncTruckSpotWithCleared(transaction, id, updateInput.cleared);
+        await syncImplementSpotWithCleared(transaction, id, updateInput.cleared);
       }
 
       return this.mapDatabaseEntityToEntity(result);
@@ -2695,7 +2695,7 @@ export class TaskPrismaRepository
    * Exclui a tarefa e RECALCULA o orçamento que ela deixou.
    *
    * Desde o orçamento multitarefa, `Budget.total` é `por veículo × N` e
-   * `vehicleCount` é esse N. Apagar um dos sessenta caminhões sem recalcular
+   * `vehicleCount` é esse N. Apagar um dos sessenta implementos sem recalcular
    * deixava o orçamento afirmando sessenta veículos e cobrando por sessenta,
    * com cinquenta e nove no registro: o documento recalcula na renderização (lê
    * `tasks`), então o PDF passava a divergir do banco — e a fatura, o boleto e a

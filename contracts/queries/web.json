@@ -1,7 +1,7 @@
 {
   "cliente": "web",
   "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
-  "fonte": "web@feat/portal-do-responsavel (17ff1c04)",
+  "fonte": "web@feat/portal-do-responsavel (d5ea4d66)",
   "formas": [
     {
       "id": "web.changelog.list/changelog-table.includeConfig",
@@ -354,7 +354,7 @@
         "include": {
           "tasks": {
             "include": {
-              "truck": true,
+              "implement": true,
               "customer": true
             }
           },
@@ -377,7 +377,7 @@
         "include": {
           "tasks": {
             "include": {
-              "truck": true,
+              "implement": true,
               "customer": true
             }
           },
@@ -394,7 +394,7 @@
       "consulta": {
         "include": {
           "customer": true,
-          "truck": {
+          "implement": {
             "include": {
               "vinPlate": true
             }
@@ -1772,7 +1772,7 @@
                 }
               },
               "sector": true,
-              "truck": true
+              "implement": true
             }
           },
           "painter": true,
@@ -1875,13 +1875,13 @@
               "logo": true
             }
           },
-          "truck": {
+          "implement": {
             "select": {
               "id": true,
               "plate": true,
               "category": true,
               "chassisNumber": true,
-              "implementType": true,
+              "type": true,
               "leftSideMeasure": {
                 "select": {
                   "id": true,
@@ -1968,7 +1968,7 @@
           "task": {
             "include": {
               "customer": true,
-              "truck": {
+              "implement": {
                 "include": {
                   "leftSideMeasure": {
                     "include": {
@@ -2009,17 +2009,17 @@
         ],
         "limit": 500,
         "include": {
-          "truck": true,
+          "implement": true,
           "customer": true
         }
       }
     },
     {
-      "id": "web.task.garage/truck-detail-modal",
+      "id": "web.task.garage/implement-detail-modal",
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/components/production/garage/truck-detail-modal.tsx:54",
+      "origem": "web/src/components/production/garage/implement-detail-modal.tsx:54",
       "consulta": {
         "include": {
           "customer": {
@@ -2027,7 +2027,7 @@
               "logo": true
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "vinPlate": true,
               "leftSideMeasure": {
@@ -2109,7 +2109,7 @@
         ],
         "limit": 100,
         "include": {
-          "truck": true,
+          "implement": true,
           "customer": true,
           "sector": true
         }
@@ -2133,7 +2133,7 @@
         ],
         "limit": 300,
         "include": {
-          "truck": true,
+          "implement": true,
           "customer": true,
           "sector": true
         }
@@ -2199,7 +2199,7 @@
               }
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2241,7 +2241,7 @@
           },
           "sector": true,
           "responsibles": true,
-          "truck": true,
+          "implement": true,
           "createdBy": true,
           "serviceOrders": {
             "include": {
@@ -2395,7 +2395,7 @@
               }
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2453,7 +2453,7 @@
           "customer": true,
           "createdBy": true,
           "generalPainting": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2548,7 +2548,7 @@
               "name": true
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2657,7 +2657,7 @@
           "observation": true,
           "generalPainting": true,
           "logoPaints": true,
-          "truck": true
+          "implement": true
         }
       }
     },
@@ -2698,7 +2698,7 @@
           "reimbursementInvoices": true,
           "generalPainting": true,
           "logoPaints": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2768,14 +2768,14 @@
               "corporateName": true
             }
           },
-          "truck": {
+          "implement": {
             "select": {
               "id": true,
               "plate": true,
               "category": true,
               "chassisNumber": true,
               "vinPlateId": true,
-              "implementType": true,
+              "type": true,
               "leftSideMeasure": {
                 "select": {
                   "id": true,
@@ -2929,7 +2929,7 @@
               "paintBrand": true
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -2998,7 +2998,7 @@
               "paintBrand": true
             }
           },
-          "truck": true,
+          "implement": true,
           "serviceOrders": true,
           "quote": true,
           "createdBy": true
@@ -3095,7 +3095,7 @@
       ],
       "consulta": {
         "where": {
-          "entityType": "TRUCK"
+          "entityType": "IMPLEMENT"
         },
         "include": {
           "user": true
@@ -3298,7 +3298,7 @@
           "logoPaints": true,
           "serviceOrders": true,
           "observation": true,
-          "truck": true,
+          "implement": true,
           "quote": true,
           "layouts": true,
           "responsibles": true
@@ -3325,7 +3325,7 @@
           "logoPaints": true,
           "cuts": true,
           "serviceOrders": true,
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": {
                 "include": {
@@ -3485,7 +3485,7 @@
               "logo": true
             }
           },
-          "truck": {
+          "implement": {
             "include": {
               "vinPlate": true
             }
@@ -3517,13 +3517,13 @@
                   "createdAt": true,
                   "customerOrderNumber": true,
                   "finishedAt": true,
-                  "truck": {
+                  "implement": {
                     "select": {
                       "id": true,
                       "plate": true,
                       "chassisNumber": true,
                       "category": true,
-                      "implementType": true
+                      "type": true
                     }
                   }
                 }
@@ -4067,7 +4067,7 @@
               "paintBrand": true
             }
           },
-          "truck": true
+          "implement": true
         }
       }
     },
@@ -4115,7 +4115,7 @@
             }
           },
           "createdBy": true,
-          "truck": true,
+          "implement": true,
           "observation": {
             "include": {
               "files": true

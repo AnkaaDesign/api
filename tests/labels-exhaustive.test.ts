@@ -3,7 +3,7 @@
  *
  * O QUE ESTE ARQUIVO PROTEGE
  * ─────────────────────────────────────────────────────────────────────────────
- * Um valor novo em `TRUCK_CATEGORY` ou `IMPLEMENT_TYPE` (a porta do Fase B
+ * Um valor novo em `IMPLEMENT_CATEGORY` ou `IMPLEMENT_TYPE` (a porta do Fase B
  * acrescenta valores) que não ganhe rótulo em algum perfil sai CRU na nota
  * fiscal — "Toco NOVO_TIPO" na prefeitura, irreversível. O tipo
  * `Record<ENUM, string>` já recusa o mapa incompleto em compilação; isto
@@ -12,7 +12,7 @@
  *
  *   1. cada perfil de `document-labels.ts` rotula TODO valor dos dois enums,
  *      sem sobra e sem texto vazio;
- *   2. os mapas de tela `TRUCK_CATEGORY_LABELS`/`IMPLEMENT_TYPE_LABELS` SÃO o
+ *   2. os mapas de tela `IMPLEMENT_CATEGORY_LABELS`/`IMPLEMENT_TYPE_LABELS` SÃO o
  *      perfil `screen` (não uma cópia que diverge);
  *   3. todo mapa `X_LABELS` de `enum-labels.ts` cujo enum `X` existe rotula
  *      todos os valores dele;
@@ -26,7 +26,7 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { Logger } from '@nestjs/common';
-import { IMPLEMENT_TYPE, TRUCK_CATEGORY } from '../src/constants/enums';
+import { IMPLEMENT_TYPE, IMPLEMENT_CATEGORY } from '../src/constants/enums';
 import * as ENUMS from '../src/constants/enums';
 import * as ENUM_LABELS from '../src/constants/enum-labels';
 import {
@@ -65,12 +65,12 @@ function lacunas(values: string[], map: Readonly<Record<string, string>>): strin
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n1. Cada perfil rotula todo valor de categoria e de implemento');
-const categorias = Object.values(TRUCK_CATEGORY) as string[];
+const categorias = Object.values(IMPLEMENT_CATEGORY) as string[];
 const implementos = Object.values(IMPLEMENT_TYPE) as string[];
 check('há perfis', LABEL_PROFILES.length >= 5, String(LABEL_PROFILES.length));
 for (const perfil of LABEL_PROFILES) {
   const cat = lacunas(categorias, CATEGORY_PROFILE_LABELS[perfil] ?? {});
-  check(`TRUCK_CATEGORY × ${perfil}`, cat === '', cat);
+  check(`IMPLEMENT_CATEGORY × ${perfil}`, cat === '', cat);
   const imp = lacunas(implementos, IMPLEMENT_TYPE_PROFILE_LABELS[perfil] ?? {});
   check(`IMPLEMENT_TYPE × ${perfil}`, imp === '', imp);
   check(`${perfil} diz quem o lê`, Boolean(LABEL_PROFILE_READERS[perfil]?.trim()));
@@ -89,7 +89,7 @@ check(
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n2. Os mapas de tela SÃO o perfil screen');
-check('TRUCK_CATEGORY_LABELS', ENUM_LABELS.TRUCK_CATEGORY_LABELS === CATEGORY_PROFILE_LABELS.screen);
+check('IMPLEMENT_CATEGORY_LABELS', ENUM_LABELS.IMPLEMENT_CATEGORY_LABELS === CATEGORY_PROFILE_LABELS.screen);
 check('IMPLEMENT_TYPE_LABELS', ENUM_LABELS.IMPLEMENT_TYPE_LABELS === IMPLEMENT_TYPE_PROFILE_LABELS.screen);
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -118,7 +118,7 @@ console.log('\n4. Nenhum dicionário de categoria/implemento fora da fonte únic
   // um dicionário à mão se parece. Só valores que não existem em outro enum,
   // para não pegar mapas alheios (TRUCK existe em vários contextos).
   const chave = new RegExp(
-    String.raw`(\[(TRUCK_CATEGORY|IMPLEMENT_TYPE)\.[A-Z_0-9]+\]|\b(INSULATED|FLATBED|CURTAIN_SIDE|DRY_CARGO|B_DOUBLE_FRONT|B_DOUBLE_REAR|SEMI_TRAILER_2_AXLES|THREE_QUARTER|BITRUCK)\b)\s*:\s*['"\x60]`,
+    String.raw`(\[(IMPLEMENT_CATEGORY|IMPLEMENT_TYPE)\.[A-Z_0-9]+\]|\b(INSULATED|FLATBED|CURTAIN_SIDE|DRY_CARGO|B_DOUBLE_FRONT|B_DOUBLE_REAR|SEMI_TRAILER_2_AXLES|THREE_QUARTER|BITRUCK)\b)\s*:\s*['"\x60]`,
   );
   const permitido = new Set(['src/constants/document-labels.ts']);
   const achados: string[] = [];
@@ -162,8 +162,8 @@ console.log('\n5. O contrato versionado é o que a API gera hoje');
     );
   }
   const enums = (contratos.enums as any).enums as Record<string, string[]>;
-  check('o contrato traz TRUCK_CATEGORY e IMPLEMENT_TYPE',
-    JSON.stringify(enums.TRUCK_CATEGORY) === JSON.stringify(categorias) &&
+  check('o contrato traz IMPLEMENT_CATEGORY e IMPLEMENT_TYPE',
+    JSON.stringify(enums.IMPLEMENT_CATEGORY) === JSON.stringify(categorias) &&
       JSON.stringify(enums.IMPLEMENT_TYPE) === JSON.stringify(implementos));
   const grafo = (contratos.enums as any).orcamento.transicoesManuais as Record<string, string[]>;
   check('o grafo do orçamento cobre todo status', Object.keys(grafo).length === enums.TASK_QUOTE_STATUS.length,
@@ -172,8 +172,8 @@ console.log('\n5. O contrato versionado é o que a API gera hoje');
   const multipart = (contratos.enums as any).multipart as Array<{ rota: string; naoResolvido?: string }>;
   check('toda rota multipart tem os campos resolvidos', multipart.every(m => !m.naoResolvido),
     multipart.filter(m => m.naoResolvido).map(m => m.rota).join(', '));
-  check('POST /tasks aceita truckVinPlate', multipart.some(m => m.rota === 'POST /tasks' &&
-    (m as any).campos?.some((c: any) => c.nome === 'truckVinPlate')));
+  check('POST /tasks aceita implementVinPlate', multipart.some(m => m.rota === 'POST /tasks' &&
+    (m as any).campos?.some((c: any) => c.nome === 'implementVinPlate')));
 }
 
 console.log(`\n${ok} ok, ${fail} falha(s)`);

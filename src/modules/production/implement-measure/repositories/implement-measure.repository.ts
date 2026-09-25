@@ -6,7 +6,7 @@ import type { MeasureReference } from '../implement-measure-writer';
 
 export interface ImplementMeasureRepository {
   findById(id: string, include?: any): Promise<ImplementMeasure | null>;
-  findByTruckId(truckId: string): Promise<{
+  findByImplementId(implementId: string): Promise<{
     leftSideMeasure: ImplementMeasure | null;
     rightSideMeasure: ImplementMeasure | null;
     backSideMeasure: ImplementMeasure | null;

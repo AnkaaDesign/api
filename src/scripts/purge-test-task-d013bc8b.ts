@@ -8,7 +8,7 @@
  *      "Erro na emissão"). The note stays ATIVA until the fiscal approves.
  *   2. Boleto nossoNumero=600003443 (seuNumero NF3179) — ACTIVE at Sicredi. Baixa via API.
  *
- * Only then delete: Task (cascades ServiceOrder/Truck/logs/forecast/Invoice) and the
+ * Only then delete: Task (cascades ServiceOrder/Implement/logs/forecast/Invoice) and the
  * Budget (cascades BudgetPayer → Installment → BankSlip).
  *
  * NfseDocument.taskId/invoiceId are onDelete:SetNull BY DESIGN — the fiscal record survives
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
     }
 
     await prisma.task.delete({ where: { id: TASK_ID } });
-    logger.log(`\n✓ Task ${TASK_ID} deletada (cascade: ServiceOrder, Truck, logs, forecast, Invoice).`);
+    logger.log(`\n✓ Task ${TASK_ID} deletada (cascade: ServiceOrder, Implement, logs, forecast, Invoice).`);
 
     if (task.quoteId) {
       await prisma.budget.delete({ where: { id: task.quoteId } });

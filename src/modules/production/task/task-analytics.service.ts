@@ -381,8 +381,8 @@ export class TaskAnalyticsService {
       };
     });
 
-    // Garage utilization: trucks with active tasks occupying spots
-    const trucksInGarage = await this.prisma.implement.findMany({
+    // Garage utilization: implements with active tasks occupying spots
+    const implementsInGarage = await this.prisma.implement.findMany({
       where: {
         spot: { not: null },
         task: {
@@ -413,7 +413,7 @@ export class TaskAnalyticsService {
     };
 
     const garageUtilization = spotPrefixes.map(prefix => {
-      const trucksInArea = trucksInGarage.filter(t => {
+      const implementsInArea = implementsInGarage.filter(t => {
         if (!t.spot) return false;
         if (prefix === 'YARD') return t.spot.startsWith('YARD');
         return t.spot.startsWith(`${prefix}_`);
@@ -424,10 +424,10 @@ export class TaskAnalyticsService {
       return {
         period: prefix,
         periodLabel: prefix === 'YARD' ? 'Pátio' : `Barracão ${prefix.replace('B', '')}`,
-        occupiedSpots: trucksInArea.length,
+        occupiedSpots: implementsInArea.length,
         totalSpots: capacity,
         utilizationPercent:
-          capacity > 0 ? Math.round((trucksInArea.length / capacity) * 1000) / 10 : 0,
+          capacity > 0 ? Math.round((implementsInArea.length / capacity) * 1000) / 10 : 0,
       };
     });
 

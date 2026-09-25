@@ -26,7 +26,7 @@
  *      "Ref. OS" em silêncio (§6.15).
  *
  * As fixtures têm a forma que o `select` real de cada serviço carrega
- * (`Task { id, name, serialNumber, customerOrderNumber, truck { plate,
+ * (`Task { id, name, serialNumber, customerOrderNumber, implement { plate,
  * chassisNumber, category, implementType } }`). A série continua em
  * `task.serialNumber` — os leitores só mudam no P28, e este teste é o que vai
  * dizer se a mudança manteve o texto.
@@ -45,9 +45,9 @@ import { coverageLabels, coverageSummary } from '../src/utils/quote-tasks';
 import { formatTaskIdentifier } from '../src/utils/task';
 import {
   implementTypeLabel,
-  truckCategoryLabel,
+  implementCategoryLabel,
 } from '../src/modules/common/signature/document/quote-text';
-import { IMPLEMENT_TYPE, TRUCK_CATEGORY } from '../src/constants/enums';
+import { IMPLEMENT_TYPE, IMPLEMENT_CATEGORY } from '../src/constants/enums';
 import { Logger } from '@nestjs/common';
 
 // Os construtores logam cada informativo montado; aqui isso é só ruído.
@@ -87,7 +87,7 @@ interface TaskRow {
   name: string;
   serialNumber: string | null;
   customerOrderNumber: string | null;
-  // O implemento como o `select` real o devolve (P11a: era `truck`, com `implementType`).
+  // O implemento como o `select` real o devolve.
   implement: {
     plate: string | null;
     chassisNumber: string | null;
@@ -129,23 +129,23 @@ const SEM_NADA: TaskRow = {
 
 /**
  * A NFS-e da tarefa: o `emitInput` como `nfse-emission.scheduler.ts` o monta
- * (task/truck de contexto + `vehicles` da cobertura), passado ao
+ * (task/implement de contexto + `vehicles` da cobertura), passado ao
  * `buildPayload` real. Devolve a discriminação que vai à prefeitura.
  */
 async function nfseDiscriminacao(rows: TaskRow[], budgetNumber = 990): Promise<string> {
   const slice = rows[0];
-  const truck = slice.implement;
+  const implement = slice.implement;
   const input: MunicipalEmitNfseInput = {
     id: 'invoice-1',
     totalAmount: 100 * rows.length,
     customer: { name: 'Carlotti', cnpj: '12345678000199' },
     task: { id: slice.id, name: slice.name, serialNumber: slice.serialNumber || undefined },
-    implement: truck
+    implement: implement
       ? {
-          plate: truck.plate || undefined,
-          chassisNumber: truck.chassisNumber || undefined,
-          category: truck.category || undefined,
-          implementType: truck.type || undefined,
+          plate: implement.plate || undefined,
+          chassisNumber: implement.chassisNumber || undefined,
+          category: implement.category || undefined,
+          implementType: implement.type || undefined,
         }
       : undefined,
     vehicles: rows.map(t => ({
@@ -463,7 +463,7 @@ async function cadaPalavra(): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // O hash das assinaturas (G11) NÃO protege estas palavras: o snapshot guarda o
-// VALOR do enum (`categoryLabel: t.truck?.category`), e o rótulo só entra na
+// VALOR do enum (`categoryLabel: t.implement?.category`), e o rótulo só entra na
 // hora de montar o HTML. Mudar uma palavra do perfil de tela mudava o
 // documento que o cliente assina sem reprovar nada (R-B-08). O texto de hoje
 // fica aqui, escrito por extenso.
@@ -479,17 +479,17 @@ const TIPOS_DOCUMENTO_ASSINADO: Record<string, string> = {
 async function documentoAssinado(): Promise<void> {
   console.log('\n12b. Documento do orçamento assinado: cada categoria e cada implemento');
   for (const [valor, palavra] of Object.entries(CATEGORIAS)) {
-    golden(`categoria ${valor} no documento assinado`, truckCategoryLabel(valor), palavra);
+    golden(`categoria ${valor} no documento assinado`, implementCategoryLabel(valor), palavra);
   }
   for (const [valor, palavra] of Object.entries(TIPOS_DOCUMENTO_ASSINADO)) {
     golden(`implemento ${valor} no documento assinado`, implementTypeLabel(valor), palavra);
   }
   check(
     'o documento assinado cobre todo valor dos dois enums',
-    Object.values(TRUCK_CATEGORY).every(v => v in CATEGORIAS) &&
+    Object.values(IMPLEMENT_CATEGORY).every(v => v in CATEGORIAS) &&
       Object.values(IMPLEMENT_TYPE).every(v => v in TIPOS_DOCUMENTO_ASSINADO),
   );
-  golden('valor fora do enum passa cru no documento assinado', truckCategoryLabel('NOVA'), 'NOVA');
+  golden('valor fora do enum passa cru no documento assinado', implementCategoryLabel('NOVA'), 'NOVA');
   golden('rótulo já resolvido passa como veio', implementTypeLabel('Baú'), 'Baú');
 }
 
@@ -499,7 +499,7 @@ async function documentoAssinado(): Promise<void> {
 async function dtoDosScripts(): Promise<void> {
   console.log('\n13. emitNfse({ task: { id, name, serialNumber } }) — scripts de homologação');
   // A forma EXATA de `src/scripts/test-nfse-tomador-contact.ts` e
-  // `test-nfse-cancel-roundtrip.ts`: sem truck, sem vehicles, com description.
+  // `test-nfse-cancel-roundtrip.ts`: sem implemento, sem vehicles, com description.
   const dto: MunicipalEmitNfseInput = {
     id: 'invoice-script',
     totalAmount: 2,

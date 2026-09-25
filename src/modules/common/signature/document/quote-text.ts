@@ -8,7 +8,7 @@
  * divergência aparece no PDF congelado, que é o que vale.
  */
 
-import { TRUCK_CATEGORY_LABELS, IMPLEMENT_TYPE_LABELS } from '@constants/enum-labels';
+import { IMPLEMENT_CATEGORY_LABELS, IMPLEMENT_TYPE_LABELS } from '@constants/enum-labels';
 import { toTitleCase } from '@utils/formatters';
 import { parseDueDateYMD } from '@utils/due-date.util';
 
@@ -169,7 +169,7 @@ function fromConfig(
   const invoiceCount =
     coveredCount > 0 && coveredCount < vehicleCount ? Math.ceil(vehicleCount / coveredCount) : 1;
   // Quantas cobranças o cliente vai receber no total. Sai só quando são muitas,
-  // porque aí o número surpreende: sessenta caminhões em quatro parcelas são
+  // porque aí o número surpreende: sessenta implementos em quatro parcelas são
   // duzentos e quarenta boletos, e o financeiro do cliente precisa saber disso
   // ANTES de aprovar, não quando o malote chegar.
   const chargeNote = (perCharge: number): string =>
@@ -232,7 +232,7 @@ export function generatePaymentText(args: {
   /**
    * QUANTOS VEÍCULOS A FATURA DESTA CLÁUSULA COBRE.
    *
-   * É o que decide se `total` é o valor de um caminhão, de um lote ou do
+   * É o que decide se `total` é o valor de um implemento, de um lote ou do
    * orçamento inteiro — e portanto o que a frase precisa declarar. Omitido =
    * cobre todos (fatura conjunta), que é o padrão e o comportamento de sempre.
    */
@@ -332,8 +332,8 @@ function resolveLabel(map: Record<string, string>, value: string | null): string
   return map[value] ?? value;
 }
 
-export function truckCategoryLabel(value: string | null): string | null {
-  return resolveLabel(TRUCK_CATEGORY_LABELS as Record<string, string>, value);
+export function implementCategoryLabel(value: string | null): string | null {
+  return resolveLabel(IMPLEMENT_CATEGORY_LABELS as Record<string, string>, value);
 }
 
 export function implementTypeLabel(value: string | null): string | null {
@@ -438,7 +438,7 @@ export function composeDiscountLabel(input: DiscountLabelInput): string {
  * ESPELHA `web/src/components/administration/customer/form/street-type-select.tsx`,
  * que é onde o operador escolhe o valor — divergir faria o cadastro dizer
  * "Rodovia" na tela e "HIGHWAY" no documento assinado, que é exatamente o
- * defeito que a categoria do veículo tinha antes de `truckCategoryLabel`.
+ * defeito que a categoria do veículo tinha antes de `implementCategoryLabel`.
  */
 const STREET_TYPE_LABELS_PT: Record<string, string> = {
   STREET: 'Rua',

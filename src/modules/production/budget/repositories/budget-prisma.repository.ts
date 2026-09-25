@@ -273,8 +273,8 @@ export class BudgetPrismaRepository
       // ⚠️ O `select` TAMBÉM PASSA. Só `include` era repassado, e um `select`
       // chegava aqui para ser DESCARTADO em silêncio: o Prisma devolvia todos os
       // escalares (por isso "quase funcionava") e nenhuma relação. A lista de
-      // Orçamentos do app pede `tasks: { select: { …, truck: { select: { plate } } } }`
-      // justamente para não trazer o veículo inteiro, e o caminhão não voltava —
+      // Orçamentos do app pede `tasks: { select: { …, implement: { select: { plate } } } }`
+      // justamente para não trazer o veículo inteiro, e o implemento não voltava —
       // a coluna IDENTIFICADOR, que recua de `serialNumber` para a placa, ficava
       // vazia em todo veículo sem número de série.
       //
@@ -697,7 +697,7 @@ export class BudgetPrismaRepository
    * "Aprovado" aqui sempre quis dizer FATURAMENTO aprovado — a lista era
    * `BILLING_APPROVED`..`SETTLED`, cinco estados que hoje são um só fato do
    * `Billing`: ter `approvedAt`. E a pergunta é do VEÍCULO, não do contrato: num
-   * orçamento de sessenta caminhões faturados um a um, o caminhão 7 pode estar
+   * orçamento de sessenta implementos faturados um a um, o implemento 7 pode estar
    * cobrado e o 8 não. Por isso a condição é sobre a cobrança QUE COBRE ESTA
    * TAREFA, e não sobre qualquer cobrança do orçamento.
    */
@@ -736,7 +736,7 @@ export class BudgetPrismaRepository
   }
 
   /**
-   * Find the most recent quote matching task name, customerId, truck category, and implement type.
+   * Find the most recent quote matching task name, customerId, implement category, and implement type.
    * Tries exact name match first (case-insensitive), then falls back to startsWith.
    * Customer, category, and implementType must always match exactly.
    */

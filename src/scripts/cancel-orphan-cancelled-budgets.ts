@@ -1,5 +1,5 @@
 /**
- * OS ORÇAMENTOS QUE FICARAM DE PÉ DEPOIS DE TODOS OS CAMINHÕES CAÍREM.
+ * OS ORÇAMENTOS QUE FICARAM DE PÉ DEPOIS DE TODOS OS IMPLEMENTOS CAÍREM.
  *
  * O QUE ACONTECEU
  * ─────────────────────────────────────────────────────────────────────────────

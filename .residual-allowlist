@@ -2,18 +2,12 @@
 # Um glob por linha, relativo à raiz da api. Só entra aqui o que precisa falar
 # "truck" para sempre; o resto fica na catraca (.residual-baseline.json) e cai.
 #
-# Chaves do hash da assinatura: renomeá-las invalidaria todo envelope assinado
-# (G11). A troca de vocabulário acontece na LEITURA, não na chave congelada.
+# O JSON SELADO dos documentos já assinados (snapshot v1–v4 com `truck` no
+# singular): renomear a chave muda o hash e invalida a assinatura (G11). Estes
+# três arquivos ainda EMITEM/LEEM esse formato para reconferir o hash dos
+# envelopes antigos (NOMENCLATURA.md §4). Documento novo não escreve `truck`.
 src/modules/common/signature/services/quote-snapshot.service.ts
 src/modules/common/signature/services/quote-diff.ts
+src/modules/people/portal/portal-frozen-document.ts
 
 # TEMPORÁRIAS (vencem; depois da data o arquivo volta à conta com base 0).
-
-#
-# Janela bilíngue do implemento (P11a): o tradutor, o espelho da resposta, o
-# alias `/trucks` e as linhas legadas da tabela de chaves EXISTEM para falar o
-# nome velho. Vencem com a janela (R-D, P32), a mesma data de
-# `LEGACY_IMPLEMENT_EXPIRES_AT`.
-src/modules/common/legacy-implement/*.ts até=2027-03-31
-src/modules/common/query/deprecated-query-keys.ts até=2027-03-31
-src/modules/production/implement/truck-alias.controller.ts até=2027-03-31

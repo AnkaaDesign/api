@@ -364,19 +364,19 @@ export function getTaskObservationTypeLabel(type: TASK_OBSERVATION_TYPE): string
 }
 
 /**
- * Get task dimensions (width x height) from truck implementMeasure.
+ * Get task dimensions (width x height) from implement implementMeasure.
  * Takes either left or right side implementMeasure (both sides have the same dimensions).
  *
- * @param task - The task object with truck and implementMeasure data
+ * @param task - The task object with implement and implementMeasure data
  * @returns Object with width and height in meters, or null if no implementMeasure data exists
  */
 export function getTaskDimensions(task: any): { width: number; height: number } | null {
   if (!task?.implement) return null;
 
-  const { implement: truck } = task;
+  const { implement: implement } = task;
 
   // Try left side implementMeasure first, then right side (both have the same dimensions)
-  const implementMeasure = truck.leftSideMeasure || truck.rightSideMeasure;
+  const implementMeasure = implement.leftSideMeasure || implement.rightSideMeasure;
 
   if (!implementMeasure?.sections || implementMeasure.sections.length === 0) {
     return null;
@@ -398,7 +398,7 @@ export function getTaskDimensions(task: any): { width: number; height: number } 
  * Formats the measures for display as "WxH" in centimeters.
  * This format matches the task measure table column display.
  *
- * @param task - The task object with truck and implementMeasure data
+ * @param task - The task object with implement and implementMeasure data
  * @returns Formatted string (e.g., "850x244") or empty string if no implementMeasure data
  */
 export function formatTaskMeasures(task: any): string {
@@ -417,7 +417,7 @@ export function formatTaskMeasures(task: any): string {
  * Format: "{TaskName} {measures}.{extension}" or "{TaskName}.{extension}" if no measures
  *
  * @param taskName - The task name
- * @param task - The task object with truck and implementMeasure data (for measures)
+ * @param task - The task object with implement and implementMeasure data (for measures)
  * @param originalFilename - The original filename to extract extension from
  * @param fileIndex - Optional index for multiple files (1-based)
  * @returns Sanitized filename with task name and measures

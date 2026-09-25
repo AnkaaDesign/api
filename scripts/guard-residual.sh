@@ -22,10 +22,13 @@
 # nome velho sair dele.
 #
 # O G6a enxerga, além de `truck`/`trucks` e `TruckAlgo`, o camelCase
-# (`truckId`, `truckData`…) e o tipo sozinho (`Truck`, `Trucks`). Exceções
-# nomeadas no próprio padrão: `truckSpot` (a vaga do pátio), `truck-studio` e
-# "Truck Studio" (a ferramenta 3D), `TRUCK_MANUFACTURER*`, `TRUCK_SPOT`.
-# `IconTruck`/`GarageTruck` não casam (sem fronteira de palavra antes do T).
+# (`truckId`, `truckData`…), o tipo sozinho (`Truck`, `Trucks`) e o nome que
+# TERMINA ou CONTINUA em Truck depois de minúscula (`garageTruck`, `mkTaskWithTruck`,
+# `IconTruck`). Migração completa (DD13, docs/implemento/NOMENCLATURA.md): as
+# únicas exceções no padrão são as da §4 que não são o nome antigo do
+# implemento — "Truck Studio"/`truck-studio` (a ferramenta 3D) e a montadora da
+# tinta (`TruckManufacturer`, `TRUCK_MANUFACTURER*`, `truck-manufacturer`). Os
+# rótulos da categoria `TRUCK` ("Truck") ficam na base, contados.
 #
 # O G6b pega o identificador em inglês colado a texto de tela dos DOIS lados
 # ("ImplementMeasure do…", "Medida do ImplementMeasure"), o nome separado
@@ -48,7 +51,7 @@ BASELINE=".residual-baseline.json"
 ALLOWLIST=".residual-allowlist"
 MODE="${1:-check}"
 
-G6A_PATTERN='\btrucks?\b(?!-studio)|\btrucks?(?!Spot)[A-Z]\w*|\bTrucks?\b(?! Studio)|Truck[A-Z]|TRUCK_(?!MANUFACTURER|SPOT)'
+G6A_PATTERN='\btrucks?\b(?!-studio|-manufacturer)|\btrucks?[A-Z]\w*|\bTrucks?\b(?! Studio)|Truck(?!Manufacturer)[A-Z]\w*|TRUCK_(?!MANUFACTURER)|[a-z]Trucks?\b|[a-z]Truck(?!Manufacturer)[A-Z]\w*'
 G6B_PATTERN='["'"'"'`][^"'"'"'`\n]*(ImplementMeasure [a-zçã]|Implement [a-z]|Truck [a-z]|[a-zçãõéêíóú:]\s+(ImplementMeasure|Implement|Truck)\b(?! Studio)|Implement Measure|\b(ImplementMeasure|Implement|Truck) ["'"'"'`])'
 
 globs=()

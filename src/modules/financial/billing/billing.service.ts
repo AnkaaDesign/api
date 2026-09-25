@@ -83,7 +83,7 @@ const OPEN_INSTALLMENT_STATUSES = [
  * A tela de cobrança era endereçada por VEÍCULO (`/faturamento/detalhes/:taskId`)
  * porque não havia mais nada para endereçar: "faturamento" era uma lista de
  * `BudgetPayer` pendurada no orçamento, sem id que significasse a
- * cobrança. A consequência aparecia na tela: num orçamento de quatro caminhões
+ * cobrança. A consequência aparecia na tela: num orçamento de quatro implementos
  * cobrados um a um, abrir qualquer veículo mostrava "Fatura 1 · 2 · 3 · 4" na
  * MESMA página, porque não havia quatro coisas — havia uma lista de
  * configurações de uma coisa só.
@@ -427,9 +427,9 @@ export class BillingService {
    * A FILA — "o que entreguei e ainda não cobrei?".
    *
    * Uma pergunta que a lista antiga não sabia fazer: as linhas eram TAREFAS, e um
-   * orçamento de sessenta caminhões cobrado junto aparecia sessenta vezes, cada
+   * orçamento de sessenta implementos cobrado junto aparecia sessenta vezes, cada
    * linha repetindo o mesmo contrato. Aqui cada linha é uma COBRANÇA — sessenta
-   * caminhões cobrados juntos são uma linha, cobrados um a um são sessenta, e a
+   * implementos cobrados juntos são uma linha, cobrados um a um são sessenta, e a
    * diferença entre as duas coisas finalmente aparece.
    */
   async findMany(params: {
@@ -598,7 +598,7 @@ export class BillingService {
     // "FINALIZADO EM" da linha é o MAIOR `finishedAt` da cobertura, e `null`
     // enquanto um veículo estiver aberto. O filtro reproduz esse valor em três
     // cláusulas em vez de um `some` ingênuo: um `some` acharia o lote de vinte cujo
-    // primeiro caminhão saiu em janeiro, ainda que o último não tenha saído.
+    // primeiro implemento saiu em janeiro, ainda que o último não tenha saído.
     if (params.finishedDateRange?.from || params.finishedDateRange?.to) {
       and.push({ tasks: { some: {}, none: { task: { finishedAt: null } } } });
       if (params.finishedDateRange.from) {

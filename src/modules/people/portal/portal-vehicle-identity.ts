@@ -91,7 +91,7 @@
 // cara de errar neste pacote e tem de ser testável sem banco e sem container —
 // `tests/portal-identificacao.test.ts` a exercita direto, nos dois ramos.
 // `snapshotVehicles` é a ÚNICA porta de entrada para os veículos de um snapshot
-// (ela responde pelas formas v1/v2 `task`+`truck` e pela v3+ `vehicles`), e
+// (ela responde pelas formas v1/v2 `task`+`implement` e pela v3+ `vehicles`), e
 // reusá-la é o que impede este arquivo de ficar cego para coleta antiga.
 
 import { snapshotVehicles } from '@modules/common/signature/services/quote-diff';
@@ -104,7 +104,7 @@ import type {
  * Os quatro campos que o documento imprime e que este pacote escreve.
  *
  * ⚠️ `chassisNumber` aqui, `chassis` na chave da lacuna. Os dois nomes existem:
- * a coluna é `Truck.chassisNumber`, e `LateSlotKey`/`LATE_SLOT_LABELS` usam
+ * a coluna é `Implement.chassisNumber`, e `LateSlotKey`/`LATE_SLOT_LABELS` usam
  * `chassis`. Este arquivo fala a língua da COLUNA, porque é ela que o corpo da
  * requisição carrega; a tradução, quando precisar, é de quem lê lacuna.
  */
@@ -115,8 +115,8 @@ export const VEHICLE_IDENTITY_FIELDS = [
   'orderNumber',
   // ── CATEGORIA E IMPLEMENTO ENTRAM AQUI, e não numa rota à parte ──────────
   //
-  // Eles são do CLIENTE tanto quanto a placa: quem sabe se o caminhão é um
-  // truck ou um bitrem, e se o baú é frigorífico ou sider, é quem opera a
+  // Eles são do CLIENTE tanto quanto a placa: quem sabe se o implemento é um
+  // implement ou um bitrem, e se o baú é frigorífico ou sider, é quem opera a
   // frota — a Ankaa só repete o que lhe disseram. Até aqui o portal os MOSTRAVA
   // e não deixava corrigir, o que é a pior das combinações: o erro fica à
   // vista do dono do dado e a correção depende de telefonar para o comercial.
@@ -209,7 +209,7 @@ function comparavel(valor: string | null | undefined): string | null {
  * A identificação congelada DE UM VEÍCULO, pareada por `taskId`.
  *
  * ⛔ POR `taskId`, NUNCA POR POSIÇÃO — a mesma lição de
- * `tolerateLateRegistration`: excluir o caminhão 12 de um orçamento de sessenta
+ * `tolerateLateRegistration`: excluir o implemento 12 de um orçamento de sessenta
  * desloca os quarenta e oito seguintes, e a comparação por posição confrontaria
  * a placa do 13 com a congelada do 12. Leria como "a placa mudou" em quarenta e
  * oito veículos que ninguém tocou.

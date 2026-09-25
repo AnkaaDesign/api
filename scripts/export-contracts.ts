@@ -120,7 +120,7 @@ function collectProfiles() {
     Object.fromEntries(LABEL_PROFILES.map(p => [p, { ...source[p] }]));
   return {
     leitores: { ...LABEL_PROFILE_READERS },
-    TRUCK_CATEGORY: byProfile(CATEGORY_PROFILE_LABELS),
+    IMPLEMENT_CATEGORY: byProfile(CATEGORY_PROFILE_LABELS),
     IMPLEMENT_TYPE: byProfile(IMPLEMENT_TYPE_PROFILE_LABELS),
   };
 }
@@ -408,12 +408,12 @@ export function buildDart(contracts: Contracts): string {
     '// ignore_for_file: lines_longer_than_80_chars',
     'library;',
     '',
-    dartList('kContractTruckCategoryValues', enums.TRUCK_CATEGORY, 'Os valores de `TRUCK_CATEGORY`, na ordem da API.'),
+    dartList('kContractImplementCategoryValues', enums.IMPLEMENT_CATEGORY, 'Os valores de `IMPLEMENT_CATEGORY`, na ordem da API.'),
     dartList('kContractImplementTypeValues', enums.IMPLEMENT_TYPE, 'Os valores de `IMPLEMENT_TYPE`, na ordem da API.'),
     dartList('kContractTaskStatusValues', enums.TASK_STATUS, 'Os valores de `TASK_STATUS`, na ordem da API.'),
   ];
   for (const [kind, prefix] of [
-    ['TRUCK_CATEGORY', 'kContractTruckCategoryLabels'],
+    ['IMPLEMENT_CATEGORY', 'kContractImplementCategoryLabels'],
     ['IMPLEMENT_TYPE', 'kContractImplementTypeLabels'],
   ] as const) {
     for (const profile of LABEL_PROFILES) {

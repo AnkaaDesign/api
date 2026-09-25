@@ -60,7 +60,6 @@ import {
   resetQueryKeyCounters,
 } from '../src/modules/common/query/query-key-telemetry';
 import { ZodQueryValidationPipe } from '../src/modules/common/pipes/zod-validation.pipe';
-import { translateLegacyImplementQuery } from '../src/modules/common/legacy-implement/legacy-implement-keys';
 import { walkQuerySchema } from './helpers/zod-dmmf-walk';
 import { TASK_QUERY_SHAPE } from '../src/modules/production/task/task-query-shape';
 
@@ -380,7 +379,7 @@ function parteA(): void {
     'unknown-field:select.truckId',
     'unknown-field:where.OR[0].fooBar',
     'unknown-field:where.serviceOrders.some.naoExiste',
-    // P11a: `Task.truck` virou `implement` (M1); sem a tabela de legado, é chave inventada
+    // `Task.truck` virou `implement` (M1) e o nome antigo não é aceito (DD13): é chave inventada
     'unknown-field:where.truck',
   ].sort();
   check(
@@ -763,20 +762,7 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
       detalhe: `schema ${forma.schema} não registrado`,
       descartadas: [],
     };
-  // Como o pipe da rota: a janela bilíngue do implemento traduz o legado
-  // (`truck` → `implement`…) ANTES do zod (P11a).
-  let traduzida: unknown;
-  try {
-    traduzida = translateLegacyImplementQuery(forma.consulta);
-  } catch (e) {
-    return {
-      g1: 'recusa',
-      prisma: 'nao-rodou',
-      detalhe: `tradutor: ${String((e as any)?.message ?? e)}`,
-      descartadas: [],
-    };
-  }
-  const parsed = alvo.schema.safeParse(traduzida);
+  const parsed = alvo.schema.safeParse(forma.consulta);
   if (!parsed.success) {
     return {
       g1: 'recusa',

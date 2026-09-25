@@ -192,7 +192,7 @@ export abstract class DashboardRepository {
     occupiedSpots: number;
     spotsByGarage: DashboardChartData;
   }>;
-  abstract getTruckMetrics(): Promise<{
+  abstract getImplementMetrics(): Promise<{
     total: number;
     inProduction: number;
     byManufacturer: DashboardChartData;

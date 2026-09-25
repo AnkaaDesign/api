@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -934,7 +935,7 @@ export class AirbrushingQuoteService {
           serialNumber: true,
           term: true,
           customer: { select: { id: true, fantasyName: true } },
-          truck: { select: { id: true, plate: true, chassisNumber: true } },
+          implement: { select: { id: true, plate: true, chassisNumber: true } },
         },
       },
       layouts: {
@@ -943,7 +944,7 @@ export class AirbrushingQuoteService {
         orderBy: { createdAt: 'asc' as const },
       },
       quotes: { where: { painterId }, include: QUOTE_INCLUDE },
-    } as const;
+    } as const satisfies Prisma.AirbrushingSelect;
   }
 
   private toPainterView(row: any) {

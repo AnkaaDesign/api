@@ -373,23 +373,13 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   cuts: 'recortes',
   taskId: 'tarefa',
 
-  // Truck fields
+  // Campos do implemento (a trilha da entidade IMPLEMENT grava a coluna pura)
   plate: 'placa',
   chassisNumber: 'chassi',
   vinPlateId: 'foto da plaqueta',
-  category: 'categoria do caminhão',
-  implementType: 'tipo de implemento',
+  category: 'categoria do implemento',
   spot: 'vaga',
-  'truck.plate': 'placa do caminhão',
-  'truck.chassisNumber': 'chassi do caminhão',
-  'truck.vinPlateId': 'foto da plaqueta',
-  'truck.category': 'categoria do caminhão',
-  'truck.implementType': 'tipo de implemento do caminhão',
-  'truck.spot': 'vaga do caminhão',
-  'truck.leftSideMeasureId': 'implementMeasure do lado esquerdo',
-  'truck.rightSideMeasureId': 'implementMeasure do lado direito',
-  'truck.backSideMeasureId': 'implementMeasure da traseira',
-  // As linhas novas do histórico (P11a): `implement.*`.
+  // e o histórico da tarefa grava `implement.<campo>`
   'implement.plate': 'placa do implemento',
   'implement.chassisNumber': 'chassi do implemento',
   'implement.vinPlateId': 'foto da plaqueta',
@@ -802,7 +792,7 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'createdAt',
     'updatedAt',
   ],
-  [ENTITY_TYPE.TRUCK]: [
+  [ENTITY_TYPE.IMPLEMENT]: [
     'id',
     'width',
     'height',

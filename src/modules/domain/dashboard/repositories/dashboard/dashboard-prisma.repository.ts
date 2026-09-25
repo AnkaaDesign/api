@@ -2276,10 +2276,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
     occupiedSpots: number;
     spotsByGarage: DashboardChartData;
   }> {
-    // Get trucks that are currently at the company:
+    // Get implements that are currently at the company:
     // - Have an active task (WAITING_PRODUCTION or IN_PRODUCTION status)
     // - Have an entry date (meaning they've arrived at the company)
-    const trucks = await this.prisma.implement.findMany({
+    const implementList = await this.prisma.implement.findMany({
       where: {
         task: {
           status: { in: [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION] },
@@ -2289,7 +2289,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       select: { spot: true },
     });
 
-    // Count trucks by garage (B1, B2, B3) or patio (null spot)
+    // Count implements by garage (B1, B2, B3) or patio (null spot)
     const garageNames = ['Pátio', 'Barracão 1', 'Barracão 2', 'Barracão 3'];
     const garageCounts = {
       PATIO: 0,
@@ -2298,15 +2298,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
       B3: 0,
     };
 
-    for (const truck of trucks) {
-      if (truck.spot?.startsWith('B1_')) {
+    for (const implement of implementList) {
+      if (implement.spot?.startsWith('B1_')) {
         garageCounts.B1++;
-      } else if (truck.spot?.startsWith('B2_')) {
+      } else if (implement.spot?.startsWith('B2_')) {
         garageCounts.B2++;
-      } else if (truck.spot?.startsWith('B3_')) {
+      } else if (implement.spot?.startsWith('B3_')) {
         garageCounts.B3++;
       } else {
-        // Trucks with null spot are in the patio (at the company but not in a garage)
+        // Implements with null spot are in the patio (at the company but not in a garage)
         garageCounts.PATIO++;
       }
     }
@@ -2325,7 +2325,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       labels: garageNames,
       datasets: [
         {
-          label: 'Caminhões por Garagem',
+          label: 'Implementos por Garagem',
           data: [garageCounts.PATIO, garageCounts.B1, garageCounts.B2, garageCounts.B3],
         },
       ],
@@ -2340,15 +2340,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
     };
   }
 
-  async getTruckMetrics(): Promise<{
+  async getImplementMetrics(): Promise<{
     total: number;
     inProduction: number;
     byManufacturer: DashboardChartData;
     byPosition: DashboardListItem[];
   }> {
-    // Only count trucks with active tasks that have arrived (entryDate exists)
+    // Only count implements with active tasks that have arrived (entryDate exists)
     const activeTaskStatuses = [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION];
-    const [activeTrucks, trucksInProduction] = await Promise.all([
+    const [activeImplements, implementsInProduction] = await Promise.all([
       this.prisma.implement.findMany({
         where: {
           task: {
@@ -2374,12 +2374,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
       }),
     ]);
 
-    const total = activeTrucks.length;
+    const total = activeImplements.length;
 
-    // Group by truck category (real data from the category field)
-    const categoryGroups = activeTrucks.reduce(
-      (acc, truck) => {
-        const category = truck.category || 'Outros';
+    // Group by implement category (real data from the category field)
+    const categoryGroups = activeImplements.reduce(
+      (acc, implement) => {
+        const category = implement.category || 'Outros';
         acc[category] = (acc[category] || 0) + 1;
         return acc;
       },
@@ -2391,25 +2391,25 @@ export class DashboardPrismaRepository implements DashboardRepository {
       labels: sortedCategories.map(([cat]) => cat),
       datasets: [
         {
-          label: 'Caminhões por Categoria',
+          label: 'Implementos por Categoria',
           data: sortedCategories.map(([, count]) => count),
         },
       ],
     };
 
-    const byPosition = activeTrucks.map(truck => ({
-      id: truck.id,
-      name: `${truck.plate || 'Sem placa'} - ${truck.task?.name || 'N/A'}`,
+    const byPosition = activeImplements.map(implement => ({
+      id: implement.id,
+      name: `${implement.plate || 'Sem placa'} - ${implement.task?.name || 'N/A'}`,
       value: 1,
       metadata: {
-        position: truck.spot || 'Sem posição',
-        inProduction: truck.task?.status === TASK_STATUS.IN_PRODUCTION,
+        position: implement.spot || 'Sem posição',
+        inProduction: implement.task?.status === TASK_STATUS.IN_PRODUCTION,
       },
     }));
 
     return {
       total,
-      inProduction: trucksInProduction,
+      inProduction: implementsInProduction,
       byManufacturer,
       byPosition,
     };
@@ -2606,7 +2606,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     let expectedRevenue = 0;
     // A FATIA DESTA TAREFA, não o contrato inteiro: desde o orçamento
     // multitarefa N tarefas dividem um orçamento cujo `total` é `por veículo × N`.
-    // Somar o total em cada linha fazia o Marquespan de sessenta caminhões
+    // Somar o total em cada linha fazia o Marquespan de sessenta implementos
     // aparecer como R$ 43,8 milhões de receita esperada em vez de R$ 730 mil.
     // A soma das N fatias reconstrói o contrato.
     for (const task of allQuotedTasks) {
@@ -3605,7 +3605,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         status: 'COMPLETED' as any,
         quote: quoteStatusFilter,
         // E A COBRANÇA DESTE VEÍCULO AINDA NÃO FOI APROVADA. A fila é por
-        // VEÍCULO: num orçamento de sessenta caminhões faturados um a um, os
+        // VEÍCULO: num orçamento de sessenta implementos faturados um a um, os
         // trinta já cobrados sairiam da fila e os trinta restantes ficariam —
         // olhar só o estado do orçamento mostrava os sessenta para sempre,
         // porque `APPROVED` é terminal e não se move mais.

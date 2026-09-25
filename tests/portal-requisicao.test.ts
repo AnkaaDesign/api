@@ -20,7 +20,7 @@
  *      mede em centímetros. Uma conversão esquecida faz um baú de 2,50 m virar
  *      um de 250 m, e nada no banco recusa — os dois são `Float`.
  *
- *   4. PRODUTO CARTESIANO. `Task.serialNumber` e `Truck.plate` são `@unique`
+ *   4. PRODUTO CARTESIANO. `Implement.serialNumber` e `Implement.plate` são `@unique`
  *      GLOBAIS, e o formulário interno emite N placas × 1 série. O erro certo é
  *      um 400 NOMEANDO a série culpada, não "Unique constraint failed on the
  *      fields: (`serialNumber`)".
@@ -657,7 +657,7 @@ console.log('\n9. A FORMA DO SERVIÇO — o que não é função pura, mas tem d
   // ── Armadilha 4: `implement.plate`, nunca `plate` no topo ───────────────
   const criacaoDaTarefa = servico.slice(
     servico.indexOf('tx.task.create'),
-    servico.indexOf('const truckId'),
+    servico.indexOf('const implementId'),
   );
   check(
     'a tarefa nasce com `implement: { create: { plate ... } }` (W4, DD1)',
@@ -1370,7 +1370,7 @@ async function vinculoDoRequisitante() {
 
   const RESPONSAVEL = UUID(9);
   const EMPRESA_DO_CONTATO = UUID(8);
-  const DONO_DO_CAMINHAO = UUID(7);
+  const DONO_DO_IMPLEMENTO = UUID(7);
   const ORCAMENTO = UUID(6);
 
   let criacaoDaTarefa: any = null;
@@ -1396,7 +1396,7 @@ async function vinculoDoRequisitante() {
     // ⚠️ O DONO DO CAMINHÃO NÃO É A EMPRESA DO CONTATO. É o caso Furgões, e é
     // justamente nele que o vínculo pessoal é a ÚNICA coisa que sustenta a
     // visibilidade.
-    customerId: DONO_DO_CAMINHAO,
+    customerId: DONO_DO_IMPLEMENTO,
     customerName: 'RKO Transportes',
     paintId: null,
     responsibleId: RESPONSAVEL,
@@ -1410,7 +1410,7 @@ async function vinculoDoRequisitante() {
   );
   check(
     'sem que isso mexa no DONO do veículo — são eixos diferentes',
-    criacaoDaTarefa?.customer?.connect?.id === DONO_DO_CAMINHAO,
+    criacaoDaTarefa?.customer?.connect?.id === DONO_DO_IMPLEMENTO,
     JSON.stringify(criacaoDaTarefa?.customer),
   );
   check(

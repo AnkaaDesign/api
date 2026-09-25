@@ -44,7 +44,7 @@ export abstract class BudgetRepository extends BaseStringRepository<
   abstract findApprovedByTaskId(taskId: string): Promise<Budget | null>;
 
   /**
-   * Find the most recent quote matching task name, customerId, truck category, and implement type
+   * Find the most recent quote matching task name, customerId, implement category, and implement type
    */
   abstract findSuggestion(params: {
     name: string;

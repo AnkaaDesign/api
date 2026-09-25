@@ -59,15 +59,15 @@ export class LayoutDimensionsController {
   )
   async dimensions(
     @Param('fileId') fileId: string,
-    @Query('truckId') truckId?: string,
+    @Query('implementId') implementId?: string,
     @Query('page') page?: string,
     @Query('rotation') rotation?: string,
   ) {
-    if (!truckId) {
-      throw new BadRequestException('Informe o caminhão: sem as medidas não há o que cotar.');
+    if (!implementId) {
+      throw new BadRequestException('Informe o implemento: sem as medidas não há o que cotar.');
     }
     const data = await this.service.dimensions(fileId, {
-      truckId,
+      implementId,
       pageNumber: toInt(page, 1),
       rotation: toInt(rotation, 0),
     });

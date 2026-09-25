@@ -57,7 +57,7 @@ import { PortalDecisionModule } from './modules/people/portal/portal-decision.mo
 import { PortalCatalogModule } from './modules/people/portal/portal-catalog.module';
 // A IDENTIFICAÇÃO DO VEÍCULO (`PATCH /cliente/me/veiculos/:taskId/
 // identificacao`) — série, placa, chassi, plaqueta e nº do pedido escritos pelo
-// próprio cliente. Módulo próprio porque ESCREVE tarefa, caminhão, arquivo e
+// próprio cliente. Módulo próprio porque ESCREVE tarefa, implemento, arquivo e
 // pedido de compra: arrasta `FileModule` e `PurchaseOrderModule`, e nada disso
 // pode entrar em `PortalModule`, que é a fundação pura.
 import { PortalIdentityModule } from './modules/people/portal/portal-identity.module';
@@ -81,7 +81,6 @@ import { ObservationModule } from './modules/production/task-observation/observa
 import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
 import { LayoutDimensionsModule } from './modules/production/layout-dimensions/layout-dimensions.module';
 import { ImplementModule } from './modules/production/implement/implement.module';
-import { ImplementLegacyMirrorInterceptor } from './modules/common/legacy-implement/implement-legacy-mirror.interceptor';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
 import { PersonalModule } from './modules/people/personal/personal.module';
@@ -237,10 +236,6 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     // is what let `GET /items` and `GET /users` ship prices and salaries to
     // every sector for as long as they did.
     { provide: APP_INTERCEPTOR, useClass: MoneyRedactionInterceptor },
-    // Janela bilíngue do implemento (P11a, até a R-D): `truck` espelhado em toda
-    // resposta com `implement` para os clientes instalados, e o contador das
-    // chaves velhas por rota × versão do app.
-    { provide: APP_INTERCEPTOR, useClass: ImplementLegacyMirrorInterceptor },
   ],
 })
 export class AppModule implements NestModule {

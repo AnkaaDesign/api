@@ -39,7 +39,7 @@ const FOLDER: Record<string, string> = {
   observations: 'Observacoes',
   cutFiles: 'Plotter',
   implementMeasurePhotos: 'Traseiras',
-  truckVinPlate: 'Plaquetas',
+  implementVinPlate: 'Plaquetas',
   customerLogo: 'Logo',
   signedPpeDocuments: 'EPIs',
   warning: 'Advertencias',

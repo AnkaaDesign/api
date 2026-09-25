@@ -49,12 +49,10 @@ export const TASK_FIELD_DOMAINS = {
   /** Task bonification status */
   bonification: ['bonification'],
   /**
-   * O IMPLEMENTO (placa, chassi, categoria, tipo, vaga, medidas; DD1). O nome
-   * velho da chave (`truck`) chega traduzido pelo pipe, mas fica listado aqui na
-   * janela bilíngue: quem chama `validateSectorFieldAccess` com o corpo cru não
-   * toma 400. A SÉRIE dentro do implemento exige TAMBÉM `identity` (G7).
+   * O IMPLEMENTO (placa, chassi, categoria, tipo, vaga, medidas; DD1). A SÉRIE
+   * dentro do implemento exige TAMBÉM `identity` (G7).
    */
-  implement: ['implement', 'truck'],
+  implement: ['implement'],
   /** Responsible users (incl. inline-created responsibles on create) */
   responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
   /**
@@ -238,7 +236,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
  * (POST /tasks, POST /tasks/batch, serial-range create).
  *
  * Creation is broader than update on purpose: the create form submits the full
- * task snapshot (dates, status default, sector, default service orders, truck,
+ * task snapshot (dates, status default, sector, default service orders, implement,
  * files...), so every creator role needs the structural domains.
  * What stays restricted at create:
  * - term (Prazo de Entrega): PRODUCTION_MANAGER only (same rule as update). A
@@ -421,15 +419,15 @@ export function validateSectorFieldAccess(
   // `implement.serialNumber` exige `identity` além de `implement` (G7). Hoje os
   // setores com `implement` também têm `identity` — o acoplamento é explícito
   // para não virar escalada no dia em que um deles perder `identity`.
-  for (const key of ['implement', 'truck']) {
-    const nested = data[key];
+  {
+    const nested = data.implement;
     if (
       nested &&
       typeof nested === 'object' &&
       (nested as Record<string, unknown>).serialNumber !== undefined &&
       !allowedFields.includes('serialNumber')
     ) {
-      disallowedFields.push(`${key}.serialNumber`);
+      disallowedFields.push('implement.serialNumber');
     }
   }
 

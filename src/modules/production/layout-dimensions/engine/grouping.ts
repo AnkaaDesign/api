@@ -1199,7 +1199,7 @@ export function classify(
   const plain: VectorObject[] = [];
 
   /**
-   * Template strokes are drawing FURNITURE, not sticker art. The truck
+   * Template strokes are drawing FURNITURE, not sticker art. The implement
    * template draws the face frame and its doors with the same hairline pen
    * (a 5-point rectangle, stroke only); a door rectangle that survives into
    * the pool becomes phantom touch evidence — it spans the full face height,
@@ -1246,7 +1246,7 @@ export function classify(
     if (penMatch && h >= 0.5 * panelHPt) return true;
     // Frame pen unreadable (the panel border came from a fill rect): a
     // stroke-only hairline rectangle spanning the face height is still the
-    // template — at truck scale a 1 pt line is under a millimetre of print.
+    // template — at implement scale a 1 pt line is under a millimetre of print.
     return obj.lineWidth <= 1 && h >= 0.8 * panelHPt;
   };
 
@@ -2465,7 +2465,7 @@ export function buildItems(
      *
      * A foice de fundo do FRICARNE sangra pelo topo e pelo piso, cobre 23% da
      * face e não é envelopamento pleno — então ficava sem contorno e a tela
-     * desenhava a CAIXA dela: 198 × 240 cm, a altura inteira do caminhão, para
+     * desenhava a CAIXA dela: 198 × 240 cm, a altura inteira do implemento, para
      * uma fita de trinta centímetros. Dois dos quatro lados caíam exatamente em
      * cima do contorno que o próprio PDF já desenha, e o preenchimento é 8% de
      * azul sobre arte escura. O quadro existia e era invisível.

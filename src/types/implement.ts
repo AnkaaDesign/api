@@ -1,8 +1,8 @@
-// IMPLEMENTO (era `Truck`) — tipos DERIVADOS do Prisma (PLANO §6.1, P11a).
+// IMPLEMENTO (era `Implement`) — tipos DERIVADOS do Prisma (PLANO §6.1, P11a).
 //
-// O `types/truck.ts` era escrito à mão e mentia (tinha `*SideMeasureId` que o
+// O `types/implement.ts` era escrito à mão e mentia (tinha `*SideMeasureId` que o
 // zod não aceitava); apagado de propósito, sem alias: um alias deixaria o tsc
-// calado sobre quem ainda fala `Truck`.
+// calado sobre quem ainda fala `Implement`.
 
 import type { Implement as PrismaImplement, Prisma } from '@prisma/client';
 import type {

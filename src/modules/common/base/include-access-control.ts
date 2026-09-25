@@ -40,7 +40,7 @@ const SENSITIVE_FIELDS = [
  * G1: esta lista é só PERMISSÃO (403). Se a chave existe no modelo quem diz é o
  * validador derivado do DMMF (`common/query/dmmf-query-validator.ts`), que roda
  * antes, na rota; `tests/query-contract.test.ts` reprova se aparecer aqui chave
- * que o modelo não tem (saíram `Task.updatedBy`, e do select `Task.truckId`,
+ * que o modelo não tem (saíram `Task.updatedBy`, e do select um id de implemento fantasma,
  * `Task.updatedBy`, `User.role`, `User.ledSectorId`, `User.ppeSizeId`).
  */
 const INCLUDE_WHITELIST: Record<string, string[]> = {
@@ -78,12 +78,8 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'logoPaints',
     'serviceOrders',
     'quote',
-    // O implemento (DD1). O nome velho FICA na janela bilíngue (até a R-D): o
-    // tradutor já o trocou antes daqui, mas tirá-lo da lista daria 403 em toda
-    // tela de tarefa do app instalado no dia em que alguém chamasse esta checagem
-    // antes do pipe. `layouts` idem (vira chave sintética no P12).
+    // O implemento (DD1): toda tarefa tem um.
     'implement',
-    'truck',
     'airbrushings',
     'cuts',
     'relatedTasks',
@@ -177,7 +173,6 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'generalPainting',
     'createdBy',
     'implement',
-    'truck',
     'budgets',
     'invoices',
     'receipts',

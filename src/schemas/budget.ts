@@ -519,7 +519,7 @@ const budgetTransform = (data: any) => {
       // Logomarca + série — campos das TAREFAS do orçamento. `some` e não o
       // filtro to-one: um orçamento cobre N veículos, e achar o orçamento pela
       // série de QUALQUER um deles é justamente o que o operador quer quando
-      // digita o número que está lendo no caminhão à frente dele.
+      // digita o número que está lendo no implemento à frente dele.
       { tasks: { some: { nameNormalized: { contains: term } } } },
       { tasks: { some: { serialNumberNormalized: { contains: term } } } },
       {
@@ -749,7 +749,7 @@ export const budgetPayerCreateNestedSchema = z
     /**
      * ⚠️ `orderNumber` NÃO EXISTE AQUI: o número do pedido de compra é do
      * VEÍCULO (`Task.customerOrderNumber`, escrito por `PUT /tasks/:id`) — um
-     * orçamento cobre N caminhões e o pedido é por entrega. O objeto não é
+     * orçamento cobre N implementos e o pedido é por entrega. O objeto não é
      * `.strict()`, então o zod descarta a chave em silêncio.
      */
     /**
@@ -1007,7 +1007,7 @@ export const budgetCreateNestedInBatchSchema = budgetCreateBaseSchema.omit({
  * pedido de compra de UM veículo do orçamento.
  *
  * `taskId` é obrigatório: o pedido é do VEÍCULO desde a migração
- * `20260909170000`, e num orçamento de sessenta caminhões escrever nos sessenta
+ * `20260909170000`, e num orçamento de sessenta implementos escrever nos sessenta
  * apagaria os pedidos dos outros cinquenta e nove. `customerId` não é aceito —
  * o pedido não é mais por cliente; o objeto não é `.strict()`, então o zod o
  * descarta.

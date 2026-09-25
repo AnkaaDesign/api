@@ -3,12 +3,12 @@
 // QUAIS LINHAS este contato pode ver. Um lugar só, e nunca um `where` escrito à
 // mão num controlador.
 //
-// O PROBLEMA QUE ISTO RESOLVE — a Furgões Ibiporã não é dona do caminhão. Ela
+// O PROBLEMA QUE ISTO RESOLVE — a Furgões Ibiporã não é dona do implemento. Ela
 // faz o baú e intermedeia a pintura, e isso já está em dado de produção: os
 // orçamentos 259–262 têm DOIS clientes (Ibiporã Implementos + RKO Alimentos), UM
 // faturamento, e a repartição estava escrita à mão na OBSERVAÇÃO de cada serviço
 // porque não existia coluna (migration `20260917150100`). Um contato da Furgões
-// tem `companyId = IBIPORA`; o caminhão é da RKO. Escopar por
+// tem `companyId = IBIPORA`; o implemento é da RKO. Escopar por
 // `responsible.companyId === Task.customerId` não mostraria NADA à Furgões.
 //
 // Daí os três caminhos, em UNIÃO:
@@ -120,7 +120,7 @@ export class PortalScopeService {
    *
    * (c) `tasks.responsibles.id` — EU sou contato de pelo menos um veículo.
    *     `Task.responsibles` é m:n e NADA confere contra `Task.customerId`: um
-   *     contato da Furgões já pode estar preso a um caminhão da RKO, e é, por
+   *     contato da Furgões já pode estar preso a um implemento da RKO, e é, por
    *     acidente, a única modelagem de intermediação que existe. Este caminho
    *     transforma o acidente em regra — e é o ÚNICO dos três que é pessoal, e
    *     não da empresa.
@@ -188,16 +188,16 @@ export class PortalScopeService {
    * ou pela igualdade `task.customerId === companyId`, erra de um lado cada vez:
    *
    *   · `task.customerId === companyId` RECUSA O CASO PRINCIPAL. A Furgões
-   *     Ibiporã emite o pedido e o caminhão é da RKO (orçamentos 259–262,
+   *     Ibiporã emite o pedido e o implemento é da RKO (orçamentos 259–262,
    *     migration `20260917150100`). Com a igualdade, o Compras da Furgões não
-   *     consegue ligar o pedido dela a caminhão NENHUM — a feature nasce morta
+   *     consegue ligar o pedido dela a implemento NENHUM — a feature nasce morta
    *     no cenário que a justifica.
    *
    *   · `taskScopeWhere` inteiro ACEITA DEMAIS. O caminho (c) — "eu sou contato
    *     deste veículo" — é PESSOAL, atravessa empresas de propósito e não
    *     carrega nenhum laço comercial: `Task.responsibles` é m:n e NADA confere
    *     contra `Task.customerId`. Um contato que apareça, por cadastro antigo ou
-   *     por engano, na lista de um caminhão de outra empresa carimbaria o pedido
+   *     por engano, na lista de um implemento de outra empresa carimbaria o pedido
    *     da empresa DELE num veículo com que a empresa dele não tem conta a
    *     acertar — e o `@@unique([customerId, number])` não perceberia nada,
    *     porque o pedido está certo; errado está o vínculo.

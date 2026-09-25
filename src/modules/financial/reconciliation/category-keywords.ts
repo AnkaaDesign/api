@@ -154,7 +154,7 @@ export const EMITTER_PRIORS: readonly EmitterPrior[] = [
   { pattern: /\balarm|\bmonitora|\bsegur/, serviceSlug: 'monitoramento', confidence: 55 },
   // Impressão de Adesivo — Aderi / RT Comunicação Visual and similar sticker printers
   { pattern: /\badesiv|\bplotagem|\br\s*t\s+comunicacao/, serviceSlug: 'impressao-de-adesivo', confidence: 60 },
-  // Aerografia — known aerography subcontractors (truck artwork)
+  // Aerografia — known aerography subcontractors (arte em implementos)
   { pattern: /\bpaulo\s+batista\b/, serviceSlug: 'aerografia', confidence: 72 },
   { pattern: /\bmarcos\s+aurelio\b/, serviceSlug: 'aerografia', confidence: 72 },
   { pattern: /\bclaudemir\b/, serviceSlug: 'aerografia', confidence: 72 },

@@ -37,8 +37,8 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     });
   }
 
-  async findByTruckId(
-    truckId: string,
+  async findByImplementId(
+    implementId: string,
     options?: { includePhoto?: boolean },
   ): Promise<{
     leftSideMeasure: ImplementMeasure | null;
@@ -49,8 +49,8 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     // Preview views don't need photo data
     const includePhoto = options?.includePhoto ?? false;
 
-    const truck = await this.prisma.implement.findUnique({
-      where: { id: truckId },
+    const implement = await this.prisma.implement.findUnique({
+      where: { id: implementId },
       include: {
         leftSideMeasure: {
           include: {
@@ -79,7 +79,7 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
       },
     });
 
-    if (!truck) {
+    if (!implement) {
       return {
         leftSideMeasure: null,
         rightSideMeasure: null,
@@ -88,9 +88,9 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     }
 
     return {
-      leftSideMeasure: truck.leftSideMeasure,
-      rightSideMeasure: truck.rightSideMeasure,
-      backSideMeasure: truck.backSideMeasure,
+      leftSideMeasure: implement.leftSideMeasure,
+      rightSideMeasure: implement.rightSideMeasure,
+      backSideMeasure: implement.backSideMeasure,
     };
   }
 
@@ -114,7 +114,7 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     userId?: string,
     /**
      * Roda DENTRO da transação da edição, depois dela — é por onde o serviço
-     * replica a medida editada para os irmãos de orçamento de cada caminhão que
+     * replica a medida editada para os irmãos de orçamento de cada implemento que
      * a usava, sem abrir uma segunda transação. Recebe as faces que apontavam
      * para a linha ANTES da edição (depois dela, cada uma tem a sua linha).
      */

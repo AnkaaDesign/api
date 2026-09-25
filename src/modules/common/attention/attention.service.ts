@@ -320,7 +320,7 @@ const NOT_YET_INVOICED: Prisma.BudgetWhereInput = {
   // corrigir, de volta por outra porta: quem sabe se a nota saiu é o `Billing`.
   //
   // `some { approvedAt: null }` e não `none { approvedAt: not null }`: num
-  // orçamento de sessenta caminhões faturados um a um, com trinta já cobrados,
+  // orçamento de sessenta implementos faturados um a um, com trinta já cobrados,
   // o dinheiro dos outros trinta continua parado pelo campo que falta.
   //
   // O braço `none: {}` é o orçamento que ainda não tem cobrança nenhuma (nasce
@@ -356,7 +356,7 @@ function missingRequiredText(field: keyof Prisma.CustomerWhereInput): Prisma.Cus
  *
  * A fatia de faturamento diz DE QUEM é a cobrança; o número do pedido mora na
  * TAREFA (`Task.customerOrderNumber`) desde que um orçamento passou a cobrir N
- * caminhões — o pedido é por ENTREGA. Por isso a regra virou duas condições
+ * implementos — o pedido é por ENTREGA. Por isso a regra virou duas condições
  * irmãs no mesmo `where` do orçamento: existe fatia da Ibiporã que emite nota, E
  * existe veículo sem número de pedido. Bastaria um veículo em branco entre os
  * sessenta para a nota daquele sair sem o pedido que o cliente exige.
@@ -535,7 +535,7 @@ export const RULE_QUERIES: RuleQuery[] = [
       // `Task.quoteId` DEIXOU DE SER @unique: um orçamento cobre N veículos, e o
       // filtro passou de to-one para `some`. A semântica muda de propósito —
       // "algum veículo já está pronto" é o gatilho certo: num orçamento de
-      // sessenta caminhões o dinheiro já está parado quando o primeiro sai, e
+      // sessenta implementos o dinheiro já está parado quando o primeiro sai, e
       // esperar os sessenta esconderia o problema por meses. `some` também
       // continua exigindo que exista tarefa, que é o que se quer (orçamento sem
       // tarefa não fatura nada).
@@ -547,7 +547,7 @@ export const RULE_QUERIES: RuleQuery[] = [
       // Um `some` SEPARADO do de cima: as duas perguntas são sobre veículos
       // diferentes ("algum já ficou pronto" e "algum está sem pedido") e juntá-las
       // num `some` só exigiria que fosse o MESMO veículo — o que deixaria passar
-      // o caso comum de o caminhão pronto ter pedido e o seguinte não.
+      // o caso comum de o implemento pronto ter pedido e o seguinte não.
       AND: [{ tasks: { some: TASK_MISSING_ORDER_NUMBER } }],
     }),
   },

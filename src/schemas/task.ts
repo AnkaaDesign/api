@@ -25,7 +25,7 @@ import {
   BONIFICATION_STATUS,
   IMPLEMENT_CATEGORY,
   IMPLEMENT_TYPE,
-  TRUCK_SPOT,
+  IMPLEMENT_SPOT,
   AIRBRUSHING_DESCRIPTION_PREFIX,
 } from '@constants';
 import { responsibleRolesSchema, makeOptionalEmailSchema } from './responsible';
@@ -436,7 +436,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      // IMPLEMENTO (era `truck`; o pedido velho chega traduzido por
+      // IMPLEMENTO (era `implement`; o pedido velho chega traduzido por
       // `translateLegacyImplementKeys` antes deste schema).
       implement: z
         .union([
@@ -734,7 +734,7 @@ const taskOrderByFieldsSchema = z.object({
       corporateName: orderByWithNullsSchema.optional(),
     })
     .optional(),
-  // Implemento (to-one). `truck.plate` do web velho chega traduzido para cá.
+  // Implemento (to-one). `implement.plate` do web velho chega traduzido para cá.
   implement: z
     .object({
       serialNumber: orderByWithNullsSchema.optional(),
@@ -879,7 +879,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
        * esta linha a lista de Faturamento só conseguia filtrar por
        * `quote.billings.some.status` — "o ORÇAMENTO tem alguma cobrança nesse
        * estado", que é mais largo que a linha e discorda do badge que a própria
-       * linha mostra. Num orçamento de sessenta caminhões com uma fatia vencida,
+       * linha mostra. Num orçamento de sessenta implementos com uma fatia vencida,
        * o filtro "Vencido" trazia os sessenta.
        *
        * Relação de-UM (`BillingTask?`), então `is`/`isNot` em vez de
@@ -1004,7 +1004,7 @@ const taskTransform = (data: any): any => {
 
   // "Implemento identificado" (série ∨ placa ∨ chassi). Com a DD1 toda tarefa tem
   // implemento, então "tem implemento" seria sempre verdadeiro (pergunta 18 do
-  // plano): o filtro legado `hasTruck` chega traduzido para este.
+  // plano): o filtro legado `hasImplement` chega traduzido para este.
   if (data.implementIdentified === true || data.implementIdentified === false) {
     const identified = {
       implement: {
@@ -1759,7 +1759,7 @@ export const taskGetManySchema = z
     hasSector: z.boolean().optional(),
     hasCustomer: z.boolean().optional(),
     hasAssignee: z.boolean().optional(),
-    // série ∨ placa ∨ chassi (o `hasTruck` legado chega traduzido para cá)
+    // série ∨ placa ∨ chassi (o `hasImplement` legado chega traduzido para cá)
     implementIdentified: z.boolean().optional(),
     hasObservation: z.boolean().optional(),
     hasLayouts: z.boolean().optional(),
@@ -1798,7 +1798,7 @@ export const taskGetManySchema = z
     implementIds: z.array(z.string()).optional(),
     paintIds: z.array(z.string()).optional(), // Filter by general painting/paint ID
     logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
-    spots: z.array(z.nativeEnum(TRUCK_SPOT)).optional(), // vaga do implemento no barracão
+    spots: z.array(z.nativeEnum(IMPLEMENT_SPOT)).optional(), // vaga do implemento no barracão
     implementCategories: z.array(z.nativeEnum(IMPLEMENT_CATEGORY)).optional(), // categoria do implemento
     implementTypes: z.array(z.nativeEnum(IMPLEMENT_TYPE)).optional(), // Filter by implement type
     // Numeric range filters
@@ -2047,13 +2047,13 @@ const taskProductionServiceOrderCreateSchema = z.object({
   checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
-// A face de medida embutida no caminhão: fonte única em `./implement-measure`
+// A face de medida embutida no implemento: fonte única em `./implement-measure`
 // (lá está por que ela é mais frouxa que o schema do módulo de medidas).
 const implementMeasureSideSchema = implementMeasureFaceInputSchema;
 
 const implementCategorySchema = z.nativeEnum(IMPLEMENT_CATEGORY);
 const implementTypeSchema = z.nativeEnum(IMPLEMENT_TYPE);
-const spotSchema = z.nativeEnum(TRUCK_SPOT);
+const spotSchema = z.nativeEnum(IMPLEMENT_SPOT);
 
 /** A regra da série (hoje): só maiúsculas, dígitos e hífen; vazio vira null. */
 export const SERIAL_NUMBER_PATTERN = /^[A-Z0-9-]+$/;
@@ -2080,10 +2080,10 @@ function serialNumberBodySchema(mode: 'create' | 'update') {
 }
 
 /**
- * O IMPLEMENTO no corpo da tarefa (era `truck`; DD1: toda tarefa tem um).
+ * O IMPLEMENTO no corpo da tarefa (era `implement`; DD1: toda tarefa tem um).
  *
  * `.strict()` (G2): chave desconhecida é 400, nunca "salvou com 200 e não
- * gravou". O corpo velho (`truck`, `implementType`, `*SideMeasureId`) chega
+ * gravou". O corpo velho (`implement`, `implementType`, `*SideMeasureId`) chega
  * TRADUZIDO por `translateLegacyImplementKeys` antes deste schema. `null` não é
  * aceito: o implemento não se remove da tarefa (o tradutor responde com a frase).
  *
@@ -2100,7 +2100,7 @@ function buildTaskImplementSchema(mode: 'create' | 'update') {
       plate: plateSchema,
       chassisNumber: chassisNumberSchema,
       // Foto da plaqueta (VIN). Id de File já enviado; o upload multipart usa o
-      // campo `implementVinPlate` (ou o velho `truckVinPlate`).
+      // campo `implementVinPlate` (ou o velho `implementVinPlate`).
       vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
       // A vaga codifica barracão, faixa e posição (B1_F1_V1); null = fora das instalações.
       spot: spotSchema.nullable().optional(),
@@ -2140,7 +2140,7 @@ export const taskCreateSchema = z
     /**
      * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo.
      *
-     * Livre e não único: os sessenta caminhões de um orçamento podem vir num
+     * Livre e não único: os sessenta implementos de um orçamento podem vir num
      * pedido só, em pedidos diferentes ou em blocos. Morava na configuração de
      * faturamento (por cliente), o que obrigava os N veículos a citarem o mesmo
      * número na nota e no boleto.
@@ -2817,7 +2817,7 @@ export const taskBulkPositionUpdateSchema = z.object({
 
 export type TaskBulkPositionUpdateFormData = z.infer<typeof taskBulkPositionUpdateSchema>;
 
-// Schema for swapping two trucks
+// Schema for swapping two implements
 export const taskSwapPositionSchema = z.object({
   targetTaskId: z.string().uuid(),
 });

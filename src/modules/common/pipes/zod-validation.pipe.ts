@@ -9,10 +9,6 @@ import {
 } from '@nestjs/common';
 import { ZodSchema, ZodError, ZodIssue } from 'zod';
 import { enforceQueryShape } from '../query/query-shape.guard';
-import {
-  translateLegacyImplementBody,
-  translateLegacyImplementQuery,
-} from '../legacy-implement/legacy-implement-keys';
 
 interface ValidationErrorResponse {
   message: string;
@@ -40,13 +36,6 @@ export interface ZodValidationPipeOptions {
   bareRelationArgsIgnored?: boolean;
   /** G1: ver `EnforceQueryShapeOptions.reportOnly` (conta, não recusa nem traduz). */
   reportOnly?: boolean;
-  /**
-   * Janela bilíngue do implemento (P11a): o corpo é de ESCRITA DE TAREFA e o
-   * nome velho do implemento vira `implement` antes do zod
-   * (`translateLegacyImplementBody`). Só nas rotas de tarefa: outro corpo com
-   * uma chave de mesmo nome (preferência salva, por exemplo) não é tocado.
-   */
-  legacyImplementBody?: boolean;
 }
 
 @Injectable()
@@ -77,25 +66,22 @@ export class ZodValidationPipe implements PipeTransform {
         return value;
       }
 
-      // For query parameters, use special handling. A janela bilíngue do
-      // implemento traduz o nome velho para `implement` (em toda rota) ANTES do zod.
+      // For query parameters, use special handling
       if (metadata.type === 'query') {
-        const transformedValue = translateLegacyImplementQuery(this.transformQueryParams(value));
+        const transformedValue = this.transformQueryParams(value);
         return this.schema.parse(transformedValue);
       }
 
       // For body parameters, fix arrays before validation
       if (metadata.type === 'body') {
         const fixedValue = this.fixArrays(value);
-        return this.schema.parse(
-          this.options.legacyImplementBody ? translateLegacyImplementBody(fixedValue) : fixedValue,
-        );
+        return this.schema.parse(fixedValue);
       }
 
       // Parse and validate the value
       return this.schema.parse(value);
     } catch (error) {
-      // 400 nomeado do tradutor do implemento (e de qualquer outra camada): passa como veio
+      // 400 nomeado de outra camada: passa como veio
       if (error instanceof HttpException) throw error;
       if (error instanceof ZodError) {
         // Log the detailed Zod error for debugging

@@ -507,13 +507,6 @@ export const routes = {
       list: '/producao/servicos',
       root: '/producao/servicos',
     },
-    trucks: {
-      create: '/producao/caminhoes/cadastrar',
-      details: (id: string) => `/producao/caminhoes/detalhes/${id}`,
-      edit: (id: string) => `/producao/caminhoes/editar/${id}`,
-      list: '/producao/caminhoes',
-      root: '/producao/caminhoes',
-    },
   },
 
   // Server - Servidor - Server Management

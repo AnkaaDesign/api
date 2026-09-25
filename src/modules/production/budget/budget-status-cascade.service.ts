@@ -40,7 +40,7 @@ export class BudgetStatusCascadeService {
         // A TAREFA ÂNCORA — a primeira na ordem canônica, nunca a que o banco
         // devolver primeiro. Sem `orderBy` a escolha mudava entre duas leituras
         // do MESMO orçamento, e âncora que anda é como o mesmo orçamento passa a
-        // apontar para caminhões diferentes (rótulo, deep link, e o carimbo que a
+        // apontar para implementos diferentes (rótulo, deep link, e o carimbo que a
         // migração vai ler).
       const task = await this.prisma.task.findFirst({
         where: { quoteId },

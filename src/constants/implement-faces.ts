@@ -2,7 +2,7 @@
  * AS FACES DO IMPLEMENTO — a lista única da API.
  *
  * Cada face tem, no máximo, UMA medida corrente (`ImplementMeasure`), apontada
- * por uma coluna própria do caminhão (`leftSideMeasureId`, …). O mapa face →
+ * por uma coluna própria do implemento (`leftSideMeasureId`, …). O mapa face →
  * coluna mora no escritor único de medida
  * (`modules/production/implement-measure/implement-measure-writer.ts`); tudo
  * que percorre "os lados" percorre ESTA lista, para que a face nova (a frente,

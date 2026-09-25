@@ -342,7 +342,7 @@ export interface GarageDashboardSummary {
     trend: TREND_DIRECTION;
   }>;
 
-  currentTrucks: Array<{
+  currentImplements: Array<{
     id: string;
     taskId: string;
     garage: string;

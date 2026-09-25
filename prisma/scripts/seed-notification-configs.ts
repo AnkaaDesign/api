@@ -67,7 +67,7 @@
  * WHATSAPP TEMPLATES FOR ALL
  *   Every config's templates include a whatsapp.body (the dispatch layer
  *   prepends the title; body-only). The 3 explicitly-authored whatsapp bodies
- *   (bank_slip.due, bank_slip.paid, truck.movement_request) are kept (updated
+ *   (bank_slip.due, bank_slip.paid, implement.movement_request) are kept (updated
  *   in the 2026-06-10 overhaul: actor-free, grounded vars); all others derive
  *   from the FINAL inApp body (post-overhaul). Templates are kept for EVERY
  *   config even where the channel is off — same convention as EMAIL, so
@@ -179,7 +179,7 @@
  *   whole dispatch as soon as the busiest recipient hits the cap.
  *
  * LEGACY / DEAD KEYS
- *   Dormant keys (task.status.changed, task.field.truck.*SideLayoutId,
+ *   Dormant keys (task.status.changed, task.field.implement.*SideLayoutId,
  *   secullum.signature.signed/rejected, …) stay in the registry with honest
  *   descriptions — prod rows are never deleted.
  *
@@ -6223,7 +6223,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Tarefa Concluida",
     notificationType: "PRODUCTION",
     eventType: "task.completed",
-    description: "Tarefa concluída — caminhão finalizado (transição de status para Concluída).",
+    description: "Tarefa concluída — implemento finalizado (transição de status para Concluída).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -6240,18 +6240,18 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Tarefa Concluída",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi concluída — caminhão finalizado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi concluída — implemento finalizado.",
       },
       push: {
         title: "Tarefa Concluída",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — concluída, caminhão finalizado",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — concluída, implemento finalizado",
       },
       email: {
         subject: "Tarefa Concluída - {{taskName}}",
-        body: "A tarefa foi concluída — caminhão finalizado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}",
+        body: "A tarefa foi concluída — implemento finalizado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi concluída — caminhão finalizado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi concluída — implemento finalizado.",
       },
     },
     metadata: {
@@ -6834,7 +6834,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Data de Entrada Alterada",
     notificationType: "PRODUCTION",
     eventType: "task.field.entryDate",
-    description: "Data de entrada do caminhão alterada ou removida (rastreador de campos da tarefa).",
+    description: "Data de entrada do implemento alterada ou removida (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -6924,7 +6924,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao Atualizada",
     notificationType: "PRODUCTION",
     eventType: "task.field.forecastDate",
-    description: "Previsão de liberação do caminhão alterada ou removida (rastreador de campos da tarefa).",
+    description: "Previsão de liberação do implemento alterada ou removida (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -7637,11 +7637,11 @@ const CONFIGS: ConfigDef[] = [
     },
   },
   {
-    key: "task.field.truck.backSideMeasureId",
+    key: "task.field.implement.backSideMeasureId",
     name: "Layout Traseira Alterado",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.backSideMeasureId",
-    description: "(Legado — consolidado na notificação única de Medidas do Caminhão; nunca dispara.)",
+    eventType: "task.field.implement.backSideMeasureId",
+    description: "(Legado — consolidado na notificação única de Medidas do Implemento; nunca dispara.)",
     enabled: false,
     importance: "HIGH",
     workHoursOnly: true,
@@ -7658,34 +7658,34 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Layout Traseira Alterado",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout da traseira do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout da traseira do implemento alterado.",
       },
       push: {
         title: "Layout Traseira Alterado",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do caminhão alterado",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do implemento alterado",
       },
       email: {
         subject: "Layout Traseira Alterado - {{taskName}}",
         body: "A tarefa teve o layout da traseira alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout da traseira do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout da traseira do implemento alterado.",
       },
     },
     metadata: {
-      field: "truck.backSideMeasureId",
+      field: "implement.backSideMeasureId",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.backSideMeasureId\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.backSideMeasureId\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.category",
-    name: "Categoria do Caminhao Alterada",
+    key: "task.field.implement.category",
+    name: "Categoria do Implemento Alterada",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.category",
-    description: "Categoria do caminhão da tarefa alterada (rastreador de campos da tarefa).",
+    eventType: "task.field.implement.category",
+    description: "Categoria do implemento da tarefa alterada (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -7701,35 +7701,35 @@ const CONFIGS: ConfigDef[] = [
     },
     templates: {
       inApp: {
-        title: "Categoria do Caminhão Alterada",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a categoria do caminhão alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        title: "Categoria do Implemento Alterada",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a categoria do implemento alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
       push: {
-        title: "Categoria do Caminhão Alterada",
+        title: "Categoria do Implemento Alterada",
         body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — categoria: {{#if newValue}}{{newValue}}{{else}}removida{{/if}}",
       },
       email: {
-        subject: "Categoria do Caminhão Alterada - {{taskName}}",
-        body: "A tarefa teve a categoria do caminhão alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
+        subject: "Categoria do Implemento Alterada - {{taskName}}",
+        body: "A tarefa teve a categoria do implemento alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a categoria do caminhão alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a categoria do implemento alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
     },
     metadata: {
-      field: "truck.category",
+      field: "implement.category",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.category\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.category\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.chassisNumber",
-    name: "Chassi do Caminhao Alterado",
+    key: "task.field.implement.chassisNumber",
+    name: "Chassi do Implemento Alterado",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.chassisNumber",
-    description: "Número do chassi do caminhão da tarefa alterado (rastreador de campos da tarefa).",
+    eventType: "task.field.implement.chassisNumber",
+    description: "Número do chassi do implemento da tarefa alterado (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -7745,35 +7745,35 @@ const CONFIGS: ConfigDef[] = [
     },
     templates: {
       inApp: {
-        title: "Chassi do Caminhão Alterado",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o chassi do caminhão alterado{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        title: "Chassi do Implemento Alterado",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o chassi do implemento alterado{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
       push: {
-        title: "Chassi do Caminhão Alterado",
+        title: "Chassi do Implemento Alterado",
         body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — chassi: {{#if newValue}}{{newValue}}{{else}}removido{{/if}}",
       },
       email: {
-        subject: "Chassi do Caminhão Alterado - {{taskName}}",
-        body: "A tarefa teve o chassi do caminhão alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
+        subject: "Chassi do Implemento Alterado - {{taskName}}",
+        body: "A tarefa teve o chassi do implemento alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o chassi do caminhão alterado{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o chassi do implemento alterado{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
     },
     metadata: {
-      field: "truck.chassisNumber",
+      field: "implement.chassisNumber",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.chassisNumber\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.chassisNumber\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.implementType",
+    key: "task.field.implement.type",
     name: "Tipo de Implemento Alterado",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.implementType",
-    description: "Tipo de implemento do caminhão da tarefa alterado (rastreador de campos da tarefa).",
+    eventType: "task.field.implement.type",
+    description: "Tipo do implemento da tarefa alterado (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -7805,19 +7805,19 @@ const CONFIGS: ConfigDef[] = [
       },
     },
     metadata: {
-      field: "truck.implementType",
+      field: "implement.type",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.implementType\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.type\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.implementMeasure",
-    name: "Medidas do Caminhão Atualizadas",
+    key: "task.field.implement.measures",
+    name: "Medidas do Implemento Atualizadas",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.implementMeasure",
-    description: "Medidas do caminhão da tarefa atualizadas (notificação única consolidada, não uma por lado).",
+    eventType: "task.field.implement.measures",
+    description: "Medidas do implemento da tarefa atualizadas (notificação única consolidada, não uma por lado).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: false,
@@ -7833,15 +7833,15 @@ const CONFIGS: ConfigDef[] = [
     },
     templates: {
       inApp: {
-        title: "Medidas do Caminhão Atualizadas",
-        body: "As medidas do caminhão da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foram atualizadas{{#if layoutChangeSummary}} ({{layoutChangeSummary}}){{/if}}.",
+        title: "Medidas do Implemento Atualizadas",
+        body: "As medidas do implemento da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foram atualizadas{{#if layoutChangeSummary}} ({{layoutChangeSummary}}){{/if}}.",
       },
       push: {
         title: "Medidas Atualizadas",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — medidas do caminhão atualizadas",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — medidas do implemento atualizadas",
       },
       whatsapp: {
-        body: "As medidas do caminhão da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foram atualizadas{{#if layoutChangeSummary}} ({{layoutChangeSummary}}){{/if}}.",
+        body: "As medidas do implemento da tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} foram atualizadas{{#if layoutChangeSummary}} ({{layoutChangeSummary}}){{/if}}.",
       },
     },
     metadata: {
@@ -7851,11 +7851,11 @@ const CONFIGS: ConfigDef[] = [
     },
   },
   {
-    key: "task.field.truck.leftSideMeasureId",
+    key: "task.field.implement.leftSideMeasureId",
     name: "Layout Lado Esquerdo Alterado",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.leftSideMeasureId",
-    description: "(Legado — consolidado na notificação única de Medidas do Caminhão; nunca dispara.)",
+    eventType: "task.field.implement.leftSideMeasureId",
+    description: "(Legado — consolidado na notificação única de Medidas do Implemento; nunca dispara.)",
     enabled: false,
     importance: "HIGH",
     workHoursOnly: true,
@@ -7872,34 +7872,34 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Layout Lado Esquerdo Alterado",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado esquerdo do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado esquerdo do implemento alterado.",
       },
       push: {
         title: "Layout Lado Esquerdo Alterado",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do caminhão alterado",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do implemento alterado",
       },
       email: {
         subject: "Layout Lado Esquerdo Alterado - {{taskName}}",
         body: "A tarefa teve o layout do lado esquerdo alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado esquerdo do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado esquerdo do implemento alterado.",
       },
     },
     metadata: {
-      field: "truck.leftSideMeasureId",
+      field: "implement.leftSideMeasureId",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.leftSideMeasureId\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.leftSideMeasureId\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.plate",
-    name: "Placa do Caminhao Alterada",
+    key: "task.field.implement.plate",
+    name: "Placa do Implemento Alterada",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.plate",
-    description: "Placa do caminhão da tarefa alterada (rastreador de campos da tarefa).",
+    eventType: "task.field.implement.plate",
+    description: "Placa do implemento da tarefa alterada (rastreador de campos da tarefa).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -7915,35 +7915,35 @@ const CONFIGS: ConfigDef[] = [
     },
     templates: {
       inApp: {
-        title: "Placa do Caminhão Alterada",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a placa do caminhão alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        title: "Placa do Implemento Alterada",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a placa do implemento alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
       push: {
-        title: "Placa do Caminhão Alterada",
+        title: "Placa do Implemento Alterada",
         body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — placa: {{#if newValue}}{{newValue}}{{else}}removida{{/if}}",
       },
       email: {
-        subject: "Placa do Caminhão Alterada - {{taskName}}",
-        body: "A tarefa teve a placa do caminhão alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
+        subject: "Placa do Implemento Alterada - {{taskName}}",
+        body: "A tarefa teve a placa do implemento alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a placa do caminhão alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a placa do implemento alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
     },
     metadata: {
-      field: "truck.plate",
+      field: "implement.plate",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.plate\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.plate\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.rightSideMeasureId",
+    key: "task.field.implement.rightSideMeasureId",
     name: "Layout Lado Direito Alterado",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.rightSideMeasureId",
-    description: "(Legado — consolidado na notificação única de Medidas do Caminhão; nunca dispara.)",
+    eventType: "task.field.implement.rightSideMeasureId",
+    description: "(Legado — consolidado na notificação única de Medidas do Implemento; nunca dispara.)",
     enabled: false,
     importance: "HIGH",
     workHoursOnly: true,
@@ -7960,34 +7960,34 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Layout Lado Direito Alterado",
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado direito do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado direito do implemento alterado.",
       },
       push: {
         title: "Layout Lado Direito Alterado",
-        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do caminhão alterado",
+        body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — layout do implemento alterado",
       },
       email: {
         subject: "Layout Lado Direito Alterado - {{taskName}}",
         body: "A tarefa teve o layout do lado direito alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
-        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado direito do caminhão alterado.",
+        body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve o layout do lado direito do implemento alterado.",
       },
     },
     metadata: {
-      field: "truck.rightSideMeasureId",
+      field: "implement.rightSideMeasureId",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.rightSideMeasureId\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.rightSideMeasureId\") no código (emissor não anotado)",
       targeted: false,
     },
   },
   {
-    key: "task.field.truck.spot",
-    name: "Vaga do Caminhao Alterada",
+    key: "task.field.implement.spot",
+    name: "Vaga do Implemento Alterada",
     notificationType: "PRODUCTION",
-    eventType: "task.field.truck.spot",
-    description: "Vaga do caminhão na garagem alterada (rastreador de campos da tarefa).",
+    eventType: "task.field.implement.spot",
+    description: "Vaga do implemento na garagem alterada (rastreador de campos da tarefa).",
     enabled: true,
     importance: "LOW",
     workHoursOnly: true,
@@ -8003,15 +8003,15 @@ const CONFIGS: ConfigDef[] = [
     },
     templates: {
       inApp: {
-        title: "Vaga do Caminhão Alterada",
+        title: "Vaga do Implemento Alterada",
         body: "A tarefa \"{{taskName}}\"{{#if serialNumber}} #{{serialNumber}}{{/if}} teve a vaga na garagem alterada{{#if oldValue}} de \"{{oldValue}}\"{{/if}}{{#if newValue}} para \"{{newValue}}\"{{/if}}.",
       },
       push: {
-        title: "Vaga do Caminhão Alterada",
+        title: "Vaga do Implemento Alterada",
         body: "{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} — vaga: {{#if newValue}}{{newValue}}{{else}}removida{{/if}}",
       },
       email: {
-        subject: "Vaga do Caminhão Alterada - {{taskName}}",
+        subject: "Vaga do Implemento Alterada - {{taskName}}",
         body: "A tarefa teve a vaga na garagem alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Número de Série: {{serialNumber}}\n{{/if}}{{#if oldValue}}Valor anterior: {{oldValue}}\n{{/if}}{{#if newValue}}Novo valor: {{newValue}}\n{{/if}}",
       },
       whatsapp: {
@@ -8019,10 +8019,10 @@ const CONFIGS: ConfigDef[] = [
       },
     },
     metadata: {
-      field: "truck.spot",
+      field: "implement.spot",
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"task.field.truck.spot\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"task.field.implement.spot\") no código (emissor não anotado)",
       targeted: false,
     },
   },
@@ -8031,7 +8031,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao em 10 Dias",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_10days",
-    description: "Faltam 10 dias para a previsão de liberação do caminhão (fase de preparação, tarefa ainda não liberada).",
+    description: "Faltam 10 dias para a previsão de liberação do implemento (fase de preparação, tarefa ainda não liberada).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -8073,7 +8073,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao Amanha",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_1day",
-    description: "Previsão de liberação do caminhão é amanhã (fase de preparação, tarefa ainda não liberada).",
+    description: "Previsão de liberação do implemento é amanhã (fase de preparação, tarefa ainda não liberada).",
     enabled: true,
     importance: "HIGH",
     workHoursOnly: true,
@@ -8115,7 +8115,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao em 3 Dias",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_3days",
-    description: "Faltam 3 dias para a previsão de liberação do caminhão (fase de preparação, tarefa ainda não liberada).",
+    description: "Faltam 3 dias para a previsão de liberação do implemento (fase de preparação, tarefa ainda não liberada).",
     enabled: true,
     importance: "HIGH",
     workHoursOnly: true,
@@ -8157,7 +8157,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao em 7 Dias",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_7days",
-    description: "Faltam 7 dias para a previsão de liberação do caminhão (fase de preparação, tarefa ainda não liberada).",
+    description: "Faltam 7 dias para a previsão de liberação do implemento (fase de preparação, tarefa ainda não liberada).",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -8199,7 +8199,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao Atrasada",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_overdue",
-    description: "Previsão de liberação do caminhão estourada com a preparação ainda pendente; requer destravamento urgente.",
+    description: "Previsão de liberação do implemento estourada com a preparação ainda pendente; requer destravamento urgente.",
     enabled: true,
     importance: "URGENT",
     workHoursOnly: false,
@@ -8241,7 +8241,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Previsao de Liberacao Hoje",
     notificationType: "PRODUCTION",
     eventType: "task.forecast_today",
-    description: "Previsão de liberação do caminhão é hoje e a preparação ainda não foi concluída (aviso urgente).",
+    description: "Previsão de liberação do implemento é hoje e a preparação ainda não foi concluída (aviso urgente).",
     enabled: true,
     importance: "URGENT",
     workHoursOnly: false,
@@ -8959,13 +8959,13 @@ const CONFIGS: ConfigDef[] = [
       targeted: true,
     },
   },
-  // ─── truck ───────────────────────────────────────────────────────────────────
+  // ─── implement ───────────────────────────────────────────────────────────────────
   {
-    key: "truck.movement_request",
-    name: "Solicitação de Movimentação de Caminhão",
+    key: "implement.movement_request",
+    name: "Solicitação de Movimentação de Implemento",
     notificationType: "PRODUCTION",
-    eventType: "truck.movement_request",
-    description: "Solicitação de movimentação de caminhão entre vagas da garagem registrada, aguardando execução.",
+    eventType: "implement.movement_request",
+    description: "Solicitação de movimentação de implemento entre vagas da garagem registrada, aguardando execução.",
     enabled: true,
     importance: "NORMAL",
     workHoursOnly: true,
@@ -8982,7 +8982,7 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Solicitação de Movimentação",
-        body: "Movimentação do caminhão \"{{taskName}}\" solicitada: de {{fromSpot}} para {{toSpot}}.",
+        body: "Movimentação do implemento \"{{taskName}}\" solicitada: de {{fromSpot}} para {{toSpot}}.",
       },
       push: {
         title: "Solicitação de Movimentação",
@@ -8990,7 +8990,7 @@ const CONFIGS: ConfigDef[] = [
       },
       email: {
         subject: "Solicitação de Movimentação - {{taskName}}",
-        body: "Foi solicitada a movimentação do caminhão \"{{taskName}}\" de {{fromSpot}} para {{toSpot}}.",
+        body: "Foi solicitada a movimentação do implemento \"{{taskName}}\" de {{fromSpot}} para {{toSpot}}.",
       },
       whatsapp: {
         body: "🚛 Movimentação solicitada: \"{{taskName}}\" de {{fromSpot}} para {{toSpot}}.",
@@ -8999,7 +8999,7 @@ const CONFIGS: ConfigDef[] = [
     metadata: {
       category: "PRODUCTION",
       registry: "seed-notification-configs",
-      trigger: "ver dispatchByConfiguration(\"truck.movement_request\") no código (emissor não anotado)",
+      trigger: "ver dispatchByConfiguration(\"implement.movement_request\") no código (emissor não anotado)",
       targeted: false,
     },
   },
@@ -9376,11 +9376,11 @@ const FORCE_DISABLE = new Set<string>([
   'task.field.priority',
   // Legacy umbrella event superseded by the per-status events; no emitter left.
   'task.status.changed',
-  // Per-side truck layout fields were merged into the single
-  // task.field.truck.implementMeasure event; the tracker no longer emits these three.
-  'task.field.truck.backSideMeasureId',
-  'task.field.truck.leftSideMeasureId',
-  'task.field.truck.rightSideMeasureId',
+  // Per-side implement layout fields were merged into the single
+  // task.field.implement.measures event; the tracker no longer emits these three.
+  'task.field.implement.backSideMeasureId',
+  'task.field.implement.leftSideMeasureId',
+  'task.field.implement.rightSideMeasureId',
   // The "Aguardando Arte" status is exclusive to COMMERCIAL service orders;
   // the artwork/logistic/production variants are unreachable.
   'service_order.waiting_artwork.artwork',

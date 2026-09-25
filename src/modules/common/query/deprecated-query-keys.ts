@@ -131,58 +131,6 @@ export const DEPRECATED_QUERY_KEYS: readonly DeprecatedQueryKey[] = [
       'conferidos no P01); a linha existe para o G1 não recusar com 400 o que a API ' +
       'respondia com 200. Vencida, o censo (G3) decide se o sanitizador sai junto.',
   },
-  // ── Janela bilíngue do implemento (P11a, M1: `Truck` → `Implement`) ──
-  // Quem traduz é `translateLegacyImplementQuery`, ANTES do zod, no pipe de toda
-  // rota; as linhas estão aqui para esta tabela continuar sendo a ÚNICA lista do
-  // legado, com a data de expiração. O contador por rota × versão do app é do
-  // `ImplementLegacyMirrorInterceptor`, que também espelha a resposta.
-  {
-    model: 'Task',
-    key: 'truck',
-    clauses: ['include', 'select', 'where', 'orderBy'],
-    action: 'translate',
-    to: 'implement',
-    since: '2026-09-24',
-    expiresAt: '2027-03-31',
-    handledBy: 'legacy-implement-keys.ts#translateLegacyImplementQuery',
-    reason:
-      'M1 renomeou a relação. O web em produção, o app 1.4.1 (inclusive o orderBy ' +
-      'da Agenda) e o AnkaaAero pedem `truck`; a resposta devolve `truck` e `implement` ' +
-      'iguais (espelho).',
-  },
-  {
-    model: 'Implement',
-    key: 'implementType',
-    clauses: ['select', 'where', 'orderBy'],
-    action: 'translate',
-    to: 'type',
-    since: '2026-09-24',
-    expiresAt: '2027-03-31',
-    handledBy: 'legacy-implement-keys.ts#translateLegacyImplementQuery',
-    reason: 'M1 renomeou a coluna `implementType` → `type` (só dentro do nó do implemento).',
-  },
-  ...(['LeftSide', 'RightSide', 'BackSide'] as const).map(face => ({
-    model: 'ImplementMeasure',
-    key: `trucks${face}`,
-    clauses: ['include', 'select', 'where'] as QueryClause[],
-    action: 'translate' as const,
-    to: `implements${face}`,
-    since: '2026-09-24',
-    expiresAt: '2027-03-31',
-    handledBy: 'legacy-implement-keys.ts#translateLegacyImplementQuery',
-    reason: 'M1 renomeou a inversa da medida (o nome da relação acompanha o modelo).',
-  })),
-  {
-    model: 'File',
-    key: 'truckVinPlates',
-    clauses: ['include', 'select', 'where'],
-    action: 'translate',
-    to: 'implementVinPlates',
-    since: '2026-09-24',
-    expiresAt: '2027-03-31',
-    handledBy: 'legacy-implement-keys.ts#translateLegacyImplementQuery',
-    reason: 'M1 renomeou a inversa da plaqueta.',
-  },
 ];
 
 export interface ComputedQueryKey {

@@ -24,11 +24,11 @@
  * O total geral é `total por veículo × N`, e NÃO o desconto recalculado sobre a
  * soma dos sessenta subtotais. As duas contas dão resultados diferentes por
  * centavos, e esta é a que o documento imprime: o cliente confere o preço do
- * caminhão, não a divisão de setecentos mil por sessenta.
+ * implemento, não a divisão de setecentos mil por sessenta.
  *
  * ⚠️ DESCONTO FIXO É POR VEÍCULO. Um desconto `PERCENTAGE` é invariante — 12%
  * sobre o unitário × 60 é igual a 12% sobre o total —, mas `FIXED_VALUE` não:
- * R$ 500 é R$ 500 por caminhão, R$ 30.000 no orçamento. Essa é a leitura certa
+ * R$ 500 é R$ 500 por implemento, R$ 30.000 no orçamento. Essa é a leitura certa
  * (o desconto é uma condição do serviço, e o serviço é prestado sessenta vezes)
  * e é a única compatível com o `PER_TASK`, em que cada fatura carrega o próprio
  * desconto. A tela diz "por veículo" ao lado do campo justamente porque a outra
@@ -92,7 +92,7 @@ export interface QuoteMoney {
    * `BudgetPayer.total`, `Invoice.totalAmount` e a soma das parcelas.
    *
    * É `por veículo × cobertos`, sem ramificação: o total geral quando a fatura
-   * cobre os sessenta, o de um caminhão quando cobre um, o do lote quando cobre
+   * cobre os sessenta, o de um implemento quando cobre um, o do lote quando cobre
    * vinte.
    */
   configSubtotal: number;
@@ -129,7 +129,7 @@ export function computeQuoteMoney(input: QuoteMoneyInput): QuoteMoney {
   // o comportamento de sempre. É deliberado que ZERO caia aí e não em um: uma
   // cobertura vazia significa "a consulta não trouxe a relação" ou "a fatia
   // acabou de nascer", nunca "esta fatura é de um veículo", e responder um faria
-  // uma fatura de sessenta caminhões cobrar um. O teto em `vehicleCount` impede
+  // uma fatura de sessenta implementos cobrar um. O teto em `vehicleCount` impede
   // o contrário — cobrar setenta num orçamento de sessenta.
   const requested = Math.trunc(Number(input.coveredTaskCount ?? 0)) || 0;
   const coveredVehicleCount = requested > 0 ? Math.min(vehicleCount, requested) : vehicleCount;
@@ -216,8 +216,8 @@ export function planCoverage(
  *
  * Foi exatamente isso que aconteceu na CRIAÇÃO de um orçamento em lotes: a
  * chamada era por configuração, com um grupo cada, e cada fatia reivindicava os
- * lotes das outras. Num orçamento de quatro caminhões em dois lotes, cada
- * caminhão aparecia DUAS vezes no plano, e `BillingTask.@@unique([taskId])` —
+ * lotes das outras. Num orçamento de quatro implementos em dois lotes, cada
+ * implemento aparecia DUAS vezes no plano, e `BillingTask.@@unique([taskId])` —
  * que é global — derrubava a criação inteira em P2002.
  *
  * A EDIÇÃO nunca teve o defeito porque `reconcileQuoteCustomerConfigs` agrupa por

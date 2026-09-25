@@ -161,27 +161,27 @@ async function main() {
     const CANARIOS: Array<[string, string]> = [
       [
         'FK literal copiada',
-        'tx.truck.update({ where: { id }, data: { leftSideMeasureId: outro.leftSideMeasureId } })',
+        'tx.implement.update({ where: { id }, data: { leftSideMeasureId: outro.leftSideMeasureId } })',
       ],
-      ['FK na criação', 'tx.truck.create({ data: { taskId, backSideMeasureId: x } })'],
+      ['FK na criação', 'tx.implement.create({ data: { taskId, backSideMeasureId: x } })'],
       [
         'connect aninhado',
-        'tx.truck.update({ where: { id }, data: { rightSideMeasure: { connect: { id: x } } } })',
+        'tx.implement.update({ where: { id }, data: { rightSideMeasure: { connect: { id: x } } } })',
       ],
       [
         'create aninhado',
-        'tx.task.create({ data: { truck: { create: { backSideMeasure: { create: {} } } } } })',
+        'tx.task.create({ data: { implement: { create: { backSideMeasure: { create: {} } } } } })',
       ],
       [
         'face do P11',
-        'tx.task.update({ where: { id }, data: { truck: { update: { frontSideMeasureId: x } } } })',
+        'tx.task.update({ where: { id }, data: { implement: { update: { frontSideMeasureId: x } } } })',
       ],
       ['objeto montado fora', 'const payload = { leftSideMeasure: { connectOrCreate: {} } }'],
       ['escrita direta', 'tx.implementMeasure.update({ where: { id }, data: {} })'],
       ['escrita por colchete', "tx['implementMeasure'].delete({ where: { id } })"],
-      ['atribuição', 'truckData.rightSideMeasureId = null'],
-      ['chave computada sem desvio', 'tx.truck.update({ where: { id }, data: { [campo]: v } })'],
-      ['SQL cru', 'tx.$executeRaw`UPDATE "Truck" SET "leftSideMeasureId" = ${x}`'],
+      ['atribuição', 'implementData.rightSideMeasureId = null'],
+      ['chave computada sem desvio', 'tx.implement.update({ where: { id }, data: { [campo]: v } })'],
+      ['SQL cru', 'tx.$executeRaw`UPDATE "Implement" SET "leftSideMeasureId" = ${x}`'],
     ];
     const cegos = CANARIOS.filter(([, src]) => scanMeasureWriteSource('canario.ts', src).length === 0);
     check(
@@ -190,11 +190,11 @@ async function main() {
       cegos.map(([n]) => n).join(', '),
     );
     const LEITURAS = [
-      'tx.truck.findMany({ select: { leftSideMeasureId: true }, where: { backSideMeasureId: x } })',
+      'tx.implement.findMany({ select: { leftSideMeasureId: true }, where: { backSideMeasureId: x } })',
       'z.object({ leftSideMeasure: implementMeasureSideSchema })',
-      'function f() { return { leftSideMeasure: truck.leftSideMeasure } }',
+      'function f() { return { leftSideMeasure: implement.leftSideMeasure } }',
       'if (face && FACE_FK[face] === campo) { a() } ' +
-        'else { tx.truck.update({ where: { id }, data: { [campo]: v } }) }',
+        'else { tx.implement.update({ where: { id }, data: { [campo]: v } }) }',
     ];
     const falsos = LEITURAS.filter(src => scanMeasureWriteSource('leitura.ts', src).length > 0);
     check(
@@ -257,10 +257,10 @@ async function main() {
       createdTaskIds.push(t.id);
       return t;
     };
-    const mkTaskWithTruck = async (quoteId?: string) => {
+    const mkTaskWithImplement = async (quoteId?: string) => {
       const t = await mkTask(quoteId);
-      const truck = await prisma.implement.findUnique({ where: { taskId: t.id } });
-      return { task: t, truck };
+      const implement = await prisma.implement.findUnique({ where: { taskId: t.id } });
+      return { task: t, implement };
     };
     const mkPhoto = async (tag: string) =>
       prisma.file.create({
@@ -287,10 +287,10 @@ async function main() {
         size: 64,
       } as any;
     };
-    const faceRow = async (truckId: string | undefined, face: Face) => {
-      if (!truckId) return null;
+    const faceRow = async (implementId: string | undefined, face: Face) => {
+      if (!implementId) return null;
       const t = await prisma.implement.findUnique({
-        where: { id: truckId },
+        where: { id: implementId },
         select: {
           [FK[face]]: true,
           [REL[face]]: {
@@ -308,18 +308,18 @@ async function main() {
       });
       return (t as any)?.[REL[face]] ?? null;
     };
-    const truckOfTask = async (taskId: string) =>
+    const implementOfTask = async (taskId: string) =>
       prisma.implement.findUnique({ where: { taskId }, select: { id: true } });
     /** Metros, ordem e posição das seções, e (opcional) a foto. */
     const expectFace = async (
       label: string,
-      truckId: string | undefined,
+      implementId: string | undefined,
       face: Face,
       height: number,
       widths: number[],
       photoId?: string | null,
     ) => {
-      const row = await faceRow(truckId, face);
+      const row = await faceRow(implementId, face);
       const ok =
         !!row &&
         row.height === height &&
@@ -331,12 +331,12 @@ async function main() {
       return row;
     };
     /** Toda linha usada pelas faces destes caminhões é usada por UMA face só, no banco inteiro. */
-    const expectNoSharing = async (label: string, truckIds: string[]) => {
-      const trucks = await prisma.implement.findMany({
-        where: { id: { in: truckIds } },
+    const expectNoSharing = async (label: string, implementIds: string[]) => {
+      const implementList = await prisma.implement.findMany({
+        where: { id: { in: implementIds } },
         select: { leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
       });
-      const ids = trucks
+      const ids = implementList
         .flatMap((t: any) => [t.leftSideMeasureId, t.rightSideMeasureId, t.backSideMeasureId])
         .filter(Boolean);
       const shared: string[] = [];
@@ -350,12 +350,12 @@ async function main() {
             ],
           },
         });
-        const sameTruckTwice = trucks.filter(
+        const sameImplementTwice = implementList.filter(
           (t: any) =>
             [t.leftSideMeasureId, t.rightSideMeasureId, t.backSideMeasureId].filter(x => x === id)
               .length > 1,
         ).length;
-        if (n > 1 || sameTruckTwice > 0) shared.push(id as string);
+        if (n > 1 || sameImplementTwice > 0) shared.push(id as string);
       }
       check(label, shared.length === 0, `compartilhadas: ${shared.join(', ')}`);
     };
@@ -363,20 +363,20 @@ async function main() {
       !!(await prisma.implementMeasure.findUnique({ where: { id }, select: { id: true } }));
     /** Duas faces compartilhando a MESMA linha — o dado legado (produção: 11 linhas). */
     const mkSharedPair = async (face: Face, quoteId?: string) => {
-      const a = await mkTaskWithTruck(quoteId);
-      const b = await mkTaskWithTruck(quoteId);
+      const a = await mkTaskWithImplement(quoteId);
+      const b = await mkTaskWithImplement(quoteId);
       const legacy = await prisma.implementMeasure.create({
         data: {
           height: 2.3,
           sections: { create: [{ width: 6.0, isDoor: false, doorHeight: null, position: 0 }] },
         },
       });
-      await prisma.implement.update({ where: { id: a.truck.id }, data: { [FK[face]]: legacy.id } });
-      await prisma.implement.update({ where: { id: b.truck.id }, data: { [FK[face]]: legacy.id } });
+      await prisma.implement.update({ where: { id: a.implement.id }, data: { [FK[face]]: legacy.id } });
+      await prisma.implement.update({ where: { id: b.implement.id }, data: { [FK[face]]: legacy.id } });
       return { a, b, legacyId: legacy.id };
     };
-    const expectBUntouched = async (label: string, truckId: string, face: Face, legacyId: string) => {
-      const row = await faceRow(truckId, face);
+    const expectBUntouched = async (label: string, implementId: string, face: Face, legacyId: string) => {
+      const row = await faceRow(implementId, face);
       check(
         label,
         !!row && row.id === legacyId && row.height === 2.3 && row.sections[0]?.width === 6.0,
@@ -408,11 +408,11 @@ async function main() {
       );
       const taskId = created?.data?.id;
       if (taskId) createdTaskIds.push(taskId);
-      const truck = taskId ? await truckOfTask(taskId) : null;
+      const implement = taskId ? await implementOfTask(taskId) : null;
       for (const f of FACES_T) {
-        await expectFace(`#1 ${f}: criada em metros, seções em ordem, foto`, truck?.id, f, H[f], W[f], photos[f].id);
+        await expectFace(`#1 ${f}: criada em metros, seções em ordem, foto`, implement?.id, f, H[f], W[f], photos[f].id);
       }
-      await expectNoSharing('#1 sem compartilhamento', truck ? [truck.id] : []);
+      await expectNoSharing('#1 sem compartilhamento', implement ? [implement.id] : []);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -433,16 +433,16 @@ async function main() {
       const ids: string[] = (result?.data?.success ?? []).map((t: any) => t.id);
       createdTaskIds.push(...ids);
       check('#2 duas tarefas criadas', ids.length === 2, JSON.stringify(result?.data?.failed));
-      const truckIds: string[] = [];
+      const implementIds: string[] = [];
       for (const id of ids) {
-        const truck = await truckOfTask(id);
-        if (!truck) continue;
-        truckIds.push(truck.id);
+        const implement = await implementOfTask(id);
+        if (!implement) continue;
+        implementIds.push(implement.id);
         for (const f of FACES_T) {
-          await expectFace(`#2 ${f} da tarefa ${ids.indexOf(id) + 1}`, truck.id, f, H[f], W[f], photos[f].id);
+          await expectFace(`#2 ${f} da tarefa ${ids.indexOf(id) + 1}`, implement.id, f, H[f], W[f], photos[f].id);
         }
       }
-      await expectNoSharing('#2 o MESMO payload em duas tarefas não compartilha linha', truckIds);
+      await expectNoSharing('#2 o MESMO payload em duas tarefas não compartilha linha', implementIds);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -450,7 +450,7 @@ async function main() {
     // ═════════════════════════════════════════════════════════════════════
     let updateTaskId = '';
     {
-      const { task, truck } = await mkTaskWithTruck();
+      const { task, implement } = await mkTaskWithImplement();
       updateTaskId = task.id;
       await tasks.update(
         task.id,
@@ -463,7 +463,7 @@ async function main() {
       );
       const firstIds: Record<string, string> = {};
       for (const f of FACES_T) {
-        const row = await expectFace(`#3 criar ${f}`, truck.id, f, H[f], W[f], null);
+        const row = await expectFace(`#3 criar ${f}`, implement.id, f, H[f], W[f], null);
         firstIds[f] = row?.id;
       }
       await tasks.update(
@@ -476,7 +476,7 @@ async function main() {
         'ADMIN',
       );
       for (const f of FACES_T) {
-        const row = await expectFace(`#3 atualizar ${f}`, truck.id, f, H2[f], W2[f]);
+        const row = await expectFace(`#3 atualizar ${f}`, implement.id, f, H2[f], W2[f]);
         check(`#3 atualizar ${f}: a linha é só dela ⇒ editada NO LUGAR (mesmo id)`, row?.id === firstIds[f]);
       }
       // Seções vazias numa edição = manter as atuais (o defeito "as medidas sumiram").
@@ -487,7 +487,7 @@ async function main() {
         user.id,
         'ADMIN',
       );
-      await expectFace('#3 lista de seções vazia mantém as seções (só a altura muda)', truck.id, 'left', 2.75, W2.left);
+      await expectFace('#3 lista de seções vazia mantém as seções (só a altura muda)', implement.id, 'left', 2.75, W2.left);
       await tasks.update(
         task.id,
         parse(taskUpdateSchema, {
@@ -502,7 +502,7 @@ async function main() {
       for (const f of FACES_T) files[PHOTO_KEY[f]] = [mkUpload(`upload-${f}`)];
       await tasks.update(task.id, parse(taskUpdateSchema, { implement: {} }), undefined, user.id, 'ADMIN', files);
       for (const f of FACES_T) {
-        const row = await faceRow(truck.id, f);
+        const row = await faceRow(implement.id, f);
         const file = row?.photoId
           ? await prisma.file.findUnique({ where: { id: row.photoId }, select: { originalName: true } })
           : null;
@@ -512,7 +512,7 @@ async function main() {
           JSON.stringify({ row, file }),
         );
       }
-      await expectNoSharing('#3 sem compartilhamento', [truck.id]);
+      await expectNoSharing('#3 sem compartilhamento', [implement.id]);
 
       await tasks.update(
         task.id,
@@ -524,7 +524,7 @@ async function main() {
         'ADMIN',
       );
       for (const f of FACES_T) {
-        const row = await faceRow(truck.id, f);
+        const row = await faceRow(implement.id, f);
         check(`#3 apagar ${f}: face vazia e a linha (sem outro uso) removida`, !row && !(await measureExists(firstIds[f])));
       }
 
@@ -538,10 +538,10 @@ async function main() {
           user.id,
           'ADMIN',
         );
-        const rowA = await expectFace(`#3 ${f}: A recebeu a edição`, a.truck.id, f, H2[f], W2[f]);
+        const rowA = await expectFace(`#3 ${f}: A recebeu a edição`, a.implement.id, f, H2[f], W2[f]);
         check(`#3 ${f}: A ganhou linha própria (copy-on-write)`, rowA?.id !== legacyId);
-        await expectBUntouched(`#3 ${f}: B intacto`, b.truck.id, f, legacyId);
-        await expectNoSharing(`#3 ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
+        await expectBUntouched(`#3 ${f}: B intacto`, b.implement.id, f, legacyId);
+        await expectNoSharing(`#3 ${f}: nada compartilhado depois`, [a.implement.id, b.implement.id]);
 
         // Apagar a face de B: a linha é só de B agora ⇒ sai.
         await tasks.update(b.task.id, parse(taskUpdateSchema, { implement: { [REL[f]]: null } }), undefined, user.id, 'ADMIN');
@@ -550,7 +550,7 @@ async function main() {
 
       console.log('  — apagar com análise de pintura apontando');
       {
-        const { truck: t2, task: task2 } = await mkTaskWithTruck();
+        const { implement: t2, task: task2 } = await mkTaskWithImplement();
         await tasks.update(task2.id, parse(taskUpdateSchema, { implement: { backSideMeasure: medida(H.back, W.back) } }), undefined, user.id, 'ADMIN');
         const row = await faceRow(t2.id, 'back');
         const analysis = await prisma.paintingAnalysis.create({
@@ -571,19 +571,19 @@ async function main() {
     console.log('\n#4 PUT /tasks/batch — criar, atualizar, foto (`photoId`); `null` não apaga');
     // ═════════════════════════════════════════════════════════════════════
     {
-      const { task, truck } = await mkTaskWithTruck();
-      const run = (truckBody: any) =>
+      const { task, implement } = await mkTaskWithImplement();
+      const run = (implementBody: any) =>
         tasks.batchUpdate(
-          parse(taskBatchUpdateSchema, { tasks: [{ id: task.id, data: { implement: truckBody } }] }),
+          parse(taskBatchUpdateSchema, { tasks: [{ id: task.id, data: { implement: implementBody } }] }),
           undefined,
           user.id,
         );
       await run(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f])])));
       const ids: Record<string, string> = {};
-      for (const f of FACES_T) ids[f] = (await expectFace(`#4 criar ${f}`, truck.id, f, H[f], W[f]))?.id;
+      for (const f of FACES_T) ids[f] = (await expectFace(`#4 criar ${f}`, implement.id, f, H[f], W[f]))?.id;
       await run(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H2[f], W2[f], photos[`${f}2`].id)])));
       for (const f of FACES_T) {
-        const row = await expectFace(`#4 atualizar + foto ${f}`, truck.id, f, H2[f], W2[f], photos[`${f}2`].id);
+        const row = await expectFace(`#4 atualizar + foto ${f}`, implement.id, f, H2[f], W2[f], photos[`${f}2`].id);
         check(`#4 ${f}: no lugar (I38: o id não troca a cada lote)`, row?.id === ids[f]);
       }
       const log = await prisma.changeLog.findFirst({
@@ -599,8 +599,8 @@ async function main() {
         JSON.stringify(log),
       );
       await run({ leftSideMeasure: null });
-      await expectFace('#4 `null` no lote é ignorado, como sempre (não apaga)', truck.id, 'left', H2.left, W2.left);
-      await expectNoSharing('#4 sem compartilhamento', [truck.id]);
+      await expectFace('#4 `null` no lote é ignorado, como sempre (não apaga)', implement.id, 'left', H2.left, W2.left);
+      await expectNoSharing('#4 sem compartilhamento', [implement.id]);
 
       for (const f of FACES_T) {
         const { a, b, legacyId } = await mkSharedPair(f);
@@ -609,9 +609,9 @@ async function main() {
           undefined,
           user.id,
         );
-        await expectFace(`#4 ${f}: A editada pelo lote`, a.truck.id, f, H[f], W[f]);
-        await expectBUntouched(`#4 ${f}: B intacto`, b.truck.id, f, legacyId);
-        await expectNoSharing(`#4 ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
+        await expectFace(`#4 ${f}: A editada pelo lote`, a.implement.id, f, H[f], W[f]);
+        await expectBUntouched(`#4 ${f}: B intacto`, b.implement.id, f, legacyId);
+        await expectNoSharing(`#4 ${f}: nada compartilhado depois`, [a.implement.id, b.implement.id]);
       }
     }
 
@@ -619,7 +619,7 @@ async function main() {
     console.log('\n#5 Reverter pelo histórico — atualizar, apagar e recriar');
     // ═════════════════════════════════════════════════════════════════════
     {
-      const { task, truck } = await mkTaskWithTruck();
+      const { task, implement } = await mkTaskWithImplement();
       const upd = (body: any) => tasks.update(task.id, parse(taskUpdateSchema, { implement: body }), undefined, user.id, 'ADMIN');
       await upd(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])));
       await upd(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H2[f], W2[f])])));
@@ -629,9 +629,9 @@ async function main() {
           orderBy: { createdAt: 'desc' },
           select: { id: true },
         });
-        const before = await faceRow(truck.id, f);
+        const before = await faceRow(implement.id, f);
         await tasks.rollbackFieldChange(log.id, user.id);
-        const row = await expectFace(`#5 reverter a edição de ${f}: valores de antes`, truck.id, f, H[f], W[f]);
+        const row = await expectFace(`#5 reverter a edição de ${f}: valores de antes`, implement.id, f, H[f], W[f]);
         check(`#5 ${f}: edição foi no lugar ⇒ reverte na mesma linha, foto preservada`, row?.id === before?.id && row?.photoId === photos[f].id);
       }
       // Reverter a remoção: a face volta (recriada pelas seções do histórico).
@@ -642,7 +642,7 @@ async function main() {
         select: { id: true },
       });
       await tasks.rollbackFieldChange(logDel.id, user.id);
-      await expectFace('#5 reverter a remoção: a face volta', truck.id, 'right', H.right, W.right);
+      await expectFace('#5 reverter a remoção: a face volta', implement.id, 'right', H.right, W.right);
       // Reverter a criação: a face esvazia.
       const logCreate = await prisma.changeLog.findFirst({
         where: { entityId: task.id, field: 'implementMeasures', reason: 'ImplementMeasure backSideMeasureId criado' },
@@ -650,49 +650,49 @@ async function main() {
         select: { id: true },
       });
       await tasks.rollbackFieldChange(logCreate.id, user.id);
-      check('#5 reverter a criação: a face fica vazia', !(await faceRow(truck.id, 'back')));
-      await expectNoSharing('#5 sem compartilhamento', [truck.id]);
+      check('#5 reverter a criação: a face fica vazia', !(await faceRow(implement.id, 'back')));
+      await expectNoSharing('#5 sem compartilhamento', [implement.id]);
     }
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\n#6 PUT /tasks/:id/copy-from — copiar as 3 faces (linhas NOVAS)');
     // ═════════════════════════════════════════════════════════════════════
     {
-      const src = await mkTaskWithTruck();
+      const src = await mkTaskWithImplement();
       for (const f of FACES_T) {
-        await writer.setFace(prisma, src.truck.id, f, medida(H[f], W[f], photos[f].id));
+        await writer.setFace(prisma, src.implement.id, f, medida(H[f], W[f], photos[f].id));
       }
-      const dst = await mkTaskWithTruck();
-      await prisma.$transaction((tx: any) => writer.setFace(tx, dst.truck.id, 'left', medida(1.5, [1.0])));
-      const oldDstLeft = (await faceRow(dst.truck.id, 'left'))?.id;
+      const dst = await mkTaskWithImplement();
+      await prisma.$transaction((tx: any) => writer.setFace(tx, dst.implement.id, 'left', medida(1.5, [1.0])));
+      const oldDstLeft = (await faceRow(dst.implement.id, 'left'))?.id;
       await tasks.copyFromTask(dst.task.id, src.task.id, ['implementMeasures'], user.id, 'ADMIN');
       for (const f of FACES_T) {
-        const row = await expectFace(`#6 ${f} copiada (metros, ordem, foto)`, dst.truck.id, f, H[f], W[f], photos[f].id);
-        const srcRow = await faceRow(src.truck.id, f);
+        const row = await expectFace(`#6 ${f} copiada (metros, ordem, foto)`, dst.implement.id, f, H[f], W[f], photos[f].id);
+        const srcRow = await faceRow(src.implement.id, f);
         check(`#6 ${f}: linha nova, não a da origem`, row?.id && row.id !== srcRow?.id);
       }
       check('#6 a linha anterior do destino (sem outro uso) saiu', !(await measureExists(oldDstLeft)));
-      await expectNoSharing('#6 sem compartilhamento', [src.truck.id, dst.truck.id]);
+      await expectNoSharing('#6 sem compartilhamento', [src.implement.id, dst.implement.id]);
 
       // Destino recém-criado, sem nenhuma medida (o implemento existe: DD1).
       const bare = await mkTask();
       await tasks.copyFromTask(bare.id, src.task.id, ['implementMeasures'], user.id, 'ADMIN');
-      const bareTruck = await truckOfTask(bare.id);
-      for (const f of FACES_T) await expectFace(`#6 destino sem medida recebe: ${f}`, bareTruck?.id, f, H[f], W[f]);
-      await expectNoSharing('#6 sem compartilhamento (destino sem medida)', [src.truck.id, bareTruck?.id]);
+      const bareImplement = await implementOfTask(bare.id);
+      for (const f of FACES_T) await expectFace(`#6 destino sem medida recebe: ${f}`, bareImplement?.id, f, H[f], W[f]);
+      await expectNoSharing('#6 sem compartilhamento (destino sem medida)', [src.implement.id, bareImplement?.id]);
     }
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\n#7 módulo /implement-measure — criar, substituir, foto, atribuir, PUT /:id, DELETE /:id');
     // ═════════════════════════════════════════════════════════════════════
     {
-      const { truck } = await mkTaskWithTruck();
+      const { implement } = await mkTaskWithImplement();
       const first: Record<string, string> = {};
       for (const f of FACES_T) {
         const upload = f === 'back' ? mkUpload(`modulo-${f}`) : undefined;
         const data = medida(H[f], W[f], f === 'back' ? undefined : photos[f].id);
-        await measures.createOrUpdateTruckImplementMeasure(truck.id, f, data, user.id, upload, undefined, true);
-        const row = await expectFace(`#7 criar ${f}`, truck.id, f, H[f], W[f]);
+        await measures.createOrUpdateImplementMeasure(implement.id, f, data, user.id, upload, undefined, true);
+        const row = await expectFace(`#7 criar ${f}`, implement.id, f, H[f], W[f]);
         first[f] = row?.id;
         if (f === 'back') {
           const file = row?.photoId ? await prisma.file.findUnique({ where: { id: row.photoId }, select: { originalName: true } }) : null;
@@ -702,33 +702,33 @@ async function main() {
         }
       }
       for (const f of FACES_T) {
-        await measures.createOrUpdateTruckImplementMeasure(truck.id, f, medida(H2[f], W2[f]), user.id, undefined, undefined, true);
-        const row = await expectFace(`#7 substituir ${f}`, truck.id, f, H2[f], W2[f]);
+        await measures.createOrUpdateImplementMeasure(implement.id, f, medida(H2[f], W2[f]), user.id, undefined, undefined, true);
+        const row = await expectFace(`#7 substituir ${f}`, implement.id, f, H2[f], W2[f]);
         check(`#7 ${f}: linha nova e a anterior (sem outro uso) removida`, row?.id !== first[f] && !(await measureExists(first[f])));
       }
-      await expectNoSharing('#7 sem compartilhamento', [truck.id]);
+      await expectNoSharing('#7 sem compartilhamento', [implement.id]);
 
-      console.log('  — atribuir (POST /:id/assign-to-truck)');
-      const other = await mkTaskWithTruck();
+      console.log('  — atribuir (POST /:id/assign-to-implement)');
+      const other = await mkTaskWithImplement();
       for (const f of FACES_T) {
-        const used = await faceRow(truck.id, f);
-        await measures.assignImplementMeasureToTruck(other.truck.id, f, used.id, user.id);
-        const row = await expectFace(`#7 atribuir ${f} de outra face`, other.truck.id, f, H2[f], W2[f]);
+        const used = await faceRow(implement.id, f);
+        await measures.assignImplementMeasureToImplement(other.implement.id, f, used.id, user.id);
+        const row = await expectFace(`#7 atribuir ${f} de outra face`, other.implement.id, f, H2[f], W2[f]);
         check(`#7 atribuir ${f}: linha em uso ⇒ CÓPIA, não a mesma`, row?.id !== used.id);
       }
       const library = await measures.create(medida(1.9, [2.0, 0.5]), user.id);
-      await measures.assignImplementMeasureToTruck(other.truck.id, 'left', library.id, user.id);
-      check('#7 atribuir uma linha SEM uso (biblioteca): a face passa a apontá-la', (await faceRow(other.truck.id, 'left'))?.id === library.id);
-      await expectNoSharing('#7 sem compartilhamento depois de atribuir', [truck.id, other.truck.id]);
+      await measures.assignImplementMeasureToImplement(other.implement.id, 'left', library.id, user.id);
+      check('#7 atribuir uma linha SEM uso (biblioteca): a face passa a apontá-la', (await faceRow(other.implement.id, 'left'))?.id === library.id);
+      await expectNoSharing('#7 sem compartilhamento depois de atribuir', [implement.id, other.implement.id]);
 
       console.log('  — PUT /implement-measure/:id numa linha compartilhada (legado)');
       for (const f of FACES_T) {
         const { a, b, legacyId } = await mkSharedPair(f);
         await measures.update(legacyId, { height: 2.9, sections: medida(2.9, [7.1]).sections } as any, user.id);
-        const rowA = await expectFace(`#7 PUT ${f}: A com o valor novo`, a.truck.id, f, 2.9, [7.1]);
-        const rowB = await expectFace(`#7 PUT ${f}: B com o valor novo (a edição pelo id vale para quem usava)`, b.truck.id, f, 2.9, [7.1]);
+        const rowA = await expectFace(`#7 PUT ${f}: A com o valor novo`, a.implement.id, f, 2.9, [7.1]);
+        const rowB = await expectFace(`#7 PUT ${f}: B com o valor novo (a edição pelo id vale para quem usava)`, b.implement.id, f, 2.9, [7.1]);
         check(`#7 PUT ${f}: cada um com a SUA linha depois`, rowA?.id !== rowB?.id);
-        await expectNoSharing(`#7 PUT ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
+        await expectNoSharing(`#7 PUT ${f}: nada compartilhado depois`, [a.implement.id, b.implement.id]);
       }
 
       console.log('  — DELETE /implement-measure/:id');
@@ -747,7 +747,7 @@ async function main() {
       check('#7 DELETE de linha apontada por PaintingAnalysis: recusado, a linha fica', refused && (await measureExists(pinned.id)));
       let refusedInUse = false;
       try {
-        await measures.delete((await faceRow(truck.id, 'left')).id, user.id);
+        await measures.delete((await faceRow(implement.id, 'left')).id, user.id);
       } catch {
         refusedInUse = true;
       }
@@ -784,33 +784,33 @@ async function main() {
       const gravar = async (id: string, medidas: any) =>
         identity['gravar'](await readTask(id), { medidas }, null, responsible.id);
 
-      const { task, truck } = await mkTaskWithTruck();
+      const { task, implement } = await mkTaskWithImplement();
       await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], medidaCm(H[f], W[f])])));
       const ids: Record<string, string> = {};
-      for (const f of FACES_T) ids[f] = (await expectFace(`#8 criar ${f} (cm → m)`, truck.id, f, H[f], W[f]))?.id;
+      for (const f of FACES_T) ids[f] = (await expectFace(`#8 criar ${f} (cm → m)`, implement.id, f, H[f], W[f]))?.id;
       await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], medidaCm(H2[f], W2[f])])));
       for (const f of FACES_T) {
-        const row = await expectFace(`#8 atualizar ${f}`, truck.id, f, H2[f], W2[f]);
+        const row = await expectFace(`#8 atualizar ${f}`, implement.id, f, H2[f], W2[f]);
         check(`#8 ${f}: só dela ⇒ no lugar`, row?.id === ids[f]);
       }
-      await expectNoSharing('#8 sem compartilhamento', [truck.id]);
+      await expectNoSharing('#8 sem compartilhamento', [implement.id]);
       await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], null])));
       for (const f of FACES_T) {
-        check(`#8 apagar ${f}: face vazia e linha removida`, !(await faceRow(truck.id, f)) && !(await measureExists(ids[f])));
+        check(`#8 apagar ${f}: face vazia e linha removida`, !(await faceRow(implement.id, f)) && !(await measureExists(ids[f])));
       }
 
       console.log('  — o caso que corrompia: o cliente corrige o próprio furgão');
       for (const f of FACES_T) {
         const { a, b, legacyId } = await mkSharedPair(f);
         await gravar(a.task.id, { [PORTAL_KEY[f]]: medidaCm(H[f], W[f]) });
-        await expectFace(`#8 ${f}: A corrigido pelo portal`, a.truck.id, f, H[f], W[f]);
-        await expectBUntouched(`#8 ${f}: B (outro cliente) intacto`, b.truck.id, f, legacyId);
-        await expectNoSharing(`#8 ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
+        await expectFace(`#8 ${f}: A corrigido pelo portal`, a.implement.id, f, H[f], W[f]);
+        await expectBUntouched(`#8 ${f}: B (outro cliente) intacto`, b.implement.id, f, legacyId);
+        await expectNoSharing(`#8 ${f}: nada compartilhado depois`, [a.implement.id, b.implement.id]);
         // Apagar a face compartilhada: sem `.catch` na transação, e B continua com a dele.
-        const c = await mkTaskWithTruck();
-        await prisma.implement.update({ where: { id: c.truck.id }, data: { [FK[f]]: legacyId } });
+        const c = await mkTaskWithImplement();
+        await prisma.implement.update({ where: { id: c.implement.id }, data: { [FK[f]]: legacyId } });
         await gravar(c.task.id, { [PORTAL_KEY[f]]: null });
-        check(`#8 ${f}: apagar a face compartilhada só desconecta (a transação não aborta)`, !(await faceRow(c.truck.id, f)) && (await measureExists(legacyId)));
+        check(`#8 ${f}: apagar a face compartilhada só desconecta (a transação não aborta)`, !(await faceRow(c.implement.id, f)) && (await measureExists(legacyId)));
       }
     }
 
@@ -846,70 +846,70 @@ async function main() {
       );
       createdTaskIds.push(criado.taskId);
       for (const f of FACES_T) {
-        const row = await expectFace(`#9 criar ${f} (cm → m)`, criado.truckId, f, H[f], W[f]);
+        const row = await expectFace(`#9 criar ${f} (cm → m)`, criado.implementId, f, H[f], W[f]);
         check(`#9 ${f}: o id devolvido é o da face`, criado.measureIds[PORTAL_KEY[f]] === row?.id);
       }
-      await expectNoSharing('#9 sem compartilhamento', [criado.truckId]);
+      await expectNoSharing('#9 sem compartilhamento', [criado.implementId]);
     }
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\n#10 réplica aos irmãos do orçamento — criar, atualizar, foto; apagar NÃO replica');
     // ═════════════════════════════════════════════════════════════════════
     {
-      const a = await mkTaskWithTruck(quoteId);
-      const b = await mkTaskWithTruck(quoteId);
+      const a = await mkTaskWithImplement(quoteId);
+      const b = await mkTaskWithImplement(quoteId);
       // B já tinha uma medida própria: a réplica a troca e a antiga sai.
-      await writer.setFace(prisma, b.truck.id, 'left', medida(1.0, [1.0]));
-      const oldB = (await faceRow(b.truck.id, 'left'))?.id;
+      await writer.setFace(prisma, b.implement.id, 'left', medida(1.0, [1.0]));
+      const oldB = (await faceRow(b.implement.id, 'left'))?.id;
       for (const f of FACES_T) {
-        await measures.createOrUpdateTruckImplementMeasure(a.truck.id, f, medida(H[f], W[f], photos[f].id), user.id, undefined, undefined, true);
-        const rowB = await expectFace(`#10 criar ${f}: o irmão recebe (metros, ordem, foto)`, b.truck.id, f, H[f], W[f], photos[f].id);
-        const rowA = await faceRow(a.truck.id, f);
+        await measures.createOrUpdateImplementMeasure(a.implement.id, f, medida(H[f], W[f], photos[f].id), user.id, undefined, undefined, true);
+        const rowB = await expectFace(`#10 criar ${f}: o irmão recebe (metros, ordem, foto)`, b.implement.id, f, H[f], W[f], photos[f].id);
+        const rowA = await faceRow(a.implement.id, f);
         check(`#10 ${f}: por CÓPIA (outra linha)`, rowA?.id !== rowB?.id);
       }
       check('#10 a medida anterior do irmão (sem outro uso) saiu', !(await measureExists(oldB)));
       for (const f of FACES_T) {
         await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { [REL[f]]: medida(H2[f], W2[f], photos[`${f}2`].id) } }), undefined, user.id, 'ADMIN');
-        await expectFace(`#10 atualizar + foto ${f} pela tarefa: o irmão acompanha`, b.truck.id, f, H2[f], W2[f], photos[`${f}2`].id);
+        await expectFace(`#10 atualizar + foto ${f} pela tarefa: o irmão acompanha`, b.implement.id, f, H2[f], W2[f], photos[`${f}2`].id);
       }
-      await expectNoSharing('#10 sem compartilhamento entre os irmãos', [a.truck.id, b.truck.id]);
+      await expectNoSharing('#10 sem compartilhamento entre os irmãos', [a.implement.id, b.implement.id]);
       await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { backSideMeasure: null } }), undefined, user.id, 'ADMIN');
-      check('#10 apagar em A NÃO apaga no irmão', !(await faceRow(a.truck.id, 'back')) && !!(await faceRow(b.truck.id, 'back')));
+      check('#10 apagar em A NÃO apaga no irmão', !(await faceRow(a.implement.id, 'back')) && !!(await faceRow(b.implement.id, 'back')));
 
       // Irmão novo, sem nenhuma medida: o implemento existe (DD1), então o
       // módulo E a tarefa replicam para ele (não há mais "irmão sem caminhão").
       const c = await mkTask(quoteId);
-      await measures.createOrUpdateTruckImplementMeasure(a.truck.id, 'right', medida(H.right, W.right), user.id, undefined, undefined, true);
-      await expectFace('#10 pelo módulo, o irmão sem medida recebe', (await truckOfTask(c.id))?.id, 'right', H.right, W.right);
+      await measures.createOrUpdateImplementMeasure(a.implement.id, 'right', medida(H.right, W.right), user.id, undefined, undefined, true);
+      await expectFace('#10 pelo módulo, o irmão sem medida recebe', (await implementOfTask(c.id))?.id, 'right', H.right, W.right);
       await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { rightSideMeasure: medida(H2.right, W2.right) } }), undefined, user.id, 'ADMIN');
-      const cTruck = await truckOfTask(c.id);
-      await expectFace('#10 pela tarefa, o irmão acompanha', cTruck?.id, 'right', H2.right, W2.right);
-      await expectNoSharing('#10 sem compartilhamento (3 irmãos)', [a.truck.id, b.truck.id, cTruck?.id]);
+      const cImplement = await implementOfTask(c.id);
+      await expectFace('#10 pela tarefa, o irmão acompanha', cImplement?.id, 'right', H2.right, W2.right);
+      await expectNoSharing('#10 sem compartilhamento (3 irmãos)', [a.implement.id, b.implement.id, cImplement?.id]);
     }
 
     console.log('\nO ESCRITOR direto — `setFace` em modo `patch` com a linha usada pela OUTRA face do mesmo caminhão');
     {
-      const { truck } = await mkTaskWithTruck();
+      const { implement } = await mkTaskWithImplement();
       const row = await prisma.implementMeasure.create({
         data: { height: 2.0, sections: { create: [{ width: 3, isDoor: false, position: 0 }] } },
       });
-      await prisma.implement.update({ where: { id: truck.id }, data: { leftSideMeasureId: row.id, rightSideMeasureId: row.id } });
-      const r = await prisma.$transaction((tx: any) => writer.setFace(tx, truck.id, 'left', { height: 2.2 }));
+      await prisma.implement.update({ where: { id: implement.id }, data: { leftSideMeasureId: row.id, rightSideMeasureId: row.id } });
+      const r = await prisma.$transaction((tx: any) => writer.setFace(tx, implement.id, 'left', { height: 2.2 }));
       check('mesma linha em duas faces do MESMO caminhão também é compartilhamento ⇒ copia', r.action === 'forked');
-      await expectFace('a face editada muda (seções herdadas)', truck.id, 'left', 2.2, [3]);
-      await expectFace('a outra face não muda', truck.id, 'right', 2.0, [3]);
-      await expectNoSharing('nada compartilhado depois', [truck.id]);
+      await expectFace('a face editada muda (seções herdadas)', implement.id, 'left', 2.2, [3]);
+      await expectFace('a outra face não muda', implement.id, 'right', 2.0, [3]);
+      await expectNoSharing('nada compartilhado depois', [implement.id]);
     }
   } finally {
     try {
-      const trucks = await prisma.implement.findMany({
+      const implementList = await prisma.implement.findMany({
         where: { taskId: { in: createdTaskIds } },
         select: { id: true, leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
       });
-      const truckIds = trucks.map((t: any) => t.id);
+      const implementIds = implementList.map((t: any) => t.id);
       // As linhas desta rodada: as das faces dos caminhões do teste, e as criadas
       // desde o início que nenhum OUTRO caminhão usa (biblioteca, legado, órfãs).
-      const faceIds = trucks
+      const faceIds = implementList
         .flatMap((t: any) => [t.leftSideMeasureId, t.rightSideMeasureId, t.backSideMeasureId])
         .filter(Boolean);
       const recent = await prisma.implementMeasure.findMany({
@@ -920,7 +920,7 @@ async function main() {
       for (const m of [...new Set([...faceIds, ...recent.map((r: any) => r.id)])]) {
         const outside = await prisma.implement.count({
           where: {
-            id: { notIn: truckIds },
+            id: { notIn: implementIds },
             OR: [{ leftSideMeasureId: m }, { rightSideMeasureId: m }, { backSideMeasureId: m }],
           },
         });
@@ -948,7 +948,7 @@ async function main() {
       await prisma.changeLog.deleteMany({
         where: {
           entityId: {
-            in: [...createdTaskIds, ...createdQuoteIds, ...truckIds, ...measureIds, ...fileIds, ...createdAnalysisIds],
+            in: [...createdTaskIds, ...createdQuoteIds, ...implementIds, ...measureIds, ...fileIds, ...createdAnalysisIds],
           },
         },
       });

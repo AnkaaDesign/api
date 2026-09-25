@@ -167,7 +167,7 @@ export const PINNED_CUSTOMERS = {
    * ⚠️ O NÚMERO MORA NA TAREFA, não no pagador. Este comentário citava
    * `BudgetPayer.orderNumber` — coluna que NÃO EXISTE MAIS. Ela desceu para
    * `Task.customerOrderNumber` em 17/09/2026, quando um orçamento passou a
-   * cobrir N caminhões: o pedido é por ENTREGA, e um número por fatura obrigava
+   * cobrir N implementos: o pedido é por ENTREGA, e um número por fatura obrigava
    * os sessenta veículos a citarem o mesmo. Desde 20/09 o par
    * (cliente, número) é a entidade `PurchaseOrder`, e `Task.purchaseOrderId`
    * aponta para ela — com `Task.customerOrderNumber` mantida em escrita dupla,

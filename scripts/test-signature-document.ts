@@ -37,8 +37,8 @@ import { join } from 'path';
     chassisNumber: '9BWZZZ377VT004251',
     // Enum CRU de propósito: é o que `SignatureEnvelopeService` entrega hoje, e
     // o template precisa imprimir "Semirreboque 2 Eixos" / "Sider".
-    truckCategoryLabel: 'SEMI_TRAILER_2_AXLES',
-    truckImplementLabel: 'CURTAIN_SIDE',
+    categoryLabel: 'SEMI_TRAILER_2_AXLES',
+    implementLabel: 'CURTAIN_SIDE',
     services: Array.from({ length: Number(process.env.NSVC||14) }, (_, i) => (
       // O primeiro item exercita a regra do "Outros" (mostra só a observação) e
       // o segundo o Title Case sobre cadastro em caixa alta.

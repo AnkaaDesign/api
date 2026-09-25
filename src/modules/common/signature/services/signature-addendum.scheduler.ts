@@ -47,7 +47,7 @@ export class SignatureAddendumScheduler {
           finalFileId: { not: null },
           addendumFileId: null,
           // `some`, não `every`: o aditivo declara o que o cadastro tardio
-          // trouxe, e o primeiro caminhão entregue já trouxe o dele. Esperar os
+          // trouxe, e o primeiro implemento entregue já trouxe o dele. Esperar os
           // sessenta ficarem COMPLETED atrasaria o aditivo por meses — e ele é
           // idempotente por envelope, então rodar cedo não custa nada.
           quote: { tasks: { some: { status: 'COMPLETED' } } },

@@ -415,8 +415,8 @@ export class MaintenanceService {
           });
         }
 
-        // NOTE: Truck and mechanic tracking removed as these properties don't exist on the Maintenance model
-        // The Maintenance model only has itemId/item relation. If truck/mechanic tracking is needed,
+        // NOTE: Implement and mechanic tracking removed as these properties don't exist on the Maintenance model
+        // The Maintenance model only has itemId/item relation. If implement/mechanic tracking is needed,
         // the schema would need to be updated to include these fields.
 
         return updated;
@@ -745,8 +745,8 @@ export class MaintenanceService {
               });
             }
 
-            // NOTE: Truck and mechanic tracking removed as these properties don't exist on the Maintenance model
-            // The Maintenance model only has itemId/item relation. If truck/mechanic tracking is needed,
+            // NOTE: Vehicle and mechanic tracking removed as these properties don't exist on the Maintenance model
+            // The Maintenance model only has itemId/item relation. If vehicle/mechanic tracking is needed,
             // the schema would need to be updated to include these fields.
           }
         }

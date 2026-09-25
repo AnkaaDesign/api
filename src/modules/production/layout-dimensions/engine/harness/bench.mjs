@@ -16,7 +16,7 @@
  *     alvo direto de quem for mexer no roteamento da linha de cota.
  *
  *  3. EXCESSO — quantas cotas o motor desenha contra quantas o projetista
- *     desenhou, na mesma face. O motor cota TODO item; o dono do caminhão
+ *     desenhou, na mesma face. O motor cota TODO item; o dono do implemento
  *     reclama de "muitas medidas desnecessárias". Sem este número, apertar o
  *     filtro parece melhoria e some com cota boa.
  *

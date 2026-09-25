@@ -215,7 +215,7 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
   'layoutFileIds',
   // O layout aprovado por veículo é o MESMO dado de `layoutFileIds`, com a
   // cobertura junto: não mexe em valor, fatura, boleto nem nota. Ficar fora
-  // desta lista travaria a troca de arte de um caminhão já faturado — que é
+  // desta lista travaria a troca de arte de um implemento já faturado — que é
   // justamente quando a produção ainda precisa dela.
   'layouts',
   'status',

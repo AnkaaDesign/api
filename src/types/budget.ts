@@ -45,7 +45,7 @@ export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
  * `JOINT`: uma fatura, um plano de parcelas e uma NFS-e para os N veículos —
  * o padrão, e byte a byte o comportamento anterior ao orçamento multitarefa.
  * `PER_TASK`: um faturamento POR VEÍCULO, aprovado veículo a veículo, porque os
- * sessenta caminhões não terminam no mesmo dia.
+ * sessenta implementos não terminam no mesmo dia.
  * `CUSTOM`: lotes livres — a cobertura vem das linhas de `BillingTask`, não
  * do modo.
  */

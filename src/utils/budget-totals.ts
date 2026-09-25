@@ -85,7 +85,7 @@ export async function recalcQuoteTotals(tx: PrismaTransaction, quoteId: string):
     // reescrevia `subtotal`/`total` de TODA fatia, inclusive as que sustentam
     // `Invoice.totalAmount`, parcelas geradas, boleto registrado no Sicredi e
     // NFS-e autorizada na prefeitura. E ela roda em caminhos que não passam por
-    // guarda nenhuma: apagar um dos sessenta caminhões ou mover uma tarefa de
+    // guarda nenhuma: apagar um dos sessenta implementos ou mover uma tarefa de
     // orçamento chama-a direto do repositório de tarefas.
     //
     // A pergunta é `isBillingFrozen` com os TRÊS braços — carimbo, estado

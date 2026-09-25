@@ -43,19 +43,19 @@ export interface MunicipalEmitNfseInput {
   implement?: {
     plate?: string;
     chassisNumber?: string;
-    category?: string; // TruckCategory enum value
+    category?: string; // ImplementCategory enum value
     implementType?: string; // ImplementType enum value
   };
   /**
    * TODOS os veículos que esta nota cobre.
    *
-   * `task`/`truck` acima descrevem UM veículo e continuam existindo: é o que
+   * `task`/`implement` acima descrevem UM veículo e continuam existindo: é o que
    * toda nota emitida até aqui teve, e é o que uma nota fatiada por veículo
    * (`billingSplit = PER_TASK`) continua tendo.
    *
-   * Esta lista existe para a nota CONJUNTA: um orçamento de sessenta caminhões
+   * Esta lista existe para a nota CONJUNTA: um orçamento de sessenta implementos
    * faturado de uma vez produz UMA nota de R$ 730.224,00, e a discriminação dela
-   * precisa dizer de que veículos fala. Sem isso a nota citaria um caminhão de
+   * precisa dizer de que veículos fala. Sem isso a nota citaria um implemento de
    * sessenta — ou nenhum, porque `Invoice.taskId` é nulo nesse caso.
    */
   vehicles?: Array<{
@@ -69,7 +69,7 @@ export interface MunicipalEmitNfseInput {
      *
      * Numa fatura conjunta os veículos podem ter pedidos diferentes; quando
      * têm, a discriminação os cita veículo a veículo em vez de amontoá-los no
-     * cabeçalho, onde ninguém sabe qual pedido é de qual caminhão.
+     * cabeçalho, onde ninguém sabe qual pedido é de qual implemento.
      */
     orderNumber?: string | null;
   }>;
@@ -84,8 +84,8 @@ export interface MunicipalEmitNfseInput {
    * QUANTOS VEÍCULOS ESTA NOTA COBRA — a quantidade de cada linha de serviço.
    *
    * `BudgetItem.amount` é o preço de UM veículo (ver `utils/quote-money.ts`).
-   * Uma fatura que cobre dois caminhões vale `por veículo × 2`, e a nota tem de
-   * declarar os dois: `quantidade = 2`, `valorUnitario` = o preço do caminhão.
+   * Uma fatura que cobre dois implementos vale `por veículo × 2`, e a nota tem de
+   * declarar os dois: `quantidade = 2`, `valorUnitario` = o preço do implemento.
    * Sem isto a nota saía pelo preço de UM enquanto o boleto cobrava os dois —
    * R$ 12.170,40 declarados contra R$ 730.224,00 cobrados no caso de sessenta —,
    * com o ISS subdeclarado na mesma proporção.
@@ -1300,7 +1300,7 @@ export class ElotechOxyNfseService {
   // — diferente do da tela, do boleto e da fatura, e é o texto de todas as notas
   // já emitidas. Mora na fonte única (`@constants/document-labels`, D-18) e é
   // travado por `tests/fiscal-labels-golden.test.ts`.
-  private readonly TRUCK_CATEGORY_LABELS: Record<string, string> =
+  private readonly IMPLEMENT_CATEGORY_LABELS: Record<string, string> =
     CATEGORY_PROFILE_LABELS.nfseTask;
 
   private readonly IMPLEMENT_TYPE_LABELS: Record<string, string> =
@@ -1409,7 +1409,7 @@ export class ElotechOxyNfseService {
     // A QUE VEÍCULOS ESTA NOTA SE REFERE
     // ═════════════════════════════════════════════════════════════════════════
     //
-    // Um orçamento pode cobrir sessenta caminhões e ser faturado de UMA vez:
+    // Um orçamento pode cobrir sessenta implementos e ser faturado de UMA vez:
     // então esta é uma nota de R$ 730.224,00 que fala de sessenta veículos, e a
     // discriminação precisa dizer isso. Faturado veículo a veículo, cada nota
     // fala de um — e sai exatamente com o texto de sempre.
@@ -1445,7 +1445,7 @@ export class ElotechOxyNfseService {
     // `svc.amount` é o preço de UM veículo — a regra central de
     // `utils/quote-money.ts`, da qual sai também o `Invoice.totalAmount` que o
     // boleto cobra (`por veículo × cobertos`). A nota tem de fazer a MESMA
-    // multiplicação, senão declara à prefeitura o serviço de um caminhão e
+    // multiplicação, senão declara à prefeitura o serviço de um implemento e
     // cobra o de sessenta.
     const serviceQuantity = Math.max(1, Math.trunc(Number(invoice.serviceQuantity ?? 1)) || 1);
     const scaleLine = (unitAmount: number) =>
@@ -1572,7 +1572,7 @@ export class ElotechOxyNfseService {
         services: services.map(s => s.description),
         description: invoice.description ?? null,
         fallbackLabel: `Ref. OS ${serialNumber}`,
-        categoryLabels: this.TRUCK_CATEGORY_LABELS,
+        categoryLabels: this.IMPLEMENT_CATEGORY_LABELS,
         implementLabels: this.IMPLEMENT_TYPE_LABELS,
       });
     } else {
@@ -1608,7 +1608,7 @@ export class ElotechOxyNfseService {
     // `baseCalculoIss` é o que a nota declara depois do desconto, e
     // `invoice.totalAmount` é o que o cliente deve e o boleto cobra. Os dois têm
     // de ser o MESMO número — foi a divergência entre eles que mandou à
-    // prefeitura uma nota de um caminhão contra um boleto de dois.
+    // prefeitura uma nota de um implemento contra um boleto de dois.
     //
     // Emitir abaixo do cobrado é subdeclarar receita e ISS, e desfazer isso
     // custa cancelamento e substituição (NF 3199 → 3215). Parar aqui deixa o

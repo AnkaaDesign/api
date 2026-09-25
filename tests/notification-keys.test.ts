@@ -4,7 +4,7 @@
  * O despacho (`dispatchByConfiguration*`) procura a configuração pela chave; se
  * a chave não está no seed (`prisma/scripts/seed-notification-configs.ts`), a
  * notificação simplesmente NÃO SAI — sem erro, sem log de falha. Renomear um
- * campo (`truck` → `implement`, `serialNumber` → `implement.serialNumber`)
+ * campo (`serialNumber` → `implement.serialNumber`, por exemplo)
  * emudece a notificação em silêncio.
  *
  * O teste lê o código com o compilador do TypeScript (sem executar nada):
@@ -12,7 +12,7 @@
  *     resolve para texto (literal, ternário, variável local com literal,
  *     template com prefixo fixo);
  *   - `task.field.${event.field}` do listener, expandido pelos `TRACKED_FIELDS`
- *     do tracker (as três medidas por lado viram `truck.implementMeasure`);
+ *     do tracker (as três medidas por lado viram `implement.measures`);
  * e exige cada uma no seed. Chave que não se resolve estaticamente é listada
  * em `DINAMICAS_CONHECIDAS` com o motivo (a lista só encolhe).
  *
@@ -21,7 +21,6 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import * as ts from 'typescript';
-import { IMPLEMENT_EVENT_FIELD } from '../src/modules/production/task/task-field-tracker.service';
 
 const ROOT = join(__dirname, '..');
 const SEED = join(ROOT, 'prisma/scripts/seed-notification-configs.ts');
@@ -40,12 +39,12 @@ function check(nome: string, cond: boolean, detalhe = ''): void {
 
 /** Chaves emitidas que ainda não estão no seed. SÓ ENCOLHE. */
 const EMITIDAS_SEM_SEED: Record<string, string> = {
-  // Achado do P01 (23/09): o tracker rastreia `truck.vinPlateId` e o listener
-  // despacha `task.field.truck.vinPlateId`, mas o seed não tem a configuração —
+  // Achado do P01 (23/09): o tracker rastreia `implement.vinPlateId` e o listener
+  // despacha `task.field.implement.vinPlateId`, mas o seed não tem a configuração —
   // trocar a foto da plaqueta NUNCA notificou ninguém. Acrescentar ao seed muda
   // quem recebe notificação em produção: decisão do dono (fica para o reseed do
   // P26 junto com as chaves `implement`).
-  'task.field.truck.vinPlateId': 'sem configuração no seed: notificação muda desde sempre',
+  'task.field.implement.vinPlateId': 'sem configuração no seed: notificação muda desde sempre',
 };
 
 /**
@@ -246,13 +245,11 @@ function main(): void {
         if (vals) {
           vals.forEach(key => emitidas.push({ key, onde }));
         } else if (ts.isTemplateExpression(arg) && arg.head.text === 'task.field.') {
-          // o listener do tracker: uma chave por campo rastreado
-          // O tracker grava `implement.*` no histórico e EMITE o nome do evento
-          // (`IMPLEMENT_EVENT_FIELD`): a chave de notificação é a do evento (P11a).
-          for (const tracked of trackedFields()) {
-            const f = IMPLEMENT_EVENT_FIELD[tracked] ?? tracked;
-            const side = /^truck\.(left|right|back)SideMeasureId$/.test(f);
-            emitidas.push({ key: `task.field.${side ? 'truck.implementMeasure' : f}`, onde });
+          // o listener do tracker: uma chave por campo rastreado (o histórico e
+          // o evento usam o MESMO nome, `implement.<campo>`)
+          for (const f of trackedFields()) {
+            const side = /^implement\.(left|right|back)SideMeasureId$/.test(f);
+            emitidas.push({ key: `task.field.${side ? 'implement.measures' : f}`, onde });
           }
         } else {
           dinamicas.push(`${rel} ${arg.getText(sf)}`);

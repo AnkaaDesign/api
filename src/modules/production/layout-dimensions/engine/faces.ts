@@ -1,7 +1,7 @@
 /**
  * As FACES de um layout, num arquivo só.
  *
- * O projetista entrega o caminhão inteiro numa página: 86% do acervo é assim, e
+ * O projetista entrega o implemento inteiro numa página: 86% do acervo é assim, e
  * em 99% dos casos as duas laterais estão empilhadas uma sobre a outra, do
  * mesmo tamanho. Cotar só a primeira — que era o que o motor fazia — deixa
  * metade do trabalho de fora.
@@ -147,7 +147,7 @@ function penOf(obj: PageGeometry["objects"][number]): string {
  * as SEÇÕES do baú encostadas uma na outra — 192 + 107 + 492 cm no lado do
  * motorista, 253 + 106 + 325 + 106 no do sapo —, todas com a mesma caneta e a
  * mesma altura, dividindo as arestas verticais. Cada uma virava uma "face"
- * candidata, e nenhuma casava com a proporção de 790 × 252 que o caminhão tem:
+ * candidata, e nenhuma casava com a proporção de 790 × 252 que o implemento tem:
  * o arquivo abria com a TRASEIRA reconhecida e as duas laterais fora, que é
  * justamente onde está a arte.
  *
@@ -336,7 +336,7 @@ function matchRemainingBySize(
 /**
  * Lê a página inteira e devolve as faces cotadas, os itens clicáveis e as cotas.
  *
- * `panels` são as medidas do caminhão, uma por lado. A ordem importa: é ela que
+ * `panels` são as medidas do implemento, uma por lado. A ordem importa: é ela que
  * nomeia as faces quando duas têm o mesmo tamanho.
  */
 export async function buildLayoutFaces(
@@ -431,7 +431,7 @@ export async function buildLayoutFaces(
      * o orçamento de contorno estourou (o desenho é pesado demais, e os itens
      * de meio caminho não valem nada); não sobrou item nenhum; ou sobrou UM
      * que cobre a face inteira, que é o caso do fundo que sangra e encosta em
-     * tudo — clicar em qualquer lugar devolve o caminhão todo. Nos três a
+     * tudo — clicar em qualquer lugar devolve o implemento todo. Nos três a
      * resposta útil é a mesma: diga, não ofereça a seleção, e deixe a régua
      * livre. Medir à mão sempre foi possível; o que não podia era o cotador
      * tomar a thread e impedir isso também.
@@ -526,7 +526,7 @@ export async function buildLayoutFaces(
 
   if (!faces.length) {
     warnings.push(
-      "Nenhuma face foi reconhecida: o arquivo não traz o contorno do implemento, ou as medidas do caminhão não batem com o desenho.",
+      "Nenhuma face foi reconhecida: o arquivo não traz o contorno do implemento, ou as medidas do implemento não batem com o desenho.",
     );
   } else if (faces.length < usable.length) {
     warnings.push(

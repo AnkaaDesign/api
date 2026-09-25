@@ -29,7 +29,7 @@ descartada.
 | Faces por arquivo | 3 (motorista, sapo, traseira) | 161 de 205 |
 | Cotas por face | mediana 3, p75 5, máximo 13 | 325 faces |
 
-A traseira costuma ser cotada sobre a **foto** do caminhão, não sobre um
+A traseira costuma ser cotada sobre a **foto** do implemento, não sobre um
 desenho — porta, dobradiça e lanterna não cabem num retângulo.
 
 ## As regras
@@ -365,7 +365,7 @@ Nem todo molde desenha a lateral como um retângulo só. O do MACHADÃO desenha 
 seções do baú encostadas uma na outra — 192 + 107 + 492 cm no motorista,
 253 + 106 + 325 + 106 no sapo — com a mesma caneta, a mesma altura e as arestas
 verticais compartilhadas. Cada seção virava uma "face" candidata, nenhuma casava
-com a proporção de 790 × 252 que o caminhão tem, e o arquivo abria só com a
+com a proporção de 790 × 252 que o implemento tem, e o arquivo abria só com a
 **traseira** reconhecida: as duas laterais, que são onde a arte está, ficavam
 de fora.
 
@@ -488,7 +488,7 @@ aparecem as do adesivo escolhido, e o PDF sai com o que está na tela.
 
 **A divergência do "dentro" é deliberada.** O projetista leva a linha para a
 margem em 74% dos casos porque coloca à mão e prefere a folha limpa; o preço é
-uma extensão que atravessa metade do caminhão e um número que ninguém sabe de
+uma extensão que atravessa metade do implemento e um número que ninguém sabe de
 onde saiu. O motor traz a linha para o lado do item, e isso é seguro aqui: uma
 cota "topo da face → topo do item" ocupa exatamente a faixa VAZIA entre os dois,
 nunca por cima da arte. O resultado é uma cauda muito mais curta — nenhuma cota

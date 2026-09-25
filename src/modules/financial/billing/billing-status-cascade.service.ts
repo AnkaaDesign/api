@@ -9,13 +9,13 @@ import { isDueDateOverdue, todayInSaoPauloAtNoonUtc } from '@utils/due-date.util
  * Até 16/09/2026 o ciclo do pagamento morava em `Budget.status`, e isso tinha
  * um defeito que nenhuma quantidade de cuidado consertava: **o estado era do
  * ORÇAMENTO, que é um, enquanto as cobranças são N**. Num orçamento de sessenta
- * caminhões faturados um a um, uma fatia paga e outra vencida tinham de caber no
+ * implementos faturados um a um, uma fatia paga e outra vencida tinham de caber no
  * mesmo campo — e não cabiam.
  *
  * Há uma guarda inteira do código antigo que existe só por causa disso e que
  * aqui simplesmente não precisa existir. Era esta: "LIQUIDADO exige que TUDO
  * esteja faturado", porque `paidCount === activeInstallments.length` dava
- * verdadeiro quando o caminhão 1 de 60 era pago, já que os outros 59 não tinham
+ * verdadeiro quando o implemento 1 de 60 era pago, já que os outros 59 não tinham
  * parcela nenhuma para contrapor. O orçamento se declarava liquidado com
  * R$ 718.053,60 a faturar. Contando por FATURAMENTO a pergunta se responde
  * sozinha: as parcelas desta cobrança estão pagas, e as das outras são de outras

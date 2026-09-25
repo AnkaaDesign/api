@@ -196,7 +196,7 @@ const SERVICE_ORDER_SELECT = {
 /**
  * O VEÍCULO. `status` entra no `select` como EVIDÊNCIA da escada e é retirado da
  * resposta em `overlayVehicle`. Fora daqui: nada de `details`, `term`,
- * `bonification`, `sectorId`, `createdById`, `Truck.spot`, `Observation`,
+ * `bonification`, `sectorId`, `createdById`, `Implement.spot`, `Observation`,
  * `Cut`, `Airbrushing` (§9).
  */
 const TASK_BASE_SELECT = {
@@ -238,7 +238,7 @@ const TASK_BASE_SELECT = {
  * venha do cliente é interpolado: o cliente manda um nome, o nome é chave desta
  * tabela ou é descartado no schema, e o VALOR é literal escrito aqui.
  *
- * ⚠️ TODA relação usada aqui é de-UM (`truck`, `customer`, `quote`,
+ * ⚠️ TODA relação usada aqui é de-UM (`implement`, `customer`, `quote`,
  * `purchaseOrder`). O Prisma não ordena por relação de-MUITOS, e um `orderBy`
  * que ele recusa é 500 no driver, não um aviso. Foi por isso que "Logomarca" e
  * "Cliente" perderam a seta na lista INTERNA de orçamentos (lá `name` mora na
@@ -293,7 +293,7 @@ const VEHICLE_ORDER_BY: Record<
  *
  * Sem ele duas linhas empatadas (e numa frota de 358 "Marquespan 5,20" empatam
  * às dezenas) podem trocar de posição entre a consulta da página 1 e a da
- * página 2 — e o contato vê o mesmo caminhão duas vezes e nunca vê outro. É o
+ * página 2 — e o contato vê o mesmo implemento duas vezes e nunca vê outro. É o
  * mesmo motivo pelo qual `listVehicles` já carregava `{ id: 'asc' }`.
  */
 const VEHICLE_ORDER_TIEBREAK: Prisma.TaskOrderByWithRelationInput[] = [
@@ -1081,7 +1081,7 @@ export class PortalReadService {
       },
       tasks: {
         // ⚠️ O escopo do VEÍCULO também vale dentro do orçamento. Sem ele, num
-        // orçamento `PER_TASK` de dez caminhões, quem paga o terceiro receberia
+        // orçamento `PER_TASK` de dez implementos, quem paga o terceiro receberia
         // a placa e o chassi dos outros nove — o recorte por seção não salva,
         // porque `VEHICLE` libera exatamente esses campos.
         where: this.scope.taskScopeWhere(principal),
@@ -1306,7 +1306,7 @@ export class PortalReadService {
       );
 
       // O marco do CONTRATO é o MENOR dos veículos vivos: o orçamento só está
-      // concluído quando o último caminhão saiu.
+      // concluído quando o último implemento saiu.
       let milestone: string | null = null;
       if (podeTrack) {
         for (const v of vehicles as any[]) {

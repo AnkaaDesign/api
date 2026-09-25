@@ -39,8 +39,8 @@ export interface TaskFieldChangedEvent {
   isFileArray?: boolean;
   fileChange?: FileArrayChange;
   /**
-   * Present only on the synthetic 'truck.implementMeasure' consolidated event. Human-readable
-   * PT-BR summary listing which truck sides had their implementMeasure changed.
+   * Present only on the synthetic 'implement.measures' consolidated event. Human-readable
+   * PT-BR summary listing which implement sides had their implementMeasure changed.
    */
   implementMeasureChangeSummary?: string;
 }
@@ -80,9 +80,8 @@ const TRACKED_FIELDS = [
   // gravada/emitida SEMPRE como `serialNumber` (S-5, G22) — é a chave que o
   // aditivo da assinatura e a notificação `task.field.serialNumber` leem.
   'serialNumber',
-  // O implemento, alterado como parte da tarefa. As linhas NOVAS do histórico
-  // gravam `implement.*` (PLANO §6.8; os leitores aceitam as duas grafias); a
-  // NOTIFICAÇÃO continua `task.field.truck.*` (D-04) — ver IMPLEMENT_EVENT_FIELD.
+  // O implemento, alterado como parte da tarefa: o histórico grava e o aviso
+  // dispara com o MESMO nome (`implement.<campo>` → `task.field.implement.<campo>`).
   'implement.plate',
   'implement.chassisNumber',
   'implement.vinPlateId',
@@ -96,35 +95,13 @@ const TRACKED_FIELDS = [
 ] as const;
 
 /**
- * Campo do histórico → nome do EVENTO (e da chave de notificação
- * `task.field.<evento>`, persistida em NotificationConfiguration e nas
- * preferências de silenciar: D-04, não muda). Montar a chave pelo nome novo
- * deixaria a notificação muda (G9).
- */
-export const IMPLEMENT_EVENT_FIELD: Readonly<Record<string, string>> = {
-  'implement.plate': 'truck.plate',
-  'implement.chassisNumber': 'truck.chassisNumber',
-  'implement.vinPlateId': 'truck.vinPlateId',
-  'implement.category': 'truck.category',
-  'implement.type': 'truck.implementType',
-  'implement.spot': 'truck.spot',
-  'implement.leftSideMeasureId': 'truck.leftSideMeasureId',
-  'implement.rightSideMeasureId': 'truck.rightSideMeasureId',
-  'implement.backSideMeasureId': 'truck.backSideMeasureId',
-};
-
-/**
  * As faces da medida. Qualquer uma que mude na mesma gravação vira UM evento
- * sintético 'truck.implementMeasure' (uma notificação só, não uma por face).
- * As duas grafias: a do histórico novo e a do evento (o lote emite direto).
+ * sintético 'implement.measures' (uma notificação só, não uma por face).
  */
-const TRUCK_MEASURE_SIDE_FIELDS: Record<string, string> = {
+const IMPLEMENT_MEASURE_SIDE_FIELDS: Record<string, string> = {
   'implement.leftSideMeasureId': 'Motorista',
   'implement.rightSideMeasureId': 'Sapo',
   'implement.backSideMeasureId': 'Traseira',
-  'truck.leftSideMeasureId': 'Motorista',
-  'truck.rightSideMeasureId': 'Sapo',
-  'truck.backSideMeasureId': 'Traseira',
 };
 
 /** O valor de um campo acompanhado, lido da tarefa carregada. */
@@ -549,28 +526,24 @@ export class TaskFieldTrackerService {
   async emitFieldChangeEvents(task: Task, changes: FieldChange[], oldTask?: Task): Promise<void> {
     this.logger.debug(`Emitting ${changes.length} field change events for task ${task.id}`);
 
-    // Detect truck implementMeasure side changes. When MORE THAN ONE side changed in the same
-    // update, collapse them into a single synthetic 'truck.implementMeasure' event so only ONE
-    // consolidated notification fires instead of one per side.
-    // Collapse whenever ANY implementMeasure side changed (one OR more) so the legacy per-side
-    // configs (task.field.truck.*SideImplementMeasureId) go fully dormant and we always emit the
-    // consolidated 'truck.implementMeasure' event instead.
-    const implementMeasureSideChanges = changes.filter(c => TRUCK_MEASURE_SIDE_FIELDS[c.field]);
+    // As faces da medida que mudaram nesta gravação (uma ou mais) viram UM evento
+    // sintético 'implement.measures': uma notificação consolidada, não uma por face.
+    const implementMeasureSideChanges = changes.filter(c => IMPLEMENT_MEASURE_SIDE_FIELDS[c.field]);
     const shouldCollapseImplementMeasure = implementMeasureSideChanges.length >= 1;
 
     let remainingChanges = changes;
     if (shouldCollapseImplementMeasure) {
-      const changedSideLabels = implementMeasureSideChanges.map(c => TRUCK_MEASURE_SIDE_FIELDS[c.field]);
+      const changedSideLabels = implementMeasureSideChanges.map(c => IMPLEMENT_MEASURE_SIDE_FIELDS[c.field]);
       const implementMeasureChangeSummary = changedSideLabels.join(', ');
 
       this.logger.log(
-        `Collapsing ${implementMeasureSideChanges.length} truck implementMeasure side changes into a single 'truck.implementMeasure' event (${implementMeasureChangeSummary})`,
+        `Collapsing ${implementMeasureSideChanges.length} implement measure side changes into a single 'implement.measures' event (${implementMeasureChangeSummary})`,
       );
 
-      // Emit one consolidated event for the truck implementMeasure
+      // Emit one consolidated event for the implement measures
       const implementMeasureEvent: TaskFieldChangedEvent = {
         task,
-        field: 'truck.implementMeasure',
+        field: 'implement.measures',
         oldValue: null,
         newValue: null,
         changedBy: implementMeasureSideChanges[0].changedBy,
@@ -578,10 +551,10 @@ export class TaskFieldTrackerService {
         implementMeasureChangeSummary,
       };
       this.eventEmitter.emit('task.field.changed', implementMeasureEvent);
-      this.logger.debug(`Emitted consolidated task.field.changed event for field: truck.implementMeasure`);
+      this.logger.debug(`Emitted consolidated task.field.changed event for field: implement.measures`);
 
       // Remove the per-side changes so they don't each emit their own notification
-      remainingChanges = changes.filter(c => !TRUCK_MEASURE_SIDE_FIELDS[c.field]);
+      remainingChanges = changes.filter(c => !IMPLEMENT_MEASURE_SIDE_FIELDS[c.field]);
     }
 
     for (const change of remainingChanges) {
@@ -605,10 +578,10 @@ export class TaskFieldTrackerService {
         );
       }
 
-      // Emit the event — com o nome do EVENTO (a chave de notificação fica a de sempre)
+      // Emit the event
       const event: TaskFieldChangedEvent = {
         task,
-        field: IMPLEMENT_EVENT_FIELD[change.field] ?? change.field,
+        field: change.field,
         oldValue: change.oldValue,
         newValue: change.newValue,
         changedBy: change.changedBy,

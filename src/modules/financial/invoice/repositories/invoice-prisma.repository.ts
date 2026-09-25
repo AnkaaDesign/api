@@ -45,7 +45,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       },
       // A COBERTURA no include PADRÃO. É ela que responde "de quais veículos é
       // esta fatura?", e quem chama a rota por ORÇAMENTO precisa dela para
-      // filtrar as faturas do caminhão que está na tela — `Invoice.taskId` só
+      // filtrar as faturas do implemento que está na tela — `Invoice.taskId` só
       // existe quando a fatura é de um veículo só.
       customerConfig: {
         include: { billing: { select: { id: true, approvedAt: true, tasks: { select: { taskId: true } } } } },
@@ -102,7 +102,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
 
     if (include.customerConfig) {
       // A COBERTURA vai junto, sempre. É ela que responde "de quais veículos é
-      // esta fatura?" — e sem ela a tela de um caminhão não tem como filtrar as
+      // esta fatura?" — e sem ela a tela de um implemento não tem como filtrar as
       // faturas do orçamento para as que o cobram: mostraria a cobrança do lote
       // inteiro na tela de cada um dos vinte.
       prismaInclude.customerConfig = {
@@ -257,7 +257,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
    *
    * A ordenação é por `task.createdAt` — a MESMA de `QUOTE_TASKS_ORDER_BY` —,
    * para que a tela liste as sessenta faturas na ordem em que lista os sessenta
-   * caminhões; a fatura conjunta, sem tarefa, ordena por `createdAt` próprio.
+   * implementos; a fatura conjunta, sem tarefa, ordena por `createdAt` próprio.
    */
   async findByQuoteId(quoteId: string, include?: InvoiceInclude): Promise<Invoice[]> {
     const entities = await this.prisma.invoice.findMany({

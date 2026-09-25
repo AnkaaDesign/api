@@ -14,7 +14,7 @@
           "sector": { "select": { "id": true, "name": true } },
           "customer": { "select": { "id": true, "fantasyName": true, "corporateName": true } },
           "createdBy": { "select": { "id": true, "name": true } },
-          "truck": {
+          "implement": {
             "include": {
               "vinPlate": true,
               "leftSideMeasure": { "include": { "sections": true } },
@@ -62,7 +62,7 @@
       "origem": "lib/features/production/task_detail_config.dart:142-165 (ramo canViewInvoiceTo, sem dinheiro)",
       "consulta": {
         "include": {
-          "truck": true,
+          "implement": true,
           "serviceOrders": true,
           "layouts": { "include": { "file": true } },
           "quote": {
@@ -99,7 +99,7 @@
           "customer": { "select": { "id": true, "fantasyName": true, "corporateName": true } },
           "sector": { "select": { "id": true, "name": true } },
           "generalPainting": { "select": { "id": true, "name": true, "hex": true, "finish": true, "colorPreview": true } },
-          "truck": {
+          "implement": {
             "include": {
               "leftSideMeasure": { "include": { "sections": true } },
               "rightSideMeasure": { "include": { "sections": true } }
@@ -134,8 +134,8 @@
       "nota": "`task` (singular) é legado traduzido para `tasks`; `customerConfigs.include.responsible` é legado DESCARTADO (DEPRECATED_QUERY_KEYS).",
       "consulta": {
         "include": {
-          "tasks": { "include": { "customer": true, "truck": true } },
-          "task": { "include": { "customer": true, "truck": true, "layouts": { "include": { "file": true } } } },
+          "tasks": { "include": { "customer": true, "implement": true } },
+          "task": { "include": { "customer": true, "implement": true, "layouts": { "include": { "file": true } } } },
           "services": true,
           "layoutFiles": true,
           "customerConfigs": {

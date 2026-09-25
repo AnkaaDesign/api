@@ -39,7 +39,7 @@ export class FileCleanupSchedulerService {
   // else. It is static artwork published by rsync — geometry, HDRIs, brand
   // logos, card renders — and by design NONE of it has a row in `File`. To this
   // scanner every single one of those files therefore looks orphaned, and on
-  // 2026-08-17 the 3 AM job deleted 157 of them (every truck .glb, every brand
+  // 2026-08-17 the 3 AM job deleted 157 of them (every Truck Studio .glb, every brand
   // logo, every `_neutral.webp` card render) the moment they crossed the 7-day
   // age threshold. Recovered from /mnt/backup/deleted/.
   //

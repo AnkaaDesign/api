@@ -795,8 +795,8 @@ export class SignatureEnvelopeService {
     };
 
     // UM POR VEÍCULO. O que a tela faz com isto é avisar que a placa e o chassi
-    // vão congelar como "a registrar" — e num orçamento de sessenta caminhões
-    // essa lacuna existe em graus diferentes por caminhão: alguns já chegaram
+    // vão congelar como "a registrar" — e num orçamento de sessenta implementos
+    // essa lacuna existe em graus diferentes por implemento: alguns já chegaram
     // emplacados, outros não. Reportar só o primeiro diria "falta a placa" num
     // orçamento em que faltam cinquenta e nove, ou nada num em que falta uma.
     const vehicleRows = quoteTaskRows.map(t => {
@@ -1139,7 +1139,7 @@ export class SignatureEnvelopeService {
     // e o layout pode ser desvinculado entre a emissão e a conclusão.
     //
     // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é se TODO veículo tem
-    // o seu layout — o documento é o contrato dos N caminhões, e um caminhão sem
+    // o seu layout — o documento é o contrato dos N implementos, e um implemento sem
     // arte chegaria à aprovação pelo mesmo beco sem saída do nº 591. Em `SHARED`,
     // a pergunta e a frase de sempre.
     const gate = await this.prisma.budget.findUnique({
@@ -2285,7 +2285,7 @@ export class SignatureEnvelopeService {
     // quarenta no 9013" —, cada um com a sua cobertura, o seu total e o seu
     // plano de parcelas. Enquanto isto era `config` sozinho, o documento
     // descrevia o PRIMEIRO lote e calava sobre os outros: o cliente assinava um
-    // instrumento que prometia quatro parcelas sobre vinte caminhões e nada
+    // instrumento que prometia quatro parcelas sobre vinte implementos e nada
     // sobre os quarenta restantes.
     //
     // A lista vem na ordem de `createdAt` (a do include compartilhado), que é a
@@ -2321,7 +2321,7 @@ export class SignatureEnvelopeService {
     // O documento imprime o preço POR VEÍCULO e multiplica; `config.total` é o
     // que a FATURA cobra, que em `JOINT` já vem multiplicado. Ler `config.total`
     // aqui faria a lista de serviços (unitária) não fechar com o total logo
-    // abaixo dela — num orçamento de sessenta caminhões, por um fator de
+    // abaixo dela — num orçamento de sessenta implementos, por um fator de
     // sessenta.
     //
     // Por isso a conta é refeita a partir dos serviços, com a MESMA fórmula que
@@ -2333,7 +2333,7 @@ export class SignatureEnvelopeService {
     // A tabela de identificação lista o orçamento INTEIRO: o documento é o
     // contrato, e o contrato é dos sessenta. O quadro do tomador é outra coisa —
     // ali entra o nº do pedido de compra, e o pedido é do veículo. Numa fatia de
-    // um caminhão o quadro cita o pedido DELE; num lote, os do lote.
+    // um implemento o quadro cita o pedido DELE; num lote, os do lote.
     //
     // Era `config.taskId`, coluna removida em `20260913120000_billing_coverage`.
     // A leitura passava por `as any`, então o `tsc` não viu, e a condição virou
@@ -2342,7 +2342,7 @@ export class SignatureEnvelopeService {
     //
     // É a união das fatias do cliente, não a da primeira: o quadro é um só para
     // o documento inteiro, e num cliente com dois lotes citar só os pedidos do
-    // primeiro deixaria de fora metade dos caminhões que ele está comprando.
+    // primeiro deixaria de fora metade dos implementos que ele está comprando.
     const coveredIds = new Set(slices.flatMap(c => coveredTaskIds(c as any)));
     const coveredVehicleTasks =
       coveredIds.size > 0 ? vehicleTasks.filter(t => coveredIds.has(t.id)) : [];
@@ -2377,7 +2377,7 @@ export class SignatureEnvelopeService {
     //
     // Uma frase por PLANO, não por fatura e não por documento.
     //
-    // Por que não por fatura: `PER_TASK` com sessenta caminhões são SESSENTA
+    // Por que não por fatura: `PER_TASK` com sessenta implementos são SESSENTA
     // faturas do mesmo cliente, todas com os mesmos termos. Sessenta parágrafos
     // rotulados diriam sessenta vezes a mesma coisa; a frase única — "em 4
     // parcelas de R$ 3.042,60, para cada um dos 60 veículos" — diz tudo numa
@@ -2387,13 +2387,13 @@ export class SignatureEnvelopeService {
     // quarenta no 9013 — não existe uma frase só que seja verdadeira. Enquanto
     // havia, o documento descrevia o PRIMEIRO lote e calava sobre o resto: o
     // cliente assinava um instrumento que prometia parcelas sobre vinte
-    // caminhões e nada sobre os outros quarenta.
+    // implementos e nada sobre os outros quarenta.
     //
     // Então: agrupa as fatias por TERMOS + TAMANHO DA COBERTURA. Um grupo só —
     // o acervo inteiro, todo `JOINT`, todo `PER_TASK` e os lotes IGUAIS — produz
     // exatamente a frase de antes, sem rótulo, e o documento sai byte a byte o
     // mesmo. Mais de um grupo produz uma frase por grupo, cada uma dizendo de
-    // quais caminhões fala.
+    // quais implementos fala.
     type QuoteSlice = (typeof quote.customerConfigs)[number];
     const sliceKey = (c: QuoteSlice): string =>
       JSON.stringify([
@@ -2571,7 +2571,7 @@ export class SignatureEnvelopeService {
     // "Veículos 39088, 39089"), na ordem do PRIMEIRO veículo que ela cobre —
     // a mesma ordem da tabela de identificação, para o cliente ler o documento de
     // cima para baixo sem ir e voltar. Sem isto o PDF mostrava duas pinturas sem
-    // dizer de qual caminhão era cada uma, e quem assinava aprovava as duas para
+    // dizer de qual implemento era cada uma, e quem assinava aprovava as duas para
     // os dois.
     //
     // A legenda viaja PAREADA com a imagem até o filtro das que não resolveram:
@@ -2657,7 +2657,7 @@ export class SignatureEnvelopeService {
         categoryLabel: t.implement?.category ?? null,
         implementLabel: t.implement?.type ?? null,
         // O pedido de compra DESTE veículo — vira coluna da tabela. Era linha do
-        // quadro do tomador, onde só cabia um número: quatro caminhões comprados
+        // quadro do tomador, onde só cabia um número: quatro implementos comprados
         // em pedidos diferentes não cabiam ali.
         orderNumber: (t as { customerOrderNumber?: string | null }).customerOrderNumber ?? null,
       })),
@@ -2697,7 +2697,7 @@ export class SignatureEnvelopeService {
             addressLine: formatBillingStreetLine(customer as any),
             addressLocality: formatBillingLocalityLine(customer as any),
             // O pedido é do VEÍCULO. Numa fatia conjunta o documento cita os
-            // números dos veículos que ela cobre; numa fatia de um caminhão, o
+            // números dos veículos que ela cobre; numa fatia de um implemento, o
             // dele. Ver `orderNumberLabel`.
             orderNumber: orderNumberLabel(billedVehicleTasks),
           }
@@ -3425,7 +3425,7 @@ export class SignatureEnvelopeService {
         user: {
           select: { position: { select: { name: true } }, sector: { select: { name: true } } },
         },
-        // `truck.plate` entra pelo nº do pedido de COMPRAS: é com série e placa
+        // `implement.plate` entra pelo nº do pedido de COMPRAS: é com série e placa
         // que o signatário reconhece de qual veículo é cada campo (ver
         // `orderNumberGateOf`).
         envelope: {
@@ -4117,7 +4117,7 @@ export class SignatureEnvelopeService {
     // `onQuoteContentChanged` é chamado de UM ponto (BudgetService.update),
     // mas dezenas de caminhos alteram o que o documento exibe: escrita aninhada
     // via PUT /tasks/:id, service-order renomeando serviços, rollback de campo,
-    // truck.service, customer.service, responsible.service (que pode até TROCAR
+    // implement.service, customer.service, responsible.service (que pode até TROCAR
     // O TELEFONE que recebe o OTP), e o backfill automático de CNPJ da
     // conciliação bancária. Perseguir call site por call site não se sustenta.
     //
@@ -4923,8 +4923,8 @@ export class SignatureEnvelopeService {
     // Houve uma versão disto que recusava a contra-assinatura enquanto o chassi
     // estivesse vazio, na ideia de que este clique é a última janela antes do
     // selo. A ideia estava certa sobre a mecânica e errada sobre a OFICINA: a
-    // assinatura do orçamento É a aprovação, o caminhão só vem para a empresa
-    // depois de aprovado, e o chassi só se lê com o caminhão no pátio. Pedir o
+    // assinatura do orçamento É a aprovação, o implemento só vem para a empresa
+    // depois de aprovado, e o chassi só se lê com o implemento no pátio. Pedir o
     // chassi antes de assinar é pedir um dado que ainda não pode existir — o
     // aviso apareceria em toda coleta de implemento 0 km e seria clicado sempre,
     // que é como se ensina um operador a ignorar avisos.
@@ -5122,7 +5122,7 @@ export class SignatureEnvelopeService {
         // O QUE O SELO CONGELOU EM BRANCO. Um documento que diz "a registrar"
         // para sempre precisa carregar, na própria trilha, quais campos eram
         // esses e desde quando — é o que liga o documento assinado ao dado que
-        // chega depois, quando o caminhão entra no pátio.
+        // chega depois, quando o implemento entra no pátio.
         ...(pending.length ? { lateSlotsPending: pending.map(p => p.key) } : {}),
       },
     });
@@ -5203,7 +5203,7 @@ export class SignatureEnvelopeService {
        *
        * ⚠️ HOJE `VEHICLE` É `ALWAYS_SECTION` (`quote-sections.ts`): ela entra em
        * TODO recorte que assina, inclusive o do Marketing — o PDF dele imprime o
-       * veículo, porque aprovar arte sem saber em qual caminhão ela vai não é
+       * veículo, porque aprovar arte sem saber em qual implemento ela vai não é
        * aprovar nada. Ou seja: o piso abaixo não recorta ninguém no dado atual, e
        * existe para que, no dia em que `ALWAYS_SECTIONS` mudar, esta rota mude
        * junto — em vez de continuar mandando placa a quem o documento parou de
@@ -5267,7 +5267,7 @@ export class SignatureEnvelopeService {
                     // traz isto — e aqui falhar fechado no vínculo significaria
                     // relaxar o portão justamente para quem PAGA, que é o caso
                     // principal da feature (a Furgões emite o pedido e não é
-                    // dona do caminhão).
+                    // dona do implemento).
                     billingEntry: {
                       select: {
                         billing: {
@@ -6575,7 +6575,7 @@ export class SignatureEnvelopeService {
         },
         // (documents já traz finalFileId/finalSha256/padesLevel por ser include
         // de modelo inteiro — é o que a guarda de reentrância abaixo lê.)
-        // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
+        // `implement` entra por causa das lacunas de cadastro tardio: é na selagem
         // que se pergunta ao cadastro o que já chegou desde a emissão.
         quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, implement: true } } } },
         originalFile: true,
@@ -7080,7 +7080,7 @@ export class SignatureEnvelopeService {
    *
    *   `onQuoteContentChanged` — o gancho que registra `SNAPSHOT_DRIFTED` — é
    *   chamado de UM lugar: `BudgetService.update`. Mas placa e chassi são
-   *   escritos por `PUT /tasks/:id` (escrita aninhada em `truck`), que não passa
+   *   escritos por `PUT /tasks/:id` (escrita aninhada em `implement`), que não passa
    *   por ali. Resultado medido no orçamento nº 945: a tela mostrava as duas
    *   alterações porque as calcula ao vivo, e a trilha do documento não tinha
    *   uma linha sequer sobre elas. O dado existia na memória de quem estava
@@ -7787,7 +7787,7 @@ export class SignatureEnvelopeService {
           orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
           include: { originalFile: true, finalFile: true },
         },
-        // `truck`: a remontagem ao vivo também carimba a identidade que chegou
+        // `implement`: a remontagem ao vivo também carimba a identidade que chegou
         // depois — o cliente que abre o link durante a coleta vê o cadastro de
         // hoje, não o de quando o documento foi congelado.
         quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, implement: true } } } },
@@ -8076,9 +8076,9 @@ export class SignatureEnvelopeService {
     //
     // Com sessenta veículos deixa de funcionar, e falha do lado errado:
     // `resolveLateSlots` descarta tudo que cai fora da primeira folha, e a
-    // tabela de sessenta caminhões ocupa quase três. Da linha ~35 em diante não
+    // tabela de sessenta implementos ocupa quase três. Da linha ~35 em diante não
     // há lacuna registrada — e o aditivo, guiado por elas, simplesmente NÃO
-    // declararia o chassi daqueles vinte e cinco caminhões. O dado existiria no
+    // declararia o chassi daqueles vinte e cinco implementos. O dado existiria no
     // cadastro, o cliente teria assinado um documento que diz "a registrar", e
     // nada no artefato fecharia a lacuna.
     //
@@ -8096,7 +8096,7 @@ export class SignatureEnvelopeService {
       label: string;
       value: string;
       taskId: string;
-      truckId: string | null;
+      implementId: string | null;
     }
     const pending: AddendumField[] = [];
     for (const task of currentVehicles) {
@@ -8140,7 +8140,7 @@ export class SignatureEnvelopeService {
           key: lateSlotKey(field, task.id),
           // Com um veículo o rótulo é o de sempre ("Chassi"); com sessenta ele
           // precisa dizer DE QUAL — senão a folha lista vinte e cinco linhas
-          // chamadas "Chassi" e nenhuma diz a que caminhão pertence.
+          // chamadas "Chassi" e nenhuma diz a que implemento pertence.
           label: multiVehicle
             ? `${LATE_SLOT_LABELS[field] ?? field} — ${
                 task.serialNumber ? `nº ${task.serialNumber}` : (task.implement?.plate ?? task.id.slice(0, 8))
@@ -8148,7 +8148,7 @@ export class SignatureEnvelopeService {
             : (LATE_SLOT_LABELS[field] ?? field),
           value,
           taskId: task.id,
-          truckId: task.implement?.id ?? null,
+          implementId: task.implement?.id ?? null,
         });
       }
     }
@@ -8157,7 +8157,7 @@ export class SignatureEnvelopeService {
     const filled = pending.map(f => f.key);
 
     // As datas de registro saem do changelog, veículo a veículo: `updatedAt` do
-    // caminhão se move a cada toque na linha (uma troca de vaga no pátio) e
+    // implemento se move a cada toque na linha (uma troca de vaga no pátio) e
     // dataria o chassi pelo último desses toques.
     const registeredAtByTask = new Map<string, Record<string, Date | null>>();
     for (const task of currentVehicles) {
@@ -8185,7 +8185,7 @@ export class SignatureEnvelopeService {
         })),
       // Na ordem dos VEÍCULOS (a do documento), e dentro de cada um na ordem
       // série → placa → chassi. Ordenar por chave alfabética espalharia os três
-      // campos do mesmo caminhão por toda a folha.
+      // campos do mesmo implemento por toda a folha.
       fields: pending.map(f => ({
         label: f.label,
         value: f.value,
@@ -8306,7 +8306,7 @@ export class SignatureEnvelopeService {
    */
   private async lateSlotRegistrationDates(
     taskId: string | null,
-    truckId: string | null,
+    implementId: string | null,
   ): Promise<Record<string, Date | null>> {
     const out: Record<string, Date | null> = {};
     const fieldOf: Record<string, string> = {
@@ -8319,7 +8319,7 @@ export class SignatureEnvelopeService {
       const rows = await this.prisma.changeLog.findMany({
         where: {
           OR: [
-            ...(truckId ? [{ entityId: truckId, field: { in: ['plate', 'chassisNumber'] } }] : []),
+            ...(implementId ? [{ entityId: implementId, field: { in: ['plate', 'chassisNumber'] } }] : []),
             ...(taskId
               ? [{ entityId: taskId, field: { in: ['serialNumber', 'customerOrderNumber'] } }]
               : []),

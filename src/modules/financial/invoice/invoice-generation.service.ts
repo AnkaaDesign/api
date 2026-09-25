@@ -126,7 +126,7 @@ export class InvoiceGenerationService {
        * e é também o "faturar tudo de uma vez" em `PER_TASK`.
        *
        * Presente = só as configurações daquelas tarefas. É o "veículo a
-       * veículo": os sessenta caminhões do Marquespan não terminam no mesmo dia,
+       * veículo": os sessenta implementos do Marquespan não terminam no mesmo dia,
        * e o financeiro aprova os que já saíram — cada um com sua fatura, sua
        * NFS-e e seus boletos, com o vencimento contado dali.
        */
@@ -208,7 +208,7 @@ export class InvoiceGenerationService {
     // ── QUAIS FATURAS ESTA APROVAÇÃO EMITE ────────────────────────────────────
     //
     // `onlyTaskIds` restringe às faturas que COBREM um daqueles veículos. A
-    // pergunta é de sobreposição, não de igualdade: aprovar o caminhão 37 emite
+    // pergunta é de sobreposição, não de igualdade: aprovar o implemento 37 emite
     // a fatura do lote 21–60, porque é essa a que cobra o 37 — e ela cobra os
     // quarenta de uma vez, que é o que o lote significa.
     //
@@ -328,7 +328,7 @@ export class InvoiceGenerationService {
         // Billing can now be approved BEFORE the task is finished, so fall back to
         // approvalDate/now instead of skipping generation when finishedAt is null.
         // A COBERTURA manda no `finishedAt`, não a tarefa por onde a aprovação
-        // entrou: cada caminhão fecha num dia diferente, e usar a data de um
+        // entrou: cada implemento fecha num dia diferente, e usar a data de um
         // deles para os sessenta é como todos os vencimentos acabariam iguais.
         //
         // Numa fatura de vários veículos a data é a do ÚLTIMO a fechar — é dali
@@ -435,8 +435,8 @@ export class InvoiceGenerationService {
         // fatura é de UM.
         //
         // Antes era sempre a tarefa por onde a aprovação entrou. Num orçamento
-        // de sessenta caminhões faturado junto, isso apontaria a fatura de
-        // R$ 730.224,00 para UM caminhão, e as telas que listam "faturas desta
+        // de sessenta implementos faturado junto, isso apontaria a fatura de
+        // R$ 730.224,00 para UM implemento, e as telas que listam "faturas desta
         // tarefa" mostrariam a cobrança inteira em um e nada nos outros
         // cinquenta e nove.
         //
@@ -544,11 +544,11 @@ export class InvoiceGenerationService {
           // aprovação entrou.
           //
           // A busca era `taskId: taskId` — a tarefa de entrada. Num orçamento de
-          // sessenta caminhões faturado veículo a veículo, isso faria a segunda
+          // sessenta implementos faturado veículo a veículo, isso faria a segunda
           // aprovação encontrar a nota da primeira e REAPONTÁ-LA para a fatura
-          // nova: o caminhão 1 ficaria sem nota municipal (e o boleto dele
+          // nova: o implemento 1 ficaria sem nota municipal (e o boleto dele
           // travado em CREATING para sempre, porque o portão exige nota
-          // autorizada) e o caminhão 2 herdaria uma nota emitida com os dados de
+          // autorizada) e o implemento 2 herdaria uma nota emitida com os dados de
           // outro veículo.
           //
           // A pergunta certa é "já existe nota viva para ESTE FATURAMENTO neste
@@ -556,7 +556,7 @@ export class InvoiceGenerationService {
           //
           // ⚠️ Endereçar por tarefa (ou por "orçamento com tarefa nula") não
           // sobrevive ao lote: duas faturas do mesmo orçamento cobrindo vinte
-          // caminhões cada têm as duas `taskId` nulo, e a guarda daria a nota da
+          // implementos cada têm as duas `taskId` nulo, e a guarda daria a nota da
           // primeira para a segunda. `customerConfigId` é único por fatura e
           // atravessa reversão e reemissão, que é exatamente o ciclo que a
           // guarda mede.
@@ -991,7 +991,7 @@ export class InvoiceGenerationService {
                       orderBy: { position: 'asc' },
                     },
                     // O NÚMERO DO PEDIDO mora na TAREFA desde que um orçamento
-                    // passou a cobrir N caminhões: o pedido é por entrega, e
+                    // passou a cobrir N implementos: o pedido é por entrega, e
                     // obrigar os sessenta a citar o mesmo era o que o campo
                     // antigo (por cliente) fazia. Ver `orderNumberLabel`.
                     tasks: {
@@ -999,7 +999,7 @@ export class InvoiceGenerationService {
                       select: {
                         id: true,
                         customerOrderNumber: true,
-                        // SÉRIE E CAMINHÃO — numa fatura conjunta `Invoice.task`
+                        // SÉRIE E IMPLEMENTO — numa fatura conjunta `Invoice.task`
                         // é nulo, e sem eles o informativo do boleto não citava
                         // veículo nenhum.
                         serialNumber: true,
@@ -1198,7 +1198,7 @@ export class InvoiceGenerationService {
 
   /**
    * Build the seuNumero field for a Sicredi boleto.
-   * Priority: NfSe number (if enabled + authorized) → truck plate → installment ID fragment.
+   * Priority: NfSe number (if enabled + authorized) → implement plate → installment ID fragment.
    * Max 10 alphanumeric chars per API spec.
    */
   private buildSeuNumero(installment: any): string {
@@ -1208,7 +1208,7 @@ export class InvoiceGenerationService {
       ? installment.invoice?.externalOperation?.generateInvoice !== false
       : installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
-    const truckPlate = installment.invoice?.task?.implement?.plate;
+    const implementPlate = installment.invoice?.task?.implement?.plate;
     // Installment numbers are 1-7 (single digit) — always 1 char.
     const num = String(installment.number ?? 1);
 
@@ -1218,9 +1218,9 @@ export class InvoiceGenerationService {
       const nfseStr = String(authorizedNfse.nfseNumber).slice(-(10 - 2));
       return `NF${nfseStr}`;
     }
-    if (truckPlate) {
-      const plateClean = truckPlate.replace(/[^A-Za-z0-9]/g, '');
-      // Reserve last char(s) for installment number so slips on the same truck are unique.
+    if (implementPlate) {
+      const plateClean = implementPlate.replace(/[^A-Za-z0-9]/g, '');
+      // Reserve last char(s) for installment number so slips on the same implement are unique.
       return (plateClean.slice(0, 10 - num.length) + num).slice(0, 10);
     }
     // UUID fragment is already unique per installment — no suffix needed.
@@ -1242,7 +1242,7 @@ export class InvoiceGenerationService {
    *
    * Output format (each item = one line in the boleto PDF):
    *   Pedido: 4564619 - NF 3039
-   *   Veiculo: Caminhao / Carga Seca
+   *   Veiculo: Implemento / Carga Seca
    *   Serie: 456489 | Placa: RHN8D02 | Chassi: AS451620151A65155
    *   Pintura Parcial
    */
@@ -1251,7 +1251,7 @@ export class InvoiceGenerationService {
 
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
 
-    // External-operation-backed invoice ("Operação Externa"): no truck/order — lines are
+    // External-operation-backed invoice ("Operação Externa"): no implement/order — lines are
     // the NF number (when authorized) followed by service descriptions and item lines.
     const withdrawal = installment.invoice?.externalOperation;
     if (installment.invoice?.externalOperationId && withdrawal) {
@@ -1282,10 +1282,10 @@ export class InvoiceGenerationService {
     // ── OS VEÍCULOS QUE ESTE BOLETO COBRA — uma leitura só ──────────────────
     //
     // O pedido de compra e a descrição do veículo têm de falar dos MESMOS
-    // caminhões. Eram duas leituras com recuos diferentes: sem linha de
+    // implementos. Eram duas leituras com recuos diferentes: sem linha de
     // cobertura (fatura do acervo, anterior à migração), o pedido recuava para o
     // ORÇAMENTO INTEIRO e a descrição para a tarefa da fatura — o boleto saía
-    // citando os quatro pedidos e nomeando um caminhão só.
+    // citando os quatro pedidos e nomeando um implemento só.
     //
     // Agora é uma lista: a cobertura; na falta dela, a tarefa da fatura; na
     // falta das duas, o orçamento inteiro (fatura conjunta antiga, que de fato
@@ -1304,7 +1304,7 @@ export class InvoiceGenerationService {
     // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
     // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
     const task: any = installment.invoice?.task ?? coveredRows[0] ?? null;
-    const truck = task?.implement;
+    const implement = task?.implement;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
     // Line 1: "Pedido: XXXXX - NF YYYY"
@@ -1319,17 +1319,17 @@ export class InvoiceGenerationService {
     }
 
     // Lines 2-3: Vehicle description
-    // Line 2: "Referente aos servicos no veiculo Caminhao Carga Seca"
+    // Line 2: "Referente aos servicos no veiculo Implemento Carga Seca"
     // Line 3: "N.º serie: X, chassi: Z" or "Placa: Y, chassi: Z"
-    const category = this.translateTruckCategory(truck?.category);
-    const implement = this.translateImplementType(truck?.type);
-    const vehicleType = [category, implement].filter(Boolean).join(' ');
+    const category = this.translateImplementCategory(implement?.category);
+    const typeLabel = this.translateImplementType(implement?.type);
+    const vehicleType = [category, typeLabel].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];
     if (task?.serialNumber) identifiers.push(`N.º serie: ${task.serialNumber}`);
-    else if (truck?.plate) identifiers.push(`Placa: ${truck.plate}`);
-    if (task?.serialNumber && truck?.plate) identifiers.push(`placa: ${truck.plate}`);
-    if (truck?.chassisNumber) identifiers.push(`chassi: ${truck.chassisNumber}`);
+    else if (implement?.plate) identifiers.push(`Placa: ${implement.plate}`);
+    if (task?.serialNumber && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
+    if (implement?.chassisNumber) identifiers.push(`chassi: ${implement.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
     if (coveredRows.length > 1) {
@@ -1404,7 +1404,7 @@ export class InvoiceGenerationService {
   // "Carroceria") — NÃO as da NFS-e da tarefa. Moram na fonte única
   // (`@constants/document-labels`, perfil `invoice`, D-18) e são travadas por
   // `tests/fiscal-labels-golden.test.ts`.
-  private translateTruckCategory(category?: string | null): string | null {
+  private translateImplementCategory(category?: string | null): string | null {
     const map: Record<string, string> = CATEGORY_PROFILE_LABELS.invoice;
     return category ? (map[category] ?? category) : null;
   }

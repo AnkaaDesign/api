@@ -21,7 +21,7 @@
  *   nome de arquivo precisa de UMA tarefa e qualquer uma serve. Um total, uma
  *   nota fiscal ou o corpo do documento assinado precisa de TODAS, e responder
  *   com a primeira ali é exatamente o defeito que faz um orçamento de sessenta
- *   caminhões cobrar por um.
+ *   implementos cobrar por um.
  */
 
 /** A ordem canônica das tarefas de um orçamento, para uso em `orderBy` do Prisma.
@@ -129,8 +129,8 @@ export function isMultiTask(quote: QuoteWithTasks | null | undefined): boolean {
  * A chave de uma lacuna "a registrar" no documento congelado.
  *
  * Era o nome do campo (`plate`). Com N veículos isso deixou de identificar
- * qualquer coisa: o chassi do caminhão 3 seria carimbado no espaço reservado do
- * caminhão 1, porque as duas lacunas teriam a mesma chave e a última escrita
+ * qualquer coisa: o chassi do implemento 3 seria carimbado no espaço reservado do
+ * implemento 1, porque as duas lacunas teriam a mesma chave e a última escrita
  * ganharia. A chave passa a levar a tarefa junto.
  *
  * ⚠️ COMPATIBILIDADE: envelopes congelados ANTES desta feature têm as chaves
@@ -228,7 +228,7 @@ export function perVehicleAmount(
 //
 //   1. `BudgetPayer.taskId`, com NULO querendo dizer "todos". A
 //      resposta era uma REGRA avaliada na leitura: uma fatura já emitida passava
-//      a cobrir um caminhão acrescentado depois, sem deixar rastro.
+//      a cobrir um implemento acrescentado depois, sem deixar rastro.
 //   2. `QuoteBillingTask(configId, taskId, customerId)` — gravada, mas pendurada
 //      no PAGADOR. Dois pagadores do mesmo recorte guardavam a lista DUAS VEZES,
 //      e "quantos faturamentos tem este orçamento?" se respondia contando
@@ -301,7 +301,7 @@ export function isBillingApproved(config: BillingConfigLike | null | undefined):
  *
  * A ordem importa porque a âncora (`sliceTask`) é o primeiro desta lista, e ela
  * batiza arquivo, link de notificação e rótulo de trilha: uma âncora que muda
- * entre duas leituras faz o mesmo faturamento apontar para caminhões diferentes.
+ * entre duas leituras faz o mesmo faturamento apontar para implementos diferentes.
  */
 export function coveredTaskIds(config: BillingConfigLike | null | undefined): string[] {
   const rows = coverageRows(config);
@@ -363,7 +363,7 @@ export function sliceTask<T extends QuoteTaskLike>(
  * O `Invoice.taskId` / `NfseDocument.taskId` de uma fatia: o veículo quando a
  * fatura é de UM, nulo quando cobre vários.
  *
- * Nulo é a resposta honesta para a fatura de sessenta caminhões — apontá-la para
+ * Nulo é a resposta honesta para a fatura de sessenta implementos — apontá-la para
  * um faria as telas de "faturas desta tarefa" mostrarem a cobrança inteira num
  * veículo e nada nos outros cinquenta e nove.
  *
@@ -378,13 +378,13 @@ export function sliceTask<T extends QuoteTaskLike>(
  *
  * Existe para a CLÁUSULA DE PAGAMENTO do documento: um cliente que paga em lotes
  * tem K faturamentos no mesmo orçamento, cada um com o seu total e o seu plano
- * de parcelas, e uma frase por lote só é legível se disser de quais caminhões
+ * de parcelas, e uma frase por lote só é legível se disser de quais implementos
  * ela fala. Série quando existe, senão placa, senão o nome da tarefa, senão o
  * começo do id — nessa ordem porque é assim que quem opera identifica um
  * implemento.
  *
  * `total` é quantos veículos o ORÇAMENTO tem. Cobrir todos não vira lista: em
- * sessenta caminhões, "Todos os 60 veículos" é a informação, e imprimir as
+ * sessenta implementos, "Todos os 60 veículos" é a informação, e imprimir as
  * sessenta séries é ruído que ninguém lê.
  *
  * ESPELHADO em `web/src/utils/quote-tasks.ts` (`coverageLabels`/`coverageSummary`).
@@ -432,7 +432,7 @@ export function sliceAnchorTaskId(
 // e `length === 1` / `length >= 2` eram formas corretas — por acidente — de
 // perguntar quantos CLIENTES o orçamento tem.
 //
-// Com `billingSplit = PER_TASK` existe uma fatia POR VEÍCULO. Quatro caminhões
+// Com `billingSplit = PER_TASK` existe uma fatia POR VEÍCULO. Quatro implementos
 // de UM cliente são QUATRO configurações, e as duas leituras passaram a mentir:
 //
 //   • `isSingleConfig` (create e update) decide se TODO serviço pertence à
@@ -552,7 +552,7 @@ export function describePrismaFailure(error: unknown): string | null {
 // O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE
 //
 // Mora em `Task.customerOrderNumber` — por VEÍCULO — desde que um orçamento
-// passou a cobrir N caminhões. Antes era um campo da configuração de
+// passou a cobrir N implementos. Antes era um campo da configuração de
 // faturamento, por CLIENTE, e os sessenta veículos do mesmo orçamento eram
 // obrigados a citar o mesmo pedido na nota e no boleto.
 //
@@ -577,7 +577,7 @@ export function orderNumbersOfTasks(
  * UMA LINHA para a nota, o boleto e o documento.
  *
  * Um número quando é um só — o caso comum, inclusive num orçamento de sessenta
- * caminhões comprados no mesmo pedido. Vários, separados por vírgula, quando
+ * implementos comprados no mesmo pedido. Vários, separados por vírgula, quando
  * diferem: a nota conjunta cobre todos e omitir os outros faria o cliente
  * receber uma nota que não bate com nenhum pedido dele.
  *
@@ -630,7 +630,7 @@ export function orderNumberLabel(
  *
  * Ordenada pela MESMA regra de `QUOTE_TASKS_ORDER_BY`: a ordem da cobertura
  * decide a âncora (`sliceTask`), e âncora que muda entre duas leituras faz o
- * mesmo faturamento apontar para caminhões diferentes.
+ * mesmo faturamento apontar para implementos diferentes.
  */
 export const QUOTE_COVERAGE_INCLUDE: {
   select: Record<string, unknown>;

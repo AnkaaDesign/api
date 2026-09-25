@@ -62,7 +62,7 @@ export const productionDashboardQuerySchema = baseDashboardQuerySchema.extend({
   includeServiceOrders: z.coerce.boolean().optional().default(true),
   includeCuts: z.coerce.boolean().optional().default(true),
   includeAirbrush: z.coerce.boolean().optional().default(true),
-  includeTrucks: z.coerce.boolean().optional().default(true),
+  includeImplements: z.coerce.boolean().optional().default(true),
 });
 
 export type ProductionDashboardQueryFormData = z.infer<typeof productionDashboardQuerySchema>;

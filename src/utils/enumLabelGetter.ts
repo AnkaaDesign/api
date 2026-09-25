@@ -13,7 +13,7 @@
 // - getAirbrushingStatusLabel -> apps/api/src/modules/work/airbrushing/utils.ts
 // - getTaskObservationTypeLabel -> apps/api/src/modules/work/task-observation/utils.ts
 // - getWorkloadLevelLabel -> apps/api/src/modules/work/utils.ts
-// - getTruckManufacturerLabel -> packages/utils/src/truck.ts
+// - getTruckManufacturerLabel -> packages/utils/src/implement.ts
 //
 // Common module:
 // - getNotificationTypeLabel, getNotificationImportanceLabel, getNotificationChannelLabel -> apps/api/src/modules/common/notification/notification.utils.ts

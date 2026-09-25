@@ -4,7 +4,7 @@
  * O QUE ESTE ARQUIVO PROTEGE
  * ─────────────────────────────────────────────────────────────────────────────
  * O censo (src/modules/common/census) é a única fonte de "o que o app 1.4.1 e o
- * AnkaaAero REALMENTE mandam" antes de a R-B trocar `truck` por `implement`. Se
+ * AnkaaAero REALMENTE mandam" antes de uma troca de nome. Se
  * ele errar a forma, a R-B quebra um cliente instalado sem aviso; se ele vazar
  * um valor, o log de produção passa a guardar CPF e placa. Aqui se prova:
  *
@@ -93,7 +93,7 @@ function parteA(): void {
   const aero = queryPaths({
     include: {
       customer: true,
-      truck: { include: { leftSideMeasure: { include: { sections: true } } } },
+      implement: { include: { leftSideMeasure: { include: { sections: true } } } },
       layouts: { include: { file: true } },
     },
     where: {
@@ -103,7 +103,7 @@ function parteA(): void {
   });
   check(
     'include aninhado vira caminho com a espécie da folha',
-    aero.includes('include.truck.include.leftSideMeasure.include.sections:bool') &&
+    aero.includes('include.implement.include.leftSideMeasure.include.sections:bool') &&
       aero.includes('include.layouts.include.file:bool'),
     aero.join(' '),
   );
@@ -167,13 +167,13 @@ function parteB(): void {
   const consulta = queryPaths({
     where: {
       customer: { cpf: CPF, fantasyName: NOME },
-      truck: { plate: PLACA },
+      implement: { plate: PLACA },
       serialNumber: { in: [SERIE] },
     },
     searchingFor: PLACA,
   });
   const corpo = bodyPaths({
-    truck: { plate: PLACA },
+    implement: { plate: PLACA },
     serialNumber: SERIE,
     responsible: { cpf: CPF, name: NOME },
   });
@@ -197,8 +197,8 @@ function parteB(): void {
   );
   check(
     'mas a FORMA está lá: é o que o P11a precisa',
-    consulta.includes('where.truck.plate:str') &&
-      corpo.includes('truck.plate:str') &&
+    consulta.includes('where.implement.plate:str') &&
+      corpo.includes('implement.plate:str') &&
       corpo.includes('serialNumber:str'),
   );
 }
@@ -209,7 +209,7 @@ function parteC(): void {
   console.log('\nC. corpo JSON e multipart');
   const json = bodyPaths({
     tasks: [
-      { name: 'a', truck: { plate: 'x' } },
+      { name: 'a', implement: { plate: 'x' } },
       { name: 'b', serialNumber: '1' },
     ],
     ok: false,
@@ -225,9 +225,9 @@ function parteC(): void {
       'nada:null',
       'obj:{}',
       'ok:bool',
+      'tasks[].implement.plate:str',
       'tasks[].name:str',
       'tasks[].serialNumber:str',
-      'tasks[].truck.plate:str',
       'vazio:[]',
     ]),
     json.join(' '),
@@ -241,7 +241,7 @@ function parteC(): void {
   // multipart como o multer monta: campos de texto (o web manda objeto como JSON)
   const multipart = bodyPaths(
     {
-      truck: JSON.stringify({ plate: PLACA, leftSideMeasure: { sections: [{ width: 1 }] } }),
+      implement: JSON.stringify({ plate: PLACA, leftSideMeasure: { sections: [{ width: 1 }] } }),
       name: NOME,
     },
     { multipart: true, fileFields: ['layouts[0][file]', 'budgetFiles', 'layouts[1][file]'] },
@@ -250,10 +250,10 @@ function parteC(): void {
     'multipart: campo JSON aberto, arquivos pelo NOME do campo (índice do multer fundido)',
     same(multipart, [
       'budgetFiles:file',
+      'implement.leftSideMeasure.sections[].width:num',
+      'implement.plate:str',
       'layouts[].file:file',
       'name:str',
-      'truck.leftSideMeasure.sections[].width:num',
-      'truck.plate:str',
     ]),
     multipart.join(' '),
   );
@@ -461,7 +461,7 @@ async function parteF(): Promise<void> {
   const settle = () => new Promise(r => setTimeout(r, 50));
   try {
     const q = qs.stringify({
-      include: { truck: { include: { leftSideMeasure: true } } },
+      include: { implement: { include: { leftSideMeasure: true } } },
       where: { plate: PLACA },
     });
     const headers = {
@@ -501,7 +501,7 @@ async function parteF(): Promise<void> {
     check(
       'e tem os caminhos da consulta',
       !!s1 &&
-        s1.consulta.includes('include.truck.include.leftSideMeasure:str') &&
+        s1.consulta.includes('include.implement.include.leftSideMeasure:str') &&
         s1.consulta.includes('where.plate:str'),
       JSON.stringify(s1?.consulta),
     );
@@ -513,7 +513,7 @@ async function parteF(): Promise<void> {
         'x-client': 'web@abc123',
         'user-agent': 'Mozilla/5.0 Chrome/128.0 Safari/537.36',
       },
-      body: JSON.stringify({ truck: { plate: PLACA }, serialNumber: SERIE }),
+      body: JSON.stringify({ implement: { plate: PLACA }, serialNumber: SERIE }),
     });
     await settle();
     const s2 = parseCensusLine(lines[1] ?? '');
@@ -527,12 +527,12 @@ async function parteF(): Promise<void> {
         s2.cliente === 'web@abc123' &&
         s2.v === null &&
         s2.ua === 'Chrome' &&
-        same(s2.corpo, ['serialNumber:str', 'truck.plate:str']),
+        same(s2.corpo, ['implement.plate:str', 'serialNumber:str']),
       lines[1],
     );
 
     const form = new FormData();
-    form.append('truck', JSON.stringify({ plate: PLACA }));
+    form.append('implement', JSON.stringify({ plate: PLACA }));
     form.append('name', NOME);
     form.append('arquivo', new Blob([Buffer.from('conteudo')], { type: 'text/plain' }), 'x.txt');
     const r3 = await fetch(`${base}/censo-teste/arquivo`, {
@@ -545,13 +545,13 @@ async function parteF(): Promise<void> {
     const s3 = parseCensusLine(lines[2] ?? '');
     check(
       'multipart: o multer segue lendo arquivo e campos',
-      r3.status === 201 && b3.nome === 'x.txt' && same(b3.campos, ['name', 'truck']),
+      r3.status === 201 && b3.nome === 'x.txt' && same(b3.campos, ['implement', 'name']),
     );
     check(
       'multipart: nomes de campo (JSON aberto) e o campo do arquivo, versão ilegível marcada',
       s3?.rota === 'POST /censo-teste/arquivo' &&
         s3.v === '(inválido)' &&
-        same(s3.corpo, ['arquivo:file', 'name:str', 'truck.plate:str']),
+        same(s3.corpo, ['arquivo:file', 'implement.plate:str', 'name:str']),
       lines[2],
     );
     check(
@@ -691,7 +691,7 @@ function parteG(): void {
       cliente: null,
       ua: 'Dart',
       consulta: [],
-      corpo: ['truck.plate:str'],
+      corpo: ['implement.plate:str'],
     },
     {
       rota: OVERFLOW,
@@ -718,7 +718,7 @@ function parteG(): void {
     fx.semSchema.length === 1 &&
       fx.semSchema[0].rota === 'GET /rota-sem-fixture' &&
       fx.corpos.length === 1 &&
-      same(fx.corpos[0].corpo, ['truck.plate:str']) &&
+      same(fx.corpos[0].corpo, ['implement.plate:str']) &&
       fx.transbordou,
   );
   check('fixture: ids únicos', new Set(fx.formas.map(f => f.id)).size === fx.formas.length);

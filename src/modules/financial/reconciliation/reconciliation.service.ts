@@ -121,7 +121,7 @@ function normalizeInstallmentInvoice(inst: InstallmentReceivable) {
         customer: customerConfig.customer,
         // A tarefa DESTA fatia (ver `sliceTask`): com `PER_TASK` a fatura é de
         // um veículo, e nomear o primeiro do orçamento manda o conferente para o
-        // caminhão errado.
+        // implemento errado.
         task: sliceTask(customerConfig),
         installmentsCount: customerConfig._count.installments,
       },
