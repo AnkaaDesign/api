@@ -19,6 +19,10 @@ export const IMPLEMENT_REVERTIBLE_COLUMNS = [
   'leftSideMeasureId',
   'rightSideMeasureId',
   'backSideMeasureId',
+  'frontSideMeasureId',
+  'rearDoorLeaves',
+  'rearDoorBarCount',
+  'rearDoorHatchCount',
 ] as const;
 
 export type ImplementRevertibleColumn = (typeof IMPLEMENT_REVERTIBLE_COLUMNS)[number];

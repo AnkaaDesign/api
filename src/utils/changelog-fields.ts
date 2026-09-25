@@ -265,6 +265,10 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'implement.leftSideMeasureId': 'Motorista',
     'implement.rightSideMeasureId': 'Sapo',
     'implement.backSideMeasureId': 'Traseira',
+    'implement.frontSideMeasureId': 'Frente',
+    'implement.rearDoorLeaves': 'Folhas da Porta Traseira',
+    'implement.rearDoorBarCount': 'Varões da Porta Traseira',
+    'implement.rearDoorHatchCount': 'Portinholas da Porta Traseira',
     'createdBy.name': 'Nome do Criador',
     'budget.filename': 'Nome do Orçamento',
     'nfe.filename': 'Nome da NFe',
@@ -763,11 +767,15 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     color: 'Cor',
     notes: 'Observações',
     // Medidas do implemento
-    // Sides standardized to Motorista / Sapo / Traseira to match the UI.
+    // Faces: Motorista / Sapo / Traseira / Frente, como na tela.
     implementMeasure: 'Medidas do Implemento',
     leftSideMeasureId: 'Motorista',
     rightSideMeasureId: 'Sapo',
     backSideMeasureId: 'Traseira',
+    frontSideMeasureId: 'Frente',
+    rearDoorLeaves: 'Folhas da Porta Traseira',
+    rearDoorBarCount: 'Varões da Porta Traseira',
+    rearDoorHatchCount: 'Portinholas da Porta Traseira',
   },
   [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: {
     subtotal: 'Subtotal',

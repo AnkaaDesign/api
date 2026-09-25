@@ -175,10 +175,11 @@ async function main() {
     if (!veiculo) return;
 
     const porTaskId = await apiPortal(token, `/cliente/me/veiculos/${veiculo.id}`);
-    // As medidas moram em `identity`, com as demais coisas da seção `VEHICLE`.
-    const m = porTaskId.body?.data?.identity?.measures;
+    // As medidas moram no bloco `implement` (PLANO §7.4: o que é da Furgões/do
+    // cliente), separado da identidade — também na seção `VEHICLE`.
+    const m = porTaskId.body?.data?.implement?.measures;
     check(
-      'GET /cliente/me/veiculos/:taskId devolve identity.measures',
+      'GET /cliente/me/veiculos/:taskId devolve implement.measures',
       !!m,
       m ? '' : `chaves de data=${Object.keys(porTaskId.body?.data ?? {}).join(', ')}`,
     );

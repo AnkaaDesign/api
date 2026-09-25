@@ -23,8 +23,10 @@ import {
   type SpotNumber,
 } from '../../../constants/garage';
 import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
-import { ENTITY_TYPE, CHANGE_TRIGGERED_BY } from '@constants';
+import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '@constants';
+import { FileService } from '@modules/common/file/file.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
+import { IMPLEMENT_REAR_DOOR_FIELDS } from '../../../constants/implement-faces';
 
 /**
  * Disponibilidade do barracão, no vocabulário novo. O alias da rota velha devolve as
@@ -66,6 +68,9 @@ export const IMPLEMENT_FIELD_NOTIFICATION_KEY: Readonly<Record<string, string>> 
   category: 'implement.category',
   type: 'implement.type',
   spot: 'implement.spot',
+  rearDoorLeaves: 'implement.rearDoorLeaves',
+  rearDoorBarCount: 'implement.rearDoorBarCount',
+  rearDoorHatchCount: 'implement.rearDoorHatchCount',
 };
 
 @Injectable()
@@ -77,7 +82,77 @@ export class ImplementService {
     private readonly changeLogService: ChangeLogService,
     private readonly notificationDispatchService: NotificationDispatchService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly fileService: FileService,
   ) {}
+
+  /**
+   * O PROJETO DO IMPLEMENTO (R6): o PDF da Furgões. `fileIds` é a lista inteira que
+   * fica; os arquivos do multipart sobem com o contexto `implementProjectFiles`
+   * (a pasta de projetos do cliente) e entram junto. É M2M: um PDF da Furgões
+   * cobre N séries, e o mesmo arquivo pode estar no projeto de vários implementos.
+   * Trilha no IMPLEMENT (`projectFiles`, antes e depois).
+   */
+  async setProjectFiles(
+    id: string,
+    fileIds: string[],
+    uploads: Express.Multer.File[] = [],
+    userId?: string,
+  ) {
+    const implement = await this.prisma.implement.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        projectFiles: { select: { id: true } },
+        task: { select: { customer: { select: { fantasyName: true } } } },
+      },
+    });
+    if (!implement) throw new NotFoundException(`Implemento ${id} não encontrado`);
+
+    const kept = [...new Set(fileIds)];
+    if (kept.length) {
+      const found = await this.prisma.file.count({ where: { id: { in: kept } } });
+      if (found !== kept.length) {
+        throw new BadRequestException('Algum arquivo do projeto não existe mais. Recarregue e tente de novo.');
+      }
+    }
+
+    return this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const uploaded: string[] = [];
+      for (const file of uploads) {
+        const record = await this.fileService.createFromUploadWithTransaction(
+          tx,
+          file,
+          'implementProjectFiles',
+          userId,
+          { entityId: id, entityType: 'IMPLEMENT', customerName: implement.task?.customer?.fantasyName },
+        );
+        uploaded.push(record.id);
+      }
+      const before = implement.projectFiles.map(f => f.id).sort();
+      const after = [...new Set([...kept, ...uploaded])].sort();
+      const updated = await tx.implement.update({
+        where: { id },
+        data: { projectFiles: { set: after.map(fileId => ({ id: fileId })) } },
+        include: { projectFiles: true },
+      });
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.IMPLEMENT,
+          entityId: id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'projectFiles',
+          oldValue: before,
+          newValue: after,
+          reason: 'Projeto do implemento atualizado',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId || null,
+          userId: userId || null,
+          transaction: tx,
+        });
+      }
+      return updated;
+    });
+  }
 
   /**
    * Campos do implemento acompanhados na trilha e na notificação. O
@@ -92,6 +167,7 @@ export class ImplementService {
     'category',
     'type',
     'spot',
+    ...IMPLEMENT_REAR_DOOR_FIELDS,
   ] as const;
 
   /**
@@ -196,6 +272,9 @@ export class ImplementService {
           ...(data.vinPlateId !== undefined && { vinPlateId: data.vinPlateId }),
           ...(data.category !== undefined && { category: data.category }),
           ...(data.type !== undefined && { type: data.type }),
+          ...Object.fromEntries(
+            IMPLEMENT_REAR_DOOR_FIELDS.filter(field => data[field] !== undefined).map(field => [field, data[field]]),
+          ),
         },
         include: include as any,
       });

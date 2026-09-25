@@ -215,6 +215,7 @@ const TASK_BASE_SELECT = {
   purchaseOrder: { select: { id: true, number: true, issuedAt: true } },
   implement: {
     select: {
+      id: true,
       serialNumber: true,
       plate: true,
       chassisNumber: true,
@@ -224,6 +225,12 @@ const TASK_BASE_SELECT = {
       leftSideMeasure: { select: MEASURE_SELECT },
       rightSideMeasure: { select: MEASURE_SELECT },
       backSideMeasure: { select: MEASURE_SELECT },
+      frontSideMeasure: { select: MEASURE_SELECT },
+      // Porta traseira (R5, DD4) e o projeto do implemento (R6, a Furgões): §7.4.
+      rearDoorLeaves: true,
+      rearDoorBarCount: true,
+      rearDoorHatchCount: true,
+      projectFiles: { select: FILE_SELECT },
     },
   },
 } as const;

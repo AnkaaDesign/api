@@ -83,6 +83,7 @@ const FIELD_LABELS: Record<string, string> = {
   'implement.leftSideMeasureId': 'Motorista',
   'implement.rightSideMeasureId': 'Sapo',
   'implement.backSideMeasureId': 'Traseira',
+  'implement.frontSideMeasureId': 'Frente',
   'implement.measures': 'Medidas do Implemento',
 };
 

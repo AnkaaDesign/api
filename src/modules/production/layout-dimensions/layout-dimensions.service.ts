@@ -128,9 +128,10 @@ export class LayoutDimensionsService implements OnModuleInit {
   /**
    * As medidas do implemento, uma por face, na ORDEM das faces na página.
    *
-   * De cima para baixo: motorista, sapo, traseira. As duas laterais têm o mesmo
-   * tamanho em 92% dos arquivos, então é a ordem — não a geometria — que diz
-   * qual é qual, e é por isso que a lista sai ordenada e não indexada por lado.
+   * De cima para baixo: motorista, sapo, traseira — e a frente por último, que
+   * o motor só casa com o retângulo que sobrar (P11b). As duas laterais têm o
+   * mesmo tamanho em 92% dos arquivos, então é a ordem — não a geometria — que
+   * diz qual é qual, e é por isso que a lista sai ordenada e não indexada por lado.
    *
    * ⚠️ `ImplementMeasure` guarda METRO. Todo o resto do cotador trabalha em
    * CENTÍMETRO real, e a conversão é aqui, uma vez só — era o ponto em que a
@@ -144,6 +145,7 @@ export class LayoutDimensionsService implements OnModuleInit {
         leftSideMeasure: { select: { height: true, sections } },
         rightSideMeasure: { select: { height: true, sections } },
         backSideMeasure: { select: { height: true, sections } },
+        frontSideMeasure: { select: { height: true, sections } },
       },
     });
     if (!implement) throw new NotFoundException('Implemento não encontrado.');
@@ -168,6 +170,7 @@ export class LayoutDimensionsService implements OnModuleInit {
       toPanel('MOTORISTA', implement.leftSideMeasure as Measure | null),
       toPanel('SAPO', implement.rightSideMeasure as Measure | null),
       toPanel('TRASEIRA', implement.backSideMeasure as Measure | null),
+      toPanel('FRENTE', implement.frontSideMeasure as Measure | null),
     ].filter((p): p is Panel => p !== null);
   }
 

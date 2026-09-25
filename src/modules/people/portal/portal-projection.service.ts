@@ -30,6 +30,7 @@ import {
   type QuoteSection,
 } from '@/modules/common/signature/quote-sections';
 import { portalSectionsFor } from './portal-capabilities';
+import { IMPLEMENT_FACES, type ImplementFace } from '../../../constants/implement-faces';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ⛔ O QUE NUNCA SAI, DE NENHUM PAPEL, EM NENHUMA SEÇÃO
@@ -189,6 +190,7 @@ export interface PortalTaskRow {
   customerId?: string | null;
   customer?: { id?: string; fantasyName?: string | null; corporateName?: string | null } | null;
   implement?: {
+    id?: string | null;
     serialNumber?: string | null;
     plate?: string | null;
     chassisNumber?: string | null;
@@ -198,6 +200,11 @@ export interface PortalTaskRow {
     leftSideMeasure?: PortalMeasureRow | null;
     rightSideMeasure?: PortalMeasureRow | null;
     backSideMeasure?: PortalMeasureRow | null;
+    frontSideMeasure?: PortalMeasureRow | null;
+    rearDoorLeaves?: string | null;
+    rearDoorBarCount?: number | null;
+    rearDoorHatchCount?: number | null;
+    projectFiles?: PortalFileRow[];
   } | null;
   generalPainting?: PortalPaintRow | null;
   logoPaints?: PortalPaintRow[];
@@ -453,22 +460,28 @@ export interface PortalVehicleView {
    * outro não dá erro em lugar nenhum — dá uma data errada prometida ao cliente.
    */
   forecastDate?: Date | null;
-  /** `VEHICLE` — série, placa, chassi, plaqueta, medidas, categoria. */
+  /** `VEHICLE` — o endereço do veículo: série, placa, chassi, plaqueta, pedido, cliente. */
   identity?: {
     serialNumber: string | null;
     plate: string | null;
     chassisNumber: string | null;
-    category: string | null;
-    implementType: string | null;
     vinPlate: PortalFileRow | null;
-    measures: {
-      left: PortalMeasureRow | null;
-      right: PortalMeasureRow | null;
-      back: PortalMeasureRow | null;
-    };
     customerOrderNumber: string | null;
     purchaseOrder: { id: string; number: string; issuedAt: Date | null } | null;
     customer: { id: string; name: string } | null;
+  };
+  /**
+   * `VEHICLE` — o que é da Furgões/do cliente (R7, PLANO §7.4): tipo, categoria,
+   * as medidas das 4 faces (METROS; a chave é `back`, nunca `rear`), a porta
+   * traseira (`null` = nada informado) e o projeto do implemento.
+   */
+  implement?: {
+    id: string | null;
+    type: string | null;
+    category: string | null;
+    measures: Record<ImplementFace, PortalMeasureRow | null>;
+    rearDoor: { leaves: string | null; barCount: number | null; hatchCount: number | null } | null;
+    projectFiles: PortalFileRow[];
   };
   /** `LAYOUT` — artes, arquivos-base, cores de pintura. */
   layout?: {
@@ -843,20 +856,8 @@ export class PortalProjectionService {
         serialNumber: implement?.serialNumber ?? null,
         plate: implement?.plate ?? null,
         chassisNumber: implement?.chassisNumber ?? null,
-        category: implement?.category ?? null,
-        // a chave PÚBLICA do portal continua `implementType` (o portal não muda aqui)
-        implementType: implement?.type ?? null,
         // A plaqueta é IMAGEM, não texto, desde `20260727150000_implement_vin_plate_image`.
         vinPlate: implement?.vinPlate ? this.projectFile(implement.vinPlate) : null,
-        // ⚠️ MEDIDAS SAEM EM METROS, como estão no banco. A conversão para
-        // centímetros é da BORDA (o formulário divide por 100 ao enviar e
-        // multiplica ao exibir). Convertê-las aqui faria o portal ter uma
-        // unidade diferente do resto do sistema para o mesmo campo.
-        measures: {
-          left: this.projectMeasure(implement?.leftSideMeasure),
-          right: this.projectMeasure(implement?.rightSideMeasure),
-          back: this.projectMeasure(implement?.backSideMeasure),
-        },
         // O número do pedido de compra é do cliente, escrito pelo cliente. Fica
         // na identidade do veículo porque é isso que ele é: o endereço
         // administrativo daquela entrega.
@@ -875,6 +876,29 @@ export class PortalProjectionService {
             }
           : null,
       } as PortalVehicleView['identity'];
+
+      // O IMPLEMENTO (§7.4): o que é da Furgões/do cliente, separado do endereço.
+      const rearDoor = {
+        leaves: implement?.rearDoorLeaves ?? null,
+        barCount: implement?.rearDoorBarCount ?? null,
+        hatchCount: implement?.rearDoorHatchCount ?? null,
+      };
+      view.implement = {
+        id: implement?.id ?? null,
+        type: implement?.type ?? null,
+        category: implement?.category ?? null,
+        // ⚠️ MEDIDAS SAEM EM METROS, como estão no banco. A conversão para
+        // centímetros é da BORDA (o formulário divide por 100 ao enviar e
+        // multiplica ao exibir). Convertê-las aqui faria o portal ter uma
+        // unidade diferente do resto do sistema para o mesmo campo.
+        measures: Object.fromEntries(
+          IMPLEMENT_FACES.map(face => [face, this.projectMeasure(implement?.[`${face}SideMeasure`])]),
+        ) as Record<ImplementFace, PortalMeasureRow | null>,
+        rearDoor: Object.values(rearDoor).some(v => v !== null) ? rearDoor : null,
+        projectFiles: (implement?.projectFiles ?? [])
+          .map(f => this.projectFile(f))
+          .filter((f): f is PortalFileRow => f !== null),
+      };
     }
 
     if (hasSection(sections, 'LAYOUT')) {

@@ -25,8 +25,8 @@
  *     - `fileContexts`: os `fileContext` que o armazenamento reconhece
  *       (`folderMapping` de `files-storage.service.ts`).
  *
- * Faces do implemento NÃO entram na Fase A (a constante é do P04; entram no
- * P11 junto com `'front'`).
+ *     - `faces`: as faces do implemento, na ordem da API (`IMPLEMENT_FACES`,
+ *       com a frente desde o P11b), e as que levam foto da medida.
  *
  * A saída é DETERMINÍSTICA (sem data, chaves na ordem das fontes): o teste
  * `tests/labels-exhaustive.test.ts` regera em memória e exige igualdade com o
@@ -43,6 +43,7 @@
  *   npx tsx scripts/export-contracts.ts --dart <file>   também gera o .dart do app
  *                                                       (../mobile-flutter/lib/generated/contracts/labels.dart)
  */
+import { IMPLEMENT_FACES, IMPLEMENT_FACES_WITH_PHOTO } from '../src/constants/implement-faces';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { dirname, join, relative } from 'path';
 import * as ts from 'typescript';
@@ -353,6 +354,10 @@ export function buildContracts(): Contracts {
         status: quoteStatuses,
         transicoesManuais: collectBudgetGraph(quoteStatuses),
         ordem: { ...TASK_QUOTE_STATUS_ORDER },
+      },
+      faces: {
+        todas: [...IMPLEMENT_FACES],
+        comFoto: [...IMPLEMENT_FACES_WITH_PHOTO],
       },
       notificacoes: collectNotificationKeys(),
       multipart: collectMultipart(),

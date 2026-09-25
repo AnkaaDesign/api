@@ -1,6 +1,12 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import type { Task } from '../../../types';
+import {
+  IMPLEMENT_FACES,
+  IMPLEMENT_FACE_LABELS,
+  IMPLEMENT_REAR_DOOR_FIELDS,
+} from '../../../constants/implement-faces';
+import { FACE_FK } from '../implement-measure/implement-measure-writer';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 
 /**
@@ -88,21 +94,19 @@ const TRACKED_FIELDS = [
   'implement.category',
   'implement.type',
   'implement.spot',
-  // As faces da medida (quando a medida é atribuída/trocada)
-  'implement.leftSideMeasureId',
-  'implement.rightSideMeasureId',
-  'implement.backSideMeasureId',
-] as const;
+  // A porta traseira (R5, DD4)
+  ...IMPLEMENT_REAR_DOOR_FIELDS.map(field => `implement.${field}`),
+  // As faces da medida (quando a medida é atribuída/trocada), da lista única
+  ...IMPLEMENT_FACES.map(face => `implement.${FACE_FK[face]}`),
+];
 
 /**
  * As faces da medida. Qualquer uma que mude na mesma gravação vira UM evento
  * sintético 'implement.measures' (uma notificação só, não uma por face).
  */
-const IMPLEMENT_MEASURE_SIDE_FIELDS: Record<string, string> = {
-  'implement.leftSideMeasureId': 'Motorista',
-  'implement.rightSideMeasureId': 'Sapo',
-  'implement.backSideMeasureId': 'Traseira',
-};
+const IMPLEMENT_MEASURE_SIDE_FIELDS: Record<string, string> = Object.fromEntries(
+  IMPLEMENT_FACES.map(face => [`implement.${FACE_FK[face]}`, IMPLEMENT_FACE_LABELS[face]]),
+);
 
 /** O valor de um campo acompanhado, lido da tarefa carregada. */
 function trackedValue(task: any, field: string): any {

@@ -4,8 +4,10 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ImplementMeasure } from '@prisma/client';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../../schemas';
-import { ImplementMeasureRepository } from './implement-measure.repository';
+import { ImplementMeasureRepository, type ImplementMeasuresByFace } from './implement-measure.repository';
 import {
+  FACES,
+  FACE_REL,
   createMeasure,
   deleteMeasure,
   rewriteMeasure,
@@ -40,58 +42,22 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
   async findByImplementId(
     implementId: string,
     options?: { includePhoto?: boolean },
-  ): Promise<{
-    leftSideMeasure: ImplementMeasure | null;
-    rightSideMeasure: ImplementMeasure | null;
-    backSideMeasure: ImplementMeasure | null;
-  }> {
+  ): Promise<ImplementMeasuresByFace> {
     // Only include photo if explicitly requested (for library/detail views)
     // Preview views don't need photo data
     const includePhoto = options?.includePhoto ?? false;
+    const include = Object.fromEntries(
+      FACES.map(face => [
+        FACE_REL[face],
+        { include: { ...(includePhoto && { photo: true }), sections: { orderBy: { position: 'asc' } } } },
+      ]),
+    );
 
-    const implement = await this.prisma.implement.findUnique({
-      where: { id: implementId },
-      include: {
-        leftSideMeasure: {
-          include: {
-            ...(includePhoto && { photo: true }),
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
-        },
-        rightSideMeasure: {
-          include: {
-            ...(includePhoto && { photo: true }),
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
-        },
-        backSideMeasure: {
-          include: {
-            ...(includePhoto && { photo: true }),
-            sections: {
-              orderBy: { position: 'asc' },
-            },
-          },
-        },
-      },
-    });
+    const implement = await this.prisma.implement.findUnique({ where: { id: implementId }, include });
 
-    if (!implement) {
-      return {
-        leftSideMeasure: null,
-        rightSideMeasure: null,
-        backSideMeasure: null,
-      };
-    }
-
-    return {
-      leftSideMeasure: implement.leftSideMeasure,
-      rightSideMeasure: implement.rightSideMeasure,
-      backSideMeasure: implement.backSideMeasure,
-    };
+    return Object.fromEntries(
+      FACES.map(face => [FACE_REL[face], ((implement as any)?.[FACE_REL[face]] as ImplementMeasure) ?? null]),
+    ) as ImplementMeasuresByFace;
   }
 
   // As escritas passam pelo escritor único (`../implement-measure-writer.ts`):

@@ -27,6 +27,7 @@ import {
   CHASSIS_FORBIDDEN_LETTERS,
 } from '@utils';
 import { z } from 'zod';
+import { REAR_DOOR_LEAVES } from '../constants/enums';
 
 // =====================
 // Base Validation Schemas
@@ -174,6 +175,28 @@ export const plateSchema = z
   .transform(val => (typeof val === 'string' ? cleanPlate(val) : val))
   .transform(val => (val === '' ? null : val))
   .refine(val => !val || isValidPlate(val), { message: PLATE_INVALID_MESSAGE });
+
+// ── PORTA TRASEIRA DO IMPLEMENTO (R5, DD4) ────────────────────────────────────
+// `null` = não informado. As mesmas faixas que os CHECKs do banco
+// ("Implement_rearDoorBarCount_check", "Implement_rearDoorHatchCount_check"): o
+// zod responde 400 com a frase; o banco é a rede de quem escreve por fora.
+// Sem regra cruzada (DD4): bipartida/tripartida é preset, não amarra varões.
+export const rearDoorLeavesSchema = z.nativeEnum(REAR_DOOR_LEAVES, {
+  errorMap: () => ({ message: 'Porta traseira: bipartida ou tripartida.' }),
+});
+
+export const rearDoorBarCountSchema = z
+  .number({ invalid_type_error: 'Varões da porta traseira: um número.' })
+  .int('Varões da porta traseira: um número inteiro.')
+  .refine(n => n === 2 || n === 3 || n === 4, {
+    message: 'Varões da porta traseira: 2, 3 ou 4 no total.',
+  });
+
+export const rearDoorHatchCountSchema = z
+  .number({ invalid_type_error: 'Portinholas da porta traseira: um número.' })
+  .int('Portinholas da porta traseira: um número inteiro.')
+  .min(0, 'Portinholas da porta traseira: de 0 a 6.')
+  .max(6, 'Portinholas da porta traseira: de 0 a 6.');
 
 export const chassisNumberSchema = z
   .string()

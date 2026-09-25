@@ -1351,6 +1351,16 @@ export enum IMPLEMENT_TYPE {
   FLATBED = 'FLATBED', // Carroceria - Open flatbed/stake body
 }
 
+/**
+ * Porta traseira do implemento: quantas folhas (R5, DD4). É o PRESET das folhas;
+ * varões (2|3|4 no total) e portinholas (0..6, só quantidade) são colunas à parte.
+ * Espelho de `$Enums.RearDoorLeaves`.
+ */
+export enum REAR_DOOR_LEAVES {
+  BIPARTITE = 'BIPARTITE', // Bipartida
+  TRIPARTITE = 'TRIPARTITE', // Tripartida
+}
+
 // =====================
 // Operations & Actions
 // =====================

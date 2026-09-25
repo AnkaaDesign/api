@@ -9,17 +9,43 @@ import { NotificationDispatchService } from '@modules/common/notification/notifi
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../schemas';
 import { ImplementMeasurePrismaRepository } from './repositories/implement-measure-prisma.repository';
+import type { ImplementMeasuresByFace } from './repositories/implement-measure.repository';
 import {
   replicateImplementMeasuresToQuoteSiblings,
   type ReplicationLogEntry,
 } from '../../../utils/implement-measure-replication';
-import { FACE_REL, attachMeasure, setFace, type ImplementFace } from './implement-measure-writer';
+import {
+  FACES,
+  FACE_FK,
+  FACE_INVERSE,
+  FACE_REL,
+  attachMeasure,
+  referencesOf,
+  setFace,
+  type ImplementFace,
+} from './implement-measure-writer';
+import { IMPLEMENT_FACE_LABELS, IMPLEMENT_FACES_WITH_PHOTO } from '../../../constants/implement-faces';
 
 /** O formato que as rotas do módulo sempre devolveram: foto e seções em ordem. */
 const RESPONSE_INCLUDE = {
   photo: true,
   sections: { orderBy: { position: 'asc' as const } },
 };
+
+/** A medida de cada face, com as seções em ordem (para descrever o antes e o depois). */
+const FACES_WITH_SECTIONS = Object.fromEntries(
+  FACES.map(face => [FACE_REL[face], { include: { sections: { orderBy: { position: 'asc' as const } } } }]),
+) as Record<(typeof FACE_REL)[ImplementFace], { include: { sections: { orderBy: { position: 'asc' } } } }>;
+
+type MeasureSnapshot = { height: number; sections: Array<{ width: number; isDoor: boolean }> };
+
+function snapshotOf(measure: any): MeasureSnapshot | null {
+  if (!measure) return null;
+  return {
+    height: measure.height,
+    sections: (measure.sections || []).map((s: any) => ({ width: s.width, isDoor: s.isDoor })),
+  };
+}
 
 /** Quem usa uma medida. */
 interface ImplementMeasureUser {
@@ -51,11 +77,7 @@ export class ImplementMeasureService {
   async findByImplementId(
     implementId: string,
     options?: { includePhoto?: boolean },
-  ): Promise<{
-    leftSideMeasure: ImplementMeasure | null;
-    rightSideMeasure: ImplementMeasure | null;
-    backSideMeasure: ImplementMeasure | null;
-  }> {
+  ): Promise<ImplementMeasuresByFace> {
     return this.implementMeasureRepository.findByImplementId(implementId, options);
   }
 
@@ -75,11 +97,8 @@ export class ImplementMeasureService {
               orderBy: { position: 'asc' },
             }
           : false,
-        ...(options?.includeUsage && {
-          implementsBackSide: { select: { id: true } },
-          implementsLeftSide: { select: { id: true } },
-          implementsRightSide: { select: { id: true } },
-        }),
+        ...(options?.includeUsage &&
+          Object.fromEntries(FACES.map(face => [FACE_INVERSE[face], { select: { id: true } }]))),
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -87,10 +106,10 @@ export class ImplementMeasureService {
     if (options?.includeUsage) {
       return implementMeasures.map(implementMeasure => ({
         ...implementMeasure,
-        usageCount:
-          ((implementMeasure as any).implementsBackSide?.length || 0) +
-          ((implementMeasure as any).implementsLeftSide?.length || 0) +
-          ((implementMeasure as any).implementsRightSide?.length || 0),
+        usageCount: FACES.reduce(
+          (total, face) => total + ((implementMeasure as any)[FACE_INVERSE[face]]?.length || 0),
+          0,
+        ),
       }));
     }
 
@@ -103,7 +122,7 @@ export class ImplementMeasureService {
    */
   async assignImplementMeasureToImplement(
     implementId: string,
-    side: 'left' | 'right' | 'back',
+    side: ImplementFace,
     implementMeasureId: string,
     userId?: string,
   ): Promise<void> {
@@ -145,12 +164,7 @@ export class ImplementMeasureService {
     // Dispatch the consolidated task.field.implement.measures notification (reusing the
     // same helper the other implementMeasure paths use). Fired AFTER the update; failures are
     // swallowed inside the helper so they never break the assign flow.
-    const sideLabels: Record<string, string> = {
-      left: 'Motorista',
-      right: 'Sapo',
-      back: 'Traseira',
-    };
-    const sideLabel = sideLabels[side] || side;
+    const sideLabel = IMPLEMENT_FACE_LABELS[side];
     await this.dispatchConsolidatedImplementMeasureNotification(
       implementId,
       `${sideLabel}: implementMeasure atribuído`,
@@ -286,49 +300,30 @@ export class ImplementMeasureService {
     });
   }
 
-  /**
-   * Get count of implements using this implementMeasure
-   * Returns total count across all three sides (back, left, right)
-   */
+  /** Quantas faces (de qualquer implemento) usam esta medida — todas as faces. */
   async getImplementMeasureUsageCount(implementMeasureId: string): Promise<number> {
-    const [backCount, leftCount, rightCount] = await Promise.all([
-      this.prisma.implement.count({ where: { backSideMeasureId: implementMeasureId } }),
-      this.prisma.implement.count({ where: { leftSideMeasureId: implementMeasureId } }),
-      this.prisma.implement.count({ where: { rightSideMeasureId: implementMeasureId } }),
-    ]);
-    return backCount + leftCount + rightCount;
+    return (await referencesOf(this.prisma, implementMeasureId)).length;
   }
 
   /**
    * Get all implements using this implementMeasure (detailed)
    * Returns which implements use this implementMeasure and on which sides
    */
-  async getImplementsUsingImplementMeasure(implementMeasureId: string): Promise<{
-    backSide: ImplementMeasureUser[];
-    leftSide: ImplementMeasureUser[];
-    rightSide: ImplementMeasureUser[];
-    totalCount: number;
-  }> {
-    const [backImplements, leftImplements, rightImplements] = await Promise.all([
-      this.prisma.implement.findMany({
-        where: { backSideMeasureId: implementMeasureId },
-        select: { id: true, taskId: true, plate: true },
+  async getImplementsUsingImplementMeasure(
+    implementMeasureId: string,
+  ): Promise<Record<`${ImplementFace}Side`, ImplementMeasureUser[]> & { totalCount: number }> {
+    const porFace = await Promise.all(
+      FACES.map(async face => {
+        const rows = await this.prisma.implement.findMany({
+          where: { [FACE_FK[face]]: implementMeasureId },
+          select: { id: true, taskId: true, plate: true },
+        });
+        return [`${face}Side`, rows.map(implementMeasureUser)] as const;
       }),
-      this.prisma.implement.findMany({
-        where: { leftSideMeasureId: implementMeasureId },
-        select: { id: true, taskId: true, plate: true },
-      }),
-      this.prisma.implement.findMany({
-        where: { rightSideMeasureId: implementMeasureId },
-        select: { id: true, taskId: true, plate: true },
-      }),
-    ]);
-
+    );
     return {
-      backSide: backImplements.map(implementMeasureUser),
-      leftSide: leftImplements.map(implementMeasureUser),
-      rightSide: rightImplements.map(implementMeasureUser),
-      totalCount: backImplements.length + leftImplements.length + rightImplements.length,
+      ...(Object.fromEntries(porFace) as Record<`${ImplementFace}Side`, ImplementMeasureUser[]>),
+      totalCount: porFace.reduce((total, [, users]) => total + users.length, 0),
     };
   }
 
@@ -351,19 +346,14 @@ export class ImplementMeasureService {
    * Build a human-readable PT-BR description comparing old vs new implementMeasure
    */
   private formatImplementMeasureChangeDescription(
-    side: 'left' | 'right' | 'back',
+    side: ImplementFace,
     oldImplementMeasure: {
       height: number;
       sections?: Array<{ width: number; isDoor: boolean }>;
     } | null,
     newImplementMeasure: { height: number; sections?: Array<{ width: number; isDoor: boolean }> },
   ): string {
-    const sideLabels: Record<string, string> = {
-      left: 'Motorista',
-      right: 'Sapo',
-      back: 'Traseira',
-    };
-    const sideLabel = sideLabels[side] || side;
+    const sideLabel = IMPLEMENT_FACE_LABELS[side];
 
     if (!oldImplementMeasure || !oldImplementMeasure.sections?.length) {
       const newSummary = this.formatImplementMeasureSummary(newImplementMeasure);
@@ -402,7 +392,7 @@ export class ImplementMeasureService {
 
   async createOrUpdateImplementMeasure(
     implementId: string,
-    side: 'left' | 'right' | 'back',
+    side: ImplementFace,
     data: ImplementMeasureCreateFormData,
     userId?: string,
     photoFile?: Express.Multer.File,
@@ -445,17 +435,7 @@ export class ImplementMeasureService {
       this.logger.log(`[BACKEND] Fetching implement with ID: ${implementId}`);
       const implement = await tx.implement.findUnique({
         where: { id: implementId },
-        include: {
-          leftSideMeasure: {
-            include: { sections: { orderBy: { position: 'asc' as const } } },
-          },
-          rightSideMeasure: {
-            include: { sections: { orderBy: { position: 'asc' as const } } },
-          },
-          backSideMeasure: {
-            include: { sections: { orderBy: { position: 'asc' as const } } },
-          },
-        },
+        include: FACES_WITH_SECTIONS,
       });
 
       if (!implement) {
@@ -467,9 +447,7 @@ export class ImplementMeasureService {
 
       this.logger.log(`[BACKEND] ✅ implement found:`, {
         id: implement.id,
-        hasLeftImplementMeasure: !!implement.leftSideMeasure,
-        hasRightImplementMeasure: !!implement.rightSideMeasure,
-        hasBackImplementMeasure: !!implement.backSideMeasure,
+        faces: Object.fromEntries(FACES.map(face => [face, !!implement[FACE_REL[face]]])),
       });
 
       // A medida atual desta face (para o log e a notificação; a escrita é do
@@ -477,26 +455,16 @@ export class ImplementMeasureService {
       const existingImplementMeasure = implement[FACE_REL[side]];
 
       // Capture old implementMeasure snapshot for notification comparison (before any modifications)
-      if (existingImplementMeasure && (existingImplementMeasure as any).sections) {
-        oldImplementMeasureSnapshot = {
-          height: existingImplementMeasure.height,
-          sections: (
-            (existingImplementMeasure as any).sections as Array<{ width: number; isDoor: boolean }>
-          ).map(s => ({
-            width: s.width,
-            isDoor: s.isDoor,
-          })),
-        };
-      }
+      oldImplementMeasureSnapshot = snapshotOf(existingImplementMeasure);
 
       this.logger.log(`[BACKEND] Side '${side}' - Checking existing implementMeasure:`, {
         hasExistingImplementMeasure: !!existingImplementMeasure,
         existingImplementMeasureId: existingImplementMeasure?.id,
       });
 
-      // Upload photo file if provided (only for backside)
+      // A foto da medida: traseira e frente (as faces que a produção fotografa).
       let photoId = data.photoId || null;
-      if (photoFile && side === 'back') {
+      if (photoFile && IMPLEMENT_FACES_WITH_PHOTO.includes(side)) {
         this.logger.log(`[BACKEND] 📷 Uploading implementMeasure photo for ${side} side`);
         const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
           tx,
@@ -734,7 +702,7 @@ export class ImplementMeasureService {
    */
   private async sendImplementMeasureChangeNotifications(
     implementId: string,
-    side: 'left' | 'right' | 'back',
+    side: ImplementFace,
     action: 'update' | 'assign',
     userId?: string,
     oldImplementMeasure?: {
@@ -746,12 +714,7 @@ export class ImplementMeasureService {
       sections: Array<{ width: number; isDoor: boolean }>;
     } | null,
   ): Promise<void> {
-    const sideLabels: Record<string, string> = {
-      left: 'Motorista',
-      right: 'Sapo',
-      back: 'Traseira',
-    };
-    const sideLabel = sideLabels[side] || side;
+    const sideLabel = IMPLEMENT_FACE_LABELS[side];
 
     // Build implementMeasure change description
     const implementMeasureChangeDescription = newImplementMeasure
@@ -840,77 +803,27 @@ export class ImplementMeasureService {
    */
   async updateImplementMeasureBatch(
     implementId: string,
-    sides: {
-      left?: ImplementMeasureCreateFormData;
-      right?: ImplementMeasureCreateFormData;
-      back?: ImplementMeasureCreateFormData;
-    },
+    sides: Partial<Record<ImplementFace, ImplementMeasureCreateFormData>>,
     userId?: string,
-  ): Promise<{
-    left?: ImplementMeasure;
-    right?: ImplementMeasure;
-    back?: ImplementMeasure;
-  }> {
-    const sideLabels: Record<string, string> = {
-      left: 'Motorista',
-      right: 'Sapo',
-      back: 'Traseira',
-    };
-
+  ): Promise<Partial<Record<ImplementFace, ImplementMeasure>>> {
     // Capture old implementMeasure snapshots BEFORE any update so we can describe the changes.
     const implementBefore = await this.prisma.implement.findUnique({
       where: { id: implementId },
-      include: {
-        leftSideMeasure: {
-          include: { sections: { orderBy: { position: 'asc' as const } } },
-        },
-        rightSideMeasure: {
-          include: { sections: { orderBy: { position: 'asc' as const } } },
-        },
-        backSideMeasure: {
-          include: { sections: { orderBy: { position: 'asc' as const } } },
-        },
-      },
+      include: FACES_WITH_SECTIONS,
     });
 
     if (!implementBefore) {
       throw new NotFoundException(`Implemento não encontrado para ID ${implementId}.`);
     }
 
-    const oldImplementMeasureBySide: Record<
-      string,
-      { height: number; sections: Array<{ width: number; isDoor: boolean }> } | null
-    > = {
-      left: implementBefore.leftSideMeasure
-        ? {
-            height: (implementBefore.leftSideMeasure as any).height,
-            sections: ((implementBefore.leftSideMeasure as any).sections || []).map(
-              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
-            ),
-          }
-        : null,
-      right: implementBefore.rightSideMeasure
-        ? {
-            height: (implementBefore.rightSideMeasure as any).height,
-            sections: ((implementBefore.rightSideMeasure as any).sections || []).map(
-              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
-            ),
-          }
-        : null,
-      back: implementBefore.backSideMeasure
-        ? {
-            height: (implementBefore.backSideMeasure as any).height,
-            sections: ((implementBefore.backSideMeasure as any).sections || []).map(
-              (s: any) => ({ width: s.width, isDoor: s.isDoor }),
-            ),
-          }
-        : null,
-    };
+    const oldImplementMeasureBySide = Object.fromEntries(
+      FACES.map(face => [face, snapshotOf(implementBefore[FACE_REL[face]])]),
+    ) as Record<ImplementFace, MeasureSnapshot | null>;
 
-    const result: { left?: ImplementMeasure; right?: ImplementMeasure; back?: ImplementMeasure } = {};
+    const result: Partial<Record<ImplementFace, ImplementMeasure>> = {};
     const changedSideDescriptions: string[] = [];
 
-    for (const side of ['left', 'right', 'back'] as const) {
+    for (const side of FACES) {
       const data = sides[side];
       if (!data) continue;
 
@@ -938,7 +851,7 @@ export class ImplementMeasureService {
         oldImplementMeasureBySide[side],
         newImplementMeasureSnapshot,
       );
-      changedSideDescriptions.push(`${sideLabels[side]}: ${description}`);
+      changedSideDescriptions.push(`${IMPLEMENT_FACE_LABELS[side]}: ${description}`);
     }
 
     // Dispatch ONE consolidated notification for all changed sides.

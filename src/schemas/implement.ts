@@ -12,9 +12,13 @@ import {
   normalizeSearchTerm,
   normalizeVehicleSearchTerm,
   plateSchema,
+  rearDoorBarCountSchema,
+  rearDoorHatchCountSchema,
+  rearDoorLeavesSchema,
   chassisNumberSchema,
 } from './common';
 import { IMPLEMENT_SPOT, IMPLEMENT_CATEGORY, IMPLEMENT_TYPE } from '@constants';
+import { IMPLEMENT_FACES, type ImplementFace } from '../constants/implement-faces';
 
 /** DD1: toda tarefa tem exatamente um implemento; ele não se remove, se limpa. */
 export const IMPLEMENT_NOT_REMOVABLE_MESSAGE =
@@ -71,11 +75,15 @@ export const implementIncludeSchema = z
           .strict(),
       ])
       .optional(),
-    leftSideMeasure: measureInclude,
-    rightSideMeasure: measureInclude,
-    backSideMeasure: measureInclude,
+    // As medidas de cada face, da lista única (`leftSideMeasure`, …, `frontSideMeasure`)
+    ...(Object.fromEntries(IMPLEMENT_FACES.map(face => [`${face}SideMeasure`, measureInclude])) as Record<
+      `${ImplementFace}SideMeasure`,
+      typeof measureInclude
+    >),
     // Foto da plaqueta de identificação (VIN) — File, não texto.
     vinPlate: z.boolean().optional(),
+    // Projeto do implemento (a Furgões): PDFs.
+    projectFiles: z.boolean().optional(),
   })
   .strict();
 
@@ -159,15 +167,19 @@ export const implementWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       category: enumFilter(implementCategorySchema),
       type: enumFilter(implementTypeSchema),
       spot: enumFilter(implementSpotSchema),
+      rearDoorLeaves: enumFilter(rearDoorLeavesSchema),
+      rearDoorBarCount: z.union([z.number().int(), z.record(z.string(), z.any())]).nullable().optional(),
+      rearDoorHatchCount: z.union([z.number().int(), z.record(z.string(), z.any())]).nullable().optional(),
       taskId: stringFilter.optional(),
       createdAt: dateRange,
       updatedAt: dateRange,
       // Relações: o formato é o do Prisma; o G1 (queryModel: 'Implement') recusa
       // com 400 nomeado a chave que o modelo não conhece.
       task: z.record(z.string(), z.any()).optional(),
-      leftSideMeasure: z.record(z.string(), z.any()).nullable().optional(),
-      rightSideMeasure: z.record(z.string(), z.any()).nullable().optional(),
-      backSideMeasure: z.record(z.string(), z.any()).nullable().optional(),
+      ...(Object.fromEntries(
+        IMPLEMENT_FACES.map(face => [`${face}SideMeasure`, z.record(z.string(), z.any()).nullable().optional()]),
+      ) as Record<`${ImplementFace}SideMeasure`, z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodAny>>>>),
+      projectFiles: z.record(z.string(), z.any()).optional(),
     })
     .strict(),
 );
@@ -296,12 +308,30 @@ export const implementUpdateSchema = z
     category: implementCategorySchema.nullable().optional(),
     type: implementTypeSchema.nullable().optional(),
     spot: implementSpotSchema.nullable().optional(),
+    // Porta traseira (R5, DD4): null apaga, ausente não mexe.
+    rearDoorLeaves: rearDoorLeavesSchema.nullable().optional(),
+    rearDoorBarCount: rearDoorBarCountSchema.nullable().optional(),
+    rearDoorHatchCount: rearDoorHatchCountSchema.nullable().optional(),
     serialNumber: z
       .any()
       .optional()
       .refine(v => v === undefined, { message: IMPLEMENT_SERIAL_NOT_EDITABLE_HERE }),
   })
   .strict();
+
+/**
+ * `PUT /implements/:id/project-files` — o PROJETO DO IMPLEMENTO (R6): o PDF da
+ * Furgões. `fileIds` é a lista INTEIRA que fica (arquivos já enviados); os que
+ * sobem no multipart (`implementProjectFiles`) entram junto. Lista vazia e sem
+ * upload = tirar todos.
+ */
+export const implementProjectFilesSchema = z
+  .object({
+    fileIds: z.array(z.string().uuid('Arquivo inválido')).max(30, 'No máximo 30 arquivos no projeto.').default([]),
+  })
+  .strict();
+
+export type ImplementProjectFilesFormData = z.infer<typeof implementProjectFilesSchema>;
 
 // =====================
 // Vagas, movimentação e disponibilidade

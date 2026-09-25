@@ -26,6 +26,8 @@ export interface FilesFolderMapping {
   cutFiles: string;
   taskBaseFiles: string;
   taskProjectFiles: string;
+  /** Projeto do IMPLEMENTO (R6): o projeto da Furgões, na mesma pasta de projetos do cliente. */
+  implementProjectFiles: string;
   taskCheckinFiles: string;
   taskCheckoutFiles: string;
   serviceOrderCheckinFiles: string;
@@ -135,6 +137,7 @@ export class FilesStorageService {
     cutFiles: 'Plotter',
     taskBaseFiles: 'Outros',
     taskProjectFiles: 'Projetos',
+    implementProjectFiles: 'Projetos',
     taskCheckinFiles: 'Checkin',
     taskCheckoutFiles: 'Checkout',
     serviceOrderCheckinFiles: 'Checkin',
@@ -285,6 +288,7 @@ export class FilesStorageService {
     'cutFiles',
     'taskBaseFiles',
     'taskProjectFiles',
+    'implementProjectFiles',
     'taskCheckinFiles',
     'taskCheckoutFiles',
     'serviceOrderCheckinFiles',
@@ -469,7 +473,7 @@ export class FilesStorageService {
       } else if (fileContext === 'taskBaseFiles') {
         const isImage = mimetype.startsWith('image/');
         folderPath = join(folderPath, isImage ? 'Imagens' : 'Documentos');
-      } else if (fileContext === 'taskProjectFiles') {
+      } else if (fileContext === 'taskProjectFiles' || fileContext === 'implementProjectFiles') {
         const isPdf = mimetype === 'application/pdf';
         folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
       } else if (fileContext === 'thumbnails' && thumbnailSize) {
@@ -767,7 +771,7 @@ export class FilesStorageService {
       observation: ['observations'],
       warning: ['warning'],
       implementMeasure: ['implementMeasurePhotos'],
-      implement: ['implementVinPlate'],
+      implement: ['implementVinPlate', 'implementProjectFiles'],
       airbrushing: [
         'airbrushingLayouts',
         'airbrushingBudgets',

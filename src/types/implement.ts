@@ -26,6 +26,9 @@ export interface Implement extends ImplementScalars {
   backSideMeasure?: ImplementMeasure | null;
   leftSideMeasure?: ImplementMeasure | null;
   rightSideMeasure?: ImplementMeasure | null;
+  frontSideMeasure?: ImplementMeasure | null;
+  /** Projeto do implemento (a Furgões): PDFs. */
+  projectFiles?: File[];
 }
 
 type RelationArg<I> = boolean | { include?: I };
@@ -35,6 +38,8 @@ export interface ImplementIncludes {
   backSideMeasure?: RelationArg<ImplementMeasureIncludes>;
   leftSideMeasure?: RelationArg<ImplementMeasureIncludes>;
   rightSideMeasure?: RelationArg<ImplementMeasureIncludes>;
+  frontSideMeasure?: RelationArg<ImplementMeasureIncludes>;
+  projectFiles?: boolean;
   /** Foto da plaqueta de identificação (VIN). */
   vinPlate?: boolean;
 }

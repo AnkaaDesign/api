@@ -48,6 +48,7 @@ import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layo
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncImplementSpotWithCleared } from '../../../../utils/task-implement-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
+import { IMPLEMENT_REAR_DOOR_FIELDS } from '../../../../constants/implement-faces';
 import { QUOTE_BILLING_INCLUDE, withCoverageInclude } from '../../../../utils/quote-tasks';
 import {
   PER_VEHICLE_LEGACY_WRITE_MESSAGE,
@@ -480,6 +481,11 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       leftSideMeasureId: true,
       rightSideMeasureId: true,
       backSideMeasureId: true,
+      frontSideMeasureId: true,
+      // Porta traseira (R5, DD4)
+      rearDoorLeaves: true,
+      rearDoorBarCount: true,
+      rearDoorHatchCount: true,
       // Don't include full implementMeasure data by default - fetch separately when needed
       // This reduces payload by 60-70% for tasks with implementMeasures
     },
@@ -1096,6 +1102,9 @@ export class TaskPrismaRepository
       if (implementInput.type !== undefined && implementInput.type !== null) {
         implementData.type = implementInput.type;
       }
+      for (const field of IMPLEMENT_REAR_DOOR_FIELDS) {
+        if (implementInput[field] !== undefined) implementData[field] = implementInput[field];
+      }
       taskData.implement = { create: implementData as any };
     }
 
@@ -1528,6 +1537,9 @@ export class TaskPrismaRepository
       }
       if (implementInput.type !== undefined && implementInput.type !== '') {
         implementUpdate.type = implementInput.type;
+      }
+      for (const field of IMPLEMENT_REAR_DOOR_FIELDS) {
+        if (implementInput[field] !== undefined) implementUpdate[field] = implementInput[field];
       }
       if (Object.keys(implementUpdate).length > 0) {
         updateData.implement = { update: implementUpdate as any };

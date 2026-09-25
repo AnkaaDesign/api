@@ -15,6 +15,9 @@ import {
   documentSearchDigits,
   cpfSchema,
   plateSchema,
+  rearDoorBarCountSchema,
+  rearDoorHatchCountSchema,
+  rearDoorLeavesSchema,
   chassisNumberSchema,
 } from './common';
 import type { Task } from '@types';
@@ -34,6 +37,7 @@ import { implementMeasureFaceInputSchema } from './implement-measure';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { budgetCreateNestedSchema, budgetCreateNestedInBatchSchema } from './budget';
 import { businessPeriodStart, businessPeriodEnd } from '../utils/business-period';
+import { IMPLEMENT_FACES, type ImplementFace } from '../constants/implement-faces';
 
 // E-mail dos responsáveis criados inline (newResponsibles). A regra é a mesma
 // do cadastro avulso — mesma coluna `@unique`, mesma normalização — só a
@@ -72,6 +76,47 @@ const uuidArraySchema = (errorMessage: string) =>
  * { select: { id: true, generalPainting: { select: { id: true, name: true, code: true } } } }
  * ```
  */
+
+/**
+ * A medida de UMA face no `select` do implemento (com as seções), e o shape com
+ * todas as faces da lista única — a frente (P11b) entrou aqui sem mais um bloco.
+ */
+const implementFaceMeasureSelectSchema = z
+  .union([
+    z.boolean(),
+    z.object({
+      select: z
+        .object({
+          id: z.boolean().optional(),
+          height: z.boolean().optional(),
+          photoId: z.boolean().optional(),
+          photo: z.boolean().optional(),
+          sections: z
+            .union([
+              z.boolean(),
+              z.object({
+                select: z
+                  .object({
+                    id: z.boolean().optional(),
+                    width: z.boolean().optional(),
+                    isDoor: z.boolean().optional(),
+                    doorHeight: z.boolean().optional(),
+                    position: z.boolean().optional(),
+                  })
+                  .optional(),
+              }),
+            ])
+            .optional(),
+        })
+        .optional(),
+    }),
+  ])
+  .optional();
+
+const IMPLEMENT_FACE_MEASURE_SELECT_SHAPE = Object.fromEntries(
+  IMPLEMENT_FACES.map(face => [`${face}SideMeasure`, implementFaceMeasureSelectSchema]),
+) as Record<`${ImplementFace}SideMeasure`, typeof implementFaceMeasureSelectSchema>;
+
 export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
@@ -435,8 +480,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      // IMPLEMENTO (era `implement`; o pedido velho chega traduzido por
-      // `translateLegacyImplementKeys` antes deste schema).
+      // IMPLEMENTO (DD1: toda tarefa tem um).
       implement: z
         .union([
           z.boolean(),
@@ -455,94 +499,14 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 updatedAt: z.boolean().optional(),
                 // Foto da plaqueta de identificação (VIN) — relação com File.
                 vinPlate: z.boolean().optional(),
-                // ImplementMeasure relations with nested select support
-                leftSideMeasure: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      select: z
-                        .object({
-                          id: z.boolean().optional(),
-                          height: z.boolean().optional(),
-                          sections: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                select: z
-                                  .object({
-                                    id: z.boolean().optional(),
-                                    width: z.boolean().optional(),
-                                    isDoor: z.boolean().optional(),
-                                    doorHeight: z.boolean().optional(),
-                                    position: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-                rightSideMeasure: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      select: z
-                        .object({
-                          id: z.boolean().optional(),
-                          height: z.boolean().optional(),
-                          sections: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                select: z
-                                  .object({
-                                    id: z.boolean().optional(),
-                                    width: z.boolean().optional(),
-                                    isDoor: z.boolean().optional(),
-                                    doorHeight: z.boolean().optional(),
-                                    position: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-                backSideMeasure: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      select: z
-                        .object({
-                          id: z.boolean().optional(),
-                          height: z.boolean().optional(),
-                          sections: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                select: z
-                                  .object({
-                                    id: z.boolean().optional(),
-                                    width: z.boolean().optional(),
-                                    isDoor: z.boolean().optional(),
-                                    doorHeight: z.boolean().optional(),
-                                    position: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
+                // Porta traseira (R5, DD4)
+                rearDoorLeaves: z.boolean().optional(),
+                rearDoorBarCount: z.boolean().optional(),
+                rearDoorHatchCount: z.boolean().optional(),
+                // Projeto do implemento (a Furgões): PDFs.
+                projectFiles: z.union([z.boolean(), z.object({ select: z.record(z.string(), z.boolean()).optional() })]).optional(),
+                // As medidas de cada face, da lista única (`leftSideMeasure`, …, `frontSideMeasure`)
+                ...IMPLEMENT_FACE_MEASURE_SELECT_SHAPE,
               })
               .optional(),
           }),
@@ -2080,9 +2044,7 @@ function serialNumberBodySchema(mode: 'create' | 'update') {
  * O IMPLEMENTO no corpo da tarefa (era `implement`; DD1: toda tarefa tem um).
  *
  * `.strict()` (G2): chave desconhecida é 400, nunca "salvou com 200 e não
- * gravou". O corpo velho (`implement`, `implementType`, `*SideMeasureId`) chega
- * TRADUZIDO por `translateLegacyImplementKeys` antes deste schema. `null` não é
- * aceito: o implemento não se remove da tarefa (o tradutor responde com a frase).
+ * gravou". `null` não é aceito: o implemento não se remove da tarefa.
  *
  * A série mora aqui (DD1) e exige o domínio `identity` além de `implement` (G7).
  */
@@ -2097,7 +2059,7 @@ function buildTaskImplementSchema(mode: 'create' | 'update') {
       plate: plateSchema,
       chassisNumber: chassisNumberSchema,
       // Foto da plaqueta (VIN). Id de File já enviado; o upload multipart usa o
-      // campo `implementVinPlate` (ou o velho `implementVinPlate`).
+      // campo `implementVinPlate`.
       vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
       // A vaga codifica barracão, faixa e posição (B1_F1_V1); null = fora das instalações.
       spot: spotSchema.nullable().optional(),
@@ -2107,6 +2069,11 @@ function buildTaskImplementSchema(mode: 'create' | 'update') {
       leftSideMeasure: implementMeasureSideSchema,
       rightSideMeasure: implementMeasureSideSchema,
       backSideMeasure: implementMeasureSideSchema,
+      frontSideMeasure: implementMeasureSideSchema,
+      // Porta traseira (R5, DD4): null apaga, ausente não mexe.
+      rearDoorLeaves: rearDoorLeavesSchema.nullable().optional(),
+      rearDoorBarCount: rearDoorBarCountSchema.nullable().optional(),
+      rearDoorHatchCount: rearDoorHatchCountSchema.nullable().optional(),
     })
     .strict()
     .optional();

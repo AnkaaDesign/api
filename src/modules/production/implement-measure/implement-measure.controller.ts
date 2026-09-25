@@ -14,20 +14,26 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
-  BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
+import { ZodParamValidationPipe, ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { ImplementMeasureService } from './implement-measure.service';
 import {
+  implementFaceSchema,
+  implementMeasureAssignSchema,
+  implementMeasureBatchSchema,
   implementMeasureCreateSchema,
   implementMeasureUpdateSchema,
+  type ImplementMeasureAssignFormData,
+  type ImplementMeasureBatchFormData,
   type ImplementMeasureCreateFormData,
   type ImplementMeasureUpdateFormData,
 } from '../../../schemas';
+import { IMPLEMENT_FACE_LABELS, type ImplementFace } from '../../../constants/implement-faces';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
@@ -202,11 +208,10 @@ export class ImplementMeasureController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async assignImplementMeasureToImplement(
-    @Param('id') implementMeasureId: string,
-    @Body() data: { implementId: string; side: 'left' | 'right' | 'back' },
+    @Param('id', ParseUUIDPipe) implementMeasureId: string,
+    @Body(new ZodValidationPipe(implementMeasureAssignSchema)) data: ImplementMeasureAssignFormData,
     @UserId() userId: string,
   ) {
-    if (!data?.implementId) throw new BadRequestException('Informe o implemento (implementId).');
     await this.implementMeasureService.assignImplementMeasureToImplement(
       data.implementId,
       data.side,
@@ -216,7 +221,7 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: `Medida atribuída ao lado ${data.side === 'left' ? 'Motorista' : data.side === 'right' ? 'Sapo' : 'Traseira'} do implemento com sucesso`,
+      message: `Medida atribuída ao lado ${IMPLEMENT_FACE_LABELS[data.side]} do implemento com sucesso`,
     };
   }
 
@@ -229,22 +234,13 @@ export class ImplementMeasureController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async updateImplementMeasureBatch(
-    @Param('implementId') implementId: string,
-    @Body()
-    data: {
-      left?: ImplementMeasureCreateFormData;
-      right?: ImplementMeasureCreateFormData;
-      back?: ImplementMeasureCreateFormData;
-    },
+    @Param('implementId', ParseUUIDPipe) implementId: string,
+    @Body(new ZodValidationPipe(implementMeasureBatchSchema)) data: ImplementMeasureBatchFormData,
     @UserId() userId: string,
   ) {
     const implementMeasures = await this.implementMeasureService.updateImplementMeasureBatch(
       implementId,
-      {
-        left: data.left ? implementMeasureCreateSchema.parse(data.left) : undefined,
-        right: data.right ? implementMeasureCreateSchema.parse(data.right) : undefined,
-        back: data.back ? implementMeasureCreateSchema.parse(data.back) : undefined,
-      },
+      data,
       userId,
     );
 
@@ -264,8 +260,8 @@ export class ImplementMeasureController {
   )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
   async createOrUpdateImplementMeasure(
-    @Param('implementId') implementId: string,
-    @Param('side') side: 'left' | 'right' | 'back',
+    @Param('implementId', ParseUUIDPipe) implementId: string,
+    @Param('side', new ZodParamValidationPipe(implementFaceSchema)) side: ImplementFace,
     @Body(new ZodValidationPipe(implementMeasureCreateSchema)) data: ImplementMeasureCreateFormData,
     @Query('existingImplementMeasureId') existingImplementMeasureId: string | undefined, // NEW: Optional existing implementMeasure ID
     @UserId() userId: string,
@@ -285,7 +281,7 @@ export class ImplementMeasureController {
 
     return {
       success: true,
-      message: `Medida ${side === 'left' ? 'Motorista' : side === 'right' ? 'Sapo' : 'Traseira'} do implemento salva com sucesso`,
+      message: `Medida ${IMPLEMENT_FACE_LABELS[side]} do implemento salva com sucesso`,
       data: implementMeasure,
     };
   }

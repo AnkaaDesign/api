@@ -18,8 +18,9 @@
  *   scripts/check-layout-dimensions.ts ~/layouts/ALGUM.pdf 790x252 790x252 240x233
  * ```
  *
- * As medidas vão em CENTÍMETRO, uma por face, na ordem em que elas aparecem na
- * página (de cima para baixo). Elas importam de verdade: o cotador casa cada
+ * As medidas vão em CENTÍMETRO, uma por face, na ordem motorista, sapo,
+ * traseira e (opcional, P11b) frente — a frente só casa com o retângulo que
+ * sobrar depois das outras três. Elas importam de verdade: o cotador casa cada
  * retângulo do desenho com uma medida pela PROPORÇÃO, e uma lateral de 790×252
  * confrontada com o desenho de um baú de 1514×280 simplesmente não casa —
  * a saída correta ali é "nenhuma face foi reconhecida", que é resposta e não
@@ -54,7 +55,7 @@ if (process.argv.length > 3 && faces.length !== process.argv.length - 3) {
 // Sem medidas na linha de comando, vale um baú comum: 7,90 × 2,52 nas laterais
 // e 2,40 × 2,33 na traseira.
 const fallback = [parseFace('790x252')!, parseFace('790x252')!, parseFace('240x233')!];
-const [left, right, back] = faces.length ? [...faces, null, null].slice(0, 3) : fallback;
+const [left, right, back, front] = faces.length ? [...faces, null, null, null].slice(0, 4) : [...fallback, null];
 
 const fakePrisma = {
   file: {
@@ -69,6 +70,7 @@ const fakePrisma = {
       leftSideMeasure: left,
       rightSideMeasure: right,
       backSideMeasure: back,
+      frontSideMeasure: front,
     }),
   },
 };

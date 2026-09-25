@@ -1209,3 +1209,28 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
     return cleaned;
   }
 }
+
+/**
+ * Valida UM parâmetro de rota com domínio fechado
+ * (`@Param('side', new ZodParamValidationPipe(implementFaceSchema))`).
+ *
+ * O `ZodValidationPipe` PULA `param` de propósito (as rotas recebem ids crus e
+ * cada uma os confere). Este é o que valida quando o parâmetro tem domínio
+ * fechado: `side=rear` vira 400 nomeado, e não o 500 de quem recebe uma face
+ * que não existe (G12).
+ */
+@Injectable()
+export class ZodParamValidationPipe implements PipeTransform {
+  constructor(private readonly schema: ZodSchema) {}
+
+  transform(value: unknown, metadata: ArgumentMetadata): unknown {
+    const result = this.schema.safeParse(value);
+    if (result.success) return result.data;
+    throw new BadRequestException({
+      message: result.error.issues.map(issue => issue.message).join('; '),
+      error: 'Bad Request',
+      parametro: metadata.data,
+      statusCode: 400,
+    });
+  }
+}

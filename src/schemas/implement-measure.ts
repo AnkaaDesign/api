@@ -1,6 +1,7 @@
 // packages/schemas/src/implementMeasure.ts
 
 import { z } from 'zod';
+import { IMPLEMENT_FACES, type ImplementFace } from '../constants/implement-faces';
 
 // =====================
 // ImplementMeasure Section Schema
@@ -75,6 +76,31 @@ export const implementMeasureUpdateSchema = z.object({
 });
 
 // =====================
+// A face nas rotas do módulo (G12: face desconhecida é 400 nomeado, nunca o
+// 500 do escritor) e as faces de uma vez só, derivadas da lista única
+// =====================
+
+export const implementFaceSchema = z.enum(IMPLEMENT_FACES, {
+  errorMap: () => ({ message: `Face inválida: use ${IMPLEMENT_FACES.join(', ')}.` }),
+});
+
+export const implementMeasureBatchSchema = z
+  .object(
+    Object.fromEntries(IMPLEMENT_FACES.map(face => [face, implementMeasureCreateSchema.optional()])) as Record<
+      ImplementFace,
+      z.ZodOptional<typeof implementMeasureCreateSchema>
+    >,
+  )
+  .strict();
+
+export const implementMeasureAssignSchema = z
+  .object({
+    implementId: z.string({ required_error: 'Informe o implemento (implementId).' }).uuid('Implemento inválido'),
+    side: implementFaceSchema,
+  })
+  .strict();
+
+// =====================
 // A face embutida no implemento da tarefa (`leftSideMeasure`, `rightSideMeasure`,
 // `backSideMeasure` dentro do objeto do implemento de `POST/PUT /tasks` e dos lotes)
 // =====================
@@ -118,6 +144,8 @@ export type ImplementMeasureSectionUpdateFormData = z.infer<typeof implementMeas
 export type ImplementMeasureCreateFormData = z.infer<typeof implementMeasureCreateSchema>;
 export type ImplementMeasureUpdateFormData = z.infer<typeof implementMeasureUpdateSchema>;
 export type ImplementMeasureFaceInputFormData = z.infer<typeof implementMeasureFaceInputSchema>;
+export type ImplementMeasureBatchFormData = z.infer<typeof implementMeasureBatchSchema>;
+export type ImplementMeasureAssignFormData = z.infer<typeof implementMeasureAssignSchema>;
 
 // =====================
 // Helper Functions

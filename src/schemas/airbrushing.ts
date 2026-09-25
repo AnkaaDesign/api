@@ -1,6 +1,7 @@
 // packages/schemas/src/airbrushing.ts
 
 import { z } from 'zod';
+import { IMPLEMENT_FACES } from '../constants/implement-faces';
 import {
   createMapToFormDataHelper,
   orderByDirectionSchema,
@@ -82,15 +83,15 @@ export const airbrushingIncludeSchema = z
                   z.object({
                     include: z
                       .object({
-                        leftSideMeasure: z
-                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
-                          .optional(),
-                        rightSideMeasure: z
-                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
-                          .optional(),
-                        backSideMeasure: z
-                          .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
-                          .optional(),
+                        // As medidas de cada face, da lista única
+                        ...Object.fromEntries(
+                          IMPLEMENT_FACES.map(face => [
+                            `${face}SideMeasure`,
+                            z
+                              .union([z.boolean(), z.object({ include: z.object({ sections: z.boolean().optional() }).optional() })])
+                              .optional(),
+                          ]),
+                        ),
                       })
                       .optional(),
                   }),

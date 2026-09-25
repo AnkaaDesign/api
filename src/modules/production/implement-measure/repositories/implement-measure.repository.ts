@@ -2,15 +2,14 @@
 
 import { ImplementMeasure } from '@prisma/client';
 import type { ImplementMeasureCreateFormData, ImplementMeasureUpdateFormData } from '../../../../schemas';
-import type { MeasureReference } from '../implement-measure-writer';
+import type { FACE_REL, ImplementFace, MeasureReference } from '../implement-measure-writer';
+
+/** A medida corrente de cada face, pela relação (`leftSideMeasure`, …, `frontSideMeasure`). */
+export type ImplementMeasuresByFace = Record<(typeof FACE_REL)[ImplementFace], ImplementMeasure | null>;
 
 export interface ImplementMeasureRepository {
   findById(id: string, include?: any): Promise<ImplementMeasure | null>;
-  findByImplementId(implementId: string): Promise<{
-    leftSideMeasure: ImplementMeasure | null;
-    rightSideMeasure: ImplementMeasure | null;
-    backSideMeasure: ImplementMeasure | null;
-  }>;
+  findByImplementId(implementId: string): Promise<ImplementMeasuresByFace>;
   create(data: ImplementMeasureCreateFormData, userId?: string): Promise<ImplementMeasure>;
   update(
     id: string,

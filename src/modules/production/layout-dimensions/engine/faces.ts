@@ -356,7 +356,22 @@ export async function buildLayoutFaces(
   const detectedScale = detectScaleFrom(geometry, text.items);
 
   const usable = panels.filter((p) => panelWidthCm(p) > 0 && p.heightCm > 0);
-  let matches = matchFaces(findPanelRects(geometry), usable);
+  // A FRENTE só disputa o retângulo que SOBROU. Frente e traseira têm quase a
+  // mesma proporção (≈ 240 × 240 cm): numa disputa aberta, a traseira desenhada
+  // — a única face de trás em quase todo arquivo de hoje — podia sair com o
+  // nome e a medida da frente. Em duas passadas, um desenho de três faces casa
+  // exatamente como antes da frente existir.
+  const rects = findPanelRects(geometry);
+  const primary = usable.filter((p) => p.side !== "FRENTE");
+  const secondary = usable.filter((p) => p.side === "FRENTE");
+  let matches = matchFaces(rects, primary);
+  if (secondary.length) {
+    const taken = new Set(matches.map((m) => m.rect));
+    const late = matchFaces(rects.filter((r) => !taken.has(r)), secondary);
+    if (late.length) {
+      matches = [...matches, ...late].sort((a, b) => a.rect.y0 - b.rect.y0 || a.rect.x0 - b.rect.x0);
+    }
+  }
 
   const matchedPanels = new Set(matches.map((m) => m.panel));
   const remainingPanels = usable.filter((p) => !matchedPanels.has(p));
@@ -529,8 +544,13 @@ export async function buildLayoutFaces(
       "Nenhuma face foi reconhecida: o arquivo não traz o contorno do implemento, ou as medidas do implemento não batem com o desenho.",
     );
   } else if (faces.length < usable.length) {
+    // Só a frente de fora é o arquivo de hoje (a arte não desenha a frente), não
+    // falha de reconhecimento: dizer "3 de 4" faria parecer que o cotador errou.
+    const missing = usable.filter((p) => !faces.some((f) => f.side === p.side));
     warnings.push(
-      `${faces.length} de ${usable.length} faces reconhecidas no arquivo.`,
+      missing.length === 1 && missing[0].side === "FRENTE"
+        ? "A frente tem medida no implemento, mas não está desenhada no arquivo."
+        : `${faces.length} de ${usable.length} faces reconhecidas no arquivo.`,
     );
   }
 

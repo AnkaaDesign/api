@@ -55,6 +55,7 @@ export const FACE_FK = {
   left: 'leftSideMeasureId',
   right: 'rightSideMeasureId',
   back: 'backSideMeasureId',
+  front: 'frontSideMeasureId',
 } as const satisfies Record<ImplementFace, HolderKey>;
 
 /** Face → relação no implemento (para `select`/`include`). */
@@ -62,6 +63,7 @@ export const FACE_REL = {
   left: 'leftSideMeasure',
   right: 'rightSideMeasure',
   back: 'backSideMeasure',
+  front: 'frontSideMeasure',
 } as const satisfies Record<ImplementFace, HolderKey>;
 
 /** Face → relação inversa em `ImplementMeasure` (quem aponta para a linha por esta face). */
@@ -69,9 +71,19 @@ export const FACE_INVERSE = {
   left: 'implementsLeftSide',
   right: 'implementsRightSide',
   back: 'implementsBackSide',
+  front: 'implementsFrontSide',
 } as const satisfies Record<ImplementFace, keyof Prisma.ImplementMeasureInclude>;
 
 export type FaceFk = (typeof FACE_FK)[ImplementFace];
+
+/** A relação de cada face no implemento (`leftSideMeasure`, …, `frontSideMeasure`). */
+export type FaceRel = (typeof FACE_REL)[ImplementFace];
+
+/** As faces que um corpo de implemento traz (`leftSideMeasure`, …), na ordem de `FACES`. */
+export function facesIn(implementData: Record<string, any> | null | undefined): ImplementFace[] {
+  if (!implementData) return [];
+  return FACES.filter(face => implementData[FACE_REL[face]]);
+}
 
 /**
  * A face a partir de um nome de campo: a coluna (`leftSideMeasureId`), a
@@ -181,7 +193,9 @@ async function currentFaceId(tx: MeasureTx, holderId: string, face: ImplementFac
   const row = (await holderOf(tx).findUnique({
     where: { id: holderId },
     select: { id: true, [fk]: true },
-  })) as Record<string, string | null> | null;
+    // a chave computada vira `string` e o Prisma infere o modelo inteiro (com
+    // `projectFiles: File[]`); o que volta é só a coluna da face
+  })) as unknown as Record<string, string | null> | null;
   if (!row) throw new Error(`Implemento ${holderId} não encontrado para gravar a medida (${face}).`);
   return row[fk] ?? null;
 }

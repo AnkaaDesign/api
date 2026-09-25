@@ -35,6 +35,9 @@ export const COPYABLE_TASK_FIELDS = [
   'implementType',
   'category',
   'implementMeasures',
+  // Porta traseira (as três colunas juntas) e o projeto do implemento (P11b)
+  'rearDoor',
+  'implementProjectFiles',
   // Other relations
   'observation',
 ] as const;
@@ -276,6 +279,22 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.PLOTTING,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.MAINTENANCE,
+  ],
+  // A porta traseira se edita junto com as medidas: os mesmos setores.
+  rearDoor: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.PLOTTING,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+  ],
+  // O domínio `implementProjectFiles` do plano (§5.3 item 5), o mesmo da rota.
+  implementProjectFiles: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.DESIGNER,
   ],
 
   // Observation - hidden for Warehouse, Financial, Designer, Logistic, Commercial

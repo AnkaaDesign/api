@@ -9,7 +9,12 @@ import {
   ParseUUIDPipe,
   BadRequestException,
   NotFoundException,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
+import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
@@ -18,12 +23,14 @@ import {
   implementAvailabilityQuerySchema,
   implementBulkSpotUpdateSchema,
   implementGetManySchema,
+  implementProjectFilesSchema,
   implementQuerySchema,
   implementRequestMovementSchema,
   implementUpdateSchema,
   type ImplementAvailabilityQueryFormData,
   type ImplementBulkSpotUpdateFormData,
   type ImplementGetManyFormData,
+  type ImplementProjectFilesFormData,
   type ImplementQueryFormData,
   type ImplementRequestMovementFormData,
   type ImplementUpdateFormData,
@@ -53,6 +60,17 @@ export const IMPLEMENT_SPOT_ROLES = [
   SECTOR_PRIVILEGES.FINANCIAL,
   SECTOR_PRIVILEGES.LOGISTIC,
   SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  SECTOR_PRIVILEGES.ADMIN,
+] as const;
+
+/**
+ * Quem mexe no PROJETO DO IMPLEMENTO (o PDF da Furgões): o domínio
+ * `implementProjectFiles` do plano (§5.3 item 5).
+ */
+export const IMPLEMENT_PROJECT_ROLES = [
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.LOGISTIC,
+  SECTOR_PRIVILEGES.DESIGNER,
   SECTOR_PRIVILEGES.ADMIN,
 ] as const;
 
@@ -225,6 +243,31 @@ export class ImplementController {
       success: true,
       message: 'Implemento atualizado com sucesso',
       data: await this.implementService.update(id, data, query.include, userId),
+    };
+  }
+
+  /** O projeto do implemento: `fileIds` (a lista que fica) + multipart `implementProjectFiles`. */
+  @Put(':id/project-files')
+  @Roles(...IMPLEMENT_PROJECT_ROLES)
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'implementProjectFiles', maxCount: 30 }], multerConfig),
+  )
+  async setProjectFiles(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(implementProjectFilesSchema))
+    data: ImplementProjectFilesFormData,
+    @UserId() userId: string,
+    @UploadedFiles() files?: { implementProjectFiles?: Express.Multer.File[] },
+  ) {
+    return {
+      success: true,
+      message: 'Projeto do implemento atualizado com sucesso',
+      data: await this.implementService.setProjectFiles(
+        id,
+        data.fileIds,
+        files?.implementProjectFiles ?? [],
+        userId,
+      ),
     };
   }
 }

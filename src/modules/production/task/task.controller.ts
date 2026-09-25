@@ -20,6 +20,7 @@ import { validateIncludes } from '@modules/common/base/include-access-control';
 import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
+import { IMPLEMENT_FACES } from '../../../constants/implement-faces';
 import { TaskService } from './task.service';
 import { TaskAnalyticsService } from './task-analytics.service';
 import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
@@ -98,11 +99,7 @@ import { TASK_QUERY_SHAPE } from './task-query-shape';
  * spread antigo apagava o include aninhado.
  */
 const DEFAULT_IMPLEMENT_INCLUDE = {
-  include: {
-    leftSideMeasure: { include: { sections: true } },
-    rightSideMeasure: { include: { sections: true } },
-    backSideMeasure: { include: { sections: true } },
-  },
+  include: Object.fromEntries(IMPLEMENT_FACES.map(face => [`${face}SideMeasure`, { include: { sections: true } }])),
 };
 
 function withDefaultImplementInclude(include: Record<string, any>): Record<string, any> {
@@ -322,9 +319,13 @@ export class TaskController {
         // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
         { name: 'implementVinPlate', maxCount: 1 },
         // ImplementMeasure photos for bulk implementMeasure operations
+        // A foto da medida por face (`implementMeasurePhotos.<face>Side`). LITERAIS de
+        // propósito: o contrato exportado (G5/G16) lê estes nomes do código, e o G15
+        // confere que são exatamente as faces de `IMPLEMENT_FACES`.
         { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.backSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.frontSide', maxCount: 1 },
       ],
       multerConfig,
     ),
@@ -584,11 +585,7 @@ export class TaskController {
       where: {
         OR: [{ status: TASK_STATUS.WAITING_PRODUCTION }, { status: TASK_STATUS.IN_PRODUCTION }],
         implement: {
-          OR: [
-            { leftSideMeasureId: { not: null } },
-            { rightSideMeasureId: { not: null } },
-            { backSideMeasureId: { not: null } },
-          ],
+          OR: IMPLEMENT_FACES.map(face => ({ [`${face}SideMeasureId`]: { not: null } })),
         },
       },
       include: withDefaultImplementInclude({ ...query.include }),
@@ -794,9 +791,13 @@ export class TaskController {
         { name: 'airbrushings[9].invoices', maxCount: 10 },
         { name: 'airbrushings[9].layouts', maxCount: 20 },
         // ImplementMeasure photos - one photo per side (matches backend service check at line 685)
+        // A foto da medida por face (`implementMeasurePhotos.<face>Side`). LITERAIS de
+        // propósito: o contrato exportado (G5/G16) lê estes nomes do código, e o G15
+        // confere que são exatamente as faces de `IMPLEMENT_FACES`.
         { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.backSide', maxCount: 1 },
+        { name: 'implementMeasurePhotos.frontSide', maxCount: 1 },
       ],
       multerConfig,
     ),

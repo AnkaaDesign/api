@@ -131,11 +131,14 @@ import {
   attachMeasure,
   cloneFaces,
   faceOf,
+  facesIn,
   setFace,
   setFacePhoto,
+  type FaceRel,
   type FaceWriteResult,
   type ImplementFace,
 } from '../implement-measure/implement-measure-writer';
+import { IMPLEMENT_FACE_LABELS, IMPLEMENT_REAR_DOOR_FIELDS } from '../../../constants/implement-faces';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { LayoutApprovedEvent, LayoutReprovedEvent } from './layout.events';
 import { CutCreatedEvent, CutsAddedToTaskEvent } from '../cut/cut.events';
@@ -194,6 +197,19 @@ function formatImplementMeasureForChangelog(implementMeasure: any) {
  * The task's bonification status field is maintained for reference but
  * no bonification entries are automatically created.
  */
+
+/** A medida de uma face como a cópia de tarefa a lê (para clonar e para o histórico). */
+const FACE_MEASURE_COPY_SELECT = {
+  id: true,
+  height: true,
+  photoId: true,
+  sections: { select: { width: true, isDoor: true, doorHeight: true, position: true } },
+} as const;
+
+/** As medidas de TODAS as faces com as seções (include do implemento). */
+const FACE_MEASURES_WITH_SECTIONS = Object.fromEntries(
+  FACES.map(face => [FACE_REL[face], { include: { sections: true } }]),
+) as Record<FaceRel, { include: { sections: true } }>;
 
 @Injectable()
 export class TaskService {
@@ -1326,9 +1342,7 @@ export class TaskService {
         // (série, placa, chassi, vaga, categoria, tipo) nasceu com a tarefa no
         // repositório (W1, DD1) — SEMPRE, mesmo sem nenhum campo.
         const implementData = (data as any).implement;
-        const hasImplementMeasures =
-          implementData &&
-          (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure);
+        const hasImplementMeasures = facesIn(implementData).length > 0;
 
         if (hasImplementMeasures) {
           const implement = await tx.implement.findUnique({ where: { taskId: newTask.id } });
@@ -1942,27 +1956,18 @@ export class TaskService {
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
         // Save implementMeasure data from each task before it gets deleted by the repository
-        const taskImplementMeasureDataMap = new Map<
-          number,
-          { leftSideMeasure: any; rightSideMeasure: any; backSideMeasure: any }
-        >();
+        const taskImplementMeasureDataMap = new Map<number, Partial<Record<FaceRel, any>>>();
         for (const [index, task] of data.tasks.entries()) {
           const implementData = (task as any).implement;
-          if (
-            implementData &&
-            (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure)
-          ) {
-            taskImplementMeasureDataMap.set(index, {
-              leftSideMeasure: implementData.leftSideMeasure ? { ...implementData.leftSideMeasure } : null,
-              rightSideMeasure: implementData.rightSideMeasure
-                ? { ...implementData.rightSideMeasure }
-                : null,
-              backSideMeasure: implementData.backSideMeasure ? { ...implementData.backSideMeasure } : null,
-            });
-            // Remove implementMeasure data from implement so repository doesn't try to handle it
-            delete implementData.leftSideMeasure;
-            delete implementData.rightSideMeasure;
-            delete implementData.backSideMeasure;
+          if (facesIn(implementData).length > 0) {
+            const saved: Partial<Record<FaceRel, any>> = {};
+            for (const face of FACES) {
+              const rel = FACE_REL[face];
+              saved[rel] = implementData[rel] ? { ...implementData[rel] } : null;
+              // Remove implementMeasure data from implement so repository doesn't try to handle it
+              delete implementData[rel];
+            }
+            taskImplementMeasureDataMap.set(index, saved);
           }
         }
 
@@ -2545,6 +2550,9 @@ export class TaskService {
               if (implementData.category !== undefined) updateFields.category = implementData.category;
               if (implementData.type !== undefined) updateFields.type = implementData.type;
               if (implementData.spot !== undefined) updateFields.spot = implementData.spot;
+              for (const field of IMPLEMENT_REAR_DOOR_FIELDS) {
+                if (implementData[field] !== undefined) updateFields[field] = implementData[field];
+              }
 
               if (Object.keys(updateFields).length > 0) {
                 const updatedImplement = await tx.implement.update({
@@ -2781,9 +2789,7 @@ export class TaskService {
           // After processing implementMeasures in service, remove implementMeasure fields from implement data
           // so the repository doesn't try to process them again
           if (implementData) {
-            delete implementData.leftSideMeasure;
-            delete implementData.rightSideMeasure;
-            delete implementData.backSideMeasure;
+            for (const face of FACES) delete implementData[FACE_REL[face]];
           }
         }
 
@@ -7808,11 +7814,7 @@ export class TaskService {
           // Upload photos and inject photoId into implement data for all tasks
           this.logger.log(`[batchUpdate] ===== LAYOUT PHOTO PROCESSING START =====`);
           this.logger.log(`[batchUpdate] All file keys: ${Object.keys(files).join(', ')}`);
-          const uploadedImplementMeasurePhotoIds: {
-            leftSide?: string;
-            rightSide?: string;
-            backSide?: string;
-          } = {};
+          const uploadedImplementMeasurePhotoIds: Partial<Record<ImplementFace, string>> = {};
           const implementMeasurePhotoKeys = Object.keys(files).filter(k =>
             k.startsWith('implementMeasurePhotos.'),
           );
@@ -7825,10 +7827,9 @@ export class TaskService {
             );
 
             for (const key of implementMeasurePhotoKeys) {
-              const side = key.replace('implementMeasurePhotos.', '') as
-                | 'leftSide'
-                | 'rightSide'
-                | 'backSide';
+              // `implementMeasurePhotos.<face>Side` — o interceptor só aceita as faces da lista
+              const side = faceOf(key.replace('implementMeasurePhotos.', ''));
+              if (!side) continue;
               const photoFile = Array.isArray((files as any)[key])
                 ? (files as any)[key][0]
                 : (files as any)[key];
@@ -7854,14 +7855,11 @@ export class TaskService {
               for (const task of data.tasks) {
                 const implementData = (task.data as any)?.implement;
                 if (implementData) {
-                  if (uploadedImplementMeasurePhotoIds.leftSide && implementData.leftSideMeasure) {
-                    implementData.leftSideMeasure.photoId = uploadedImplementMeasurePhotoIds.leftSide;
-                  }
-                  if (uploadedImplementMeasurePhotoIds.rightSide && implementData.rightSideMeasure) {
-                    implementData.rightSideMeasure.photoId = uploadedImplementMeasurePhotoIds.rightSide;
-                  }
-                  if (uploadedImplementMeasurePhotoIds.backSide && implementData.backSideMeasure) {
-                    implementData.backSideMeasure.photoId = uploadedImplementMeasurePhotoIds.backSide;
+                  for (const face of FACES) {
+                    const photoId = uploadedImplementMeasurePhotoIds[face];
+                    if (photoId && implementData[FACE_REL[face]]) {
+                      implementData[FACE_REL[face]].photoId = photoId;
+                    }
                   }
                 }
               }
@@ -8458,10 +8456,7 @@ export class TaskService {
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
           const implementData = (updateData as any)?.implement;
-          if (
-            implementData &&
-            (implementData.leftSideMeasure || implementData.rightSideMeasure || implementData.backSideMeasure)
-          ) {
+          if (facesIn(implementData).length > 0) {
             tasksNeedingImplementMeasureUpdate.push({ taskId: task.id, implementData });
           }
         }
@@ -8484,15 +8479,7 @@ export class TaskService {
             // Get the task with implement info
             const taskWithImplement = await tx.task.findUnique({
               where: { id: taskId },
-              include: {
-                implement: {
-                  include: {
-                    leftSideMeasure: true,
-                    rightSideMeasure: true,
-                    backSideMeasure: true,
-                  },
-                },
-              },
+              include: { implement: { select: { id: true } } },
             });
 
             // O implemento SEMPRE existe (DD1): o ramo que o criava aqui saiu.
@@ -8503,11 +8490,6 @@ export class TaskService {
               );
             }
 
-            const SIDE_NAMES: Record<ImplementFace, string> = {
-              left: 'Motorista',
-              right: 'Sapo',
-              back: 'Traseira',
-            };
             const writtenFaces: FaceWriteResult[] = [];
             for (const face of FACES) {
               const implementMeasureData = implementData[FACE_REL[face]];
@@ -8546,9 +8528,9 @@ export class TaskService {
                   field: written.fk,
                   oldId: written.previousId,
                   newId: written.measureId,
-                  sideName: SIDE_NAMES[written.face],
+                  sideName: IMPLEMENT_FACE_LABELS[written.face],
                 });
-                sides.push(SIDE_NAMES[written.face]);
+                sides.push(IMPLEMENT_FACE_LABELS[written.face]);
                 oldValues[written.fk] = formatImplementMeasureForChangelog(written.before);
                 newValues[written.fk] = formatImplementMeasureForChangelog(written.after);
               }
@@ -8576,9 +8558,9 @@ export class TaskService {
               );
 
               // As faces da medida que mudaram, para a notificação depois do commit.
-              // Passam por fieldTracker.emitFieldChangeEvents, que junta as três
-              // (implement.leftSideMeasureId/rightSideMeasureId/backSideMeasureId) num
-              // ÚNICO evento 'implement.measures' — como na edição de uma tarefa só.
+              // Passam por fieldTracker.emitFieldChangeEvents, que junta as faces
+              // (implement.<face>SideMeasureId) num ÚNICO evento 'implement.measures'
+              // — como na edição de uma tarefa só.
               for (const pair of implementMeasureSidePairs) {
                 if (pair.oldId === pair.newId) continue;
                 fieldChangesForEvents.push({
@@ -11698,11 +11680,7 @@ export class TaskService {
         // Find the implement for this task
         const implement = await tx.implement.findUnique({
           where: { taskId: changeLog.entityId },
-          include: {
-            leftSideMeasure: { include: { sections: true } },
-            rightSideMeasure: { include: { sections: true } },
-            backSideMeasure: { include: { sections: true } },
-          },
+          select: { id: true },
         });
 
         if (!implement) {
@@ -11726,13 +11704,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              implement: {
-                include: {
-                  leftSideMeasure: { include: { sections: true } },
-                  rightSideMeasure: { include: { sections: true } },
-                  backSideMeasure: { include: { sections: true } },
-                },
-              },
+              implement: { include: FACE_MEASURES_WITH_SECTIONS },
               createdBy: true,
             },
           },
@@ -11892,13 +11864,7 @@ export class TaskService {
       const task = await tx.task.findUnique({
         where: { id: taskId },
         include: {
-          implement: {
-            include: {
-              leftSideMeasure: { include: { sections: true } },
-              rightSideMeasure: { include: { sections: true } },
-              backSideMeasure: { include: { sections: true } },
-            },
-          },
+          implement: { include: FACE_MEASURES_WITH_SECTIONS },
         },
       });
 
@@ -11911,14 +11877,9 @@ export class TaskService {
       }
 
       // Validate that implement has implementMeasure before positioning
-      if (
-        positionData.spot &&
-        !task.implement.leftSideMeasure &&
-        !task.implement.rightSideMeasure &&
-        !task.implement.backSideMeasure
-      ) {
+      if (positionData.spot && !FACES.some(face => (task.implement as any)[FACE_REL[face]])) {
         throw new BadRequestException(
-          `O implemento da tarefa "${task.name}" não possui implementMeasure configurado. Configure pelo menos um implementMeasure (Motorista, Sapo ou Traseira) antes de posicionar o implemento na garagem.`,
+          `O implemento da tarefa "${task.name}" não possui medida configurada. Configure pelo menos uma medida (${FACES.map(face => IMPLEMENT_FACE_LABELS[face]).join(', ')}) antes de posicionar o implemento na garagem.`,
         );
       }
 
@@ -13009,7 +12970,7 @@ export class TaskService {
   ): Promise<void> {
     const old = typeof value === 'string' ? { id: value } : value;
     const currentId =
-      ((await tx.implement.findUnique({ where: { id: implementId }, select: { [FACE_FK[face]]: true } })) as
+      ((await tx.implement.findUnique({ where: { id: implementId }, select: { [FACE_FK[face]]: true } })) as unknown as
         | Record<string, string | null>
         | null)?.[FACE_FK[face]] ?? null;
     const isCurrent = !!old?.id && old.id === currentId;
@@ -13358,51 +13319,15 @@ export class TaskService {
                 backSideMeasureId: true,
                 leftSideMeasureId: true,
                 rightSideMeasureId: true,
-                backSideMeasure: {
-                  select: {
-                    id: true,
-                    height: true,
-                    photoId: true,
-                    sections: {
-                      select: {
-                        width: true,
-                        isDoor: true,
-                        doorHeight: true,
-                        position: true,
-                      },
-                    },
-                  },
-                },
-                leftSideMeasure: {
-                  select: {
-                    id: true,
-                    height: true,
-                    photoId: true,
-                    sections: {
-                      select: {
-                        width: true,
-                        isDoor: true,
-                        doorHeight: true,
-                        position: true,
-                      },
-                    },
-                  },
-                },
-                rightSideMeasure: {
-                  select: {
-                    id: true,
-                    height: true,
-                    photoId: true,
-                    sections: {
-                      select: {
-                        width: true,
-                        isDoor: true,
-                        doorHeight: true,
-                        position: true,
-                      },
-                    },
-                  },
-                },
+                frontSideMeasureId: true,
+                backSideMeasure: { select: FACE_MEASURE_COPY_SELECT },
+                leftSideMeasure: { select: FACE_MEASURE_COPY_SELECT },
+                rightSideMeasure: { select: FACE_MEASURE_COPY_SELECT },
+                frontSideMeasure: { select: FACE_MEASURE_COPY_SELECT },
+                rearDoorLeaves: true,
+                rearDoorBarCount: true,
+                rearDoorHatchCount: true,
+                projectFiles: { select: { id: true, filename: true, thumbnailUrl: true } },
               },
             },
             observation: true,
@@ -13531,6 +13456,11 @@ export class TaskService {
                 backSideMeasureId: true,
                 leftSideMeasureId: true,
                 rightSideMeasureId: true,
+                frontSideMeasureId: true,
+                rearDoorLeaves: true,
+                rearDoorBarCount: true,
+                rearDoorHatchCount: true,
+                projectFiles: { select: { id: true } },
               },
             },
             observation: true,
@@ -13620,11 +13550,13 @@ export class TaskService {
             destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
           implementType: destinationTask.implement?.type || null,
           category: destinationTask.implement?.category || null,
-          implementMeasures: {
-            backSideMeasureId: destinationTask.implement?.backSideMeasureId || null,
-            leftSideMeasureId: destinationTask.implement?.leftSideMeasureId || null,
-            rightSideMeasureId: destinationTask.implement?.rightSideMeasureId || null,
-          },
+          implementMeasures: Object.fromEntries(
+            FACES.map(face => [FACE_FK[face], destinationTask.implement?.[FACE_FK[face]] || null]),
+          ),
+          rearDoor: Object.fromEntries(
+            IMPLEMENT_REAR_DOOR_FIELDS.map(f => [f, destinationTask.implement?.[f] ?? null]),
+          ),
+          implementProjectFiles: destinationTask.implement?.projectFiles?.map(f => f.id) || [],
           observation: destinationTask.observation?.description || null,
         };
 
@@ -14010,6 +13942,37 @@ export class TaskService {
               }
               break;
 
+            // ===== PORTA TRASEIRA (as três colunas juntas; 0 portinholas é dado) =====
+            case 'rearDoor':
+              if (IMPLEMENT_REAR_DOOR_FIELDS.some(f => sourceTask.implement?.[f] != null)) {
+                const rearDoor = Object.fromEntries(
+                  IMPLEMENT_REAR_DOOR_FIELDS.map(f => [f, sourceTask.implement?.[f] ?? null]),
+                );
+                // DD1: o implemento do destino SEMPRE existe — `update`, nunca criar.
+                await tx.implement.update({ where: { taskId: destinationTaskId }, data: rearDoor });
+                copiedFields.push(field);
+                details.rearDoor = rearDoor;
+              }
+              break;
+
+            // ===== PROJETO DO IMPLEMENTO (M2M: o mesmo PDF da Furgões serve N implementos) =====
+            case 'implementProjectFiles':
+              if (hasData(sourceTask.implement?.projectFiles)) {
+                await tx.implement.update({
+                  where: { taskId: destinationTaskId },
+                  data: {
+                    projectFiles: { set: sourceTask.implement.projectFiles.map(f => ({ id: f.id })) },
+                  },
+                });
+                copiedFields.push(field);
+                details.implementProjectFiles = sourceTask.implement.projectFiles.map(f => ({
+                  id: f.id,
+                  filename: f.filename,
+                  thumbnailUrl: f.thumbnailUrl,
+                }));
+              }
+              break;
+
             // ===== LAYOUTS (Individual Clones) =====
             case 'implementMeasures':
               if (hasData(sourceTask.implement)) {
@@ -14059,14 +14022,11 @@ export class TaskService {
                 // Store cloned implementMeasure data with dimensions for changelog display
                 details.implementMeasures = {
                   ...implementMeasureData,
-                  leftSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.implement.leftSideMeasure,
-                  ),
-                  rightSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.implement.rightSideMeasure,
-                  ),
-                  backSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.implement.backSideMeasure,
+                  ...Object.fromEntries(
+                    FACES.map(face => [
+                      `${face}SideDimensions`,
+                      getImplementMeasureDimensions(sourceTask.implement[FACE_REL[face]]),
+                    ]),
                   ),
                 };
               }

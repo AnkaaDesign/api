@@ -51,6 +51,8 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   cutFiles: 'customer',
   taskBaseFiles: 'customer',
   taskProjectFiles: 'customer',
+  // Projeto do implemento (a Furgões): mesma pasta de projetos do cliente (P11b).
+  implementProjectFiles: 'customer',
   taskCheckinFiles: 'customer',
   taskCheckoutFiles: 'customer',
   customerLogo: 'customer',
@@ -406,9 +408,9 @@ export class FileOrganizationSchedulerService {
         return installment.customerConfig.customer.fantasyName;
       }
 
-      // Plaqueta de chassi (Implement.vinPlateId -> task -> customer).
+      // Plaqueta de chassi e projeto do implemento (Implement -> task -> customer).
       const implement = await this.prisma.implement.findFirst({
-        where: { vinPlateId: fileId },
+        where: { OR: [{ vinPlateId: fileId }, { projectFiles: { some: { id: fileId } } }] },
         select: { task: { select: { customer: { select: { fantasyName: true } } } } },
       });
       if (implement?.task?.customer?.fantasyName) {

@@ -60,28 +60,36 @@ function check(name: string, condition: boolean, detail?: string) {
   }
 }
 
-type Face = 'left' | 'right' | 'back';
-const FACES_T: Face[] = ['left', 'right', 'back'];
-const FK: Record<Face, 'leftSideMeasureId' | 'rightSideMeasureId' | 'backSideMeasureId'> = {
+type Face = 'left' | 'right' | 'back' | 'front';
+const FACES_T: Face[] = ['left', 'right', 'back', 'front'];
+const FK: Record<Face, `${Face}SideMeasureId`> = {
   left: 'leftSideMeasureId',
   right: 'rightSideMeasureId',
   back: 'backSideMeasureId',
+  front: 'frontSideMeasureId',
 };
-const REL: Record<Face, 'leftSideMeasure' | 'rightSideMeasure' | 'backSideMeasure'> = {
+const REL: Record<Face, `${Face}SideMeasure`> = {
   left: 'leftSideMeasure',
   right: 'rightSideMeasure',
   back: 'backSideMeasure',
+  front: 'frontSideMeasure',
 };
 const PHOTO_KEY: Record<Face, string> = {
   left: 'implementMeasurePhotos.leftSide',
   right: 'implementMeasurePhotos.rightSide',
   back: 'implementMeasurePhotos.backSide',
+  front: 'implementMeasurePhotos.frontSide',
 };
-const PORTAL_KEY: Record<Face, 'esquerda' | 'direita' | 'traseira'> = {
+// O portal grava a frente no P13a: até lá, as três faces que ele conhece.
+type PortalFace = 'left' | 'right' | 'back';
+const PORTAL_FACES: PortalFace[] = ['left', 'right', 'back'];
+const PORTAL_KEY: Record<PortalFace, 'esquerda' | 'direita' | 'traseira'> = {
   left: 'esquerda',
   right: 'direita',
   back: 'traseira',
 };
+// As faces cuja medida leva foto pelo multipart do módulo (`IMPLEMENT_FACES_WITH_PHOTO`).
+const PHOTO_BY_MULTIPART: Face[] = ['back', 'front'];
 
 /** Uma medida em METROS: altura + larguras; a última seção é porta. */
 function medida(height: number, widths: number[], photoId?: string | null) {
@@ -110,10 +118,15 @@ function medidaCm(height: number, widths: number[]) {
 }
 
 // Valores distintos por face, para que um lado trocado apareça.
-const H: Record<Face, number> = { left: 2.6, right: 2.55, back: 2.4 };
-const W: Record<Face, number[]> = { left: [4.2, 1.1], right: [3.9, 1.4], back: [2.45] };
-const H2: Record<Face, number> = { left: 2.7, right: 2.65, back: 2.5 };
-const W2: Record<Face, number[]> = { left: [3.1, 2.2, 1.05], right: [5.3], back: [2.35, 0.1] };
+const H: Record<Face, number> = { left: 2.6, right: 2.55, back: 2.4, front: 2.45 };
+const W: Record<Face, number[]> = { left: [4.2, 1.1], right: [3.9, 1.4], back: [2.45], front: [2.4] };
+const H2: Record<Face, number> = { left: 2.7, right: 2.65, back: 2.5, front: 2.55 };
+const W2: Record<Face, number[]> = {
+  left: [3.1, 2.2, 1.05],
+  right: [5.3],
+  back: [2.35, 0.1],
+  front: [2.3, 0.15],
+};
 
 async function main() {
   /* eslint-disable @typescript-eslint/no-var-requires */
@@ -212,8 +225,19 @@ async function main() {
     );
     check(
       'a lista de faces da API é UMA (constants/implement-faces.ts)',
-      JSON.stringify(writer.FACES) === JSON.stringify(['left', 'right', 'back']),
+      JSON.stringify(writer.FACES) === JSON.stringify(['left', 'right', 'back', 'front']),
       JSON.stringify(writer.FACES),
+    );
+    // As fotos da medida no multipart da tarefa são LITERAIS no controller (o
+    // contrato exportado lê os nomes do código): têm de ser exatamente as faces
+    // da lista, nos dois interceptores que as aceitam (PUT /tasks/batch e /:id).
+    const controller = readFileSync(join(raiz, 'modules/production/task/task.controller.ts'), 'utf8');
+    const fotos = [...controller.matchAll(/'implementMeasurePhotos\.(\w+)Side'/g)].map(m => m[1]).sort();
+    const esperadas = [...writer.FACES, ...writer.FACES].sort();
+    check(
+      'multipart da tarefa: as fotos da medida são as faces da lista, nos 2 interceptores',
+      JSON.stringify(fotos) === JSON.stringify(esperadas),
+      fotos.join(', '),
     );
   }
 
@@ -691,14 +715,15 @@ async function main() {
       const { implement } = await mkTaskWithImplement();
       const first: Record<string, string> = {};
       for (const f of FACES_T) {
-        const upload = f === 'back' ? mkUpload(`modulo-${f}`) : undefined;
-        const data = medida(H[f], W[f], f === 'back' ? undefined : photos[f].id);
+        const viaMultipart = PHOTO_BY_MULTIPART.includes(f);
+        const upload = viaMultipart ? mkUpload(`modulo-${f}`) : undefined;
+        const data = medida(H[f], W[f], viaMultipart ? undefined : photos[f].id);
         await measures.createOrUpdateImplementMeasure(implement.id, f, data, user.id, upload, undefined, true);
         const row = await expectFace(`#7 criar ${f}`, implement.id, f, H[f], W[f]);
         first[f] = row?.id;
-        if (f === 'back') {
+        if (viaMultipart) {
           const file = row?.photoId ? await prisma.file.findUnique({ where: { id: row.photoId }, select: { originalName: true } }) : null;
-          check('#7 foto back por multipart (`photo`)', file?.originalName === `${NAME_PREFIX}-modulo-back.png`, JSON.stringify(file));
+          check(`#7 foto ${f} por multipart (\`photo\`)`, file?.originalName === `${NAME_PREFIX}-modulo-${f}.png`, JSON.stringify(file));
         } else {
           check(`#7 foto ${f} por \`photoId\``, row?.photoId === photos[f].id);
         }
@@ -786,22 +811,22 @@ async function main() {
         identity['gravar'](await readTask(id), { medidas }, null, responsible.id);
 
       const { task, implement } = await mkTaskWithImplement();
-      await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], medidaCm(H[f], W[f])])));
+      await gravar(task.id, Object.fromEntries(PORTAL_FACES.map(f => [PORTAL_KEY[f], medidaCm(H[f], W[f])])));
       const ids: Record<string, string> = {};
-      for (const f of FACES_T) ids[f] = (await expectFace(`#8 criar ${f} (cm → m)`, implement.id, f, H[f], W[f]))?.id;
-      await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], medidaCm(H2[f], W2[f])])));
-      for (const f of FACES_T) {
+      for (const f of PORTAL_FACES) ids[f] = (await expectFace(`#8 criar ${f} (cm → m)`, implement.id, f, H[f], W[f]))?.id;
+      await gravar(task.id, Object.fromEntries(PORTAL_FACES.map(f => [PORTAL_KEY[f], medidaCm(H2[f], W2[f])])));
+      for (const f of PORTAL_FACES) {
         const row = await expectFace(`#8 atualizar ${f}`, implement.id, f, H2[f], W2[f]);
         check(`#8 ${f}: só dela ⇒ no lugar`, row?.id === ids[f]);
       }
       await expectNoSharing('#8 sem compartilhamento', [implement.id]);
-      await gravar(task.id, Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], null])));
-      for (const f of FACES_T) {
+      await gravar(task.id, Object.fromEntries(PORTAL_FACES.map(f => [PORTAL_KEY[f], null])));
+      for (const f of PORTAL_FACES) {
         check(`#8 apagar ${f}: face vazia e linha removida`, !(await faceRow(implement.id, f)) && !(await measureExists(ids[f])));
       }
 
       console.log('  — o caso que corrompia: o cliente corrige o próprio furgão');
-      for (const f of FACES_T) {
+      for (const f of PORTAL_FACES) {
         const { a, b, legacyId } = await mkSharedPair(f);
         await gravar(a.task.id, { [PORTAL_KEY[f]]: medidaCm(H[f], W[f]) });
         await expectFace(`#8 ${f}: A corrigido pelo portal`, a.implement.id, f, H[f], W[f]);
@@ -836,7 +861,7 @@ async function main() {
           indice: 0,
           veiculo: {
             serialNumber: nextSerial(),
-            medidas: Object.fromEntries(FACES_T.map(f => [PORTAL_KEY[f], medidaCm(H[f], W[f])])),
+            medidas: Object.fromEntries(PORTAL_FACES.map(f => [PORTAL_KEY[f], medidaCm(H[f], W[f])])),
           },
           budgetId: quote.id,
           customerId: customer.id,
@@ -846,7 +871,7 @@ async function main() {
         }),
       );
       createdTaskIds.push(criado.taskId);
-      for (const f of FACES_T) {
+      for (const f of PORTAL_FACES) {
         const row = await expectFace(`#9 criar ${f} (cm → m)`, criado.implementId, f, H[f], W[f]);
         check(`#9 ${f}: o id devolvido é o da face`, criado.measureIds[PORTAL_KEY[f]] === row?.id);
       }

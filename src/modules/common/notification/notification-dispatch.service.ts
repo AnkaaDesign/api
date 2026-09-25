@@ -34,6 +34,7 @@ import {
   IMPLEMENT_SPOT_LABELS,
   IMPLEMENT_CATEGORY_LABELS,
   IMPLEMENT_TYPE_LABELS,
+  REAR_DOOR_LEAVES_LABELS,
   BONIFICATION_STATUS_LABELS,
 } from '../../../constants';
 import { EMPLOYED_USER_WHERE, isUserEmployed } from '../../../utils/contract';
@@ -2641,6 +2642,7 @@ export class NotificationDispatchService {
     'implement.spot': IMPLEMENT_SPOT_LABELS as Record<string, string>,
     'implement.category': IMPLEMENT_CATEGORY_LABELS as Record<string, string>,
     'implement.type': IMPLEMENT_TYPE_LABELS as Record<string, string>,
+    'implement.rearDoorLeaves': REAR_DOOR_LEAVES_LABELS as Record<string, string>,
     bonification: BONIFICATION_STATUS_LABELS as Record<string, string>,
   };
 

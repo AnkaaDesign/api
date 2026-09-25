@@ -60,6 +60,9 @@ PASSOS=(
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
   # ── P04: escritor único de medida ──
   "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"
+  # ── P11b: a frente e a porta traseira ──
+  "cotador com a frente (a 4ª face não rouba a traseira)|0|npm run -s test:layout-dimensions-front"
+  "G12 + porta traseira (face inválida é 400; faixas, CHECK, trilha, aviso)|1|npm run -s test:implement-rear-door"
   # ── P11a: a série só no implemento (DD14) ──
   "G19/G20/G22/G23/G24/G32 série só no implemento (escritores, criação, avisos, app, Agenda, tinta)|1|npm run -s test:implement-serial"
   # ── P05: fonte única de rótulos + contrato exportado ──

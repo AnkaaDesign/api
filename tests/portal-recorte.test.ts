@@ -634,6 +634,23 @@ const LINHA_CRUA: any = {
         },
         rightSideMeasure: null,
         backSideMeasure: null,
+        frontSideMeasure: {
+          height: 2.5,
+          sections: [{ width: 2.4, isDoor: false, doorHeight: null, position: 0 }],
+        },
+        rearDoorLeaves: 'BIPARTITE',
+        rearDoorBarCount: 3,
+        rearDoorHatchCount: 0,
+        projectFiles: [
+          {
+            id: 'f-furgoes',
+            filename: 'projeto.pdf',
+            originalName: 'PROJETO 38174 ATE 38185.pdf',
+            mimetype: 'application/pdf',
+            size: 90,
+            path: '/srv/uploads/projeto.pdf',
+          },
+        ],
       },
       generalPainting: { id: 'p-1', name: 'Branco Geada', hex: '#FFFFFF', finish: 'SOLID' },
       logoPaints: [{ id: 'p-2', name: 'Vermelho RKO', hex: '#CC0000', finish: 'SOLID' }],
@@ -740,7 +757,7 @@ const LINHA_CRUA: any = {
 
 /** Qual grupo do DTO cada seção libera. */
 const GRUPO_DA_SECAO: Record<QuoteSection, (v: any) => boolean> = {
-  VEHICLE: v => v.vehicles[0]?.identity !== undefined,
+  VEHICLE: v => v.vehicles[0]?.identity !== undefined && v.vehicles[0]?.implement !== undefined,
   SERVICES: v => v.services !== undefined,
   PRICING: v => v.pricing !== undefined,
   DELIVERY: v => v.delivery !== undefined && v.vehicles[0]?.progress !== undefined,
@@ -765,6 +782,15 @@ console.log('\nO PROJETOR — 9 papéis × 7 grupos do DTO');
     }
   }
   check(`as ${celulas} células do projetor conferem`, certas === celulas, erradas.join(' | '));
+
+  // As duas metades da seção VEHICLE (identidade e implemento, PLANO §7.4) andam
+  // JUNTAS: um `implement` sem `identity` seria a seção vazando por um lado só —
+  // e o detector acima, com `&&`, o leria como "ausente" e deixaria passar.
+  const metades = ALL_ROLES.filter(papel => {
+    const v = (projector.projectBudget(LINHA_CRUA, [papel], ESCOPO) as any).vehicles?.[0] ?? {};
+    return (v.identity !== undefined) !== (v.implement !== undefined);
+  });
+  check('identidade e implemento saem juntos ou não saem (os 9 papéis)', metades.length === 0, metades.join(', '));
 
   // ⚠️ `portalSectionsFor`, NÃO `sectionsForRoles`. A régua da ASSINATURA
   // continua sendo `sectionsForRoles` e é intocada; a da TELA é ela UNIDA às
@@ -808,17 +834,46 @@ console.log('\nO CABEÇALHO nunca é recortado — nem para quem não vê seçã
     !('commercialUserId' in motorista) && !('commercialUser' in motorista),
   );
   // O motorista ACOMPANHA (capacidade `TRACK`), então o veículo sai com a
-  // identidade — para ele saber de que caminhão se fala — e o andamento. Não sai
-  // `layout`: arte não é assunto dele, e ela circula antes de estar aprovada.
+  // identidade e o implemento (a seção `VEHICLE`, PLANO §7.4) — para ele saber
+  // de que caminhão se fala — e o andamento. Não sai `layout`: arte não é
+  // assunto dele, e ela circula antes de estar aprovada.
   check(
-    'o veículo sai com identidade e andamento — e NADA de arte',
+    'o veículo sai com identidade, implemento e andamento — e NADA de arte',
     JSON.stringify(Object.keys(motorista.vehicles[0]).sort()) ===
-      JSON.stringify(['forecastDate', 'id', 'identity', 'name', 'progress', 'status']),
+      JSON.stringify(['forecastDate', 'id', 'identity', 'implement', 'name', 'progress', 'status']),
     Object.keys(motorista.vehicles[0]).join(','),
   );
   check(
     'e nenhum grupo de dinheiro chega até ele',
     motorista.pricing === undefined && motorista.payment === undefined,
+  );
+}
+
+console.log('\nO BLOCO `implement` (PLANO §7.4) — as 4 faces, a porta e o projeto');
+{
+  const v = (projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any).vehicles[0];
+  check(
+    'as quatro faces por nome, em metros (chave `back`, nunca `rear`)',
+    JSON.stringify(Object.keys(v.implement?.measures ?? {})) === JSON.stringify(['left', 'right', 'back', 'front']) &&
+      v.implement.measures.front?.height === 2.5 &&
+      v.implement.measures.left?.height === 2.7 &&
+      v.implement.measures.back === null,
+    JSON.stringify(v.implement?.measures),
+  );
+  check(
+    'a porta traseira, com 0 portinhola como dado (não como "nada")',
+    JSON.stringify(v.implement?.rearDoor) === JSON.stringify({ leaves: 'BIPARTITE', barCount: 3, hatchCount: 0 }),
+    JSON.stringify(v.implement?.rearDoor),
+  );
+  check(
+    'o projeto do implemento sai sem o caminho do disco',
+    v.implement?.projectFiles?.length === 1 && !('path' in v.implement.projectFiles[0]),
+    JSON.stringify(v.implement?.projectFiles),
+  );
+  check(
+    'tipo e categoria saíram da identidade (estão no implemento)',
+    v.implement?.type === 'BAU' && v.implement?.category === 'TRUCK' && !('category' in v.identity) && !('measures' in v.identity),
+    JSON.stringify(Object.keys(v.identity ?? {})),
   );
 }
 
