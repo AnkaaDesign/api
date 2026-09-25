@@ -12,7 +12,11 @@ import type {
 import type {
   AIRBRUSHING_STATUS,
   AIRBRUSHING_PAYMENT_STATUS,
+  AIRBRUSHING_QUOTE_STATUS,
+  AIRBRUSHING_QUOTE_PARTY,
+  AIRBRUSHING_QUOTE_ACTION,
   AIRBRUSHING_DUE_DATE_RULE,
+  EXECUTION_TIME_UNIT,
   PAYMENT_METHOD,
   ORDER_BY_DIRECTION,
   NFSE_STATUS,
@@ -71,6 +75,57 @@ export interface Airbrushing extends BaseEntity {
    * arquivos de nota anexados à mão.
    */
   nfse?: AirbrushingNfse | null;
+  /** Quando entrou em cotação (criada sem aerografista). */
+  quotationOpenedAt?: Date | null;
+  /** Quando os aerografistas foram avisados da cotação. */
+  quotationNotifiedAt?: Date | null;
+  /** Quando a cotação terminou (seleção ou cancelamento). */
+  quotationClosedAt?: Date | null;
+  /** Tempo de execução combinado; o término previsto é derivado dele. */
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
+  /** Orçamento de abertura da cotação (opcional). */
+  quotationOfferAmount?: number | null;
+  quotationOfferExecutionTime?: number | null;
+  quotationOfferExecutionTimeUnit?: EXECUTION_TIME_UNIT | null;
+  /**
+   * Negociações da cotação, uma por aerografista. Para o aerografista, a API
+   * devolve SÓ a dele — o lance de um nunca chega ao outro.
+   */
+  quotes?: AirbrushingQuote[];
+}
+
+/** Negociação de um aerografista numa aerografia em cotação. */
+export interface AirbrushingQuote {
+  id: string;
+  airbrushingId: string;
+  painterId: string;
+  status: AIRBRUSHING_QUOTE_STATUS;
+  /** Valor em jogo — ver AIRBRUSHING_QUOTE_STATUS. */
+  amount: number | null;
+  /** Tempo de execução em jogo, com a mesma regra do valor. */
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
+  createdAt: Date;
+  updatedAt: Date;
+  painter?: Pick<User, 'id' | 'name'> & Partial<User>;
+  events?: AirbrushingQuoteEvent[];
+  airbrushing?: Airbrushing;
+}
+
+/** Um lance ou decisão dentro da negociação. */
+export interface AirbrushingQuoteEvent {
+  id: string;
+  quoteId: string;
+  party: AIRBRUSHING_QUOTE_PARTY;
+  action: AIRBRUSHING_QUOTE_ACTION;
+  amount: number | null;
+  executionTime?: number | null;
+  executionTimeUnit?: EXECUTION_TIME_UNIT | null;
+  note: string | null;
+  userId: string | null;
+  createdAt: Date;
+  user?: Pick<User, 'id' | 'name'> | null;
 }
 
 /**
@@ -138,6 +193,7 @@ export interface AirbrushingIncludes {
     | {
         include?: LayoutIncludes;
       };
+  quotes?: boolean | { include?: { painter?: boolean; events?: boolean } };
 }
 
 // =====================

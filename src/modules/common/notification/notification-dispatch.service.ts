@@ -2499,6 +2499,14 @@ export class NotificationDispatchService {
           `/producao/aerografia/detalhes/${encodeURIComponent(entityId)}`,
           `/(tabs)/producao/aerografia/detalhes/${encodeURIComponent(entityId)}`,
         );
+      case 'AIRBRUSHINGQUOTE':
+        // Cotação: o aerografista abre a tela de cotação do app (proposta,
+        // contraproposta, aceite). Na web não há tela própria — a cotação é uma
+        // seção do detalhe da aerografia. Emissores passam entityId = aerografia.
+        return this.deepLinkService.generatePathLinks(
+          `/producao/aerografia/detalhes/${encodeURIComponent(entityId)}`,
+          `/(tabs)/producao/aerografia/cotacoes/${encodeURIComponent(entityId)}`,
+        );
       case 'AIRBRUSHINGNFSE':
         // A NFS-e do aerografista não tem tela própria: a nota é lida dentro da
         // aerografia. Emissores passam data.airbrushingId; sem ele o link seria

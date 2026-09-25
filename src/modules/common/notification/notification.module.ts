@@ -33,6 +33,7 @@ import { PortalNotificationService } from './portal-notification.service';
 // aqui, e não no AirbrushingModule, porque o TaskService também escreve
 // painterId/paymentStatus e precisa do mesmo gancho sem criar ciclo de módulos.
 import { AirbrushingNotificationService } from './airbrushing-notification.service';
+import { AirbrushingQuoteNotificationService } from './airbrushing-quote-notification.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationConfigurationService } from './notification-configuration.service';
 import { NotificationRecipientResolverService } from './notification-recipient-resolver.service';
@@ -129,6 +130,7 @@ import { AuthOtpModule } from '../auth-otp/auth-otp.module';
     NotificationDispatchService,
     PortalNotificationService,
     AirbrushingNotificationService,
+    AirbrushingQuoteNotificationService,
     NotificationFilterService,
     EmailTemplateService,
     DeepLinkService,
@@ -175,6 +177,7 @@ import { AuthOtpModule } from '../auth-otp/auth-otp.module';
     NotificationDispatchService,
     PortalNotificationService,
     AirbrushingNotificationService,
+    AirbrushingQuoteNotificationService,
     NotificationConfigurationService,
     EmailTemplateService,
     DeepLinkService,

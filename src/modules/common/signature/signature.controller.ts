@@ -7,7 +7,7 @@
  *    signatário (256 bits, opaco, uso pessoal).
  *
  * O token do signatário substitui o padrão do resto do sistema, onde o UUID da
- * entidade é a própria capability (`GET /task-quotes/public/:id` documenta isso
+ * entidade é a própria capability (`GET /budgets/public/:id` documenta isso
  * explicitamente). Aqui o token é por-signatário, expira junto com o prazo do
  * orçamento e é revogável — um link vazado atinge um signatário, não o orçamento
  * inteiro, e some quando o envelope é invalidado.

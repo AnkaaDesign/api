@@ -3,13 +3,29 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 
 /**
- * As duas colunas da aerografia que decidem uma notificação do aerografista.
+ * As colunas da aerografia que decidem uma notificação do aerografista.
  * Lidas cruas da linha, antes e depois da escrita.
  */
 export interface AirbrushingNotifySnapshot {
   painterId?: string | null;
   paymentStatus?: string | null;
+  status?: string | null;
 }
+
+/** O que aconteceu com a aerografia do ponto de vista de UM aerografista. */
+export type AirbrushingNotifyEvent =
+  /** Passou a ser dele (criação com aerografista ou troca). */
+  | 'assigned'
+  /** Deixou de ser dele (trocado por outro ou retirado). */
+  | 'unassigned'
+  /** Liberada para produção — ele já pode iniciar. */
+  | 'released'
+  /** Cancelada pela empresa. */
+  | 'cancelled'
+  /** Concluída e reaberta pela empresa. */
+  | 'reopened'
+  /** Pagamento dele registrado. */
+  | 'paymentReceived';
 
 /**
  * Uma notificação já DECIDIDA, esperando o commit para ser despachada.
@@ -19,9 +35,26 @@ export interface AirbrushingNotifyIntent {
   airbrushingId: string;
   painterId: string;
   actorUserId: string | null;
-  assigned: boolean;
-  paymentReceived: boolean;
+  events: AirbrushingNotifyEvent[];
+  /** Status depois da escrita — o aviso de reabertura diz para onde voltou. */
+  status: string | null;
 }
+
+/** Chave do registry (seed-notification-configs) de cada evento. */
+const EVENT_CONFIG_KEYS: Record<AirbrushingNotifyEvent, string> = {
+  assigned: 'airbrushing.assigned',
+  unassigned: 'airbrushing.unassigned',
+  released: 'airbrushing.released',
+  cancelled: 'airbrushing.cancelled',
+  reopened: 'airbrushing.reopened',
+  paymentReceived: 'airbrushing.payment.received',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  PREPARATION: 'Em Preparação',
+  WAITING_PRODUCTION: 'Aguardando Produção',
+  IN_PRODUCTION: 'Em Produção',
+};
 
 /**
  * =============================================================================
@@ -86,26 +119,47 @@ export class AirbrushingNotificationService {
       next: AirbrushingNotifySnapshot;
     },
   ): void {
-    const painterId = params.next.painterId ?? null;
+    const prev = params.previous;
+    const next = params.next;
+    const painterId = next.painterId ?? null;
+    const previousPainterId = prev?.painterId ?? null;
+    const status = next.status ?? null;
+    const previousStatus = prev?.status ?? null;
+    const actorUserId = params.actorUserId ?? null;
 
-    // Sem pintor não há a quem notificar. Vale para os dois eventos: uma
-    // aerografia paga sem pintor designado é um caso de Contas a Pagar, não uma
-    // notificação pessoal.
+    // Quem saiu do serviço fica sabendo — é o único evento do aerografista ANTERIOR.
+    if (previousPainterId && previousPainterId !== painterId) {
+      bucket.push({
+        airbrushingId: params.airbrushingId,
+        painterId: previousPainterId,
+        actorUserId,
+        events: ['unassigned'],
+        status,
+      });
+    }
+
+    // Sem aerografista não há a quem notificar o resto. Uma aerografia paga sem
+    // pintor designado é um caso de Contas a Pagar, não uma notificação pessoal.
     if (!painterId) return;
 
-    const assigned = painterId !== (params.previous?.painterId ?? null);
-    const paymentReceived =
-      params.next.paymentStatus === 'PAID' && params.previous?.paymentStatus !== 'PAID';
+    const events: AirbrushingNotifyEvent[] = [];
+    const assigned = painterId !== previousPainterId;
+    if (assigned) events.push('assigned');
 
-    if (!assigned && !paymentReceived) return;
+    // Transições de status — todas de TRANSIÇÃO, não de estado: salvar de novo
+    // sem mudar nada não notifica. Na criação (prev = null) só a atribuição fala.
+    if (prev && status && status !== previousStatus) {
+      if (status === 'WAITING_PRODUCTION' && !assigned) events.push('released');
+      if (status === 'CANCELLED') events.push('cancelled');
+      if (previousStatus === 'COMPLETED' && status !== 'CANCELLED') events.push('reopened');
+    }
 
-    bucket.push({
-      airbrushingId: params.airbrushingId,
-      painterId,
-      actorUserId: params.actorUserId ?? null,
-      assigned,
-      paymentReceived,
-    });
+    if (next.paymentStatus === 'PAID' && prev?.paymentStatus !== 'PAID') {
+      events.push('paymentReceived');
+    }
+
+    if (!events.length) return;
+    bucket.push({ airbrushingId: params.airbrushingId, painterId, actorUserId, events, status });
   }
 
   /**
@@ -179,20 +233,17 @@ export class AirbrushingNotificationService {
 
     const actor = intent.actorUserId ?? 'system';
 
-    if (intent.assigned) {
+    for (const event of intent.events) {
       await this.dispatchService.dispatchByConfigurationToUsers(
-        'airbrushing.assigned',
+        EVENT_CONFIG_KEYS[event],
         actor,
-        { entityType: 'AIRBRUSHING', entityId: row.id, action: 'assigned', data, overrides },
-        [intent.painterId],
-      );
-    }
-
-    if (intent.paymentReceived) {
-      await this.dispatchService.dispatchByConfigurationToUsers(
-        'airbrushing.payment.received',
-        actor,
-        { entityType: 'AIRBRUSHING', entityId: row.id, action: 'paid', data, overrides },
+        {
+          entityType: 'AIRBRUSHING',
+          entityId: row.id,
+          action: event,
+          data: { ...data, statusLabel: STATUS_LABELS[intent.status ?? ''] ?? '' },
+          overrides,
+        },
         [intent.painterId],
       );
     }

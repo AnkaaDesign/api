@@ -18,7 +18,20 @@ import {
   AIRBRUSHING_DUE_DATE_RULE,
   PAYMENT_METHOD,
   NFSE_STATUS,
+  EXECUTION_TIME_UNIT,
 } from '@constants';
+
+/** Include canônico das negociações da cotação — ver `quotes` abaixo. */
+export const AIRBRUSHING_QUOTES_SAFE_INCLUDE = {
+  orderBy: { updatedAt: 'desc' as const },
+  include: {
+    painter: { select: { id: true, name: true, avatarId: true } },
+    events: {
+      orderBy: { createdAt: 'asc' as const },
+      include: { user: { select: { id: true, name: true } } },
+    },
+  },
+};
 
 // =====================
 // Include Schema Based on Prisma Schema
@@ -162,6 +175,24 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
+    // Negociações da cotação. Qualquer forma pedida vira o MESMO include seguro:
+    // o aerografista só com id/nome (nunca o User inteiro) e os lances em ordem
+    // cronológica. O recorte por papel (o aerografista vê só a negociação dele)
+    // é feito no serviço — ver AirbrushingService.filterQuotesForRole.
+    quotes: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              painter: z.boolean().optional(),
+              events: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional()
+      .transform(value => (value ? AIRBRUSHING_QUOTES_SAFE_INCLUDE : undefined)),
   })
   .partial();
 
@@ -812,6 +843,52 @@ const airbrushingPaymentConfigShape = {
   dueDate: nullableDate.optional(),
 };
 
+/**
+ * Tempo de execução e orçamento de abertura da cotação — idênticos em create,
+ * update e no create aninhado da tarefa. O término previsto é DERIVADO do tempo
+ * (AirbrushingService.applyExecutionTime); `finishDate` segue aceito para
+ * aerografias sem tempo informado.
+ */
+const executionTimeSchema = z
+  .number({ invalid_type_error: 'Tempo de execução inválido' })
+  .int('O tempo de execução deve ser um número inteiro')
+  .min(1, 'O tempo de execução deve ser maior que zero')
+  .max(999, 'Tempo de execução acima do permitido');
+
+/**
+ * No multipart (criação/edição com arquivo de layout) todo valor chega como
+ * TEXTO, e o `toFormData` só devolve a número os campos de nome conhecido
+ * (price, amount…). Tempo de execução não está nessa lista: sem converter aqui,
+ * "2" chegava ao zod como string e a criação inteira caía em 400.
+ */
+const numericFromForm = (schema: z.ZodTypeAny) =>
+  z.preprocess(value => {
+    if (value === '' || value === 'null') return null;
+    if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+      return Number(value);
+    }
+    return value;
+  }, schema);
+
+/** Unidade vazia no multipart ("" / "null") é ausência de unidade. */
+const unitFromForm = z.preprocess(
+  value => (value === '' || value === 'null' ? null : value),
+  z.nativeEnum(EXECUTION_TIME_UNIT).nullable(),
+);
+
+const airbrushingExecutionShape = {
+  executionTime: numericFromForm(executionTimeSchema.nullable()).optional(),
+  executionTimeUnit: unitFromForm.optional(),
+  quotationOfferAmount: numericFromForm(
+    z
+      .number({ invalid_type_error: 'Orçamento inválido' })
+      .positive('O orçamento deve ser maior que zero')
+      .nullable(),
+  ).optional(),
+  quotationOfferExecutionTime: numericFromForm(executionTimeSchema.nullable()).optional(),
+  quotationOfferExecutionTimeUnit: unitFromForm.optional(),
+};
+
 export const airbrushingCreateSchema = z.preprocess(
   toFormData,
   z.object({
@@ -834,6 +911,7 @@ export const airbrushingCreateSchema = z.preprocess(
       .nativeEnum(AIRBRUSHING_PAYMENT_STATUS)
       .default(AIRBRUSHING_PAYMENT_STATUS.PENDING),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     taskId: z.string().uuid('Tarefa inválida'),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -904,6 +982,7 @@ export const airbrushingUpdateSchema = z.preprocess(
     status: z.nativeEnum(AIRBRUSHING_STATUS).optional(),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     taskId: z.string().uuid('Tarefa inválida').optional(),
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
@@ -1037,6 +1116,7 @@ export const airbrushingCreateNestedSchema = z
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PREPARATION),
     paymentStatus: z.nativeEnum(AIRBRUSHING_PAYMENT_STATUS).optional(),
     ...airbrushingPaymentConfigShape,
+    ...airbrushingExecutionShape,
     painterId: z.string().uuid('Pintor inválido').nullable().optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),

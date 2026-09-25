@@ -10,7 +10,7 @@ import type {
   BaseBatchResponse,
 } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Task, TaskIncludes, TaskOrderBy } from './task';
+import type { Task, TaskIncludes } from './task';
 import type { BudgetItem } from './budget-item';
 import type { BudgetPayer } from './budget-payer';
 import type { File } from './file';
@@ -124,12 +124,6 @@ export interface Budget extends BaseEntity {
 // =====================
 
 export interface BudgetIncludes {
-  /** @deprecated Ver `Budget.task`. O servidor ainda ACEITA e traduz. */
-  task?:
-    | boolean
-    | {
-        include?: TaskIncludes;
-      };
   /** OS VEÍCULOS. `select` além de `include` porque as listas pedem só o id. */
   tasks?:
     | boolean
@@ -209,11 +203,9 @@ export interface BudgetOrderBy {
   expiresAt?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
-  taskId?: ORDER_BY_DIRECTION;
   simultaneousTasks?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
-  task?: TaskOrderBy;
 }
 
 // =====================
@@ -222,7 +214,6 @@ export interface BudgetOrderBy {
 
 export interface BudgetWhere {
   id?: string | { in: string[] };
-  taskId?: string;
   status?: TASK_QUOTE_STATUS | { in: TASK_QUOTE_STATUS[] };
   expiresAt?: Date | { gte?: Date; lte?: Date };
   simultaneousTasks?: number | { gte?: number; lte?: number; equals?: number };

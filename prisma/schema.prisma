@@ -33,50 +33,68 @@ model Activity {
 }
 
 model Airbrushing {
-  id                    String                   @id @default(uuid())
+  id                              String                   @id @default(uuid())
   /// Expected (planned) start/finish dates
-  startDate             DateTime?
-  finishDate            DateTime?
+  startDate                       DateTime?
+  finishDate                      DateTime?
   /// Actual start/finish timestamps (mirrors Task.startedAt/finishedAt)
-  startedAt             DateTime?
-  finishedAt            DateTime?
-  price                 Float?
+  startedAt                       DateTime?
+  finishedAt                      DateTime?
+  price                           Float?
   /// Free-text job spec / notes for the airbrushing (e.g. "dragão na lateral direita").
-  description           String?
-  paymentStatus         AirbrushingPaymentStatus @default(PENDING)
+  description                     String?
+  paymentStatus                   AirbrushingPaymentStatus @default(PENDING)
   /// Stamped when paymentStatus becomes PAID — windows "paid this month" on Contas a Pagar.
-  paidAt                DateTime?
+  paidAt                          DateTime?
   /// Como o pintor é pago. Alimenta a coluna "Forma" de Contas a Pagar. Quando é
   /// explicitamente diferente de PIX, a chave Pix derivada do vínculo do pintor
   /// deixa de ser exibida (null = método não definido, comportamento legado).
-  paymentMethod         PaymentMethod?
+  paymentMethod                   PaymentMethod?
   /// Regra que produz o vencimento — ver resolveAirbrushingDueDate() em utils/airbrushing.ts.
-  dueDateRule           AirbrushingDueDateRule   @default(DAYS_AFTER_FINISH)
+  dueDateRule                     AirbrushingDueDateRule   @default(DAYS_AFTER_FINISH)
   /// Prazo em dias após o término (regra DAYS_AFTER_FINISH).
   /// Null = AIRBRUSHING_DEFAULT_PAYMENT_TERM_DAYS (7), o prazo histórico.
-  paymentTermDays       Int?
+  paymentTermDays                 Int?
   /// Dia fixo de vencimento, 1-31, truncado ao último dia do mês (regra DAY_OF_MONTH).
-  dueDayOfMonth         Int?
+  dueDayOfMonth                   Int?
   /// Vencimento efetivo, materializado a cada escrita a partir da regra acima. Na
   /// regra FIXED_DATE é o valor informado pelo usuário e nunca é recalculado.
   /// Contas a Pagar lê esta coluna; só recai no cálculo em memória para linhas
   /// antigas que nunca foram reescritas.
-  dueDate               DateTime?
-  status                AirbrushingStatus        @default(PREPARATION)
-  statusOrder           Int                      @default(1)
-  taskId                String
-  painterId             String?
-  createdAt             DateTime                 @default(now())
-  updatedAt             DateTime                 @updatedAt
-  task                  Task                     @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
-  painter               User?                    @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
-  layouts               Layout[]
-  invoices              File[]                   @relation("AIRBRUSHING_INVOICES")
-  receipts              File[]                   @relation("AIRBRUSHING_RECEIPTS")
-  reconciliationMatches ReconciliationMatch[]    @relation("AirbrushingMatches")
+  dueDate                         DateTime?
+  status                          AirbrushingStatus        @default(PREPARATION)
+  statusOrder                     Int                      @default(1)
+  taskId                          String
+  painterId                       String?
+  createdAt                       DateTime                 @default(now())
+  updatedAt                       DateTime                 @updatedAt
+  task                            Task                     @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  painter                         User?                    @relation("AIRBRUSHING_PAINTER", fields: [painterId], references: [id], onDelete: SetNull)
+  layouts                         Layout[]
+  invoices                        File[]                   @relation("AIRBRUSHING_INVOICES")
+  receipts                        File[]                   @relation("AIRBRUSHING_RECEIPTS")
+  reconciliationMatches           ReconciliationMatch[]    @relation("AirbrushingMatches")
   /// NFS-e que o aerografista (prestador) emite contra a Ankaa (tomadora) quando
   /// esta aerografia é concluída. 1-1: a linha é a trava de idempotência.
-  nfse                  AirbrushingNfse?
+  nfse                            AirbrushingNfse?
+  /// Cotação: uma negociação por aerografista enquanto o status é QUOTING.
+  quotes                          AirbrushingQuote[]
+  /// Quando a aerografia entrou em cotação (criação sem aerografista).
+  quotationOpenedAt               DateTime?
+  /// Quando os aerografistas foram avisados da cotação. Nulo = aviso pendente;
+  /// é a trava de idempotência do aviso "novo serviço para cotar".
+  quotationNotifiedAt             DateTime?
+  /// Quando a cotação terminou (proposta selecionada ou aerografia cancelada).
+  quotationClosedAt               DateTime?
+  /// Tempo de execução combinado. O término previsto (finishDate) é DERIVADO
+  /// dele a partir do início previsto — ver computeExpectedFinishDate().
+  executionTime                   Int?
+  executionTimeUnit               ExecutionTimeUnit?
+  /// Orçamento que a empresa oferece ao abrir a cotação (opcional). O
+  /// aerografista aceita, contrapõe ou recusa.
+  quotationOfferAmount            Float?
+  quotationOfferExecutionTime     Int?
+  quotationOfferExecutionTimeUnit ExecutionTimeUnit?
 
   descriptionNormalized String? /// accent-insensitive search (generated column, see migration)
 
@@ -913,6 +931,10 @@ model Item {
   // low-stock recommendation and the order schedule fill up to the resulting
   // maxQuantity, so this is the single knob for "how much of this item to hold".
   targetCoverageDays             Int?
+  // Hard floor on maxQuantity for CONSUMPTION items: "always keep at least this
+  // much". Honored even with zero consumption history, so the order schedule
+  // still restocks slow movers that would otherwise be skipped.
+  minStockQuantity               Float?
   ppeType                        PpeType?
   ppeCA                          String?
   // Validade do Certificado de Aprovação (CA) do EPI. Entrega de EPI com CA vencido
@@ -2842,6 +2864,8 @@ model User {
   airbrushingsAsPainter          Airbrushing[]                @relation("AIRBRUSHING_PAINTER")
   fiscalEmitterProfile           FiscalEmitterProfile?        @relation("USER_FISCAL_EMITTER")
   airbrushingNfses               AirbrushingNfse[]            @relation("AIRBRUSHING_NFSE_PAINTER")
+  airbrushingQuotes              AirbrushingQuote[]           @relation("AIRBRUSHING_QUOTE_PAINTER")
+  airbrushingQuoteEvents         AirbrushingQuoteEvent[]      @relation("AIRBRUSHING_QUOTE_EVENT_USER")
   salaryAdjustmentsApplied       SalaryAdjustment[]           @relation("SALARY_ADJUSTMENT_APPLIED_BY")
   positionHistories              UserPositionHistory[]        @relation("USER_POSITION_HISTORY_USER")
   positionHistoriesChanged       UserPositionHistory[]        @relation("USER_POSITION_HISTORY_CHANGED_BY")
@@ -4016,6 +4040,9 @@ enum ServiceOrderStatus {
 /// Mirrors TaskStatus: an airbrushing is prepared, then released to the floor
 /// ("Disponibilizar para Produção" — admin/commercial only), then painted.
 enum AirbrushingStatus {
+  /// Sem aerografista nem valor: os aerografistas enviam propostas e o
+  /// comercial seleciona uma. Ver AirbrushingQuote.
+  QUOTING
   PREPARATION
   WAITING_PRODUCTION
   IN_PRODUCTION
@@ -5467,6 +5494,86 @@ model FiscalDpsSequence {
 ///
 /// A linha é criada dentro da mesma transação que conclui a aerografia, mas a
 /// chamada à SEFIN acontece SEMPRE fora dela.
+/// Estado da negociação de UM aerografista numa aerografia em cotação.
+enum AirbrushingQuoteStatus {
+  /// Proposta do aerografista aguardando o comercial.
+  PROPOSED
+  /// Contraproposta do comercial aguardando o aerografista.
+  COUNTERED
+  /// O aerografista aceitou a contraproposta. NÃO é seleção: o comercial ainda escolhe.
+  ACCEPTED
+  /// O aerografista recusou (ou não tem interesse).
+  DECLINED
+  /// Proposta escolhida: o aerografista e o valor foram gravados na aerografia.
+  SELECTED
+  /// Cotação encerrada sem esta proposta (outra selecionada ou aerografia cancelada).
+  NOT_SELECTED
+}
+
+/// Unidade do tempo de execução de um serviço.
+enum ExecutionTimeUnit {
+  HOURS
+  DAYS
+}
+
+enum AirbrushingQuoteParty {
+  PAINTER
+  COMPANY
+}
+
+enum AirbrushingQuoteAction {
+  PROPOSAL
+  COUNTER
+  ACCEPT
+  DECLINE
+  SELECT
+  CLOSE
+}
+
+/// Negociação de um aerografista numa aerografia em cotação. Uma linha por par
+/// (aerografia, aerografista); o histórico de lances fica em AirbrushingQuoteEvent.
+model AirbrushingQuote {
+  id                String                 @id @default(uuid())
+  airbrushingId     String
+  painterId         String
+  status            AirbrushingQuoteStatus @default(PROPOSED)
+  /// Valor em jogo: o último lance do aerografista (PROPOSED), a contraproposta
+  /// do comercial (COUNTERED/ACCEPTED) ou o valor fechado (SELECTED). Nulo só
+  /// quando o aerografista recusou sem nunca propor.
+  amount            Float?
+  /// Tempo de execução em jogo, com a mesma regra do `amount`.
+  executionTime     Int?
+  executionTimeUnit ExecutionTimeUnit?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  airbrushing Airbrushing             @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  painter     User                    @relation("AIRBRUSHING_QUOTE_PAINTER", fields: [painterId], references: [id], onDelete: Cascade)
+  events      AirbrushingQuoteEvent[]
+
+  @@unique([airbrushingId, painterId])
+  @@index([painterId, status])
+}
+
+/// Um lance ou decisão dentro de uma negociação — a linha do tempo da cotação.
+model AirbrushingQuoteEvent {
+  id                String                 @id @default(uuid())
+  quoteId           String
+  party             AirbrushingQuoteParty
+  action            AirbrushingQuoteAction
+  amount            Float?
+  executionTime     Int?
+  executionTimeUnit ExecutionTimeUnit?
+  note              String?
+  userId            String?
+  createdAt         DateTime               @default(now())
+
+  quote AirbrushingQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  user  User?            @relation("AIRBRUSHING_QUOTE_EVENT_USER", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId, createdAt])
+}
+
 model AirbrushingNfse {
   id            String  @id @default(uuid())
   airbrushingId String  @unique

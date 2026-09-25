@@ -21,6 +21,19 @@ import {
   LAYOUT_STATUS,
 } from '../../../constants/enums';
 import { resolveAirbrushingDueDate } from '../../../utils/airbrushing';
+import {
+  computeExpectedFinishDate,
+  isAirbrushingQuoting,
+  resolveNewAirbrushingStatus,
+} from '../../../utils/airbrushing-quote';
+import {
+  AirbrushingQuoteNotificationService,
+  type AirbrushingQuoteNotifyIntent,
+} from '@modules/common/notification/airbrushing-quote-notification.service';
+import {
+  closeAirbrushingQuotesInTx,
+  filterAirbrushingQuotesForRole,
+} from './airbrushing-quote.service';
 import { PainterNfseService } from '@modules/integrations/nfse/painter/painter-nfse.service';
 import {
   AirbrushingNotificationService,
@@ -59,7 +72,119 @@ export class AirbrushingService {
     private readonly fileReferenceService: FileReferenceService,
     private readonly painterNfseService: PainterNfseService,
     private readonly airbrushingNotifier: AirbrushingNotificationService,
+    private readonly quoteNotifier: AirbrushingQuoteNotificationService,
   ) {}
+
+  /**
+   * Aerografia NOVA sem aerografista entra em cotação: sem aerografista e sem
+   * valor — os dois nascem da proposta selecionada. Mutates `data` in place.
+   * Ver utils/airbrushing-quote.ts.
+   */
+  private applyQuotingOnCreate(data: Record<string, any>): void {
+    data.status = resolveNewAirbrushingStatus(data.status, data.painterId);
+    if (isAirbrushingQuoting(data.status)) {
+      data.painterId = null;
+      data.price = null;
+      data.quotationOpenedAt = new Date();
+    } else {
+      // Orçamento de abertura só existe numa cotação.
+      AirbrushingService.stripQuotationOffer(data);
+    }
+  }
+
+  private static stripQuotationOffer(data: Record<string, any>): void {
+    delete data.quotationOfferAmount;
+    delete data.quotationOfferExecutionTime;
+    delete data.quotationOfferExecutionTimeUnit;
+  }
+
+  /**
+   * Deriva o término previsto do início previsto + tempo de execução, sobre o
+   * estado mesclado (payload × persistido). Só age quando esta escrita mexe no
+   * início, no tempo ou na unidade, e quando há tempo informado — uma aerografia
+   * sem tempo continua aceitando `finishDate` como sempre. Mutates `data`.
+   */
+  private applyExecutionTime(
+    existing: Record<string, any> | null,
+    data: Record<string, any>,
+  ): void {
+    const touches =
+      data.startDate !== undefined ||
+      data.executionTime !== undefined ||
+      data.executionTimeUnit !== undefined;
+    if (!touches) return;
+    const pick = (key: string) => (data[key] !== undefined ? data[key] : existing?.[key]);
+    const time = pick('executionTime');
+    const unit = pick('executionTimeUnit');
+    if (time == null || unit == null) return;
+    data.finishDate = computeExpectedFinishDate(pick('startDate'), time, unit);
+  }
+
+  /**
+   * Guarda da edição de uma aerografia em cotação. Enquanto está em QUOTING,
+   * aerografista e valor só nascem da seleção de uma proposta
+   * (AirbrushingQuoteService.select) — nunca de um PUT, que abriria a porta para
+   * dois aerografistas no mesmo serviço. A única saída por aqui é CANCELAR, que
+   * encerra as negociações vivas. Entrar em cotação também não é por aqui: é o
+   * "Reabrir cotação" (AirbrushingQuoteService.reopen).
+   *
+   * Mutates `updateData`; devolve os avisos de "cotação encerrada" para o flush.
+   */
+  private async applyQuotingOnUpdate(
+    tx: PrismaTransaction,
+    existing: { id: string; status: string },
+    updateData: Record<string, any>,
+    userId?: string,
+  ): Promise<AirbrushingQuoteNotifyIntent[]> {
+    const nextStatus = updateData.status;
+
+    if (!isAirbrushingQuoting(existing.status)) {
+      if (isAirbrushingQuoting(nextStatus)) {
+        throw new BadRequestException(
+          'Para colocar esta aerografia em cotação, use "Reabrir cotação" no detalhe da aerografia.',
+        );
+      }
+      AirbrushingService.stripQuotationOffer(updateData);
+      return [];
+    }
+
+    if (updateData.painterId !== undefined && updateData.painterId !== null) {
+      throw new BadRequestException(
+        'Esta aerografia está em cotação: o aerografista é definido ao selecionar uma das propostas.',
+      );
+    }
+    if (updateData.price !== undefined && updateData.price !== null) {
+      throw new BadRequestException(
+        'Esta aerografia está em cotação: o valor é definido ao selecionar uma das propostas.',
+      );
+    }
+    if (
+      nextStatus !== undefined &&
+      nextStatus !== AIRBRUSHING_STATUS.QUOTING &&
+      nextStatus !== AIRBRUSHING_STATUS.CANCELLED
+    ) {
+      throw new BadRequestException(
+        'Esta aerografia está em cotação. Selecione uma das propostas para seguir para a produção.',
+      );
+    }
+
+    if (nextStatus !== AIRBRUSHING_STATUS.CANCELLED) return [];
+
+    updateData.quotationClosedAt = new Date();
+    const painterIds = await closeAirbrushingQuotesInTx(tx, existing.id, {
+      actorUserId: userId ?? null,
+      note: 'A aerografia foi cancelada.',
+    });
+    return [
+      {
+        kind: 'closed',
+        airbrushingId: existing.id,
+        painterIds,
+        actorUserId: userId ?? null,
+        reason: 'CANCELLED',
+      },
+    ];
+  }
 
   /**
    * Registra a intenção de emitir a NFS-e do aerografista quando a aerografia
@@ -190,23 +315,36 @@ export class AirbrushingService {
    * Transições de status permitidas ao pintor (SECTOR_PRIVILEGES.AIRBRUSHING).
    *
    * The painter owns the work, not the schedule: they may start a job that was
-   * released to the floor, conclude it, and reopen a job they concluded by
-   * mistake. Moving a job into (or out of) Em Preparação / Aguardando Produção,
-   * and cancelling, stay with admin/commercial.
+   * released to the floor and conclude it. Everything else — moving a job into
+   * (or out of) Em Preparação / Aguardando Produção, cancelling and REOPENING a
+   * concluded job — stays with admin/commercial. Concluir fixa o término, o
+   * vencimento e dispara a NFS-e do aerografista; desfazer isso é decisão da
+   * empresa, não de quem vai receber (decisão do Kennedy, 24/09/2026).
    */
   private static readonly PAINTER_STATUS_TRANSITIONS: Record<string, AIRBRUSHING_STATUS[]> = {
     [AIRBRUSHING_STATUS.WAITING_PRODUCTION]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
     [AIRBRUSHING_STATUS.IN_PRODUCTION]: [AIRBRUSHING_STATUS.COMPLETED],
-    [AIRBRUSHING_STATUS.COMPLETED]: [AIRBRUSHING_STATUS.IN_PRODUCTION],
   };
 
   private assertPainterStatusTransition(currentStatus: string, nextStatus: unknown): void {
     // No status in the payload, or a no-op write — nothing to gate.
     if (nextStatus === undefined || nextStatus === null || nextStatus === currentStatus) return;
 
+    if (currentStatus === AIRBRUSHING_STATUS.QUOTING) {
+      throw new BadRequestException(
+        'Esta aerografia está em cotação. Envie o seu valor pela tela de Cotações.',
+      );
+    }
+
     if (currentStatus === AIRBRUSHING_STATUS.PREPARATION) {
       throw new BadRequestException(
         'Esta aerografia ainda não foi disponibilizada para produção. Peça ao setor comercial ou a um administrador para liberá-la.',
+      );
+    }
+
+    if (currentStatus === AIRBRUSHING_STATUS.COMPLETED) {
+      throw new BadRequestException(
+        'Esta aerografia já foi concluída. Para reabri-la, fale com o setor comercial ou um administrador.',
       );
     }
 
@@ -282,7 +420,8 @@ export class AirbrushingService {
 
     return {
       dueDateRule:
-        pick<AIRBRUSHING_DUE_DATE_RULE>('dueDateRule') ?? AIRBRUSHING_DUE_DATE_RULE.DAYS_AFTER_FINISH,
+        pick<AIRBRUSHING_DUE_DATE_RULE>('dueDateRule') ??
+        AIRBRUSHING_DUE_DATE_RULE.DAYS_AFTER_FINISH,
       paymentTermDays: pick<number | null>('paymentTermDays'),
       dueDayOfMonth: pick<number | null>('dueDayOfMonth'),
       dueDate: pick<Date | null>('dueDate'),
@@ -322,7 +461,10 @@ export class AirbrushingService {
    * FIXED_DATE é a exceção deliberada: a data é do usuário, não uma função do
    * término, então é gravada como veio e nunca recalculada.
    */
-  private applyDueDate(existing: Record<string, any> | null, updateData: Record<string, any>): void {
+  private applyDueDate(
+    existing: Record<string, any> | null,
+    updateData: Record<string, any>,
+  ): void {
     const config = this.mergeDueDateConfig(existing, updateData);
     this.assertDueDateConfig(config);
 
@@ -346,7 +488,10 @@ export class AirbrushingService {
    * `status === null` é tolerado como aprovado por causa de linhas antigas anteriores
    * à coluna de status.
    */
-  private filterLayoutsForRole<T extends { layouts?: any[] | null }>(entity: T, userRole?: string): T {
+  private filterLayoutsForRole<T extends { layouts?: any[] | null }>(
+    entity: T,
+    userRole?: string,
+  ): T {
     if (!userRole || !entity.layouts) return entity;
 
     const FULL_ACCESS_ROLES = [
@@ -431,6 +576,11 @@ export class AirbrushingService {
       result.data = result.data.map(airbrushing =>
         this.filterNfseForRole(airbrushing, userRole, userId),
       );
+      // Negociações da cotação: o aerografista vê só a dele; quem não lida com
+      // dinheiro não vê nenhuma. Ver filterAirbrushingQuotesForRole.
+      result.data = result.data.map(airbrushing =>
+        filterAirbrushingQuotesForRole(airbrushing, userRole, userId),
+      );
 
       return {
         success: true,
@@ -466,7 +616,11 @@ export class AirbrushingService {
       const withLayouts = userRole ? this.filterLayoutsForRole(airbrushing, userRole) : airbrushing;
       // A NFS-e é recortada SEMPRE, mesmo sem papel conhecido: na dúvida, dado
       // fiscal não sai.
-      const visible = this.filterNfseForRole(withLayouts, userRole, userId);
+      const visible = filterAirbrushingQuotesForRole(
+        this.filterNfseForRole(withLayouts, userRole, userId),
+        userRole,
+        userId,
+      );
 
       return { success: true, data: visible, message: 'Aerografia carregada com sucesso.' };
     } catch (error: any) {
@@ -517,6 +671,11 @@ export class AirbrushingService {
         delete (data as any).layoutStatuses;
         delete (data as any).newLayoutStatuses;
 
+        // Sem aerografista, a aerografia nasce EM COTAÇÃO — ver applyQuotingOnCreate.
+        this.applyQuotingOnCreate(data as Record<string, any>);
+        // Término previsto = início + tempo de execução.
+        this.applyExecutionTime(null, data as Record<string, any>);
+
         // Criar já como COMPLETED é permitido pelo zod, e este caminho nunca
         // chamava applyStatusTimestamps: a aerografia nascia concluída SEM
         // finishedAt. Sem término não há competência para a NFS-e nem
@@ -553,11 +712,7 @@ export class AirbrushingService {
           await this.convertFileIdsToLayoutIds(
             layoutFileIds,
             newAirbrushing.id,
-            this.mergeNewLayoutStatuses(
-              layoutStatuses,
-              uploadedLayoutFileIds,
-              newLayoutStatuses,
-            ),
+            this.mergeNewLayoutStatuses(layoutStatuses, uploadedLayoutFileIds, newLayoutStatuses),
             userRole,
             tx,
           );
@@ -588,6 +743,7 @@ export class AirbrushingService {
           next: {
             painterId: (newAirbrushing as any).painterId,
             paymentStatus: (newAirbrushing as any).paymentStatus,
+            status: (newAirbrushing as any).status,
           },
         });
 
@@ -615,10 +771,16 @@ export class AirbrushingService {
       // status vindo por `update` emitia na hora.
       await this.flushNfseEmissions([(airbrushing as any).id], (airbrushing as any)?.status);
       await this.airbrushingNotifier.flush(notifyIntents);
+      // Nasceu em cotação: avisa os aerografistas (idempotente — ver o notifier).
+      if (isAirbrushingQuoting((airbrushing as any)?.status)) {
+        await this.quoteNotifier.notifyPendingRequests([(airbrushing as any).id], userId);
+      }
 
       return {
         success: true,
-        message: 'Aerografia criada com sucesso.',
+        message: isAirbrushingQuoting((airbrushing as any)?.status)
+          ? 'Aerografia criada e enviada para cotação dos aerografistas.'
+          : 'Aerografia criada com sucesso.',
         data: airbrushing,
       };
     } catch (error: any) {
@@ -650,6 +812,7 @@ export class AirbrushingService {
     try {
       // Ver create(): decisão dentro da transação, despacho depois do commit.
       const notifyIntents: AirbrushingNotifyIntent[] = [];
+      const quoteIntents: AirbrushingQuoteNotifyIntent[] = [];
 
       const updatedAirbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar aerografia existente
@@ -724,11 +887,18 @@ export class AirbrushingService {
           this.assertPainterStatusTransition(existingAirbrushing.status, updateData.status);
         }
 
+        // Aerografia em cotação: aerografista/valor só pela seleção; cancelar
+        // encerra as negociações. Ver applyQuotingOnUpdate.
+        quoteIntents.push(
+          ...(await this.applyQuotingOnUpdate(tx, existingAirbrushing, updateData, userId)),
+        );
+
         // Auto-stamp the actual start/finish timestamps from the status transition —
         // mirrors the task's [AUTO-FILL] behaviour so "Iniciado em"/"Finalizado em"
         // are populated by simply advancing the job. An explicitly supplied value
         // always wins; an already-stamped timestamp is never overwritten.
         this.applyStatusTimestamps(existingAirbrushing, updateData);
+        this.applyExecutionTime(existingAirbrushing as Record<string, any>, updateData);
 
         // Recalcula o vencimento DEPOIS do carimbo de finishedAt acima — é
         // justamente concluir a aerografia que fixa a data ("vence 3 dias após o
@@ -784,10 +954,12 @@ export class AirbrushingService {
           previous: {
             painterId: (existingAirbrushing as any).painterId,
             paymentStatus: (existingAirbrushing as any).paymentStatus,
+            status: (existingAirbrushing as any).status,
           },
           next: {
             painterId: (updatedAirbrushing as any).painterId,
             paymentStatus: (updatedAirbrushing as any).paymentStatus,
+            status: (updatedAirbrushing as any).status,
           },
         });
 
@@ -812,6 +984,7 @@ export class AirbrushingService {
       // Emissão FORA da transação — ver flushNfseEmissions.
       await this.flushNfseEmissions([id], (updatedAirbrushing as any)?.status);
       await this.airbrushingNotifier.flush(notifyIntents);
+      await this.quoteNotifier.flush(quoteIntents);
 
       return {
         success: true,
@@ -1002,9 +1175,7 @@ export class AirbrushingService {
     if (!owned) return [];
 
     // (1) Protect layouts shared with tasks from the cascade.
-    const sharedLayoutIds = owned.layouts
-      .filter(l => (l.tasks?.length ?? 0) > 0)
-      .map(l => l.id);
+    const sharedLayoutIds = owned.layouts.filter(l => (l.tasks?.length ?? 0) > 0).map(l => l.id);
     if (sharedLayoutIds.length > 0) {
       await tx.layout.updateMany({
         where: { id: { in: sharedLayoutIds } },
@@ -1136,6 +1307,8 @@ export class AirbrushingService {
 
             // Mesmas correções do create() individual — este caminho fala com o
             // repositório direto e não herda nada dele.
+            this.applyQuotingOnCreate(airbrushingData as Record<string, any>);
+            this.applyExecutionTime(null, airbrushingData as Record<string, any>);
             this.applyStatusTimestamps(null, airbrushingData as Record<string, any>);
             this.applyDueDate(null, airbrushingData as Record<string, any>);
 
@@ -1182,6 +1355,7 @@ export class AirbrushingService {
               next: {
                 painterId: (newAirbrushing as any).painterId,
                 paymentStatus: (newAirbrushing as any).paymentStatus,
+                status: (newAirbrushing as any).status,
               },
             });
 
@@ -1226,6 +1400,10 @@ export class AirbrushingService {
         AIRBRUSHING_STATUS.COMPLETED,
       );
       await this.airbrushingNotifier.flush(notifyIntents);
+      const quotingIds = result.success
+        .filter((a: any) => isAirbrushingQuoting(a?.status))
+        .map((a: any) => a.id);
+      if (quotingIds.length) await this.quoteNotifier.notifyPendingRequests(quotingIds, userId);
 
       const successMessage =
         result.totalCreated === 1
@@ -1273,6 +1451,7 @@ export class AirbrushingService {
     try {
       // Ver create(): decisão dentro da transação, despacho depois do commit.
       const notifyIntents: AirbrushingNotifyIntent[] = [];
+      const quoteIntents: AirbrushingQuoteNotifyIntent[] = [];
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const successfulUpdates: Airbrushing[] = [];
@@ -1305,8 +1484,12 @@ export class AirbrushingService {
             // ambiguity is removed instead of arbitrated: attachment changes belong to the
             // single PUT /airbrushings/:id, which owns the upload + reconciliation path.
             const batchUpdateData: any = { ...updateData };
-            const droppedRelations = ['receiptIds', 'invoiceIds', 'layoutIds', 'layoutStatuses']
-              .filter(k => batchUpdateData[k] !== undefined);
+            const droppedRelations = [
+              'receiptIds',
+              'invoiceIds',
+              'layoutIds',
+              'layoutStatuses',
+            ].filter(k => batchUpdateData[k] !== undefined);
             for (const k of droppedRelations) delete batchUpdateData[k];
             if (droppedRelations.length > 0) {
               this.logger.warn(
@@ -1320,7 +1503,15 @@ export class AirbrushingService {
             // update() faz. Sem isto, "Finalizar" em lote pela tabela concluía a
             // aerografia SEM carimbar finishedAt — e um término sem data nunca
             // produz vencimento, deixando a linha de Contas a Pagar sem Vencimento.
+            // Só entra no flush se a linha gravar — o lote engole o erro por item.
+            const itemQuoteIntents = await this.applyQuotingOnUpdate(
+              tx,
+              existingAirbrushing,
+              batchUpdateData,
+              userId,
+            );
             this.applyStatusTimestamps(existingAirbrushing, batchUpdateData);
+            this.applyExecutionTime(existingAirbrushing as Record<string, any>, batchUpdateData);
             this.applyDueDate(existingAirbrushing as Record<string, any>, batchUpdateData);
 
             // Atualizar a aerografia
@@ -1331,6 +1522,7 @@ export class AirbrushingService {
               { include },
             );
             successfulUpdates.push(updatedAirbrushing);
+            quoteIntents.push(...itemQuoteIntents);
 
             // NFS-e do aerografista — este é o caminho do "Finalizar" em lote
             // pela tabela, que conclui várias aerografias de uma vez. Dispara
@@ -1351,10 +1543,12 @@ export class AirbrushingService {
               previous: {
                 painterId: (existingAirbrushing as any).painterId,
                 paymentStatus: (existingAirbrushing as any).paymentStatus,
+                status: (existingAirbrushing as any).status,
               },
               next: {
                 painterId: (updatedAirbrushing as any).painterId,
                 paymentStatus: (updatedAirbrushing as any).paymentStatus,
+                status: (updatedAirbrushing as any).status,
               },
             });
 
@@ -1398,6 +1592,7 @@ export class AirbrushingService {
         .map((a: any) => a.id);
       await this.flushNfseEmissions(completedIds, AIRBRUSHING_STATUS.COMPLETED);
       await this.airbrushingNotifier.flush(notifyIntents);
+      await this.quoteNotifier.flush(quoteIntents);
 
       const successMessage =
         result.totalUpdated === 1
@@ -1706,8 +1901,10 @@ export class AirbrushingService {
     // A relation is reconciled only when the payload explicitly provided its IDs OR new
     // files of that type were uploaded in this request. Anything else: leave it alone.
     const reconcile = {
-      receipts: !opts.skipAll && (data.receiptIds !== undefined || newFileIds.receiptIds.length > 0),
-      invoices: !opts.skipAll && (data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0),
+      receipts:
+        !opts.skipAll && (data.receiptIds !== undefined || newFileIds.receiptIds.length > 0),
+      invoices:
+        !opts.skipAll && (data.invoiceIds !== undefined || newFileIds.invoiceIds.length > 0),
       layouts: !opts.skipAll && (data.layoutIds !== undefined || newFileIds.layoutIds.length > 0),
     };
 

@@ -226,7 +226,7 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
 
 /**
  * Role-gates an EXPLICIT quote status change made through a generic update
- * (PUT /task-quotes/:id or a nested quote write through the task endpoints),
+ * (PUT /budgets/:id or a nested quote write through the task endpoints),
  * mirroring the roles of the dedicated transition endpoints
  * (budget.controller.ts):
  * - APPROVED           → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)

@@ -13,7 +13,7 @@
  * `orderNumber`" e **toda criação de orçamento morria em 500**.
  *
  * Nada disso aparece num `tsc` limpo: `(config as any)` apaga o tipo, o zod
- * aceita a chave (ela segue no contrato por compatibilidade com o app instalado)
+ * aceitava a chave (ela seguia no contrato por compatibilidade)
  * e o erro só existe no momento em que o Prisma fala com o Postgres.
  *
  * Os outros testes desta pasta são sobre FUNÇÕES PURAS — aritmética da fatia,
@@ -77,7 +77,7 @@ function parseBody(body: unknown): any {
 }
 
 /**
- * O portão de `PUT /task-quotes/:id` — `ZodValidationPipe(budgetUpdateSchema)`.
+ * O portão de `PUT /budgets/:id` — `ZodValidationPipe(budgetUpdateSchema)`.
  *
  * Existe pela mesma razão que `parseBody`: é aqui que a cobertura (`taskIds` de
  * cada fatia) e o `id` da fatia atravessam — ou não — o contrato. Foi assim que
@@ -565,12 +565,12 @@ async function main() {
     });
 
     // ═══════════════════════════════════════════════════════════════════════
-    console.log('\nO app antigo ainda pode mandar `orderNumber` na fatia');
+    console.log('\n`orderNumber` na fatia é DESCARTADO, e nunca vira 500');
     // ═══════════════════════════════════════════════════════════════════════
     //
-    // O aparelho instalado não se atualiza junto com a API. O campo tem de ser
-    // ACEITO e traduzido para as tarefas — nunca recusado, e nunca escrito numa
-    // coluna que não existe.
+    // O pedido de compra é do VEÍCULO (`Task.customerOrderNumber`) e a chave
+    // saiu do schema do pagador. O zod não é `.strict()`: o corpo continua
+    // aceito, a chave some, e nada é escrito numa coluna que não existe.
     const legacyBody = parseBody({
       tasks: [
         {
@@ -592,13 +592,9 @@ async function main() {
       },
     });
 
-    // O zod NÃO é `.strict()`: tirar a chave do schema não recusa o corpo, apaga
-    // o valor. Sem esta verificação, remover `orderNumber` do
-    // `budgetPayerCreateNestedSchema` passaria por todos os portões
-    // e o pedido de compra do aparelho instalado sumiria em silêncio.
     check(
-      'o zod PRESERVA `orderNumber` na fatia (não é `.strict()`: ele apagaria)',
-      (legacyBody as any)?.quote?.customerConfigs?.[0]?.orderNumber === 'PED-LEGADO',
+      'o zod DESCARTA `orderNumber` da fatia',
+      (legacyBody as any)?.quote?.customerConfigs?.[0]?.orderNumber === undefined,
       JSON.stringify((legacyBody as any)?.quote?.customerConfigs?.[0]),
     );
 
@@ -615,8 +611,8 @@ async function main() {
         select: { customerOrderNumber: true },
       });
       check(
-        '`customerConfigs[].orderNumber` foi traduzido para a TAREFA',
-        legacyTask?.customerOrderNumber === 'PED-LEGADO',
+        '`customerConfigs[].orderNumber` NÃO é traduzido para a tarefa',
+        legacyTask?.customerOrderNumber == null,
         String(legacyTask?.customerOrderNumber),
       );
     }

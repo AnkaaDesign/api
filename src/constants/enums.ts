@@ -198,7 +198,12 @@ export enum SERVICE_ORDER_TYPE {
 
 // Mirrors TASK_STATUS: prepared → released to the floor ("Disponibilizar para
 // Produção", admin/commercial only) → painted → concluded.
+//
+// QUOTING vem ANTES: a aerografia nasce sem aerografista nem valor, os
+// aerografistas enviam propostas e o comercial seleciona uma — só então ela
+// entra em Em Preparação, já com aerografista e preço.
 export enum AIRBRUSHING_STATUS {
+  QUOTING = 'QUOTING',
   PREPARATION = 'PREPARATION',
   WAITING_PRODUCTION = 'WAITING_PRODUCTION',
   IN_PRODUCTION = 'IN_PRODUCTION',
@@ -209,6 +214,42 @@ export enum AIRBRUSHING_STATUS {
 export enum AIRBRUSHING_PAYMENT_STATUS {
   PENDING = 'PENDING',
   PAID = 'PAID',
+}
+
+/** Estado da negociação de um aerografista numa aerografia em cotação. */
+export enum AIRBRUSHING_QUOTE_STATUS {
+  /** Proposta do aerografista aguardando o comercial. */
+  PROPOSED = 'PROPOSED',
+  /** Contraproposta do comercial aguardando o aerografista. */
+  COUNTERED = 'COUNTERED',
+  /** Aerografista aceitou a contraproposta — ainda NÃO é a seleção. */
+  ACCEPTED = 'ACCEPTED',
+  /** Aerografista recusou. */
+  DECLINED = 'DECLINED',
+  /** Proposta escolhida: aerografista e valor gravados na aerografia. */
+  SELECTED = 'SELECTED',
+  /** Cotação encerrada sem esta proposta. */
+  NOT_SELECTED = 'NOT_SELECTED',
+}
+
+/** Unidade do tempo de execução de um serviço (aerografia). */
+export enum EXECUTION_TIME_UNIT {
+  HOURS = 'HOURS',
+  DAYS = 'DAYS',
+}
+
+export enum AIRBRUSHING_QUOTE_PARTY {
+  PAINTER = 'PAINTER',
+  COMPANY = 'COMPANY',
+}
+
+export enum AIRBRUSHING_QUOTE_ACTION {
+  PROPOSAL = 'PROPOSAL',
+  COUNTER = 'COUNTER',
+  ACCEPT = 'ACCEPT',
+  DECLINE = 'DECLINE',
+  SELECT = 'SELECT',
+  CLOSE = 'CLOSE',
 }
 
 /** Como o vencimento da aerografia é derivado do término. Ver utils/airbrushing.ts. */

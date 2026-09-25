@@ -342,6 +342,7 @@ export class ItemRecomputeService {
       // Per-item absolute coverage override (e.g. "hold ~2 months") wins over the
       // matrix, even during the transient UNCLASSIFIED window.
       overrideCoverageDays: item.targetCoverageDays ?? null,
+      monthlyHistory,
       seasonalCtx,
       now,
     });
@@ -402,6 +403,7 @@ export class ItemRecomputeService {
         : null,
       stockModel: (item.stockModel as string | null) ?? null,
       fixedTargetQuantity: item.fixedTargetQuantity ?? null,
+      minStockQuantity: item.minStockQuantity ?? null,
       abcCategory: (item.abcCategory as ABC_CATEGORY | null) ?? null,
       xyzCategory: (item.xyzCategory as XYZ_CATEGORY | null) ?? null,
       ppeType: (item.ppeType ?? null) as ItemLike['ppeType'],

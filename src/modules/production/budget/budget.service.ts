@@ -196,7 +196,7 @@ export class BudgetService {
    */
   async findMany(query: BudgetGetManyFormData): Promise<BudgetGetManyResponse> {
     try {
-      // ⚠️ `GET /task-quotes` NÃO PAGINAVA.
+      // ⚠️ `GET /budgets` NÃO PAGINAVA.
       //
       // O zod declara `page`/`limit` (e os coage, e dá `default`), e o
       // repositório lê `skip`/`take` — ninguém traduzia entre os dois. Resultado:
@@ -247,7 +247,7 @@ export class BudgetService {
    *
    * ⚠️ The repository takes `{ include }` — an OPTIONS object — not the include
    * itself. Passing the raw include here made `options?.include` undefined, so
-   * every GET /task-quotes/:id silently fell back to the repository's default
+   * every GET /budgets/:id silently fell back to the repository's default
    * include: no `task` and, critically, no `layoutFiles`. That is why the mobile
    * quote detail saw an empty `layoutFiles` on a quote that HAS an approved
    * layout selected and refused to approve the budget ("Selecione um layout
@@ -326,21 +326,12 @@ export class BudgetService {
       // AS TAREFAS DO ORÇAMENTO
       // ═══════════════════════════════════════════════════════════════════════
       //
-      // `taskIds` é a forma nova; `taskId` continua aceito porque o app Flutter
-      // instalado nos aparelhos manda o singular e não é atualizado no mesmo
-      // instante que a API.
-      //
       // A tela de criação já produzia N tarefas do produto cartesiano de placas
       // × números de série. O que mudou é que elas passam a compartilhar UM
       // orçamento: o Marquespan de 02/09 saiu como sessenta orçamentos (642 a
       // 701), sessenta PDFs e sessenta cerimônias de assinatura para o mesmo
       // trabalho repetido sessenta vezes.
-      const taskIds =
-        data.taskIds && data.taskIds.length > 0
-          ? [...new Set(data.taskIds)]
-          : (data as any).taskId
-            ? [(data as any).taskId as string]
-            : [];
+      const taskIds = [...new Set(data.taskIds ?? [])];
       if (taskIds.length === 0) {
         throw new BadRequestException('Informe ao menos uma tarefa para o orçamento.');
       }
@@ -718,11 +709,8 @@ export class BudgetService {
                     config.generateBankSlip !== undefined ? config.generateBankSlip : true,
                   // ⚠️ `orderNumber` NÃO entra aqui. A coluna saiu do modelo na
                   // migração `20260909170000` — o pedido de compra é do VEÍCULO
-                  // (`Task.customerOrderNumber`) — e `x || null` emitia a chave
-                  // SEMPRE, mesmo quando o cliente não a mandava: o Prisma
-                  // respondia "Unknown argument `orderNumber`" e TODA criação de
-                  // orçamento morria em 500. O valor legado é traduzido para as
-                  // tarefas mais abaixo (`legacyOrderNumber`).
+                  // (`Task.customerOrderNumber`) — e emiti-la faria o Prisma
+                  // responder "Unknown argument `orderNumber`" em TODA criação.
                   paymentCondition: config.paymentCondition || null,
                   paymentConfig: (config as any).paymentConfig ?? null,
                 })),
@@ -737,25 +725,6 @@ export class BudgetService {
         // plano acima divergir do reconciliador é um dia em que o banco fica
         // errado em silêncio.
         await reconcileBillingsForQuote(tx, newQuote.id);
-
-        // COMPATIBILIDADE: `customerConfigs[].orderNumber`.
-        //
-        // O número do pedido de compra virou campo do VEÍCULO
-        // (`Task.customerOrderNumber`) — o pedido é por entrega, e um orçamento
-        // cobre N caminhões. O app instalado nos aparelhos ainda o manda na
-        // configuração de faturamento; aplicá-lo a todas as tarefas é exatamente
-        // o efeito que ele tinha antes. Só valor preenchido conta: um `null` de
-        // um cliente que não lê mais o campo não pode apagar o que a tela nova
-        // gravou por veículo.
-        const legacyOrderNumber = (data.customerConfigs as any[])
-          .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-          .find(v => v.length > 0);
-        if (legacyOrderNumber) {
-          await tx.task.updateMany({
-            where: { id: { in: taskIds } },
-            data: { customerOrderNumber: legacyOrderNumber },
-          });
-        }
 
         // A COBERTURA de cada arte — agora que os veículos são deste orçamento.
         if (resolvedLayoutPlan) {
@@ -1004,11 +973,6 @@ export class BudgetService {
       customPaymentText: config.customPaymentText ?? null,
       generateInvoice: config.generateInvoice !== false,
       generateBankSlip: config.generateBankSlip !== false,
-      // `orderNumber` fora da canonicalização: a coluna não existe mais na fatia
-      // (o pedido é do VEÍCULO). O registro gravado NUNCA a tem, então um app
-      // antigo que ainda a manda faria todo salvamento parecer MATERIALMENTE
-      // alterado — disparando o delete+recreate destrutivo das configurações e,
-      // em `BILLING_APPROVED`+, batendo na trava de status.
       paymentConfig: config.paymentConfig ?? null,
     });
   }
@@ -1933,7 +1897,7 @@ export class BudgetService {
         if (data.customerConfigs !== undefined) {
           // Reconcile by (quoteId, customerId) WITHOUT destroy-and-recreate:
           // updates existing rows in place (so issued Invoice/Installments and
-          // DB-owned fields — customerSignatureId/orderNumber/paymentConfig —
+          // DB-owned fields — customerSignatureId/paymentConfig —
           // survive), creates new customers, deletes only removed ones (blocking
           // on live financial obligations). Replaces the former deleteMany +
           // createMany, which silently wiped the signature and could cascade-
@@ -1952,21 +1916,6 @@ export class BudgetService {
             // banco aqui criaria as fatias erradas.
             { billingSplit: updateBillingSplit, taskIds: nextTaskIds },
           );
-
-          // COMPATIBILIDADE: `customerConfigs[].orderNumber` (ver a mesma nota em
-          // `create`). O pedido é do VEÍCULO; o app instalado ainda o manda na
-          // fatia, e ali ele vale para todas as tarefas do orçamento. Um `null`
-          // NÃO apaga — a tela nova escreve por veículo, e um cliente antigo que
-          // não lê mais o campo mandaria nulo em toda gravação.
-          const legacyOrderNumber = (data.customerConfigs as any[])
-            .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-            .find(v => v.length > 0);
-          if (legacyOrderNumber) {
-            await tx.task.updateMany({
-              where: { quoteId: id },
-              data: { customerOrderNumber: legacyOrderNumber },
-            });
-          }
 
           // Audit the per-customer billing terms. The discount lives on the config
           // row, so when it moved off Budget (migration 20260408000003) it left
@@ -5686,69 +5635,25 @@ export class BudgetService {
   }
 
   /**
-   * @deprecated O número do pedido é do VEÍCULO (`Task.customerOrderNumber`).
+   * O número do pedido de compra de UM veículo (`Task.customerOrderNumber`).
    *
-   * Continua aqui porque o app instalado nos aparelhos ainda chama esta rota, e
-   * recusá-la deixaria o campo sem escrita em campo. O que ela faz mudou: grava
-   * o mesmo número em TODAS as tarefas do orçamento — que é o comportamento que
-   * ela sempre teve na prática, agora dito com todas as letras. Para escrever o
-   * pedido de UM caminhão, use `PUT /tasks/:id` com `customerOrderNumber`.
-   *
-   * O `customerId` deixou de ter efeito: o pedido não é mais por cliente. Ele
-   * segue no corpo (o app o manda) e serve só para verificar que o cliente
-   * pertence mesmo a este orçamento.
+   * A guarda garante que a tarefa é DESTE orçamento — senão a rota carimbaria o
+   * pedido no caminhão de outro contrato.
    */
   async updateCustomerConfigOrderNumber(
     quoteId: string,
-    customerId: string | null,
+    taskId: string,
     orderNumber: string | null,
-    taskId?: string | null,
   ): Promise<{ success: true; message: string }> {
-    // O cliente ainda é aceito (o app instalado o manda) e serve de guarda: o
-    // número pertence ao orçamento daquele cliente, não a um orçamento qualquer.
-    if (customerId) {
-      const configs = await this.prisma.budgetPayer.count({
-        where: { quoteId, customerId },
-      });
-      if (configs === 0) {
-        throw new NotFoundException('Configuração de cliente não encontrada para este orçamento.');
-      }
+    const belongs = await this.prisma.task.count({ where: { id: taskId, quoteId } });
+    if (belongs === 0) {
+      throw new BadRequestException('A tarefa informada não pertence a este orçamento.');
     }
-
-    // ─── UM VEÍCULO, OU TODOS ────────────────────────────────────────────────
-    //
-    // O pedido de compra é da ENTREGA: às vezes é o mesmo para os sessenta
-    // caminhões, às vezes muda a cada um. Com `taskId` a escrita é do veículo
-    // pedido — e a guarda garante que ele é DESTE orçamento, senão o app poderia
-    // carimbar o pedido no caminhão de outro contrato.
-    //
-    // Sem `taskId` a escrita é em todos, que é o comportamento do app instalado
-    // (ele mandava só o cliente) e continua sendo a leitura certa do que ele
-    // pede: "o pedido deste orçamento".
-    if (taskId) {
-      const belongs = await this.prisma.task.count({ where: { id: taskId, quoteId } });
-      if (belongs === 0) {
-        throw new BadRequestException('A tarefa informada não pertence a este orçamento.');
-      }
-      await this.prisma.task.update({
-        where: { id: taskId },
-        data: { customerOrderNumber: orderNumber || null },
-      });
-      return { success: true, message: 'Número do pedido atualizado com sucesso.' };
-    }
-
-    const updated = await this.prisma.task.updateMany({
-      where: { quoteId },
+    await this.prisma.task.update({
+      where: { id: taskId },
       data: { customerOrderNumber: orderNumber || null },
     });
-
-    return {
-      success: true,
-      message:
-        updated.count > 1
-          ? `Número do pedido aplicado aos ${updated.count} veículos do orçamento.`
-          : 'Número do pedido atualizado com sucesso.',
-    };
+    return { success: true, message: 'Número do pedido atualizado com sucesso.' };
   }
 
   /**

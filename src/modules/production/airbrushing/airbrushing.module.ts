@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AirbrushingService } from './airbrushing.service';
 import { AirbrushingController } from './airbrushing.controller';
+import { AirbrushingQuoteController } from './airbrushing-quote.controller';
+import { AirbrushingQuoteService } from './airbrushing-quote.service';
+import { AirbrushingQuoteScheduler } from './airbrushing-quote.scheduler';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
@@ -15,14 +18,16 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
 
 @Module({
   imports: [PrismaModule, ChangeLogModule, FileModule, NfseModule, NotificationModule],
-  controllers: [AirbrushingController],
+  controllers: [AirbrushingController, AirbrushingQuoteController],
   providers: [
     AirbrushingService,
+    AirbrushingQuoteService,
+    AirbrushingQuoteScheduler,
     {
       provide: AirbrushingRepository,
       useClass: AirbrushingPrismaRepository,
     },
   ],
-  exports: [AirbrushingService, AirbrushingRepository],
+  exports: [AirbrushingService, AirbrushingQuoteService, AirbrushingRepository],
 })
 export class AirbrushingModule {}

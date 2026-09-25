@@ -1,5 +1,5 @@
 {
-  "geradaEm": "2026-09-23",
+  "geradaEm": "2026-09-25",
   "total": 138,
   "assinaturas": {
     "scripts/check-users.ts|TS2353|Object literal may only specify known properties, and 'dismissedAt' does not exist in type 'UserWhereInput'.": 1,
@@ -14,7 +14,7 @@
     "scripts/seed-copsoq-assessment.ts|TS2353|Object literal may only specify known properties, and 'dismissedAt' does not exist in type 'UserWhereInput'.": 1,
     "scripts/seed-production-test-user.ts|TS2353|Object literal may only specify known properties, and 'isActive' does not exist in type '(Without<UserCreateInput, UserUncheckedCreateInput> & UserUncheckedCreateInput) | (Without<...> & UserCreateInput)'.": 1,
     "scripts/seed-production-test-user.ts|TS2353|Object literal may only specify known properties, and 'isActive' does not exist in type '(Without<UserUpdateInput, UserUncheckedUpdateInput> & UserUncheckedUpdateInput) | (Without<...> & UserUpdateInput)'.": 1,
-    "scripts/sim-forecast.ts|TS2339|Property 'xyz' does not exist on type '{ prices: { itemId: string; id: string; createdAt: Date; updatedAt: Date; positionId: string; value: number; effectiveDate: Date; current: boolean; }[]; } & { quantity: number; id: string; ... 42 more ...; uniCodeNormalized: string; }'.": 1,
+    "scripts/sim-forecast.ts|TS2339|Property 'xyz' does not exist on type '{ prices: { itemId: string; id: string; createdAt: Date; updatedAt: Date; positionId: string; value: number; effectiveDate: Date; current: boolean; }[]; } & { quantity: number; id: string; ... 43 more ...; uniCodeNormalized: string; }'.": 1,
     "scripts/sim-year.ts|TS2339|Property 'xyz' does not exist on type '{ supplier: { id: string; createdAt: Date; updatedAt: Date; email: string; address: string; addressNumber: string; addressComplement: string; neighborhood: string; city: string; state: string; ... 18 more ...; pix: string; }; prices: { ...; }[]; } & { ...; }'.": 3,
     "scripts/submit-signature-whatsapp-template.ts|TS2345|Argument of type '{ refusedByName: string; budgetNumber: string; reason: string; }' is not assignable to parameter of type '{ refusedByName: string; budgetNumber: string | number; reason: string; quoteTaskId: string; }'. Property 'quoteTaskId' is missing in type '{ refusedByName: string; budgetNumber: string; reason: string; }' but required in type '{ refusedByName: string; budgetNumber: string | number; reason: string; quoteTaskId: string; }'.": 1,
     "scripts/test-late-slots.ts|TS2339|Property 'stampPlainFooter' does not exist on type 'QuoteAssemblerService'.": 1,
@@ -109,6 +109,7 @@
     "src/scripts/archive/tx-category-reassign-delete.ts",
     "src/scripts/archive/tx-category-utilities-cleanup.ts",
     "src/scripts/archive/update-service-category-accounting.ts",
+    "src/utils/airbrushing-quote.spec.ts",
     "src/utils/benefit-discount.spec.ts",
     "src/utils/contract-stability.spec.ts"
   ]

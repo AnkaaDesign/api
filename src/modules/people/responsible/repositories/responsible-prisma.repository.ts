@@ -12,28 +12,6 @@ import {
 import { PrismaTransaction } from '@/modules/common/base/base.repository';
 import { Prisma, ResponsibleRole } from '@prisma/client';
 
-/**
- * `where` arrives already Prisma-shaped from responsibleWhereSchema, but a
- * legacy client (or a stale persisted filter) may still carry a scalar
- * `role: 'OWNER'`. Prisma would reject that on a scalar-list field with a
- * validation error surfacing as a 500, so translate it to `{ has }` here
- * rather than letting it through.
- */
-function normalizeRolesFilter(rest: Record<string, unknown>): void {
-  if ('role' in rest) {
-    const legacy = rest.role;
-    delete rest.role;
-    if (rest.roles === undefined && typeof legacy === 'string') {
-      rest.roles = { has: legacy as ResponsibleRole };
-    }
-  }
-  if (typeof rest.roles === 'string') {
-    rest.roles = { has: rest.roles as ResponsibleRole };
-  } else if (Array.isArray(rest.roles)) {
-    rest.roles = { hasSome: rest.roles as ResponsibleRole[] };
-  }
-}
-
 @Injectable()
 export class ResponsiblePrismaRepository extends ResponsibleRepository {
   constructor(private readonly prisma: PrismaService) {
@@ -137,7 +115,6 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     const where: Prisma.ResponsibleWhereInput = {};
     if (options?.where) {
       const { name, company, OR, ...rest } = options.where as any;
-      normalizeRolesFilter(rest);
       Object.assign(where, rest);
 
       if (name?.contains) {
@@ -195,7 +172,6 @@ export class ResponsiblePrismaRepository extends ResponsibleRepository {
     const prismaWhere: Prisma.ResponsibleWhereInput = {};
     if (where) {
       const { name, company, OR, ...rest } = where as any;
-      normalizeRolesFilter(rest);
       Object.assign(prismaWhere, rest);
 
       if (name?.contains) {

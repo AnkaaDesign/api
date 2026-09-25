@@ -1,5 +1,6 @@
 export * from './activity';
 export * from './airbrushing';
+export * from './airbrushing-quote';
 
 // Statistics & Analytics Utilities
 export * from './statistics/data-transformers';

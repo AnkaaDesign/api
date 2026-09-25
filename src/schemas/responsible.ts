@@ -23,40 +23,14 @@ export const normalizeResponsibleRoles = (roles: ResponsibleRole[]): Responsible
 /**
  * A non-empty, de-duplicated, canonically ordered set of roles.
  *
- * Accepts a bare scalar as well as an array so that clients still on the
- * pre-array contract (notably installed Flutter APKs, which POST
- * `{ role: 'COMMERCIAL' }` on inline contact creation) keep working. Zod is not
- * strict anywhere in this codebase, so without the scalar branch an old
- * client's `role` would be silently stripped and the request would fail with a
- * confusing "roles is required".
+ * ⚠️ Só ARRAY. O escalar `role` (contrato anterior ao multi-função) não é
+ * aceito: o objeto não é `.strict()`, então a chave `role` é descartada e a
+ * falta de `roles` responde 400 "Required".
  */
-export const responsibleRolesSchema = z.preprocess(
-  value => (typeof value === 'string' ? [value] : value),
-  z
-    .array(responsibleRoleSchema)
-    .min(1, 'Selecione ao menos uma função')
-    .transform(normalizeResponsibleRoles),
-);
-
-/**
- * Merges a legacy scalar `role` into `roles` and drops it, so every downstream
- * consumer only ever sees the array. Applied to create/register payloads.
- */
-const withLegacyRole = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess(value => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const data = value as Record<string, unknown>;
-      if (data.roles === undefined && data.role !== undefined) {
-        const { role, ...rest } = data;
-        return { ...rest, roles: role };
-      }
-      if (data.role !== undefined) {
-        const { role: _role, ...rest } = data;
-        return rest;
-      }
-    }
-    return value;
-  }, schema);
+export const responsibleRolesSchema = z
+  .array(responsibleRoleSchema)
+  .min(1, 'Selecione ao menos uma função')
+  .transform(normalizeResponsibleRoles);
 
 // E-mail é OPCIONAL em todo o cadastro de responsável. A exigência real não
 // mora aqui: quem cobra é a emissão do envelope de assinatura, que recusa
@@ -108,16 +82,12 @@ export const responsibleCreateObjectSchema = z.object({
   // Âncora de identidade da assinatura eletrônica. Opcional: contato sem CPF
   // continua valendo, e a primeira assinatura preenche o campo.
   cpf: cpfSchema.optional().nullable(),
-  // `password` foi removido do modelo. Continua aceito no corpo e DESCARTADO,
-  // para que um cliente antigo que ainda o envie receba 200 em vez de 400 —
-  // mas nada e' gravado, e o campo nao existe mais na tabela.
-  password: z.string().optional().nullable().transform(() => undefined),
   companyId: z.string().uuid('ID da empresa inválido').optional().nullable(), // Optional - can create responsible without company
   roles: responsibleRolesSchema,
   isActive: z.boolean().optional().default(true),
 });
 
-export const responsibleCreateSchema = withLegacyRole(responsibleCreateObjectSchema);
+export const responsibleCreateSchema = responsibleCreateObjectSchema;
 
 export const responsibleUpdateObjectSchema = z.object({
   name: z.string().min(3).optional(),
@@ -134,7 +104,7 @@ export const responsibleUpdateObjectSchema = z.object({
   companyId: z.string().uuid().optional().nullable(),
 });
 
-export const responsibleUpdateSchema = withLegacyRole(responsibleUpdateObjectSchema);
+export const responsibleUpdateSchema = responsibleUpdateObjectSchema;
 
 // `responsibleLoginSchema` e `responsibleRegisterSchema` foram REMOVIDOS com as
 // rotas que os usavam. O register era @Public() e recebia `companyId` e `roles`

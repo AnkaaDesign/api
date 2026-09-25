@@ -16,7 +16,17 @@ import { TaskRepository } from './task.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
-import { TASK_STATUS, SERVICE_ORDER_STATUS, CUT_STATUS } from '../../../../constants/enums';
+import {
+  TASK_STATUS,
+  SERVICE_ORDER_STATUS,
+  CUT_STATUS,
+  AIRBRUSHING_STATUS,
+} from '../../../../constants/enums';
+import {
+  computeExpectedFinishDate,
+  resolveNewAirbrushingStatus,
+} from '../../../../utils/airbrushing-quote';
+import { getAirbrushingStatusOrder } from '../../../../utils/sortOrder';
 import { TASK_QUOTE_STATUS_ORDER } from '../../../../constants/sortOrders';
 import { TASK_QUOTE_STATUS } from '../../../../constants';
 import {
@@ -38,10 +48,7 @@ import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layo
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncTruckSpotWithCleared } from '../../../../utils/task-truck-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
-import {
-  QUOTE_BILLING_INCLUDE,
-  withCoverageInclude,
-} from '../../../../utils/quote-tasks';
+import { QUOTE_BILLING_INCLUDE, withCoverageInclude } from '../../../../utils/quote-tasks';
 import {
   PER_VEHICLE_LEGACY_WRITE_MESSAGE,
   pruneQuoteLayoutCoverage,
@@ -677,9 +684,7 @@ function resolveCurrentInstallmentDueDate(row: any): Date | null {
   // A cobrança desta linha. Sem ela (orçamento de acervo, sem cobertura), cai no
   // orçamento inteiro — que é o comportamento antigo, e o melhor disponível ali.
   const billingId = row?.billingEntry?.billingId ?? null;
-  const doRecorte = billingId
-    ? configs.filter((c: any) => c?.billingId === billingId)
-    : configs;
+  const doRecorte = billingId ? configs.filter((c: any) => c?.billingId === billingId) : configs;
   const escopo = doRecorte.length > 0 ? doRecorte : configs;
 
   let emAberto: Date | null = null;
@@ -889,7 +894,6 @@ export class TaskPrismaRepository
             data: {
               ...responsibleData,
               companyId,
-              password: responsibleData.password || null,
             },
           });
         }),
@@ -961,7 +965,9 @@ export class TaskPrismaRepository
       status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
       statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
       bonification: (bonification as any) || 'FULL_BONIFICATION',
-      bonificationOrder: getBonificationStatusOrder((bonification as string) || 'FULL_BONIFICATION'),
+      bonificationOrder: getBonificationStatusOrder(
+        (bonification as string) || 'FULL_BONIFICATION',
+      ),
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
@@ -1149,29 +1155,55 @@ export class TaskPrismaRepository
         }
       }
       taskData.airbrushings = {
-        create: airbrushings.map((item: any) => ({
-          status: item.status || 'PENDING',
-          price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
-          description: item.description || null,
-          startDate: item.startDate || null,
-          finishDate: item.finishDate || null,
-          startedAt: item.startedAt || null,
-          finishedAt: item.finishedAt || null,
-          paymentStatus: item.paymentStatus || 'PENDING',
-          painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
-          receipts:
-            item.receiptIds && item.receiptIds.length > 0
-              ? { connect: item.receiptIds.map((id: string) => ({ id })) }
-              : undefined,
-          invoices:
-            item.invoiceIds && item.invoiceIds.length > 0
-              ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
-              : undefined,
-          layouts:
-            item.layoutIds && item.layoutIds.length > 0
-              ? { connect: item.layoutIds.map((id: string) => ({ id })) }
-              : undefined,
-        })),
+        create: airbrushings.map((item: any) => {
+          // Sem aerografista, a aerografia nasce EM COTAÇÃO: sem valor, e os
+          // aerografistas são avisados depois do commit (TaskService.create).
+          const status = resolveNewAirbrushingStatus(item.status, item.painterId);
+          const quoting = status === AIRBRUSHING_STATUS.QUOTING;
+          return {
+            status,
+            statusOrder: getAirbrushingStatusOrder(status),
+            quotationOpenedAt: quoting ? new Date() : null,
+            price:
+              !quoting && item.price !== undefined && item.price !== null
+                ? Number(item.price)
+                : null,
+            description: item.description || null,
+            startDate: item.startDate || null,
+            finishDate:
+              computeExpectedFinishDate(
+                item.startDate,
+                item.executionTime,
+                item.executionTimeUnit,
+              ) ??
+              (item.finishDate || null),
+            executionTime: item.executionTime ?? null,
+            executionTimeUnit: item.executionTimeUnit ?? null,
+            quotationOfferAmount: quoting ? (item.quotationOfferAmount ?? null) : null,
+            quotationOfferExecutionTime: quoting
+              ? (item.quotationOfferExecutionTime ?? null)
+              : null,
+            quotationOfferExecutionTimeUnit: quoting
+              ? (item.quotationOfferExecutionTimeUnit ?? null)
+              : null,
+            startedAt: item.startedAt || null,
+            finishedAt: item.finishedAt || null,
+            paymentStatus: item.paymentStatus || 'PENDING',
+            painter: !quoting && item.painterId ? { connect: { id: item.painterId } } : undefined,
+            receipts:
+              item.receiptIds && item.receiptIds.length > 0
+                ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+                : undefined,
+            invoices:
+              item.invoiceIds && item.invoiceIds.length > 0
+                ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+                : undefined,
+            layouts:
+              item.layoutIds && item.layoutIds.length > 0
+                ? { connect: item.layoutIds.map((id: string) => ({ id })) }
+                : undefined,
+          };
+        }),
       };
     }
 
@@ -1203,7 +1235,6 @@ export class TaskPrismaRepository
             data: {
               ...responsibleData,
               companyId,
-              password: responsibleData.password || null,
             },
           });
         }),
@@ -1604,29 +1635,54 @@ export class TaskPrismaRepository
           // layouts. (Existing-airbrushing UPDATES below still leave layouts
           // untouched — resolving File→Layout there needs the service helper the
           // repository can't reach, so absence = preserve.)
-          const buildCreate = (item: any) => ({
-            status: item.status || 'PENDING',
-            price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
-            description: item.description || null,
-            startDate: item.startDate || null,
-            finishDate: item.finishDate || null,
-            startedAt: item.startedAt || null,
-            finishedAt: item.finishedAt || null,
-            paymentStatus: item.paymentStatus || 'PENDING',
-            painter: item.painterId ? { connect: { id: item.painterId } } : undefined,
-            layouts:
-              item.layoutIds && item.layoutIds.length > 0
-                ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
-                : undefined,
-            receipts:
-              item.receiptIds && item.receiptIds.length > 0
-                ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
-                : undefined,
-            invoices:
-              item.invoiceIds && item.invoiceIds.length > 0
-                ? { connect: item.invoiceIds.map((fid: string) => ({ id: fid })) }
-                : undefined,
-          });
+          // Sem aerografista, nasce em cotação — mesma regra do caminho de criação.
+          const buildCreate = (item: any) => {
+            const status = resolveNewAirbrushingStatus(item.status, item.painterId);
+            const quoting = status === AIRBRUSHING_STATUS.QUOTING;
+            return {
+              status,
+              statusOrder: getAirbrushingStatusOrder(status),
+              quotationOpenedAt: quoting ? new Date() : null,
+              price:
+                !quoting && item.price !== undefined && item.price !== null
+                  ? Number(item.price)
+                  : null,
+              description: item.description || null,
+              startDate: item.startDate || null,
+              finishDate:
+                computeExpectedFinishDate(
+                  item.startDate,
+                  item.executionTime,
+                  item.executionTimeUnit,
+                ) ??
+                (item.finishDate || null),
+              executionTime: item.executionTime ?? null,
+              executionTimeUnit: item.executionTimeUnit ?? null,
+              quotationOfferAmount: quoting ? (item.quotationOfferAmount ?? null) : null,
+              quotationOfferExecutionTime: quoting
+                ? (item.quotationOfferExecutionTime ?? null)
+                : null,
+              quotationOfferExecutionTimeUnit: quoting
+                ? (item.quotationOfferExecutionTimeUnit ?? null)
+                : null,
+              startedAt: item.startedAt || null,
+              finishedAt: item.finishedAt || null,
+              paymentStatus: item.paymentStatus || 'PENDING',
+              painter: !quoting && item.painterId ? { connect: { id: item.painterId } } : undefined,
+              layouts:
+                item.layoutIds && item.layoutIds.length > 0
+                  ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
+                  : undefined,
+              receipts:
+                item.receiptIds && item.receiptIds.length > 0
+                  ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
+                  : undefined,
+              invoices:
+                item.invoiceIds && item.invoiceIds.length > 0
+                  ? { connect: item.invoiceIds.map((fid: string) => ({ id: fid })) }
+                  : undefined,
+            };
+          };
 
           // Build a scalar/relation update payload for an existing airbrushing.
           // Only fields actually sent are written (absence = preserve). File
@@ -1640,6 +1696,18 @@ export class TaskPrismaRepository
             if (item.description !== undefined) d.description = item.description || null;
             if (item.startDate !== undefined) d.startDate = item.startDate || null;
             if (item.finishDate !== undefined) d.finishDate = item.finishDate || null;
+            if (item.executionTime !== undefined) d.executionTime = item.executionTime ?? null;
+            if (item.executionTimeUnit !== undefined) {
+              d.executionTimeUnit = item.executionTimeUnit ?? null;
+            }
+            // Término previsto derivado quando o lote traz início + tempo juntos.
+            if (item.startDate !== undefined && item.executionTime && item.executionTimeUnit) {
+              d.finishDate = computeExpectedFinishDate(
+                item.startDate,
+                item.executionTime,
+                item.executionTimeUnit,
+              );
+            }
             if (item.startedAt !== undefined) d.startedAt = item.startedAt || null;
             if (item.finishedAt !== undefined) d.finishedAt = item.finishedAt || null;
             if (item.paymentStatus !== undefined) d.paymentStatus = item.paymentStatus;
@@ -1661,8 +1729,7 @@ export class TaskPrismaRepository
           // Delete only the airbrushings the form dropped (notIn the kept set).
           // When every submitted airbrushing is new there is nothing to keep, so
           // wipe the prior set before recreating.
-          airbrushingsUpdate.deleteMany =
-            idsToKeep.length > 0 ? { id: { notIn: idsToKeep } } : {};
+          airbrushingsUpdate.deleteMany = idsToKeep.length > 0 ? { id: { notIn: idsToKeep } } : {};
           if (newAirbrushings.length > 0) {
             airbrushingsUpdate.create = newAirbrushings.map(buildCreate);
           }
@@ -1873,7 +1940,6 @@ export class TaskPrismaRepository
 
       const quoteData = (data as any).quote;
       let createdPricingId: string | null = null;
-      let legacyOrderNumber: string | null = null;
 
       if (
         quoteData &&
@@ -1921,7 +1987,8 @@ export class TaskPrismaRepository
             // Persist the status sort key on create too — omitting it stored the
             // column @default(1) on every new quote (PENDING's real order is 8),
             // corrupting statusOrder-based sorting until the next update.
-            statusOrder: TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
+            statusOrder:
+              TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
             guaranteeYears: quoteData.guaranteeYears || null,
             customGuaranteeText: quoteData.customGuaranteeText || null,
             customForecastDays: quoteData.customForecastDays || null,
@@ -1957,12 +2024,6 @@ export class TaskPrismaRepository
         });
 
         createdPricingId = newQuote.id;
-        // O pedido de compra que o app instalado ainda manda na FATIA. A coluna
-        // não existe mais; o destino é a tarefa, e ela só existe logo abaixo.
-        legacyOrderNumber =
-          (quoteData.customerConfigs ?? [])
-            .map((c: any) => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-            .find((v: string) => v.length > 0) || null;
 
         // Os totais ficam para DEPOIS do vínculo com a tarefa: `recalcQuoteTotals`
         // conta os veículos do orçamento, e neste instante ele ainda não tem
@@ -2007,16 +2068,6 @@ export class TaskPrismaRepository
         // chamada elas ficariam sem resposta para "de qual veículo é isto?" — e a
         // aritmética, que multiplica pelo que a fatura cobre, cairia no padrão.
         await resliceQuoteCoverage(transaction, createdPricingId);
-
-        // O pedido de compra legado da fatia desce para o VEÍCULO, que é onde ele
-        // mora desde a migração `20260909170000`. Só quando a tarefa não trouxe o
-        // seu: o campo novo é o que manda.
-        if (legacyOrderNumber && !(createInput as any).customerOrderNumber) {
-          await transaction.task.update({
-            where: { id: result.id },
-            data: { customerOrderNumber: legacyOrderNumber },
-          });
-        }
 
         // Só agora os totais: `recalcQuoteTotals` conta os veículos e multiplica
         // por eles, e o veículo passou a existir nesta linha.
@@ -2173,8 +2224,10 @@ export class TaskPrismaRepository
 
     rows.sort((a, b) => {
       for (const entry of sortEntries) {
-        const aValue = entry.path === DUE_DATE_SORT_KEY ? a.dueDate : resolveSortValue(a.row, entry.path);
-        const bValue = entry.path === DUE_DATE_SORT_KEY ? b.dueDate : resolveSortValue(b.row, entry.path);
+        const aValue =
+          entry.path === DUE_DATE_SORT_KEY ? a.dueDate : resolveSortValue(a.row, entry.path);
+        const bValue =
+          entry.path === DUE_DATE_SORT_KEY ? b.dueDate : resolveSortValue(b.row, entry.path);
 
         const aNull = aValue === null || aValue === undefined;
         const bNull = bValue === null || bValue === undefined;
@@ -2263,8 +2316,7 @@ export class TaskPrismaRepository
           typeof quoteData === 'object' &&
           Array.isArray(quoteData.services) &&
           quoteData.services.length > 0;
-        const hasConfigs =
-          typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
+        const hasConfigs = typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
         const hasImplementMeasure =
           typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined;
         const hasQuoteScalars =
@@ -2282,8 +2334,7 @@ export class TaskPrismaRepository
         // services.length>0 silently dropped discount-only edits (200 OK, change
         // vanished on reload).
         if (hasServices || hasConfigs || hasImplementMeasure || hasQuoteScalars) {
-          const hasNewItems =
-            hasServices && quoteData.services.some((item: any) => !item.id);
+          const hasNewItems = hasServices && quoteData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
             where: { id },
@@ -2309,7 +2360,8 @@ export class TaskPrismaRepository
               if (quoteData.status !== undefined) forbiddenHere.push('status');
               if (hasServices) forbiddenHere.push('serviços');
               if (hasConfigs) forbiddenHere.push('faturamentos');
-              if ((quoteData as any).billingSplit !== undefined) forbiddenHere.push('forma de faturamento');
+              if ((quoteData as any).billingSplit !== undefined)
+                forbiddenHere.push('forma de faturamento');
 
               // ── OS ESCALARES MATERIAIS TAMBÉM SÃO MATERIAIS ────────────────
               //
@@ -2377,7 +2429,7 @@ export class TaskPrismaRepository
             if (forbiddenHere.length > 0) {
               throw new BadRequestException(
                 `Alteração de ${forbiddenHere.join(', ')} do orçamento não pode ser feita pela tarefa. ` +
-                  'Use a tela de Orçamento (PUT /task-quotes/:id), que valida a transição, recalcula os ' +
+                  'Use a tela de Orçamento (PUT /budgets/:id), que valida a transição, recalcula os ' +
                   'totais e reavalia as assinaturas já coletadas.',
               );
             }
@@ -2407,7 +2459,11 @@ export class TaskPrismaRepository
                 : undefined;
             const layoutFileUpdate =
               resolvedImplementMeasureIds !== undefined
-                ? { layoutFiles: { set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
+                ? {
+                    layoutFiles: {
+                      set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
+                    },
+                  }
                 : {};
 
             await transaction.budget.update({
@@ -2466,29 +2522,6 @@ export class TaskPrismaRepository
                 currentTask.quoteId,
                 quoteData.customerConfigs as any,
               );
-
-              // ⚠️ O PEDIDO DE COMPRA LEGADO DESCE PARA O VEÍCULO — e faltava
-              // aqui, no caminho de UPDATE, enquanto o de CREATE (logo acima)
-              // sempre o fez.
-              //
-              // `reconcileQuoteCustomerConfigs` DESCARTA `orderNumber` de
-              // propósito: a coluna foi dropada em `20260909170000` e o número é
-              // do veículo. Quem manda a forma antiga — o app instalado, uma aba
-              // aberta desde ontem — recebia 200 e nada era gravado. É a falha
-              // silenciosa que `tests/task-order-number.test.ts` existe para
-              // impedir, aberta na rota irmã.
-              //
-              // Primeiro valor não vazio; vazio NÃO apaga, e o campo próprio da
-              // tarefa manda quando ele veio no mesmo corpo.
-              const legacyConfigOrderNumber = (quoteData.customerConfigs as any[])
-                .map(c => (typeof c?.orderNumber === 'string' ? c.orderNumber.trim() : ''))
-                .find(v => v.length > 0);
-              if (legacyConfigOrderNumber && (data as any).customerOrderNumber === undefined) {
-                await transaction.task.updateMany({
-                  where: { quoteId: currentTask.quoteId },
-                  data: { customerOrderNumber: legacyConfigOrderNumber },
-                });
-              }
             }
 
             // Authoritative, discount-aware recompute from the persisted services +
@@ -2516,7 +2549,11 @@ export class TaskPrismaRepository
                 : undefined;
             const layoutFileConnect =
               resolvedImplementMeasureIds !== undefined
-                ? { layoutFiles: { connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })) } }
+                ? {
+                    layoutFiles: {
+                      connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
+                    },
+                  }
                 : {};
 
             const newQuote = await transaction.budget.create({
@@ -2593,9 +2630,8 @@ export class TaskPrismaRepository
       // update porque depois o vínculo anterior já se foi.
       const linkChanging = (data as any).quoteId !== undefined;
       const previousQuoteId = linkChanging
-        ? ((
-            await transaction.task.findUnique({ where: { id }, select: { quoteId: true } })
-          )?.quoteId ?? null)
+        ? ((await transaction.task.findUnique({ where: { id }, select: { quoteId: true } }))
+            ?.quoteId ?? null)
         : null;
 
       const result = await transaction.task.update({

@@ -96,14 +96,12 @@ export const guaranteeYearsSchema = z
 // =====================
 
 /**
- * Como se pede as TAREFAS do orçamento — a mesma forma nas duas chaves.
+ * Como se pede as TAREFAS do orçamento.
  *
  * `z.object()` do zod DESCARTA chave desconhecida em silêncio (não é `strict`
- * aqui). Enquanto só `task` estava declarada, o `include: { tasks: … }` que o
- * app manda desde o orçamento multitarefa era removido antes de chegar ao
- * repositório, e o orçamento voltava sem veículo nenhum: a lista ficava sem
- * LOGOMARCA e sem IDENTIFICADOR, e a tela de detalhe sem tarefa. Silencioso,
- * porque um `include` descartado não é erro — é só um campo que não veio.
+ * aqui): um `include` descartado não é erro — é só um campo que não veio. A
+ * chave `task` no singular (anterior ao orçamento multitarefa) não é aceita:
+ * chega ao repositório como ausente, e o orçamento volta sem veículo.
  */
 const quoteTasksIncludeSchema = z
   .union([
@@ -145,17 +143,8 @@ const quoteTasksIncludeSchema = z
 
 export const budgetIncludeSchema = z
   .object({
-    /** As tarefas do orçamento — uma por veículo. A forma corrente. */
+    /** As tarefas do orçamento — uma por veículo. */
     tasks: quoteTasksIncludeSchema,
-    /**
-     * @deprecated Forma anterior ao orçamento multitarefa.
-     *
-     * Continua aceita porque o app Flutter instalado nos aparelhos e o
-     * `kTaskQuoteDetailInclude` já gravado em cache mandam esta chave, e
-     * recusá-la devolveria a tela de detalhe sem tarefa nenhuma.
-     * `mapIncludeToDatabaseInclude` traduz as duas para a relação de LISTA.
-     */
-    task: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
     /**
      * `true` é o que as telas mandam, e basta: o repositório pendura a cobertura
@@ -271,36 +260,13 @@ export const budgetOrderBySchema = z
         // por ela, ambas `asc`, dá pendente mais ANTIGO primeiro e aprovado mais
         // RECENTE primeiro — é a ordenação padrão da lista.
         queueRank: orderByDirectionSchema.optional(),
-        taskId: orderByDirectionSchema.optional(),
         budgetNumber: orderByDirectionSchema.optional(),
         simultaneousTasks: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
-        /**
-         * @deprecated Ordenação por campo da tarefa, anterior ao multitarefa.
-         *
-         * O Prisma NÃO ordena um pai por campo de uma relação de LISTA — e
-         * `tasks` virou lista. Não há resposta certa possível: qual dos sessenta
-         * prazos ordenaria o orçamento? Continua aceito porque o app instalado
-         * manda `{'task.term': 'asc'}` no `baseOrderBy`, e recusar derrubaria a
-         * lista inteira; `mapOrderByToDatabaseOrderBy` DESCARTA a entrada antes
-         * do banco. Ordene por `budgetNumber`, `createdAt` ou `expiresAt`.
-         */
-        task: z
-          .object({
-            id: orderByDirectionSchema.optional(),
-            name: orderByDirectionSchema.optional(),
-            status: orderByDirectionSchema.optional(),
-            statusOrder: orderByDirectionSchema.optional(),
-            serialNumber: orderByDirectionSchema.optional(),
-            entryDate: orderByDirectionSchema.optional(),
-            term: orderByDirectionSchema.optional(),
-            startedAt: orderByDirectionSchema.optional(),
-            finishedAt: orderByDirectionSchema.optional(),
-            createdAt: orderByDirectionSchema.optional(),
-            updatedAt: orderByDirectionSchema.optional(),
-          })
-          .optional(),
+        // Sem `task`: o Prisma não ordena um pai por campo de relação de LISTA
+        // (qual dos sessenta prazos ordenaria o orçamento?). Como o `orderBy`
+        // não é `.strict()`, a chave é descartada aqui em silêncio.
       })
       .partial(),
     z.array(
@@ -317,30 +283,10 @@ export const budgetOrderBySchema = z
           subtotal: orderByDirectionSchema.optional(),
           vehicleCount: orderByDirectionSchema.optional(),
           queueRank: orderByDirectionSchema.optional(),
-          taskId: orderByDirectionSchema.optional(),
           budgetNumber: orderByDirectionSchema.optional(),
           simultaneousTasks: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
-          // Aceito e DESCARTADO pelo repositório — ver a nota do ramo acima.
-          // Continua declarado de propósito: `z.object` não-strict apagaria a
-          // entrada em silêncio, e o repositório precisa VER a chave para poder
-          // descartá-la de forma consciente.
-          task: z
-            .object({
-              id: orderByDirectionSchema.optional(),
-              name: orderByDirectionSchema.optional(),
-              status: orderByDirectionSchema.optional(),
-              statusOrder: orderByDirectionSchema.optional(),
-              serialNumber: orderByDirectionSchema.optional(),
-              entryDate: orderByDirectionSchema.optional(),
-              term: orderByDirectionSchema.optional(),
-              startedAt: orderByDirectionSchema.optional(),
-              finishedAt: orderByDirectionSchema.optional(),
-              createdAt: orderByDirectionSchema.optional(),
-              updatedAt: orderByDirectionSchema.optional(),
-            })
-            .optional(),
         })
         .partial(),
     ),
@@ -410,17 +356,6 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
             in: z.array(budgetStatusSchema).optional(),
             notIn: z.array(budgetStatusSchema).optional(),
             not: budgetStatusSchema.optional(),
-          }),
-        ])
-        .optional(),
-      taskId: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-            not: z.string().optional(),
           }),
         ])
         .optional(),
@@ -543,24 +478,10 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
           none: z.record(z.any()).optional(),
         })
         .optional(),
-      /**
-       * @deprecated Filtro to-one, anterior ao orçamento multitarefa.
-       *
-       * `Task.quoteId` deixou de ser `@unique` e `BudgetWhereInput.task` não
-       * existe mais; mandá-lo ao Prisma estoura a consulta. Continua ACEITO aqui
-       * porque o app instalado ainda o envia, e `mapWhereToDatabaseWhere` o
-       * traduz para `tasks: { some: … }` antes do banco.
-       */
-      task: z
-        .union([
-          z.object({
-            is: z.record(z.any()).nullable().optional(),
-            isNot: z.record(z.any()).nullable().optional(),
-          }),
-          z.record(z.any()),
-        ])
-        .nullable()
-        .optional(),
+      // ⚠️ `task` e `taskId` NÃO EXISTEM AQUI: `Task.quoteId` deixou de ser
+      // `@unique` e a FK mudou de lado, então nenhuma das duas é campo de
+      // `BudgetWhereInput`. O `.strict()` as recusa com 400 — "o orçamento
+      // deste veículo" é `tasks: { some: { id } }`.
     })
     .partial()
     .strict(),
@@ -798,7 +719,7 @@ export const budgetPayerCreateNestedSchema = z
      * "todas". Equivale a `taskIds: [taskId]`; `null` equivale a ausência.
      *
      * ⚠️ NÃO remova a chave achando que "o campo não existe mais" — ver a nota
-     * sobre `.strict()` em `id` e em `orderNumber`.
+     * sobre `.strict()` em `id`.
      */
     taskId: z.string().uuid('Tarefa invalida').optional().nullable(),
     // NOTE on wrapper order: `.default(x).optional()` yields ZodOptional(ZodDefault),
@@ -826,24 +747,15 @@ export const budgetPayerCreateNestedSchema = z
     generateInvoice: z.boolean().default(true).optional(),
     generateBankSlip: z.boolean().default(true).optional(),
     /**
-     * @deprecated O número do pedido de compra é do VEÍCULO
-     * (`Task.customerOrderNumber`): um orçamento cobre N caminhões e o pedido é
-     * por entrega. Continua ACEITO porque o app instalado o envia, e o serviço o
-     * grava em todas as tarefas do orçamento — o mesmo efeito que ele tinha.
-     *
-     * ⚠️ NÃO remova a chave do schema achando que "o campo não existe mais". O
-     * objeto não é `.strict()`: sem ela o zod APAGA o valor em silêncio, a
-     * tradução para as tarefas nunca acontece, e o pedido de compra que o
-     * aparelho mandou some entre o botão e o banco.
+     * ⚠️ `orderNumber` NÃO EXISTE AQUI: o número do pedido de compra é do
+     * VEÍCULO (`Task.customerOrderNumber`, escrito por `PUT /tasks/:id`) — um
+     * orçamento cobre N caminhões e o pedido é por entrega. O objeto não é
+     * `.strict()`, então o zod descarta a chave em silêncio.
      */
-    orderNumber: z.string().max(100, 'Máximo de 100 caracteres').optional().nullable(),
     /**
-     * `responsibleId` SAIU, e aqui a regra do `orderNumber` acima se INVERTE.
-     *
-     * Aquele campo continua aceito porque o valor ainda tem destino: o serviço o
-     * traduz para as tarefas. Este não tem — a coluna do pagador foi dropada, e
-     * quem responde pelo orçamento é `Task.responsibles`. Sem a chave, o zod
-     * APAGA o que um app antigo mandar, que é exatamente o desejado: o valor
+     * `responsibleId` SAIU: a coluna do pagador foi dropada, e quem responde
+     * pelo orçamento é `Task.responsibles`. Sem a chave, o zod APAGA o que um
+     * cliente antigo mandar, que é exatamente o desejado: o valor
      * seria descartado de qualquer forma, e deixá-lo passar faria o Prisma
      * responder "Unknown argument `responsibleId`" e derrubar a gravação inteira.
      */
@@ -1012,15 +924,13 @@ export const budgetCreateBaseSchema = z.object({
   expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
   status: budgetStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
   /**
-   * A TAREFA do orçamento — forma antiga, de UMA tarefa.
+   * AS TAREFAS do orçamento — uma por veículo. Obrigatório: sem ele o orçamento
+   * nasceria SEM TAREFA — compila, grava, e só se descobre na tela do
+   * financeiro, onde o registro aparece sem veículo e sem como faturar.
    *
-   * Mantida e ainda aceita: o app Flutter instalado nos aparelhos envia este
-   * campo, e ele não é atualizado no mesmo instante que a API. Quando `taskIds`
-   * vem, ele é ignorado; quando não vem, `taskIds = [taskId]`.
-   */
-  taskId: z.string().uuid('Tarefa invalida').optional(),
-  /**
-   * AS TAREFAS do orçamento — uma por veículo.
+   * ⚠️ `taskId` no singular NÃO é aceito: o objeto não é `.strict()`, então o
+   * zod o descarta e a falta de `taskIds` responde 400. UM veículo é
+   * `taskIds: [id]`.
    *
    * A tela de criação já produzia N tarefas do produto cartesiano de placas ×
    * números de série; o que mudou é que agora elas compartilham UM orçamento em
@@ -1028,10 +938,11 @@ export const budgetCreateBaseSchema = z.object({
    * dois; um número de série ⇒ uma tarefa, como sempre.
    */
   taskIds: z
-    .array(z.string().uuid('Tarefa invalida'))
-    .min(1, 'Pelo menos uma tarefa e obrigatoria')
-    .max(200, 'Maximo de 200 tarefas por orcamento')
-    .optional(),
+    .array(z.string().uuid('Tarefa invalida'), {
+      required_error: 'Informe ao menos uma tarefa para o orçamento.',
+    })
+    .min(1, 'Informe ao menos uma tarefa para o orçamento.')
+    .max(200, 'Maximo de 200 tarefas por orcamento'),
   billingSplit: quoteBillingSplitSchema.default('JOINT').optional(),
   services: z
     .array(budgetItemCreateNestedSchema)
@@ -1057,16 +968,6 @@ export const budgetCreateBaseSchema = z.object({
 });
 
 export const budgetCreateSchema = budgetCreateBaseSchema.superRefine((data, ctx) => {
-  // Uma das duas formas tem de vir. Sem isto, um payload sem nenhuma delas
-  // criaria um orçamento SEM TAREFA — que compila, grava, e só se descobre na
-  // tela do financeiro, onde o registro aparece sem veículo e sem como faturar.
-  if (!data.taskIds?.length && !data.taskId) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['taskIds'],
-      message: 'Informe ao menos uma tarefa para o orçamento.',
-    });
-  }
   // Duplicata no array cria duas linhas de veículo idênticas no documento e
   // dobra o total. Vem de retentativa de envio, não de intenção.
   if (data.taskIds && new Set(data.taskIds).size !== data.taskIds.length) {
@@ -1081,13 +982,12 @@ export const budgetCreateSchema = budgetCreateBaseSchema.superRefine((data, ctx)
 /**
  * O orçamento de uma criação ATÔMICA de tarefas + orçamento.
  *
- * É o mesmo corpo, sem `taskId`/`taskIds`: as tarefas ainda não existem quando o
+ * É o mesmo corpo, sem `taskIds`: as tarefas ainda não existem quando o
  * pedido chega — elas nascem na MESMA transação, e é o servidor que liga uma
  * coisa na outra. Exigir os ids aqui obrigaria a tela a criar as tarefas antes,
  * que é exatamente o que deixava N tarefas órfãs quando o orçamento falhava.
  */
 export const budgetCreateNestedInBatchSchema = budgetCreateBaseSchema.omit({
-  taskId: true,
   taskIds: true,
 });
 
@@ -1103,22 +1003,21 @@ export const budgetCreateNestedInBatchSchema = budgetCreateBaseSchema.omit({
  * olhando. O maior grupo real em produção tem trinta.
  */
 /**
- * O corpo de `PATCH /task-quotes/:id/customer-config-order-number`.
+ * O corpo de `PATCH /budgets/:id/customer-config-order-number` — o número do
+ * pedido de compra de UM veículo do orçamento.
  *
- * Era `@Body()` CRU — a única rota de escrita do módulo sem zod, e justamente a
- * que ainda aceita o formato antigo. Sem validação: `orderNumber: 123` chegava a
- * `prisma.task.update` e virava 500, o limite de 100 caracteres da coluna não
- * valia, e `taskId`/`customerId` entravam sem serem UUID.
+ * `taskId` é obrigatório: o pedido é do VEÍCULO desde a migração
+ * `20260909170000`, e num orçamento de sessenta caminhões escrever nos sessenta
+ * apagaria os pedidos dos outros cinquenta e nove. `customerId` não é aceito —
+ * o pedido não é mais por cliente; o objeto não é `.strict()`, então o zod o
+ * descarta.
  *
- * ⚠️ `orderNumber` é `nullable` mas NÃO aceita string vazia: `''` virava `null`
- * pelo `||` do controller e o `updateMany` APAGAVA o pedido de todos os veículos
- * do orçamento — o oposto exato do contrato de compat, que diz que valor vazio
- * não apaga. Quem quer apagar manda `null` explícito.
+ * ⚠️ `orderNumber` é `nullable` mas NÃO aceita string vazia: quem quer apagar
+ * manda `null` explícito.
  */
 export const customerConfigOrderNumberSchema = z
   .object({
-    customerId: z.string().uuid('Cliente inválido').optional(),
-    taskId: z.string().uuid('Veículo inválido').optional(),
+    taskId: z.string({ required_error: 'Informe o veículo (taskId).' }).uuid('Veículo inválido'),
     orderNumber: z
       .string()
       .max(100, 'Máximo de 100 caracteres')
@@ -1126,9 +1025,6 @@ export const customerConfigOrderNumberSchema = z
       .refine(v => v === null || v.trim().length > 0, {
         message: 'Informe o número do pedido ou envie null para apagar.',
       }),
-  })
-  .refine(b => !!b.customerId || !!b.taskId, {
-    message: 'Informe o veículo (taskId) ou o cliente (customerId).',
   });
 
 export type CustomerConfigOrderNumberFormData = z.infer<typeof customerConfigOrderNumberSchema>;
@@ -1154,7 +1050,7 @@ export const budgetUpdateSchema = z.object({
   /**
    * O NÚMERO DO ORÇAMENTO — corrigível, e só por quem a rota já deixa entrar.
    *
-   * `PUT /task-quotes/:id` é `@Roles(ADMIN, FINANCIAL, COMMERCIAL)`, que é
+   * `PUT /budgets/:id` é `@Roles(ADMIN, FINANCIAL, COMMERCIAL)`, que é
    * exatamente quem pode renumerar. Não há gate extra aqui porque não há
    * ninguém a mais para barrar.
    *
@@ -1188,9 +1084,6 @@ export const budgetUpdateSchema = z.object({
    * PERMITIR.
    *
    * Quem muda o conjunto de veículos usa `taskIds` (abaixo), que é lido.
-   *
-   * (Na CRIAÇÃO `taskId` continua aceito e é LIDO — ver
-   * `budgetCreateBaseSchema`: o app Flutter instalado manda o singular.)
    */
   /**
    * O CONJUNTO de tarefas do orçamento. Ausente = não mexe; presente =

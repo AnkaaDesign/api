@@ -182,7 +182,7 @@ async function main() {
           }
           if (jwt) break;
         }
-        const r = await fetch(`${api}/task-quotes/${quoteId}`, {
+        const r = await fetch(`${api}/budgets/${quoteId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
           body: JSON.stringify({ billingSplit: 'JOINT' }),

@@ -99,18 +99,10 @@ export class ResponsibleService {
       throw new BadRequestException('Telefone já cadastrado');
     }
 
-    // `password` saiu do cadastro. O acesso do responsavel ao portal e' por OTP
-    // (ResponsibleAuthService); nao ha credencial a definir no momento em que o
-    // comercial cadastra o contato — e nao havia mesmo: das 183 fichas em
-    // producao, nenhuma tinha senha.
-    const { password: _ignoredLegacyPassword, ...payload } = data as typeof data & {
-      password?: string;
-    };
-
     // Create responsible
     const responsible = await this.repository.create(
       {
-        ...payload,
+        ...data,
       } as any,
       {
         include: { company: { include: { logo: true } } },

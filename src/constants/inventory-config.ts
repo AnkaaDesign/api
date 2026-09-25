@@ -217,6 +217,19 @@ export const CONSERVATIVE_RP_UPLIFT = 1.10;
  *  never collapses to maxQuantity == reorderPoint (which causes order storms). */
 export const MIN_REORDER_BAND_DAYS = 7;
 
+/** Average working days in a month (≈252/12). monthlyConsumption is normalized
+ *  to a 20-working-day month, so `mc / 30` understates the real per-calendar-day
+ *  draw by ~5%. The coverage-override target converts with
+ *  `mc × AVG_WORKDAYS_PER_MONTH / 20 / 30` instead. */
+export const AVG_WORKDAYS_PER_MONTH = 21;
+
+/** Trailing complete months whose plain average floors the demand rate behind a
+ *  coverage-override target. mc decays with a 2-month half-life, so one or two
+ *  weak months pull it well below what the shop actually burns in a normal
+ *  month (Farben Apr–Aug/2026: mc ran 21% under real usage). The target uses
+ *  `max(mc, mean of the last N months)` so a lull never lowers the guard. */
+export const COVERAGE_RATE_RECENT_MONTHS = 6;
+
 /** Order-frequency bucket → minimum targetStockDays. Combined with the
  *  ABC/XYZ matrix by taking the HIGHER of the two days values. A bucket of
  *  `days: null` (0 orders/12mo) excludes the item from auto-order entirely.
