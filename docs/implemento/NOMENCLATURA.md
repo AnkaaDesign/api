@@ -94,3 +94,25 @@ e o TEXTO dos avisos já enviados (`Notification.title/body`, `channelTemplates`
 | migrações já aplicadas (`prisma/migrations/**`) e o ensaio da R-B | registram o que o banco era |
 | a palavra-chave `caminhao` na normalização de texto da conciliação | casa com o texto REAL das notas e extratos |
 | o ícone `"truck"` (glifo) nas preferências de painel e `IconTruck`/`TablerIcons.truck` | é o desenho do ícone, não o nome da entidade |
+
+## 5. Série: SÓ no implemento (decisão do dono, 25/09 — "tirar tudo agora")
+
+A série é `Implement.serialNumber` (única), e NADA mais a guarda. Saem juntos, na
+mesma release: a coluna-espelho `Task.serialNumber` (+ `serialNumberNormalized`,
+o gatilho que a copiava e o que a protegia) e a série no TOPO do corpo da tarefa.
+
+| Contexto | Antes | Depois |
+|---|---|---|
+| escrita (criar, editar, lote, lote com orçamento, duplicar) | `serialNumber` no topo do corpo | `implement: { serialNumber }` (o topo é 400: o schema é estrito) |
+| faixa de séries | `serialNumberFrom`/`serialNumberTo` | iguais (a API cria uma tarefa por série, cada uma com `implement.serialNumber`) |
+| leitura numa tarefa (objeto do Prisma: `GET /tasks`, includes aninhados) | `task.serialNumber` | `task.implement.serialNumber` — o cliente PEDE o implemento (`implement: { select: { serialNumber: true, … } }` ou `implement: true`) |
+| filtro | `where: { serialNumber }` (e `task: { serialNumber }` aninhado) | `where: { implement: { serialNumber } }` |
+| ordenação | `orderBy: { serialNumber: { sort, nulls } }` (a Agenda do app) | `orderBy: { implement: { serialNumber: { sort, nulls } } }` |
+| busca livre (`searchingFor`) | — | igual: a API busca em `implement.serialNumberNormalized` |
+| DTO montado pela API (portal, faturamento, NFS-e, conciliação, painéis, `taskSerialNumber`, `vehicles[].serialNumber`…) | chave do DTO | **a mesma chave**; muda só a fonte, lá dentro |
+
+Ficam, por decisão S-5 do plano (nome do CAMPO de identidade, não a coluna): o
+campo `serialNumber` gravado no histórico da tarefa (`TaskFieldChangeLog`/
+`ChangeLog` TASK — é o que o aditivo da assinatura lê) e a chave de aviso
+`task.field.serialNumber`; e, selado, o `serialNumber` dentro dos documentos já
+assinados.
