@@ -22,10 +22,11 @@ import {
   NOTIFICATION_ACTION_TYPE,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
-  RESPONSIBLE_ROLE,
   SECTOR_PRIVILEGES,
 } from '../../../constants';
 import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
+import { PORTAL_CAPABILITY, rolesWithAnyCapability } from '../../people/portal/portal-capabilities';
+import { commercialTaskLink } from '../../people/portal/portal-scope.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
 import {
   recipientColumns,
@@ -51,18 +52,17 @@ export const PORTAL_NOTIFICATION_KEYS = {
 } as const;
 
 /**
- * Quem aprova a arte do lado do cliente (PLANO §7.2, `APPROVE_ARTWORK`): comercial,
- * vendedor, representante, coordenador e marketing. PURCHASING não (DD5). O P13b
- * troca esta lista pela capacidade `APPROVE_ARTWORK` do portal, a mesma fonte do
- * portão de escopo.
+ * Quem aprova a arte do lado do cliente — DERIVADO da capacidade `APPROVE_ARTWORK`
+ * (`portal-capabilities.ts`, D-09/DD5), e não mais uma lista escrita à mão (P13b).
+ *
+ * ⛔ UMA FONTE SÓ. A lista à mão do P12 era a MESMA tabela do portão das rotas
+ * `…/artes/…/aprovar`, copiada; no dia em que alguém desse a capacidade a um
+ * papel novo (ou a tirasse do Compras, que DD5 já tirou), o aviso e a rota
+ * divergiriam em silêncio: avisar quem leva 403 ao clicar, ou calar para quem
+ * poderia aprovar. Hoje: COMMERCIAL, SELLER, REPRESENTATIVE, COORDINATOR e
+ * MARKETING — nunca PURCHASING.
  */
-export const ARTWORK_APPROVER_ROLES = [
-  RESPONSIBLE_ROLE.COMMERCIAL,
-  RESPONSIBLE_ROLE.SELLER,
-  RESPONSIBLE_ROLE.REPRESENTATIVE,
-  RESPONSIBLE_ROLE.COORDINATOR,
-  RESPONSIBLE_ROLE.MARKETING,
-] as const;
+export const ARTWORK_APPROVER_ROLES = rolesWithAnyCapability([PORTAL_CAPABILITY.APPROVE_ARTWORK]);
 
 interface PortalNotificationInput {
   recipient: NotificationRecipient;
@@ -203,10 +203,21 @@ export class PortalNotificationService {
   /**
    * A arte do implemento foi ao cliente — avisa quem pode aprová-la.
    *
-   * DESTINATÁRIOS: os contatos ATIVOS da tarefa com um papel que aprova arte
-   * (`ARTWORK_APPROVER_ROLES`). O aviso leva ao veículo no portal, onde a arte
-   * pendente está. Tarefa sem contato que aprove: ninguém a avisar (a Ankaa ainda
-   * pode aprovar em nome do cliente, com nota).
+   * DESTINATÁRIOS: os contatos ATIVOS da tarefa que PODEM APROVAR a arte — a
+   * mesma pergunta que a rota do portal faz, nas duas metades:
+   *   · a CAPACIDADE `APPROVE_ARTWORK` (`ARTWORK_APPROVER_ROLES`, derivada da
+   *     tabela do portal); e
+   *   · o ESCOPO COMERCIAL (`commercialTaskLink`: a empresa do contato é DONA do
+   *     veículo ou PAGADORA do faturamento que o cobre). `Task.responsibles` é
+   *     m:n e NADA confere contra a empresa; um contato de outra empresa preso
+   *     ao veículo por cadastro antigo receberia "Arte para aprovar" e levaria
+   *     404 ao clicar.
+   * O aviso leva ao veículo no portal, onde a arte pendente está. Tarefa sem
+   * contato que aprove: ninguém a avisar (a Ankaa ainda pode aprovar em nome do
+   * cliente, com nota).
+   *
+   * ⛔ O contato vai em `responsibleId` (`responsibleRecipient`), NUNCA numa FK de
+   * `User`.
    *
    * ⚠️ NÃO LANÇA: a arte já foi enviada.
    */
@@ -224,13 +235,23 @@ export class PortalNotificationService {
           quoteId: true,
           quote: { select: { budgetNumber: true } },
           implement: { select: { serialNumber: true, plate: true } },
+          // As duas âncoras do escopo comercial: o dono (`customerId`) e os
+          // pagadores do faturamento que cobre o veículo. Só os ids — é para
+          // decidir, não para sair.
+          customerId: true,
+          billingEntry: {
+            select: { billing: { select: { customerConfigs: { select: { customerId: true } } } } },
+          },
           responsibles: {
             where: { isActive: true, roles: { hasSome: [...ARTWORK_APPROVER_ROLES] as any } },
-            select: { id: true },
+            select: { id: true, companyId: true },
           },
         },
       });
-      if (!task || task.responsibles.length === 0) {
+      const approvers = (task?.responsibles ?? []).filter(
+        r => commercialTaskLink(task, r.companyId) !== null,
+      );
+      if (!task || approvers.length === 0) {
         this.logger.debug(
           `Tarefa ${args.taskId}: nenhum contato que aprove arte — aviso não enviado.`,
         );
@@ -242,7 +263,7 @@ export class PortalNotificationService {
         ? `nº ${String(task.quote.budgetNumber).padStart(4, '0')} · ${vehicle}`
         : vehicle;
       const days = args.reminder?.daysPending;
-      for (const responsible of task.responsibles) {
+      for (const responsible of approvers) {
         await this.create({
           recipient: responsibleRecipient(responsible.id),
           title: args.reminder

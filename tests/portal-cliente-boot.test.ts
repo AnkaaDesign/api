@@ -126,6 +126,14 @@ async function main(): Promise<void> {
     'POST /cliente/me/orcamentos',
     'PUT /cliente/me/orcamentos/:id/aprovar-valor',
     'PUT /cliente/me/orcamentos/:id/recusar',
+    // A ARTE DO IMPLEMENTO (P13b) — o cliente aprova, reprova com motivo e
+    // aprova em lote ("Aprovar para os N veiculos"). O modulo delas entra no
+    // grafo por `PortalReadModule`, e nao por uma linha no `AppModule`: se o
+    // import sair de la, as quatro somem juntas e esta lista acusa as quatro.
+    'GET /cliente/me/artes',
+    'PUT /cliente/me/artes/aprovar',
+    'PUT /cliente/me/veiculos/:taskId/artes/:layoutId/aprovar',
+    'PUT /cliente/me/veiculos/:taskId/artes/:layoutId/reprovar',
     // O pedido de compra
     'GET /cliente/me/pedidos',
     'POST /cliente/me/pedidos',

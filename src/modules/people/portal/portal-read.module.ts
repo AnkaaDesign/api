@@ -20,13 +20,21 @@
 //  · NENHUM `ResponsibleAuthModule`. Este pacote não chama
 //    `ResponsibleAuthService`: o principal chega pronto em `request.responsible`,
 //    escrito pela guarda global, e é lido por `@CurrentResponsible()`.
+//
+// ⚠️ E ELE CARREGA `PortalArtworkModule` (P13b): as rotas de arte
+// (`/cliente/me/artes`, `…/veiculos/:taskId/artes/:layoutId/aprovar|reprovar`)
+// entram no grafo por aqui, porque `src/app.module.ts` não é do P13b neste par.
+// O controlador e o serviço continuam no módulo DELES — é a máquina da arte que
+// eles arrastam, e ela não pode morar num módulo de leitura. Ver o cabeçalho de
+// `portal-artwork.module.ts`.
 import { Module } from '@nestjs/common';
 import { PortalModule } from './portal.module';
+import { PortalArtworkModule } from './portal-artwork.module';
 import { PortalReadController } from './portal-read.controller';
 import { PortalReadService } from './portal-read.service';
 
 @Module({
-  imports: [PortalModule],
+  imports: [PortalModule, PortalArtworkModule],
   controllers: [PortalReadController],
   providers: [PortalReadService],
   exports: [PortalReadService],

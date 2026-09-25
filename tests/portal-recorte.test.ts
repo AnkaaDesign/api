@@ -5,7 +5,7 @@
  * É a PRIMEIRA verificação do eixo de privilégio do cliente neste repositório.
  * `@ResponsibleRoles()` e `<ResponsibleRoute roles={…}>` existem desde 17/09 com
  * ZERO call sites nos dois repos — ou seja, a régua nunca foi exercida. Por isso
- * este arquivo é exaustivo: 9 papéis × 7 seções e 9 papéis × 5 capacidades,
+ * este arquivo é exaustivo: 9 papéis × 7 seções e 9 papéis × 6 capacidades,
  * escritos como TABELA-VERDADE literal, transcrita de `docs/PORTAL-CONTRATO.md`
  * §2 e §2.1. Uma tabela escrita à mão é a única forma de a divergência entre o
  * documento e o código aparecer como falha, e não como comportamento.
@@ -53,11 +53,14 @@ import {
   ROLE_CAPABILITIES,
   rolesWithAnyCapability,
   portalSectionsFor,
+  SECTION_IMPLIED_BY_CAPABILITY,
 } from '../src/modules/people/portal/portal-capabilities';
 import {
   PORTAL_NEVER_EXPOSED,
   PORTAL_NEVER_EXPOSED_ON_VEHICLE,
   PortalProjectionService,
+  artworkApprovalEvidence,
+  vehicleArtworkState,
 } from '../src/modules/people/portal/portal-projection.service';
 
 let failures = 0;
@@ -250,8 +253,9 @@ const C = PORTAL_CAPABILITY;
  * ⚠️ `WRITE_PURCHASE_ORDER` APARECE EM TODOS OS NOVE — decisão do dono:
  * "vendedor também pode definir o número de pedido, não apenas o compras, todos
  * os papéis — mas se não tiver, pelo menos o compras fica impedido de assinar".
- * O PORTÃO (`purchase-order-gate.ts`) é que guarda a exigência; a escrita
- * deixou de ser gargalo de uma pessoa só.
+ * O PORTÃO (hoje `orderNumberRequirement`, em `order-number-gate.ts`, DD12) é
+ * que guarda a exigência, na cerimônia; a escrita deixou de ser gargalo de uma
+ * pessoa só.
  */
 const TODOS_ESCREVEM_PEDIDO = C.WRITE_PURCHASE_ORDER;
 
@@ -262,6 +266,7 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
+    C.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.SELLER]: [
     C.REQUEST_BUDGET,
@@ -269,6 +274,7 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
+    C.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.REPRESENTATIVE]: [
     C.REQUEST_BUDGET,
@@ -276,6 +282,7 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
+    C.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.COORDINATOR]: [
     C.REQUEST_BUDGET,
@@ -283,9 +290,17 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
+    C.APPROVE_ARTWORK,
   ],
+  // ⛔ COMPRAS NÃO APROVA ARTE (DD5): vê, assina e informa o pedido — e só.
   [RESPONSIBLE_ROLE.PURCHASING]: [TODOS_ESCREVEM_PEDIDO, C.WRITE_VEHICLE_IDENTITY, C.TRACK],
-  [RESPONSIBLE_ROLE.MARKETING]: [C.REQUEST_BUDGET, TODOS_ESCREVEM_PEDIDO, C.TRACK],
+  // O MARKETING é o dono natural da arte (D-09): aprova a arte e não vê o preço.
+  [RESPONSIBLE_ROLE.MARKETING]: [
+    C.REQUEST_BUDGET,
+    TODOS_ESCREVEM_PEDIDO,
+    C.TRACK,
+    C.APPROVE_ARTWORK,
+  ],
   [RESPONSIBLE_ROLE.FINANCIAL]: [TODOS_ESCREVEM_PEDIDO],
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [
     TODOS_ESCREVEM_PEDIDO,
@@ -295,7 +310,7 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
   [RESPONSIBLE_ROLE.DRIVER]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
 };
 
-console.log('\nTABELA-VERDADE — 9 papéis × 5 capacidades');
+console.log('\nTABELA-VERDADE — 9 papéis × 6 capacidades');
 {
   let celulas = 0;
   let certas = 0;
@@ -312,7 +327,7 @@ console.log('\nTABELA-VERDADE — 9 papéis × 5 capacidades');
     }
   }
   check(`as ${celulas} células conferem`, certas === celulas, `${certas}/${celulas}`);
-  check('são mesmo 9 papéis × 5 capacidades', celulas === 45, `${celulas}`);
+  check('são mesmo 9 papéis × 6 capacidades', celulas === 54, `${celulas}`);
 
   // As quatro linhas que valem defesa própria, citadas do contrato.
   check(
@@ -329,6 +344,35 @@ console.log('\nTABELA-VERDADE — 9 papéis × 5 capacidades');
         RESPONSIBLE_ROLE.REPRESENTATIVE,
         RESPONSIBLE_ROLE.COORDINATOR,
       ]),
+  );
+  // D-09/DD5: quem aprova a ARTE — a tabela do PLANO §7.2, transcrita.
+  check(
+    'aprovam a arte: COMERCIAL, VENDEDOR, REPRESENTANTE, COORDENADOR e MARKETING (D-09)',
+    JSON.stringify(rolesWithAnyCapability([C.APPROVE_ARTWORK])) ===
+      JSON.stringify([
+        RESPONSIBLE_ROLE.COMMERCIAL,
+        RESPONSIBLE_ROLE.SELLER,
+        RESPONSIBLE_ROLE.REPRESENTATIVE,
+        RESPONSIBLE_ROLE.COORDINATOR,
+        RESPONSIBLE_ROLE.MARKETING,
+      ].sort((a, b) => ALL_ROLES.indexOf(a) - ALL_ROLES.indexOf(b))),
+    rolesWithAnyCapability([C.APPROVE_ARTWORK]).join(' '),
+  );
+  check(
+    '⛔ COMPRAS NÃO aprova a arte (DD5), mesmo vendo o documento inteiro',
+    !hasCapability([RESPONSIBLE_ROLE.PURCHASING], C.APPROVE_ARTWORK) &&
+      sectionsForRoles([RESPONSIBLE_ROLE.PURCHASING]).includes('LAYOUT'),
+  );
+  check(
+    'nem FINANCEIRO, GESTOR DE FROTA ou MOTORISTA',
+    [RESPONSIBLE_ROLE.FINANCIAL, RESPONSIBLE_ROLE.FLEET_MANAGER, RESPONSIBLE_ROLE.DRIVER].every(
+      p => !hasCapability([p], C.APPROVE_ARTWORK),
+    ),
+  );
+  check(
+    'aprovar a arte implica VEHICLE e LAYOUT (não se aprova o que não se vê)',
+    JSON.stringify(SECTION_IMPLIED_BY_CAPABILITY[C.APPROVE_ARTWORK]) ===
+      JSON.stringify(['VEHICLE', 'LAYOUT']),
   );
   check(
     'GESTOR DE FROTA escreve identidade de veículo (o papel que não fazia nada)',
@@ -489,6 +533,23 @@ const LINHA_CRUA: any = {
   customForecastDays: 30,
   simultaneousTasks: 2,
   billingSplit: 'JOINT',
+  // O EIXO DA ASSINATURA (§2A.4) — o valor que mais importa acertar o rótulo:
+  // "Assinada fora do sistema" (DD11).
+  signatureStatus: 'SIGNED_OFFLINE',
+  // A APROVAÇÃO DO VALOR vigente (§2A.6). O `total` é PRICING: é ele que o
+  // marketing não pode receber, e é `Decimal` como o driver o devolve.
+  valueApprovals: [
+    {
+      source: 'PORTAL',
+      decidedAt: new Date('2026-09-11T12:00:00Z'),
+      note: 'De acordo com o valor.',
+      total: new Prisma.Decimal('2000.00'),
+      responsible: { name: 'Vendedor RKO' },
+      // ⛔ plantados: gente e ids da Ankaa não saem
+      userId: 'user-ankaa-2',
+      user: { id: 'user-ankaa-2', name: 'Beltrano da Ankaa' },
+    },
+  ],
   // ⛔ Campos que NUNCA podem sair, plantados na linha crua de propósito: se o
   // projetor espalhasse (`...row`) em vez de copiar campo a campo, eles
   // apareceriam na saída e a varredura abaixo os pegaria.
@@ -604,6 +665,10 @@ const LINHA_CRUA: any = {
       forecastDate: new Date('2026-10-05T12:00:00Z'),
       customerId: 'cust-rko',
       customer: { id: 'cust-rko', fantasyName: 'RKO Alimentos', corporateName: 'RKO SA' },
+      // O CASO FURGÕES: a RKO é DONA, a Ibiporã (a empresa do `ESCOPO`) é
+      // PAGADORA. É o caminho (a) do escopo comercial — o que faz `canDecide`
+      // valer para a Ibiporã. ⛔ Só para decidir: nunca sai.
+      billingEntry: { billing: { customerConfigs: [{ customerId: 'cust-ibipora' }] } },
       // o implemento como o select do portal o devolve
       implement: {
         serialNumber: 'ABC-123456',
@@ -643,13 +708,31 @@ const LINHA_CRUA: any = {
             path: '/srv/uploads/projeto.pdf',
           },
         ],
-        // A arte do implemento (R2). O select do portal só traz a APROVADA; a
-        // pendente está aqui para provar que o projetor não a deixa passar.
+        // A arte do implemento (R2), nos SEIS estados que uma linha pode ter.
+        // O select do portal nunca traz `DRAFT` — ele está aqui para provar que
+        // o projetor também não o deixaria passar.
         layouts: [
           {
             id: 'lay-1',
             status: 'APPROVED',
             fileId: 'f-ok',
+            version: 2,
+            sentAt: new Date('2026-09-05T12:00:00Z'),
+            decidedAt: new Date('2026-09-06T12:00:00Z'),
+            approvalSource: 'ON_BEHALF',
+            decisionNote: 'Aprovado pelo WhatsApp em 06/09 com a Maria.',
+            // ⛔ plantados: o funcionário que aprovou "em nome do cliente" não sai
+            decidedByUserId: 'user-ankaa-9',
+            decidedByUser: { id: 'user-ankaa-9', name: 'Fulano da Ankaa' },
+            decisions: [
+              {
+                toStatus: 'APPROVED',
+                source: 'ON_BEHALF',
+                createdAt: new Date('2026-09-06T12:00:00Z'),
+                note: 'Aprovado pelo WhatsApp em 06/09 com a Maria.',
+                user: { id: 'user-ankaa-9', name: 'Fulano da Ankaa' },
+              },
+            ],
             file: {
               id: 'f-ok',
               filename: 'aprovado.png',
@@ -663,6 +746,8 @@ const LINHA_CRUA: any = {
             id: 'lay-2',
             status: 'PENDING_APPROVAL',
             fileId: 'f-rascunho',
+            version: 3,
+            sentAt: new Date('2026-09-09T12:00:00Z'),
             file: {
               id: 'f-rascunho',
               filename: 'rascunho.png',
@@ -670,6 +755,66 @@ const LINHA_CRUA: any = {
               mimetype: 'image/png',
               size: 41,
             },
+          },
+          {
+            // Reprovada PELO CLIENTE, com o motivo dele: aparece, com o motivo.
+            id: 'lay-3',
+            status: 'REPROVED',
+            fileId: 'f-reprovado',
+            version: 1,
+            sentAt: new Date('2026-09-02T12:00:00Z'),
+            decidedAt: new Date('2026-09-03T12:00:00Z'),
+            approvalSource: 'PORTAL',
+            decisionNote: 'O logo está torto.',
+            decidedByResponsible: { name: 'Maria RKO' },
+            decisions: [
+              {
+                toStatus: 'REPROVED',
+                source: 'PORTAL',
+                createdAt: new Date('2026-09-03T12:00:00Z'),
+                note: 'O logo está torto.',
+                responsible: { name: 'Maria RKO' },
+              },
+            ],
+            file: { id: 'f-reprovado', filename: 'reprovado.png', mimetype: 'image/png', size: 42 },
+          },
+          {
+            // ⛔ Reprovação INTERNA de um rascunho que nunca foi ao cliente
+            // (`sentAt` nulo): conversa da Ankaa, não aparece.
+            id: 'lay-4',
+            status: 'REPROVED',
+            fileId: 'f-interno',
+            version: 1,
+            sentAt: null,
+            decidedAt: new Date('2026-09-01T12:00:00Z'),
+            decisionNote: 'conversa interna: a cor ficou feia',
+            decisions: [
+              {
+                toStatus: 'REPROVED',
+                source: 'INTERNAL',
+                createdAt: new Date('2026-09-01T12:00:00Z'),
+                note: 'conversa interna: a cor ficou feia',
+              },
+            ],
+            file: { id: 'f-interno', filename: 'interno.png', mimetype: 'image/png', size: 43 },
+          },
+          {
+            // ⛔ SUBSTITUÍDA pela versão 2: só prova o marco "Arte aprovada" (a
+            // primeira aprovação), nunca aparece.
+            id: 'lay-5',
+            status: 'SUPERSEDED',
+            fileId: 'f-velho',
+            version: 1,
+            decidedAt: new Date('2026-08-20T12:00:00Z'),
+            file: { id: 'f-velho', filename: 'velho.png', mimetype: 'image/png', size: 44 },
+          },
+          {
+            // ⛔ RASCUNHO: nunca aparece.
+            id: 'lay-6',
+            status: 'DRAFT',
+            fileId: 'f-draft',
+            version: 4,
+            file: { id: 'f-draft', filename: 'draft.png', mimetype: 'image/png', size: 45 },
           },
         ],
       },
@@ -1151,16 +1296,316 @@ console.log('\nAS ORDENS DE SERVIÇO — nenhuma COMERCIAL vai para o cliente');
   check('previsão sai; prazo interno não', v.vehicles[0].progress.forecastDate instanceof Date);
 }
 
-console.log('\nLAYOUT — só o aprovado vira arte');
+console.log('\nLAYOUT — `layout.artworks` continua só com a aprovada (contrato só cresce)');
 {
   const v = projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any;
   const artes = v.vehicles[0].layout.artworks;
-  check('o layout APPROVED sai', artes.length === 1 && artes[0].id === 'f-ok');
-  check('⛔ o layout PENDING não sai', !JSON.stringify(v).includes('f-rascunho'));
+  check('o layout APPROVED sai em `layout.artworks`', artes.length === 1 && artes[0].id === 'f-ok');
+  check(
+    '⛔ o PENDENTE não entra em `layout.artworks` nem na arte do orçamento (`layout.files`)',
+    !JSON.stringify(v.vehicles[0].layout).includes('f-rascunho') &&
+      !JSON.stringify(v.layout).includes('f-rascunho'),
+  );
   check(
     '⛔ e nenhum arquivo leva `path` (a árvore do disco é literal)',
     !JSON.stringify(v).includes('/srv/'),
   );
+}
+
+console.log('\nA ARTE COMO O CLIENTE A DECIDE — `vehicles[].artworks` (P13b, PLANO §7.4)');
+{
+  const v = projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any;
+  const artes: any[] = v.vehicles[0].artworks;
+  check(
+    'aparecem só PENDING_APPROVAL, APPROVED e a REPROVED que foi ENVIADA — na ordem das versões',
+    JSON.stringify(artes.map(a => a.id)) === JSON.stringify(['lay-3', 'lay-1', 'lay-2']),
+    artes.map(a => `${a.id}:${a.status}`).join(' '),
+  );
+  check(
+    '⛔ nunca o RASCUNHO, a SUBSTITUÍDA, nem a reprovação interna de um rascunho',
+    !['lay-4', 'lay-5', 'lay-6', 'f-interno', 'f-velho', 'f-draft'].some(x =>
+      JSON.stringify(v).includes(x),
+    ),
+  );
+  check(
+    'a forma do §7.4: id, file, status, version, decidedAt, decidedBy, note, canDecide (+ rótulo e origem)',
+    JSON.stringify(Object.keys(artes[0]).sort()) ===
+      JSON.stringify(
+        [
+          'canDecide',
+          'decidedAt',
+          'decidedBy',
+          'file',
+          'fileId',
+          'id',
+          'note',
+          'sentAt',
+          'source',
+          'sourceLabel',
+          'status',
+          'statusLabel',
+          'version',
+        ].sort(),
+      ),
+    Object.keys(artes[0]).join(','),
+  );
+  const pendente = artes.find(a => a.id === 'lay-2');
+  const aprovada = artes.find(a => a.id === 'lay-1');
+  const reprovada = artes.find(a => a.id === 'lay-3');
+  check(
+    'a pendente: rótulo, sem decisão, e o pagador (Ibiporã) com APPROVE_ARTWORK PODE decidir',
+    pendente?.statusLabel === 'Aguardando aprovação do cliente' &&
+      pendente?.decidedAt === null &&
+      pendente?.decidedBy === null &&
+      pendente?.canDecide === true,
+    JSON.stringify(pendente),
+  );
+  check(
+    'a aprovada "em nome do cliente": decidida pela ANKAA — nunca pelo nome do funcionário',
+    aprovada?.decidedBy?.name === 'Ankaa' &&
+      aprovada?.source === 'ON_BEHALF' &&
+      aprovada?.sourceLabel === 'Em nome do cliente' &&
+      aprovada?.canDecide === false,
+    JSON.stringify(aprovada),
+  );
+  check(
+    '…e com a nota do que foi dito em nome do cliente (é dele)',
+    aprovada?.note === 'Aprovado pelo WhatsApp em 06/09 com a Maria.',
+  );
+  check(
+    'a reprovada pelo cliente: o nome do contato e o MOTIVO dele',
+    reprovada?.decidedBy?.name === 'Maria RKO' &&
+      reprovada?.note === 'O logo está torto.' &&
+      reprovada?.statusLabel === 'Reprovada',
+    JSON.stringify(reprovada),
+  );
+  const json = JSON.stringify(v);
+  check(
+    '⛔ nem o nome, nem o id do funcionário da Ankaa, em lugar nenhum',
+    !json.includes('Fulano da Ankaa') &&
+      !json.includes('user-ankaa-9') &&
+      !json.includes('Beltrano da Ankaa') &&
+      !json.includes('user-ankaa-2'),
+  );
+  check(
+    '⛔ nem a nota da reprovação INTERNA',
+    !json.includes('conversa interna'),
+  );
+  check(
+    '⛔ nem os pagadores usados para decidir `canDecide` (`billingEntry`)',
+    !allKeys(v).has('billingEntry') && !allKeys(v).has('decisions'),
+  );
+}
+
+console.log('\n`canDecide` — capacidade × escopo COMERCIAL (as duas metades da rota)');
+{
+  const pendenteDe = (roles: string[], escopo: any) =>
+    ((projector.projectBudget(LINHA_CRUA, roles, escopo) as any).vehicles[0].artworks ?? []).find(
+      (a: any) => a.id === 'lay-2',
+    );
+  // As 9 linhas: só quem tem APPROVE_ARTWORK e vê LAYOUT decide.
+  const erradas: string[] = [];
+  for (const papel of ALL_ROLES) {
+    const art = pendenteDe([papel], ESCOPO);
+    const veLayout = SECOES_PORTAL_ESPERADAS[papel].includes('LAYOUT');
+    const deveria = CAPS_ESPERADAS[papel].includes(C.APPROVE_ARTWORK);
+    if (!veLayout) {
+      if (art !== undefined) erradas.push(`${papel} recebeu a arte sem LAYOUT`);
+    } else if ((art?.canDecide ?? false) !== deveria) {
+      erradas.push(`${papel} canDecide=${art?.canDecide} deveria=${deveria}`);
+    }
+  }
+  check('9 papéis: canDecide = APPROVE_ARTWORK (e sem LAYOUT nem a arte chega)', erradas.length === 0, erradas.join(' | '));
+  check(
+    '⛔ COMPRAS VÊ a pendente e NÃO a decide',
+    pendenteDe([RESPONSIBLE_ROLE.PURCHASING], ESCOPO)?.canDecide === false,
+  );
+  check(
+    'o DONO (RKO) também decide — caminho (b)',
+    pendenteDe([RESPONSIBLE_ROLE.MARKETING], { customerId: 'cust-rko' })?.canDecide === true,
+  );
+  check(
+    '⛔ uma terceira empresa (nem dona nem pagadora) NÃO decide — o caminho pessoal (c) não conta',
+    pendenteDe([RESPONSIBLE_ROLE.COMMERCIAL], { customerId: 'cust-outra' })?.canDecide === false,
+  );
+  check(
+    '⛔ sem escopo, falha fechado: ninguém decide',
+    pendenteDe([RESPONSIBLE_ROLE.COMMERCIAL], undefined)?.canDecide === false,
+  );
+  const cancelado = {
+    ...LINHA_CRUA,
+    tasks: [{ ...LINHA_CRUA.tasks[0], status: 'CANCELLED' }],
+  };
+  check(
+    '⛔ veículo cancelado: nada a decidir',
+    ((projector.projectBudget(cancelado, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any).vehicles[0]
+      .artworks as any[]).every(a => a.canDecide === false),
+  );
+}
+
+console.log('\nA ARTE DO ORÇAMENTO pelos implementos — `artwork { … }` e o lote por arquivo');
+{
+  const v = projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any;
+  check(
+    'um veículo, com arte pendente: aguardando o cliente — e ESTE contato',
+    JSON.stringify({ ...v.artwork, groups: undefined }) ===
+      JSON.stringify({
+        total: 1,
+        approved: 0,
+        awaitingCustomer: 1,
+        awaitingMe: 1,
+        atAnkaa: 0,
+        groups: undefined,
+      }),
+    JSON.stringify({ ...v.artwork, groups: undefined }),
+  );
+  const grupo = (v.artwork.groups as any[]).find(g => g.fileId === 'f-rascunho');
+  check(
+    'agrupada por ARQUIVO, e `pendingLayoutIds` é o corpo do lote',
+    grupo?.vehicles?.length === 1 &&
+      grupo.vehicles[0].taskId === 'task-1' &&
+      JSON.stringify(grupo.pendingLayoutIds) === JSON.stringify(['lay-2']),
+    JSON.stringify(grupo),
+  );
+  check(
+    '⛔ nenhum grupo de rascunho, substituída ou reprovação interna',
+    !(v.artwork.groups as any[]).some(g => ['f-draft', 'f-velho', 'f-interno'].includes(g.fileId)),
+  );
+
+  // Dois veículos com o MESMO arquivo pendente = UM grupo, "Aprovar para os 2".
+  const t2 = {
+    ...LINHA_CRUA.tasks[0],
+    id: 'task-2',
+    implement: {
+      ...LINHA_CRUA.tasks[0].implement,
+      layouts: [{ ...LINHA_CRUA.tasks[0].implement.layouts[1], id: 'lay-2b' }],
+    },
+  };
+  const t3 = {
+    ...LINHA_CRUA.tasks[0],
+    id: 'task-3',
+    implement: { ...LINHA_CRUA.tasks[0].implement, layouts: [LINHA_CRUA.tasks[0].implement.layouts[0]] },
+  };
+  const t4 = { ...LINHA_CRUA.tasks[0], id: 'task-4', implement: { ...LINHA_CRUA.tasks[0].implement, layouts: [] } };
+  const t5 = { ...t4, id: 'task-5', status: 'CANCELLED' };
+  const frota = { ...LINHA_CRUA, tasks: [LINHA_CRUA.tasks[0], t2, t3, t4, t5] };
+  const f = projector.projectBudget(frota, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any;
+  check(
+    'por VEÍCULO: 4 vivos = 2 aguardando o cliente + 1 aprovado + 1 com a Ankaa (o cancelado não conta)',
+    f.artwork.total === 4 &&
+      f.artwork.awaitingCustomer === 2 &&
+      f.artwork.awaitingMe === 2 &&
+      f.artwork.approved === 1 &&
+      f.artwork.atAnkaa === 1,
+    JSON.stringify({ ...f.artwork, groups: undefined }),
+  );
+  const mesmo = (f.artwork.groups as any[]).find(g => g.fileId === 'f-rascunho');
+  check(
+    'o mesmo arquivo em dois veículos é UM grupo: "Aprovar para os 2 veículos"',
+    mesmo?.vehicles?.length === 2 &&
+      JSON.stringify(mesmo.pendingLayoutIds) === JSON.stringify(['lay-2', 'lay-2b']),
+    JSON.stringify(mesmo),
+  );
+  const compras = projector.projectBudget(frota, [RESPONSIBLE_ROLE.PURCHASING], ESCOPO) as any;
+  check(
+    'COMPRAS vê os mesmos contadores e NADA a aprovar (awaitingMe 0, lote vazio)',
+    compras.artwork.awaitingCustomer === 2 &&
+      compras.artwork.awaitingMe === 0 &&
+      (compras.artwork.groups as any[]).every(g => g.pendingLayoutIds.length === 0),
+  );
+
+  check(
+    'estado de um veículo: pendente vence a aprovada; sem nada é "com a Ankaa"',
+    vehicleArtworkState([{ status: 'APPROVED' }, { status: 'PENDING_APPROVAL' }]) === 'AWAITING_CUSTOMER' &&
+      vehicleArtworkState([{ status: 'APPROVED' }, { status: 'REPROVED' }]) === 'APPROVED' &&
+      vehicleArtworkState([{ status: 'REPROVED' }]) === 'AT_ANKAA' &&
+      vehicleArtworkState([]) === 'AT_ANKAA',
+  );
+  const ev = artworkApprovalEvidence(LINHA_CRUA.tasks[0].implement.layouts);
+  check(
+    'a PROVA do marco "Arte aprovada": a primeira aprovação, inclusive a de uma versão substituída',
+    ev.reached === true && ev.at?.toISOString() === '2026-08-20T12:00:00.000Z',
+    JSON.stringify(ev),
+  );
+  check(
+    'sem arte aprovada, sem prova (pendente e reprovada não contam)',
+    artworkApprovalEvidence([{ status: 'PENDING_APPROVAL' }, { status: 'REPROVED' }]).reached === false,
+  );
+}
+
+console.log('\nO EIXO DA ASSINATURA e a APROVAÇÃO DO VALOR no cabeçalho — `signatureStatus`, `valueApproval`');
+{
+  const erradas: string[] = [];
+  for (const papel of ALL_ROLES) {
+    const v = projector.projectBudget(LINHA_CRUA, [papel], ESCOPO) as any;
+    if (v.signatureStatus !== 'SIGNED_OFFLINE' || v.signatureStatusLabel !== 'Assinada fora do sistema') {
+      erradas.push(`${papel}: ${v.signatureStatus}/${v.signatureStatusLabel}`);
+    }
+    if (v.valueApproval?.source !== 'PORTAL' || v.valueApproval?.decidedBy?.name !== 'Vendedor RKO') {
+      erradas.push(`${papel}: valueApproval ${JSON.stringify(v.valueApproval)}`);
+    }
+    const vePreco = SECOES_PORTAL_ESPERADAS[papel].includes('PRICING');
+    if ((v.valueApproval?.total === 2000) !== vePreco) {
+      erradas.push(`${papel}: total ${JSON.stringify(v.valueApproval?.total)} (PRICING=${vePreco})`);
+    }
+  }
+  check(
+    '9 papéis: o eixo com o rótulo "Assinada fora do sistema" e o valor aprovado pelo contato — o TOTAL só com PRICING',
+    erradas.length === 0,
+    erradas.join(' | '),
+  );
+  const mkt = projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.MARKETING], ESCOPO) as any;
+  check(
+    '⛔ o MARKETING sabe QUE o valor foi aprovado e não QUAL',
+    mkt.valueApproval?.decidedAt instanceof Date && mkt.valueApproval?.total === null,
+  );
+  const fin = projector.projectBudget(LINHA_CRUA, [RESPONSIBLE_ROLE.FINANCIAL], ESCOPO) as any;
+  check(
+    'o total aprovado sai como NÚMERO para quem vê preço',
+    typeof fin.valueApproval?.total === 'number',
+    typeof fin.valueApproval?.total,
+  );
+  const semAprovacao = projector.projectBudget(
+    { ...LINHA_CRUA, valueApprovals: [], signatureStatus: 'NOT_ISSUED' },
+    [RESPONSIBLE_ROLE.COMMERCIAL],
+    ESCOPO,
+  ) as any;
+  check(
+    'sem aprovação vigente: `valueApproval: null`; eixo "Não emitida"',
+    semAprovacao.valueApproval === null && semAprovacao.signatureStatusLabel === 'Não emitida',
+  );
+  const emNome = projector.projectBudget(
+    {
+      ...LINHA_CRUA,
+      valueApprovals: [
+        { source: 'ON_BEHALF', decidedAt: new Date(), note: 'Aprovado por telefone.', total: '10', user: { name: 'Fulano da Ankaa' } },
+      ],
+    },
+    [RESPONSIBLE_ROLE.COMMERCIAL],
+    ESCOPO,
+  ) as any;
+  check(
+    '"em nome do cliente": decidido pela ANKAA, com a nota — nunca o funcionário',
+    emNome.valueApproval?.decidedBy?.name === 'Ankaa' &&
+      emNome.valueApproval?.note === 'Aprovado por telefone.' &&
+      !JSON.stringify(emNome).includes('Fulano da Ankaa'),
+    JSON.stringify(emNome.valueApproval),
+  );
+}
+
+console.log('\nO RECORTE das colunas novas — quem não tem LAYOUT não recebe arte nenhuma');
+{
+  const erradas: string[] = [];
+  for (const papel of ALL_ROLES) {
+    const v = projector.projectBudget(LINHA_CRUA, [papel], ESCOPO) as any;
+    const veLayout = SECOES_PORTAL_ESPERADAS[papel].includes('LAYOUT');
+    if ((v.artwork !== undefined) !== veLayout) erradas.push(`${papel}.artwork`);
+    if ((v.vehicles[0].artworks !== undefined) !== veLayout) erradas.push(`${papel}.vehicles.artworks`);
+    if (!veLayout && ['f-ok', 'f-rascunho', 'f-reprovado'].some(x => JSON.stringify(v).includes(x))) {
+      erradas.push(`${papel}: arquivo de arte vazou`);
+    }
+  }
+  check('`artwork` e `vehicles[].artworks` seguem a seção LAYOUT (9 papéis)', erradas.length === 0, erradas.join(' | '));
 }
 
 console.log('\n⛔ A VARREDURA — nenhum campo interno sai, para NENHUM dos 9 papéis');
@@ -1222,7 +1667,7 @@ console.log('\n⛔ A VARREDURA — nenhum campo interno sai, para NENHUM dos 9 p
 console.log('\nprojectTask — o mesmo recorte, quando o veículo vem sozinho');
 {
   const cru = LINHA_CRUA.tasks[0];
-  const comercial = projector.projectTask(cru, [RESPONSIBLE_ROLE.COMMERCIAL]) as any;
+  const comercial = projector.projectTask(cru, [RESPONSIBLE_ROLE.COMMERCIAL], ESCOPO) as any;
   const motorista = projector.projectTask(cru, [RESPONSIBLE_ROLE.DRIVER]) as any;
   check(
     'COMERCIAL vê identidade, layout e andamento',
@@ -1242,6 +1687,12 @@ console.log('\nprojectTask — o mesmo recorte, quando o veículo vem sozinho');
       ),
   );
   check('linha nula => null', projector.projectTask(null, ['COMMERCIAL']) === null);
+  check(
+    '⛔ sem escopo, o veículo sozinho sai com a arte e SEM decisão (falha fechado)',
+    (projector.projectTask(cru, [RESPONSIBLE_ROLE.COMMERCIAL]) as any).artworks.every(
+      (a: any) => a.canDecide === false,
+    ),
+  );
 }
 
 console.log('\nA REQUISIÇÃO volta inteira — é o texto que o próprio cliente escreveu');

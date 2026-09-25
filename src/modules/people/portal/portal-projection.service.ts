@@ -29,8 +29,15 @@ import {
   sectionsForRoles,
   type QuoteSection,
 } from '@/modules/common/signature/quote-sections';
-import { portalSectionsFor } from './portal-capabilities';
+import { PORTAL_CAPABILITY, hasCapability, portalSectionsFor } from './portal-capabilities';
+import { commercialTaskLink } from './portal-scope.service';
 import { IMPLEMENT_FACES, type ImplementFace } from '../../../constants/implement-faces';
+import {
+  BUDGET_SIGNATURE_STATUS_LABELS,
+  BUDGET_VALUE_APPROVAL_SOURCE_LABELS,
+  LAYOUT_APPROVAL_SOURCE_LABELS,
+  LAYOUT_STATUS_LABELS,
+} from '../../../constants/enum-labels';
 import { quoteArtworkOf } from '../../../utils/quote-artwork';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +182,34 @@ export interface PortalServiceOrderRow {
   [extra: string]: unknown;
 }
 
+/**
+ * UMA LINHA DE ARTE do implemento, como `PORTAL_ARTWORK_LAYOUT_SELECT` a traz.
+ *
+ * `decisions` é a ÚLTIMA decisão que DECIDIU (`toStatus` APPROVED ou REPROVED):
+ * o envio (`PENDING_APPROVAL`, gesto interno) não é decisão do cliente e não
+ * pode aparecer como "decidida por". A arte migrada não tem decisão nenhuma na
+ * trilha — aí valem as colunas da própria linha (`decidedAt`, `approvalSource`).
+ */
+export interface PortalLayoutRow {
+  id?: string;
+  status?: string;
+  fileId?: string;
+  file?: PortalFileRow | null;
+  version?: number | null;
+  sentAt?: Date | null;
+  decidedAt?: Date | null;
+  approvalSource?: string | null;
+  decisionNote?: string | null;
+  decidedByResponsible?: { name?: string | null } | null;
+  decisions?: Array<{
+    toStatus?: string | null;
+    source?: string | null;
+    createdAt?: Date | null;
+    note?: string | null;
+    responsible?: { name?: string | null } | null;
+  }>;
+}
+
 export interface PortalTaskRow {
   id?: string;
   name?: string | null;
@@ -206,8 +241,24 @@ export interface PortalTaskRow {
     rearDoorBarCount?: number | null;
     rearDoorHatchCount?: number | null;
     projectFiles?: PortalFileRow[];
-    /** A arte do implemento (R2), só a APROVADA — o select do portal já filtra. */
-    layouts?: Array<{ id?: string; status?: string; fileId?: string; file?: PortalFileRow | null }>;
+    /**
+     * A arte do implemento (R2). Com a seção `LAYOUT`, o select traz as linhas
+     * que o cliente pode ver (`PENDING_APPROVAL`, `APPROVED`, `REPROVED`) e as
+     * `SUPERSEDED`, que só servem de PROVA do marco "Arte aprovada" e nunca são
+     * projetadas; sem `LAYOUT` e com `DELIVERY`, só `status`/`decidedAt` das
+     * aprovadas, para o marco. Ver `PORTAL_ARTWORK_LAYOUT_SELECT`.
+     */
+    layouts?: PortalLayoutRow[];
+  } | null;
+  /**
+   * ⛔ SÓ PARA DECIDIR, NUNCA COPIADO: os pagadores DESTA empresa no faturamento
+   * que cobre o veículo (o `select` já os recorta por `customerId`). É o que
+   * `commercialTaskLink` precisa para responder "posso decidir a arte daqui?"
+   * — o caminho (a) do escopo comercial. Sem ele o pagador (a Furgões) veria
+   * `canDecide: false` numa arte que a rota deixaria aprovar.
+   */
+  billingEntry?: {
+    billing?: { customerConfigs?: Array<{ customerId?: string | null }> | null } | null;
   } | null;
   generalPainting?: PortalPaintRow | null;
   logoPaints?: PortalPaintRow[];
@@ -233,6 +284,19 @@ export interface PortalBudgetRow {
   customForecastDays?: number | null;
   simultaneousTasks?: number | null;
   billingSplit?: string;
+  /** O eixo da assinatura (§2A.4, `Budget.signatureStatus`). */
+  signatureStatus?: string | null;
+  /**
+   * A aprovação do valor VIGENTE (`revokedAt` nulo), a mais recente primeiro —
+   * o select traz no máximo uma. Ver `projectValueApproval`.
+   */
+  valueApprovals?: Array<{
+    source?: string | null;
+    decidedAt?: Date | null;
+    note?: string | null;
+    total?: unknown;
+    responsible?: { name?: string | null } | null;
+  }>;
   services?: Array<{
     id?: string;
     description?: string;
@@ -484,13 +548,24 @@ export interface PortalVehicleView {
     rearDoor: { leaves: string | null; barCount: number | null; hatchCount: number | null } | null;
     projectFiles: PortalFileRow[];
   };
-  /** `LAYOUT` — artes, arquivos-base, cores de pintura. */
+  /**
+   * `LAYOUT` — referência da TAREFA (cores, arquivos-base) e os ARQUIVOS da arte
+   * APROVADA. `layout.artworks` continua só com a aprovada, como sempre foi: é o
+   * que o web e o app leem hoje, e contrato só cresce na Fase B.
+   */
   layout?: {
     generalPainting: PortalPaintRow | null;
     logoPaints: PortalPaintRow[];
     baseFiles: PortalFileRow[];
     artworks: PortalFileRow[];
   };
+  /**
+   * `LAYOUT` — A ARTE DO IMPLEMENTO COMO O CLIENTE A DECIDE (PLANO §7.4): as
+   * pendentes (com `canDecide`), as aprovadas (com quem e quando) e as
+   * reprovadas (com o motivo), na ordem das versões. `DRAFT` e `SUPERSEDED`
+   * nunca aparecem. Ver `projectArtwork`.
+   */
+  artworks?: PortalArtworkView[];
   /** `DELIVERY` — previsão e andamento das O.S. */
   progress?: {
     entryDate: Date | null;
@@ -515,6 +590,19 @@ export interface PortalBudgetView {
   createdAt: Date | null;
   expiresAt: Date | null;
   vehicleCount: number | null;
+  /**
+   * O EIXO DA ASSINATURA (§2A.4) e o rótulo dele — inclusive "Assinada fora do
+   * sistema" (DD11). Cabeçalho, sem seção: é o mesmo fato que o estado do
+   * orçamento, e o cliente que assinou tem de ver que assinou.
+   */
+  signatureStatus: string | null;
+  signatureStatusLabel: string | null;
+  /**
+   * A APROVAÇÃO DO VALOR vigente (§2A.6, `BudgetValueApproval`), ou `null`.
+   * Cabeçalho, exceto `total`, que é `PRICING` (o marketing sabe QUE o valor foi
+   * aprovado, não QUAL). Ver `projectValueApproval`.
+   */
+  valueApproval: PortalValueApprovalView | null;
   /**
    * O RECORTE que este contato recebeu, devolvido junto com o dado.
    *
@@ -588,8 +676,14 @@ export interface PortalBudgetView {
   };
   /** `GUARANTEE` */
   guarantee?: { years: number | null; text: string | null };
-  /** `LAYOUT` — as artes penduradas no orçamento. */
+  /** `LAYOUT` — os arquivos da arte APROVADA dos implementos (`quoteArtworkOf`). */
   layout?: { files: PortalFileRow[] };
+  /**
+   * `LAYOUT` — A ARTE DO ORÇAMENTO PELOS IMPLEMENTOS (PLANO §6.3, §7.5, §7.7):
+   * os contadores por VEÍCULO e as artes AGRUPADAS POR ARQUIVO, para o lote
+   * "Aprovar para os N veículos". Ver `projectBudgetArtwork`.
+   */
+  artwork?: PortalBudgetArtworkView;
   /**
    * A REQUISIÇÃO, quando o orçamento nasceu no portal.
    *
@@ -628,6 +722,228 @@ export interface PortalBudgetView {
    */
   vehicleChips?: Array<{ taskId: string; serialNumber: string | null; plate: string | null }>;
   vehicles: PortalVehicleView[];
+}
+
+/**
+ * A ARTE, como o cliente a lê (PLANO §7.4):
+ * `{ id, file, status, version, decidedAt, decidedBy{name}, canDecide, note }`,
+ * mais o rótulo do estado e a origem da decisão.
+ */
+export interface PortalArtworkView {
+  id: string;
+  fileId: string | null;
+  file: PortalFileRow | null;
+  status: string;
+  statusLabel: string | null;
+  version: number | null;
+  /** Quando a Ankaa enviou para aprovar. */
+  sentAt: Date | null;
+  decidedAt: Date | null;
+  /** `PORTAL`, `ON_BEHALF`, `INTERNAL`, `MIGRATED_*` — ou `null` enquanto pendente. */
+  source: string | null;
+  sourceLabel: string | null;
+  /**
+   * QUEM decidiu, pelo NOME — e só o nome. O contato do cliente pelo nome dele;
+   * a Ankaa como "Ankaa", NUNCA o nome do funcionário (gente da Ankaa não sai do
+   * portal: é a mesma regra de `commercialUser` em `PORTAL_NEVER_EXPOSED`). A
+   * arte migrada não tem autor conhecido: `null`.
+   */
+  decidedBy: { name: string } | null;
+  /**
+   * O motivo da reprovação ou a nota da aprovação "em nome do cliente". A nota
+   * de uma reprovação INTERNA (`INTERNAL`) é conversa da Ankaa e não sai.
+   */
+  note: string | null;
+  /** O contato pode aprovar/reprovar AGORA (pendente ∧ `APPROVE_ARTWORK` ∧ escopo comercial). */
+  canDecide: boolean;
+}
+
+export interface PortalValueApprovalView {
+  decidedAt: Date | null;
+  source: string | null;
+  sourceLabel: string | null;
+  /** Mesma regra de `PortalArtworkView.decidedBy`: o contato pelo nome, a Ankaa como "Ankaa". */
+  decidedBy: { name: string } | null;
+  note: string | null;
+  /** `PRICING` — o total que foi aprovado; `null` para quem não vê preço. */
+  total: number | null;
+}
+
+/**
+ * O estado da arte de UM VEÍCULO, para os contadores (§7.7):
+ *  · `AWAITING_CUSTOMER` — alguma arte `PENDING_APPROVAL` (o cliente deve uma
+ *    decisão, mesmo que uma versão anterior já esteja aprovada);
+ *  · `APPROVED` — nenhuma pendente e alguma `APPROVED` (é o mesmo critério do
+ *    portão da emissão, `artworkGateFailure`: "tem arte aprovada");
+ *  · `AT_ANKAA` — nada disso: sem arte, só rascunho ou só reprovada. A Ankaa
+ *    está preparando.
+ */
+export type PortalVehicleArtworkState = 'AWAITING_CUSTOMER' | 'APPROVED' | 'AT_ANKAA';
+
+export interface PortalBudgetArtworkView {
+  /** Veículos VIVOS (não cancelados) do orçamento que este contato vê. */
+  total: number;
+  approved: number;
+  awaitingCustomer: number;
+  /** Dos que aguardam o cliente, os que ESTE contato pode decidir. */
+  awaitingMe: number;
+  atAnkaa: number;
+  /**
+   * As artes agrupadas por ARQUIVO, na ordem em que aparecem nos veículos: um
+   * arquivo mandado aos N veículos do orçamento é UM grupo com N linhas, e
+   * `pendingLayoutIds` é exatamente o corpo de `PUT /cliente/me/artes/aprovar`
+   * ("Aprovar para os N veículos").
+   */
+  groups: Array<{
+    fileId: string;
+    file: PortalFileRow | null;
+    vehicles: Array<{
+      taskId: string;
+      layoutId: string;
+      status: string;
+      statusLabel: string | null;
+      version: number | null;
+      canDecide: boolean;
+    }>;
+    pendingLayoutIds: string[];
+  }>;
+}
+
+/** Os estados que o cliente vê. `DRAFT` e `SUPERSEDED` nunca. */
+const PORTAL_ARTWORK_STATUSES = new Set(['PENDING_APPROVAL', 'APPROVED', 'REPROVED']);
+
+/**
+ * ESTA LINHA DE ARTE PODE IR AO CLIENTE?
+ *
+ * `PENDING_APPROVAL` e `APPROVED` sim. `REPROVED` só se foi ENVIADA (`sentAt`):
+ * a reprovação interna de um rascunho (`reprove` aceita `DRAFT`) é a Ankaa
+ * descartando uma proposta que o cliente nunca viu, e mostrá-la seria mostrar
+ * a conversa interna pela porta dos fundos.
+ */
+export function isPortalVisibleArtwork(layout: PortalLayoutRow | null | undefined): boolean {
+  if (!layout?.id || !PORTAL_ARTWORK_STATUSES.has(layout.status ?? '')) return false;
+  if (layout.status === 'REPROVED' && !layout.sentAt) return false;
+  return true;
+}
+
+/** Quem decidiu, pela origem. Ver `PortalArtworkView.decidedBy`. */
+function deciderName(
+  source: string | null,
+  responsibleName: string | null | undefined,
+): { name: string } | null {
+  if (source === 'PORTAL') return { name: responsibleName?.trim() || 'Contato do cliente' };
+  if (source === 'ON_BEHALF' || source === 'INTERNAL' || source === 'LEGACY_APP') {
+    return { name: 'Ankaa' };
+  }
+  // MIGRATED_*, MIGRATED, SIGNATURE: o registro não diz quem; inventar seria pior.
+  return responsibleName?.trim() ? { name: responsibleName.trim() } : null;
+}
+
+/**
+ * A ARTE, projetada. `canDecideVehicle` é a resposta, já calculada pelo
+ * chamador, a "este contato pode decidir a arte DESTE veículo?" (capacidade ∧
+ * escopo comercial); a pendência é conferida aqui.
+ */
+export function projectArtwork(layout: PortalLayoutRow, canDecideVehicle: boolean): PortalArtworkView {
+  const status = layout.status ?? null;
+  const decided = status === 'APPROVED' || status === 'REPROVED';
+  const decision = (layout.decisions ?? []).find(d => d?.toStatus === status) ?? null;
+  const source = decided ? (decision?.source ?? layout.approvalSource ?? null) : null;
+  const rawNote = decided ? (decision?.note ?? layout.decisionNote ?? null) : null;
+  const file = layout.file
+    ? {
+        id: layout.file.id ?? null,
+        filename: layout.file.filename ?? null,
+        originalName: layout.file.originalName ?? null,
+        mimetype: layout.file.mimetype ?? null,
+        size: layout.file.size ?? null,
+        thumbnailUrl: layout.file.thumbnailUrl ?? null,
+      }
+    : null;
+  return {
+    id: layout.id ?? null,
+    fileId: layout.fileId ?? file?.id ?? null,
+    file,
+    status,
+    statusLabel: status ? (LAYOUT_STATUS_LABELS as Record<string, string>)[status] ?? null : null,
+    version: layout.version ?? null,
+    sentAt: layout.sentAt ?? null,
+    decidedAt: decided ? (decision?.createdAt ?? layout.decidedAt ?? null) : null,
+    source,
+    sourceLabel: source
+      ? (LAYOUT_APPROVAL_SOURCE_LABELS as Record<string, string>)[source] ?? null
+      : null,
+    decidedBy: decided
+      ? deciderName(source, decision?.responsible?.name ?? layout.decidedByResponsible?.name)
+      : null,
+    // A nota de uma decisão INTERNA é conversa da Ankaa; a do cliente e a feita
+    // "em nome do cliente" são dele.
+    note: source === 'PORTAL' || source === 'ON_BEHALF' ? rawNote : null,
+    canDecide: status === 'PENDING_APPROVAL' && canDecideVehicle,
+  } as PortalArtworkView;
+}
+
+/** O estado da arte de um veículo — ver `PortalVehicleArtworkState`. */
+export function vehicleArtworkState(
+  layouts: readonly PortalLayoutRow[] | null | undefined,
+): PortalVehicleArtworkState {
+  const statuses = (layouts ?? []).map(l => l?.status);
+  if (statuses.includes('PENDING_APPROVAL')) return 'AWAITING_CUSTOMER';
+  if (statuses.includes('APPROVED')) return 'APPROVED';
+  return 'AT_ANKAA';
+}
+
+/**
+ * A PROVA DO MARCO "ARTE APROVADA" (escada do portal): alguma arte do implemento
+ * foi aprovada — a vigente (`APPROVED`) ou uma que a versão nova substituiu
+ * (`SUPERSEDED` só nasce de uma aprovação, D-21). A data é a da PRIMEIRA
+ * aprovação conhecida; arte migrada pode não ter data, e aí o marco fica
+ * atingido "sem data registrada", como o "Orçamento aprovado".
+ *
+ * É monotônico por construção: arte aprovada não se desaprova (D-21), então a
+ * prova nunca some.
+ */
+export function artworkApprovalEvidence(
+  layouts: readonly PortalLayoutRow[] | null | undefined,
+): { reached: boolean; at: Date | null } {
+  const approved = (layouts ?? []).filter(
+    l => l?.status === 'APPROVED' || l?.status === 'SUPERSEDED',
+  );
+  if (!approved.length) return { reached: false, at: null };
+  const dates = approved
+    .map(l => l.decidedAt ?? null)
+    .filter((d): d is Date => d instanceof Date)
+    .sort((a, b) => a.getTime() - b.getTime());
+  return { reached: true, at: dates[0] ?? null };
+}
+
+/**
+ * O CONTEXTO DA DECISÃO — quem é o contato, para o projetor responder
+ * `canDecide`. Sem ele (ou sem empresa), `canDecide` é sempre `false`: falha
+ * fechado, como `commercialTaskLink`.
+ */
+export interface PortalDecisionContext {
+  roles: readonly string[] | null | undefined;
+  customerId: string | null;
+}
+
+/**
+ * ESTE CONTATO PODE DECIDIR A ARTE DESTE VEÍCULO? A MESMA pergunta que as rotas
+ * `…/artes/…/aprovar|reprovar` fazem (`portal-artwork.service.ts`): capacidade
+ * `APPROVE_ARTWORK` ∧ escopo COMERCIAL (dono ∨ pagador; o caminho pessoal (c)
+ * não decide) ∧ veículo vivo. A linha precisa ter vindo com `customerId` e com
+ * `billingEntry` recortado pela empresa (`portalCommercialLinkSelect`); sem
+ * eles, `false`.
+ */
+export function canDecideArtworkOf(
+  row: Pick<PortalTaskRow, 'status' | 'customerId' | 'billingEntry'>,
+  ctx: PortalDecisionContext | null,
+): boolean {
+  if (!ctx?.customerId) return false;
+  if (!hasCapability(ctx.roles, PORTAL_CAPABILITY.APPROVE_ARTWORK)) return false;
+  // Veículo cancelado não é pintado: não há o que aprovar.
+  if (row.status === 'CANCELLED') return false;
+  return commercialTaskLink(row, ctx.customerId) !== null;
 }
 
 @Injectable()
@@ -687,6 +1003,8 @@ export class PortalProjectionService {
     if (!row) return null;
     const sections = this.sectionsFor(roles);
     const customerId = scope?.customerId ?? null;
+    const decision: PortalDecisionContext = { roles, customerId };
+    const signatureStatus = row.signatureStatus ?? null;
 
     // O CABEÇALHO, que nenhuma seção recorta. É o "texto básico" da cerimônia de
     // assinatura, lido para a tela: sem número, status e data, a linha da lista
@@ -700,8 +1018,13 @@ export class PortalProjectionService {
       createdAt: row.createdAt ?? null,
       expiresAt: row.expiresAt ?? null,
       vehicleCount: row.vehicleCount ?? null,
+      signatureStatus,
+      signatureStatusLabel: signatureStatus
+        ? (BUDGET_SIGNATURE_STATUS_LABELS as Record<string, string>)[signatureStatus] ?? null
+        : null,
+      valueApproval: this.projectValueApproval(row.valueApprovals?.[0], hasSection(sections, 'PRICING')),
       sections,
-      vehicles: (row.tasks ?? []).map(t => this.projectVehicle(t, sections)),
+      vehicles: (row.tasks ?? []).map(t => this.projectVehicle(t, sections, decision)),
     };
 
     if (hasSection(sections, 'VEHICLE')) {
@@ -816,6 +1139,7 @@ export class PortalProjectionService {
           .files.map(f => this.projectFile(f))
           .filter((f): f is PortalFileRow => f !== null),
       };
+      view.artwork = this.projectBudgetArtwork(row.tasks ?? [], decision);
     }
 
     if (row.request) {
@@ -847,12 +1171,25 @@ export class PortalProjectionService {
   projectTask(
     row: PortalTaskRow | null | undefined,
     roles: readonly string[] | null | undefined,
+    /**
+     * De quem é a resposta — só para `artworks[].canDecide`. Opcional porque o
+     * veículo sem escopo continua projetável (a leitura não depende dele); sem
+     * ele, `canDecide` é `false` em toda arte: falha fechado.
+     */
+    scope?: PortalProjectionScope,
   ): PortalVehicleView | null {
     if (!row) return null;
-    return this.projectVehicle(row, this.sectionsFor(roles));
+    return this.projectVehicle(row, this.sectionsFor(roles), {
+      roles,
+      customerId: scope?.customerId ?? null,
+    });
   }
 
-  private projectVehicle(row: PortalTaskRow, sections: QuoteSection[]): PortalVehicleView {
+  private projectVehicle(
+    row: PortalTaskRow,
+    sections: QuoteSection[],
+    decision: PortalDecisionContext | null,
+  ): PortalVehicleView {
     // O cabeçalho do veículo: id, nome e status. `status` é `TaskStatus`
     // (PREPARATION / WAITING_PRODUCTION / IN_PRODUCTION / COMPLETED /
     // CANCELLED) — não tem PAUSED, e é por isso que ele pode sair sem recorte.
@@ -927,6 +1264,14 @@ export class PortalProjectionService {
           .filter(l => l?.status === 'APPROVED' && l?.file)
           .map(l => this.projectFile(l.file)),
       };
+      // A ARTE COMO O CLIENTE A DECIDE (§7.4). Um cálculo de `canDecide` por
+      // VEÍCULO, e não por arte: capacidade e escopo comercial são do veículo;
+      // a pendência é de cada linha.
+      const canDecide = canDecideArtworkOf(row, decision);
+      view.artworks = (row.implement?.layouts ?? [])
+        .filter(isPortalVisibleArtwork)
+        .sort((a, b) => (a.version ?? 0) - (b.version ?? 0))
+        .map(l => projectArtwork(l, canDecide));
     }
 
     if (hasSection(sections, 'DELIVERY')) {
@@ -948,6 +1293,92 @@ export class PortalProjectionService {
     }
 
     return view;
+  }
+
+  /**
+   * A ARTE DO ORÇAMENTO PELOS IMPLEMENTOS — ver `PortalBudgetArtworkView`.
+   *
+   * Conta VEÍCULO, não arte: a pergunta do cliente é "de quantos caminhões falta
+   * a arte?", e um veículo com duas artes pendentes é UM veículo esperando.
+   * Cancelado não conta (não será pintado), como no portão da emissão.
+   *
+   * ⚠️ Os veículos são os que o `select` trouxe — já recortados por
+   * `taskScopeWhere`. Quem paga o terceiro de dez veículos conta um.
+   */
+  private projectBudgetArtwork(
+    tasks: readonly PortalTaskRow[],
+    decision: PortalDecisionContext,
+  ): PortalBudgetArtworkView {
+    const out: PortalBudgetArtworkView = {
+      total: 0,
+      approved: 0,
+      awaitingCustomer: 0,
+      awaitingMe: 0,
+      atAnkaa: 0,
+      groups: [],
+    };
+    const groups = new Map<string, PortalBudgetArtworkView['groups'][number]>();
+    for (const task of tasks) {
+      if (!task?.id || task.status === 'CANCELLED') continue;
+      const visible = (task.implement?.layouts ?? []).filter(isPortalVisibleArtwork);
+      const canDecide = canDecideArtworkOf(task, decision);
+      out.total++;
+      const state = vehicleArtworkState(visible);
+      if (state === 'AWAITING_CUSTOMER') {
+        out.awaitingCustomer++;
+        if (canDecide) out.awaitingMe++;
+      } else if (state === 'APPROVED') {
+        out.approved++;
+      } else {
+        out.atAnkaa++;
+      }
+      for (const layout of [...visible].sort((a, b) => (a.version ?? 0) - (b.version ?? 0))) {
+        const art = projectArtwork(layout, canDecide);
+        const key = art.fileId ?? art.id;
+        const group = groups.get(key) ?? {
+          fileId: key,
+          file: art.file,
+          vehicles: [],
+          pendingLayoutIds: [],
+        };
+        group.vehicles.push({
+          taskId: task.id,
+          layoutId: art.id,
+          status: art.status,
+          statusLabel: art.statusLabel,
+          version: art.version,
+          canDecide: art.canDecide,
+        });
+        if (art.canDecide) group.pendingLayoutIds.push(art.id);
+        groups.set(key, group);
+      }
+    }
+    out.groups = [...groups.values()];
+    return out;
+  }
+
+  /**
+   * A APROVAÇÃO DO VALOR vigente — ver `PortalValueApprovalView`. `total` só com
+   * `PRICING`: o fato de o valor estar aprovado é do cabeçalho; o número, não.
+   */
+  private projectValueApproval(
+    approval: PortalBudgetRow['valueApprovals'][number] | null | undefined,
+    seesPrice: boolean,
+  ): PortalValueApprovalView | null {
+    if (!approval) return null;
+    const source = approval.source ?? null;
+    return {
+      decidedAt: approval.decidedAt ?? null,
+      source,
+      sourceLabel: source
+        ? (BUDGET_VALUE_APPROVAL_SOURCE_LABELS as Record<string, string>)[source] ?? null
+        : null,
+      decidedBy: deciderName(source, approval.responsible?.name),
+      // A nota do contato e a "em nome do cliente" são dele; as demais origens
+      // (assinatura, app antigo, migração) não têm nota a mostrar.
+      note: source === 'PORTAL' || source === 'ON_BEHALF' ? (approval.note ?? null) : null,
+      total: seesPrice ? toPortalNumber(approval.total) : null,
+    };
   }
 
   /**

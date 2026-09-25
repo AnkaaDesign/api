@@ -169,8 +169,10 @@ export class PortalReadController {
    * GET /cliente/me/resumo
    *
    * Contadores por estado do orçamento + "o que espera por mim": os orçamentos
-   * em `IN_NEGOTIATION` que este contato pode pré-aprovar, os envelopes parados
-   * na assinatura DELE e os veículos que estão na fábrica agora.
+   * em `IN_NEGOTIATION` cujo VALOR este contato pode aprovar (`valueApproval`),
+   * os veículos com ARTE esperando a decisão DELE (`artworks`, capacidade
+   * `APPROVE_ARTWORK` no escopo comercial — P13b), os envelopes parados na
+   * assinatura DELE e os veículos que estão na fábrica agora.
    */
   @Get('resumo')
   async resumo(@CurrentResponsible() principal: ResponsiblePrincipal) {
