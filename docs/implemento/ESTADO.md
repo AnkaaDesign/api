@@ -1,4 +1,4 @@
-# Rework Implemento — ESTADO (24/09/2026, noite)
+# Rework Implemento — ESTADO (25/09/2026, manhã)
 
 Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1), e as notas de desenho de cada pacote estão em `notas/`.
 
@@ -18,20 +18,22 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 
 - **DD13 (24/09, durante o P11a): migração COMPLETA, sem janela bilíngue.** "Não quero nenhum valor antigo, nem mesmo para compatibilidade; será uma migração completa, com atualização em tudo de uma vez." API, web, app e AnkaaAero falam só `implement` e sobem JUNTOS; os dados gravados com o nome velho migram no banco na mesma release; app que não atualizar leva 426 (o G13/P31 liga no mesmo deploy). Contrato de nomes: `NOMENCLATURA.md` (substitui §5.4/D-04 do plano na parte da janela).
 
+- **DD14 (25/09): a série mora SÓ no implemento.** O dono escolheu "tirar tudo agora": sai a série no topo do corpo da tarefa (`serialNumber` fora de `implement` é recusado) e sai a coluna-espelho `Task.serialNumber` (+ `serialNumberNormalized`, gatilhos e índice) na mesma release — migration `20260930120070` (M5s, antes prevista para a R-D). Exceções permanentes: o snapshot congelado v1–v4 (série no topo, hash selado; lido por `taskSerialOf`), o campo `serialNumber` do histórico da tarefa e a chave de aviso `task.field.serialNumber`. `NOMENCLATURA.md` §5.
+
 ## 2. Onde está o trabalho (tudo LOCAL, nada foi enviado ao GitHub nem a produção)
 
 | Repo | Branch | Situação |
 |---|---|---|
-| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`). Régua 23/26: G1+G4, G10 e G5 esperam o web migrado |
-| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); migração de nomenclatura em andamento (agente) |
-| app | `feat/implemento` | main (1.4.2+25) juntada; nomenclatura completa no app e no AnkaaAero (`856c2a3`, `901681e`, `1391b83`); catraca 0, analyze limpo, 1045 testes |
+| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`) + série só no implemento DD14 (`21c9e493`, `875aaf9f`) + testes do P11a e 2 defeitos achados por eles (`dc17ea42`, `19a48279`, `7ea83eb0`, `afc0102a`). **Régua verde (27/27, 261 s)** |
+| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); nomenclatura completa (`43183934`, `80aa1a4d`) e série só no implemento (`9ce33a03`, `6913c34d`, `9c553aaa`). Régua: G0/G6/G4/G5 verdes; vitest 641/647 — os 6 vermelhos são do menu (`navigation-context.test.ts`) e falham IGUAIS na `origin/main` |
+| app | `feat/implemento` | main (1.4.2+25) juntada; nomenclatura completa no app e no AnkaaAero (`856c2a3`, `901681e`, `1391b83`); AnkaaAero manda versão/plataforma (`acac622`); série só no implemento no app e no AnkaaAero (`2a5cb9a`, `ef5dc44`, `12d46c6`, `8f774b0`). Régua verde (analyze, G6, G5, suíte) |
 | app | `patch/p02-sobre-1.4.1+24` | OBSOLETO com a DD13 (era o patch de compatibilidade) |
 | api | `wip/p11a-parcial-20260923` | já incorporada; pode ser apagada |
 
 Bancos locais (container `ankaa-postgres`):
 
-- `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`) + as 6 migrations da main de 24/09.
-- `ankaa_implemento_base`: a base (main + M0), criado em 24/09 para separar defeito do merge de defeito do P11a. Pode ser apagado.
+- `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`, Mnom) + a série só no implemento (`20260930120070`, M5s) + as 6 migrations da main de 24/09.
+- `ankaa_implemento_base`: a base (main + M0), criado em 24/09. É onde o ensaio roda a cadeia inteira (8 fatias); manter até o P30.
 - `ankaa_taskmatch_impl_test`: descartável do `test:task-match:integration` (db push).
 - `ankaa_production` (clone) e `ankaa_veiculos` (outra sessão): não tocar.
 - Env: `source ~/Documents/repositories/api/.git/implemento-env.sh` (aponta para `ankaa_implemento` e BLINDA envio: Firebase vazio, WhatsApp/e-mail/Sicredi/Elotech na sentinela, `REDIS_DB=3`). Fica em `.git/` para sobreviver ao reboot.
@@ -104,11 +106,21 @@ Bancos locais (container `ankaa-postgres`):
 - **P11a** retomado da WIP: promoção de M1/M1s, rename, série no implemento (W1–W6), G15 e layout-per-vehicle com implemento aninhado.
 - **DD13**: janela bilíngue removida; nomenclatura completa na API (código, rotas, avisos, histórico, arquivos, testes, scripts) e migração de dados `20260930120060`; G6 de 865 → 5 (rótulos "Truck" da categoria), G6b → 0.
 - Defeito achado: select sem tipo com `truck` na cotação do aerografista (código novo da main) → `implement` + `satisfies`.
-- App e AnkaaAero migrados (agente). Web em andamento (agente).
+- App e AnkaaAero migrados (agente). Web migrado (agente).
+
+### 25/09
+- **DD14, série só no implemento**: api (`21c9e493`), web (`9ce33a03`, `6913c34d`), app e AnkaaAero (`2a5cb9a`, `ef5dc44`, `12d46c6`). Nenhum select/where/orderBy de `Task` pede a série; o corpo com série no topo é recusado (matriz setor×campo). Os leitores fiscais (NFS-e, boleto nos DOIS construtores, recibo, DPS) leem `implement.serialNumber`; o ouro fiscal (G21, 102 verificações) segue com o texto de hoje.
+- **M5s** (`20260930120070`): prova que nenhuma série fica fora do implemento e derruba espelho, guarda, colunas e índice. A M1s ganhou guarda (`IF EXISTS` da coluna) para ser reaplicável depois dela.
+- **Ensaio** com 8 fatias (M1, M1s, Mnom, M5s, M2, M3, M3o-a, M3o-b). Na `ankaa_implemento_base`: revertido 68/68; `--deriva` 6/6 (placa/chassi gerados do implemento viraram sobrevivente nomeado: quando a origem ainda tem `Truck`, o diff de antes vê tabela nova, não a deriva antiga). Reaplicar M1s/Mnom/M5s no banco já migrado: sem erro (idempotentes).
+- Régua da api 26/26 verde (146 s).
+- **Testes do P11a** (`tests/implement-serial.test.ts`, na régua): G19 (W1–W6, unicidade, desfazer para série em uso → 400), G20 (C1–C5 com implemento e `spot` nulo, a rede do banco, varredura da fonte por `task.create` sem implemento), G22 (contexto de `task.created` e `task.field.serialNumber`), G23 (o corpo do app de hoje; série no topo recusada), G24 (nenhuma leitura sem tipo nem SQL cru da série na tarefa), G32 (a URL exata da Agenda pelo parser e pipe da rota → 200 e ordenada) e a busca de tinta por série e placa. 36/36.
+- **Defeitos que os testes pegaram** (o espelho escondia): (1) editar a série não gravava a trilha `TASK/serialNumber` que o aditivo da assinatura lê; (2) desfazer a série respondia 200 sem desfazer; (3) a URL antiga da Agenda respondia 200 com OUTRA ordem — o G1 agora recusa com 400 nomeado a chave de `orderBy` que o modelo não tem (no `include`/`select` só conta: o web ainda pede chaves mortas); (4) dois testes com banco criavam tarefa sem implemento; (5) corpos de teste com a série no topo escondidos por `as any`; (6) o portal recuava para `task.serialNumber` num tipo local.
+- `signature-refusal` amarrava o código ao PDF errado (um recorte por responsável desde a main de 24/09) e deixava envelope RUNNING a cada execução (G11 acusava): corrigido.
+- Ids de preferência: os 4 ids antigos gravados (`hasTruck`, `truckCategories`, `truckCategory`, `truckSpot`) viram, pela regra da `20260930120060`, ids que o web e o app usam hoje.
 
 ## 4. O que FALTA (na ordem)
 
-**Antes de tudo (DD13):** fechar a nomenclatura no web (agente), regerar `contracts/queries/web.json` e as cópias do contrato (web e app), conferir os ids de preferência do web contra a migração `20260930120060` (§5 dela), régua da api verde e as réguas do web e do app. Depois, os testes que faltam do P11a: G19 (escritores da série), G20 (toda criação com implemento), G22 (contexto de aviso com série), G23 (agora: corpo novo do app grava a série no implemento), G24 (catraca dos leitores da série), G32 (URL da Agenda), busca de tinta por placa e série. **Pendente com o dono: a série no topo e o espelho `Task.serialNumber` (ver §5).**
+**P11a FECHADO em 25/09.** Próximo: **P11b** (face FRENTE e porta traseira; nota em `notas/P11b.md`). Fora do rework: `billing-entity` e `orcamento-faturamento-a-db` apontam para o banco `ankaa_qa_e2e`, que está sem esquema neste ambiente (não rodaram).
 
 Com a DD13 o plano encurta: não existe mais R-C/R-D separadas nem P32 "remove aliases"; web (P20–P23), app (P24) e AnkaaAero entram na MESMA release da API, e o 426 (P31) liga nela.
 
@@ -133,7 +145,8 @@ Regime: no máximo 2 agentes por vez. Um pacote que cria exigência para o repos
 
 ## 5. Pendências com o dono
 
-0. **Série no topo e espelho `Task.serialNumber` (DD13 × DD1).** Com "nenhum valor antigo", o corpo com série no topo (`serialNumber` fora de `implement`) e a coluna-espelho `Task.serialNumber` (gatilho da M1s) são compatibilidade. Tirar os dois agora = migrar ~500 leitores na api, ~430 no web e ~100 no app, e derrubar a coluna (M5s) na mesma release. Mantê-los = a série só se ESCREVE no implemento, mas se LÊ também pela tarefa. Decisão do dono.
+0. ~~Série no topo e espelho `Task.serialNumber`~~ — RESOLVIDO em 25/09: "tirar tudo agora" (DD14, feito).
+0b. **Web: 6 testes do menu vermelhos na `origin/main`** (`src/contexts/__tests__/navigation-context.test.ts`: árvore do ACCOUNTING, Gratificações no DP, contexto gravado). O menu mudou na main (Contas a Receber no financeiro, Custo de Colaborador) e o teste não acompanhou. Não é do rework; a régua do web fica vermelha por isso até a main corrigir. Corrigir na main, ou a sessão da main corrige?
 
 1. **F8**: a prévia do boleto no web passa a mostrar as palavras reais do boleto registrado ("Isoplastic / Carga Seca / Carroceria") no lugar de "Isotérmico / Prancha/Plataforma". Aceitar, ou reverter só o commit web `b6f64ccd`?
 2. **Duas telas do web já dão 500 em PRODUÇÃO**, fora do rework:
@@ -153,5 +166,5 @@ Regime: no máximo 2 agentes por vez. Um pacote que cria exigência para o repos
 - O gatilho de exclusão de `File` (`file_blocking_references`) cita `quoteLayoutId`: a coluna só cai na M4.
 - `paint.service.ts` faz `LEFT JOIN "Truck"` em SQL cru com `catch` → volta vazio sem erro depois do rename.
 - O include padrão da tarefa (`task-prisma.repository.ts`) e o de `File` (`file-prisma.repository.ts`) pedem relações que o rework remove, o que daria 500 em toda leitura.
-- O app instalado e o **AnkaaAero** continuam mandando `truck`, `task.serialNumber` e o `orderBy` da Agenda por série. As fixtures do G4 são a prova de que isso segue funcionando.
+- O app instalado (1.4.2+25) e o **AnkaaAero** instalado continuam mandando `truck`, `task.serialNumber` e o `orderBy` da Agenda por série, e SEM cabeçalho de versão. Com a DD13/DD14 isso deixa de funcionar na release: por isso o 426 (P31) sobe junto, e o AnkaaAero novo tem de estar instalado por cabo ANTES do deploy. O 426 precisa isentar downloads de arquivo, `/ping`, `socket.io` e as rotas públicas de assinatura (o Dio cru do Flutter não manda versão).
 - `dart format` global reformata 211 arquivos: nunca rodar.
