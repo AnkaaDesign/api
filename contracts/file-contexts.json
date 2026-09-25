@@ -29,6 +29,9 @@
     "taskProjectFiles": [
       "web"
     ],
+    "implementProjectFiles": [
+      "api (PUT /implements/:id/project-files, multipart `implementProjectFiles`; web e app a partir do P20/P24)"
+    ],
     "observations": [
       "web"
     ],

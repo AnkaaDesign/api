@@ -2022,6 +2022,13 @@
         "GLOBAL_RATE_LIMIT": "Limite Global"
       }
     },
+    "REAR_DOOR_LEAVES_LABELS": {
+      "enum": "REAR_DOOR_LEAVES",
+      "labels": {
+        "BIPARTITE": "Bipartida",
+        "TRIPARTITE": "Tripartida"
+      }
+    },
     "REGISTRATION_STATUS_LABELS": {
       "enum": "REGISTRATION_STATUS",
       "labels": {

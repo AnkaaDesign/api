@@ -1882,6 +1882,10 @@
       "ACCOUNT_LOCKOUT",
       "GLOBAL_RATE_LIMIT"
     ],
+    "REAR_DOOR_LEAVES": [
+      "BIPARTITE",
+      "TRIPARTITE"
+    ],
     "REGISTRATION_STATUS": [
       "ACTIVE",
       "SUSPENDED",
@@ -2448,6 +2452,18 @@
       "CANCELLED": 8
     }
   },
+  "faces": {
+    "todas": [
+      "left",
+      "right",
+      "back",
+      "front"
+    ],
+    "comFoto": [
+      "back",
+      "front"
+    ]
+  },
   "notificacoes": [
     "airbrushing.assigned",
     "airbrushing.cancelled",
@@ -2621,6 +2637,9 @@
     "task.field.implement.leftSideMeasureId",
     "task.field.implement.measures",
     "task.field.implement.plate",
+    "task.field.implement.rearDoorBarCount",
+    "task.field.implement.rearDoorHatchCount",
+    "task.field.implement.rearDoorLeaves",
     "task.field.implement.rightSideMeasureId",
     "task.field.implement.spot",
     "task.field.implement.type",
@@ -3117,6 +3136,17 @@
       ]
     },
     {
+      "rota": "PUT /implements/:id/project-files",
+      "arquivo": "src/modules/production/implement/implement.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "implementProjectFiles",
+          "maxCount": 30
+        }
+      ]
+    },
+    {
       "rota": "POST /observations",
       "arquivo": "src/modules/production/task-observation/observation.controller.ts",
       "interceptor": "FileFieldsInterceptor",
@@ -3369,6 +3399,10 @@
         {
           "nome": "implementMeasurePhotos.backSide",
           "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.frontSide",
+          "maxCount": 1
         }
       ]
     },
@@ -3579,6 +3613,10 @@
         {
           "nome": "implementMeasurePhotos.backSide",
           "maxCount": 1
+        },
+        {
+          "nome": "implementMeasurePhotos.frontSide",
+          "maxCount": 1
         }
       ]
     },
@@ -3638,6 +3676,7 @@
     "cutFiles",
     "taskBaseFiles",
     "taskProjectFiles",
+    "implementProjectFiles",
     "taskCheckinFiles",
     "taskCheckoutFiles",
     "serviceOrderCheckinFiles",
