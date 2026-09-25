@@ -1,7 +1,7 @@
 -- M2 — frente e porta traseira do implemento, medidas descompartilhadas e o projeto do implemento
 -- (release R-B; R5, R6, D-06, D-07, DD4; PLANO §3.1, §3.3, §4.3).
 --
--- FATIA ESCRITA E ENSAIADA NO P10, PROMOVIDA PELO P11b (protocolo do §4.1).
+-- FATIA ESCRITA E ENSAIADA NO P10, PROMOVIDA PELO P11b em 25/09 (protocolo do §4.1).
 -- Blocos do esquema-alvo que esta fatia traz:
 --   · Implement.frontSideMeasureId + frontSideMeasure (IMPLEMENT_FRONT_SIDE, SetNull) + @@index;
 --   · Implement.rearDoorLeaves (RearDoorLeaves?), rearDoorBarCount / rearDoorHatchCount (Int? @db.SmallInt);

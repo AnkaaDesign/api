@@ -784,6 +784,7 @@ model File {
   taskCuts                               Cut[]                  @relation("TASK_CUTS")
   implementMeasurePhotos                 ImplementMeasure[]     @relation("IMPLEMENT_MEASURE_PHOTO")
   implementVinPlates                     Implement[]            @relation("IMPLEMENT_VIN_PLATE") // [R-B M1]
+  implementProjectFiles                  Implement[]            @relation("IMPLEMENT_PROJECT_FILES") // [R-B M2]
   ppeDeliveryDocuments                   PpeDelivery[]          @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                  PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
   warningSignatureDocuments              WarningSignature[]     @relation("WARNING_SIGNATURE_DOCUMENT")
@@ -2406,10 +2407,10 @@ model Supplier {
 }
 
 model Task {
-  id           String     @id @default(uuid())
-  name         String?    @default("Tarefa Sem Nome")
-  status       TaskStatus @default(PREPARATION)
-  statusOrder  Int        @default(1)
+  id          String     @id @default(uuid())
+  name        String?    @default("Tarefa Sem Nome")
+  status      TaskStatus @default(PREPARATION)
+  statusOrder Int        @default(1)
 
   /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
   ///
@@ -2510,8 +2511,8 @@ model Task {
   /// `PER_VEHICLE`. Num `SHARED` é sempre vazia: ali toda arte vale para todos.
   quoteLayoutCoverage   BudgetLayoutTask[]    @relation("TASK_QUOTE_LAYOUTS")
 
-  detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
-  nameNormalized         String? /// accent-insensitive search (generated column, see migration)
+  detailsNormalized String? /// accent-insensitive search (generated column, see migration)
+  nameNormalized    String? /// accent-insensitive search (generated column, see migration)
   /// [R-B M1s] a coluna gerada e o GIN da tarefa FICAM até a M5s (o espelho alimenta a busca
   /// dos leitores ainda não migrados); `omit` global como hoje.
 
@@ -2630,6 +2631,14 @@ model Implement {
   backSideMeasureId  String?
   leftSideMeasureId  String?
   rightSideMeasureId String?
+  /// [M2] R5: a frente.
+  frontSideMeasureId String?
+  /// [M2] Porta traseira (R5, DD4). Nulo = não informado. CHECKs em SQL:
+  /// varões 2|3|4 ("Implement_rearDoorBarCount_check"); portinholas 0..6, só
+  /// quantidade ("Implement_rearDoorHatchCount_check"); bipartida/tripartida é preset.
+  rearDoorLeaves     RearDoorLeaves?
+  rearDoorBarCount   Int?               @db.SmallInt
+  rearDoorHatchCount Int?               @db.SmallInt
   /// Foto da plaqueta de identificação (VIN) rebitada no veículo. Imagem, não texto:
   /// a plaqueta era um campo de texto que ninguém preenchia — o que a produção precisa
   /// é da foto legível da plaqueta. Ver migration 20260727150000_truck_vin_plate_image.
@@ -2638,7 +2647,11 @@ model Implement {
   backSideMeasure    ImplementMeasure?  @relation("IMPLEMENT_BACK_SIDE", fields: [backSideMeasureId], references: [id], onDelete: SetNull)
   leftSideMeasure    ImplementMeasure?  @relation("IMPLEMENT_LEFT_SIDE", fields: [leftSideMeasureId], references: [id], onDelete: SetNull)
   rightSideMeasure   ImplementMeasure?  @relation("IMPLEMENT_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id], onDelete: SetNull)
+  /// [M2]
+  frontSideMeasure   ImplementMeasure?  @relation("IMPLEMENT_FRONT_SIDE", fields: [frontSideMeasureId], references: [id], onDelete: SetNull)
   task               Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  /// [M2] PROJETO DO IMPLEMENTO (R6): o projeto da Furgões.
+  projectFiles       File[]             @relation("IMPLEMENT_PROJECT_FILES")
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
   plateNormalized         String? /// accent-insensitive search (generated column, see migration)
@@ -2651,6 +2664,7 @@ model Implement {
   @@index([backSideMeasureId])
   @@index([leftSideMeasureId])
   @@index([rightSideMeasureId])
+  @@index([frontSideMeasureId]) // [M2]
 }
 
 model ImplementMeasure {
@@ -2664,6 +2678,7 @@ model ImplementMeasure {
   implementsBackSide  Implement[]               @relation("IMPLEMENT_BACK_SIDE") // [R-B M1]
   implementsLeftSide  Implement[]               @relation("IMPLEMENT_LEFT_SIDE") // [R-B M1]
   implementsRightSide Implement[]               @relation("IMPLEMENT_RIGHT_SIDE") // [R-B M1]
+  implementsFrontSide Implement[]               @relation("IMPLEMENT_FRONT_SIDE") // [R-B M2]
   paintingAnalyses    PaintingAnalysis[]        @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE")
 }
 

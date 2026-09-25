@@ -9,7 +9,7 @@
 -- Idempotente. NUNCA rodar em produção (lá tudo vem das migrations).
 --
 -- 2 extensões, 9 funções, 171 colunas geradas,
--- 7 gatilhos, 17 índices, 21 CHECKs.
+-- 7 gatilhos, 17 índices, 23 CHECKs.
 
 BEGIN;
 
@@ -651,6 +651,10 @@ ALTER TABLE "FiscalEmitterProfile" DROP CONSTRAINT IF EXISTS "FiscalEmitterProfi
 ALTER TABLE "FiscalEmitterProfile" ADD CONSTRAINT "FiscalEmitterProfile_opSimpNac_range" CHECK (("opSimpNac" = ANY (ARRAY[1, 2, 3])));
 ALTER TABLE "FiscalEmitterProfile" DROP CONSTRAINT IF EXISTS "FiscalEmitterProfile_serie_format";
 ALTER TABLE "FiscalEmitterProfile" ADD CONSTRAINT "FiscalEmitterProfile_serie_format" CHECK (((serie ~ '^[0-9]{1,5}$'::text) AND (((serie)::integer < 80000) OR ((serie)::integer > 89999))));
+ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorBarCount_check";
+ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorBarCount_check" CHECK ((("rearDoorBarCount" IS NULL) OR ("rearDoorBarCount" = ANY (ARRAY[2, 3, 4]))));
+ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorHatchCount_check";
+ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorHatchCount_check" CHECK ((("rearDoorHatchCount" IS NULL) OR (("rearDoorHatchCount" >= 0) AND ("rearDoorHatchCount" <= 6))));
 ALTER TABLE "Notification" DROP CONSTRAINT IF EXISTS "Notification_exactly_one_recipient";
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_exactly_one_recipient" CHECK ((("userId" IS NULL) <> ("responsibleId" IS NULL)));
 ALTER TABLE "ReconciliationMatch" DROP CONSTRAINT IF EXISTS "ReconciliationMatch_has_anchor";
