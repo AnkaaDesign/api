@@ -3,6 +3,8 @@ import { Responsible as PrismaResponsible, ResponsibleRole, Customer, Task } fro
 export interface Responsible extends PrismaResponsible {
   company?: Customer;
   tasks?: Task[];
+  /** Customers served through tasks, besides `company` (list endpoint only). */
+  servedCustomers?: Pick<Customer, 'id' | 'fantasyName' | 'corporateName' | 'cnpj'>[];
 }
 
 export type ResponsibleResponse = Responsible;
