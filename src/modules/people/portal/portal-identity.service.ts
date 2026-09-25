@@ -326,7 +326,6 @@ export class PortalIdentityService {
    */
   private apenasOQueMuda(
     task: {
-      serialNumber?: string | null;
       customerOrderNumber?: string | null;
       implement?: {
         serialNumber?: string | null;
@@ -340,7 +339,7 @@ export class PortalIdentityService {
     pedido: string | null | undefined,
   ): DesiredVehicleIdentity {
     const atual = {
-      serialNumber: task.implement?.serialNumber ?? task.serialNumber ?? null,
+      serialNumber: task.implement?.serialNumber ?? null,
       plate: task.implement?.plate ?? null,
       chassisNumber: task.implement?.chassisNumber ?? null,
       orderNumber: task.customerOrderNumber ?? null,

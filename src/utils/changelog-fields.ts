@@ -630,7 +630,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     completedAt: 'Concluído em',
     // Nested relationship fields
     'file.filename': 'Nome do Arquivo',
-    'task.serialNumber': 'Número de Série da Tarefa',
+    'task.implement.serialNumber': 'Número de Série',
     'implement.plate': 'Placa do Implemento',
     'task.title': 'Título da Tarefa',
     'parentCut.id': 'ID do Corte Pai',
@@ -706,7 +706,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     finishedAt: 'Finalizado em',
     // Nested relationship fields
     'task.name': 'Nome da Tarefa',
-    'task.serialNumber': 'Número de Série da Tarefa',
+    'task.implement.serialNumber': 'Número de Série',
     'assignedTo.name': 'Nome do Responsável',
     'createdBy.name': 'Nome do Criador',
     'startedBy.name': 'Nome de quem Iniciou',

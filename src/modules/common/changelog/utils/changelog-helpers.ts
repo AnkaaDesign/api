@@ -562,8 +562,6 @@ export const ENTITY_ESSENTIAL_FIELDS: Partial<Record<ENTITY_TYPE, string[]>> = {
     'startedAt',
     'finishedAt',
     'bonification',
-    'serialNumber',
-    'plate',
   ],
   [ENTITY_TYPE.ORDER]: ['id', 'status', 'supplierId', 'totalPrice', 'scheduledFor'],
   [ENTITY_TYPE.ORDER_ITEM]: [

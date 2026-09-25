@@ -1001,7 +1001,7 @@ const taskTransform = (data: any): any => {
 
   // "Implemento identificado" (série ∨ placa ∨ chassi). Com a DD1 toda tarefa tem
   // implemento, então "tem implemento" seria sempre verdadeiro (pergunta 18 do
-  // plano): o filtro legado `hasImplement` chega traduzido para este.
+  // plano): o filtro é pela identificação.
   if (data.implementIdentified === true || data.implementIdentified === false) {
     const identified = {
       implement: {
@@ -1756,7 +1756,7 @@ export const taskGetManySchema = z
     hasSector: z.boolean().optional(),
     hasCustomer: z.boolean().optional(),
     hasAssignee: z.boolean().optional(),
-    // série ∨ placa ∨ chassi (o `hasImplement` legado chega traduzido para cá)
+    // série ∨ placa ∨ chassi (toda tarefa tem implemento: "tem implemento" não filtra)
     implementIdentified: z.boolean().optional(),
     hasObservation: z.boolean().optional(),
     hasLayouts: z.boolean().optional(),

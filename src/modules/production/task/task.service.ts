@@ -1887,7 +1887,6 @@ export class TaskService {
       // Remove the range fields and set the actual serial number
       delete (taskData as any).serialNumberFrom;
       delete (taskData as any).serialNumberTo;
-      delete (taskData as any).serialNumber;
       // W3 (DD1): a série da faixa vai para o implemento de CADA tarefa — objeto
       // próprio por tarefa (a cópia rasa acima compartilharia o do corpo).
       (taskData as any).implement = {
@@ -6280,7 +6279,6 @@ export class TaskService {
           'paintIds', // Logo paints (file array)
           'details',
           'name',
-          'serialNumber',
           'term',
           'entryDate',
           'forecastDate',
@@ -6309,6 +6307,36 @@ export class TaskService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
         });
+
+        // A SÉRIE (DD1, W2) mora no implemento: a lista acima compara colunas da
+        // tarefa e não a enxerga. A trilha continua TASK/serialNumber (S-5 — é o
+        // que o aditivo da assinatura e o histórico leem). O valor novo vem do
+        // banco: o `updatedTask` muda de forma conforme o ramo que o recarregou.
+        {
+          const oldSerial = existingTask.implement?.serialNumber ?? null;
+          const newSerial =
+            (
+              await tx.implement.findUnique({
+                where: { taskId: id },
+                select: { serialNumber: true },
+              })
+            )?.serialNumber ?? null;
+          if (hasValueChanged(oldSerial, newSerial)) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'serialNumber',
+              oldValue: oldSerial,
+              newValue: newSerial,
+              reason: `Campo ${translateFieldName('serialNumber')} atualizado`,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+          }
+        }
 
         // Special handling for quoteId to include quote details (budgetNumber, total, items)
         if (hasValueChanged(existingTask.quoteId, updatedTask.quoteId)) {
@@ -10582,7 +10610,8 @@ export class TaskService {
         if (!loggedField) {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
         }
-        // O histórico guarda o nome da ÉPOCA (`implementType`); a coluna é `type`.
+        // O histórico do implemento grava a coluna (`type`, `serialNumber`…); a
+        // migração 20260930120060 trouxe os nomes antigos para os de hoje.
         const fieldToRevert = resolveImplementColumn(loggedField);
         if (!fieldToRevert) {
           throw new BadRequestException(
@@ -11770,9 +11799,13 @@ export class TaskService {
       }
 
       // W6 (DD1): a série volta pelo repositório (W2 → implemento), com a
-      // unicidade conferida ANTES — o conflito virava P2002 → 500.
+      // unicidade conferida ANTES — o conflito virava P2002 → 500. A trilha é
+      // TASK/serialNumber (S-5), mas a coluna é do implemento: `serialNumber` no
+      // topo o repositório não lê, e o desfazer respondia 200 sem desfazer.
       if (fieldToRevert === 'serialNumber') {
         await this.assertSerialFreeForRollback(tx, convertedValue, changeLog.entityId);
+        delete updateData.serialNumber;
+        updateData.implement = { serialNumber: convertedValue };
       }
 
       // 7. Update the task with relations included for proper response
