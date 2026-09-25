@@ -477,12 +477,12 @@ export class PainterNfseService {
                 name: true,
                 serialNumber: true,
                 customer: { select: { fantasyName: true, corporateName: true } },
-                truck: {
+                implement: {
                   select: {
                     plate: true,
                     chassisNumber: true,
                     category: true,
-                    implementType: true,
+                    type: true,
                   },
                 },
               },

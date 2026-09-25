@@ -31,7 +31,7 @@ import {
   PAINT_FINISH,
   PAINT_TYPE_ENUM,
   TRUCK_MANUFACTURER,
-  TRUCK_CATEGORY,
+  IMPLEMENT_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
   WARNING_SEVERITY,
@@ -421,8 +421,15 @@ export const TRUCK_MANUFACTURER_LABELS: Record<TRUCK_MANUFACTURER, string> = {
 // Os rótulos de TELA de categoria e implemento moram na fonte única com perfil
 // por documento (`document-labels.ts`, D-18): a nota fiscal, o boleto e a
 // fatura têm os SEUS perfis lá, e mexer aqui não muda documento nenhum.
-export const TRUCK_CATEGORY_LABELS: Record<TRUCK_CATEGORY, string> =
+export const IMPLEMENT_CATEGORY_LABELS: Record<IMPLEMENT_CATEGORY, string> =
   CATEGORY_PROFILE_LABELS.screen;
+
+/**
+ * JANELA BILÍNGUE (até a R-D): o nome velho do mapa. O contrato exportado (G5)
+ * mantém `TRUCK_CATEGORY_LABELS` — web e app ainda o leem.
+ * @deprecated use IMPLEMENT_CATEGORY_LABELS
+ */
+export const TRUCK_CATEGORY_LABELS = IMPLEMENT_CATEGORY_LABELS;
 
 export const IMPLEMENT_TYPE_LABELS: Record<IMPLEMENT_TYPE, string> =
   IMPLEMENT_TYPE_PROFILE_LABELS.screen;

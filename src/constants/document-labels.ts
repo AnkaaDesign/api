@@ -45,15 +45,13 @@
  * mapa incompleto, e `tests/labels-exhaustive.test.ts` confere em runtime).
  * Valor fora do enum passa CRU nos documentos (`map[v] ?? v`), nunca some.
  */
-import { IMPLEMENT_TYPE, TRUCK_CATEGORY } from './enums';
+import { IMPLEMENT_TYPE, IMPLEMENT_CATEGORY } from './enums';
 
 /**
- * O enum de categoria ainda tem o nome velho (troca no P11). As chaves dos
- * mapas abaixo são LITERAIS ('MINI', 'VUC'…), e o tipo `Record<Category, …>`
- * recusa a chave que faltar ou sobrar — o nome velho aparece só aqui, e a
- * catraca de resíduo (G6a) não conta seis perfis × dez membros.
+ * As chaves dos mapas abaixo são LITERAIS ('MINI', 'VUC'…), e o tipo
+ * `Record<Category, …>` recusa a chave que faltar ou sobrar.
  */
-type Category = TRUCK_CATEGORY;
+type Category = IMPLEMENT_CATEGORY;
 
 export const LABEL_PROFILES = [
   'screen',

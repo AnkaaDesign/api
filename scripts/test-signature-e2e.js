@@ -131,7 +131,8 @@ const fail = (m) => { console.error('  \x1b[31m✗ ' + m + '\x1b[0m'); process.e
     const task = await prisma.task.create({
       data: {
         name: `${tag} Tarefa Descartavel`,
-        serialNumber: `${tag}`,
+        // DD1: a série nasce no implemento; toda tarefa tem um.
+        implement: { create: { serialNumber: `${tag}`, spot: null } },
         customerId: customer.id,
         quoteId: createdQuote.id,
         responsibles: { connect: [{ id: responsible.id }] },

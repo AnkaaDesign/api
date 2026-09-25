@@ -22,7 +22,7 @@ import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
 import type { Budget } from './budget';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
-import type { Truck, TruckIncludes } from './truck';
+import type { Implement, ImplementIncludes } from './implement';
 import type { Responsible, ResponsibleResponse } from './responsible';
 
 // =====================
@@ -75,7 +75,7 @@ export interface Task extends BaseEntity {
   quote?: Budget; // Task quote (each task has its own independent quote record)
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
-  truck?: Truck;
+  implement?: Implement;
   relatedTasks?: Task[];
   relatedTo?: Task[];
   responsibles?: Responsible[] | ResponsibleResponse[];
@@ -269,7 +269,7 @@ export type TaskSelect = TaskSelectFields & {
   cuts?:
     | boolean
     | { select?: { id?: boolean; type?: boolean; status?: boolean; origin?: boolean } };
-  truck?:
+  implement?:
     | boolean
     | {
         select?: {
@@ -335,7 +335,7 @@ export const TASK_SELECT_CARD: TaskSelect = {
   createdBy: {
     select: { id: true, name: true },
   },
-  truck: {
+  implement: {
     select: { id: true, plate: true, spot: true },
   },
   // Count-based info (handled via separate queries typically)
@@ -471,7 +471,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       origin: true,
     },
   },
-  truck: {
+  implement: {
     select: {
       id: true,
       plate: true,
@@ -541,7 +541,7 @@ export interface TaskCard extends TaskMinimal {
   bonification: BONIFICATION_STATUS | null;
   createdById: string | null;
   createdBy?: { id: string; name: string } | null;
-  truck?: { id: string; plate: string | null; spot: string | null } | null;
+  implement?: { id: string; plate: string | null; spot: string | null } | null;
   serviceOrders?: Array<{ id: string; status: string; type: string }>;
 }
 
@@ -629,7 +629,7 @@ export interface TaskDetailed extends BaseEntity {
     finishDate: Date | null;
   }>;
   cuts?: Array<{ id: string; type: string; status: string; origin: string }>;
-  truck?: {
+  implement?: {
     id: string;
     plate: string | null;
     chassisNumber: string | null;
@@ -781,10 +781,10 @@ export interface TaskIncludes {
     | {
         include?: CutIncludes;
       };
-  truck?:
+  implement?:
     | boolean
     | {
-        include?: TruckIncludes;
+        include?: ImplementIncludes;
       };
   relatedTasks?:
     | boolean

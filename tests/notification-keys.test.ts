@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import * as ts from 'typescript';
+import { IMPLEMENT_EVENT_FIELD } from '../src/modules/production/task/task-field-tracker.service';
 
 const ROOT = join(__dirname, '..');
 const SEED = join(ROOT, 'prisma/scripts/seed-notification-configs.ts');
@@ -246,7 +247,10 @@ function main(): void {
           vals.forEach(key => emitidas.push({ key, onde }));
         } else if (ts.isTemplateExpression(arg) && arg.head.text === 'task.field.') {
           // o listener do tracker: uma chave por campo rastreado
-          for (const f of trackedFields()) {
+          // O tracker grava `implement.*` no histórico e EMITE o nome do evento
+          // (`IMPLEMENT_EVENT_FIELD`): a chave de notificação é a do evento (P11a).
+          for (const tracked of trackedFields()) {
+            const f = IMPLEMENT_EVENT_FIELD[tracked] ?? tracked;
             const side = /^truck\.(left|right|back)SideMeasureId$/.test(f);
             emitidas.push({ key: `task.field.${side ? 'truck.implementMeasure' : f}`, onde });
           }

@@ -612,11 +612,13 @@ const LINHA_CRUA: any = {
       forecastDate: new Date('2026-10-05T12:00:00Z'),
       customerId: 'cust-rko',
       customer: { id: 'cust-rko', fantasyName: 'RKO Alimentos', corporateName: 'RKO SA' },
-      truck: {
+      // o implemento como o select do portal o devolve (P11a: era `truck`/`implementType`)
+      implement: {
+        serialNumber: 'ABC-123456',
         plate: 'ABC1D23',
         chassisNumber: '9BWZZZ377VT004251',
         category: 'TRUCK',
-        implementType: 'BAU',
+        type: 'BAU',
         spot: 'YARD_WAIT', // ⛔ onde o caminhão está no pátio
         vinPlate: {
           id: 'f-vin',

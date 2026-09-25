@@ -265,6 +265,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           neighborhoodNormalized: true,
           stateNormalized: true,
         },
+        implement: {
+          chassisNumberNormalized: true,
+          plateNormalized: true,
+          serialNumberNormalized: true,
+        },
         task: {
           detailsNormalized: true,
           nameNormalized: true,
@@ -309,10 +314,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         },
         transactionCategory: {
           nameNormalized: true,
-        },
-        truck: {
-          chassisNumberNormalized: true,
-          plateNormalized: true,
         },
         user: {
           password: true,

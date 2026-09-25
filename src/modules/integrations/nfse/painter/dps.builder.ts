@@ -461,11 +461,11 @@ export interface ServicoTaskRef {
   name: string;
   serialNumber: string | null;
   customer?: { fantasyName: string | null; corporateName: string | null } | null;
-  truck?: {
+  implement?: {
     plate: string | null;
     chassisNumber: string | null;
     category: string | null;
-    implementType: string | null;
+    type: string | null;
   } | null;
 }
 
@@ -493,11 +493,11 @@ export function buildServiceDescription(
       name: string;
       serialNumber: string | null;
       customer?: { fantasyName: string | null; corporateName: string | null } | null;
-      truck?: {
+      implement?: {
         plate: string | null;
         chassisNumber: string | null;
         category: string | null;
-        implementType: string | null;
+        type: string | null;
       } | null;
     } | null;
   },
@@ -520,19 +520,21 @@ export function buildServiceDescription(
 
   // 3. O veículo, no formato das notas da Elotech.
   const task = airbrushing.task;
-  const truck = task?.truck;
+  const truck = task?.implement;
   const tipo = [
     truck?.category ? (TRUCK_CATEGORY_LABELS[truck.category as never] ?? truck.category) : null,
-    truck?.implementType
-      ? (IMPLEMENT_TYPE_LABELS[truck.implementType as never] ?? truck.implementType)
+    truck?.type
+      ? (IMPLEMENT_TYPE_LABELS[truck.type as never] ?? truck.type)
       : null,
   ]
     .filter(Boolean)
     .join(' ');
 
-  // O nº de série é da ORDEM DE SERVIÇO, não do veículo — só entra na frase do
-  // veículo quando existe veículo. Sem essa guarda, uma aerografia sem caminhão
-  // produzia "no veículo de n série: 999", que afirma algo falso.
+  // O nº de série é do IMPLEMENTO (DD1) e toda tarefa tem implemento — mas a
+  // frase do veículo continua exigindo PLACA, CHASSI ou TIPO (`temVeiculo`,
+  // calculado por campo): implemento só com série não é "veículo identificado",
+  // e a frase "no veículo de n série: 999" afirmaria algo que o cadastro não diz.
+  // O texto da nota não muda (D-18).
   const temVeiculo = Boolean(truck?.plate || truck?.chassisNumber || tipo);
   const identificadores = temVeiculo
     ? [

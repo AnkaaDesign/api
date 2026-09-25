@@ -53,7 +53,7 @@ export const bonusIncludeSchema = z
             .object({
               customer: z.boolean().optional(),
               sector: z.boolean().optional(),
-              truck: z.boolean().optional(),
+              implement: z.boolean().optional(),
             })
             .optional(),
           where: z.any().optional(),

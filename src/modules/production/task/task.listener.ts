@@ -274,8 +274,8 @@ export class TaskListener {
               implementMeasureChangeSummary,
             },
             overrides: {
-              title: 'Medidas do Caminhão atualizadas',
-              body: `Medidas do caminhão da tarefa "${event.task.name}" atualizadas: ${implementMeasureChangeSummary}`,
+              title: 'Medidas do implemento atualizadas',
+              body: `Medidas do implemento da tarefa "${event.task.name}" atualizadas: ${implementMeasureChangeSummary}`,
               webUrl: `/producao/cronograma/detalhes/${event.task.id}`,
             },
           },

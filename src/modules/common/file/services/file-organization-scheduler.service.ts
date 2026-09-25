@@ -64,6 +64,7 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   // 2026-08-04 achou 53 comprovantes de parcela parados em Auxiliares/ por causa disto.
   installmentReceipts: 'customer',
   truckVinPlate: 'customer',
+  implementVinPlate: 'customer',
   budgetSignatures: 'customer',
   budgetDossiers: 'customer',
   serviceOrderCheckinFiles: 'customer',
@@ -406,13 +407,13 @@ export class FileOrganizationSchedulerService {
         return installment.customerConfig.customer.fantasyName;
       }
 
-      // Plaqueta de chassi (Truck.vinPlateId -> task -> customer).
-      const truck = await this.prisma.truck.findFirst({
+      // Plaqueta de chassi (Implement.vinPlateId -> task -> customer).
+      const implement = await this.prisma.implement.findFirst({
         where: { vinPlateId: fileId },
         select: { task: { select: { customer: { select: { fantasyName: true } } } } },
       });
-      if (truck?.task?.customer?.fantasyName) {
-        return truck.task.customer.fantasyName;
+      if (implement?.task?.customer?.fantasyName) {
+        return implement.task.customer.fantasyName;
       }
 
       // Check-in / check-out de ordem de serviço -> task -> customer.

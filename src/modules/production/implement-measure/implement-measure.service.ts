@@ -65,9 +65,9 @@ export class ImplementMeasureService {
             }
           : false,
         ...(options?.includeUsage && {
-          trucksBackSide: { select: { id: true } },
-          trucksLeftSide: { select: { id: true } },
-          trucksRightSide: { select: { id: true } },
+          implementsBackSide: { select: { id: true } },
+          implementsLeftSide: { select: { id: true } },
+          implementsRightSide: { select: { id: true } },
         }),
       },
       orderBy: { createdAt: 'desc' },
@@ -77,9 +77,9 @@ export class ImplementMeasureService {
       return implementMeasures.map(implementMeasure => ({
         ...implementMeasure,
         usageCount:
-          ((implementMeasure as any).trucksBackSide?.length || 0) +
-          ((implementMeasure as any).trucksLeftSide?.length || 0) +
-          ((implementMeasure as any).trucksRightSide?.length || 0),
+          ((implementMeasure as any).implementsBackSide?.length || 0) +
+          ((implementMeasure as any).implementsLeftSide?.length || 0) +
+          ((implementMeasure as any).implementsRightSide?.length || 0),
       }));
     }
 
@@ -103,7 +103,7 @@ export class ImplementMeasureService {
     }
 
     // Verify truck exists
-    const truck = await this.prisma.truck.findUnique({ where: { id: truckId } });
+    const truck = await this.prisma.implement.findUnique({ where: { id: truckId } });
     if (!truck) {
       throw new NotFoundException(`Caminhão ${truckId} não encontrado`);
     }
@@ -164,7 +164,6 @@ export class ImplementMeasureService {
     await replicateImplementMeasuresToQuoteSiblings(tx, {
       sourceTaskId,
       sides,
-      createMissingTruck: false,
       logChange: (entry: ReplicationLogEntry) =>
         this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TASK,
@@ -282,9 +281,9 @@ export class ImplementMeasureService {
    */
   async getImplementMeasureUsageCount(implementMeasureId: string): Promise<number> {
     const [backCount, leftCount, rightCount] = await Promise.all([
-      this.prisma.truck.count({ where: { backSideMeasureId: implementMeasureId } }),
-      this.prisma.truck.count({ where: { leftSideMeasureId: implementMeasureId } }),
-      this.prisma.truck.count({ where: { rightSideMeasureId: implementMeasureId } }),
+      this.prisma.implement.count({ where: { backSideMeasureId: implementMeasureId } }),
+      this.prisma.implement.count({ where: { leftSideMeasureId: implementMeasureId } }),
+      this.prisma.implement.count({ where: { rightSideMeasureId: implementMeasureId } }),
     ]);
     return backCount + leftCount + rightCount;
   }
@@ -300,15 +299,15 @@ export class ImplementMeasureService {
     totalCount: number;
   }> {
     const [backTrucks, leftTrucks, rightTrucks] = await Promise.all([
-      this.prisma.truck.findMany({
+      this.prisma.implement.findMany({
         where: { backSideMeasureId: implementMeasureId },
         select: { id: true, taskId: true, plate: true },
       }),
-      this.prisma.truck.findMany({
+      this.prisma.implement.findMany({
         where: { leftSideMeasureId: implementMeasureId },
         select: { id: true, taskId: true, plate: true },
       }),
-      this.prisma.truck.findMany({
+      this.prisma.implement.findMany({
         where: { rightSideMeasureId: implementMeasureId },
         select: { id: true, taskId: true, plate: true },
       }),
@@ -433,7 +432,7 @@ export class ImplementMeasureService {
 
       // Get the truck
       this.logger.log(`[BACKEND] Fetching truck with ID: ${truckId}`);
-      const truck = await tx.truck.findUnique({
+      const truck = await tx.implement.findUnique({
         where: { id: truckId },
         include: {
           leftSideMeasure: {
@@ -751,7 +750,7 @@ export class ImplementMeasureService {
     const newImplementMeasureSummary = newImplementMeasure ? this.formatImplementMeasureSummary(newImplementMeasure) : '';
 
     // Find the task associated with this truck
-    const truck = await this.prisma.truck.findUnique({
+    const truck = await this.prisma.implement.findUnique({
       where: { id: truckId },
       select: {
         taskId: true,
@@ -848,7 +847,7 @@ export class ImplementMeasureService {
     };
 
     // Capture old implementMeasure snapshots BEFORE any update so we can describe the changes.
-    const truckBefore = await this.prisma.truck.findUnique({
+    const truckBefore = await this.prisma.implement.findUnique({
       where: { id: truckId },
       include: {
         leftSideMeasure: {
@@ -953,7 +952,7 @@ export class ImplementMeasureService {
     implementMeasureChangeSummary: string,
     userId?: string,
   ): Promise<void> {
-    const truck = await this.prisma.truck.findUnique({
+    const truck = await this.prisma.implement.findUnique({
       where: { id: truckId },
       select: {
         task: {

@@ -222,8 +222,14 @@ function resolveDroppedKey(model: string, path: string): DroppedKey | null {
       clause = seg as QueryClause;
       continue;
     }
-    const f = getField(current, seg);
+    let f = getField(current, seg);
     if (i === parts.length - 1) return { model: current, clause, key: seg, exists: !!f };
+    // atravessa o legado da tabela pelo nome novo (`Budget.task` → `tasks`,
+    // `Task.truck` → `implement`): a chave velha do caminho foi traduzida
+    if (!f) {
+      const dep = findDeprecatedQueryKey(current, clause, seg);
+      if (dep?.action === 'translate' && dep.to) f = getField(current, dep.to);
+    }
     if (!f) return null;
     if (f.kind === 'object') current = f.type;
   }

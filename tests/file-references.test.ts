@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     const cobertas = new Set(semRef.AND.map(c => Object.keys(c)[0]));
     const devemEstar = [
       'implementMeasurePhotos',
-      'truckVinPlates',
+      'implementVinPlates',
       'quoteLayoutTasks',
       'quoteLayout',
       'airbrushingNfsePdfs',

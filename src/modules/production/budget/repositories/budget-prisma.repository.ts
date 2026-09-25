@@ -539,13 +539,13 @@ export class BudgetPrismaRepository
             // as MESMAS colunas do documento e da página pública, e sem estes
             // dois campos ela sairia com duas colunas a menos que o PDF que o
             // cliente vai receber — a conferência deixaria de ser a mesma.
-            truck: {
+            implement: {
               select: {
                 id: true,
                 plate: true,
                 chassisNumber: true,
                 category: true,
-                implementType: true,
+                type: true,
               },
             },
           },
@@ -748,9 +748,9 @@ export class BudgetPrismaRepository
   }): Promise<(any & { taskCreatedAt: Date }) | null> {
     const baseWhere = {
       customerId: params.customerId,
-      truck: {
+      implement: {
         category: params.category as any,
-        implementType: params.implementType as any,
+        type: params.implementType as any,
       },
     };
 

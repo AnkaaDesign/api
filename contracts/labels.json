@@ -1252,6 +1252,21 @@
         "OPTIONAL": "Optional"
       }
     },
+    "IMPLEMENT_CATEGORY_LABELS": {
+      "enum": "IMPLEMENT_CATEGORY",
+      "labels": {
+        "MINI": "Mini",
+        "VUC": "VUC",
+        "THREE_QUARTER": "3/4",
+        "RIGID": "Toco",
+        "TRUCK": "Truck",
+        "SEMI_TRAILER": "Semirreboque",
+        "SEMI_TRAILER_2_AXLES": "Semirreboque 2 Eixos",
+        "B_DOUBLE_FRONT": "Bitrem Composição Dianteira",
+        "B_DOUBLE_REAR": "Bitrem Composição Traseira",
+        "BITRUCK": "Bitruck"
+      }
+    },
     "IMPLEMENT_TYPE_LABELS": {
       "enum": "IMPLEMENT_TYPE",
       "labels": {

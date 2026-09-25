@@ -882,7 +882,7 @@ export class BonusService {
               bonification: task.bonification,
               customer: task.customer ?? null,
               sector: task.sector ?? null,
-              truck: task.truck ?? null,
+              implement: task.implement ?? null,
             })),
           }
         : {}),
@@ -1151,7 +1151,7 @@ export class BonusService {
           createdById: true,
           customer: { select: { id: true, fantasyName: true } },
           sector: { select: { id: true, name: true } },
-          truck: { select: { id: true, plate: true } },
+          implement: { select: { id: true, plate: true } },
         },
       });
 
@@ -1479,7 +1479,7 @@ export class BonusService {
           bonification: task.bonification,
           customer: task.customer || null,
           sector: task.sector || null,
-          truck: task.truck || null,
+          implement: task.implement || null,
         })),
         bonusDiscounts,
         bonusExtras,
@@ -2961,7 +2961,7 @@ export class BonusService {
               name: true,
             },
           },
-          truck: {
+          implement: {
             select: {
               id: true,
               plate: true,
@@ -3641,7 +3641,7 @@ export class BonusService {
                           bonification: task.bonification,
                           customer: task.customer ?? null,
                           sector: task.sector ?? null,
-                          truck: task.truck ?? null,
+                          implement: task.implement ?? null,
                         })),
                       }
                     : {}),
@@ -3774,7 +3774,7 @@ export class BonusService {
               bonification: task.bonification,
               customer: task.customer || null,
               sector: task.sector || null,
-              truck: task.truck || null,
+              implement: task.implement || null,
             })),
             bonusDiscounts: liveBonusDiscounts,
             bonusExtras: liveBonusExtras,

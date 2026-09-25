@@ -114,7 +114,7 @@ export * from './supplier';
 export * from './warehouse-location';
 export * from './task';
 export * from './task-copy';
-export * from './truck';
+export * from './implement';
 export * from './implement-measure';
 export * from './user';
 export * from './dashboard';

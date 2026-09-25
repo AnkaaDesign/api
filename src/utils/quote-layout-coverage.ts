@@ -126,7 +126,7 @@ export interface LayoutFileLike {
 }
 
 export interface VehicleTaskLike extends QuoteTaskLike {
-  truck?: { plate?: string | null } | null;
+  implement?: { plate?: string | null } | null;
 }
 
 export interface QuoteLayoutLike<T extends VehicleTaskLike = VehicleTaskLike> {
@@ -200,7 +200,7 @@ export function layoutSelectionByTask<T extends VehicleTaskLike>(
 export function vehicleLabel(task: VehicleTaskLike | null | undefined, index: number): string {
   const serial = (task?.serialNumber ?? '').trim();
   if (serial) return serial;
-  const plate = (task?.truck?.plate ?? '').trim();
+  const plate = (task?.implement?.plate ?? '').trim();
   if (plate) return plate;
   return String(index + 1);
 }

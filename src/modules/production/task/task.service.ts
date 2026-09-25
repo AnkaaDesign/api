@@ -64,6 +64,12 @@ import {
   validateQuoteStatusChangeRole,
 } from '../budget/budget.guards';
 import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
+import { SERIAL_NUMBER_PATTERN, SERIAL_NUMBER_PATTERN_MESSAGE } from '../../../schemas/task';
+import {
+  isImplementHistoryField,
+  resolveImplementColumn,
+} from '../../common/legacy-implement/implement-field-aliases';
+import { IMPLEMENT_NOT_REMOVABLE_MESSAGE } from '../../common/legacy-implement/legacy-implement-keys';
 import { syncTruckSpotWithCleared } from '../../../utils/task-truck-spot';
 import { hasEntered } from '../../../utils/task-cleared';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
@@ -1114,6 +1120,8 @@ export class TaskService {
       checkoutFiles?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
       truckVinPlate?: Express.Multer.File[];
+      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -1316,33 +1324,21 @@ export class TaskService {
           );
         }
 
-        // Handle truck implementMeasures: create NEW individual implementMeasures for each task
-        // Note: Basic truck creation (plate, chassisNumber, spot, category, implementType) is handled by the repository
-        const truckData = (data as any).truck;
+        // Medidas do implemento: uma linha NOVA por face. O implemento em si
+        // (série, placa, chassi, vaga, categoria, tipo) nasceu com a tarefa no
+        // repositório (W1, DD1) — SEMPRE, mesmo sem nenhum campo.
+        const truckData = (data as any).implement;
         const hasImplementMeasures =
           truckData &&
           (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure);
 
         if (hasImplementMeasures) {
-          this.logger.log(
-            `[Task Create] Creating truck with implementMeasures for task ${newTask.id}`,
-          );
-
-          // Find the truck already created by the repository (via nested create)
-          let truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
+          const truck = await tx.implement.findUnique({ where: { taskId: newTask.id } });
           if (!truck) {
-            // Fallback: create truck if repository didn't create one (e.g., no basic truck fields were provided)
-            truck = await tx.truck.create({
-              data: {
-                taskId: newTask.id,
-                plate: truckData.plate || null,
-                chassisNumber: truckData.chassisNumber || null,
-                vinPlateId: truckData.vinPlateId || null,
-                spot: truckData.spot !== undefined ? truckData.spot : null,
-              },
-            });
+            throw new InternalServerErrorException(
+              'Tarefa criada sem implemento: toda tarefa tem exatamente um implemento.',
+            );
           }
-          this.logger.log(`[Task Create] Truck found/created: ${truck.id}`);
 
           // Uma face por vez, pelo escritor único (a tarefa é nova: toda face
           // nasce com a SUA linha). A trilha continua a de sempre.
@@ -1519,7 +1515,7 @@ export class TaskService {
             // Construct task-like object with truck implementMeasure data for measures calculation
             // The truck implementMeasures come from the input data (truckData)
             const taskWithTruck = {
-              truck: truckData
+              implement: truckData
                 ? {
                     leftSideMeasure: truckData.leftSideMeasure || null,
                     rightSideMeasure: truckData.rightSideMeasure || null,
@@ -1564,9 +1560,9 @@ export class TaskService {
 
           // Foto da plaqueta de identificação (VIN). Imagem ÚNICA e gravada no Truck, não na
           // Task — por isso não entra em `fileUpdates` (que conecta arquivos à tarefa).
-          const vinPlateUpload = files.truckVinPlate?.[0];
+          const vinPlateUpload = files.implementVinPlate?.[0] ?? files.truckVinPlate?.[0];
           if (vinPlateUpload) {
-            const truckForVinPlate = await tx.truck.findUnique({
+            const truckForVinPlate = await tx.implement.findUnique({
               where: { taskId: newTask.id },
               select: { id: true },
             });
@@ -1575,11 +1571,11 @@ export class TaskService {
               const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 vinPlateUpload,
-                'truckVinPlate',
+                'implementVinPlate',
                 userId,
                 { entityId: truckForVinPlate.id, entityType: 'TRUCK', customerName },
               );
-              await tx.truck.update({
+              await tx.implement.update({
                 where: { id: truckForVinPlate.id },
                 data: { vinPlateId: vinPlateFile.id },
               });
@@ -1829,6 +1825,7 @@ export class TaskService {
           ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.truckVinPlate || []),
+          ...(files.implementVinPlate || []),
         ];
 
         for (const file of allFiles) {
@@ -1871,6 +1868,8 @@ export class TaskService {
       baseFiles?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
       truckVinPlate?: Express.Multer.File[];
+      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     // Calculate number of tasks to create
@@ -1893,7 +1892,13 @@ export class TaskService {
       // Remove the range fields and set the actual serial number
       delete (taskData as any).serialNumberFrom;
       delete (taskData as any).serialNumberTo;
-      taskData.serialNumber = String(serialNum);
+      delete (taskData as any).serialNumber;
+      // W3 (DD1): a série da faixa vai para o implemento de CADA tarefa — objeto
+      // próprio por tarefa (a cópia rasa acima compartilharia o do corpo).
+      (taskData as any).implement = {
+        ...((data as any).implement ?? {}),
+        serialNumber: String(serialNum),
+      };
       tasks.push(taskData);
     }
 
@@ -1948,7 +1953,7 @@ export class TaskService {
           { leftSideMeasure: any; rightSideMeasure: any; backSideMeasure: any }
         >();
         for (const [index, task] of data.tasks.entries()) {
-          const truckData = (task as any).truck;
+          const truckData = (task as any).implement;
           if (
             truckData &&
             (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
@@ -2019,7 +2024,7 @@ export class TaskService {
             // (escritor único: cada tarefa do lote ganha as SUAS linhas).
             const savedImplementMeasureData = taskImplementMeasureDataMap.get(index);
             if (savedImplementMeasureData) {
-              const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
+              const truck = await tx.implement.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
                 let wroteAny = false;
                 for (const face of FACES) {
@@ -2333,6 +2338,8 @@ export class TaskService {
       quoteLayoutFile?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
       truckVinPlate?: Express.Multer.File[];
+      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -2425,7 +2432,7 @@ export class TaskService {
             checkoutFiles: true, // Include for changelog tracking
             logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
-            truck: {
+            implement: {
               include: {
                 leftSideMeasure: { include: { sections: true } },
                 rightSideMeasure: { include: { sections: true } },
@@ -2507,103 +2514,36 @@ export class TaskService {
         await this.validateTask(data, id, tx);
 
         // Handle truck and implementMeasure updates (consolidated in single truck object)
-        const truckData = (data as any).truck;
+        const truckData = (data as any).implement;
 
         // Foto NOVA da plaqueta vence o `truck.vinPlateId` do payload. O front manda o objeto
         // `truck` inteiro quando QUALQUER campo dele muda (chassi, placa...), e nesse objeto o
         // `vinPlateId` de um arquivo ainda não enviado vem null. Sem isso, o upsert do
         // repositório (que roda DEPOIS do upload) gravava null por cima do id recém-criado —
         // salvar chassi + foto juntos perdia a foto, e só o segundo save é que a gravava.
-        if (files?.truckVinPlate?.[0] && truckData && typeof truckData === 'object') {
+        if ((files?.implementVinPlate?.[0] ?? files?.truckVinPlate?.[0]) && truckData && typeof truckData === 'object') {
           delete truckData.vinPlateId;
         }
         if (truckData !== undefined) {
           if (truckData === null) {
-            // Delete truck if explicitly set to null
-            if (existingTask.truck) {
-              this.logger.log(`[Task Update] Deleting truck for task ${id}`);
-              const truck = existingTask.truck;
-
-              // As medidas saem pelo escritor único: a face é desconectada e a
-              // linha só é apagada se mais ninguém a usa (nenhuma face de nenhum
-              // caminhão, nenhuma análise de pintura).
-              for (const face of FACES) {
-                const fieldName = FACE_FK[face];
-                if (!truck[fieldName]) continue;
-                const released = await setFace(tx, truck.id, face, null);
-                if (released.previous === 'deleted') {
-                  await logEntityChange({
-                    changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.IMPLEMENT_MEASURE,
-                    entityId: released.previousId!,
-                    action: CHANGE_ACTION.DELETE,
-                    entity: released.before,
-                    userId: userId || '',
-                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: `ImplementMeasure ${fieldName} removido (caminhão deletado)`,
-                    transaction: tx,
-                  });
-                } else {
-                  this.logger.log(
-                    `[Task Update] ImplementMeasure ${released.previousId} still in use elsewhere, skipping deletion`,
-                  );
-                }
-              }
-
-              // Delete truck and create changelog
-              await tx.truck.delete({ where: { id: truck.id } });
-
-              await logEntityChange({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.TRUCK,
-                entityId: truck.id,
-                action: CHANGE_ACTION.DELETE,
-                entity: truck,
-                userId: userId || '',
-                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                reason: 'Caminhão removido da tarefa',
-                transaction: tx,
-              });
-
-              this.logger.log(`[Task Update] Deleted truck ${truck.id} with changelog`);
-            }
-          } else {
-            // Create or update truck
-            let truckId = existingTask.truck?.id;
-            const existingTruck = existingTask.truck;
-
+            // DD1: o implemento não sai da tarefa (o tradutor já recusa o corpo
+            // velho `truck: null`; isto é a segunda cerca, antes do gatilho
+            // diferido que daria 500 no COMMIT).
+            throw new BadRequestException(IMPLEMENT_NOT_REMOVABLE_MESSAGE);
+          }
+          {
+            // O implemento SEMPRE existe (DD1): o ramo que o criava aqui saiu.
+            const truckId = existingTask.implement?.id;
+            const existingTruck = existingTask.implement;
             if (!truckId) {
-              // Create new truck
-              this.logger.log(`[Task Update] Creating truck for task ${id}`);
-              const newTruck = await tx.truck.create({
-                data: {
-                  taskId: id,
-                  plate: truckData.plate || null,
-                  chassisNumber: truckData.chassisNumber || null,
-                  vinPlateId: truckData.vinPlateId || null,
-                  category: truckData.category || null,
-                  implementType: truckData.implementType || null,
-                  spot: truckData.spot !== undefined ? truckData.spot : null,
-                },
-              });
-              truckId = newTruck.id;
+              throw new InternalServerErrorException(
+                'Tarefa sem implemento: toda tarefa tem exatamente um implemento.',
+              );
+            }
 
-              // Create changelog for truck creation
-              await logEntityChange({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.TRUCK,
-                entityId: newTruck.id,
-                action: CHANGE_ACTION.CREATE,
-                entity: newTruck,
-                userId: userId || '',
-                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                reason: 'Caminhão criado via atualização de tarefa',
-                transaction: tx,
-              });
-
-              this.logger.log(`[Task Update] Created truck ${newTruck.id} with changelog`);
-            } else {
-              // Update existing truck basic fields
+            {
+              // Campos do implemento (a SÉRIE fica de fora: ela vai pelo
+              // repositório, W2, e a trilha dela é TASK/serialNumber, S-5).
               const updateFields: any = {};
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
               if (truckData.chassisNumber !== undefined)
@@ -2611,12 +2551,11 @@ export class TaskService {
               if (truckData.vinPlateId !== undefined)
                 updateFields.vinPlateId = truckData.vinPlateId;
               if (truckData.category !== undefined) updateFields.category = truckData.category;
-              if (truckData.implementType !== undefined)
-                updateFields.implementType = truckData.implementType;
+              if (truckData.type !== undefined) updateFields.type = truckData.type;
               if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
               if (Object.keys(updateFields).length > 0) {
-                const updatedTruck = await tx.truck.update({
+                const updatedTruck = await tx.implement.update({
                   where: { id: truckId },
                   data: updateFields,
                 });
@@ -2841,7 +2780,6 @@ export class TaskService {
               await replicateImplementMeasuresToQuoteSiblings(tx, {
                 sourceTaskId: id,
                 sides: [...ladosEscritos],
-                createMissingTruck: true,
                 logChange: (entry: ReplicationLogEntry) =>
                   this.logReplicatedMeasure(entry, id, userId, tx),
               });
@@ -2863,18 +2801,18 @@ export class TaskService {
         //
         // Substitui a anterior — o campo é uma imagem só. O arquivo antigo NÃO é apagado:
         // continua acessível pelo changelog e o File pode estar referenciado em outro lugar.
-        const vinPlateUpload = files?.truckVinPlate?.[0];
+        const vinPlateUpload = files?.implementVinPlate?.[0] ?? files?.truckVinPlate?.[0];
         if (vinPlateUpload) {
           const vinPlateTruckId =
-            (await tx.truck.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ??
+            (await tx.implement.findUnique({ where: { taskId: id }, select: { id: true } }))?.id ??
             null;
 
           if (vinPlateTruckId) {
-            const previousVinPlateId = existingTask.truck?.vinPlateId ?? null;
+            const previousVinPlateId = existingTask.implement?.vinPlateId ?? null;
             const vinPlateFile = await this.fileService.createFromUploadWithTransaction(
               tx,
               vinPlateUpload,
-              'truckVinPlate',
+              'implementVinPlate',
               userId,
               {
                 entityId: vinPlateTruckId,
@@ -2882,7 +2820,7 @@ export class TaskService {
                 customerName: existingTask.customer?.fantasyName,
               },
             );
-            const truckWithVinPlate = await tx.truck.update({
+            const truckWithVinPlate = await tx.implement.update({
               where: { id: vinPlateTruckId },
               data: { vinPlateId: vinPlateFile.id },
             });
@@ -3348,7 +3286,7 @@ export class TaskService {
               baseFiles: true, // Include for changelog tracking
               logoPaints: true, // Include for changelog tracking
               observation: { include: { files: true } }, // Include for changelog tracking
-              truck: true, // Include for truck field changelog tracking
+              implement: true, // Include for truck field changelog tracking
               serviceOrders: {
                 include: {
                   checkinFiles: { select: { id: true } },
@@ -4270,7 +4208,7 @@ export class TaskService {
               customer: true,
               layouts: true,
               observation: { include: { files: true } },
-              truck: true,
+              implement: true,
               serviceOrders:
                 typeof clientSOInclude === 'object' && 'include' in clientSOInclude
                   ? clientSOInclude
@@ -4348,7 +4286,7 @@ export class TaskService {
                         customer: true,
                         layouts: true,
                         observation: { include: { files: true } },
-                        truck: true,
+                        implement: true,
                         serviceOrders: true,
                       },
                     })) as any;
@@ -4418,7 +4356,7 @@ export class TaskService {
                   customer: true,
                   layouts: true,
                   observation: { include: { files: true } },
-                  truck: true,
+                  implement: true,
                   serviceOrders: true,
                 },
               })) as any;
@@ -4473,7 +4411,7 @@ export class TaskService {
                   customer: true,
                   layouts: true,
                   observation: { include: { files: true } },
-                  truck: true,
+                  implement: true,
                   serviceOrders: true,
                 },
               })) as any;
@@ -4561,7 +4499,7 @@ export class TaskService {
                   customer: true,
                   layouts: true,
                   observation: { include: { files: true } },
-                  truck: true,
+                  implement: true,
                   serviceOrders: true,
                 },
               })) as any;
@@ -4642,7 +4580,7 @@ export class TaskService {
                       customer: true,
                       layouts: true,
                       observation: { include: { files: true } },
-                      truck: true,
+                      implement: true,
                       serviceOrders: true,
                     },
                   })) as any;
@@ -4977,7 +4915,7 @@ export class TaskService {
                 customer: true,
                 layouts: true,
                 observation: { include: { files: true } },
-                truck: true,
+                implement: true,
                 serviceOrders: true,
               },
             });
@@ -5048,7 +4986,7 @@ export class TaskService {
                 customer: true,
                 layouts: true,
                 observation: { include: { files: true } },
-                truck: true,
+                implement: true,
                 serviceOrders: true,
                 quote: { include: { services: true } },
               },
@@ -5544,7 +5482,7 @@ export class TaskService {
               customer: true,
               layouts: true,
               observation: { include: { files: true } },
-              truck: true,
+              implement: true,
               serviceOrders: true,
               airbrushings: true,
             },
@@ -6330,7 +6268,7 @@ export class TaskService {
                 baseFiles: true,
                 logoPaints: true,
                 observation: { include: { files: true } },
-                truck: true,
+                implement: true,
                 serviceOrders: true,
               },
             });
@@ -7251,6 +7189,7 @@ export class TaskService {
           ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.truckVinPlate || []),
+          ...(files.implementVinPlate || []),
         ];
 
         for (const file of allFiles) {
@@ -7297,6 +7236,8 @@ export class TaskService {
       baseFiles?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no Truck. */
       truckVinPlate?: Express.Multer.File[];
+      /** a mesma plaqueta pelo nome novo do campo multipart (o velho vale na janela) */
+      implementVinPlate?: Express.Multer.File[];
     },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
@@ -7891,7 +7832,7 @@ export class TaskService {
             // Inject uploaded photo IDs into truck data for all tasks
             if (Object.keys(uploadedImplementMeasurePhotoIds).length > 0) {
               for (const task of data.tasks) {
-                const truckData = (task.data as any)?.truck;
+                const truckData = (task.data as any)?.implement;
                 if (truckData) {
                   if (uploadedImplementMeasurePhotoIds.leftSide && truckData.leftSideMeasure) {
                     truckData.leftSideMeasure.photoId = uploadedImplementMeasurePhotoIds.leftSide;
@@ -8496,7 +8437,7 @@ export class TaskService {
 
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
-          const truckData = (updateData as any)?.truck;
+          const truckData = (updateData as any)?.implement;
           if (
             truckData &&
             (truckData.leftSideMeasure || truckData.rightSideMeasure || truckData.backSideMeasure)
@@ -8524,7 +8465,7 @@ export class TaskService {
             const taskWithTruck = await tx.task.findUnique({
               where: { id: taskId },
               include: {
-                truck: {
+                implement: {
                   include: {
                     leftSideMeasure: true,
                     rightSideMeasure: true,
@@ -8534,26 +8475,12 @@ export class TaskService {
               },
             });
 
-            // Get or create truck
-            let truckId = taskWithTruck?.truck?.id;
-
+            // O implemento SEMPRE existe (DD1): o ramo que o criava aqui saiu.
+            const truckId = taskWithTruck?.implement?.id;
             if (!truckId) {
-              this.logger.log(`[batchUpdate] No truck exists for task ${taskId} - creating one`);
-              const newTruck = await tx.truck.create({
-                data: {
-                  taskId: taskId,
-                  plate: truckData.plate || null,
-                  chassisNumber: truckData.chassisNumber || null,
-                  vinPlateId: truckData.vinPlateId || null,
-                  category: truckData.category || null,
-                  implementType: truckData.implementType || null,
-                  spot: truckData.spot !== undefined ? truckData.spot : null,
-                },
-              });
-              truckId = newTruck.id;
-              this.logger.log(`[batchUpdate] Truck created: ${truckId}`);
-            } else {
-              this.logger.log(`[batchUpdate] Using existing truck: ${truckId}`);
+              throw new InternalServerErrorException(
+                `Tarefa ${taskId} sem implemento: toda tarefa tem exatamente um implemento.`,
+              );
             }
 
             const SIDE_NAMES: Record<ImplementFace, string> = {
@@ -8660,7 +8587,6 @@ export class TaskService {
             await replicateImplementMeasuresToQuoteSiblings(tx, {
               sourceTaskId: taskId,
               sides: lados,
-              createMissingTruck: true,
               logChange: (entry: ReplicationLogEntry) =>
                 this.logReplicatedMeasure(entry, taskId, userId, tx),
             });
@@ -9102,6 +9028,40 @@ export class TaskService {
                     isFileArray: false,
                   });
                 }
+              }
+            }
+
+            // A SÉRIE (DD1, W2 em lote): gravada no implemento pelo repositório; a
+            // trilha é TASK/serialNumber (S-5), lida do espelho que o gatilho
+            // atualizou na mesma transação.
+            if (
+              (updateData as any).serialNumber !== undefined ||
+              (updateData as any).implement?.serialNumber !== undefined
+            ) {
+              const oldSerial = (existingTask as any).serialNumber ?? null;
+              const newSerial = (updatedTask as any).serialNumber ?? null;
+              if (hasValueChanged(oldSerial, newSerial)) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'serialNumber',
+                  oldValue: oldSerial,
+                  newValue: newSerial,
+                  reason: `Campo ${translateFieldName('serialNumber')} atualizado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+                fieldChangesForEvents.push({
+                  taskId: task.id,
+                  task: updatedTask,
+                  field: 'serialNumber',
+                  oldValue: oldSerial,
+                  newValue: newSerial,
+                  isFileArray: false,
+                });
               }
             }
 
@@ -9586,7 +9546,7 @@ export class TaskService {
       where: { taskId: { in: taskIds }, billing: BILLING_FROZEN_WHERE },
       select: {
         taskId: true,
-        task: { select: { serialNumber: true, name: true, truck: { select: { plate: true } } } },
+        task: { select: { serialNumber: true, name: true, implement: { select: { plate: true } } } },
         billing: { select: { quote: { select: { budgetNumber: true } } } },
       },
     });
@@ -9594,7 +9554,7 @@ export class TaskService {
       taskId: row.taskId,
       label:
         row.task?.serialNumber ??
-        row.task?.truck?.plate ??
+        row.task?.implement?.plate ??
         row.task?.name ??
         String(row.taskId).slice(0, 8),
       budgetNumber: row.billing?.quote?.budgetNumber ?? null,
@@ -10447,23 +10407,42 @@ export class TaskService {
       }
     }
 
-    // Validate unique serial number
-    if (data.serialNumber) {
-      const existing = await transaction.task.findFirst({
+    // A SÉRIE (DD1): mora no implemento — no corpo, `implement.serialNumber` ou
+    // o legado no topo (D-32; topo × implemento diferentes já deram 400 no
+    // tradutor). Unicidade no IMPLEMENTO (`Implement_serialNumber_key`).
+    const serial =
+      (data as any).implement?.serialNumber !== undefined
+        ? (data as any).implement?.serialNumber
+        : data.serialNumber;
+    if (serial) {
+      // V15: na EDIÇÃO, a regra da série vale só quando ela MUDA — as 42 séries
+      // antigas fora da regra migraram como estavam, e o app reenvia a série
+      // inteira a cada gravação.
+      if (existingId) {
+        const current = await transaction.implement.findUnique({
+          where: { taskId: existingId },
+          select: { serialNumber: true },
+        });
+        if ((current?.serialNumber ?? null) !== serial && !SERIAL_NUMBER_PATTERN.test(serial)) {
+          throw new BadRequestException(SERIAL_NUMBER_PATTERN_MESSAGE);
+        }
+      }
+      const existing = await transaction.implement.findFirst({
         where: {
-          serialNumber: data.serialNumber,
-          ...(existingId && { id: { not: existingId } }),
+          serialNumber: serial,
+          ...(existingId && { taskId: { not: existingId } }),
         },
+        select: { id: true },
       });
       if (existing) {
         throw new BadRequestException('Número de série já está em uso.');
       }
     }
 
-    // Validate unique plate (plate is nested under truck object)
-    const plate = (data as any).truck?.plate;
+    // Placa única (a placa é do implemento)
+    const plate = (data as any).implement?.plate;
     if (plate) {
-      const existing = await transaction.truck.findFirst({
+      const existing = await transaction.implement.findFirst({
         where: {
           plate: plate,
           ...(existingId && { taskId: { not: existingId } }),
@@ -10472,6 +10451,27 @@ export class TaskService {
       if (existing) {
         throw new BadRequestException('Placa já está cadastrada.');
       }
+    }
+  }
+
+  /**
+   * W6: a série a restaurar não pode estar em outra tarefa (unicidade no
+   * implemento, DD1). Sem esta checagem o conflito virava P2002 → 500.
+   */
+  private async assertSerialFreeForRollback(
+    tx: PrismaTransaction,
+    serial: unknown,
+    taskId: string,
+  ): Promise<void> {
+    if (typeof serial !== 'string' || serial === '') return;
+    const owner = await tx.implement.findFirst({
+      where: { serialNumber: serial, NOT: { taskId } },
+      select: { taskId: true },
+    });
+    if (owner) {
+      throw new BadRequestException(
+        `Não é possível reverter: o número de série ${serial} já está em uso em outra tarefa.`,
+      );
     }
   }
 
@@ -10593,9 +10593,16 @@ export class TaskService {
       }
 
       if (changeLog.entityType === 'TRUCK') {
-        const fieldToRevert = changeLog.field;
-        if (!fieldToRevert) {
+        const loggedField = changeLog.field;
+        if (!loggedField) {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
+        }
+        // O histórico guarda o nome da ÉPOCA (`implementType`); a coluna é `type`.
+        const fieldToRevert = resolveImplementColumn(loggedField);
+        if (!fieldToRevert) {
+          throw new BadRequestException(
+            `Não é possível reverter "${loggedField}": o campo não existe mais no implemento.`,
+          );
         }
 
         let convertedValue: any = changeLog.oldValue;
@@ -10609,7 +10616,14 @@ export class TaskService {
         if (revertedFace && FACE_FK[revertedFace] === fieldToRevert) {
           await this.restoreFaceFromChangelog(tx, changeLog.entityId, revertedFace, convertedValue);
         } else {
-          await tx.truck.update({
+          if (fieldToRevert === 'serialNumber') {
+            const owner = await tx.implement.findUnique({
+              where: { id: changeLog.entityId },
+              select: { taskId: true },
+            });
+            await this.assertSerialFreeForRollback(tx, convertedValue, owner?.taskId ?? '');
+          }
+          await tx.implement.update({
             where: { id: changeLog.entityId },
             data: { [fieldToRevert]: convertedValue },
           });
@@ -11056,7 +11070,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
               cuts: {
                 include: {
@@ -11177,7 +11191,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
               layouts: true,
             },
@@ -11409,7 +11423,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
               quote: { include: { services: true } },
             },
@@ -11443,29 +11457,39 @@ export class TaskService {
         };
       }
 
-      // 5d. Special handling for nested truck fields
-      if (fieldToRevert.startsWith('truck.')) {
-        const truckField = fieldToRevert.replace('truck.', '');
+      // 5d. Campo do IMPLEMENTO gravado como `truck.*` (histórico) ou `implement.*`.
+      // O nome gravado passa por `LEGACY_FIELD_ALIASES` (`truck.implementType` →
+      // `type`); nome sem coluna hoje → 400 com mensagem, nunca o 500 do Prisma.
+      if (isImplementHistoryField(fieldToRevert)) {
+        const truckField = resolveImplementColumn(fieldToRevert);
+        if (!truckField) {
+          throw new BadRequestException(
+            `Não é possível reverter "${fieldToRevert}": o campo não existe mais no implemento.`,
+          );
+        }
         const taskWithTruck = await tx.task.findUnique({
           where: { id: changeLog.entityId },
-          include: { truck: true },
+          include: { implement: true },
         });
 
-        if (!taskWithTruck?.truck) {
-          throw new BadRequestException('Tarefa não possui caminhão associado');
+        if (!taskWithTruck?.implement) {
+          throw new BadRequestException('Tarefa sem implemento: nada a reverter.');
+        }
+        if (truckField === 'serialNumber') {
+          await this.assertSerialFreeForRollback(tx, convertedValue, changeLog.entityId);
         }
 
         const revertedFace = faceOf(truckField);
         if (revertedFace && FACE_FK[revertedFace] === truckField) {
           await this.restoreFaceFromChangelog(
             tx,
-            taskWithTruck.truck.id,
+            taskWithTruck.implement.id,
             revertedFace,
             convertedValue,
           );
         } else {
-          await tx.truck.update({
-            where: { id: taskWithTruck.truck.id },
+          await tx.implement.update({
+            where: { id: taskWithTruck.implement.id },
             data: { [truckField]: convertedValue },
           });
         }
@@ -11478,7 +11502,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
             },
           },
@@ -11541,7 +11565,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
               responsibles: true,
             },
@@ -11612,7 +11636,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: true,
+              implement: true,
               createdBy: true,
               observation: true,
             },
@@ -11658,7 +11682,7 @@ export class TaskService {
         if (parsedOldValue === undefined) parsedOldValue = null;
 
         // Find the truck for this task
-        const truck = await tx.truck.findUnique({
+        const truck = await tx.implement.findUnique({
           where: { taskId: changeLog.entityId },
           include: {
             leftSideMeasure: { include: { sections: true } },
@@ -11688,7 +11712,7 @@ export class TaskService {
               customer: true,
               sector: true,
               generalPainting: true,
-              truck: {
+              implement: {
                 include: {
                   leftSideMeasure: { include: { sections: true } },
                   rightSideMeasure: { include: { sections: true } },
@@ -11760,6 +11784,12 @@ export class TaskService {
         updateData.bonificationOrder = getBonificationStatusOrder(convertedValue as string);
       }
 
+      // W6 (DD1): a série volta pelo repositório (W2 → implemento), com a
+      // unicidade conferida ANTES — o conflito virava P2002 → 500.
+      if (fieldToRevert === 'serialNumber') {
+        await this.assertSerialFreeForRollback(tx, convertedValue, changeLog.entityId);
+      }
+
       // 7. Update the task with relations included for proper response
       const updatedTask = await this.tasksRepository.updateWithTransaction(
         tx,
@@ -11770,7 +11800,7 @@ export class TaskService {
             customer: true,
             sector: true,
             generalPainting: true,
-            truck: true,
+            implement: true,
             createdBy: true,
           },
         },
@@ -11844,7 +11874,7 @@ export class TaskService {
       const task = await tx.task.findUnique({
         where: { id: taskId },
         include: {
-          truck: {
+          implement: {
             include: {
               leftSideMeasure: { include: { sections: true } },
               rightSideMeasure: { include: { sections: true } },
@@ -11858,16 +11888,16 @@ export class TaskService {
         throw new NotFoundException(`Tarefa ${taskId} não encontrada`);
       }
 
-      if (!task.truck) {
+      if (!task.implement) {
         throw new BadRequestException(`Tarefa ${taskId} não possui caminhão associado`);
       }
 
       // Validate that truck has implementMeasure before positioning
       if (
         positionData.spot &&
-        !task.truck.leftSideMeasure &&
-        !task.truck.rightSideMeasure &&
-        !task.truck.backSideMeasure
+        !task.implement.leftSideMeasure &&
+        !task.implement.rightSideMeasure &&
+        !task.implement.backSideMeasure
       ) {
         throw new BadRequestException(
           `O caminhão da tarefa "${task.name}" não possui implementMeasure configurado. Configure pelo menos um implementMeasure (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
@@ -11876,10 +11906,10 @@ export class TaskService {
 
       // Validate spot availability (check if spot is already occupied)
       if (positionData.spot) {
-        const existingTruck = await tx.truck.findFirst({
+        const existingTruck = await tx.implement.findFirst({
           where: {
             spot: positionData.spot,
-            id: { not: task.truck.id },
+            id: { not: task.implement.id },
           },
         });
 
@@ -11890,11 +11920,11 @@ export class TaskService {
         }
       }
 
-      const oldSpot = task.truck.spot;
+      const oldSpot = task.implement.spot;
 
       // Update truck spot
-      await tx.truck.update({
-        where: { id: task.truck.id },
+      await tx.implement.update({
+        where: { id: task.implement.id },
         data: {
           spot: positionData.spot,
         },
@@ -11904,7 +11934,7 @@ export class TaskService {
       if (userId) {
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TRUCK,
-          entityId: task.truck.id,
+          entityId: task.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
           oldValue: { spot: oldSpot },
@@ -12002,34 +12032,34 @@ export class TaskService {
       // Fetch both tasks with trucks
       const task1 = await tx.task.findUnique({
         where: { id: taskId1 },
-        include: { truck: true },
+        include: { implement: true },
       });
 
       const task2 = await tx.task.findUnique({
         where: { id: taskId2 },
-        include: { truck: true },
+        include: { implement: true },
       });
 
       if (!task1 || !task2) {
         throw new NotFoundException('Uma ou ambas as tarefas não foram encontradas');
       }
 
-      if (!task1.truck || !task2.truck) {
+      if (!task1.implement || !task2.implement) {
         throw new BadRequestException('Ambas as tarefas devem ter caminhões associados');
       }
 
       // Store original spots
-      const truck1Spot = task1.truck.spot;
-      const truck2Spot = task2.truck.spot;
+      const truck1Spot = task1.implement.spot;
+      const truck2Spot = task2.implement.spot;
 
       // Swap spots
-      await tx.truck.update({
-        where: { id: task1.truck.id },
+      await tx.implement.update({
+        where: { id: task1.implement.id },
         data: { spot: truck2Spot },
       });
 
-      await tx.truck.update({
-        where: { id: task2.truck.id },
+      await tx.implement.update({
+        where: { id: task2.implement.id },
         data: { spot: truck1Spot },
       });
 
@@ -12037,12 +12067,12 @@ export class TaskService {
       if (userId) {
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TRUCK,
-          entityId: task1.truck.id,
+          entityId: task1.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
           oldValue: { spot: truck1Spot },
           newValue: { spot: truck2Spot },
-          reason: `Spot swapped with truck ${task2.truck.id}`,
+          reason: `Spot swapped with truck ${task2.implement.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -12050,12 +12080,12 @@ export class TaskService {
 
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TRUCK,
-          entityId: task2.truck.id,
+          entityId: task2.implement.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
           oldValue: { spot: truck2Spot },
           newValue: { spot: truck1Spot },
-          reason: `Spot swapped with truck ${task1.truck.id}`,
+          reason: `Spot swapped with truck ${task1.implement.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -12961,7 +12991,7 @@ export class TaskService {
   ): Promise<void> {
     const old = typeof value === 'string' ? { id: value } : value;
     const currentId =
-      ((await tx.truck.findUnique({ where: { id: truckId }, select: { [FACE_FK[face]]: true } })) as
+      ((await tx.implement.findUnique({ where: { id: truckId }, select: { [FACE_FK[face]]: true } })) as
         | Record<string, string | null>
         | null)?.[FACE_FK[face]] ?? null;
     const isCurrent = !!old?.id && old.id === currentId;
@@ -13299,11 +13329,11 @@ export class TaskService {
         const sourceTask = await tx.task.findUnique({
           where: { id: sourceTaskId },
           include: {
-            truck: {
+            implement: {
               select: {
                 id: true,
                 category: true,
-                implementType: true,
+                type: true,
                 spot: true,
                 // Include full implementMeasure data for cloning individual instances
                 backSideMeasureId: true,
@@ -13451,7 +13481,7 @@ export class TaskService {
         this.logger.debug(
           `[copyFromTask] Source task loaded: ${sourceTask.name} (${sourceTask.id})`,
         );
-        this.logger.debug(`[copyFromTask] Source has truck: ${!!sourceTask.truck}`);
+        this.logger.debug(`[copyFromTask] Source has truck: ${!!sourceTask.implement}`);
         this.logger.debug(`[copyFromTask] Source has cuts: ${sourceTask.cuts?.length || 0}`);
         this.logger.debug(
           `[copyFromTask] Source has airbrushings: ${sourceTask.airbrushings?.length || 0}`,
@@ -13472,11 +13502,11 @@ export class TaskService {
         const destinationTask = await tx.task.findUnique({
           where: { id: destinationTaskId },
           include: {
-            truck: {
+            implement: {
               select: {
                 id: true,
                 category: true,
-                implementType: true,
+                type: true,
                 spot: true,
                 backSideMeasureId: true,
                 leftSideMeasureId: true,
@@ -13568,12 +13598,12 @@ export class TaskService {
             destinationTask.serviceOrders?.filter(so => so.type === 'LOGISTIC').length || 0,
           'serviceOrders:ARTWORK':
             destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
-          implementType: destinationTask.truck?.implementType || null,
-          category: destinationTask.truck?.category || null,
+          implementType: destinationTask.implement?.type || null,
+          category: destinationTask.implement?.category || null,
           implementMeasures: {
-            backSideMeasureId: destinationTask.truck?.backSideMeasureId || null,
-            leftSideMeasureId: destinationTask.truck?.leftSideMeasureId || null,
-            rightSideMeasureId: destinationTask.truck?.rightSideMeasureId || null,
+            backSideMeasureId: destinationTask.implement?.backSideMeasureId || null,
+            leftSideMeasureId: destinationTask.implement?.leftSideMeasureId || null,
+            rightSideMeasureId: destinationTask.implement?.rightSideMeasureId || null,
           },
           observation: destinationTask.observation?.description || null,
         };
@@ -13934,61 +13964,36 @@ export class TaskService {
               break;
 
             // ===== IMPLEMENT TYPE (Shared Reference) =====
+            // (o token continua `implementType`: renomeá-lo seria 400 no app instalado)
             case 'implementType':
-              if (hasData(sourceTask.truck?.implementType)) {
-                const existingTruck = await tx.truck.findUnique({
+              if (hasData(sourceTask.implement?.type)) {
+                // DD1: o implemento do destino SEMPRE existe — `update`, nunca criar.
+                await tx.implement.update({
                   where: { taskId: destinationTaskId },
+                  data: { type: sourceTask.implement.type },
                 });
-
-                if (existingTruck) {
-                  await tx.truck.update({
-                    where: { taskId: destinationTaskId },
-                    data: { implementType: sourceTask.truck.implementType },
-                  });
-                } else {
-                  await tx.truck.create({
-                    data: {
-                      implementType: sourceTask.truck.implementType,
-                      taskId: destinationTaskId,
-                      spot: null,
-                    },
-                  });
-                }
                 copiedFields.push(field);
-                details.implementType = sourceTask.truck.implementType;
+                details.implementType = sourceTask.implement.type;
               }
               break;
 
             // ===== CATEGORY (Shared Reference) =====
             case 'category':
-              if (hasData(sourceTask.truck?.category)) {
-                const existingTruck = await tx.truck.findUnique({
+              if (hasData(sourceTask.implement?.category)) {
+                // DD1: o implemento do destino SEMPRE existe — `update`, nunca criar.
+                await tx.implement.update({
                   where: { taskId: destinationTaskId },
+                  data: { category: sourceTask.implement.category },
                 });
-
-                if (existingTruck) {
-                  await tx.truck.update({
-                    where: { taskId: destinationTaskId },
-                    data: { category: sourceTask.truck.category },
-                  });
-                } else {
-                  await tx.truck.create({
-                    data: {
-                      category: sourceTask.truck.category,
-                      taskId: destinationTaskId,
-                      spot: null,
-                    },
-                  });
-                }
                 copiedFields.push(field);
-                details.category = sourceTask.truck.category;
+                details.category = sourceTask.implement.category;
               }
               break;
 
             // ===== LAYOUTS (Individual Clones) =====
             case 'implementMeasures':
-              if (hasData(sourceTask.truck)) {
-                const existingTruck = await tx.truck.findUnique({
+              if (hasData(sourceTask.implement)) {
+                const existingTruck = await tx.implement.findUnique({
                   where: { taskId: destinationTaskId },
                   select: { id: true },
                 });
@@ -13996,18 +14001,16 @@ export class TaskService {
                 // Cada face da origem vira uma linha NOVA no destino (escritor
                 // único, `cloneFaces`); a anterior do destino só sai se ficou sem
                 // uso. Face vazia na origem não mexe no destino.
-                let destinationTruckId = existingTruck?.id;
+                // DD1: o implemento do destino SEMPRE existe (o ramo que o criava saiu).
+                const destinationTruckId = existingTruck?.id;
                 if (!destinationTruckId) {
-                  // Create truck if it doesn't exist
-                  const createdTruck = await tx.truck.create({
-                    data: { taskId: destinationTaskId, spot: null },
-                    select: { id: true },
-                  });
-                  destinationTruckId = createdTruck.id;
+                  throw new InternalServerErrorException(
+                    'Tarefa de destino sem implemento: toda tarefa tem exatamente um implemento.',
+                  );
                 }
                 const clonedFaces = await cloneFaces(
                   tx,
-                  sourceTask.truck.id,
+                  sourceTask.implement.id,
                   destinationTruckId,
                 );
 
@@ -14037,13 +14040,13 @@ export class TaskService {
                 details.implementMeasures = {
                   ...implementMeasureData,
                   leftSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.truck.leftSideMeasure,
+                    sourceTask.implement.leftSideMeasure,
                   ),
                   rightSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.truck.rightSideMeasure,
+                    sourceTask.implement.rightSideMeasure,
                   ),
                   backSideDimensions: getImplementMeasureDimensions(
-                    sourceTask.truck.backSideMeasure,
+                    sourceTask.implement.backSideMeasure,
                   ),
                 };
               }
@@ -14274,7 +14277,6 @@ export class TaskService {
           await replicateImplementMeasuresToQuoteSiblings(tx, {
             sourceTaskId: destinationTaskId,
             sides: ladosDeMedidaCopiados,
-            createMissingTruck: true,
             logChange: (entry: ReplicationLogEntry) =>
               this.logReplicatedMeasure(entry, destinationTaskId, userId, tx),
           });

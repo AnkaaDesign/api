@@ -248,9 +248,10 @@ async function main() {
       const t = await prisma.task.create({
         data: {
           name: `${NAME_PREFIX}-${serial + 1}`,
-          serialNumber: nextSerial(),
           customerId: customer.id,
           ...(quoteId && { quoteId }),
+          // DD1: toda tarefa nasce com implemento, e a série mora nele
+          implement: { create: { serialNumber: nextSerial(), spot: null } },
         },
       });
       createdTaskIds.push(t.id);
@@ -258,7 +259,7 @@ async function main() {
     };
     const mkTaskWithTruck = async (quoteId?: string) => {
       const t = await mkTask(quoteId);
-      const truck = await prisma.truck.create({ data: { taskId: t.id } });
+      const truck = await prisma.implement.findUnique({ where: { taskId: t.id } });
       return { task: t, truck };
     };
     const mkPhoto = async (tag: string) =>
@@ -288,7 +289,7 @@ async function main() {
     };
     const faceRow = async (truckId: string | undefined, face: Face) => {
       if (!truckId) return null;
-      const t = await prisma.truck.findUnique({
+      const t = await prisma.implement.findUnique({
         where: { id: truckId },
         select: {
           [FK[face]]: true,
@@ -308,7 +309,7 @@ async function main() {
       return (t as any)?.[REL[face]] ?? null;
     };
     const truckOfTask = async (taskId: string) =>
-      prisma.truck.findUnique({ where: { taskId }, select: { id: true } });
+      prisma.implement.findUnique({ where: { taskId }, select: { id: true } });
     /** Metros, ordem e posição das seções, e (opcional) a foto. */
     const expectFace = async (
       label: string,
@@ -331,7 +332,7 @@ async function main() {
     };
     /** Toda linha usada pelas faces destes caminhões é usada por UMA face só, no banco inteiro. */
     const expectNoSharing = async (label: string, truckIds: string[]) => {
-      const trucks = await prisma.truck.findMany({
+      const trucks = await prisma.implement.findMany({
         where: { id: { in: truckIds } },
         select: { leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
       });
@@ -340,7 +341,7 @@ async function main() {
         .filter(Boolean);
       const shared: string[] = [];
       for (const id of new Set(ids)) {
-        const n = await prisma.truck.count({
+        const n = await prisma.implement.count({
           where: {
             OR: [
               { leftSideMeasureId: id as string },
@@ -370,8 +371,8 @@ async function main() {
           sections: { create: [{ width: 6.0, isDoor: false, doorHeight: null, position: 0 }] },
         },
       });
-      await prisma.truck.update({ where: { id: a.truck.id }, data: { [FK[face]]: legacy.id } });
-      await prisma.truck.update({ where: { id: b.truck.id }, data: { [FK[face]]: legacy.id } });
+      await prisma.implement.update({ where: { id: a.truck.id }, data: { [FK[face]]: legacy.id } });
+      await prisma.implement.update({ where: { id: b.truck.id }, data: { [FK[face]]: legacy.id } });
       return { a, b, legacyId: legacy.id };
     };
     const expectBUntouched = async (label: string, truckId: string, face: Face, legacyId: string) => {
@@ -398,7 +399,7 @@ async function main() {
           name: `${NAME_PREFIX}-create`,
           customerId: customer.id,
           serialNumber: nextSerial(),
-          truck: Object.fromEntries(
+          implement: Object.fromEntries(
             FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)]),
           ),
         }),
@@ -422,7 +423,7 @@ async function main() {
         name: `${NAME_PREFIX}-batch`,
         customerId: customer.id,
         serialNumber: nextSerial(),
-        truck: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])),
+        implement: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])),
       });
       const result = await tasks.batchCreate(
         parse(taskBatchCreateSchema, { tasks: [body(), body()] }),
@@ -454,7 +455,7 @@ async function main() {
       await tasks.update(
         task.id,
         parse(taskUpdateSchema, {
-          truck: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f])])),
+          implement: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f])])),
         }),
         undefined,
         user.id,
@@ -468,7 +469,7 @@ async function main() {
       await tasks.update(
         task.id,
         parse(taskUpdateSchema, {
-          truck: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H2[f], W2[f])])),
+          implement: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H2[f], W2[f])])),
         }),
         undefined,
         user.id,
@@ -481,7 +482,7 @@ async function main() {
       // Seções vazias numa edição = manter as atuais (o defeito "as medidas sumiram").
       await tasks.update(
         task.id,
-        parse(taskUpdateSchema, { truck: { leftSideMeasure: { height: 2.75, sections: [] } } }),
+        parse(taskUpdateSchema, { implement: { leftSideMeasure: { height: 2.75, sections: [] } } }),
         undefined,
         user.id,
         'ADMIN',
@@ -490,7 +491,7 @@ async function main() {
       await tasks.update(
         task.id,
         parse(taskUpdateSchema, {
-          truck: { leftSideMeasure: medida(H2.left, W2.left) },
+          implement: { leftSideMeasure: medida(H2.left, W2.left) },
         }),
         undefined,
         user.id,
@@ -499,7 +500,7 @@ async function main() {
 
       const files: Record<string, any> = {};
       for (const f of FACES_T) files[PHOTO_KEY[f]] = [mkUpload(`upload-${f}`)];
-      await tasks.update(task.id, parse(taskUpdateSchema, { truck: {} }), undefined, user.id, 'ADMIN', files);
+      await tasks.update(task.id, parse(taskUpdateSchema, { implement: {} }), undefined, user.id, 'ADMIN', files);
       for (const f of FACES_T) {
         const row = await faceRow(truck.id, f);
         const file = row?.photoId
@@ -516,7 +517,7 @@ async function main() {
       await tasks.update(
         task.id,
         parse(taskUpdateSchema, {
-          truck: Object.fromEntries(FACES_T.map(f => [REL[f], null])),
+          implement: Object.fromEntries(FACES_T.map(f => [REL[f], null])),
         }),
         undefined,
         user.id,
@@ -532,7 +533,7 @@ async function main() {
         const { a, b, legacyId } = await mkSharedPair(f);
         await tasks.update(
           a.task.id,
-          parse(taskUpdateSchema, { truck: { [REL[f]]: medida(H2[f], W2[f]) } }),
+          parse(taskUpdateSchema, { implement: { [REL[f]]: medida(H2[f], W2[f]) } }),
           undefined,
           user.id,
           'ADMIN',
@@ -543,20 +544,20 @@ async function main() {
         await expectNoSharing(`#3 ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
 
         // Apagar a face de B: a linha é só de B agora ⇒ sai.
-        await tasks.update(b.task.id, parse(taskUpdateSchema, { truck: { [REL[f]]: null } }), undefined, user.id, 'ADMIN');
+        await tasks.update(b.task.id, parse(taskUpdateSchema, { implement: { [REL[f]]: null } }), undefined, user.id, 'ADMIN');
         check(`#3 ${f}: apagar B remove a linha que ficou só dele`, !(await measureExists(legacyId)));
       }
 
       console.log('  — apagar com análise de pintura apontando');
       {
         const { truck: t2, task: task2 } = await mkTaskWithTruck();
-        await tasks.update(task2.id, parse(taskUpdateSchema, { truck: { backSideMeasure: medida(H.back, W.back) } }), undefined, user.id, 'ADMIN');
+        await tasks.update(task2.id, parse(taskUpdateSchema, { implement: { backSideMeasure: medida(H.back, W.back) } }), undefined, user.id, 'ADMIN');
         const row = await faceRow(t2.id, 'back');
         const analysis = await prisma.paintingAnalysis.create({
           data: { name: `${NAME_PREFIX}-analise`, implementMeasureId: row.id },
         });
         createdAnalysisIds.push(analysis.id);
-        await tasks.update(task2.id, parse(taskUpdateSchema, { truck: { backSideMeasure: null } }), undefined, user.id, 'ADMIN');
+        await tasks.update(task2.id, parse(taskUpdateSchema, { implement: { backSideMeasure: null } }), undefined, user.id, 'ADMIN');
         const still = await prisma.paintingAnalysis.findUnique({ where: { id: analysis.id }, select: { implementMeasureId: true } });
         check(
           '#3 apagar a face NÃO remove a linha apontada por PaintingAnalysis (o vínculo fica)',
@@ -573,7 +574,7 @@ async function main() {
       const { task, truck } = await mkTaskWithTruck();
       const run = (truckBody: any) =>
         tasks.batchUpdate(
-          parse(taskBatchUpdateSchema, { tasks: [{ id: task.id, data: { truck: truckBody } }] }),
+          parse(taskBatchUpdateSchema, { tasks: [{ id: task.id, data: { implement: truckBody } }] }),
           undefined,
           user.id,
         );
@@ -604,7 +605,7 @@ async function main() {
       for (const f of FACES_T) {
         const { a, b, legacyId } = await mkSharedPair(f);
         await tasks.batchUpdate(
-          parse(taskBatchUpdateSchema, { tasks: [{ id: a.task.id, data: { truck: { [REL[f]]: medida(H[f], W[f]) } } }] }),
+          parse(taskBatchUpdateSchema, { tasks: [{ id: a.task.id, data: { implement: { [REL[f]]: medida(H[f], W[f]) } } }] }),
           undefined,
           user.id,
         );
@@ -619,7 +620,7 @@ async function main() {
     // ═════════════════════════════════════════════════════════════════════
     {
       const { task, truck } = await mkTaskWithTruck();
-      const upd = (body: any) => tasks.update(task.id, parse(taskUpdateSchema, { truck: body }), undefined, user.id, 'ADMIN');
+      const upd = (body: any) => tasks.update(task.id, parse(taskUpdateSchema, { implement: body }), undefined, user.id, 'ADMIN');
       await upd(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])));
       await upd(Object.fromEntries(FACES_T.map(f => [REL[f], medida(H2[f], W2[f])])));
       for (const f of FACES_T) {
@@ -673,12 +674,12 @@ async function main() {
       check('#6 a linha anterior do destino (sem outro uso) saiu', !(await measureExists(oldDstLeft)));
       await expectNoSharing('#6 sem compartilhamento', [src.truck.id, dst.truck.id]);
 
-      // Destino SEM caminhão: nasce um.
+      // Destino recém-criado, sem nenhuma medida (o implemento existe: DD1).
       const bare = await mkTask();
       await tasks.copyFromTask(bare.id, src.task.id, ['implementMeasures'], user.id, 'ADMIN');
       const bareTruck = await truckOfTask(bare.id);
-      for (const f of FACES_T) await expectFace(`#6 destino sem caminhão ganha um: ${f}`, bareTruck?.id, f, H[f], W[f]);
-      await expectNoSharing('#6 sem compartilhamento (destino criado)', [src.truck.id, bareTruck?.id]);
+      for (const f of FACES_T) await expectFace(`#6 destino sem medida recebe: ${f}`, bareTruck?.id, f, H[f], W[f]);
+      await expectNoSharing('#6 sem compartilhamento (destino sem medida)', [src.truck.id, bareTruck?.id]);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -764,13 +765,14 @@ async function main() {
             id: true,
             serialNumber: true,
             forecastDate: true,
-            truck: {
+            implement: {
               select: {
                 id: true,
+                serialNumber: true,
                 plate: true,
                 chassisNumber: true,
                 category: true,
-                implementType: true,
+                type: true,
                 leftSideMeasureId: true,
                 rightSideMeasureId: true,
                 backSideMeasureId: true,
@@ -806,7 +808,7 @@ async function main() {
         await expectNoSharing(`#8 ${f}: nada compartilhado depois`, [a.truck.id, b.truck.id]);
         // Apagar a face compartilhada: sem `.catch` na transação, e B continua com a dele.
         const c = await mkTaskWithTruck();
-        await prisma.truck.update({ where: { id: c.truck.id }, data: { [FK[f]]: legacyId } });
+        await prisma.implement.update({ where: { id: c.truck.id }, data: { [FK[f]]: legacyId } });
         await gravar(c.task.id, { [PORTAL_KEY[f]]: null });
         check(`#8 ${f}: apagar a face compartilhada só desconecta (a transação não aborta)`, !(await faceRow(c.truck.id, f)) && (await measureExists(legacyId)));
       }
@@ -867,20 +869,21 @@ async function main() {
       }
       check('#10 a medida anterior do irmão (sem outro uso) saiu', !(await measureExists(oldB)));
       for (const f of FACES_T) {
-        await tasks.update(a.task.id, parse(taskUpdateSchema, { truck: { [REL[f]]: medida(H2[f], W2[f], photos[`${f}2`].id) } }), undefined, user.id, 'ADMIN');
+        await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { [REL[f]]: medida(H2[f], W2[f], photos[`${f}2`].id) } }), undefined, user.id, 'ADMIN');
         await expectFace(`#10 atualizar + foto ${f} pela tarefa: o irmão acompanha`, b.truck.id, f, H2[f], W2[f], photos[`${f}2`].id);
       }
       await expectNoSharing('#10 sem compartilhamento entre os irmãos', [a.truck.id, b.truck.id]);
-      await tasks.update(a.task.id, parse(taskUpdateSchema, { truck: { backSideMeasure: null } }), undefined, user.id, 'ADMIN');
+      await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { backSideMeasure: null } }), undefined, user.id, 'ADMIN');
       check('#10 apagar em A NÃO apaga no irmão', !(await faceRow(a.truck.id, 'back')) && !!(await faceRow(b.truck.id, 'back')));
 
-      // Irmão SEM caminhão: pelo módulo (que não cria caminhão) é pulado; pela tarefa, ganha um.
+      // Irmão novo, sem nenhuma medida: o implemento existe (DD1), então o
+      // módulo E a tarefa replicam para ele (não há mais "irmão sem caminhão").
       const c = await mkTask(quoteId);
       await measures.createOrUpdateTruckImplementMeasure(a.truck.id, 'right', medida(H.right, W.right), user.id, undefined, undefined, true);
-      check('#10 pelo módulo, irmão sem caminhão é pulado (não cria)', !(await truckOfTask(c.id)));
-      await tasks.update(a.task.id, parse(taskUpdateSchema, { truck: { rightSideMeasure: medida(H2.right, W2.right) } }), undefined, user.id, 'ADMIN');
+      await expectFace('#10 pelo módulo, o irmão sem medida recebe', (await truckOfTask(c.id))?.id, 'right', H.right, W.right);
+      await tasks.update(a.task.id, parse(taskUpdateSchema, { implement: { rightSideMeasure: medida(H2.right, W2.right) } }), undefined, user.id, 'ADMIN');
       const cTruck = await truckOfTask(c.id);
-      await expectFace('#10 pela tarefa, irmão sem caminhão ganha um com a medida', cTruck?.id, 'right', H2.right, W2.right);
+      await expectFace('#10 pela tarefa, o irmão acompanha', cTruck?.id, 'right', H2.right, W2.right);
       await expectNoSharing('#10 sem compartilhamento (3 irmãos)', [a.truck.id, b.truck.id, cTruck?.id]);
     }
 
@@ -890,7 +893,7 @@ async function main() {
       const row = await prisma.implementMeasure.create({
         data: { height: 2.0, sections: { create: [{ width: 3, isDoor: false, position: 0 }] } },
       });
-      await prisma.truck.update({ where: { id: truck.id }, data: { leftSideMeasureId: row.id, rightSideMeasureId: row.id } });
+      await prisma.implement.update({ where: { id: truck.id }, data: { leftSideMeasureId: row.id, rightSideMeasureId: row.id } });
       const r = await prisma.$transaction((tx: any) => writer.setFace(tx, truck.id, 'left', { height: 2.2 }));
       check('mesma linha em duas faces do MESMO caminhão também é compartilhamento ⇒ copia', r.action === 'forked');
       await expectFace('a face editada muda (seções herdadas)', truck.id, 'left', 2.2, [3]);
@@ -899,7 +902,7 @@ async function main() {
     }
   } finally {
     try {
-      const trucks = await prisma.truck.findMany({
+      const trucks = await prisma.implement.findMany({
         where: { taskId: { in: createdTaskIds } },
         select: { id: true, leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
       });
@@ -915,7 +918,7 @@ async function main() {
       });
       const measureIds: string[] = [];
       for (const m of [...new Set([...faceIds, ...recent.map((r: any) => r.id)])]) {
-        const outside = await prisma.truck.count({
+        const outside = await prisma.implement.count({
           where: {
             id: { notIn: truckIds },
             OR: [{ leftSideMeasureId: m }, { rightSideMeasureId: m }, { backSideMeasureId: m }],

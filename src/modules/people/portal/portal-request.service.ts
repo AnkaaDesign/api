@@ -780,7 +780,8 @@ export class PortalRequestService {
     const placas = this.valoresDistintos(veiculos, 'plate');
 
     if (series.size > 0) {
-      const existentes = await tx.task.findMany({
+      // DD1: a unicidade da série é do IMPLEMENTO (`Implement_serialNumber_key`).
+      const existentes = await tx.implement.findMany({
         where: { serialNumber: { in: [...series.keys()] } },
         select: { serialNumber: true },
       });
@@ -796,7 +797,7 @@ export class PortalRequestService {
     }
 
     if (placas.size > 0) {
-      const existentes = await tx.truck.findMany({
+      const existentes = await tx.implement.findMany({
         where: { plate: { in: [...placas.keys()] } },
         select: { plate: true },
       });
@@ -877,8 +878,6 @@ export class PortalRequestService {
         name: this.nomeDaTarefa(contexto.customerName, veiculo, indice),
         status: TASK_STATUS.PREPARATION,
         statusOrder: TASK_STATUS_ORDER[TASK_STATUS.PREPARATION],
-        // ⚠️ TEXTO. Ver a armadilha 2 no cabeçalho.
-        serialNumber: veiculo.serialNumber ?? null,
         customer: { connect: { id: contexto.customerId } },
         quote: { connect: { id: contexto.budgetId } },
         ...(contexto.paintId && { generalPainting: { connect: { id: contexto.paintId } } }),
@@ -890,24 +889,30 @@ export class PortalRequestService {
         // Furgões existe justamente porque a empresa do contato não é
         // necessariamente a dona do caminhão.
         responsibles: { connect: { id: contexto.responsibleId } },
-        // ⚠️ `truck.plate`, NUNCA `plate` no topo (armadilha 4). Nada é
-        // `.strict()`: uma placa no nível errado sumiria sem erro e a tarefa
-        // nasceria sem caminhão.
-        truck: {
+        // ⚠️ `implement.plate`, NUNCA `plate` no topo (armadilha 4).
+        //
+        // DD1 (W4): TODA tarefa nasce com implemento, e a SÉRIE mora nele
+        // (`Task.serialNumber` é espelho somente leitura, preenchido pelo
+        // gatilho). `spot: null` explícito: o veículo ainda não chegou — o
+        // default antigo o punha "no pátio".
+        implement: {
           create: {
+            // ⚠️ TEXTO. Ver a armadilha 2 no cabeçalho.
+            serialNumber: veiculo.serialNumber ?? null,
+            spot: null,
             plate: veiculo.plate ?? null,
             chassisNumber: veiculo.chassisNumber ?? null,
             // O que o cliente informou na porta. Ausente = ausente: o comercial
             // pergunta, e o próprio cliente pode completar depois no portal.
             category: veiculo.category ?? null,
-            implementType: veiculo.implementType ?? null,
+            type: veiculo.implementType ?? null,
           },
         },
       },
-      select: { id: true, serialNumber: true, truck: { select: { id: true } } },
+      select: { id: true, implement: { select: { id: true, serialNumber: true } } },
     });
 
-    const truckId = task.truck?.id ?? null;
+    const truckId = task.implement?.id ?? null;
     const measureIds: PortalRequisicaoVeiculoCriado['measureIds'] = {
       esquerda: null,
       direita: null,
@@ -933,7 +938,7 @@ export class PortalRequestService {
     return {
       taskId: task.id,
       truckId,
-      serialNumber: task.serialNumber ?? null,
+      serialNumber: task.implement?.serialNumber ?? null,
       plate: veiculo.plate ?? null,
       chassisNumber: veiculo.chassisNumber ?? null,
       measureIds,
@@ -972,7 +977,7 @@ export class PortalRequestService {
     // medidas vão EM METROS, porque é o que o resto do sistema formata.
     const medidas = contexto.primeiroVeiculo?.medidas ?? null;
     const taskParaNome = {
-      truck: medidas
+      implement: medidas
         ? {
             leftSideMeasure: medidas.esquerda ? medidaParaPrisma(medidas.esquerda) : null,
             rightSideMeasure: medidas.direita ? medidaParaPrisma(medidas.direita) : null,

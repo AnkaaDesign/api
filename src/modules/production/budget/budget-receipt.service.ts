@@ -46,7 +46,7 @@ export class BudgetReceiptService {
       include: {
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          include: { customer: true, truck: true },
+          include: { customer: true, implement: true },
         },
         services: { orderBy: { position: 'asc' } },
         customerConfigs: { include: { customer: true, installments: true } },
@@ -89,7 +89,7 @@ export class BudgetReceiptService {
     // (Truck.plate) — nunca o nome da tarefa, que é texto livre e não identifica
     // o veículo. Pelo menos um dos dois está disponível quando o orçamento chega
     // a SETTLED; mostra os dois quando ambos existirem.
-    const truck = quoteTaskRows[0]?.truck ?? null;
+    const truck = quoteTaskRows[0]?.implement ?? null;
     const serialNumber = quoteTaskRows[0]?.serialNumber ?? null;
     const plate = truck?.plate ?? null;
 
@@ -97,7 +97,7 @@ export class BudgetReceiptService {
     const describeVehicle = (t: (typeof quoteTaskRows)[number]): string | null => {
       const parts = [
         t.serialNumber ? `Série ${t.serialNumber}` : null,
-        t.truck?.plate ? `Placa ${t.truck.plate}` : null,
+        t.implement?.plate ? `Placa ${t.implement.plate}` : null,
       ].filter((part): part is string => Boolean(part));
       return parts.length ? parts.join(' · ') : null;
     };

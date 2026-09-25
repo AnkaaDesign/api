@@ -23,14 +23,14 @@ export async function syncTruckSpotWithCleared(
   cleared: boolean,
 ): Promise<void> {
   if (cleared) {
-    await transaction.truck.updateMany({
+    await transaction.implement.updateMany({
       where: { taskId, spot: null },
       data: { spot: TRUCK_SPOT.YARD_WAIT as any },
     });
     return;
   }
 
-  await transaction.truck.updateMany({
+  await transaction.implement.updateMany({
     where: { taskId, spot: { in: [...YARD_SPOTS] as any } },
     data: { spot: null },
   });

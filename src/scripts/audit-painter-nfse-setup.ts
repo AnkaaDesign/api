@@ -171,7 +171,7 @@ async function main() {
               name: 'AUDITORIA — NAO EMITIDA',
               serialNumber: null,
               customer: null,
-              truck: null,
+              implement: null,
             },
           }),
         },

@@ -105,7 +105,8 @@ function check(label, ok, detail) {
     const task = await prisma.task.create({
       data: {
         name: `${TAG} descartavel ${seq}`,
-        serialNumber: `${TAG}-${seq}`,
+        // DD1: a série nasce no implemento; toda tarefa tem um.
+        implement: { create: { serialNumber: `${TAG}-${seq}`, spot: null } },
         customerId: created.customerId,
         quoteId: quote.id,
         responsibles: { connect: [{ id: created.responsibleId }] },

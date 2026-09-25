@@ -23,7 +23,7 @@ import {
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
   BONIFICATION_STATUS,
-  TRUCK_CATEGORY,
+  IMPLEMENT_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
   AIRBRUSHING_DESCRIPTION_PREFIX,
@@ -436,19 +436,22 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      truck: z
+      // IMPLEMENTO (era `truck`; o pedido velho chega traduzido por
+      // `translateLegacyImplementKeys` antes deste schema).
+      implement: z
         .union([
           z.boolean(),
           z.object({
             select: z
               .object({
                 id: z.boolean().optional(),
+                serialNumber: z.boolean().optional(),
                 plate: z.boolean().optional(),
                 chassisNumber: z.boolean().optional(),
                 vinPlateId: z.boolean().optional(),
                 spot: z.boolean().optional(),
                 category: z.boolean().optional(),
-                implementType: z.boolean().optional(),
+                type: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
                 // Foto da plaqueta de identificação (VIN) — relação com File.
@@ -655,7 +658,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
       logoPaints: prismaRelationValue.optional(),
       serviceOrders: prismaRelationValue.optional(),
       quote: prismaRelationValue.optional(),
-      truck: prismaRelationValue.optional(),
+      implement: prismaRelationValue.optional(),
       airbrushings: prismaRelationValue.optional(),
       relatedTasks: prismaRelationValue.optional(),
       relatedTo: prismaRelationValue.optional(),
@@ -729,6 +732,17 @@ const taskOrderByFieldsSchema = z.object({
     .object({
       fantasyName: orderByDirectionSchema.optional(),
       corporateName: orderByWithNullsSchema.optional(),
+    })
+    .optional(),
+  // Implemento (to-one). `truck.plate` do web velho chega traduzido para cá.
+  implement: z
+    .object({
+      serialNumber: orderByWithNullsSchema.optional(),
+      plate: orderByWithNullsSchema.optional(),
+      chassisNumber: orderByWithNullsSchema.optional(),
+      category: orderByWithNullsSchema.optional(),
+      type: orderByWithNullsSchema.optional(),
+      spot: orderByWithNullsSchema.optional(),
     })
     .optional(),
 });
@@ -849,7 +863,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
-      truck: z.any().optional(),
+      implement: z.any().optional(),
       airbrushings: z
         .object({
           some: z.any().optional(),
@@ -931,9 +945,9 @@ const taskTransform = (data: any): any => {
       { generalPainting: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       { logoPaints: { some: { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
       { logoPaints: { some: { codeNormalized: { contains: normalizeSearchTerm(searchTerm) } } } },
-      // Truck search - plate, chassisNumber
-      { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
-      { truck: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
+      // Implemento: placa e chassi
+      { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
+      { implement: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(searchTerm) } } },
       // Billing customers ("Faturar Para") — the quote's customer configs, which
       // are usually different customers than the task's own customer
       { quote: { customerConfigs: { some: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } } } } },
@@ -988,12 +1002,21 @@ const taskTransform = (data: any): any => {
     delete data.hasCustomer;
   }
 
-  if (data.hasTruck === true) {
-    andConditions.push({ truck: { isNot: null } });
-    delete data.hasTruck;
-  } else if (data.hasTruck === false) {
-    andConditions.push({ truck: { is: null } });
-    delete data.hasTruck;
+  // "Implemento identificado" (série ∨ placa ∨ chassi). Com a DD1 toda tarefa tem
+  // implemento, então "tem implemento" seria sempre verdadeiro (pergunta 18 do
+  // plano): o filtro legado `hasTruck` chega traduzido para este.
+  if (data.implementIdentified === true || data.implementIdentified === false) {
+    const identified = {
+      implement: {
+        OR: [
+          { serialNumber: { not: null } },
+          { plate: { not: null } },
+          { chassisNumber: { not: null } },
+        ],
+      },
+    };
+    andConditions.push(data.implementIdentified ? identified : { NOT: identified });
+    delete data.implementIdentified;
   }
 
   if (data.hasObservation === true) {
@@ -1439,9 +1462,9 @@ const taskTransform = (data: any): any => {
     delete data.createdByIds;
   }
 
-  if (data.truckIds && Array.isArray(data.truckIds) && data.truckIds.length > 0) {
-    andConditions.push({ truck: { id: { in: data.truckIds } } });
-    delete data.truckIds;
+  if (data.implementIds && Array.isArray(data.implementIds) && data.implementIds.length > 0) {
+    andConditions.push({ implement: { id: { in: data.implementIds } } });
+    delete data.implementIds;
   }
 
   if (data.paintIds && Array.isArray(data.paintIds) && data.paintIds.length > 0) {
@@ -1454,25 +1477,25 @@ const taskTransform = (data: any): any => {
     delete data.logoPaintIds;
   }
 
-  // Filter by truck spot (garage position)
+  // Vaga do implemento (posição no barracão)
   if (data.spots && Array.isArray(data.spots) && data.spots.length > 0) {
-    andConditions.push({ truck: { spot: { in: data.spots } } });
+    andConditions.push({ implement: { spot: { in: data.spots } } });
     delete data.spots;
   }
 
-  // Filter by truck category
+  // Categoria do implemento
   if (
-    data.truckCategories &&
-    Array.isArray(data.truckCategories) &&
-    data.truckCategories.length > 0
+    data.implementCategories &&
+    Array.isArray(data.implementCategories) &&
+    data.implementCategories.length > 0
   ) {
-    andConditions.push({ truck: { category: { in: data.truckCategories } } });
-    delete data.truckCategories;
+    andConditions.push({ implement: { category: { in: data.implementCategories } } });
+    delete data.implementCategories;
   }
 
-  // Filter by implement type
+  // Tipo do implemento
   if (data.implementTypes && Array.isArray(data.implementTypes) && data.implementTypes.length > 0) {
-    andConditions.push({ truck: { implementType: { in: data.implementTypes } } });
+    andConditions.push({ implement: { type: { in: data.implementTypes } } });
     delete data.implementTypes;
   }
 
@@ -1736,7 +1759,8 @@ export const taskGetManySchema = z
     hasSector: z.boolean().optional(),
     hasCustomer: z.boolean().optional(),
     hasAssignee: z.boolean().optional(),
-    hasTruck: z.boolean().optional(),
+    // série ∨ placa ∨ chassi (o `hasTruck` legado chega traduzido para cá)
+    implementIdentified: z.boolean().optional(),
     hasObservation: z.boolean().optional(),
     hasLayouts: z.boolean().optional(),
     hasPaints: z.boolean().optional(),
@@ -1771,11 +1795,11 @@ export const taskGetManySchema = z
     customerIds: z.array(z.string()).optional(),
     assigneeIds: z.array(z.string()).optional(),
     createdByIds: z.array(z.string()).optional(),
-    truckIds: z.array(z.string()).optional(),
+    implementIds: z.array(z.string()).optional(),
     paintIds: z.array(z.string()).optional(), // Filter by general painting/paint ID
     logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
-    spots: z.array(z.string()).optional(), // Filter tasks by truck spot/position
-    truckCategories: z.array(z.nativeEnum(TRUCK_CATEGORY)).optional(), // Filter by truck category
+    spots: z.array(z.nativeEnum(TRUCK_SPOT)).optional(), // vaga do implemento no barracão
+    implementCategories: z.array(z.nativeEnum(IMPLEMENT_CATEGORY)).optional(), // categoria do implemento
     implementTypes: z.array(z.nativeEnum(IMPLEMENT_TYPE)).optional(), // Filter by implement type
     // Numeric range filters
     progressRange: z
@@ -2027,43 +2051,72 @@ const taskProductionServiceOrderCreateSchema = z.object({
 // (lá está por que ela é mais frouxa que o schema do módulo de medidas).
 const implementMeasureSideSchema = implementMeasureFaceInputSchema;
 
-// Truck category schema
-const truckCategorySchema = z.nativeEnum(TRUCK_CATEGORY);
-
-// Implement type schema
+const implementCategorySchema = z.nativeEnum(IMPLEMENT_CATEGORY);
 const implementTypeSchema = z.nativeEnum(IMPLEMENT_TYPE);
+const spotSchema = z.nativeEnum(TRUCK_SPOT);
 
-// Truck spot schema
-const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
+/** A regra da série (hoje): só maiúsculas, dígitos e hífen; vazio vira null. */
+export const SERIAL_NUMBER_PATTERN = /^[A-Z0-9-]+$/;
+export const SERIAL_NUMBER_PATTERN_MESSAGE =
+  'Número de série deve conter apenas letras maiúsculas, números e hífens';
 
-// Consolidated truck schema - ALL truck fields in one place
-const taskTruckSchema = z
-  .object({
-    // Basic truck fields
-    // Campo único, compartilhado com truckCreateSchema/truckUpdateSchema — ver
-    // `plateSchema`/`chassisNumberSchema` em schemas/common.ts. O chassi antes
-    // validava uma CÓPIA limpa e gravava o original, então espaço e minúscula
-    // entravam no banco (e saíam assim na NFS-e e no boleto).
-    plate: plateSchema,
-    chassisNumber: chassisNumberSchema,
-    // Foto da plaqueta (VIN). Id de File já enviado; o upload multipart usa o campo `truckVinPlate`.
-    vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
-    spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
-    // Note: Garage is now static config - garage info is encoded in the spot (B1_F1_V1 = Garage B1, Lane F1, Spot V1)
-    // Truck specifications
-    category: truckCategorySchema.nullable().optional(),
-    implementType: implementTypeSchema.nullable().optional(),
-    // ImplementMeasure data - embedded in truck for single payload (new implementMeasures)
-    leftSideMeasure: implementMeasureSideSchema,
-    rightSideMeasure: implementMeasureSideSchema,
-    backSideMeasure: implementMeasureSideSchema,
-    // Shared implementMeasure IDs - for batch creation (connect to existing implementMeasures)
-    leftSideMeasureId: z.string().uuid().nullable().optional(),
-    rightSideMeasureId: z.string().uuid().nullable().optional(),
-    backSideMeasureId: z.string().uuid().nullable().optional(),
-  })
-  .nullable()
-  .optional();
+/**
+ * Série no corpo. Na CRIAÇÃO a regra vale sempre (é série nova). Na EDIÇÃO ela
+ * vale só quando a série MUDA (V15): as 42 séries antigas fora da regra migraram
+ * como estavam, e o app reenvia a série inteira a cada gravação — recusar aqui
+ * travaria a tarefa. A edição confere a regra no serviço, contra o valor gravado.
+ */
+function serialNumberBodySchema(mode: 'create' | 'update') {
+  const base = z
+    .string()
+    .optional()
+    .nullable()
+    .transform(val => (val === '' ? null : val));
+  return mode === 'create'
+    ? base.refine(val => !val || SERIAL_NUMBER_PATTERN.test(val), {
+        message: SERIAL_NUMBER_PATTERN_MESSAGE,
+      })
+    : base;
+}
+
+/**
+ * O IMPLEMENTO no corpo da tarefa (era `truck`; DD1: toda tarefa tem um).
+ *
+ * `.strict()` (G2): chave desconhecida é 400, nunca "salvou com 200 e não
+ * gravou". O corpo velho (`truck`, `implementType`, `*SideMeasureId`) chega
+ * TRADUZIDO por `translateLegacyImplementKeys` antes deste schema. `null` não é
+ * aceito: o implemento não se remove da tarefa (o tradutor responde com a frase).
+ *
+ * A série mora aqui (DD1) e exige o domínio `identity` além de `implement` (G7).
+ */
+function buildTaskImplementSchema(mode: 'create' | 'update') {
+  return z
+    .object({
+      // Campo único, compartilhado com o PUT /implements — ver
+      // `plateSchema`/`chassisNumberSchema` em schemas/common.ts. O chassi antes
+      // validava uma CÓPIA limpa e gravava o original, então espaço e minúscula
+      // entravam no banco (e saíam assim na NFS-e e no boleto).
+      serialNumber: serialNumberBodySchema(mode),
+      plate: plateSchema,
+      chassisNumber: chassisNumberSchema,
+      // Foto da plaqueta (VIN). Id de File já enviado; o upload multipart usa o
+      // campo `implementVinPlate` (ou o velho `truckVinPlate`).
+      vinPlateId: z.string().uuid('Foto da plaqueta inválida').nullable().optional(),
+      // A vaga codifica barracão, faixa e posição (B1_F1_V1); null = fora das instalações.
+      spot: spotSchema.nullable().optional(),
+      category: implementCategorySchema.nullable().optional(),
+      type: implementTypeSchema.nullable().optional(),
+      // As faces da medida, embutidas para um corpo só.
+      leftSideMeasure: implementMeasureSideSchema,
+      rightSideMeasure: implementMeasureSideSchema,
+      backSideMeasure: implementMeasureSideSchema,
+    })
+    .strict()
+    .optional();
+}
+
+export const taskImplementCreateSchema = buildTaskImplementSchema('create');
+export const taskImplementUpdateSchema = buildTaskImplementSchema('update');
 
 // =====================
 // CRUD Schemas
@@ -2072,6 +2125,8 @@ const taskTruckSchema = z
 // Base task create schema with all relations
 export const taskCreateSchema = z
   .object({
+    // Marcador do outbox do app (multipart; domínio `meta`). Ver o de edição.
+    _hasFiles: z.union([z.boolean(), z.string()]).optional(),
     // Basic fields
     name: createNameSchema(3, 200, 'nome da tarefa').nullable().optional(),
     status: z
@@ -2079,14 +2134,9 @@ export const taskCreateSchema = z
         errorMap: () => ({ message: 'status inválido' }),
       })
       .default(TASK_STATUS.PREPARATION),
-    serialNumber: z
-      .string()
-      .optional()
-      .nullable()
-      .transform(val => (val === '' ? null : val))
-      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
-        message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
-      }),
+    // LEGADO (D-32, janela): a série no topo. O repositório a grava no implemento
+    // (W1); topo e `implement.serialNumber` diferentes → 400.
+    serialNumber: serialNumberBodySchema('create'),
     /**
      * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo.
      *
@@ -2194,11 +2244,12 @@ export const taskCreateSchema = z
     quote: budgetCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
+    implement: taskImplementCreateSchema, // implemento: série, placa, chassi, vaga, categoria, tipo e medidas
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
   })
+  .strict()
   // Auto-fill dates based on status changes (before validation)
   .transform(data => {
     // Auto-fill startedAt when status is IN_PRODUCTION
@@ -2240,11 +2291,11 @@ export const taskCreateSchema = z
   .superRefine((data, ctx) => {
     // Require at least one of: customer, serialNumber, serialNumberFrom/To, plate, or name
     const hasCustomer = !!data.customerId;
-    const hasSerialNumber = !!data.serialNumber;
+    const hasSerialNumber = !!data.serialNumber || !!data.implement?.serialNumber;
     const hasSerialNumberRange =
       (data.serialNumberFrom !== undefined && data.serialNumberFrom !== null) ||
       (data.serialNumberTo !== undefined && data.serialNumberTo !== null);
-    const hasPlate = !!data.truck?.plate;
+    const hasPlate = !!data.implement?.plate;
     const hasName = !!data.name;
 
     if (!hasCustomer && !hasSerialNumber && !hasSerialNumberRange && !hasPlate && !hasName) {
@@ -2355,6 +2406,11 @@ export const taskUpdateSchema = z
      */
     expectedUpdatedAt: z.coerce.date().optional(),
 
+    // Marcador do outbox do app (multipart): "este envio traz arquivos". Não é
+    // dado; estava sendo descartado calado e, com o topo `.strict()` (G2), tem
+    // de ser declarado (domínio `meta`).
+    _hasFiles: z.union([z.boolean(), z.string()]).optional(),
+
     // Basic fields
     name: createNameSchema(3, 200, 'nome da tarefa').nullable().optional(),
     status: z
@@ -2362,14 +2418,9 @@ export const taskUpdateSchema = z
         errorMap: () => ({ message: 'status inválido' }),
       })
       .optional(),
-    serialNumber: z
-      .string()
-      .optional()
-      .nullable()
-      .transform(val => (val === '' ? null : val))
-      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
-        message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
-      }),
+    // LEGADO (D-32, janela): a série no topo; o repositório a grava no implemento
+    // (W2). A regra da série é conferida no serviço, só quando ela muda (V15).
+    serialNumber: serialNumberBodySchema('update'),
     /**
      * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo. Ver o schema de
      * criação: o pedido é por ENTREGA, e a tela edita veículo a veículo.
@@ -2497,7 +2548,7 @@ export const taskUpdateSchema = z
     quote: budgetCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and implementMeasures
+    implement: taskImplementUpdateSchema, // implemento: série, placa, chassi, vaga, categoria, tipo e medidas
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -2537,6 +2588,7 @@ export const taskUpdateSchema = z
     removeReimbursementIds: z.array(z.string().uuid()).optional(),
     removeReimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
   })
+  .strict()
   // Auto-fill dates based on status changes (before validation)
   // This ensures that when frontend sends status change without dates, backend auto-fills them
   // Note: Date cascading sync (forecastDate → entryDate → startedAt) is handled in the backend
@@ -2746,19 +2798,19 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
 // Task Positioning Schemas
 // =====================
 
-// Schema for updating a single truck spot
+// Vaga de um implemento
 export const taskPositionUpdateSchema = z.object({
-  spot: truckSpotSchema.nullable().optional(),
+  spot: spotSchema.nullable().optional(),
 });
 
 export type TaskPositionUpdateFormData = z.infer<typeof taskPositionUpdateSchema>;
 
-// Schema for bulk updating truck spots
+// Vagas de vários implementos de uma vez
 export const taskBulkPositionUpdateSchema = z.object({
   updates: z.array(
     z.object({
       taskId: z.string().uuid(),
-      spot: truckSpotSchema.nullable().optional(),
+      spot: spotSchema.nullable().optional(),
     }),
   ),
 });

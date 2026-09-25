@@ -124,7 +124,7 @@ const TASK_SELECT = {
   // coleta de assinaturas não teria onde procurar o envelope — e uma guarda que
   // não acha envelope passa TUDO, em silêncio.
   quoteId: true,
-  truck: { select: { plate: true } },
+  implement: { select: { plate: true } },
 } as const;
 
 /**
@@ -157,11 +157,11 @@ function vehicleLabel(task: {
   id: string;
   name?: string | null;
   serialNumber?: string | null;
-  truck?: { plate?: string | null } | null;
+  implement?: { plate?: string | null } | null;
 }): string {
   return (
     (task.serialNumber || undefined) ??
-    (task.truck?.plate || undefined) ??
+    (task.implement?.plate || undefined) ??
     (task.name || undefined) ??
     task.id.slice(0, 8)
   );
@@ -233,7 +233,7 @@ export class PurchaseOrderService {
                     OR: [
                       { serialNumber: { contains: termo, mode: 'insensitive' as const } },
                       { name: { contains: termo, mode: 'insensitive' as const } },
-                      { truck: { plate: { contains: termo, mode: 'insensitive' as const } } },
+                      { implement: { plate: { contains: termo, mode: 'insensitive' as const } } },
                     ],
                   },
                 },
@@ -587,7 +587,7 @@ export class PurchaseOrderService {
       name?: string | null;
       serialNumber?: string | null;
       customerOrderNumber?: string | null;
-      truck?: { plate?: string | null } | null;
+      implement?: { plate?: string | null } | null;
     }>;
   }): PurchaseOrderRow {
     return {
@@ -602,7 +602,7 @@ export class PurchaseOrderService {
         label: vehicleLabel(t),
         name: t.name ?? null,
         serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
+        plate: t.implement?.plate ?? null,
         // ESPELHO DA COLUNA LEGADA, exposto de propósito. Quando ele divergir de
         // `number`, alguém escreveu a tarefa por um caminho que não passa por
         // aqui — e é melhor que isso apareça numa tela do que na prefeitura.

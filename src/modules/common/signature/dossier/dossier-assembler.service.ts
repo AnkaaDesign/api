@@ -344,7 +344,7 @@ export class DossierAssemblerService {
             id: true,
             serialNumber: true,
             customer: { select: { corporateName: true, fantasyName: true, cnpj: true, cpf: true } },
-            truck: { select: { plate: true } },
+            implement: { select: { plate: true } },
           },
         },
       },
@@ -993,7 +993,7 @@ export class DossierAssemblerService {
         description: true,
         observation: true,
         taskId: true,
-        task: { select: { serialNumber: true, truck: { select: { plate: true } } } },
+        task: { select: { serialNumber: true, implement: { select: { plate: true } } } },
         checkinFiles: { select: { path: true, mimetype: true } },
         checkoutFiles: { select: { path: true, mimetype: true } },
       },
@@ -1117,7 +1117,7 @@ export class DossierAssemblerService {
         const vehicleLine = winAnsi(
           [
             so.task?.serialNumber ? `No de serie ${so.task.serialNumber}` : null,
-            so.task?.truck?.plate ? `Placa ${so.task.truck.plate}` : null,
+            so.task?.implement?.plate ? `Placa ${so.task.implement.plate}` : null,
           ]
             .filter(Boolean)
             .join('  ·  ') || 'Veiculo sem identificacao',

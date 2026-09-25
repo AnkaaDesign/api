@@ -1,8 +1,18 @@
 // modules/common/pipes/zod-validation.pipe.ts
 
-import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import {
+  PipeTransform,
+  Injectable,
+  ArgumentMetadata,
+  BadRequestException,
+  HttpException,
+} from '@nestjs/common';
 import { ZodSchema, ZodError, ZodIssue } from 'zod';
 import { enforceQueryShape } from '../query/query-shape.guard';
+import {
+  translateLegacyImplementBody,
+  translateLegacyImplementQuery,
+} from '../legacy-implement/legacy-implement-keys';
 
 interface ValidationErrorResponse {
   message: string;
@@ -30,6 +40,13 @@ export interface ZodValidationPipeOptions {
   bareRelationArgsIgnored?: boolean;
   /** G1: ver `EnforceQueryShapeOptions.reportOnly` (conta, não recusa nem traduz). */
   reportOnly?: boolean;
+  /**
+   * Janela bilíngue do implemento (P11a): o corpo é de ESCRITA DE TAREFA e o
+   * nome velho do implemento vira `implement` antes do zod
+   * (`translateLegacyImplementBody`). Só nas rotas de tarefa: outro corpo com
+   * uma chave de mesmo nome (preferência salva, por exemplo) não é tocado.
+   */
+  legacyImplementBody?: boolean;
 }
 
 @Injectable()
@@ -60,21 +77,26 @@ export class ZodValidationPipe implements PipeTransform {
         return value;
       }
 
-      // For query parameters, use special handling
+      // For query parameters, use special handling. A janela bilíngue do
+      // implemento traduz o nome velho para `implement` (em toda rota) ANTES do zod.
       if (metadata.type === 'query') {
-        const transformedValue = this.transformQueryParams(value);
+        const transformedValue = translateLegacyImplementQuery(this.transformQueryParams(value));
         return this.schema.parse(transformedValue);
       }
 
       // For body parameters, fix arrays before validation
       if (metadata.type === 'body') {
         const fixedValue = this.fixArrays(value);
-        return this.schema.parse(fixedValue);
+        return this.schema.parse(
+          this.options.legacyImplementBody ? translateLegacyImplementBody(fixedValue) : fixedValue,
+        );
       }
 
       // Parse and validate the value
       return this.schema.parse(value);
     } catch (error) {
+      // 400 nomeado do tradutor do implemento (e de qualquer outra camada): passa como veio
+      if (error instanceof HttpException) throw error;
       if (error instanceof ZodError) {
         // Log the detailed Zod error for debugging
         if (process.env.NODE_ENV !== 'production') {
@@ -273,7 +295,7 @@ export class ZodValidationPipe implements PipeTransform {
       services: 'Serviços',
       location: 'Localização',
       observation: 'Observação',
-      truck: 'Caminhão',
+      implement: 'Implemento',
       fileIds: 'Arquivos',
       paintIds: 'Tintas',
     };
@@ -957,7 +979,7 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
               current[part] = {};
             } else if (typeof current[part] !== 'object' || Array.isArray(current[part])) {
               // If the current value is a primitive (like true) or an array, we need to convert it to an object
-              // This handles cases like include.truck=true being overridden by include.truck.include.leftSideMeasure=...
+              // This handles cases like include.implement=true being overridden by include.implement.include.leftSideMeasure=...
               current[part] = {};
             }
             current = current[part];

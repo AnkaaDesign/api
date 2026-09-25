@@ -783,7 +783,7 @@ model File {
   customerLogo                           Customer[]             @relation("CUSTOMER_LOGO")
   taskCuts                               Cut[]                  @relation("TASK_CUTS")
   implementMeasurePhotos                 ImplementMeasure[]     @relation("IMPLEMENT_MEASURE_PHOTO")
-  truckVinPlates                         Truck[]                @relation("TRUCK_VIN_PLATE")
+  implementVinPlates                     Implement[]            @relation("IMPLEMENT_VIN_PLATE") // [R-B M1]
   ppeDeliveryDocuments                   PpeDelivery[]          @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                  PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
   warningSignatureDocuments              WarningSignature[]     @relation("WARNING_SIGNATURE_DOCUMENT")
@@ -2410,7 +2410,10 @@ model Task {
   name         String?    @default("Tarefa Sem Nome")
   status       TaskStatus @default(PREPARATION)
   statusOrder  Int        @default(1)
-  serialNumber String?    @unique
+  /// [R-B M1s] ESPELHO somente leitura de Implement.serialNumber (gatilho
+  /// "Implement_serial_mirror"). Sem @unique: a unicidade é só do implemento (DD1).
+  /// Escrever aqui = erro 23514 (gatilho "Task_serial_is_mirror"). Sai na M5s (R-D).
+  serialNumber String?
 
   /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
   ///
@@ -2464,7 +2467,10 @@ model Task {
   quote                 Budget?               @relation("TASK_QUOTE", fields: [quoteId], references: [id])
   sector                Sector?               @relation(fields: [sectorId], references: [id])
   fieldChangeLogs       TaskFieldChangeLog[]  @relation("TASK_FIELD_CHANGE_LOGS")
-  truck                 Truck?
+  /// [R-B M1] DD1: toda tarefa tem EXATAMENTE um implemento (Implement.taskId @unique +
+  /// CONSTRAINT TRIGGER diferido "Task_has_implement"). O Prisma não expressa o
+  /// "ao menos um": o tipo continua opcional e o banco garante.
+  implement             Implement?
   paintingAnalyses      PaintingAnalysis[]    @relation("TASK_PAINTING_ANALYSES")
   bonuses               Bonus[]               @relation("BonusTasks")
   relatedTo             Task[]                @relation("RelatedTasks")
@@ -2510,6 +2516,8 @@ model Task {
 
   detailsNormalized      String? /// accent-insensitive search (generated column, see migration)
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
+  /// [R-B M1s] a coluna gerada e o GIN da tarefa FICAM até a M5s (o espelho alimenta a busca
+  /// dos leitores ainda não migrados); `omit` global como hoje.
   serialNumberNormalized String? /// accent-insensitive search (generated column, see migration)
 
   @@index([status, sectorId])
@@ -2600,16 +2608,30 @@ model Cut {
   @@index([origin])
 }
 
-model Truck {
-  id                 String            @id @default(uuid())
-  plate              String?           @unique
+// [R-B M1 + M1s] model Implement (era Truck). Blocos por fatia:
+//   M1 : rename (tabela, constraints, índices, `implementType`→`type`, `TruckCategory`→`ImplementCategory`),
+//        nomes de relação IMPLEMENT_* (não existem no banco), onDelete SetNull das medidas (o catálogo já é SET NULL).
+//   M1s: serialNumber @unique, serialNumberNormalized (gerada + GIN), spot SEM default.
+//   (M2 frente/porta/projeto e M3 layouts chegam com as fatias deles.)
+/// IMPLEMENTO: a carroceria do cliente (Furgões/cliente), 1:1 com a tarefa.
+/// Toda tarefa tem exatamente um (DD1). Endereçar SEMPRE por Implement.id (nunca
+/// por taskId) — a virada N:1 fica aditiva.
+model Implement {
+  id                 String             @id @default(uuid())
+  /// [M1s] DD1: o número de série é do implemento (Implement_serialNumber_key).
+  serialNumber       String?            @unique
+  plate              String?            @unique
   chassisNumber      String?
-  category           TruckCategory?
-  implementType      ImplementType?
-  spot               TRUCK_SPOT?       @default(YARD_WAIT)
-  taskId             String            @unique
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  /// [M1] era `implementType`.
+  type               ImplementType?
+  /// [M1] o tipo era `TruckCategory`.
+  category           ImplementCategory?
+  /// [M1s] D-03: fica aqui; SEM default (S-8): com a criação universal de implemento, o
+  /// default poria todo veículo não chegado "no pátio". Todo INSERT passa `spot` explícito.
+  spot               TRUCK_SPOT?
+  taskId             String             @unique
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   backSideMeasureId  String?
   leftSideMeasureId  String?
   rightSideMeasureId String?
@@ -2617,14 +2639,16 @@ model Truck {
   /// a plaqueta era um campo de texto que ninguém preenchia — o que a produção precisa
   /// é da foto legível da plaqueta. Ver migration 20260727150000_truck_vin_plate_image.
   vinPlateId         String?
-  vinPlate           File?             @relation("TRUCK_VIN_PLATE", fields: [vinPlateId], references: [id], onDelete: SetNull)
-  backSideMeasure    ImplementMeasure? @relation("TRUCK_BACK_SIDE", fields: [backSideMeasureId], references: [id])
-  leftSideMeasure    ImplementMeasure? @relation("TRUCK_LEFT_SIDE", fields: [leftSideMeasureId], references: [id])
-  rightSideMeasure   ImplementMeasure? @relation("TRUCK_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id])
-  task               Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  vinPlate           File?              @relation("IMPLEMENT_VIN_PLATE", fields: [vinPlateId], references: [id], onDelete: SetNull)
+  backSideMeasure    ImplementMeasure?  @relation("IMPLEMENT_BACK_SIDE", fields: [backSideMeasureId], references: [id], onDelete: SetNull)
+  leftSideMeasure    ImplementMeasure?  @relation("IMPLEMENT_LEFT_SIDE", fields: [leftSideMeasureId], references: [id], onDelete: SetNull)
+  rightSideMeasure   ImplementMeasure?  @relation("IMPLEMENT_RIGHT_SIDE", fields: [rightSideMeasureId], references: [id], onDelete: SetNull)
+  task               Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   chassisNumberNormalized String? /// accent-insensitive search (generated column, see migration)
   plateNormalized         String? /// accent-insensitive search (generated column, see migration)
+  /// [M1s] coluna GERADA + GIN trigram; só para filtro, `omit` global.
+  serialNumberNormalized  String? /// accent-insensitive search (generated column, see migration)
 
   @@index([spot])
   @@index([plate])
@@ -2635,17 +2659,17 @@ model Truck {
 }
 
 model ImplementMeasure {
-  id               String                    @id @default(uuid())
-  height           Float
-  photoId          String?
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
-  photo            File?                     @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
-  sections         ImplementMeasureSection[] @relation("ImplementMeasureSections")
-  trucksBackSide   Truck[]                   @relation("TRUCK_BACK_SIDE")
-  trucksLeftSide   Truck[]                   @relation("TRUCK_LEFT_SIDE")
-  trucksRightSide  Truck[]                   @relation("TRUCK_RIGHT_SIDE")
-  paintingAnalyses PaintingAnalysis[]        @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE")
+  id                  String                    @id @default(uuid())
+  height              Float
+  photoId             String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  photo               File?                     @relation("IMPLEMENT_MEASURE_PHOTO", fields: [photoId], references: [id])
+  sections            ImplementMeasureSection[] @relation("ImplementMeasureSections")
+  implementsBackSide  Implement[]               @relation("IMPLEMENT_BACK_SIDE") // [R-B M1]
+  implementsLeftSide  Implement[]               @relation("IMPLEMENT_LEFT_SIDE") // [R-B M1]
+  implementsRightSide Implement[]               @relation("IMPLEMENT_RIGHT_SIDE") // [R-B M1]
+  paintingAnalyses    PaintingAnalysis[]        @relation("PAINTING_ANALYSIS_IMPLEMENT_MEASURE")
 }
 
 model ImplementMeasureSection {
@@ -4391,7 +4415,8 @@ enum TRUCK_SPOT {
   B3_F3_V3
 }
 
-enum TruckCategory {
+/// [R-B M1] era `TruckCategory` (ALTER TYPE … RENAME). Valores inalterados.
+enum ImplementCategory {
   MINI
   VUC
   THREE_QUARTER

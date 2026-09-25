@@ -73,6 +73,8 @@ export interface FilesFolderMapping {
   warning: string;
   implementMeasurePhotos: string;
   truckVinPlate: string;
+  /** a mesma plaqueta pelo nome novo (o velho fica como alias até a R-D) */
+  implementVinPlate: string;
   'quote-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
@@ -204,6 +206,7 @@ export class FilesStorageService {
     warning: 'Advertencias',
     implementMeasurePhotos: 'Traseiras',
     truckVinPlate: 'Plaquetas',
+    implementVinPlate: 'Plaquetas',
     'quote-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
@@ -299,6 +302,7 @@ export class FilesStorageService {
     'observations',
     'implementMeasurePhotos',
     'truckVinPlate',
+    'implementVinPlate',
     'quote-layouts',
     'budgetSignatures',
     'budgetDossiers',
@@ -767,7 +771,8 @@ export class FilesStorageService {
       observation: ['observations'],
       warning: ['warning'],
       implementMeasure: ['implementMeasurePhotos'],
-      truck: ['truckVinPlate'],
+      truck: ['truckVinPlate', 'implementVinPlate'],
+      implement: ['implementVinPlate', 'truckVinPlate'],
       airbrushing: [
         'airbrushingLayouts',
         'airbrushingBudgets',

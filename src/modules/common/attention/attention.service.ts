@@ -281,12 +281,12 @@ const IN_FLIGHT: Prisma.TaskWhereInput = { status: { notIn: [TaskStatus.COMPLETE
 
 // Empty string counts as missing — the client's isNull treats "" as null, and mirroring it
 // here is what keeps an on-screen row and the nav from disagreeing about the same record.
-const NO_CHASSIS: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { chassisNumber: null } }, { truck: { chassisNumber: '' } }] };
-const NO_PLATE: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { plate: null } }, { truck: { plate: '' } }] };
+const NO_CHASSIS: Prisma.TaskWhereInput = { OR: [{ implement: null }, { implement: { chassisNumber: null } }, { implement: { chassisNumber: '' } }] };
+const NO_PLATE: Prisma.TaskWhereInput = { OR: [{ implement: null }, { implement: { plate: null } }, { implement: { plate: '' } }] };
 const NO_SERIAL: Prisma.TaskWhereInput = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
 /** R3c tests the SCALAR `vinPlateId`, like the client rule — the `vinPlate` relation only
  * exists when included, so testing the relation would match every task. */
-const NO_VIN_PLATE_PHOTO: Prisma.TaskWhereInput = { OR: [{ truck: null }, { truck: { vinPlateId: null } }] };
+const NO_VIN_PLATE_PHOTO: Prisma.TaskWhereInput = { OR: [{ implement: null }, { implement: { vinPlateId: null } }] };
 
 const TASK_AUDIENCE = [SectorPrivileges.LOGISTIC, SectorPrivileges.PRODUCTION_MANAGER];
 

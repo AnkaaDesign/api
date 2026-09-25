@@ -29,9 +29,8 @@
  *   - só o lado que DIFERE é escrito: o irmão que já tem exatamente a mesma
  *     medida não ganha linha nova nem entrada na trilha (é o que torna a rotina
  *     idempotente, e é o que faz a gravação em lote não se replicar em cascata);
- *   - irmão sem `Truck`: só ganha um quando o caminho de escrita da origem já
- *     cria o caminhão sozinho (edição de tarefa, cópia, lote). Pelo módulo de
- *     medidas, que exige o caminhão, o irmão é pulado e o log diz qual.
+ *   - todo irmão tem implemento (DD1); se um faltasse (defeito de dado), ele é
+ *     pulado e o log diz qual — esta rotina não cria implemento.
  *
  * Mesma transação da escrita de origem: ou a medida existe nos N caminhões, ou
  * em nenhum.
@@ -68,7 +67,7 @@ const MEASURE_SELECT = {
   },
 };
 
-const TRUCK_MEASURES_SELECT = {
+const IMPLEMENT_MEASURES_SELECT = {
   select: {
     id: true,
     plate: true,
@@ -145,7 +144,6 @@ export async function replicateImplementMeasuresToQuoteSiblings(
   params: {
     sourceTaskId: string;
     sides?: readonly ImplementFace[];
-    createMissingTruck: boolean;
     logChange: (entry: ReplicationLogEntry) => Promise<unknown>;
   },
 ): Promise<ReplicationResult> {
@@ -158,23 +156,23 @@ export async function replicateImplementMeasuresToQuoteSiblings(
     select: {
       id: true,
       quoteId: true,
-      truck: TRUCK_MEASURES_SELECT,
+      implement: IMPLEMENT_MEASURES_SELECT,
     },
   });
-  if (!source?.quoteId || !source.truck) return result;
+  if (!source?.quoteId || !source.implement) return result;
 
   const quoteTasks: Array<{
     id: string;
     createdAt: Date;
     serialNumber: string | null;
-    truck: any;
+    implement: any;
   }> = await tx.task.findMany({
     where: { quoteId: source.quoteId },
     select: {
       id: true,
       createdAt: true,
       serialNumber: true,
-      truck: TRUCK_MEASURES_SELECT,
+      implement: IMPLEMENT_MEASURES_SELECT,
     },
   });
   if (quoteTasks.length < 2) return result;
@@ -185,28 +183,26 @@ export async function replicateImplementMeasuresToQuoteSiblings(
   const reason = `Medidas replicadas do veículo ${sourceLabel} (mesmo orçamento)`;
 
   for (const side of sides) {
-    const origin: MeasureRow | null = source.truck[FACE_REL[side]] ?? null;
+    const origin: MeasureRow | null = source.implement[FACE_REL[side]] ?? null;
     // Exclusão não replica — e um lado sem medida na origem não tem o que copiar.
     if (!origin) continue;
     const originKey = measureKey(origin);
 
     for (const sibling of ordered) {
       if (sibling.id === source.id) continue;
-      let truck = sibling.truck;
-      if (!truck) {
-        if (!params.createMissingTruck) {
-          result.skipped.push({ taskId: sibling.id, side, reason: 'sem caminhão cadastrado' });
-          logger.warn(
-            `[Medidas] Irmão ${sibling.id} do orçamento ${source.quoteId} sem caminhão: ` +
-              `medida ${side} do veículo ${sourceLabel} NÃO replicada (este caminho não cria caminhão).`,
-          );
-          continue;
-        }
-        truck = await tx.truck.create({ data: { taskId: sibling.id }, ...TRUCK_MEASURES_SELECT });
-        sibling.truck = truck;
+      // DD1: toda tarefa tem implemento. O ramo que criava o caminhão do irmão
+      // "se faltasse" saiu (seria uma segunda fonte de criação sem `spot`).
+      const implement = sibling.implement;
+      if (!implement) {
+        result.skipped.push({ taskId: sibling.id, side, reason: 'tarefa sem implemento' });
+        logger.error(
+          `[Medidas] Irmão ${sibling.id} do orçamento ${source.quoteId} sem implemento: ` +
+            `medida ${side} do veículo ${sourceLabel} NÃO replicada.`,
+        );
+        continue;
       }
 
-      const current: MeasureRow | null = truck[FACE_REL[side]] ?? null;
+      const current: MeasureRow | null = implement[FACE_REL[side]] ?? null;
       // Só o lado que difere. Linha compartilhada com a origem também conta como
       // "já tem" — é a mesma medida.
       if (current && (current.id === origin.id || measureKey(current) === originKey)) continue;
@@ -216,7 +212,7 @@ export async function replicateImplementMeasuresToQuoteSiblings(
       // regra é a do escritor único, não uma faxina própria.
       const written = await setFace(
         tx,
-        truck.id,
+        implement.id,
         side,
         {
           height: origin.height,
@@ -231,8 +227,8 @@ export async function replicateImplementMeasuresToQuoteSiblings(
         { mode: 'replace' },
       );
       const copy: MeasureRow = written.after as unknown as MeasureRow;
-      truck[FACE_REL[side]] = copy;
-      truck[FACE_FK[side]] = copy.id;
+      implement[FACE_REL[side]] = copy;
+      implement[FACE_FK[side]] = copy.id;
 
       await params.logChange({
         taskId: sibling.id,

@@ -1824,7 +1824,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         createdAt: true,
         generalPainting: true,
         logoPaints: true,
-        truck: {
+        implement: {
           select: {
             plate: true,
           },
@@ -1933,7 +1933,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           paintName: task.generalPainting.name,
           taskId: task.id,
           taskName: task.name,
-          taskPlate: task.truck?.plate || undefined,
+          taskPlate: task.implement?.plate || undefined,
           taskSerialNumber: task.serialNumber || undefined,
           createdAt: task.createdAt,
         });
@@ -1946,7 +1946,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           paintName: paint.name,
           taskId: task.id,
           taskName: task.name,
-          taskPlate: task.truck?.plate || undefined,
+          taskPlate: task.implement?.plate || undefined,
           taskSerialNumber: task.serialNumber || undefined,
           createdAt: task.createdAt,
         });
@@ -2279,7 +2279,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     // Get trucks that are currently at the company:
     // - Have an active task (WAITING_PRODUCTION or IN_PRODUCTION status)
     // - Have an entry date (meaning they've arrived at the company)
-    const trucks = await this.prisma.truck.findMany({
+    const trucks = await this.prisma.implement.findMany({
       where: {
         task: {
           status: { in: [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION] },
@@ -2349,7 +2349,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     // Only count trucks with active tasks that have arrived (entryDate exists)
     const activeTaskStatuses = [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION];
     const [activeTrucks, trucksInProduction] = await Promise.all([
-      this.prisma.truck.findMany({
+      this.prisma.implement.findMany({
         where: {
           task: {
             status: { in: activeTaskStatuses },
@@ -2364,7 +2364,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           task: { select: { status: true, name: true } },
         },
       }),
-      this.prisma.truck.count({
+      this.prisma.implement.count({
         where: {
           task: {
             status: TASK_STATUS.IN_PRODUCTION,
@@ -3412,7 +3412,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         forecastDate: true,
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
       },
       orderBy: { term: 'asc' },
       take: limit,
@@ -3422,7 +3422,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
-      plate: t.truck?.plate || null,
+      plate: t.implement?.plate || null,
       status: t.status,
       term: t.term,
       forecastDate: t.forecastDate,
@@ -3456,7 +3456,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         forecastDate: true,
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
       },
       orderBy: { forecastDate: 'asc' },
       take: limit,
@@ -3466,7 +3466,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
-      plate: t.truck?.plate || null,
+      plate: t.implement?.plate || null,
       status: t.status,
       term: t.term,
       forecastDate: t.forecastDate,
@@ -3565,7 +3565,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         forecastDate: true,
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
       },
       orderBy: { finishedAt: 'desc' },
       take: limit,
@@ -3575,7 +3575,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
-      plate: t.truck?.plate || null,
+      plate: t.implement?.plate || null,
       status: t.status,
       term: t.term,
       forecastDate: t.forecastDate,
@@ -3628,7 +3628,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         forecastDate: true,
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
         quote: { select: { total: true, vehicleCount: true, budgetNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -3639,7 +3639,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
-      plate: t.truck?.plate || null,
+      plate: t.implement?.plate || null,
       status: t.status,
       term: t.term,
       forecastDate: t.forecastDate,
@@ -3669,7 +3669,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         forecastDate: true,
         customer: { select: { fantasyName: true } },
         sector: { select: { name: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
         quote: { select: { total: true, vehicleCount: true, expiresAt: true, budgetNumber: true } },
       },
       orderBy: { quote: { expiresAt: 'asc' } },
@@ -3680,7 +3680,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       id: t.id,
       name: t.name,
       serialNumber: t.serialNumber,
-      plate: t.truck?.plate || null,
+      plate: t.implement?.plate || null,
       status: t.status,
       term: t.term,
       forecastDate: t.forecastDate,

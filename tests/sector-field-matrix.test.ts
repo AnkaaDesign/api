@@ -27,6 +27,7 @@ import {
   validateSectorFieldAccess,
 } from '../src/modules/production/task/task.permissions';
 import { SECTOR_PRIVILEGES } from '../src/constants/enums';
+import { translateLegacyImplementBody } from '../src/modules/common/legacy-implement/legacy-implement-keys';
 
 let ok = 0;
 let fail = 0;
@@ -233,6 +234,50 @@ const CORPOS: Corpo[] = [
       truck: { plate: 'UIO7P89' },
     },
   },
+  // ── P11a: o implemento pelo nome NOVO, e a série dentro dele (DD1) ──
+  {
+    setor: SECTOR_PRIVILEGES.COMMERCIAL,
+    modo: 'update',
+    origem: 'web/app novos (Fase C): implemento com série, tipo e categoria',
+    corpo: {
+      implement: {
+        serialNumber: '38174',
+        plate: 'ABC1D23',
+        chassisNumber: '9BWZZZ377VT004251',
+        category: 'TRUCK',
+        type: 'DRY_CARGO',
+      },
+      expectedUpdatedAt: AGORA,
+    },
+  },
+  {
+    setor: SECTOR_PRIVILEGES.LOGISTIC,
+    modo: 'update',
+    origem: 'web/app novos: vaga e placa no implemento',
+    corpo: { implement: { spot: 'B1_F1_V1', plate: 'ABC1D23' } },
+  },
+  {
+    setor: SECTOR_PRIVILEGES.COMMERCIAL,
+    modo: 'create',
+    origem: 'web/app novos: criação com o implemento (série dentro dele)',
+    corpo: {
+      name: 'Transportadora Exemplo',
+      customerId: U(110),
+      status: 'PREPARATION',
+      implement: { serialNumber: '38176', plate: 'XYZ9A87', type: 'DRY_CARGO' },
+    },
+  },
+  {
+    setor: SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    modo: 'create',
+    origem: 'app 1.4.1: série no topo + `truck` (G23, janela bilíngue)',
+    corpo: {
+      name: 'Veículo da produção',
+      serialNumber: '38177',
+      status: 'PREPARATION',
+      truck: { plate: 'UIO7P88', implementType: 'REFRIGERATED', leftSideMeasureId: U(120) },
+    },
+  },
 ];
 
 function shapeKeys(schema: ZodTypeAny): string[] {
@@ -288,7 +333,8 @@ function main(): void {
   // cada corpo real: zod da rota → validateSectorFieldAccess do setor
   for (const c of CORPOS) {
     const schema = c.modo === 'create' ? taskCreateSchema : taskUpdateSchema;
-    const r = schema.safeParse(c.corpo);
+    // Como o pipe da rota (`legacyImplementBody`): o corpo velho é traduzido ANTES do zod.
+    const r = schema.safeParse(translateLegacyImplementBody(c.corpo));
     if (!r.success) {
       check(
         `${c.setor} ${c.modo} — o zod aceita o corpo (${c.origem})`,
@@ -326,6 +372,43 @@ function main(): void {
       check(`${setor} (${modo}) é recusado ao escrever "${campo}" (domínio ${negado})`, recusou);
     }
   }
+
+  // P11a (G7): a SÉRIE dentro do implemento exige `identity` ALÉM de `implement`.
+  // Nenhum setor hoje tem `implement` sem `identity`; simula-se um para provar
+  // que o acoplamento é explícito (e não uma coincidência dos mapas).
+  {
+    const original = SECTOR_TASK_UPDATE_ACCESS[SECTOR_PRIVILEGES.LOGISTIC]!;
+    (SECTOR_TASK_UPDATE_ACCESS as any)[SECTOR_PRIVILEGES.LOGISTIC] = original.filter(
+      d => d !== 'identity',
+    );
+    let msg = '';
+    try {
+      validateSectorFieldAccess(
+        SECTOR_PRIVILEGES.LOGISTIC,
+        { implement: { serialNumber: '1', plate: 'ABC1D23' } },
+        'update',
+      );
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    let semSerie = '';
+    try {
+      validateSectorFieldAccess(SECTOR_PRIVILEGES.LOGISTIC, { implement: { plate: 'ABC1D23' } }, 'update');
+    } catch (e) {
+      semSerie = (e as Error).message;
+    }
+    (SECTOR_TASK_UPDATE_ACCESS as any)[SECTOR_PRIVILEGES.LOGISTIC] = original;
+    check(
+      'implement.serialNumber sem `identity` → 400 nomeando o campo',
+      /implement\.serialNumber/.test(msg),
+      msg,
+    );
+    check('…e o implemento sem série passa com só `implement`', !semSerie, semSerie);
+  }
+  check(
+    'o domínio `implement` aceita o nome velho na janela (quem valida o corpo cru não toma 400)',
+    (TASK_FIELD_DOMAINS.implement as readonly string[]).includes('truck'),
+  );
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);
   if (fail > 0) process.exit(1);

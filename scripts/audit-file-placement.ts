@@ -66,7 +66,7 @@ const PLACEMENT: Record<string, { root: 'Clientes' | 'Fornecedores' | 'Colaborad
   '_InstallmentReceipts.A': { root: 'Clientes', sub: 'Comprovantes' },
   'Cut.fileId': { root: 'Clientes', sub: 'Plotter' },
   'ImplementMeasure.photoId': { root: 'Clientes', sub: 'Traseiras' },
-  'Truck.vinPlateId': { root: 'Clientes', sub: 'Plaquetas' },
+  'Implement.vinPlateId': { root: 'Clientes', sub: 'Plaquetas' },
   'Customer.logoId': { root: 'Clientes', sub: 'Logo' },
   '_AIRBRUSHING_INVOICES.B': { root: 'Clientes', sub: 'Aerografias/Notas Fiscais' },
   '_AIRBRUSHING_RECEIPTS.B': { root: 'Clientes', sub: 'Aerografias/Comprovantes' },

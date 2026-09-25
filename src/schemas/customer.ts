@@ -36,7 +36,7 @@ export const customerIncludeSchema = z
               createdBy: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
-              truck: z.boolean().optional(),
+              implement: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -593,7 +593,7 @@ const customerTransform = (data: any) => {
       { stateNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { neighborhoodNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { addressNormalized: { contains: normalizeSearchTerm(searchingFor) } },
-      { tasks: { some: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchingFor) } } } } },
+      { tasks: { some: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchingFor) } } } } },
       { tasks: { some: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } },
     ];
 

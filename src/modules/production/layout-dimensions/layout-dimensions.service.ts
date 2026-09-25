@@ -138,7 +138,7 @@ export class LayoutDimensionsService implements OnModuleInit {
    */
   private async panelsForTruck(truckId: string): Promise<Panel[]> {
     const sections = { orderBy: { position: 'asc' as const } };
-    const truck = await this.prisma.truck.findUnique({
+    const truck = await this.prisma.implement.findUnique({
       where: { id: truckId },
       select: {
         leftSideMeasure: { select: { height: true, sections } },

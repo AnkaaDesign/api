@@ -2,7 +2,7 @@
 
 import type { BaseEntity, ORDER_BY_DIRECTION } from './common';
 import type { File } from './file';
-import type { Truck } from './truck';
+import type { Implement } from './implement';
 import type { ImplementMeasureSection } from './implementMeasureSection';
 
 // =====================
@@ -20,13 +20,13 @@ export interface ImplementMeasure extends BaseEntity {
   photo?: File;
 
   // Inverse relations (one-to-many - SHARED RESOURCE)
-  // Multiple trucks can use the same implementMeasure
-  trucksLeftSide?: Truck[]; // Changed from Truck to Truck[]
-  trucksRightSide?: Truck[]; // Changed from Truck to Truck[]
-  trucksBackSide?: Truck[]; // Changed from Truck to Truck[]
+  // Desde o P04 a medida não é compartilhada (D-07): no máximo 1 implemento por lista
+  implementsLeftSide?: Implement[];
+  implementsRightSide?: Implement[];
+  implementsBackSide?: Implement[];
 
   // Computed field for usage tracking
-  usageCount?: number; // Total number of trucks using this implementMeasure
+  usageCount?: number; // quantos implementos usam esta medida
 }
 
 // =====================
@@ -36,9 +36,9 @@ export interface ImplementMeasure extends BaseEntity {
 export interface ImplementMeasureIncludes {
   photo?: boolean;
   sections?: boolean;
-  trucksLeftSide?: boolean; // Changed from truckLeftSide
-  trucksRightSide?: boolean; // Changed from truckRightSide
-  trucksBackSide?: boolean; // Changed from truckBackSide
+  implementsLeftSide?: boolean;
+  implementsRightSide?: boolean;
+  implementsBackSide?: boolean;
 }
 
 // =====================

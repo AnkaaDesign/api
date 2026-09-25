@@ -351,7 +351,7 @@ export class BudgetService {
           quote: { select: { budgetNumber: true } },
           // A placa nomeia o veículo sem número de série nas mensagens do layout
           // por veículo ("passou do veículo ABC1D23").
-          truck: { select: { plate: true } },
+          implement: { select: { plate: true } },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
@@ -1206,7 +1206,7 @@ export class BudgetService {
               id: true,
               createdAt: true,
               serialNumber: true,
-              truck: { select: { plate: true } },
+              implement: { select: { plate: true } },
             },
           },
           // Captured BEFORE the write so an UNSELECTED reference (dropped from
@@ -1266,7 +1266,7 @@ export class BudgetService {
             createdAt: true,
             serialNumber: true,
             name: true,
-            truck: { select: { plate: true } },
+            implement: { select: { plate: true } },
           },
         });
         const entries = await this.reuseOwnLayoutFiles(
@@ -1757,7 +1757,7 @@ export class BudgetService {
                   id: true,
                   createdAt: true,
                   serialNumber: true,
-                  truck: { select: { plate: true } },
+                  implement: { select: { plate: true } },
                 },
               },
             },
@@ -3922,7 +3922,7 @@ export class BudgetService {
             id: true,
             createdAt: true,
             serialNumber: true,
-            truck: { select: { plate: true } },
+            implement: { select: { plate: true } },
           },
         },
       },
@@ -5921,13 +5921,13 @@ export class BudgetService {
                 select: { id: true, name: true, roles: true },
                 orderBy: { createdAt: 'asc' },
               },
-              truck: {
+              implement: {
                 select: {
                   id: true,
                   plate: true,
                   chassisNumber: true,
                   category: true,
-                  implementType: true,
+                  type: true,
                 },
               },
               serviceOrders: {

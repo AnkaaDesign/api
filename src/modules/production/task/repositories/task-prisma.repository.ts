@@ -103,7 +103,7 @@ const TASK_SELECT_CARD: Prisma.TaskSelect = {
   createdBy: {
     select: { id: true, name: true },
   },
-  truck: {
+  implement: {
     select: {
       id: true,
       plate: true,
@@ -147,7 +147,7 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
   customer: {
     select: { id: true, fantasyName: true },
   },
-  truck: {
+  implement: {
     select: {
       id: true,
       plate: true,
@@ -231,7 +231,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
     },
     orderBy: [{ type: 'asc' as const }, { position: 'asc' as const }],
   },
-  truck: {
+  implement: {
     select: {
       id: true,
       plate: true,
@@ -242,7 +242,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
       vinPlateId: true,
       spot: true,
       category: true,
-      implementType: true,
+      type: true,
     },
   },
 };
@@ -462,7 +462,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
     },
     orderBy: [{ type: 'asc' }, { position: 'asc' }],
   },
-  truck: {
+  implement: {
     select: {
       id: true,
       plate: true,
@@ -472,7 +472,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       vinPlate: true,
       spot: true,
       category: true,
-      implementType: true,
+      type: true,
       // ImplementMeasure references for detail page
       leftSideMeasureId: true,
       rightSideMeasureId: true,
@@ -955,7 +955,7 @@ export class TaskPrismaRepository
       responsibleIds,
       serviceOrders,
       observation,
-      truck,
+      implement: truck,
       cut,
       cuts,
     } = extendedData;
@@ -970,7 +970,8 @@ export class TaskPrismaRepository
       ),
     };
 
-    if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
+    // A SÉRIE NÃO vai para `Task` (W1, DD1): `Task.serialNumber` é espelho
+    // somente leitura (gatilho da M1s) — ela nasce no implemento, logo abaixo.
     if (customerOrderNumber !== undefined) {
       taskData.customerOrderNumber = customerOrderNumber;
     }
@@ -1070,20 +1071,32 @@ export class TaskPrismaRepository
       };
     }
 
-    if (truck) {
-      const truckData: any = {};
-      if (truck.plate !== undefined) truckData.plate = truck.plate;
-      if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
-      if (truck.vinPlateId !== undefined) truckData.vinPlateId = truck.vinPlateId;
-      // Spot starts as null — only set to YARD_WAIT when task is cleared
-      truckData.spot = truck.spot !== undefined ? truck.spot : null;
-      if (truck.category !== undefined && truck.category !== null) {
-        truckData.category = truck.category;
+    // W1 (DD1): TODA tarefa nasce com implemento — mesmo sem nenhum campo (o
+    // gatilho diferido "Task_has_implement" recusa, no COMMIT, a que nascer sem).
+    // `spot` SEMPRE explícito: null até a tarefa ser liberada (o default antigo
+    // punha o veículo "no pátio"). A série do topo (legado, D-32) cai aqui
+    // quando o corpo não a trouxe dentro do implemento.
+    {
+      const implementInput: Record<string, any> =
+        truck && typeof truck === 'object' ? truck : {};
+      const implementData: Record<string, unknown> = {
+        spot: implementInput.spot !== undefined ? implementInput.spot : null,
+      };
+      const serial =
+        implementInput.serialNumber !== undefined ? implementInput.serialNumber : serialNumber;
+      if (serial !== undefined) implementData.serialNumber = serial ?? null;
+      if (implementInput.plate !== undefined) implementData.plate = implementInput.plate;
+      if (implementInput.chassisNumber !== undefined) {
+        implementData.chassisNumber = implementInput.chassisNumber;
       }
-      if (truck.implementType !== undefined && truck.implementType !== null) {
-        truckData.implementType = truck.implementType;
+      if (implementInput.vinPlateId !== undefined) implementData.vinPlateId = implementInput.vinPlateId;
+      if (implementInput.category !== undefined && implementInput.category !== null) {
+        implementData.category = implementInput.category;
       }
-      taskData.truck = { create: truckData };
+      if (implementInput.type !== undefined && implementInput.type !== null) {
+        implementData.type = implementInput.type;
+      }
+      taskData.implement = { create: implementData as any };
     }
 
     // Handle cuts
@@ -1301,7 +1314,7 @@ export class TaskPrismaRepository
       responsibleIds,
       serviceOrders,
       observation,
-      truck,
+      implement: truck,
       cut,
       cuts,
     } = extendedData as any;
@@ -1309,7 +1322,7 @@ export class TaskPrismaRepository
     const updateData: Prisma.TaskUpdateInput = {};
 
     if (name !== undefined) updateData.name = name;
-    if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
+    // A SÉRIE vai para o implemento (W2, logo abaixo): `Task.serialNumber` é espelho.
     if (customerOrderNumber !== undefined) {
       updateData.customerOrderNumber = customerOrderNumber;
     }
@@ -1487,50 +1500,40 @@ export class TaskPrismaRepository
       }
     }
 
-    if (truck !== undefined) {
-      if (truck === null) {
-        updateData.truck = { delete: true };
-      } else {
-        const truckCreateData: any = {};
-        const truckUpdateData: any = {};
-
-        if (truck.plate !== undefined) {
-          truckCreateData.plate = truck.plate;
-          truckUpdateData.plate = truck.plate;
-        }
-        if (truck.chassisNumber !== undefined) {
-          truckCreateData.chassisNumber = truck.chassisNumber;
-          truckUpdateData.chassisNumber = truck.chassisNumber;
-        }
-        if (truck.vinPlateId !== undefined) {
-          truckCreateData.vinPlateId = truck.vinPlateId;
-          truckUpdateData.vinPlateId = truck.vinPlateId;
-        }
-        if (truck.spot !== undefined) {
-          truckCreateData.spot = truck.spot;
-          truckUpdateData.spot = truck.spot;
-        }
-        // Spot starts as null — only set to YARD_WAIT when task is cleared
-        if (truckCreateData.spot === undefined) {
-          truckCreateData.spot = null;
-        }
-        if (truck.category !== undefined && truck.category !== '') {
-          truckCreateData.category = truck.category;
-          truckUpdateData.category = truck.category;
-        }
-        if (truck.implementType !== undefined && truck.implementType !== '') {
-          truckCreateData.implementType = truck.implementType;
-          truckUpdateData.implementType = truck.implementType;
-        }
-
-        if (Object.keys(truckCreateData).length > 0 || Object.keys(truckUpdateData).length > 0) {
-          updateData.truck = {
-            upsert: {
-              create: truckCreateData,
-              update: truckUpdateData,
-            },
-          };
-        }
+    // W2 (DD1): o implemento SEMPRE existe — `update`, nunca `upsert`/`delete`.
+    // `implement: null` (ou o velho `truck: null`) já foi recusado com 400 pelo
+    // tradutor; aqui é a segunda cerca. A série do topo (legado, D-32) cai no
+    // implemento quando o corpo não a trouxe dentro dele.
+    if (truck === null) {
+      throw new BadRequestException(
+        'O implemento não pode ser removido da tarefa; limpe os campos.',
+      );
+    }
+    {
+      const implementInput: Record<string, any> =
+        truck && typeof truck === 'object' ? truck : {};
+      const implementUpdate: Record<string, unknown> = {};
+      const serial =
+        implementInput.serialNumber !== undefined ? implementInput.serialNumber : serialNumber;
+      if (serial !== undefined) implementUpdate.serialNumber = serial ?? null;
+      if (implementInput.plate !== undefined) implementUpdate.plate = implementInput.plate;
+      if (implementInput.chassisNumber !== undefined) {
+        implementUpdate.chassisNumber = implementInput.chassisNumber;
+      }
+      if (implementInput.vinPlateId !== undefined) {
+        implementUpdate.vinPlate = implementInput.vinPlateId
+          ? { connect: { id: implementInput.vinPlateId } }
+          : { disconnect: true };
+      }
+      if (implementInput.spot !== undefined) implementUpdate.spot = implementInput.spot;
+      if (implementInput.category !== undefined && implementInput.category !== '') {
+        implementUpdate.category = implementInput.category;
+      }
+      if (implementInput.type !== undefined && implementInput.type !== '') {
+        implementUpdate.type = implementInput.type;
+      }
+      if (Object.keys(implementUpdate).length > 0) {
+        updateData.implement = { update: implementUpdate as any };
       }
     }
 

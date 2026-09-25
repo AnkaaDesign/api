@@ -8,8 +8,8 @@
 --   psql "$URL" -v ON_ERROR_STOP=1 -f prisma/sql/objetos-pos-push.sql
 -- Idempotente. NUNCA rodar em produção (lá tudo vem das migrations).
 --
--- 2 extensões, 8 funções, 171 colunas geradas,
--- 5 gatilhos, 17 índices, 21 CHECKs.
+-- 2 extensões, 11 funções, 172 colunas geradas,
+-- 9 gatilhos, 18 índices, 21 CHECKs.
 
 BEGIN;
 
@@ -126,6 +126,16 @@ CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
  IMMUTABLE PARALLEL SAFE STRICT
 AS $function$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $function$;
 
+CREATE OR REPLACE FUNCTION public.implement_serial_mirror()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  UPDATE "Task" SET "serialNumber" = NEW."serialNumber"
+   WHERE "id" = NEW."taskId" AND "serialNumber" IS DISTINCT FROM NEW."serialNumber";
+  RETURN NULL;
+END $function$;
+
 CREATE OR REPLACE FUNCTION public.item_latest_price(p_item_id text)
  RETURNS double precision
  LANGUAGE sql
@@ -205,6 +215,38 @@ BEGIN
   RETURN NULL;
 END;
 $function$;
+
+CREATE OR REPLACE FUNCTION public.task_must_have_implement()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE tid text;
+BEGIN
+  IF TG_TABLE_NAME = 'Task' THEN
+    tid := NEW."id";
+  ELSE
+    tid := OLD."taskId";
+  END IF;
+  IF EXISTS (SELECT 1 FROM "Task" WHERE "id" = tid)
+     AND NOT EXISTS (SELECT 1 FROM "Implement" WHERE "taskId" = tid) THEN
+    RAISE EXCEPTION 'Tarefa % sem implemento: toda tarefa tem exatamente um implemento', tid
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.task_serial_is_mirror()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF pg_trigger_depth() = 1 AND NEW."serialNumber" IS DISTINCT FROM
+     (CASE WHEN TG_OP = 'UPDATE' THEN OLD."serialNumber" ELSE NULL END) THEN
+    RAISE EXCEPTION 'Task.serialNumber é espelho de Implement.serialNumber: grave no implemento'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $function$;
 
 -- ── colunas geradas ──
 -- `db push` as cria como colunas comuns; aqui viram GENERATED de novo (o valor
@@ -317,6 +359,12 @@ ALTER TABLE "Fispq" DROP COLUMN IF EXISTS "onuNumberNormalized";
 ALTER TABLE "Fispq" ADD COLUMN "onuNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("onuNumber"))) STORED;
 ALTER TABLE "Fispq" DROP COLUMN IF EXISTS "productNameNormalized";
 ALTER TABLE "Fispq" ADD COLUMN "productNameNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("productName"))) STORED;
+ALTER TABLE "Implement" DROP COLUMN IF EXISTS "chassisNumberNormalized";
+ALTER TABLE "Implement" ADD COLUMN "chassisNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("chassisNumber"))) STORED;
+ALTER TABLE "Implement" DROP COLUMN IF EXISTS "plateNormalized";
+ALTER TABLE "Implement" ADD COLUMN "plateNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(plate))) STORED;
+ALTER TABLE "Implement" DROP COLUMN IF EXISTS "serialNumberNormalized";
+ALTER TABLE "Implement" ADD COLUMN "serialNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("serialNumber"))) STORED;
 ALTER TABLE "Invoice" DROP COLUMN IF EXISTS "notesNormalized";
 ALTER TABLE "Invoice" ADD COLUMN "notesNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(notes))) STORED;
 ALTER TABLE "Item" DROP COLUMN IF EXISTS "nameNormalized";
@@ -491,10 +539,6 @@ ALTER TABLE "TopicLevel" DROP COLUMN IF EXISTS "nameNormalized";
 ALTER TABLE "TopicLevel" ADD COLUMN "nameNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(name))) STORED;
 ALTER TABLE "TransactionCategory" DROP COLUMN IF EXISTS "nameNormalized";
 ALTER TABLE "TransactionCategory" ADD COLUMN "nameNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(name))) STORED;
-ALTER TABLE "Truck" DROP COLUMN IF EXISTS "chassisNumberNormalized";
-ALTER TABLE "Truck" ADD COLUMN "chassisNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("chassisNumber"))) STORED;
-ALTER TABLE "Truck" DROP COLUMN IF EXISTS "plateNormalized";
-ALTER TABLE "Truck" ADD COLUMN "plateNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(plate))) STORED;
 ALTER TABLE "User" DROP COLUMN IF EXISTS "addressNormalized";
 ALTER TABLE "User" ADD COLUMN "addressNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(address))) STORED;
 ALTER TABLE "User" DROP COLUMN IF EXISTS "cityNormalized";
@@ -561,18 +605,27 @@ DROP TRIGGER IF EXISTS "envelope_signer_freeze_signed" ON "EnvelopeSigner";
 CREATE TRIGGER envelope_signer_freeze_signed BEFORE UPDATE ON public."EnvelopeSigner" FOR EACH ROW EXECUTE FUNCTION envelope_signer_freeze_signed();
 DROP TRIGGER IF EXISTS "file_no_delete_when_referenced" ON "File";
 CREATE TRIGGER file_no_delete_when_referenced BEFORE DELETE ON public."File" FOR EACH ROW EXECUTE FUNCTION file_block_referenced_delete();
+DROP TRIGGER IF EXISTS "Implement_keeps_task_covered" ON "Implement";
+CREATE CONSTRAINT TRIGGER "Implement_keeps_task_covered" AFTER DELETE OR UPDATE OF "taskId" ON public."Implement" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
+DROP TRIGGER IF EXISTS "Implement_serial_mirror" ON "Implement";
+CREATE TRIGGER "Implement_serial_mirror" AFTER INSERT OR UPDATE OF "serialNumber", "taskId" ON public."Implement" FOR EACH ROW EXECUTE FUNCTION implement_serial_mirror();
 DROP TRIGGER IF EXISTS "item_total_price_sync" ON "Item";
 CREATE TRIGGER item_total_price_sync BEFORE INSERT OR UPDATE OF quantity ON public."Item" FOR EACH ROW EXECUTE FUNCTION item_sync_total_price();
 DROP TRIGGER IF EXISTS "monetary_value_item_total_price_sync" ON "MonetaryValue";
 CREATE TRIGGER monetary_value_item_total_price_sync AFTER INSERT OR DELETE OR UPDATE ON public."MonetaryValue" FOR EACH ROW EXECUTE FUNCTION monetary_value_sync_item_total_price();
 DROP TRIGGER IF EXISTS "signature_audit_no_mutate" ON "SignatureAuditEvent";
 CREATE TRIGGER signature_audit_no_mutate BEFORE DELETE OR UPDATE ON public."SignatureAuditEvent" FOR EACH ROW EXECUTE FUNCTION signature_audit_append_only();
+DROP TRIGGER IF EXISTS "Task_has_implement" ON "Task";
+CREATE CONSTRAINT TRIGGER "Task_has_implement" AFTER INSERT ON public."Task" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
+DROP TRIGGER IF EXISTS "Task_serial_is_mirror" ON "Task";
+CREATE TRIGGER "Task_serial_is_mirror" BEFORE INSERT OR UPDATE OF "serialNumber" ON public."Task" FOR EACH ROW EXECUTE FUNCTION task_serial_is_mirror();
 
 -- ── índices (GIN/GiST, de expressão e sobre coluna gerada) ──
 CREATE INDEX IF NOT EXISTS "Budget_statusOrder_queueRank_idx" ON public."Budget" USING btree ("statusOrder", "queueRank");
 CREATE INDEX IF NOT EXISTS "Customer_corporateNameNormalized_trgm_idx" ON public."Customer" USING gin ("corporateNameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "Customer_fantasyNameNormalized_trgm_idx" ON public."Customer" USING gin ("fantasyNameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "File_filenameNormalized_trgm_idx" ON public."File" USING gin ("filenameNormalized" gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS "Implement_serialNumberNormalized_trgm_idx" ON public."Implement" USING gin ("serialNumberNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "ItemBrand_nameNormalized_trgm_idx" ON public."ItemBrand" USING gin ("nameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "ItemCategory_nameNormalized_trgm_idx" ON public."ItemCategory" USING gin ("nameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "Item_nameNormalized_trgm_idx" ON public."Item" USING gin ("nameNormalized" gin_trgm_ops);

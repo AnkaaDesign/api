@@ -868,7 +868,7 @@ export class PersonalService {
                 name: true,
               },
             },
-            truck: {
+            implement: {
               select: {
                 id: true,
                 plate: true,

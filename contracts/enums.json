@@ -1255,6 +1255,18 @@
       "MUNICIPAL",
       "OPTIONAL"
     ],
+    "IMPLEMENT_CATEGORY": [
+      "MINI",
+      "VUC",
+      "THREE_QUARTER",
+      "RIGID",
+      "TRUCK",
+      "SEMI_TRAILER",
+      "SEMI_TRAILER_2_AXLES",
+      "B_DOUBLE_FRONT",
+      "B_DOUBLE_REAR",
+      "BITRUCK"
+    ],
     "IMPLEMENT_TYPE": [
       "DRY_CARGO",
       "REFRIGERATED",
@@ -3188,6 +3200,10 @@
           "maxCount": 1
         },
         {
+          "nome": "implementVinPlate",
+          "maxCount": 1
+        },
+        {
           "nome": "airbrushings[0].receipts",
           "maxCount": 10
         },
@@ -3359,6 +3375,10 @@
           "maxCount": 1
         },
         {
+          "nome": "implementVinPlate",
+          "maxCount": 1
+        },
+        {
           "nome": "implementMeasurePhotos.leftSide",
           "maxCount": 1
         },
@@ -3442,6 +3462,10 @@
         },
         {
           "nome": "truckVinPlate",
+          "maxCount": 1
+        },
+        {
+          "nome": "implementVinPlate",
           "maxCount": 1
         },
         {
@@ -3671,6 +3695,7 @@
     "warning",
     "implementMeasurePhotos",
     "truckVinPlate",
+    "implementVinPlate",
     "quote-layouts",
     "plotterEspovo",
     "plotterAdesivo",

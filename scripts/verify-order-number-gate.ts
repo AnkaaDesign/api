@@ -61,7 +61,7 @@ check('tarefa cancelada sai do escopo; todas canceladas voltam', () => {
 
 check('rótulo: série · placa, senão nome, senão "Veículo N"', () => {
   const v = orderNumberVehicles([
-    { id: A, serialNumber: '1234', truck: { plate: 'abc1d23' } },
+    { id: A, serialNumber: '1234', implement: { plate: 'abc1d23' } },
     { id: B, name: 'Baú 3 eixos' },
     { id: C },
   ]);

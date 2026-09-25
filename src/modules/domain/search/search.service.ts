@@ -210,8 +210,8 @@ const taskSearcher: EntitySearcher = {
           { logoPaints: { some: { codeNormalized: { contains: t } } } },
           // Placa e chassi são gravados sem separador; o termo tem que perder o
           // hífen também, senão colar "ABC-1234" da tela não acha nada.
-          { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
-          { truck: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
+          { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
+          { implement: { chassisNumberNormalized: { contains: normalizeVehicleSearchTerm(t) } } },
               { serviceOrders: { some: { descriptionNormalized: { contains: t } } } },
             ]),
           },
@@ -241,7 +241,7 @@ const taskSearcher: EntitySearcher = {
         createdAt: true,
         quote: { select: { budgetNumber: true } },
         customer: { select: { fantasyName: true, corporateName: true } },
-        truck: { select: { plate: true, chassisNumber: true } },
+        implement: { select: { plate: true, chassisNumber: true } },
         generalPainting: { select: { name: true } },
         // Only the relation rows that actually matched, so the "matched by"
         // hint can show them when the reason isn't visible in the row.
@@ -264,11 +264,11 @@ const taskSearcher: EntitySearcher = {
       tasks.map((task) => {
         const fields: ScoredField[] = [
           { value: task.serialNumber, weight: 2 },
-          { value: task.truck?.plate, weight: 2 },
+          { value: task.implement?.plate, weight: 2 },
           { value: task.name, weight: 1.5 },
           { value: task.customer?.fantasyName, weight: 1 },
           { value: task.customer?.corporateName, weight: 1, label: 'Razão social', hidden: true },
-          { value: task.truck?.chassisNumber, weight: 1.5, label: 'Chassi', hidden: true },
+          { value: task.implement?.chassisNumber, weight: 1.5, label: 'Chassi', hidden: true },
           { value: task.generalPainting?.name, weight: 1, label: 'Tinta geral', hidden: true },
           ...task.logoPaints.map((paint) => ({ value: paint.name, weight: 1, label: 'Tinta do logo', hidden: true })),
           ...task.serviceOrders.map((so) => ({ value: so.description, weight: 0.8, label: 'Ordem de serviço', hidden: true })),
@@ -286,7 +286,7 @@ const taskSearcher: EntitySearcher = {
           entity: 'TASK' as const,
           id: task.id,
           title: task.name || 'Tarefa sem nome',
-          fields: fieldList({ label: 'Nº série', value: task.serialNumber }, { label: 'Cliente', value: task.customer?.fantasyName }, { label: 'Placa', value: task.truck?.plate }),
+          fields: fieldList({ label: 'Nº série', value: task.serialNumber }, { label: 'Cliente', value: task.customer?.fantasyName }, { label: 'Placa', value: task.implement?.plate }),
           status: task.status,
           date: task.finishedAt ? isoDate('Concluída em', task.finishedAt) : isoDate('Criada em', task.createdAt),
           match,

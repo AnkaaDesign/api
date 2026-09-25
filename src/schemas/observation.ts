@@ -63,7 +63,7 @@ export const observationIncludeSchema = z
               logoPaints: z.boolean().optional(),
               bonifications: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
-              truck: z.boolean().optional(),
+              implement: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
             })
             .optional(),

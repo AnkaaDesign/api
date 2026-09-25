@@ -38,7 +38,7 @@
 import { z } from 'zod';
 import { cleanCNPJ, cleanCPF, isValidCNPJ, isValidCPF } from '@utils';
 import { PAINT_FINISH } from '@constants';
-import { ImplementType, TruckCategory } from '@prisma/client';
+import { ImplementType, ImplementCategory } from '@prisma/client';
 import { chassisNumberSchema, hexColorSchema, plateSchema } from './common';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -441,7 +441,7 @@ export const portalVeiculoSchema = z.object({
    * corrigível no portal (`PATCH …/identificacao`) até a assinatura congelar a
    * folha.
    */
-  category: z.nativeEnum(TruckCategory).nullable().optional(),
+  category: z.nativeEnum(ImplementCategory).nullable().optional(),
   implementType: z.nativeEnum(ImplementType).nullable().optional(),
   /** ⚠️ EM CENTÍMETROS. O serviço divide por 100 antes de gravar. */
   medidas: portalMedidasSchema.nullable().optional(),

@@ -107,7 +107,7 @@ export const INBOUND_REFERENCES: Readonly<
     context: 'implementMeasurePhotos',
     label: 'foto de medida do implemento',
   },
-  'Truck.vinPlateId': { context: 'truckVinPlate', label: 'plaqueta de chassi' },
+  'Implement.vinPlateId': { context: 'implementVinPlate', label: 'plaqueta de chassi' },
   'Customer.logoId': { context: 'customerLogo', label: 'logo de cliente' },
 
   // --- Airbrushing (Clientes/{cliente}/Aerografias/…) ---

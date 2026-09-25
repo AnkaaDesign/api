@@ -3,7 +3,10 @@ import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import type { TruckUpdateFormData } from '../../../schemas/truck';
+import type {
+  ImplementGetManyFormData,
+  ImplementUpdateFormData,
+} from '../../../schemas/implement';
 import {
   GARAGE_CONFIGS,
   GARAGE_CONFIG,
@@ -23,17 +26,21 @@ import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changel
 import { ENTITY_TYPE, CHANGE_TRIGGERED_BY } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 
+/**
+ * Disponibilidade do barracão, no vocabulário novo. O alias da rota velha devolve as
+ * chaves que o web e o app instalados leem (`legacyGarageAvailability`).
+ */
 export interface SpotOccupant {
   spotNumber: SpotNumber;
-  truckId: string;
+  implementId: string;
   taskName: string | null;
-  truckLength: number;
+  implementLength: number;
 }
 
 export interface LaneAvailability {
   laneId: LaneId;
   availableSpace: number;
-  currentTrucks: number;
+  currentImplements: number;
   canFit: boolean;
   nextSpotNumber: SpotNumber | null;
   occupiedSpots: SpotNumber[];
@@ -48,9 +55,24 @@ export interface GarageAvailability {
   lanes: LaneAvailability[];
 }
 
+/**
+ * Campo do implemento → chave de NOTIFICAÇÃO `task.field.truck.<campo>` (D-04:
+ * as chaves persistidas em NotificationConfiguration e nas preferências de
+ * silenciar NÃO mudam). Mapa explícito: montar a chave pelo nome novo
+ * (`task.field.implement.type`) deixaria a notificação muda (G9).
+ */
+export const IMPLEMENT_FIELD_NOTIFICATION_KEY: Readonly<Record<string, string>> = {
+  plate: 'truck.plate',
+  chassisNumber: 'truck.chassisNumber',
+  vinPlateId: 'truck.vinPlateId',
+  category: 'truck.category',
+  type: 'truck.implementType',
+  spot: 'truck.spot',
+};
+
 @Injectable()
-export class TruckService {
-  private readonly logger = new Logger(TruckService.name);
+export class ImplementService {
+  private readonly logger = new Logger(ImplementService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -60,43 +82,37 @@ export class TruckService {
   ) {}
 
   /**
-   * Truck scalar fields that map 1:1 to a tracked task field ('truck.<field>').
-   * The TaskFieldTrackerService emits the SAME 'task.field.changed' events when a
-   * truck is updated as part of a task; here we mirror those emits for the
-   * standalone truck-update paths (update / batchUpdateSpots) so the existing
-   * task.listener.ts handler dispatches 'task.field.truck.<field>' notifications.
+   * Campos do implemento acompanhados na trilha e na notificação. O
+   * TaskFieldTrackerService emite os MESMOS eventos quando o implemento muda pela
+   * tarefa; aqui os caminhos avulsos (update / batchUpdateSpots) fazem igual,
+   * com a chave de notificação de `IMPLEMENT_FIELD_NOTIFICATION_KEY`.
    */
-  private static readonly TRUCK_TRACKED_FIELDS = [
+  private static readonly TRACKED_FIELDS = [
     'plate',
     'chassisNumber',
     'vinPlateId',
     'category',
-    'implementType',
+    'type',
     'spot',
   ] as const;
 
   /**
-   * Emit 'task.field.changed' events (one per changed truck field) for a truck's
-   * owning task, mirroring the TaskFieldTrackerService output so task.listener.ts
-   * dispatches the 'task.field.truck.<field>' notifications.
+   * Um 'task.field.changed' por campo do implemento que mudou, para a tarefa dona
+   * — o mesmo que o TaskFieldTrackerService emite —, e o task.listener.ts despacha
+   * `task.field.${event.field}` com a chave de `IMPLEMENT_FIELD_NOTIFICATION_KEY`.
    *
-   * Called AFTER the truck-update transaction commits. Wrapped in try/catch so a
-   * notification failure never breaks the business flow.
-   *
-   * ASSUMPTION: task.listener.ts reads event.field as 'truck.plate' etc. and
-   * dispatches `task.field.${event.field}`; the field tracker uses the EventEmitter
-   * token 'EventEmitter' and the same 'task.field.changed' event name.
+   * Roda DEPOIS do commit; falha de notificação nunca derruba a gravação.
    */
-  private async emitTruckTaskFieldChanges(
-    truckId: string,
+  private async emitImplementTaskFieldChanges(
+    implementId: string,
     changes: Array<{ field: string; oldValue: any; newValue: any }>,
     userId?: string,
   ): Promise<void> {
     if (changes.length === 0) return;
 
     try {
-      const truck = await this.prisma.truck.findUnique({
-        where: { id: truckId },
+      const implement = await this.prisma.implement.findUnique({
+        where: { id: implementId },
         select: {
           taskId: true,
           task: {
@@ -105,18 +121,18 @@ export class TruckService {
         },
       });
 
-      if (!truck?.task) {
-        // No owning task -> nothing to notify (truck-level changelog already recorded).
+      if (!implement?.task) {
+        // Sem tarefa dona: nada a notificar (a trilha do implemento já foi gravada).
         return;
       }
 
-      const task = truck.task;
+      const task = implement.task;
       const changedBy = userId || 'system';
 
       for (const change of changes) {
         this.eventEmitter.emit('task.field.changed', {
           task,
-          field: `truck.${change.field}`,
+          field: IMPLEMENT_FIELD_NOTIFICATION_KEY[change.field],
           oldValue: change.oldValue,
           newValue: change.newValue,
           changedBy,
@@ -125,45 +141,55 @@ export class TruckService {
       }
     } catch (error) {
       this.logger.warn(
-        `[emitTruckTaskFieldChanges] Failed to emit task.field.changed for truck ${truckId}:`,
+        `[emitImplementTaskFieldChanges] Failed to emit task.field.changed for implement ${implementId}:`,
         error,
       );
     }
   }
 
-  async findAll(query?: any) {
-    return this.prisma.truck.findMany({
-      include: query?.include,
-    });
+  /**
+   * Lista. O `include`/`where`/`orderBy` já passaram pelo zod estrito e pelo G1
+   * (queryModel 'Implement'). Sem `limit`, devolve todos (o que o barracão pede).
+   */
+  async findAll(query: Partial<ImplementGetManyFormData> = {}) {
+    const take = query.limit;
+    const skip = take ? ((query.page ?? 1) - 1) * take : undefined;
+    const [data, total] = await Promise.all([
+      this.prisma.implement.findMany({
+        where: query.where,
+        orderBy: query.orderBy as any,
+        include: query.include as any,
+        ...(take ? { take, skip } : {}),
+      }),
+      take ? this.prisma.implement.count({ where: query.where }) : Promise.resolve(undefined),
+    ]);
+    return { data, total };
   }
 
-  async findById(id: string, query?: any) {
-    return this.prisma.truck.findUnique({
+  async findById(id: string, include?: Record<string, unknown>) {
+    return this.prisma.implement.findUnique({
       where: { id },
-      include: query?.include,
+      include: include as any,
     });
   }
 
   async update(
     id: string,
-    data: TruckUpdateFormData,
-    query?: any,
+    data: ImplementUpdateFormData,
+    include?: Record<string, unknown>,
     userId?: string,
-    userPrivilege?: string,
   ) {
-    // Check if truck exists
-    const existing = await this.prisma.truck.findUnique({
+    const existing = await this.prisma.implement.findUnique({
       where: { id },
     });
 
     if (!existing) {
-      throw new NotFoundException(`Caminhao com id ${id} nao encontrado`);
+      throw new NotFoundException(`Implemento ${id} não encontrado`);
     }
 
     // Use transaction to update and log changes
     const updated = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Update truck
-      const updated = await tx.truck.update({
+      const updated = await tx.implement.update({
         where: { id },
         data: {
           ...(data.spot !== undefined && { spot: data.spot }),
@@ -171,9 +197,9 @@ export class TruckService {
           ...(data.chassisNumber !== undefined && { chassisNumber: data.chassisNumber }),
           ...(data.vinPlateId !== undefined && { vinPlateId: data.vinPlateId }),
           ...(data.category !== undefined && { category: data.category }),
-          ...(data.implementType !== undefined && { implementType: data.implementType }),
+          ...(data.type !== undefined && { type: data.type }),
         },
-        include: query?.include,
+        include: include as any,
       });
 
       // Log changes
@@ -183,7 +209,7 @@ export class TruckService {
         entityId: id,
         oldEntity: existing,
         newEntity: updated,
-        fieldsToTrack: ['plate', 'chassisNumber', 'vinPlateId', 'category', 'implementType', 'spot'],
+        fieldsToTrack: [...ImplementService.TRACKED_FIELDS],
         userId: userId || '',
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         transaction: tx,
@@ -192,28 +218,28 @@ export class TruckService {
       return updated;
     });
 
-    // After commit: mirror the TaskFieldTracker by emitting task.field.changed for
-    // each changed truck field so task.listener.ts fires the truck.* notifications.
-    const truckFieldChanges = TruckService.TRUCK_TRACKED_FIELDS.filter(
+    // Depois do commit: os eventos task.field.changed de cada campo que mudou, para o
+    // task.listener.ts disparar as notificações task.field.truck.* (chaves mantidas).
+    const fieldChanges = ImplementService.TRACKED_FIELDS.filter(
       field => (existing as any)[field] !== (updated as any)[field],
     ).map(field => ({
       field,
       oldValue: (existing as any)[field],
       newValue: (updated as any)[field],
     }));
-    await this.emitTruckTaskFieldChanges(id, truckFieldChanges, userId);
+    await this.emitImplementTaskFieldChanges(id, fieldChanges, userId);
 
     return updated;
   }
 
   /**
-   * Calculate lane availability for a garage based on truck length
-   * Used by the spot selector to show which lanes can fit a truck
+   * Disponibilidade das faixas de um barracão para um implemento de dado comprimento
+   * (seletor de vaga).
    */
   async getLaneAvailability(
     garageId: GarageId,
-    truckLength: number,
-    excludeTruckId?: string,
+    implementLength: number,
+    excludeImplementId?: string,
   ): Promise<LaneAvailability[]> {
     const config = GARAGE_CONFIGS[garageId];
     const lanes: LaneId[] = ['F1', 'F2', 'F3'];
@@ -221,13 +247,13 @@ export class TruckService {
     // Get all valid spots for this garage
     const garageSpots = getGarageSpots(garageId);
 
-    // Get all trucks in this garage with their implementMeasure sections and active task to calculate lengths
-    const trucksInGarage = await this.prisma.truck.findMany({
+    // Implementos no barracão, com as seções da medida (comprimento) e a tarefa
+    const implementsInGarage = await this.prisma.implement.findMany({
       where: {
         spot: {
           in: garageSpots,
         },
-        ...(excludeTruckId && { id: { not: excludeTruckId } }),
+        ...(excludeImplementId && { id: { not: excludeImplementId } }),
       },
       include: {
         leftSideMeasure: {
@@ -242,25 +268,25 @@ export class TruckService {
       },
     });
 
-    // Calculate truck lengths from implementMeasure sections
-    const trucksWithLengths = trucksInGarage.map(truck => {
+    // Comprimento de cada um pelas seções da medida lateral
+    const withLengths = implementsInGarage.map(implement => {
       // Use left or right side implementMeasure to calculate length
-      const implementMeasure = truck.leftSideMeasure || truck.rightSideMeasure;
+      const implementMeasure = implement.leftSideMeasure || implement.rightSideMeasure;
       let length: number = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
 
       if (implementMeasure?.sections) {
         const sectionsSum = implementMeasure.sections.reduce((sum, s) => sum + s.width, 0);
-        // Calculate full truck length with cabin using two-tier system
+        // comprimento total com a cabine (sistema de duas faixas)
         length = calculateTruckGarageLength(sectionsSum);
       }
 
-      const parsed = parseSpot(truck.spot! as any);
+      const parsed = parseSpot(implement.spot! as any);
       // Get active task name if available
-      const taskName = truck.task?.name || null;
+      const taskName = implement.task?.name || null;
 
       return {
-        id: truck.id,
-        spot: truck.spot,
+        id: implement.id,
+        spot: implement.spot,
         lane: parsed.lane,
         spotNumber: parsed.spotNumber,
         length,
@@ -272,30 +298,30 @@ export class TruckService {
     const maxSpotsInTaskForm = 2; // Task form only uses V1 and V2
 
     return lanes.map(laneId => {
-      const trucksInLane = trucksWithLengths.filter(t => t.lane === laneId);
-      const occupiedSpots = trucksInLane
+      const inLane = withLengths.filter(t => t.lane === laneId);
+      const occupiedSpots = inLane
         .map(t => t.spotNumber)
         .filter((s): s is SpotNumber => s !== null)
         .sort((a, b) => a - b);
 
       // Build spot occupants list with task names
-      const spotOccupants: SpotOccupant[] = trucksInLane
+      const spotOccupants: SpotOccupant[] = inLane
         .filter(t => t.spotNumber !== null)
         .map(t => ({
           spotNumber: t.spotNumber!,
-          truckId: t.id,
+          implementId: t.id,
           taskName: t.taskName,
-          truckLength: Math.round(t.length * 100) / 100,
+          implementLength: Math.round(t.length * 100) / 100,
         }));
 
       // Calculate total occupied length
-      const totalOccupiedLength = trucksInLane.reduce((sum, t) => sum + t.length, 0);
+      const totalOccupiedLength = inLane.reduce((sum, t) => sum + t.length, 0);
 
       // Calculate gaps - must match garage view logic:
-      // - 1 truck: 0 gaps (just V1 at top)
-      // - 2 trucks: 0 gaps (V1 at top, V2 at bottom, no mandatory gap between)
-      // - 3 trucks: 2m gaps (V1 top, V2 middle with 1m gap on each side, V3 bottom)
-      const currentGaps = trucksInLane.length === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      // - 1 veículo: sem folga (só V1 no topo)
+      // - 2 veículos: sem folga obrigatória (V1 no topo, V2 embaixo)
+      // - 3 veículos: 2 m de folga (V2 no meio, 1 m de cada lado)
+      const currentGaps = inLane.length === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
       const margins = 2 * 0.2; // 0.4m total (small margin at top and bottom)
 
       // Available space = lane length - occupied - margins - current gaps
@@ -305,18 +331,18 @@ export class TruckService {
       // Count only V1/V2 occupancy for task form (max 2 spots)
       const spotsOccupiedInV1V2 = occupiedSpots.filter(s => s <= 2).length;
 
-      // Calculate if the new truck would fit when added
-      const newTruckCount = trucksInLane.length + 1;
-      const newTotalLength = totalOccupiedLength + truckLength;
-      // Gaps needed after adding the truck
-      const newGaps = newTruckCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      // O novo caberia?
+      const newCount = inLane.length + 1;
+      const newTotalLength = totalOccupiedLength + implementLength;
+      // folgas depois de acrescentá-lo
+      const newGaps = newCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
       const totalRequiredSpace = newTotalLength + margins + newGaps;
 
-      // Check if truck can fit in V1 or V2 (normal case)
+      // cabe em V1 ou V2 (caso normal)
       const canFitInV1V2 =
         spotsOccupiedInV1V2 < maxSpotsInTaskForm && totalRequiredSpace <= config.laneLength;
 
-      // Check if truck can fit in V3 (special case: V1+V2 occupied, small trucks)
+      // cabe em V3 (V1 e V2 ocupadas, veículos pequenos)
       const v3IsOccupied = occupiedSpots.includes(3 as SpotNumber);
       const canFitInV3 =
         spotsOccupiedInV1V2 >= maxSpotsInTaskForm &&
@@ -341,7 +367,7 @@ export class TruckService {
       return {
         laneId,
         availableSpace: Math.round(availableSpace * 100) / 100, // Round to 2 decimals
-        currentTrucks: trucksInLane.length,
+        currentImplements: inLane.length,
         canFit,
         nextSpotNumber,
         occupiedSpots,
@@ -351,44 +377,40 @@ export class TruckService {
   }
 
   /**
-   * Batch update multiple trucks' spots in a single transaction
-   * Used by the garage view to save all pending changes at once
+   * Vagas de vários implementos numa transação (o "Salvar" do barracão).
    */
   async batchUpdateSpots(
-    updates: Array<{ truckId: string; spot: string | null }>,
+    updates: Array<{ implementId: string; spot: string | null }>,
     userId?: string,
   ): Promise<{ success: boolean; updated: number }> {
     if (updates.length === 0) {
       return { success: true, updated: 0 };
     }
 
-    // Note: null spot means "remove from patio entirely" (truck left the facility)
+    // spot null = saiu das instalações
 
-    // Track spot changes so we can emit task.field.changed AFTER commit (mirroring
-    // the TaskFieldTracker) and fire 'task.field.truck.spot' notifications.
-    const spotChanges: Array<{ truckId: string; oldValue: any; newValue: any }> = [];
+    // Mudanças de vaga, para os eventos task.field.changed DEPOIS do commit
+    // (notificação `task.field.truck.spot`, chave mantida).
+    const spotChanges: Array<{ implementId: string; oldValue: any; newValue: any }> = [];
 
-    // Use transaction to update all trucks atomically and log changes
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Collect all target spots and truck IDs in this batch
-      const batchTruckIds = new Set(updates.map(u => u.truckId));
+      // vagas-alvo e implementos deste lote
+      const batchImplementIds = new Set(updates.map(u => u.implementId));
       const targetSpots = updates.map(u => u.spot).filter((s): s is string => s !== null);
 
-      // Clear conflicting spots: any OTHER truck (not in this batch) that occupies
-      // a spot we're about to assign should have its spot cleared.
-      // This prevents duplicate trucks sharing the same spot.
-      // Exclude yard spots from conflict detection (multiple trucks can be in YARD_WAIT/YARD_EXIT)
+      // Quem (fora do lote) ocupa uma vaga que vamos atribuir perde a vaga: dois
+      // implementos nunca dividem a mesma vaga. Pátio fica fora (cabe vários).
       const nonYardTargetSpots = targetSpots.filter(s => !isYardSpot(s));
       if (nonYardTargetSpots.length > 0) {
-        const conflictingTrucks = await tx.truck.findMany({
+        const occupants = await tx.implement.findMany({
           where: {
             spot: { in: nonYardTargetSpots as any },
-            id: { notIn: Array.from(batchTruckIds) },
+            id: { notIn: Array.from(batchImplementIds) },
           },
         });
 
-        for (const conflicting of conflictingTrucks) {
-          await tx.truck.update({
+        for (const conflicting of occupants) {
+          await tx.implement.update({
             where: { id: conflicting.id },
             data: { spot: null },
           });
@@ -415,9 +437,9 @@ export class TruckService {
         const parsed = parseSpot(update.spot as any);
         if (!parsed.garage) continue;
 
-        // Fetch the truck's task and sector
-        const truckWithTask = await tx.truck.findUnique({
-          where: { id: update.truckId },
+        // a tarefa e o setor do implemento
+        const withTask = await tx.implement.findUnique({
+          where: { id: update.implementId },
           include: {
             task: {
               select: {
@@ -429,7 +451,7 @@ export class TruckService {
           },
         });
 
-        const task = truckWithTask?.task;
+        const task = withTask?.task;
         if (!task) continue;
 
         if (task.sector) {
@@ -456,16 +478,15 @@ export class TruckService {
       }
 
       for (const update of updates) {
-        // Get existing truck
-        const existing = await tx.truck.findUnique({
-          where: { id: update.truckId },
+        // o implemento como está
+        const existing = await tx.implement.findUnique({
+          where: { id: update.implementId },
         });
 
         if (!existing) continue;
 
-        // Update truck
-        const updated = await tx.truck.update({
-          where: { id: update.truckId },
+        const updated = await tx.implement.update({
+          where: { id: update.implementId },
           data: { spot: update.spot as any },
         });
 
@@ -474,7 +495,7 @@ export class TruckService {
           await trackAndLogFieldChanges({
             changeLogService: this.changeLogService,
             entityType: ENTITY_TYPE.TRUCK,
-            entityId: update.truckId,
+            entityId: update.implementId,
             oldEntity: existing,
             newEntity: updated,
             fieldsToTrack: ['spot'],
@@ -484,7 +505,7 @@ export class TruckService {
           });
 
           spotChanges.push({
-            truckId: update.truckId,
+            implementId: update.implementId,
             oldValue: existing.spot,
             newValue: updated.spot,
           });
@@ -492,13 +513,12 @@ export class TruckService {
       }
     });
 
-    // After commit: emit task.field.changed for each truck whose spot changed,
-    // mirroring the TaskFieldTracker so 'task.field.truck.spot' notifications fire.
-    // NOTE: conflicting-truck spot clears above are SYSTEM_GENERATED side effects and
-    // intentionally NOT notified here (mirrors the single-item user-action semantics).
+    // Depois do commit: um evento por implemento cuja vaga mudou (notificação
+    // `task.field.truck.spot`). A vaga tirada de quem conflitava é efeito do sistema
+    // e, de propósito, não notifica.
     for (const change of spotChanges) {
-      await this.emitTruckTaskFieldChanges(
-        change.truckId,
+      await this.emitImplementTaskFieldChanges(
+        change.implementId,
         [{ field: 'spot', oldValue: change.oldValue, newValue: change.newValue }],
         userId,
       );
@@ -511,17 +531,17 @@ export class TruckService {
    * Get availability for all garages
    */
   async getAllGaragesAvailability(
-    truckLength: number,
-    excludeTruckId?: string,
+    implementLength: number,
+    excludeImplementId?: string,
   ): Promise<GarageAvailability[]> {
     const garages: GarageId[] = ['B1', 'B2', 'B3'];
 
     const results = await Promise.all(
       garages.map(async garageId => {
-        const lanes = await this.getLaneAvailability(garageId, truckLength, excludeTruckId);
+        const lanes = await this.getLaneAvailability(garageId, implementLength, excludeImplementId);
 
         const totalSpots = 9; // 3 lanes x 3 spots
-        const occupiedSpots = lanes.reduce((sum, l) => sum + l.currentTrucks, 0);
+        const occupiedSpots = lanes.reduce((sum, l) => sum + l.currentImplements, 0);
         const canFit = lanes.some(l => l.canFit);
 
         return {
@@ -538,16 +558,16 @@ export class TruckService {
   }
 
   /**
-   * Request a truck movement (for production managers who can't directly move trucks)
-   * Sends a notification to logistics team for approval
+   * Pedido de movimentação (quem não move o implemento direto, como o gerente de
+   * produção): notifica a logística. A chave `truck.movement_request` fica (D-04).
    */
   async requestMovement(
     data: {
       taskId: string;
-      truckId: string;
-      taskName: string;
-      fromSpot: string | null;
-      toSpot: string | null;
+      implementId: string;
+      taskName?: string | null;
+      fromSpot?: string | null;
+      toSpot?: string | null;
     },
     userId: string,
   ): Promise<{ success: boolean }> {
@@ -557,8 +577,8 @@ export class TruckService {
       select: { name: true },
     });
 
-    const fromLabel = getSpotLabel(data.fromSpot);
-    const toLabel = getSpotLabel(data.toSpot);
+    const fromLabel = getSpotLabel(data.fromSpot ?? null);
+    const toLabel = getSpotLabel(data.toSpot ?? null);
 
     // Dispatch notification to logistics
     await this.notificationDispatchService.dispatchByConfiguration(
@@ -566,7 +586,7 @@ export class TruckService {
       userId,
       {
         entityType: 'TRUCK',
-        entityId: data.truckId,
+        entityId: data.implementId,
         action: 'movement_request',
         data: {
           changedBy: user?.name || 'Usuário',

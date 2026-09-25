@@ -149,7 +149,7 @@ export class BillingService {
             createdAt: true,
             customerOrderNumber: true,
             finishedAt: true,
-            truck: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { plate: true, chassisNumber: true } },
           },
         },
       },
@@ -166,7 +166,7 @@ export class BillingService {
             createdAt: true,
             finishedAt: true,
             customerOrderNumber: true,
-            truck: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { plate: true, chassisNumber: true } },
           },
         },
       },
@@ -251,7 +251,7 @@ export class BillingService {
             createdAt: true,
             finishedAt: true,
             customerOrderNumber: true,
-            truck: { select: { plate: true } },
+            implement: { select: { plate: true } },
             customer: { select: { id: true, fantasyName: true, corporateName: true } },
           },
         },
@@ -363,7 +363,7 @@ export class BillingService {
           orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
           select: {
             taskId: true,
-            task: { select: { id: true, serialNumber: true, truck: { select: { plate: true } } } },
+            task: { select: { id: true, serialNumber: true, implement: { select: { plate: true } } } },
           },
         },
         customerConfigs: {
@@ -780,8 +780,8 @@ export class BillingService {
     ];
 
     if (nv) {
-      or.push(onTask({ truck: { plateNormalized: { contains: nv } } }));
-      or.push(onTask({ truck: { chassisNumberNormalized: { contains: nv } } }));
+      or.push(onTask({ implement: { plateNormalized: { contains: nv } } }));
+      or.push(onTask({ implement: { chassisNumberNormalized: { contains: nv } } }));
     }
 
     // O NÚMERO DO ORÇAMENTO. Só quando o termo é inteiro e cabe num `Int` do

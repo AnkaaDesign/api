@@ -60,6 +60,7 @@ import {
   resetQueryKeyCounters,
 } from '../src/modules/common/query/query-key-telemetry';
 import { ZodQueryValidationPipe } from '../src/modules/common/pipes/zod-validation.pipe';
+import { translateLegacyImplementQuery } from '../src/modules/common/legacy-implement/legacy-implement-keys';
 import { walkQuerySchema } from './helpers/zod-dmmf-walk';
 import { TASK_QUERY_SHAPE } from '../src/modules/production/task/task-query-shape';
 
@@ -348,7 +349,6 @@ const DESCARTADAS_CONHECIDAS: Record<string, string> = {
   'Supplier|include.orders.orderBy':
     'web supplier edit: argumento da relação que o zod não conhece',
   'Supplier|include.orders.take': 'web supplier edit: argumento da relação que o zod não conhece',
-  'Task|orderBy[1].truck': 'semente do painel (tabela de tarefas): ordenar pelo caminhão',
 };
 
 // ─── A. validador, sem banco ─────────────────────────────────────────────────
@@ -380,6 +380,8 @@ function parteA(): void {
     'unknown-field:select.truckId',
     'unknown-field:where.OR[0].fooBar',
     'unknown-field:where.serviceOrders.some.naoExiste',
+    // P11a: `Task.truck` virou `implement` (M1); sem a tabela de legado, é chave inventada
+    'unknown-field:where.truck',
   ].sort();
   check(
     'acusa exatamente as chaves inventadas, com o caminho',
@@ -672,7 +674,9 @@ function parteB(): void {
         continue;
       }
       for (const k of m[2].matchAll(/'(\w+)'/g)) {
-        if (!getField(model, k[1])) erros.push(`${model}.${k[1]}`);
+        // o nome velho da janela bilíngue fica na whitelist (P11a): é legado da tabela
+        const legado = DEPRECATED_QUERY_KEYS.some(d => d.model === model && d.key === k[1]);
+        if (!getField(model, k[1]) && !legado) erros.push(`${model}.${k[1]}`);
       }
     }
     check(`${nome}: só campos que existem no modelo`, erros.length === 0, erros.join(', '));
@@ -759,7 +763,20 @@ async function julgar(tx: Prisma.TransactionClient, forma: Forma): Promise<Vered
       detalhe: `schema ${forma.schema} não registrado`,
       descartadas: [],
     };
-  const parsed = alvo.schema.safeParse(forma.consulta);
+  // Como o pipe da rota: a janela bilíngue do implemento traduz o legado
+  // (`truck` → `implement`…) ANTES do zod (P11a).
+  let traduzida: unknown;
+  try {
+    traduzida = translateLegacyImplementQuery(forma.consulta);
+  } catch (e) {
+    return {
+      g1: 'recusa',
+      prisma: 'nao-rodou',
+      detalhe: `tradutor: ${String((e as any)?.message ?? e)}`,
+      descartadas: [],
+    };
+  }
+  const parsed = alvo.schema.safeParse(traduzida);
   if (!parsed.success) {
     return {
       g1: 'recusa',

@@ -654,14 +654,19 @@ console.log('\n9. A FORMA DO SERVIÇO — o que não é função pura, mas tem d
     /baseFiles:\s*\{\s*connect/.test(servico),
   );
 
-  // ── Armadilha 4: `truck.plate`, nunca `plate` no topo ───────────────────
+  // ── Armadilha 4: `implement.plate`, nunca `plate` no topo ───────────────
   const criacaoDaTarefa = servico.slice(
     servico.indexOf('tx.task.create'),
     servico.indexOf('const truckId'),
   );
   check(
-    'a tarefa nasce com `truck: { create: { plate ... } }`',
-    /truck:\s*\{\s*\n?\s*create:\s*\{[\s\S]*?plate:/.test(criacaoDaTarefa),
+    'a tarefa nasce com `implement: { create: { plate ... } }` (W4, DD1)',
+    /implement:\s*\{\s*\n?\s*create:\s*\{[\s\S]*?plate:/.test(criacaoDaTarefa),
+  );
+  check(
+    'e a SÉRIE nasce no implemento, com `spot: null` explícito (W4, DD1)',
+    /implement:\s*\{\s*\n?\s*create:\s*\{[\s\S]*?serialNumber:[\s\S]*?spot:\s*null/.test(criacaoDaTarefa) &&
+      !/^\s{8}serialNumber:/m.test(criacaoDaTarefa),
   );
   check(
     'e NUNCA com `plate` no topo do objeto da tarefa (some em silêncio: nada é .strict())',
@@ -1373,7 +1378,10 @@ async function vinculoDoRequisitante() {
     task: {
       create: async ({ data }: any) => {
         criacaoDaTarefa = data;
-        return { id: 'task-1', serialNumber: data.serialNumber, truck: { id: 'truck-1' } };
+        return {
+          id: 'task-1',
+          implement: { id: 'implement-1', serialNumber: data.implement?.create?.serialNumber ?? null },
+        };
       },
     },
   };

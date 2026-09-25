@@ -627,7 +627,7 @@ export class SignatureEnvelopeService {
               select: { id: true, name: true, phone: true, email: true, roles: true },
               orderBy: { createdAt: 'asc' },
             },
-            truck: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { plate: true, chassisNumber: true } },
           },
         },
       },
@@ -801,13 +801,13 @@ export class SignatureEnvelopeService {
     // orçamento em que faltam cinquenta e nove, ou nada num em que falta uma.
     const vehicleRows = quoteTaskRows.map(t => {
       const missing: string[] = [];
-      if (!t.truck?.plate?.trim()) missing.push('placa');
-      if (!t.truck?.chassisNumber?.trim()) missing.push('chassi');
+      if (!t.implement?.plate?.trim()) missing.push('placa');
+      if (!t.implement?.chassisNumber?.trim()) missing.push('chassi');
       return {
         taskId: t.id,
         serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
-        chassisNumber: t.truck?.chassisNumber ?? null,
+        plate: t.implement?.plate ?? null,
+        chassisNumber: t.implement?.chassisNumber ?? null,
         missing,
       };
     });
@@ -1153,7 +1153,7 @@ export class SignatureEnvelopeService {
             id: true,
             createdAt: true,
             serialNumber: true,
-            truck: { select: { plate: true } },
+            implement: { select: { plate: true } },
           },
         },
       },
@@ -1950,7 +1950,7 @@ export class SignatureEnvelopeService {
         createdAt?: Date | null;
         serialNumber?: string | null;
         customerOrderNumber?: string | null;
-        truck?: { plate?: string | null; chassisNumber?: string | null } | null;
+        implement?: { plate?: string | null; chassisNumber?: string | null } | null;
       }> | null;
     };
   }): Array<{ key: string; label: string }> {
@@ -1975,12 +1975,12 @@ export class SignatureEnvelopeService {
     tasks.forEach((t, index) => {
       const values: Record<string, string | null | undefined> = {
         serialNumber: t.serialNumber,
-        plate: t.truck?.plate,
-        chassis: t.truck?.chassisNumber,
+        plate: t.implement?.plate,
+        chassis: t.implement?.chassisNumber,
         orderNumber: t.customerOrderNumber,
       };
       const suffix = multi
-        ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.truck?.plate ?? t.id.slice(0, 8))}`
+        ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.implement?.plate ?? t.id.slice(0, 8))}`
         : '';
       for (const [field, value] of Object.entries(values)) {
         registry[lateSlotKey(field, t.id)] = value;
@@ -2651,11 +2651,11 @@ export class SignatureEnvelopeService {
       // mesma ordem que entra no hash do snapshot.
       vehicles: vehicleTasks.map(t => ({
         taskId: t.id,
-        serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
-        chassisNumber: t.truck?.chassisNumber ?? null,
-        categoryLabel: t.truck?.category ?? null,
-        implementLabel: t.truck?.implementType ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
+        plate: t.implement?.plate ?? null,
+        chassisNumber: t.implement?.chassisNumber ?? null,
+        categoryLabel: t.implement?.category ?? null,
+        implementLabel: t.implement?.type ?? null,
         // O pedido de compra DESTE veículo — vira coluna da tabela. Era linha do
         // quadro do tomador, onde só cabia um número: quatro caminhões comprados
         // em pedidos diferentes não cabiam ali.
@@ -3434,7 +3434,7 @@ export class SignatureEnvelopeService {
               include: {
                 tasks: {
                   orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                  include: { customer: true, truck: { select: { plate: true } } },
+                  include: { customer: true, implement: { select: { plate: true } } },
                 },
               },
             },
@@ -4853,7 +4853,7 @@ export class SignatureEnvelopeService {
             lateSlots: true,
           },
         },
-        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, implement: true } } } },
       },
     });
     if (!env) throw new NotFoundException('Coleta de assinaturas não encontrada.');
@@ -5255,7 +5255,7 @@ export class SignatureEnvelopeService {
                   orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                   include: {
                     customer: true,
-                    truck: true,
+                    implement: true,
                     // ⚠️ A ENTIDADE, além da coluna legada. `taskHasPurchaseOrder`
                     // aceita os DOIS lados da escrita dupla, e a tela precisa
                     // poder dizer "já no pedido 8842" — o que o `purchaseOrderId`
@@ -5303,11 +5303,11 @@ export class SignatureEnvelopeService {
             name: t.name ?? null,
             label:
               (t.serialNumber || undefined) ??
-              (t.truck?.plate || undefined) ??
+              (t.implement?.plate || undefined) ??
               (t.name || undefined) ??
               t.id.slice(0, 8),
             serialNumber: t.serialNumber ?? null,
-            plate: t.truck?.plate ?? null,
+            plate: t.implement?.plate ?? null,
             customerOrderNumber: (t.customerOrderNumber ?? '').trim() || null,
             purchaseOrder: t.purchaseOrder
               ? {
@@ -5452,7 +5452,7 @@ export class SignatureEnvelopeService {
                   orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
                   include: {
                     customer: true,
-                    truck: true,
+                    implement: true,
                     // O caminho do pagador — mesma razão do `select` da
                     // listagem: sem ele o portão relaxaria para quem PAGA.
                     billingEntry: {
@@ -6577,7 +6577,7 @@ export class SignatureEnvelopeService {
         // de modelo inteiro — é o que a guarda de reentrância abaixo lê.)
         // `truck` entra por causa das lacunas de cadastro tardio: é na selagem
         // que se pergunta ao cadastro o que já chegou desde a emissão.
-        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, implement: true } } } },
         originalFile: true,
       },
     });
@@ -6720,8 +6720,8 @@ export class SignatureEnvelopeService {
       sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
         taskId: t.id,
         serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
-        chassis: t.truck?.chassisNumber ?? null,
+        plate: t.implement?.plate ?? null,
+        chassis: t.implement?.chassisNumber ?? null,
         orderNumber: t.customerOrderNumber ?? null,
       })),
     );
@@ -7790,7 +7790,7 @@ export class SignatureEnvelopeService {
         // `truck`: a remontagem ao vivo também carimba a identidade que chegou
         // depois — o cliente que abre o link durante a coleta vê o cadastro de
         // hoje, não o de quando o documento foi congelado.
-        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, truck: true } } } },
+        quote: { include: { tasks: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: { customer: true, implement: true } } } },
         originalFile: true,
         finalFile: true,
       },
@@ -7867,8 +7867,8 @@ export class SignatureEnvelopeService {
       sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
         taskId: t.id,
         serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
-        chassis: t.truck?.chassisNumber ?? null,
+        plate: t.implement?.plate ?? null,
+        chassis: t.implement?.chassisNumber ?? null,
         orderNumber: t.customerOrderNumber ?? null,
       })),
     );
@@ -8057,7 +8057,7 @@ export class SignatureEnvelopeService {
           include: {
             tasks: {
               orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-              include: { customer: true, truck: true },
+              include: { customer: true, implement: true },
             },
           },
         },
@@ -8108,8 +8108,8 @@ export class SignatureEnvelopeService {
       if (!was) continue;
       const now: Record<string, string | null> = {
         serialNumber: task.serialNumber ?? null,
-        plate: task.truck?.plate ?? null,
-        chassis: task.truck?.chassisNumber ?? null,
+        plate: task.implement?.plate ?? null,
+        chassis: task.implement?.chassisNumber ?? null,
         orderNumber: task.customerOrderNumber ?? null,
       };
       const before: Record<string, string | null> = {
@@ -8143,12 +8143,12 @@ export class SignatureEnvelopeService {
           // chamadas "Chassi" e nenhuma diz a que caminhão pertence.
           label: multiVehicle
             ? `${LATE_SLOT_LABELS[field] ?? field} — ${
-                task.serialNumber ? `nº ${task.serialNumber}` : (task.truck?.plate ?? task.id.slice(0, 8))
+                task.serialNumber ? `nº ${task.serialNumber}` : (task.implement?.plate ?? task.id.slice(0, 8))
               }`
             : (LATE_SLOT_LABELS[field] ?? field),
           value,
           taskId: task.id,
-          truckId: task.truck?.id ?? null,
+          truckId: task.implement?.id ?? null,
         });
       }
     }
@@ -8164,7 +8164,7 @@ export class SignatureEnvelopeService {
       if (!pending.some(f => f.taskId === task.id)) continue;
       registeredAtByTask.set(
         task.id,
-        await this.lateSlotRegistrationDates(task.id, task.truck?.id ?? null),
+        await this.lateSlotRegistrationDates(task.id, task.implement?.id ?? null),
       );
     }
 
@@ -8808,7 +8808,7 @@ export class SignatureEnvelopeService {
             createdAt: true,
             serialNumber: true,
             customerOrderNumber: true,
-            truck: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { plate: true, chassisNumber: true } },
           },
         },
       },

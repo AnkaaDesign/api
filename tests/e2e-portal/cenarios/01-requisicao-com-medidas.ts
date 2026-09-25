@@ -114,7 +114,7 @@ async function main() {
       where: { quoteId: budgetId },
       select: {
         serialNumber: true,
-        truck: {
+        implement: {
           select: {
             leftSideMeasure: { select: { height: true, sections: { select: { width: true, isDoor: true, doorHeight: true, position: true }, orderBy: { position: 'asc' } } } },
             rightSideMeasure: { select: { height: true, sections: { select: { width: true, isDoor: true, doorHeight: true, position: true }, orderBy: { position: 'asc' } } } },
@@ -129,9 +129,9 @@ async function main() {
 
     for (const t of tarefas) {
       const faces = [
-        ['esquerda', t.truck?.leftSideMeasure, METROS.esquerda] as const,
-        ['direita', t.truck?.rightSideMeasure, METROS.direita] as const,
-        ['traseira', t.truck?.backSideMeasure, METROS.traseira] as const,
+        ['esquerda', t.implement?.leftSideMeasure, METROS.esquerda] as const,
+        ['direita', t.implement?.rightSideMeasure, METROS.direita] as const,
+        ['traseira', t.implement?.backSideMeasure, METROS.traseira] as const,
       ];
       for (const [nome, medida, esperado] of faces) {
         check(

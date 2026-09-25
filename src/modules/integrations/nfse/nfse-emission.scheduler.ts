@@ -362,12 +362,12 @@ export class NfseEmissionScheduler {
                   id: true,
                   name: true,
                   serialNumber: true,
-                  truck: {
+                  implement: {
                     select: {
                       plate: true,
                       chassisNumber: true,
                       category: true,
-                      implementType: true,
+                      type: true,
                     },
                   },
                   quote: {
@@ -423,12 +423,12 @@ export class NfseEmissionScheduler {
                           // O NÚMERO DO PEDIDO DE COMPRA é do VEÍCULO: a nota
                           // conjunta cita o de todos os que ela cobre.
                           customerOrderNumber: true,
-                          truck: {
+                          implement: {
                             select: {
                               plate: true,
                               chassisNumber: true,
                               category: true,
-                              implementType: true,
+                              type: true,
                             },
                           },
                         },
@@ -611,7 +611,7 @@ export class NfseEmissionScheduler {
             // nota cobre é `emitVehicles`, abaixo. Era `quoteTaskRows[0]` — o
             // primeiro do ORÇAMENTO —, que num lote é um caminhão de outra nota.
             const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
-            const truck = sliceTask?.truck;
+            const truck = sliceTask?.implement;
             emitTask = {
               id: sliceTask?.id ?? invoice.id,
               name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
@@ -622,7 +622,7 @@ export class NfseEmissionScheduler {
                   plate: truck.plate || undefined,
                   chassisNumber: truck.chassisNumber || undefined,
                   category: truck.category || undefined,
-                  implementType: truck.implementType || undefined,
+                  implementType: truck.type || undefined,
                 }
               : undefined;
 
@@ -632,10 +632,10 @@ export class NfseEmissionScheduler {
             // orçamento.
             emitVehicles = coveredRows.map((t: any) => ({
               serialNumber: t.serialNumber ?? null,
-              plate: t.truck?.plate ?? null,
-              chassisNumber: t.truck?.chassisNumber ?? null,
-              category: t.truck?.category ?? null,
-              implementType: t.truck?.implementType ?? null,
+              plate: t.implement?.plate ?? null,
+              chassisNumber: t.implement?.chassisNumber ?? null,
+              category: t.implement?.category ?? null,
+              implementType: t.implement?.type ?? null,
               // O pedido de compra é DA TAREFA: numa fatura conjunta os veículos
               // podem ter pedidos diferentes, e a discriminação cita o de cada um.
               orderNumber: t.customerOrderNumber ?? null,
@@ -670,7 +670,7 @@ export class NfseEmissionScheduler {
             totalAmount: Number(invoice.totalAmount),
             customer: buildNfseCustomer(customer),
             task: emitTask,
-            truck: emitTruck,
+            implement: emitTruck,
             vehicles: emitVehicles,
             budgetNumber: emitBudgetNumber,
             orderNumber,
@@ -785,12 +785,12 @@ export class NfseEmissionScheduler {
                 id: true,
                 name: true,
                 serialNumber: true,
-                truck: {
+                implement: {
                   select: {
                     plate: true,
                     chassisNumber: true,
                     category: true,
-                    implementType: true,
+                    type: true,
                   },
                 },
                 quote: {
@@ -843,12 +843,12 @@ export class NfseEmissionScheduler {
                         serialNumber: true,
                         // Ver a nota do caminho agendado: o pedido é do veículo.
                         customerOrderNumber: true,
-                        truck: {
+                        implement: {
                           select: {
                             plate: true,
                             chassisNumber: true,
                             category: true,
-                            implementType: true,
+                            type: true,
                           },
                         },
                       },
@@ -1001,7 +1001,7 @@ export class NfseEmissionScheduler {
           }
           const coveredRows = coverage.rows;
           const sliceTask = (task as any) ?? coveredRows[0] ?? quoteTaskRows[0] ?? null;
-          const truck = sliceTask?.truck;
+          const truck = sliceTask?.implement;
           emitTask = {
             id: sliceTask?.id ?? invoice.id,
             name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
@@ -1012,15 +1012,15 @@ export class NfseEmissionScheduler {
                 plate: truck.plate || undefined,
                 chassisNumber: truck.chassisNumber || undefined,
                 category: truck.category || undefined,
-                implementType: truck.implementType || undefined,
+                implementType: truck.type || undefined,
               }
             : undefined;
           emitVehicles = coveredRows.map((t: any) => ({
             serialNumber: t.serialNumber ?? null,
-            plate: t.truck?.plate ?? null,
-            chassisNumber: t.truck?.chassisNumber ?? null,
-            category: t.truck?.category ?? null,
-            implementType: t.truck?.implementType ?? null,
+            plate: t.implement?.plate ?? null,
+            chassisNumber: t.implement?.chassisNumber ?? null,
+            category: t.implement?.category ?? null,
+            implementType: t.implement?.type ?? null,
             // Ver o irmão acima: o pedido de compra mora na tarefa.
             orderNumber: t.customerOrderNumber ?? null,
           }));
@@ -1043,7 +1043,7 @@ export class NfseEmissionScheduler {
           totalAmount: Number(invoice.totalAmount),
           customer: buildNfseCustomer(customer),
           task: emitTask,
-          truck: emitTruck,
+          implement: emitTruck,
           vehicles: emitVehicles,
           budgetNumber: emitBudgetNumber,
           orderNumber,

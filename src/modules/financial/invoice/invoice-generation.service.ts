@@ -954,12 +954,12 @@ export class InvoiceGenerationService {
               select: {
                 name: true,
                 serialNumber: true,
-                truck: {
+                implement: {
                   select: {
                     plate: true,
                     chassisNumber: true,
                     category: true,
-                    implementType: true,
+                    type: true,
                   },
                 },
               },
@@ -1003,12 +1003,12 @@ export class InvoiceGenerationService {
                         // é nulo, e sem eles o informativo do boleto não citava
                         // veículo nenhum.
                         serialNumber: true,
-                        truck: {
+                        implement: {
                           select: {
                             plate: true,
                             chassisNumber: true,
                             category: true,
-                            implementType: true,
+                            type: true,
                           },
                         },
                       },
@@ -1208,7 +1208,7 @@ export class InvoiceGenerationService {
       ? installment.invoice?.externalOperation?.generateInvoice !== false
       : installment.invoice?.customerConfig?.generateInvoice !== false;
     const authorizedNfse = installment.invoice?.nfseDocuments?.[0];
-    const truckPlate = installment.invoice?.task?.truck?.plate;
+    const truckPlate = installment.invoice?.task?.implement?.plate;
     // Installment numbers are 1-7 (single digit) — always 1 char.
     const num = String(installment.number ?? 1);
 
@@ -1304,7 +1304,7 @@ export class InvoiceGenerationService {
     // primeiro que ela cobre. Numa fatura conjunta `Invoice.task` é nulo de
     // propósito, e ler só por ele deixava o informativo sem veículo nenhum.
     const task: any = installment.invoice?.task ?? coveredRows[0] ?? null;
-    const truck = task?.truck;
+    const truck = task?.implement;
     const customerId = installment.invoice?.customerConfig?.customerId;
 
     // Line 1: "Pedido: XXXXX - NF YYYY"
@@ -1322,7 +1322,7 @@ export class InvoiceGenerationService {
     // Line 2: "Referente aos servicos no veiculo Caminhao Carga Seca"
     // Line 3: "N.º serie: X, chassi: Z" or "Placa: Y, chassi: Z"
     const category = this.translateTruckCategory(truck?.category);
-    const implement = this.translateImplementType(truck?.implementType);
+    const implement = this.translateImplementType(truck?.type);
     const vehicleType = [category, implement].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];

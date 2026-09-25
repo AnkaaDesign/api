@@ -40,7 +40,7 @@ export interface MunicipalEmitNfseInput {
     name: string;
     serialNumber?: string;
   };
-  truck?: {
+  implement?: {
     plate?: string;
     chassisNumber?: string;
     category?: string; // TruckCategory enum value
@@ -1425,10 +1425,10 @@ export class ElotechOxyNfseService {
         : [
             {
               serialNumber: invoice.task.serialNumber ?? null,
-              plate: invoice.truck?.plate ?? null,
-              chassisNumber: invoice.truck?.chassisNumber ?? null,
-              category: invoice.truck?.category ?? null,
-              implementType: invoice.truck?.implementType ?? null,
+              plate: invoice.implement?.plate ?? null,
+              chassisNumber: invoice.implement?.chassisNumber ?? null,
+              category: invoice.implement?.category ?? null,
+              implementType: invoice.implement?.implementType ?? null,
             },
           ];
 

@@ -92,6 +92,32 @@ import type { SuccessResponse } from '../../../types';
 import { taskBatchCreateWithQuoteSchema } from '../../../schemas/task';
 import { TASK_QUERY_SHAPE } from './task-query-shape';
 
+/**
+ * Include padrão do implemento com as três faces e as seções, MESCLADO com o do
+ * cliente: quem manda só `implement: true` (ou o nome velho, já traduzido)
+ * continua recebendo as medidas — o spread antigo apagava o include aninhado.
+ */
+const DEFAULT_IMPLEMENT_INCLUDE = {
+  include: {
+    leftSideMeasure: { include: { sections: true } },
+    rightSideMeasure: { include: { sections: true } },
+    backSideMeasure: { include: { sections: true } },
+  },
+};
+
+function withDefaultImplementInclude(include: Record<string, any>): Record<string, any> {
+  const asked = include.implement;
+  if (asked === false) return include;
+  if (asked && typeof asked === 'object' && ('select' in asked || 'include' in asked)) {
+    if ('select' in asked) return include;
+    return {
+      ...include,
+      implement: { include: { ...DEFAULT_IMPLEMENT_INCLUDE.include, ...asked.include } },
+    };
+  }
+  return { ...include, implement: DEFAULT_IMPLEMENT_INCLUDE };
+}
+
 @Controller('tasks')
 export class TaskController {
   constructor(
@@ -150,8 +176,10 @@ export class TaskController {
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
-        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
         { name: 'truckVinPlate', maxCount: 1 },
+        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
+        { name: 'implementVinPlate', maxCount: 1 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
@@ -188,7 +216,7 @@ export class TaskController {
     ),
   )
   async create(
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema, { legacyImplementBody: true })) data: TaskCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
@@ -234,7 +262,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
-    @Body(new ZodValidationPipe(taskBatchCreateSchema)) data: TaskBatchCreateFormData,
+    @Body(new ZodValidationPipe(taskBatchCreateSchema, { legacyImplementBody: true })) data: TaskBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
@@ -262,7 +290,7 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreateWithQuote(
-    @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema)) data: any,
+    @Body(new ZodValidationPipe(taskBatchCreateWithQuoteSchema, { legacyImplementBody: true })) data: any,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ) {
@@ -293,8 +321,10 @@ export class TaskController {
         { name: 'checkinFiles', maxCount: 20 },
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
-        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
         { name: 'truckVinPlate', maxCount: 1 },
+        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
+        { name: 'implementVinPlate', maxCount: 1 },
         // ImplementMeasure photos for bulk implementMeasure operations
         { name: 'implementMeasurePhotos.leftSide', maxCount: 1 },
         { name: 'implementMeasurePhotos.rightSide', maxCount: 1 },
@@ -304,7 +334,7 @@ export class TaskController {
     ),
   )
   async batchUpdate(
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema))
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema, { legacyImplementBody: true }))
     data: TaskBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
@@ -526,21 +556,14 @@ export class TaskController {
         ...query.where,
         status: TASK_STATUS.PREPARATION,
       },
-      include: {
-        truck: {
-          include: {
-            leftSideMeasure: { include: { sections: true } },
-            rightSideMeasure: { include: { sections: true } },
-            backSideMeasure: { include: { sections: true } },
-          },
-        },
+      include: withDefaultImplementInclude({
         serviceOrders: {
           include: {
             assignedTo: true,
           },
         },
         ...query.include,
-      },
+      }),
     });
   }
 
@@ -559,12 +582,12 @@ export class TaskController {
     @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
-    // Get tasks with status PENDING or IN_PRODUCTION that have truck implementMeasures (excludes PREPARATION)
+    // Tarefas aguardando/em produção cujo implemento tem alguma medida (sem PREPARATION)
     return this.tasksService.findMany({
       ...query,
       where: {
         OR: [{ status: TASK_STATUS.WAITING_PRODUCTION }, { status: TASK_STATUS.IN_PRODUCTION }],
-        truck: {
+        implement: {
           OR: [
             { leftSideMeasureId: { not: null } },
             { rightSideMeasureId: { not: null } },
@@ -572,16 +595,7 @@ export class TaskController {
           ],
         },
       },
-      include: {
-        truck: {
-          include: {
-            leftSideMeasure: { include: { sections: true } },
-            rightSideMeasure: { include: { sections: true } },
-            backSideMeasure: { include: { sections: true } },
-          },
-        },
-        ...query.include,
-      },
+      include: withDefaultImplementInclude({ ...query.include }),
     });
   }
 
@@ -748,8 +762,10 @@ export class TaskController {
         { name: 'soCheckoutFiles', maxCount: 60 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
-        // Foto da plaqueta de identificação (VIN) do caminhão — imagem única.
+        // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
         { name: 'truckVinPlate', maxCount: 1 },
+        // o mesmo campo pelo nome novo (o velho fica na janela, até a R-D)
+        { name: 'implementVinPlate', maxCount: 1 },
         // Quote implementMeasure file
         { name: 'quoteLayoutFile', maxCount: 2 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
@@ -793,7 +809,7 @@ export class TaskController {
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema))
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema, { legacyImplementBody: true }))
     data: TaskUpdateFormData = {} as TaskUpdateFormData,
     @Query(new ZodValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
     @UserId() userId: string,

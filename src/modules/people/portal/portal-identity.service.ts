@@ -78,6 +78,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -132,13 +133,14 @@ const taskSelectFor = (customerId: string) =>
     // A previsão de liberação — o cliente a edita pelo portal.
     forecastDate: true,
     customer: { select: { id: true, fantasyName: true, corporateName: true } },
-    truck: {
+    implement: {
       select: {
         id: true,
+        serialNumber: true,
         plate: true,
         chassisNumber: true,
         category: true,
-        implementType: true,
+        type: true,
         leftSideMeasureId: true,
         rightSideMeasureId: true,
         backSideMeasureId: true,
@@ -326,23 +328,24 @@ export class PortalIdentityService {
     task: {
       serialNumber?: string | null;
       customerOrderNumber?: string | null;
-      truck?: {
+      implement?: {
+        serialNumber?: string | null;
         plate?: string | null;
         chassisNumber?: string | null;
         category?: string | null;
-        implementType?: string | null;
+        type?: string | null;
       } | null;
     },
     dados: PortalIdentificacaoFormData,
     pedido: string | null | undefined,
   ): DesiredVehicleIdentity {
     const atual = {
-      serialNumber: task.serialNumber ?? null,
-      plate: task.truck?.plate ?? null,
-      chassisNumber: task.truck?.chassisNumber ?? null,
+      serialNumber: task.implement?.serialNumber ?? task.serialNumber ?? null,
+      plate: task.implement?.plate ?? null,
+      chassisNumber: task.implement?.chassisNumber ?? null,
       orderNumber: task.customerOrderNumber ?? null,
-      category: task.truck?.category ?? null,
-      implementType: task.truck?.implementType ?? null,
+      category: task.implement?.category ?? null,
+      implementType: task.implement?.type ?? null,
     };
     const pedidos: DesiredVehicleIdentity = {
       serialNumber: dados?.serialNumber,
@@ -387,7 +390,7 @@ export class PortalIdentityService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // AS UNICIDADES — `Task.serialNumber` e `Truck.plate` são GLOBAIS
+  // AS UNICIDADES — `Implement.serialNumber` e `Implement.plate` são GLOBAIS
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
@@ -411,11 +414,12 @@ export class PortalIdentityService {
 
     const serie = dados?.serialNumber;
     if (typeof serie === 'string' && serie !== '') {
-      const dono = await this.prisma.task.findFirst({
-        // `NOT: { id }` e não um filtro em memória: reescrever a série do MESMO
+      // DD1: a série é do IMPLEMENTO (a unicidade é `Implement_serialNumber_key`).
+      const dono = await this.prisma.implement.findFirst({
+        // `NOT: { taskId }` e não um filtro em memória: reescrever a série do MESMO
         // veículo com o valor que ele já tem não é colisão, e sem esta exclusão
         // todo reenvio do formulário acusaria o próprio veículo.
-        where: { serialNumber: serie, NOT: { id: taskId } },
+        where: { serialNumber: serie, NOT: { taskId } },
         select: { id: true },
       });
       if (dono) {
@@ -430,7 +434,7 @@ export class PortalIdentityService {
 
     const placa = dados?.plate;
     if (typeof placa === 'string' && placa !== '') {
-      const dono = await this.prisma.truck.findFirst({
+      const dono = await this.prisma.implement.findFirst({
         where: { plate: placa, NOT: { taskId } },
         select: { id: true },
       });
@@ -465,15 +469,14 @@ export class PortalIdentityService {
     const placa = dados?.plate;
     const chassi = dados?.chassisNumber;
     const plaquetaId = dados?.vinPlateFileId;
-    // Categoria e implemento moram no MESMO `Truck` da placa e do chassi, e
+    // Categoria e tipo moram no MESMO implemento da placa e do chassi, e
     // seguem o mesmo par de regras: `undefined` é "não mexa", `null` é "apague".
     const categoria = dados?.category;
     const implemento = dados?.implementType;
     const previsao = dados?.forecastDate;
     const medidas = dados?.medidas;
 
-    // Precisa existir uma linha de `Truck`? Só quando algo do CAMINHÃO chega.
-    // A série mora em `Task` e não justifica criar caminhão nenhum.
+    // Algo do IMPLEMENTO (além da série) chegou? Se não, o bloco abaixo é pulado.
     //
     // ⛔ CATEGORIA E IMPLEMENTO ENTRAM NESTA CONTA, e esquecê-los custou um
     // `200 OK` que não gravou nada: a rota aceitava os dois, a guarda do
@@ -486,7 +489,7 @@ export class PortalIdentityService {
       categoria !== undefined ||
       implemento !== undefined ||
       // ⚠️ A MEDIDA TAMBÉM É DO CAMINHÃO: as três colunas de `ImplementMeasure`
-      // penduram em `Truck`, e sem passar por aqui o `truckId` fica nulo e o
+      // penduram no implemento, e sem passar por aqui o id do implemento fica nulo e o
       // bloco das medidas é pulado — 200 sem gravar, o mesmo defeito que
       // categoria e implemento tiveram antes de entrarem nesta conta.
       medidas !== undefined ||
@@ -520,14 +523,22 @@ export class PortalIdentityService {
         }
       }
 
-      // ── A SÉRIE, em `Task` ────────────────────────────────────────────────
-      if (serie !== undefined && (serie ?? null) !== (task.serialNumber ?? null)) {
-        await tx.task.update({ where: { id: task.id }, data: { serialNumber: serie ?? null } });
+      // ── A SÉRIE, no IMPLEMENTO (DD1, W5) ──────────────────────────────────
+      //
+      // `Task.serialNumber` virou espelho somente leitura (gatilho da M1s): gravar
+      // lá é erro 23514. A trilha continua `TASK/serialNumber` (S-5) — é a chave
+      // que o aditivo da assinatura e o histórico leem.
+      const serieAtual = task.implement?.serialNumber ?? task.serialNumber ?? null;
+      if (serie !== undefined && (serie ?? null) !== serieAtual) {
+        await tx.implement.update({
+          where: { taskId: task.id },
+          data: { serialNumber: serie ?? null },
+        });
         await this.auditar(tx, {
           entityType: ENTITY_TYPE.TASK,
           entityId: task.id,
           field: 'serialNumber',
-          oldValue: task.serialNumber ?? null,
+          oldValue: serieAtual,
           newValue: serie ?? null,
           responsibleId,
         });
@@ -535,59 +546,30 @@ export class PortalIdentityService {
 
       if (!mexeNoCaminhao) return;
 
-      // ── ⛔ O CAMINHÃO PODE NÃO EXISTIR ────────────────────────────────────
+      // ── O IMPLEMENTO SEMPRE EXISTE (DD1) ──────────────────────────────────
       //
-      // `Truck` é 1:1 com `Task` e NULLABLE — os editores internos de placa e
-      // chassi somem da tela quando não há linha. Um `tx.truck.update` otimista
-      // estouraria P2025 e derrubaria a transação inteira; e a tarefa nasce sem
-      // caminhão em todo caminho que não passa pelo formulário completo.
+      // Toda tarefa nasce com implemento (gatilho diferido da M1s). O ramo que
+      // "criava o caminhão se não existisse" saiu: seria uma segunda fonte de
+      // criação sem `spot` explícito.
       //
-      // ⚠️ E NUNCA por `taskUpdateSchema` com `plate` no topo: aquele schema não
-      // é `.strict()`, a chave sumiria em silêncio e o portal diria "salvo".
-      // Aqui se escreve no modelo que TEM as colunas.
-      let truckId = task.truck?.id ?? null;
+      // ⚠️ E NUNCA por `taskUpdateSchema` com `plate` no topo: aqui se escreve no
+      // modelo que TEM as colunas.
+      const implementId = task.implement?.id ?? null;
+      if (!implementId) {
+        throw new InternalServerErrorException(
+          'Tarefa sem implemento: toda tarefa tem exatamente um implemento.',
+        );
+      }
       const anterior = {
-        plate: task.truck?.plate ?? null,
-        chassisNumber: task.truck?.chassisNumber ?? null,
-        category: task.truck?.category ?? null,
-        implementType: task.truck?.implementType ?? null,
-        vinPlateId: task.truck?.vinPlateId ?? null,
+        plate: task.implement?.plate ?? null,
+        chassisNumber: task.implement?.chassisNumber ?? null,
+        category: task.implement?.category ?? null,
+        type: task.implement?.type ?? null,
+        vinPlateId: task.implement?.vinPlateId ?? null,
       };
 
-      if (!truckId) {
-        const criado = await tx.truck.create({
-          data: {
-            taskId: task.id,
-            plate: placa ?? null,
-            chassisNumber: chassi ?? null,
-            category: categoria ?? null,
-            implementType: implemento ?? null,
-            // A plaqueta enviada por id entra já na criação; a que sobe por
-            // multipart precisa do `truckId` para o contexto do arquivo e é
-            // ligada logo abaixo.
-            vinPlateId: plaquetaId ?? null,
-          },
-          select: { id: true },
-        });
-        truckId = criado.id;
-
-        await this.auditar(tx, {
-          entityType: ENTITY_TYPE.TRUCK,
-          entityId: truckId,
-          field: null,
-          oldValue: null,
-          newValue: {
-            plate: placa ?? null,
-            chassisNumber: chassi ?? null,
-            category: categoria ?? null,
-            implementType: implemento ?? null,
-          },
-          action: CHANGE_ACTION.CREATE,
-          responsibleId,
-          reason: 'Caminhão criado pelo cliente ao informar a identificação no portal',
-        });
-      } else {
-        const mudancas: Prisma.TruckUpdateInput = {};
+      {
+        const mudancas: Prisma.ImplementUpdateInput = {};
         if (placa !== undefined && (placa ?? null) !== anterior.plate) {
           mudancas.plate = placa ?? null;
         }
@@ -597,27 +579,27 @@ export class PortalIdentityService {
         if (categoria !== undefined && (categoria ?? null) !== anterior.category) {
           mudancas.category = categoria ?? null;
         }
-        if (implemento !== undefined && (implemento ?? null) !== anterior.implementType) {
-          mudancas.implementType = implemento ?? null;
+        if (implemento !== undefined && (implemento ?? null) !== anterior.type) {
+          mudancas.type = implemento ?? null;
         }
         if (plaquetaId !== undefined && (plaquetaId ?? null) !== anterior.vinPlateId) {
           mudancas.vinPlate = plaquetaId ? { connect: { id: plaquetaId } } : { disconnect: true };
         }
 
         if (Object.keys(mudancas).length) {
-          await tx.truck.update({ where: { id: truckId }, data: mudancas });
+          await tx.implement.update({ where: { id: implementId }, data: mudancas });
 
           for (const [campo, antes, depois] of [
             ['plate', anterior.plate, placa],
             ['chassisNumber', anterior.chassisNumber, chassi],
             ['category', anterior.category, categoria],
-            ['implementType', anterior.implementType, implemento],
+            ['type', anterior.type, implemento],
             ['vinPlateId', anterior.vinPlateId, plaquetaId],
           ] as const) {
             if (depois === undefined || (depois ?? null) === antes) continue;
             await this.auditar(tx, {
               entityType: ENTITY_TYPE.TRUCK,
-              entityId: truckId,
+              entityId: implementId,
               field: campo,
               oldValue: antes,
               newValue: depois ?? null,
@@ -641,12 +623,12 @@ export class PortalIdentityService {
       // ⚠️ SUBSTITUI a medida do lado, não acumula: a face tem UMA medida
       // corrente. Existindo linha, ela é atualizada e as seções são refeitas —
       // manter as antigas somaria vãos que o desenho não tem.
-      if (medidas && truckId) {
+      if (medidas && implementId) {
         for (const lado of LADOS_DA_MEDIDA) {
           const entrada = (medidas as Record<string, unknown>)?.[lado.chave];
           if (entrada === undefined) continue;
 
-          const atualId = (task.truck as Record<string, any> | null | undefined)?.[lado.coluna] ?? null;
+          const atualId = (task.implement as Record<string, any> | null | undefined)?.[lado.coluna] ?? null;
 
           // Pelo escritor único: `null` explícito apaga a face (a linha só sai se
           // mais ninguém a usa — antes, `.delete().catch()` dentro da transação
@@ -654,15 +636,15 @@ export class PortalIdentityService {
           // linha só se ela é deste lado, senão ganha uma cópia — corrigir o
           // próprio furgão não pode mudar o de outro cliente.
           if (entrada === null) {
-            if (atualId) await setFace(tx, truckId, lado.face, null);
+            if (atualId) await setFace(tx, implementId, lado.face, null);
             continue;
           }
 
-          await setFace(tx, truckId, lado.face, medidaParaPrisma(entrada as never));
+          await setFace(tx, implementId, lado.face, medidaParaPrisma(entrada as never));
 
           await this.auditar(tx, {
             entityType: ENTITY_TYPE.TRUCK,
-            entityId: truckId,
+            entityId: implementId,
             field: lado.coluna,
             oldValue: atualId,
             newValue: 'atualizada pelo cliente no portal',
@@ -688,21 +670,21 @@ export class PortalIdentityService {
           'truckVinPlate',
           undefined,
           {
-            entityId: truckId,
+            entityId: implementId,
             entityType: 'TRUCK',
             customerName: task.customer?.fantasyName ?? undefined,
           },
         );
 
-        const antes = task.truck?.vinPlateId ?? null;
-        await tx.truck.update({ where: { id: truckId }, data: { vinPlateId: arquivo.id } });
+        const antes = task.implement?.vinPlateId ?? null;
+        await tx.implement.update({ where: { id: implementId }, data: { vinPlateId: arquivo.id } });
 
         // O arquivo ANTERIOR não é apagado, de propósito: ele continua
         // acessível pelo changelog, e o `File` pode estar referenciado em outro
         // lugar. É a mesma escolha de `task.service.ts`.
         await this.auditar(tx, {
           entityType: ENTITY_TYPE.TRUCK,
-          entityId: truckId,
+          entityId: implementId,
           field: 'vinPlateId',
           oldValue: antes,
           newValue: arquivo.id,

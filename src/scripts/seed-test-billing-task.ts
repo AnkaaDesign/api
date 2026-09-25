@@ -117,7 +117,8 @@ async function main(): Promise<void> {
           name: 'TESTE NFS-E - contato do tomador',
           status: 'COMPLETED',
           statusOrder: 4,
-          serialNumber: `TESTE-NFSE-${quote.budgetNumber}`,
+          // DD1: a série é do implemento; toda tarefa nasce com um (spot explícito).
+          implement: { create: { serialNumber: `TESTE-NFSE-${quote.budgetNumber}`, spot: null } },
           details: 'Tarefa de teste criada para validar a emissão de NFS-e (telefone/e-mail/inscrições do tomador). Pode ser removida.',
           customerId: KENNEDY_CUSTOMER_ID,
           sectorId: COMERCIAL_SECTOR_ID,

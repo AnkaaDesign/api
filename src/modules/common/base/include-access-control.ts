@@ -78,6 +78,11 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'logoPaints',
     'serviceOrders',
     'quote',
+    // O implemento (DD1). O nome velho FICA na janela bilíngue (até a R-D): o
+    // tradutor já o trocou antes daqui, mas tirá-lo da lista daria 403 em toda
+    // tela de tarefa do app instalado no dia em que alguém chamasse esta checagem
+    // antes do pipe. `layouts` idem (vira chave sintética no P12).
+    'implement',
     'truck',
     'airbrushings',
     'cuts',
@@ -86,6 +91,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'responsibles',
     'forecastHistory',
   ],
+  Implement: ['task', 'vinPlate', 'backSideMeasure', 'leftSideMeasure', 'rightSideMeasure'],
   Customer: [
     'id',
     'fantasyName',
@@ -170,6 +176,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'customer',
     'generalPainting',
     'createdBy',
+    'implement',
     'truck',
     'budgets',
     'invoices',
@@ -191,6 +198,28 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'relatedTasks',
     'relatedTo',
     'responsibles',
+  ],
+  // DD1: a série é do implemento (a da tarefa segue como espelho até a M5s)
+  Implement: [
+    'id',
+    'serialNumber',
+    'plate',
+    'chassisNumber',
+    'type',
+    'category',
+    'spot',
+    'taskId',
+    'vinPlateId',
+    'backSideMeasureId',
+    'leftSideMeasureId',
+    'rightSideMeasureId',
+    'createdAt',
+    'updatedAt',
+    'task',
+    'vinPlate',
+    'backSideMeasure',
+    'leftSideMeasure',
+    'rightSideMeasure',
   ],
   Customer: [
     'id',

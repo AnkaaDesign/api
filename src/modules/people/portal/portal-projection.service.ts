@@ -188,11 +188,12 @@ export interface PortalTaskRow {
   forecastDate?: Date | null;
   customerId?: string | null;
   customer?: { id?: string; fantasyName?: string | null; corporateName?: string | null } | null;
-  truck?: {
+  implement?: {
+    serialNumber?: string | null;
     plate?: string | null;
     chassisNumber?: string | null;
     category?: string | null;
-    implementType?: string | null;
+    type?: string | null;
     vinPlate?: PortalFileRow | null;
     leftSideMeasure?: PortalMeasureRow | null;
     rightSideMeasure?: PortalMeasureRow | null;
@@ -693,7 +694,7 @@ export class PortalProjectionService {
       view.vehicleChips = (row.tasks ?? []).map(t => ({
         taskId: t.id ?? null,
         serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
+        plate: t.implement?.plate ?? null,
       })) as PortalBudgetView['vehicleChips'];
     }
 
@@ -837,13 +838,14 @@ export class PortalProjectionService {
     };
 
     if (hasSection(sections, 'VEHICLE')) {
-      const truck = row.truck ?? null;
+      const truck = row.implement ?? null;
       view.identity = {
         serialNumber: row.serialNumber ?? null,
         plate: truck?.plate ?? null,
         chassisNumber: truck?.chassisNumber ?? null,
         category: truck?.category ?? null,
-        implementType: truck?.implementType ?? null,
+        // a chave PÚBLICA do portal continua `implementType` (o portal não muda aqui)
+        implementType: truck?.type ?? null,
         // A plaqueta é IMAGEM, não texto, desde `20260727150000_truck_vin_plate_image`.
         vinPlate: truck?.vinPlate ? this.projectFile(truck.vinPlate) : null,
         // ⚠️ MEDIDAS SAEM EM METROS, como estão no banco. A conversão para

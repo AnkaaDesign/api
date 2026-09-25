@@ -109,7 +109,8 @@ async function main() {
   const task = await prisma.task.create({
     data: {
       name: 'Teste de Assinatura Eletrônica',
-      serialNumber: `${TAG}-${String(Date.now()).slice(-6)}`,
+      // DD1: a série nasce no implemento; toda tarefa tem um.
+      implement: { create: { serialNumber: `${TAG}-${String(Date.now()).slice(-6)}`, spot: null } },
       customerId: CUSTOMER_ID,
       quoteId: quote.id,
       responsibles: { connect: [{ id: RESPONSIBLE_ID }] },

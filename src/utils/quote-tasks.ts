@@ -389,7 +389,7 @@ export function sliceTask<T extends QuoteTaskLike>(
  *
  * ESPELHADO em `web/src/utils/quote-tasks.ts` (`coverageLabels`/`coverageSummary`).
  */
-export function coverageLabels<T extends QuoteTaskLike & { truck?: { plate?: string | null } | null }>(
+export function coverageLabels<T extends QuoteTaskLike & { implement?: { plate?: string | null } | null }>(
   config: BillingConfigLike<T> | null | undefined,
   tasks?: readonly T[] | null,
 ): string[] {
@@ -398,7 +398,7 @@ export function coverageLabels<T extends QuoteTaskLike & { truck?: { plate?: str
     const t = (row.task ?? byId.get(row.taskId) ?? null) as T | null;
     return (
       (t?.serialNumber || undefined) ??
-      (t?.truck?.plate || undefined) ??
+      (t?.implement?.plate || undefined) ??
       (t?.name || undefined) ??
       row.taskId.slice(0, 8)
     );
@@ -406,7 +406,7 @@ export function coverageLabels<T extends QuoteTaskLike & { truck?: { plate?: str
 }
 
 /** O rótulo de UM faturamento, em uma linha. Ver `coverageLabels`. */
-export function coverageSummary<T extends QuoteTaskLike & { truck?: { plate?: string | null } | null }>(
+export function coverageSummary<T extends QuoteTaskLike & { implement?: { plate?: string | null } | null }>(
   config: BillingConfigLike<T> | null | undefined,
   total: number,
   tasks?: readonly T[] | null,
@@ -645,7 +645,7 @@ export const QUOTE_COVERAGE_INCLUDE: {
         serialNumber: true,
         createdAt: true,
         customerOrderNumber: true,
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
       },
     },
   },

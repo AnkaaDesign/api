@@ -48,8 +48,13 @@ export const TASK_FIELD_DOMAINS = {
   observation: ['observation'],
   /** Task bonification status */
   bonification: ['bonification'],
-  /** Truck/vehicle info (plate, chassis, category, spot, layouts) */
-  truck: ['truck'],
+  /**
+   * O IMPLEMENTO (placa, chassi, categoria, tipo, vaga, medidas; DD1). O nome
+   * velho da chave (`truck`) chega traduzido pelo pipe, mas fica listado aqui na
+   * janela bilíngue: quem chama `validateSectorFieldAccess` com o corpo cru não
+   * toma 400. A SÉRIE dentro do implemento exige TAMBÉM `identity` (G7).
+   */
+  implement: ['implement', 'truck'],
   /** Responsible users (incl. inline-created responsibles on create) */
   responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
   /**
@@ -145,7 +150,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     // Passthrough: form sends these to preserve existing state
     'layouts',
     'baseFiles',
-    'truck',
+    'implement',
     'meta',
   ],
 
@@ -159,7 +164,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     // PRODUCTION_MANAGER + ADMIN (17/09/2026).
     'status',
     'bonification',
-    'truck',
+    'implement',
     'responsibles',
     'layouts',
     'layoutRemoval',
@@ -191,7 +196,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     // 'term' is intentionally ABSENT — the delivery deadline is production
     // management's (and ADMIN's) to set and change.
     'status',
-    'truck',
+    'implement',
     'responsibles',
     'baseFiles',
     'projectFiles',
@@ -210,7 +215,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'entryDate',
     'term',
     'status',
-    'truck',
+    'implement',
     'serviceOrders',
     'responsibles',
     'baseFiles',
@@ -257,7 +262,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     // No 'term' — the deadline is production management's (17/09/2026).
     'status',
     'bonification',
-    'truck',
+    'implement',
     'responsibles',
     'layouts',
     'paint',
@@ -280,7 +285,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     // Neither 'entryDate' nor 'term': the financial desk creates a task purely to
     // hang a quote off it; both dates belong to other desks.
     'status',
-    'truck',
+    'implement',
     'responsibles',
     'layouts',
     'paint',
@@ -304,7 +309,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'entryDate',
     // No 'term' — the deadline is PRODUCTION_MANAGER/ADMIN's to set.
     'status',
-    'truck',
+    'implement',
     'responsibles',
     'layouts',
     'paint',
@@ -325,7 +330,7 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'entryDate',
     'term',
     'status',
-    'truck',
+    'implement',
     'responsibles',
     'layouts',
     'paint',
@@ -351,7 +356,7 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   status: 'status',
   observation: 'observação',
   bonification: 'bonificação',
-  truck: 'caminhão',
+  implement: 'implemento',
   responsibles: 'responsáveis',
   layouts: 'layouts',
   layoutRemoval: 'exclusão de layout',
@@ -411,6 +416,22 @@ export function validateSectorFieldAccess(
   });
 
   const disallowedFields = attemptedFields.filter(f => !allowedFields.includes(f));
+
+  // A série mora no implemento (DD1), mas continua sendo IDENTIDADE da tarefa:
+  // `implement.serialNumber` exige `identity` além de `implement` (G7). Hoje os
+  // setores com `implement` também têm `identity` — o acoplamento é explícito
+  // para não virar escalada no dia em que um deles perder `identity`.
+  for (const key of ['implement', 'truck']) {
+    const nested = data[key];
+    if (
+      nested &&
+      typeof nested === 'object' &&
+      (nested as Record<string, unknown>).serialNumber !== undefined &&
+      !allowedFields.includes('serialNumber')
+    ) {
+      disallowedFields.push(`${key}.serialNumber`);
+    }
+  }
 
   if (disallowedFields.length > 0) {
     const accessMap = mode === 'create' ? SECTOR_TASK_CREATE_ACCESS : SECTOR_TASK_UPDATE_ACCESS;

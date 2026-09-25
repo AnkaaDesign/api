@@ -76,30 +76,75 @@ const TRACKED_FIELDS = [
   'finishedAt',
   'customerId',
   'paintId',
+  // A SÉRIE (DD1): lida do IMPLEMENTO (com o espelho da tarefa como recuo) e
+  // gravada/emitida SEMPRE como `serialNumber` (S-5, G22) — é a chave que o
+  // aditivo da assinatura e a notificação `task.field.serialNumber` leem.
   'serialNumber',
-  // Truck fields (will be tracked when truck is updated as part of task)
-  'truck.plate',
-  'truck.chassisNumber',
-  'truck.vinPlateId',
-  'truck.category',
-  'truck.implementType',
-  'truck.spot',
-  // Truck implementMeasure references (tracks when implementMeasures are assigned/changed)
-  'truck.leftSideMeasureId',
-  'truck.rightSideMeasureId',
-  'truck.backSideMeasureId',
+  // O implemento, alterado como parte da tarefa. As linhas NOVAS do histórico
+  // gravam `implement.*` (PLANO §6.8; os leitores aceitam as duas grafias); a
+  // NOTIFICAÇÃO continua `task.field.truck.*` (D-04) — ver IMPLEMENT_EVENT_FIELD.
+  'implement.plate',
+  'implement.chassisNumber',
+  'implement.vinPlateId',
+  'implement.category',
+  'implement.type',
+  'implement.spot',
+  // As faces da medida (quando a medida é atribuída/trocada)
+  'implement.leftSideMeasureId',
+  'implement.rightSideMeasureId',
+  'implement.backSideMeasureId',
 ] as const;
 
 /**
- * Truck implementMeasure side fields. When more than one of these change in the same task
- * update, they are collapsed into a single synthetic 'truck.implementMeasure' field so that
- * only ONE consolidated notification is emitted (instead of one per side).
+ * Campo do histórico → nome do EVENTO (e da chave de notificação
+ * `task.field.<evento>`, persistida em NotificationConfiguration e nas
+ * preferências de silenciar: D-04, não muda). Montar a chave pelo nome novo
+ * deixaria a notificação muda (G9).
+ */
+export const IMPLEMENT_EVENT_FIELD: Readonly<Record<string, string>> = {
+  'implement.plate': 'truck.plate',
+  'implement.chassisNumber': 'truck.chassisNumber',
+  'implement.vinPlateId': 'truck.vinPlateId',
+  'implement.category': 'truck.category',
+  'implement.type': 'truck.implementType',
+  'implement.spot': 'truck.spot',
+  'implement.leftSideMeasureId': 'truck.leftSideMeasureId',
+  'implement.rightSideMeasureId': 'truck.rightSideMeasureId',
+  'implement.backSideMeasureId': 'truck.backSideMeasureId',
+};
+
+/**
+ * As faces da medida. Qualquer uma que mude na mesma gravação vira UM evento
+ * sintético 'truck.implementMeasure' (uma notificação só, não uma por face).
+ * As duas grafias: a do histórico novo e a do evento (o lote emite direto).
  */
 const TRUCK_MEASURE_SIDE_FIELDS: Record<string, string> = {
+  'implement.leftSideMeasureId': 'Motorista',
+  'implement.rightSideMeasureId': 'Sapo',
+  'implement.backSideMeasureId': 'Traseira',
   'truck.leftSideMeasureId': 'Motorista',
   'truck.rightSideMeasureId': 'Sapo',
   'truck.backSideMeasureId': 'Traseira',
 };
+
+/** O valor de um campo acompanhado, lido da tarefa carregada. */
+function trackedValue(task: any, field: string): any {
+  if (!task) return undefined;
+  if (field === 'serialNumber') {
+    // DD1: a série é do implemento; `Task.serialNumber` é o espelho (recuo para
+    // a tarefa carregada sem o implemento).
+    const implement = task.implement;
+    if (implement && typeof implement === 'object' && 'serialNumber' in implement) {
+      return implement.serialNumber;
+    }
+    return task.serialNumber;
+  }
+  if (field.includes('.')) {
+    const [parent, child] = field.split('.');
+    return task[parent]?.[child];
+  }
+  return task[field];
+}
 
 /**
  * File array fields that require special handling
@@ -224,18 +269,9 @@ export class TaskFieldTrackerService {
     this.logger.debug(`Tracking changes for task ${taskId} by user ${userId}`);
 
     for (const field of TRACKED_FIELDS) {
-      // Handle nested fields (e.g., 'truck.plate')
-      let oldValue: any;
-      let newValue: any;
-
-      if (field.includes('.')) {
-        const [parent, child] = field.split('.');
-        oldValue = (oldTask as any)[parent]?.[child];
-        newValue = (newTask as any)[parent]?.[child];
-      } else {
-        oldValue = (oldTask as any)[field];
-        newValue = (newTask as any)[field];
-      }
+      // Campos aninhados (`implement.plate`) e a série (do implemento)
+      const oldValue: any = trackedValue(oldTask, field);
+      const newValue: any = trackedValue(newTask, field);
 
       if (this.hasChanged(oldValue, newValue, field)) {
         changes.push({
@@ -569,10 +605,10 @@ export class TaskFieldTrackerService {
         );
       }
 
-      // Emit the event
+      // Emit the event — com o nome do EVENTO (a chave de notificação fica a de sempre)
       const event: TaskFieldChangedEvent = {
         task,
-        field: change.field,
+        field: IMPLEMENT_EVENT_FIELD[change.field] ?? change.field,
         oldValue: change.oldValue,
         newValue: change.newValue,
         changedBy: change.changedBy,

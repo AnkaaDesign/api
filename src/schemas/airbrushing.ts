@@ -73,10 +73,10 @@ export const airbrushingIncludeSchema = z
               createdBy: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
-              // `truck` is a KNOWN key, so a nested include here is an invalid_type error (a 400 on
+              // `implement` is a KNOWN key, so a nested include here is an invalid_type error (a 400 on
               // the whole list), not a silent strip. The airbrushing table's "Medidas" column needs
-              // truck.leftSideMeasure/rightSideMeasure + their sections, so accept the nested form.
-              truck: z
+              // implement.leftSideMeasure/rightSideMeasure + their sections, so accept the nested form.
+              implement: z
                 .union([
                   z.boolean(),
                   z.object({
@@ -624,10 +624,10 @@ const airbrushingTransform = (data: any): any => {
         { task: { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
         // The airbrushing's own description.
         { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
-        // "Identificador" — the task serial, falling back to the truck plate (both are what the
+        // "Identificador" — the task serial, falling back to the implement plate (both are what the
         // Identificador column renders, so searching either must find the row).
         { task: { serialNumberNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
-        { task: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(data.searchingFor) } } } },
+        { task: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(data.searchingFor) } } } },
       ],
     });
     delete data.searchingFor;

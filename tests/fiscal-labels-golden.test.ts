@@ -87,11 +87,12 @@ interface TaskRow {
   name: string;
   serialNumber: string | null;
   customerOrderNumber: string | null;
-  truck: {
+  // O implemento como o `select` real o devolve (P11a: era `truck`, com `implementType`).
+  implement: {
     plate: string | null;
     chassisNumber: string | null;
     category: string | null;
-    implementType: string | null;
+    type: string | null;
   } | null;
 }
 
@@ -100,28 +101,28 @@ const COM_SERIE: TaskRow = {
   name: 'Frota Carlotti',
   serialNumber: '78000',
   customerOrderNumber: '4000000',
-  truck: { plate: 'TES1T01', chassisNumber: '9BM979026CS006620', category: 'RIGID', implementType: 'INSULATED' },
+  implement: { plate: 'TES1T01', chassisNumber: '9BM979026CS006620', category: 'RIGID', type: 'INSULATED' },
 };
 const SO_PLACA: TaskRow = {
   id: 'task-b-000002',
   name: 'Frota Carlotti',
   serialNumber: null,
   customerOrderNumber: null,
-  truck: { plate: 'TES1T02', chassisNumber: null, category: 'TRUCK', implementType: 'FLATBED' },
+  implement: { plate: 'TES1T02', chassisNumber: null, category: 'TRUCK', type: 'FLATBED' },
 };
 const SO_CHASSI: TaskRow = {
   id: 'task-c-000003',
   name: 'Frota Carlotti',
   serialNumber: null,
   customerOrderNumber: null,
-  truck: { plate: null, chassisNumber: '9BM979026CS006621', category: 'BITRUCK', implementType: 'DRY_CARGO' },
+  implement: { plate: null, chassisNumber: '9BM979026CS006621', category: 'BITRUCK', type: 'DRY_CARGO' },
 };
 const SEM_NADA: TaskRow = {
   id: 'task-d-000004',
   name: 'Frota Carlotti',
   serialNumber: null,
   customerOrderNumber: null,
-  truck: { plate: null, chassisNumber: null, category: null, implementType: null },
+  implement: { plate: null, chassisNumber: null, category: null, type: null },
 };
 
 // ─── Como cada serviço transforma a tarefa no seu documento ────────────────
@@ -133,26 +134,26 @@ const SEM_NADA: TaskRow = {
  */
 async function nfseDiscriminacao(rows: TaskRow[], budgetNumber = 990): Promise<string> {
   const slice = rows[0];
-  const truck = slice.truck;
+  const truck = slice.implement;
   const input: MunicipalEmitNfseInput = {
     id: 'invoice-1',
     totalAmount: 100 * rows.length,
     customer: { name: 'Carlotti', cnpj: '12345678000199' },
     task: { id: slice.id, name: slice.name, serialNumber: slice.serialNumber || undefined },
-    truck: truck
+    implement: truck
       ? {
           plate: truck.plate || undefined,
           chassisNumber: truck.chassisNumber || undefined,
           category: truck.category || undefined,
-          implementType: truck.implementType || undefined,
+          implementType: truck.type || undefined,
         }
       : undefined,
     vehicles: rows.map(t => ({
       serialNumber: t.serialNumber ?? null,
-      plate: t.truck?.plate ?? null,
-      chassisNumber: t.truck?.chassisNumber ?? null,
-      category: t.truck?.category ?? null,
-      implementType: t.truck?.implementType ?? null,
+      plate: t.implement?.plate ?? null,
+      chassisNumber: t.implement?.chassisNumber ?? null,
+      category: t.implement?.category ?? null,
+      implementType: t.implement?.type ?? null,
       orderNumber: t.customerOrderNumber ?? null,
     })),
     budgetNumber,
@@ -221,7 +222,7 @@ function dpsDescription(row: TaskRow): string {
       name: row.name,
       serialNumber: row.serialNumber,
       customer: { fantasyName: 'Carlotti', corporateName: null },
-      truck: row.truck,
+      implement: row.implement,
     },
   });
 }
@@ -411,7 +412,7 @@ const IMPLEMENTOS_BOLETO_E_PINTOR: Record<string, string> = {
 const umTipo = (category: string | null, implementType: string | null): TaskRow => ({
   ...COM_SERIE,
   customerOrderNumber: null,
-  truck: { plate: null, chassisNumber: null, category, implementType },
+  implement: { plate: null, chassisNumber: null, category, type: implementType },
 });
 
 async function cadaPalavra(): Promise<void> {

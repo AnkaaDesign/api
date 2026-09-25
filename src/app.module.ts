@@ -80,7 +80,8 @@ import { BudgetModule } from './modules/production/budget/budget.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
 import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
 import { LayoutDimensionsModule } from './modules/production/layout-dimensions/layout-dimensions.module';
-import { TruckModule } from './modules/production/truck/truck.module';
+import { ImplementModule } from './modules/production/implement/implement.module';
+import { ImplementLegacyMirrorInterceptor } from './modules/common/legacy-implement/implement-legacy-mirror.interceptor';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
 import { PersonalModule } from './modules/people/personal/personal.module';
@@ -186,7 +187,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     BudgetModule,
     ImplementMeasureModule,
     LayoutDimensionsModule,
-    TruckModule,
+    ImplementModule,
     UserModule,
     ProfileModule,
     PersonalModule,
@@ -236,6 +237,10 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     // is what let `GET /items` and `GET /users` ship prices and salaries to
     // every sector for as long as they did.
     { provide: APP_INTERCEPTOR, useClass: MoneyRedactionInterceptor },
+    // Janela bilíngue do implemento (P11a, até a R-D): `truck` espelhado em toda
+    // resposta com `implement` para os clientes instalados, e o contador das
+    // chaves velhas por rota × versão do app.
+    { provide: APP_INTERCEPTOR, useClass: ImplementLegacyMirrorInterceptor },
   ],
 })
 export class AppModule implements NestModule {

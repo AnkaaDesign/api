@@ -54,7 +54,7 @@
 import { z } from 'zod';
 import { chassisNumberSchema, plateSchema } from './common';
 import { desempacotarPayload, portalMedidasSchema, portalSerialSchema } from './portal-request';
-import { ImplementType, TruckCategory } from '@prisma/client';
+import { ImplementType, ImplementCategory } from '@prisma/client';
 
 /** O mesmo teto de `Task.customerOrderNumber` (`String?`, máx. 100 no schema). */
 export const PEDIDO_MAXIMO = 100;
@@ -172,7 +172,7 @@ export const portalIdentificacaoCorpoSchema = z
      * ⛔ Os dois passam pela MESMA guarda de documento congelado da placa
      * (`VEHICLE_IDENTITY_FIELDS`), porque a folha assinada os imprime.
      */
-    category: enumOpcional(TruckCategory, 'Categoria do veículo'),
+    category: enumOpcional(ImplementCategory, 'Categoria do veículo'),
     implementType: enumOpcional(ImplementType, 'Tipo de implemento'),
 
     /**

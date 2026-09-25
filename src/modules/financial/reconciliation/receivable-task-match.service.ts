@@ -190,8 +190,8 @@ export class ReceivableTaskMatchService {
           { serialNumberNormalized: { contains: normalized } },
           // Placa e chassi entram no banco sem separador — o termo perde o
           // hífen também, senão colar "ABC-1234" da tela não casa nada.
-          { truck: { plateNormalized: { contains: plateTerm } } },
-          { truck: { chassisNumberNormalized: { contains: plateTerm } } },
+          { implement: { plateNormalized: { contains: plateTerm } } },
+          { implement: { chassisNumberNormalized: { contains: plateTerm } } },
           { customer: { fantasyNameNormalized: { contains: normalized } } },
           { customer: { corporateNameNormalized: { contains: normalized } } },
           ...(digits.length >= 3
@@ -339,7 +339,7 @@ export class ReceivableTaskMatchService {
         customer: {
           select: { id: true, fantasyName: true, corporateName: true, cnpj: true, cpf: true },
         },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
         quote: {
           select: {
             id: true,
@@ -439,7 +439,7 @@ export class ReceivableTaskMatchService {
         taskName: task.name,
         taskSerialNumber: task.serialNumber,
         taskStatus: task.status,
-        plate: task.truck?.plate ?? null,
+        plate: task.implement?.plate ?? null,
         customerId: customer?.id ?? task.customerId ?? null,
         customerName,
         customerCnpjCpf,

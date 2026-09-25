@@ -85,13 +85,13 @@ function pureChecks() {
   const t3 = {
     id: 't3',
     serialNumber: null,
-    truck: { plate: 'ABC1D23' },
+    implement: { plate: 'ABC1D23' },
     createdAt: new Date('2026-09-22T17:05:00Z'),
   };
   const t4 = {
     id: 't4',
     serialNumber: null,
-    truck: null,
+    implement: null,
     createdAt: new Date('2026-09-22T17:06:00Z'),
   };
 
@@ -355,7 +355,7 @@ function pureChecks() {
         createdAt: t2.createdAt,
         customerOrderNumber: null,
         customer,
-        truck: { plate: null, chassisNumber: null, category: null, implementType: null },
+        implement: { serialNumber: '39089', plate: null, chassisNumber: null, category: null, type: null },
         responsibles,
       },
       {
@@ -365,7 +365,7 @@ function pureChecks() {
         createdAt: t1.createdAt,
         customerOrderNumber: null,
         customer,
-        truck: { plate: 'ABC1D23', chassisNumber: null, category: null, implementType: null },
+        implement: { serialNumber: '39088', plate: 'ABC1D23', chassisNumber: null, category: null, type: null },
         responsibles,
       },
     ],
@@ -575,10 +575,18 @@ async function dbChecks() {
 
     // ── Os dois caminhões da Carlotti ─────────────────────────────────────
     const t1 = await prisma.task.create({
-      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}1`, customerId: customer.id },
+      data: {
+        name: NAME_PREFIX,
+        customerId: customer.id,
+        implement: { create: { serialNumber: `L${SUFFIX}1`, spot: null } },
+      },
     });
     const t2 = await prisma.task.create({
-      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}2`, customerId: customer.id },
+      data: {
+        name: NAME_PREFIX,
+        customerId: customer.id,
+        implement: { create: { serialNumber: `L${SUFFIX}2`, spot: null } },
+      },
     });
     createdTaskIds.push(t1.id, t2.id);
 
@@ -1074,10 +1082,18 @@ async function dbChecks() {
     // apagado; `tests/orcamento-sem-os-negociacao.test.ts` guarda a ausência.
     // Fica a parte que não depende dela: a criação com `layouts` por veículo.
     const t3 = await prisma.task.create({
-      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}3`, customerId: customer.id },
+      data: {
+        name: NAME_PREFIX,
+        customerId: customer.id,
+        implement: { create: { serialNumber: `L${SUFFIX}3`, spot: null } },
+      },
     });
     const t4 = await prisma.task.create({
-      data: { name: NAME_PREFIX, serialNumber: `L${SUFFIX}4`, customerId: customer.id },
+      data: {
+        name: NAME_PREFIX,
+        customerId: customer.id,
+        implement: { create: { serialNumber: `L${SUFFIX}4`, spot: null } },
+      },
     });
     createdTaskIds.push(t3.id, t4.id);
     const q2 = await budgets.create(
@@ -1113,8 +1129,8 @@ async function dbChecks() {
     // ═════════════════════════════════════════════════════════════════════
     console.log('\nMedir um veículo mede o outro (mesmo orçamento)');
     // ═════════════════════════════════════════════════════════════════════
-    const truck1 = await prisma.truck.create({ data: { taskId: t1.id } });
-    const truck2 = await prisma.truck.create({ data: { taskId: t2.id } });
+    const implement1 = await prisma.implement.findUniqueOrThrow({ where: { taskId: t1.id } });
+    const implement2 = await prisma.implement.findUniqueOrThrow({ where: { taskId: t2.id } });
     const medida = {
       height: 2.6,
       sections: [
@@ -1122,10 +1138,10 @@ async function dbChecks() {
         { width: 1.1, isDoor: true, doorHeight: 2.1, position: 1 },
       ],
     };
-    await measures.createOrUpdateTruckImplementMeasure(truck1.id, 'left', medida as any, user.id);
-    const leftOf = (truckId: string) =>
-      prisma.truck.findUnique({
-        where: { id: truckId },
+    await measures.createOrUpdateTruckImplementMeasure(implement1.id, 'left', medida as any, user.id);
+    const leftOf = (implementId: string) =>
+      prisma.implement.findUnique({
+        where: { id: implementId },
         select: {
           leftSideMeasure: {
             select: {
@@ -1140,8 +1156,8 @@ async function dbChecks() {
           rightSideMeasure: { select: { id: true, height: true } },
         },
       });
-    let m1 = await leftOf(truck1.id);
-    let m2 = await leftOf(truck2.id);
+    let m1 = await leftOf(implement1.id);
+    let m2 = await leftOf(implement2.id);
     check(
       'o irmão recebeu a MESMA medida (altura e seções)',
       !!m2?.leftSideMeasure &&
@@ -1164,8 +1180,8 @@ async function dbChecks() {
       log?.reason,
     );
     const idAntes = m2.leftSideMeasure.id;
-    await measures.createOrUpdateTruckImplementMeasure(truck1.id, 'left', medida as any, user.id);
-    m2 = await leftOf(truck2.id);
+    await measures.createOrUpdateTruckImplementMeasure(implement1.id, 'left', medida as any, user.id);
+    m2 = await leftOf(implement2.id);
     check(
       'regravar a mesma medida não reescreve o irmão (só o lado que DIFERE)',
       m2.leftSideMeasure.id === idAntes,
@@ -1174,7 +1190,7 @@ async function dbChecks() {
     await tasks.update(
       t2.id,
       parse(taskUpdateSchema, {
-        truck: {
+        implement: {
           rightSideMeasure: {
             height: 2.4,
             sections: [{ width: 5.3, isDoor: false, doorHeight: null, position: 0 }],
@@ -1185,7 +1201,7 @@ async function dbChecks() {
       user.id,
       'ADMIN',
     );
-    m1 = await leftOf(truck1.id);
+    m1 = await leftOf(implement1.id);
     check(
       'pela edição da TAREFA também (lado direito da 39089 → 39088)',
       m1?.rightSideMeasure?.height === 2.4,
@@ -1194,13 +1210,13 @@ async function dbChecks() {
 
     await tasks.update(
       t1.id,
-      parse(taskUpdateSchema, { truck: { leftSideMeasure: null } }),
+      parse(taskUpdateSchema, { implement: { leftSideMeasure: null } }),
       undefined,
       user.id,
       'ADMIN',
     );
-    m1 = await leftOf(truck1.id);
-    m2 = await leftOf(truck2.id);
+    m1 = await leftOf(implement1.id);
+    m2 = await leftOf(implement2.id);
     check(
       'exclusão NÃO replica',
       !m1.leftSideMeasure && !!m2.leftSideMeasure,
@@ -1209,7 +1225,7 @@ async function dbChecks() {
   } finally {
     try {
       const measureIds = (
-        await prisma.truck.findMany({
+        await prisma.implement.findMany({
           where: { taskId: { in: createdTaskIds } },
           select: { leftSideMeasureId: true, rightSideMeasureId: true, backSideMeasureId: true },
         })

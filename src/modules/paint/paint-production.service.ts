@@ -879,7 +879,7 @@ export class PaintProductionService {
         forecastDate: true,
         term: true,
         customer: { select: { fantasyName: true } },
-        truck: { select: { plate: true } },
+        implement: { select: { plate: true } },
       },
       orderBy: [{ forecastDate: 'asc' }, { name: 'asc' }],
     });
@@ -895,7 +895,7 @@ export class PaintProductionService {
           ? t.term.toISOString()
           : null,
       customerName: t.customer?.fantasyName ?? null,
-      plate: t.truck?.plate ?? null,
+      plate: t.implement?.plate ?? null,
     }));
 
     return {

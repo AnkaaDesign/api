@@ -132,7 +132,7 @@ const quoteTasksIncludeSchema = z
             .optional(),
           logoPaints: z.boolean().optional(),
           serviceOrders: z.boolean().optional(),
-          truck: z.boolean().optional(),
+          implement: z.boolean().optional(),
           airbrushing: z.boolean().optional(),
           quote: z.boolean().optional(),
         })
@@ -506,7 +506,7 @@ const budgetTransform = (data: any) => {
   const transformed: any = { ...data };
 
   // Handle searchingFor filter — search across logomarca (task name), série
-  // (task serial number / truck plate), cliente (task customer + billing
+  // (task serial number / implement plate), cliente (task customer + billing
   // customer configs) and the quote's service descriptions. Mirrors the Task
   // search surface so the Orçamentos/Faturamento list honours its
   // "Buscar por logomarca, série, cliente..." placeholder (previously it only
@@ -524,7 +524,7 @@ const budgetTransform = (data: any) => {
       { tasks: { some: { serialNumberNormalized: { contains: term } } } },
       {
         tasks: {
-          some: { truck: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } },
+          some: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } },
         },
       },
       // Cliente — task's own customer and each billing customer config

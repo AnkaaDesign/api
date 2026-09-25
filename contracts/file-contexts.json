@@ -16,6 +16,9 @@
       "web",
       "flutter (task_form_screen.dart:933-934)"
     ],
+    "implementVinPlate": [
+      "api (P11a: nome novo da plaqueta; o velho fica como alias até a R-D)"
+    ],
     "implementMeasurePhotos": [
       "web (task-create-form.tsx: foto da face na criação, A7 do P03)"
     ],

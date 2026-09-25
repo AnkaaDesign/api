@@ -91,7 +91,7 @@ async function reset() {
   await prisma.budgetItem.deleteMany({});
   await prisma.budgetPayer.deleteMany({});
   await prisma.budget.deleteMany({});
-  await prisma.truck.deleteMany({});
+  await prisma.implement.deleteMany({});
   await prisma.task.deleteMany({});
   await prisma.bankTransaction.deleteMany({});
   await prisma.customer.deleteMany({});
@@ -125,23 +125,18 @@ async function mkCustomer(fantasyName: string, cnpj: string) {
 }
 
 async function mkTask(name: string, serial: string, customerId: string | null, plate?: string) {
+  // DD1: a série é do implemento, e toda tarefa nasce com um (spot explícito).
+  // As colunas `*Normalized` são GERADAS pelo banco migrado (G25): não se escrevem.
   const task = await prisma.task.create({
     data: {
       name,
-      serialNumber: serial,
       status: 'COMPLETED' as any,
       statusOrder: 4,
       finishedAt: D('2026-07-10'),
       customerId,
-      nameNormalized: norm(name),
-      serialNumberNormalized: norm(serial),
+      implement: { create: { serialNumber: serial, plate: plate ?? null, spot: null } },
     },
   });
-  if (plate) {
-    await prisma.truck.create({
-      data: { taskId: task.id, plate, plateNormalized: norm(plate) },
-    });
-  }
   return task;
 }
 

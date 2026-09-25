@@ -77,7 +77,7 @@ async function main() {
     criados.respIds = resps.map(r => r.id);
 
     const created = await tasks.batchCreateWithQuote(
-      taskBatchCreateWithQuoteSchema.parse({
+      (taskBatchCreateWithQuoteSchema.parse as (v: unknown) => any)({
         tasks: [{
           status: 'PREPARATION',
           name: `ZZ-TESTE-RECUSA-${SUFFIX}`,

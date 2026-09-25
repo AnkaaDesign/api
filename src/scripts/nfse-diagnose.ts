@@ -54,8 +54,8 @@ async function main() {
           name: true,
           serialNumber: true,
           customer: { select: { fantasyName: true, corporateName: true } },
-          truck: {
-            select: { plate: true, chassisNumber: true, category: true, implementType: true },
+          implement: {
+            select: { plate: true, chassisNumber: true, category: true, type: true },
           },
         },
       },

@@ -154,7 +154,7 @@ export const cnpjOptionalSchema = z
   );
 
 // Placa e chassi — campo ÚNICO, usado por todo schema que aceita esses valores
-// (truck.ts e o `truck` aninhado de task.ts). A ordem importa: NORMALIZA antes
+// (implement.ts e o `implement` aninhado de task.ts). A ordem importa: NORMALIZA antes
 // de validar. A tela de orçamento manda a placa exatamente como foi digitada, e
 // a regra antiga exigia maiúsculas — "abb4886" virava 400 com o usuário olhando
 // para um campo que parecia certo.

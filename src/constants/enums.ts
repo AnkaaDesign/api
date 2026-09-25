@@ -1322,10 +1322,10 @@ export enum TRUCK_MANUFACTURER {
 }
 
 /**
- * Truck categories/types
- * Categories define the size and configuration of the truck
+ * Categoria do implemento (o veículo que a tarefa pinta): porte e configuração.
+ * Espelho de `$Enums.ImplementCategory` (a M1 renomeou o tipo `TruckCategory`).
  */
-export enum TRUCK_CATEGORY {
+export enum IMPLEMENT_CATEGORY {
   MINI = 'MINI', // Mini truck (small urban delivery)
   VUC = 'VUC', // VUC - Veículo Urbano de Carga (Urban Cargo Vehicle)
   THREE_QUARTER = 'THREE_QUARTER', // 3/4 truck (light commercial)
@@ -1337,6 +1337,16 @@ export enum TRUCK_CATEGORY {
   B_DOUBLE_REAR = 'B_DOUBLE_REAR', // Bitrem Composição Traseira - rear compartment of B-Double trailer
   BITRUCK = 'BITRUCK', // Bitruck - Rigid truck with dual steering axle
 }
+
+/**
+ * JANELA BILÍNGUE (até a R-D, P32): o nome velho do enum de categoria. O
+ * contrato exportado (G5) MANTÉM a chave `TRUCK_CATEGORY` — o teste do web e o
+ * `labels.dart` do app a leem. Código novo usa `IMPLEMENT_CATEGORY`.
+ * @deprecated use IMPLEMENT_CATEGORY
+ */
+export const TRUCK_CATEGORY = IMPLEMENT_CATEGORY;
+/** @deprecated use IMPLEMENT_CATEGORY */
+export type TRUCK_CATEGORY = IMPLEMENT_CATEGORY;
 
 /**
  * Truck body/implement types

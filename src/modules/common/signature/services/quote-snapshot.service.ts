@@ -474,7 +474,8 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: {
       customer: true,
-      truck: true,
+      // DD1: série, placa, chassi, categoria e tipo moram no implemento.
+      implement: true,
       responsibles: { orderBy: { name: 'asc' } },
     },
   },
@@ -532,11 +533,14 @@ export class QuoteSnapshotService {
       vehicles: tasks.map(t => ({
         taskId: t.id,
         taskName: t.name ?? null,
-        serialNumber: t.serialNumber ?? null,
-        plate: t.truck?.plate ?? null,
-        chassisNumber: t.truck?.chassisNumber ?? null,
-        category: t.truck?.category ?? null,
-        implementType: t.truck?.implementType ?? null,
+        // LÊ do implemento (DD1) e ESCREVE as chaves congeladas de sempre
+        // (`serialNumber`, `implementType`): o hash dos envelopes assinados
+        // depende delas (G11). A M1s copiou a série byte a byte.
+        serialNumber: t.implement?.serialNumber ?? null,
+        plate: t.implement?.plate ?? null,
+        chassisNumber: t.implement?.chassisNumber ?? null,
+        category: t.implement?.category ?? null,
+        implementType: t.implement?.type ?? null,
         orderNumber: t.customerOrderNumber ?? null,
       })),
       billingSplit: (quote as any).billingSplit ?? 'JOINT',

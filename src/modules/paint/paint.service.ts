@@ -491,29 +491,33 @@ export class PaintService {
   }
 
   /**
-   * Find paint IDs that are used in tasks matching the search term
+   * Tintas usadas em tarefas cujo nome, SÉRIE ou PLACA casam com o termo.
+   *
+   * A série e a placa são do IMPLEMENTO (DD1; a tabela foi renomeada na M1).
+   * Erro aqui SOBE: devolver `[]` fazia uma consulta quebrada (tabela renomeada,
+   * por exemplo) parecer "nenhuma tinta encontrada" para quem busca.
    */
   private async findPaintIdsByTaskSearch(searchTerm: string): Promise<string[]> {
-    try {
-      const searchPattern = `%${searchTerm}%`;
-      // A placa é gravada sem separador; o termo tem que perder o hífen também.
-      const platePattern = `%${searchTerm.replace(/[^a-zA-Z0-9]/g, '')}%`;
-      this.logger.log(`Task search: searching for "${searchTerm}" with pattern "${searchPattern}"`);
+    const searchPattern = `%${searchTerm}%`;
+    // A placa é gravada sem separador; o termo tem que perder o hífen também.
+    const platePattern = `%${searchTerm.replace(/[^a-zA-Z0-9]/g, '')}%`;
+    this.logger.log(`Task search: searching for "${searchTerm}" with pattern "${searchPattern}"`);
 
+    try {
       const result = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT DISTINCT p.id
         FROM "Paint" p
         LEFT JOIN "Task" t1 ON t1."paintId" = p.id
-        LEFT JOIN "Truck" tr1 ON tr1."taskId" = t1.id
+        LEFT JOIN "Implement" i1 ON i1."taskId" = t1.id
         LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
         LEFT JOIN "Task" t2 ON t2.id = tlp."B"
-        LEFT JOIN "Truck" tr2 ON tr2."taskId" = t2.id
+        LEFT JOIN "Implement" i2 ON i2."taskId" = t2.id
         WHERE LOWER(immutable_unaccent(t1.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(t1."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(tr1.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
+           OR LOWER(immutable_unaccent(i1."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(i1.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
            OR LOWER(immutable_unaccent(t2.name)) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(t2."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
-           OR LOWER(immutable_unaccent(tr2.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
+           OR LOWER(immutable_unaccent(i2."serialNumber")) LIKE LOWER(immutable_unaccent(${searchPattern}))
+           OR LOWER(immutable_unaccent(i2.plate)) LIKE LOWER(immutable_unaccent(${platePattern}))
       `;
 
       const ids = result.map(row => row.id);
@@ -522,7 +526,7 @@ export class PaintService {
       return ids;
     } catch (error) {
       this.logger.error('Erro ao buscar tintas por tarefas:', error);
-      return [];
+      throw error;
     }
   }
 

@@ -92,20 +92,25 @@ async function main(): Promise<void> {
       const serial = parseSerial(discriminacao);
       const order = parseOrder(discriminacao);
 
-      // Match strategy: serial -> Task.serialNumber (unique). Fallback: order number.
+      // Match strategy: serial -> Implement.serialNumber (unique, DD1). Fallback: order number.
       let task:
         | { id: string; serialNumber: string | null; name: string; customer: { cnpj: string | null; cpf: string | null } | null }
         | null = null;
       if (serial) {
-        task = await prisma.task.findUnique({
+        const implement = await prisma.implement.findUnique({
           where: { serialNumber: serial },
           select: {
-            id: true,
-            serialNumber: true,
-            name: true,
-            customer: { select: { cnpj: true, cpf: true } },
+            task: {
+              select: {
+                id: true,
+                serialNumber: true,
+                name: true,
+                customer: { select: { cnpj: true, cpf: true } },
+              },
+            },
           },
         });
+        task = implement?.task ?? null;
       }
 
       const label = `NF ${note.numeroNotaFiscal} (id ${note.id}, ${

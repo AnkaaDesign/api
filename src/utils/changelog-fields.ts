@@ -238,6 +238,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     observation: 'Observação',
     createdBy: 'Criado por',
     truck: 'Caminhão',
+    implement: 'Implemento',
     layouts: 'Layouts',
     baseFiles: 'Arquivos Base',
     logoPaints: 'Tintas da Logomarca',
@@ -263,6 +264,16 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'truck.vinPlateId': 'Foto da Plaqueta',
     'truck.category': 'Categoria do Caminhão',
     'truck.implementType': 'Tipo de Implemento',
+    // As linhas novas do histórico gravam `implement.*` (P11a); as duas grafias valem.
+    'implement.plate': 'Placa do Implemento',
+    'implement.chassisNumber': 'Chassi do Implemento',
+    'implement.vinPlateId': 'Foto da Plaqueta',
+    'implement.category': 'Categoria do Implemento',
+    'implement.type': 'Tipo de Implemento',
+    'implement.spot': 'Vaga do Implemento',
+    'implement.leftSideMeasureId': 'Motorista',
+    'implement.rightSideMeasureId': 'Sapo',
+    'implement.backSideMeasureId': 'Traseira',
     'createdBy.name': 'Nome do Criador',
     'budget.filename': 'Nome do Orçamento',
     'nfe.filename': 'Nome da NFe',
@@ -753,6 +764,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     vinPlateId: 'Foto da Plaqueta',
     category: 'Categoria',
     implementType: 'Tipo de Implemento',
+    // a coluna depois da M1 (as linhas novas da trilha do implemento)
+    type: 'Tipo de Implemento',
+    serialNumber: 'Número de Série',
     spot: 'Localização',
     manufacturer: 'Fabricante',
     model: 'Modelo',
@@ -1071,7 +1085,7 @@ export function formatFieldValue(
 
   // Handle truck category
   if (
-    (field === 'truck.category' || field === 'category') &&
+    (field === 'truck.category' || field === 'implement.category' || field === 'category') &&
     (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
     typeof value === 'string'
   ) {
@@ -1080,7 +1094,10 @@ export function formatFieldValue(
 
   // Handle truck implement type
   if (
-    (field === 'truck.implementType' || field === 'implementType') &&
+    (field === 'truck.implementType' ||
+      field === 'implement.type' ||
+      field === 'implementType' ||
+      (field === 'type' && entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK)) &&
     (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
     typeof value === 'string'
   ) {

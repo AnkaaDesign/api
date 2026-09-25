@@ -68,10 +68,14 @@ async function alvo(contato: string) {
  * boleto → parcela → fatura → o resto.
  */
 async function limpar(): Promise<string | null> {
-  const tarefa = await prisma.task.findUnique({
-    where: { serialNumber: SERIE },
-    select: { id: true, quoteId: true },
-  });
+  // DD1: a série é única no IMPLEMENTO.
+  const tarefa =
+    (
+      await prisma.implement.findUnique({
+        where: { serialNumber: SERIE },
+        select: { task: { select: { id: true, quoteId: true } } },
+      })
+    )?.task ?? null;
   if (!tarefa) return null;
 
   const pagadores = tarefa.quoteId
@@ -147,7 +151,8 @@ async function semear(contato: string): Promise<void> {
       tasks: {
         create: {
           name: 'Baú refrigerado — demonstração do portal',
-          serialNumber: SERIE,
+          // DD1: a série nasce no implemento (o da tarefa é espelho).
+          implement: { create: { serialNumber: SERIE, spot: null } },
           customer: { connect: { id: cliente.id } },
           status: 'COMPLETED',
           statusOrder: 6,
@@ -262,10 +267,13 @@ async function semear(contato: string): Promise<void> {
   // tem de vir junto — senão o registro fica num estado que a produção nunca
   // produz: faturamento aprovado sem fatura nenhuma.
   const valorParcela = Number((total / 4).toFixed(2));
-  const tarefa = await prisma.task.findUnique({
-    where: { serialNumber: SERIE },
-    select: { id: true },
-  });
+  const tarefa =
+    (
+      await prisma.implement.findUnique({
+        where: { serialNumber: SERIE },
+        select: { task: { select: { id: true } } },
+      })
+    )?.task ?? null;
   const fatura = await prisma.invoice.create({
     data: {
       customerId: cliente.id,

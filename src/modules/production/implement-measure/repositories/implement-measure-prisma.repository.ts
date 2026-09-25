@@ -49,7 +49,7 @@ export class ImplementMeasurePrismaRepository implements ImplementMeasureReposit
     // Preview views don't need photo data
     const includePhoto = options?.includePhoto ?? false;
 
-    const truck = await this.prisma.truck.findUnique({
+    const truck = await this.prisma.implement.findUnique({
       where: { id: truckId },
       include: {
         leftSideMeasure: {

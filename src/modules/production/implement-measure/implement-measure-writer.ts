@@ -48,7 +48,7 @@ export type { ImplementFace } from '../../../constants/implement-faces';
 export const FACES: readonly ImplementFace[] = IMPLEMENT_FACES;
 
 /** As chaves da tabela que carrega as faces (colunas e relações). */
-type HolderKey = keyof Prisma.TruckSelect;
+type HolderKey = keyof Prisma.ImplementSelect;
 
 /** Face → coluna (FK) no caminhão. Tipado contra o Prisma: renomear a coluna quebra o `tsc`. */
 export const FACE_FK = {
@@ -57,7 +57,7 @@ export const FACE_FK = {
   back: 'backSideMeasureId',
 } as const satisfies Record<ImplementFace, HolderKey>;
 
-/** Face → relação no caminhão (para `select`/`include`). */
+/** Face → relação no implemento (para `select`/`include`). */
 export const FACE_REL = {
   left: 'leftSideMeasure',
   right: 'rightSideMeasure',
@@ -66,9 +66,9 @@ export const FACE_REL = {
 
 /** Face → relação inversa em `ImplementMeasure` (quem aponta para a linha por esta face). */
 export const FACE_INVERSE = {
-  left: 'trucksLeftSide',
-  right: 'trucksRightSide',
-  back: 'trucksBackSide',
+  left: 'implementsLeftSide',
+  right: 'implementsRightSide',
+  back: 'implementsBackSide',
 } as const satisfies Record<ImplementFace, keyof Prisma.ImplementMeasureInclude>;
 
 export type FaceFk = (typeof FACE_FK)[ImplementFace];
@@ -162,7 +162,7 @@ const WITH_SECTIONS = {
 
 /** O modelo que carrega as colunas de face (o único acesso a ele neste arquivo). */
 function holderOf(tx: MeasureTx) {
-  return tx.truck;
+  return tx.implement;
 }
 
 function assertFace(face: ImplementFace): FaceFk {

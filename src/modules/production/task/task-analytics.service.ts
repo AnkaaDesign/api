@@ -382,7 +382,7 @@ export class TaskAnalyticsService {
     });
 
     // Garage utilization: trucks with active tasks occupying spots
-    const trucksInGarage = await this.prisma.truck.findMany({
+    const trucksInGarage = await this.prisma.implement.findMany({
       where: {
         spot: { not: null },
         task: {

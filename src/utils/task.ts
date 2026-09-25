@@ -191,7 +191,7 @@ export function getDaysUntilDeadline(task: Task): number | null {
  */
 export function formatTaskIdentifier(task: Task): string {
   if (task.serialNumber) return task.serialNumber;
-  if ((task as any).truck?.plate) return (task as any).truck.plate;
+  if ((task as any).implement?.plate) return (task as any).implement.plate;
   return `#${task.id.slice(-6).toUpperCase()}`;
 }
 
@@ -371,9 +371,9 @@ export function getTaskObservationTypeLabel(type: TASK_OBSERVATION_TYPE): string
  * @returns Object with width and height in meters, or null if no implementMeasure data exists
  */
 export function getTaskDimensions(task: any): { width: number; height: number } | null {
-  if (!task?.truck) return null;
+  if (!task?.implement) return null;
 
-  const { truck } = task;
+  const { implement: truck } = task;
 
   // Try left side implementMeasure first, then right side (both have the same dimensions)
   const implementMeasure = truck.leftSideMeasure || truck.rightSideMeasure;

@@ -168,6 +168,8 @@ async function main() {
           statusOrder: getTaskStatusOrder('IN_PRODUCTION'),
           entryDate: new Date(),
           startedAt: new Date(),
+          // DD1: toda tarefa nasce com implemento (o gatilho diferido recusa sem).
+          implement: { create: { spot: null } },
         },
       });
       taskId = task.id;
