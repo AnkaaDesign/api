@@ -24,8 +24,8 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 
 | Repo | Branch | Situação |
 |---|---|---|
-| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`) + série só no implemento DD14 (`21c9e493`, `875aaf9f`) + testes do P11a e 2 defeitos achados por eles (`dc17ea42`, `19a48279`, `7ea83eb0`, `afc0102a`) + **P11b** (`b13c9413`, `885b17c2`, `a5a2a636`) + **P12.1** (`9a5e9394`, `5cc474d5`). **Régua verde (29/29, 171 s)** |
-| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); nomenclatura completa (`43183934`, `80aa1a4d`) e série só no implemento (`9ce33a03`, `6913c34d`, `9c553aaa`); contrato do P11b (`ffcb4685`). Régua: G0/G6/G4/G5 verdes; vitest 641/647 — os 6 vermelhos são do menu (`navigation-context.test.ts`) e falham IGUAIS na `origin/main` |
+| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`) + série só no implemento DD14 (`21c9e493`, `875aaf9f`) + testes do P11a e 2 defeitos achados por eles (`dc17ea42`, `19a48279`, `7ea83eb0`, `afc0102a`) + **P11b** (`b13c9413`, `885b17c2`, `a5a2a636`) + **P12.1** (`9a5e9394`, `5cc474d5`) + **P13a integrado** (merge `89a7ccd9`, integração `3361dd9a`). **Régua verde na combinação (30/30, 173 s)** |
+| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); nomenclatura completa (`43183934`, `80aa1a4d`) e série só no implemento (`9ce33a03`, `6913c34d`, `9c553aaa`); contrato do P11b (`ffcb4685`); filtro `hasArt` + contrato do P12.1/P13a (`ff796142`). Régua: G0/G6/G4/G5 verdes; vitest 641/647 **no Node 24** — os 6 vermelhos são do menu (`navigation-context.test.ts`) e falham IGUAIS na `origin/main`. ⚠️ No Node 26 dá 26 vermelhos (`localStorage` indefinido: a pegadinha da rodada 6); rode com `PATH=/opt/actions-runner/r1/_work/_tool/node/24.21.0/x64/bin:$PATH` |
 | app | `feat/implemento` | main (1.4.2+25) juntada; nomenclatura completa no app e no AnkaaAero (`856c2a3`, `901681e`, `1391b83`); AnkaaAero manda versão/plataforma (`acac622`); série só no implemento no app e no AnkaaAero (`2a5cb9a`, `ef5dc44`, `12d46c6`, `8f774b0`). Régua verde (analyze, G6, G5, suíte) |
 | app | `patch/p02-sobre-1.4.1+24` | OBSOLETO com a DD13 (era o patch de compatibilidade) |
 | api | `wip/p11a-parcial-20260923` | já incorporada; pode ser apagada |
@@ -33,7 +33,6 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 Bancos locais (container `ankaa-postgres`):
 
 - `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`, Mnom) + a série só no implemento (`20260930120070`, M5s) + **M2** (`20260930120100`) + os avisos da porta (`20260930120110`) + **M3** (`20260930120200`) + as 6 migrations da main de 24/09.
-- `ankaa_implemento_p13a`: banco do worktree do P13a (cópia do `ankaa_implemento` antes da M3). Apagar depois da integração.
 - `ankaa_implemento_base`: a base (main + M0), criado em 24/09. É onde o ensaio roda a cadeia inteira (8 fatias); manter até o P30.
 - `ankaa_taskmatch_impl_test`: descartável do `test:task-match:integration` (db push).
 - `ankaa_production` (clone) e `ankaa_veiculos` (outra sessão): não tocar.
@@ -142,7 +141,7 @@ Bancos locais (container `ankaa-postgres`):
 
 ## 4. O que FALTA (na ordem)
 
-**P11a e P11b FECHADOS em 25/09.** Em curso: **[P12 ∥ P13a]**. O P13a terminou no worktree (`impl/p13a`, 5 commits sobre `ba33e570`: `673be92e`, `a99c55bc`, `38463180`, `e1335211`, `44cb33b4`) e espera a integração (`merge --no-ff`; só `contracts/enums.json` se cruza, e ele é regerado). Do P12 falta: **P12.2** (`ImplementLayoutService` + rotas `/implements/:id/layouts/*` e `/implements/layouts/bulk` + `LayoutDecision` + eventos com ator discriminado + `LAYOUT_STATUS` com 5 e `LAYOUT_APPROVAL_SOURCE` + `onQuoteContentChanged` + recalcular o estado da tarefa + chaves `layout.portal_pending_approval`), **P12.3** (`artworkGate` DD3/DD10 nas duas funções puras e nos 6 chamadores, liberação manual inclusive; aprovar a arte fecha "Aprovar com o Cliente" e a O.S. de ARTE em `WAITING_APPROVE`) e o lembrete ao contato. Fora do rework: `billing-entity` e `orcamento-faturamento-a-db` apontam para o banco `ankaa_qa_e2e`, que está sem esquema neste ambiente (não rodaram).
+**P11a, P11b e P13a FECHADOS em 25/09.** O P13a foi integrado (`merge --no-ff` `89a7ccd9` + `3361dd9a`: `portal-identificacao` na régua com banco, catraca do tipo 135 → 126); worktree, branch `impl/p13a` e banco `ankaa_implemento_p13a` apagados. Do P12 falta: **P12.2** (`ImplementLayoutService` + rotas `/implements/:id/layouts/*` e `/implements/layouts/bulk` + `LayoutDecision` + eventos com ator discriminado + `LAYOUT_STATUS` com 5 e `LAYOUT_APPROVAL_SOURCE` + `onQuoteContentChanged` + recalcular o estado da tarefa + chaves `layout.portal_pending_approval`), **P12.3** (`artworkGate` DD3/DD10 nas duas funções puras e nos 6 chamadores, liberação manual inclusive; aprovar a arte fecha "Aprovar com o Cliente" e a O.S. de ARTE em `WAITING_APPROVE`) e o lembrete ao contato. Fora do rework: `billing-entity` e `orcamento-faturamento-a-db` apontam para o banco `ankaa_qa_e2e`, que está sem esquema neste ambiente (não rodaram).
 
 Com a DD13 o plano encurta: não existe mais R-C/R-D separadas nem P32 "remove aliases"; web (P20–P23), app (P24) e AnkaaAero entram na MESMA release da API, e o 426 (P31) liga nela.
 
