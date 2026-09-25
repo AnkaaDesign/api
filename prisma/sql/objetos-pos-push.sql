@@ -9,7 +9,7 @@
 -- Idempotente. NUNCA rodar em produção (lá tudo vem das migrations).
 --
 -- 2 extensões, 9 funções, 171 colunas geradas,
--- 7 gatilhos, 17 índices, 25 CHECKs.
+-- 7 gatilhos, 17 índices, 28 CHECKs.
 
 BEGIN;
 
@@ -623,8 +623,14 @@ ALTER TABLE "AirbrushingNfse" DROP CONSTRAINT IF EXISTS "AirbrushingNfse_dpsId_f
 ALTER TABLE "AirbrushingNfse" ADD CONSTRAINT "AirbrushingNfse_dpsId_format" CHECK ((("dpsId" IS NULL) OR ("dpsId" ~ '^DPS[0-9]{42}$'::text)));
 ALTER TABLE "AirbrushingNfse" DROP CONSTRAINT IF EXISTS "AirbrushingNfse_environment_range";
 ALTER TABLE "AirbrushingNfse" ADD CONSTRAINT "AirbrushingNfse_environment_range" CHECK ((environment = ANY (ARRAY[1, 2])));
+ALTER TABLE "BudgetOfflineSignature" DROP CONSTRAINT IF EXISTS "BudgetOfflineSignature_note_check";
+ALTER TABLE "BudgetOfflineSignature" ADD CONSTRAINT "BudgetOfflineSignature_note_check" CHECK ((length(btrim(note)) > 0));
 ALTER TABLE "BudgetRequest" DROP CONSTRAINT IF EXISTS "BudgetRequest_decisao_unica";
 ALTER TABLE "BudgetRequest" ADD CONSTRAINT "BudgetRequest_decisao_unica" CHECK ((("preApprovedAt" IS NULL) OR ("refusedAt" IS NULL)));
+ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_actor_check";
+ALTER TABLE "BudgetValueApproval" ADD CONSTRAINT "BudgetValueApproval_actor_check" CHECK ((NOT (("responsibleId" IS NOT NULL) AND ("userId" IS NOT NULL))));
+ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_note_check";
+ALTER TABLE "BudgetValueApproval" ADD CONSTRAINT "BudgetValueApproval_note_check" CHECK (((source <> 'ON_BEHALF'::"BudgetValueApprovalSource") OR (note IS NOT NULL)));
 ALTER TABLE "EnvelopeSigner" DROP CONSTRAINT IF EXISTS "EnvelopeSigner_contact_matches_auth_method";
 ALTER TABLE "EnvelopeSigner" ADD CONSTRAINT "EnvelopeSigner_contact_matches_auth_method" CHECK (
 CASE "authMethod"

@@ -770,7 +770,7 @@ export class PortalReadService {
     const budgetWhere = this.scope.budgetScopeWhere(principal);
     const taskWhere = this.scope.taskScopeWhere(principal);
     const podeTrack = this.canSeeProgress(sections);
-    const podePreAprovar = capabilities.includes(PORTAL_CAPABILITY.PRE_APPROVE);
+    const podeAprovarValor = capabilities.includes(PORTAL_CAPABILITY.APPROVE_VALUE);
     const verPreco = hasSection(sections, 'PRICING');
 
     const agrupado = await this.prisma.budget.groupBy({
@@ -793,7 +793,7 @@ export class PortalReadService {
       AND: [budgetWhere, { status: TASK_QUOTE_STATUS.IN_NEGOTIATION as any }],
     };
 
-    const [preApprovalTotal, preApprovalRows] = podePreAprovar
+    const [valueApprovalTotal, valueApprovalRows] = podeAprovarValor
       ? await Promise.all([
           this.prisma.budget.count({ where: preApprovalWhere }),
           this.prisma.budget.findMany({
@@ -905,10 +905,10 @@ export class PortalReadService {
         capabilities,
         budgets: { total, byStatus },
         waitingOnMe: {
-          preApproval: {
-            available: podePreAprovar,
-            total: preApprovalTotal,
-            budgets: preApprovalRows.map((b: any) => ({
+          valueApproval: {
+            available: podeAprovarValor,
+            total: valueApprovalTotal,
+            budgets: valueApprovalRows.map((b: any) => ({
               id: b.id,
               budgetNumber: b.budgetNumber,
               status: b.status,
@@ -1252,7 +1252,7 @@ export class PortalReadService {
 
   /**
    * Monta a resposta dos orçamentos: projeta pelo recorte, sobrepõe a escada e
-   * acrescenta o que é do PORTAL e não da projeção (`canPreApprove`, o marco do
+   * acrescenta o que é do PORTAL e não da projeção (`canApproveValue`, o marco do
    * contrato, os autores da decisão).
    */
   private async assembleBudgets(
@@ -1332,8 +1332,8 @@ export class PortalReadService {
         updatedAt: row.updatedAt ?? null,
         billingSplit: row.billingSplit ?? null,
         capabilities,
-        canPreApprove:
-          capabilities.includes(PORTAL_CAPABILITY.PRE_APPROVE) &&
+        canApproveValue:
+          capabilities.includes(PORTAL_CAPABILITY.APPROVE_VALUE) &&
           row.status === TASK_QUOTE_STATUS.IN_NEGOTIATION,
         request: view?.request
           ? {

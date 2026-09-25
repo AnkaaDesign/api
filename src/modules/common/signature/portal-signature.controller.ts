@@ -174,7 +174,7 @@ export class PortalSignatureController {
    * emissão convocou para ASSINAR.
    *
    * ⚠️ Recusar a ASSINATURA não é recusar o ORÇAMENTO
-   * (`PUT /cliente/me/orcamentos/:id/recusar`, que é de quem tem `PRE_APPROVE` e
+   * (`PUT /cliente/me/orcamentos/:id/recusar`, que é de quem tem `APPROVE_VALUE` e
    * age antes de existir coleta). Esta aqui é o ato dentro de uma coleta já
    * lançada.
    */

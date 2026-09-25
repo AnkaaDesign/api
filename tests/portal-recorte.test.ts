@@ -258,28 +258,28 @@ const TODOS_ESCREVEM_PEDIDO = C.WRITE_PURCHASE_ORDER;
 const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
   [RESPONSIBLE_ROLE.COMMERCIAL]: [
     C.REQUEST_BUDGET,
-    C.PRE_APPROVE,
+    C.APPROVE_VALUE,
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
   ],
   [RESPONSIBLE_ROLE.SELLER]: [
     C.REQUEST_BUDGET,
-    C.PRE_APPROVE,
+    C.APPROVE_VALUE,
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
   ],
   [RESPONSIBLE_ROLE.REPRESENTATIVE]: [
     C.REQUEST_BUDGET,
-    C.PRE_APPROVE,
+    C.APPROVE_VALUE,
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
   ],
   [RESPONSIBLE_ROLE.COORDINATOR]: [
     C.REQUEST_BUDGET,
-    C.PRE_APPROVE,
+    C.APPROVE_VALUE,
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
@@ -322,7 +322,7 @@ console.log('\nTABELA-VERDADE — 9 papéis × 5 capacidades');
   );
   check(
     'só os quatro papéis comerciais pré-aprovam',
-    JSON.stringify(rolesWithAnyCapability([C.PRE_APPROVE])) ===
+    JSON.stringify(rolesWithAnyCapability([C.APPROVE_VALUE])) ===
       JSON.stringify([
         RESPONSIBLE_ROLE.COMMERCIAL,
         RESPONSIBLE_ROLE.SELLER,
@@ -346,13 +346,13 @@ console.log('\nTABELA-VERDADE — 9 papéis × 5 capacidades');
   );
   check(
     'COMPRAS não pré-aprova nem solicita',
-    !hasCapability([RESPONSIBLE_ROLE.PURCHASING], C.PRE_APPROVE) &&
+    !hasCapability([RESPONSIBLE_ROLE.PURCHASING], C.APPROVE_VALUE) &&
       !hasCapability([RESPONSIBLE_ROLE.PURCHASING], C.REQUEST_BUDGET),
   );
   check(
     'MARKETING solicita mas não pré-aprova — e não vê preço (PRICING não é dele)',
     hasCapability([RESPONSIBLE_ROLE.MARKETING], C.REQUEST_BUDGET) &&
-      !hasCapability([RESPONSIBLE_ROLE.MARKETING], C.PRE_APPROVE) &&
+      !hasCapability([RESPONSIBLE_ROLE.MARKETING], C.APPROVE_VALUE) &&
       !sectionsForRoles([RESPONSIBLE_ROLE.MARKETING]).includes('PRICING'),
   );
 }
@@ -403,7 +403,7 @@ console.log('\nCapacidade: união, negação por padrão, e o espelho papel↔ca
   );
 
   // E na forma composta (`@PortalCapability(A, B)` = "A OU B").
-  const duas = [C.PRE_APPROVE, C.WRITE_PURCHASE_ORDER];
+  const duas = [C.APPROVE_VALUE, C.WRITE_PURCHASE_ORDER];
   const projetadoDuas = rolesWithAnyCapability(duas);
   check(
     'duas capacidades => OU, não E',
@@ -414,11 +414,11 @@ console.log('\nCapacidade: união, negação por padrão, e o espelho papel↔ca
     hasAnyCapability([RESPONSIBLE_ROLE.FINANCIAL], duas),
   );
   // ⚠️ O NEGATIVO PRECISOU MUDAR DE PAR. Enquanto só Compras e Financeiro
-  // escreviam o pedido, `[PRE_APPROVE, WRITE_PURCHASE_ORDER]` era um portão que
+  // escreviam o pedido, `[APPROVE_VALUE, WRITE_PURCHASE_ORDER]` era um portão que
   // o MOTORISTA não passava. Com a escrita universal ele passa — e passar está
   // CERTO. Um teste negativo que vira trivialmente verdadeiro sem ninguém
   // reparar é pior que teste nenhum, então o par virou um que ainda separa.
-  const soComerciais = [C.PRE_APPROVE, C.REQUEST_BUDGET];
+  const soComerciais = [C.APPROVE_VALUE, C.REQUEST_BUDGET];
   check(
     'MOTORISTA não pré-aprova nem solicita',
     !hasAnyCapability([RESPONSIBLE_ROLE.DRIVER], soComerciais),

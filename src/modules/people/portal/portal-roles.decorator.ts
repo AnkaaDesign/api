@@ -10,7 +10,7 @@
 // sites nos dois repositórios. A tentação é usá-lo direto e acabar:
 //
 //     @ResponsibleRoles('COMMERCIAL', 'SELLER', 'REPRESENTATIVE', 'COORDINATOR')
-//     @Put(':id/pre-aprovar')
+//     @Put(':id/aprovar-valor')
 //
 // O problema dessa linha não é o que ela faz — é que ela é a MESMA lista em
 // quatro rotas, escrita à mão, e na quinta alguém esquece `COORDINATOR`. O
@@ -18,7 +18,7 @@
 // nada quebre: o contato coordenador simplesmente para de conseguir aprovar,
 // num endpoint só, e ninguém descobre até ele ligar.
 //
-// `@PortalCapability(PRE_APPROVE)` diz o que a rota FAZ. Quem exerce a ação é
+// `@PortalCapability(APPROVE_VALUE)` diz o que a rota FAZ. Quem exerce a ação é
 // dado (`ROLE_CAPABILITIES`), mora num arquivo só, e é a tabela do contrato §2.1
 // transcrita. Trocar quem pré-aprova passa a ser uma linha, não uma varredura.
 //
@@ -134,8 +134,8 @@ export class PortalCapabilityGuard implements CanActivate {
  * Exige que o contato exerça PELO MENOS UMA das capacidades listadas.
  *
  *     @ResponsibleOnly()
- *     @PortalCapability(PORTAL_CAPABILITY.PRE_APPROVE)
- *     @Put('orcamentos/:id/pre-aprovar')
+ *     @PortalCapability(PORTAL_CAPABILITY.APPROVE_VALUE)
+ *     @Put('orcamentos/:id/aprovar-valor')
  *
  * ⚠️ `@ResponsibleOnly()` continua sendo obrigatório — é ELE que autentica. Este
  * decorador só acrescenta o portão da ação por cima; sem a marca do portal, a

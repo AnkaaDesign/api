@@ -2951,6 +2951,35 @@ export type BUDGET_STATUS = TASK_QUOTE_STATUS;
  * estado a mais só para dizer "ainda não venceu" separava duas linhas que o
  * operador trata igual.
  */
+/**
+ * O EIXO DA ASSINATURA do orçamento (§2A.4; espelho de `$Enums.BudgetSignatureStatus`).
+ * Separado do valor (`Budget.status`, que é o valor aprovado): quem escreve é o motor
+ * de assinatura, na transação do envelope. `SIGNED`, `SIGNED_OFFLINE` e `WAIVED`
+ * liberam a cobrança (DD7).
+ */
+export enum BUDGET_SIGNATURE_STATUS {
+  NOT_ISSUED = 'NOT_ISSUED',
+  AWAITING_CUSTOMER = 'AWAITING_CUSTOMER',
+  AWAITING_ANKAA = 'AWAITING_ANKAA',
+  SIGNED = 'SIGNED',
+  /** "Assinado fora do sistema" (DD11): libera a cobrança como SIGNED, distinto na tela. */
+  SIGNED_OFFLINE = 'SIGNED_OFFLINE',
+  REFUSED = 'REFUSED',
+  EXPIRED = 'EXPIRED',
+  INVALIDATED = 'INVALIDATED',
+  /** Legado sem coleta (só a migração e a conciliação escrevem, DD7). */
+  WAIVED = 'WAIVED',
+}
+
+/** De onde veio a aprovação do VALOR (D-27; espelho de `$Enums.BudgetValueApprovalSource`). */
+export enum BUDGET_VALUE_APPROVAL_SOURCE {
+  PORTAL = 'PORTAL',
+  ON_BEHALF = 'ON_BEHALF',
+  SIGNATURE = 'SIGNATURE',
+  LEGACY_APP = 'LEGACY_APP',
+  MIGRATED = 'MIGRATED',
+}
+
 export enum BILLING_STATUS {
   /**
    * Há parcela vencida e não paga. Fura a ordem cronológica de propósito: é o

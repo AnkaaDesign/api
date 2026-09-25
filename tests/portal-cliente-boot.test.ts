@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     'POST /cliente/me/veiculos/:taskId/projeto',
     // A requisicao e as duas decisoes
     'POST /cliente/me/orcamentos',
-    'PUT /cliente/me/orcamentos/:id/pre-aprovar',
+    'PUT /cliente/me/orcamentos/:id/aprovar-valor',
     'PUT /cliente/me/orcamentos/:id/recusar',
     // O pedido de compra
     'GET /cliente/me/pedidos',

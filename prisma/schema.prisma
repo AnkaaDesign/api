@@ -817,7 +817,7 @@ model PpeScheduleItem {
 }
 
 model File {
-  id                                     String                 @id @default(uuid())
+  id                                     String                   @id @default(uuid())
   filename                               String
   originalName                           String
   mimetype                               String
@@ -825,68 +825,69 @@ model File {
   size                                   Int
   thumbnailUrl                           String?
   // [M3] quoteLayoutId saiu do Prisma; a COLUNA, a FK e o índice ficam no banco até a M4 (R-D).
-  createdAt                              DateTime               @default(now())
-  updatedAt                              DateTime               @updatedAt
+  createdAt                              DateTime                 @default(now())
+  updatedAt                              DateTime                 @updatedAt
   /// [M3] Era `layouts Layout?` (to-one): um arquivo pode ser arte de N implementos.
   artLayouts                             Layout[]
-  customerLogo                           Customer[]             @relation("CUSTOMER_LOGO")
-  taskCuts                               Cut[]                  @relation("TASK_CUTS")
-  implementMeasurePhotos                 ImplementMeasure[]     @relation("IMPLEMENT_MEASURE_PHOTO")
-  implementVinPlates                     Implement[]            @relation("IMPLEMENT_VIN_PLATE") // [R-B M1]
-  implementProjectFiles                  Implement[]            @relation("IMPLEMENT_PROJECT_FILES") // [R-B M2]
-  ppeDeliveryDocuments                   PpeDelivery[]          @relation("PPE_DELIVERY_DOCUMENT")
-  ppeSignatureDocuments                  PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
-  warningSignatureDocuments              WarningSignature[]     @relation("WARNING_SIGNATURE_DOCUMENT")
-  supplierLogo                           Supplier[]             @relation("SUPPLIER_LOGO")
-  configCustomerSignatures               BudgetPayer[]          @relation("CONFIG_CUSTOMER_SIGNATURE")
-  userAvatar                             User[]                 @relation("USER_AVATAR")
+  budgetOfflineSignatures                BudgetOfflineSignature[] @relation("BUDGET_OFFLINE_SIGNATURE_FILE") // [M3o-a]
+  customerLogo                           Customer[]               @relation("CUSTOMER_LOGO")
+  taskCuts                               Cut[]                    @relation("TASK_CUTS")
+  implementMeasurePhotos                 ImplementMeasure[]       @relation("IMPLEMENT_MEASURE_PHOTO")
+  implementVinPlates                     Implement[]              @relation("IMPLEMENT_VIN_PLATE") // [R-B M1]
+  implementProjectFiles                  Implement[]              @relation("IMPLEMENT_PROJECT_FILES") // [R-B M2]
+  ppeDeliveryDocuments                   PpeDelivery[]            @relation("PPE_DELIVERY_DOCUMENT")
+  ppeSignatureDocuments                  PpeDeliverySignature[]   @relation("PPE_SIGNATURE_DOCUMENT")
+  warningSignatureDocuments              WarningSignature[]       @relation("WARNING_SIGNATURE_DOCUMENT")
+  supplierLogo                           Supplier[]               @relation("SUPPLIER_LOGO")
+  configCustomerSignatures               BudgetPayer[]            @relation("CONFIG_CUSTOMER_SIGNATURE")
+  userAvatar                             User[]                   @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
-  paintingFaceFiles                      PaintingAnalysisFace[] @relation("PAINTING_FACE_FILE")
-  paintingFaceOverlays                   PaintingAnalysisFace[] @relation("PAINTING_FACE_OVERLAY")
-  airbrushingInvoices                    Airbrushing[]          @relation("AIRBRUSHING_INVOICES")
-  airbrushingReceipts                    Airbrushing[]          @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingNfsePdfs                    AirbrushingNfse[]      @relation("AIRBRUSHING_NFSE_PDF")
-  airbrushingNfseXmls                    AirbrushingNfse[]      @relation("AIRBRUSHING_NFSE_XML")
-  externalOperationInvoices              ExternalOperation[]    @relation("EXTERNAL_OPERATION_INVOICES")
-  externalOperationInvoiceReimbursements ExternalOperation[]    @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
-  externalOperationReceipts              ExternalOperation[]    @relation("EXTERNAL_OPERATION_RECEIPTS")
-  externalOperationReimbursements        ExternalOperation[]    @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
-  warning                                Warning[]              @relation("FileToWarning")
-  observations                           Observation[]          @relation("OBSERVATIONS_FILES")
-  orderReceipts                          Order[]                @relation("ORDER_RECEIPTS")
-  taskBaseFiles                          Task[]                 @relation("TASK_BASE_FILES")
-  taskBudgets                            Task[]                 @relation("TASK_BUDGETS")
-  taskInvoices                           Task[]                 @relation("TASK_INVOICES")
-  taskInvoiceReimbursements              Task[]                 @relation("TASK_INVOICE_REIMBURSEMENTS")
-  taskReceipts                           Task[]                 @relation("TASK_RECEIPTS")
-  taskReimbursements                     Task[]                 @relation("TASK_REIMBURSEMENTS")
-  taskBankSlips                          Task[]                 @relation("TASK_BANK_SLIPS")
-  taskProjectFiles                       Task[]                 @relation("TASK_PROJECT_FILES")
-  taskCheckinFiles                       Task[]                 @relation("TASK_CHECKIN_FILES")
-  taskCheckoutFiles                      Task[]                 @relation("TASK_CHECKOUT_FILES")
-  serviceOrderCheckinFiles               ServiceOrder[]         @relation("SERVICE_ORDER_CHECKIN_FILES")
-  serviceOrderCheckoutFiles              ServiceOrder[]         @relation("SERVICE_ORDER_CHECKOUT_FILES")
-  bankSlipPdfs                           BankSlip[]             @relation("BankSlipPdf")
-  installmentReceipts                    Installment[]          @relation("InstallmentReceipts")
-  bankTransactionImports                 BankTransaction[]      @relation("BankTransactionFile")
-  fiscalDocumentXmls                     FiscalDocument[]       @relation("FiscalDocXml")
-  wasteCertificatePdfs                   WasteCertificate[]     @relation("WASTE_CERTIFICATE_PDF")
-  wasteCertificateSigned                 WasteCertificate[]     @relation("WASTE_CERTIFICATE_SIGNED")
-  userBenefitDeclaration                 UserBenefit?           @relation("USER_BENEFIT_DECLARATION")
-  admissionDocuments                     AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_FILE")
-  admissionDocumentsSigned               AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
-  admissionDocumentsAttached             AdmissionDocument[]    @relation("ADMISSION_DOCUMENT_FILES")
-  terminationDocuments                   TerminationDocument[]  @relation("TERMINATION_DOCUMENT_FILE")
-  medicalExamAsos                        MedicalExam[]          @relation("MEDICAL_EXAM_ASO")
-  leaves                                 Leave[]                @relation("FileToLeave")
-  workAccidentReports                    WorkAccidentReport[]   @relation("WORK_ACCIDENT_REPORT_FILE")
-  fispqPdfs                              Fispq[]                @relation("FISPQ_PDF")
-  signatureEnvelopeOriginals             SignatureEnvelope[]    @relation("ENVELOPE_ORIGINAL_FILE")
-  signatureEnvelopeFinals                SignatureEnvelope[]    @relation("ENVELOPE_FINAL_FILE")
-  signatureEnvelopeDossiers              SignatureEnvelope[]    @relation("ENVELOPE_DOSSIER_FILE")
-  signatureEnvelopeAddenda               SignatureEnvelope[]    @relation("ENVELOPE_ADDENDUM_FILE")
-  envelopeDocumentOriginals              EnvelopeDocument[]     @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
-  envelopeDocumentFinals                 EnvelopeDocument[]     @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
+  paintingFaceFiles                      PaintingAnalysisFace[]   @relation("PAINTING_FACE_FILE")
+  paintingFaceOverlays                   PaintingAnalysisFace[]   @relation("PAINTING_FACE_OVERLAY")
+  airbrushingInvoices                    Airbrushing[]            @relation("AIRBRUSHING_INVOICES")
+  airbrushingReceipts                    Airbrushing[]            @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingNfsePdfs                    AirbrushingNfse[]        @relation("AIRBRUSHING_NFSE_PDF")
+  airbrushingNfseXmls                    AirbrushingNfse[]        @relation("AIRBRUSHING_NFSE_XML")
+  externalOperationInvoices              ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICES")
+  externalOperationInvoiceReimbursements ExternalOperation[]      @relation("EXTERNAL_OPERATION_INVOICE_REIMBURSEMENTS")
+  externalOperationReceipts              ExternalOperation[]      @relation("EXTERNAL_OPERATION_RECEIPTS")
+  externalOperationReimbursements        ExternalOperation[]      @relation("EXTERNAL_OPERATION_REIMBURSEMENTS")
+  warning                                Warning[]                @relation("FileToWarning")
+  observations                           Observation[]            @relation("OBSERVATIONS_FILES")
+  orderReceipts                          Order[]                  @relation("ORDER_RECEIPTS")
+  taskBaseFiles                          Task[]                   @relation("TASK_BASE_FILES")
+  taskBudgets                            Task[]                   @relation("TASK_BUDGETS")
+  taskInvoices                           Task[]                   @relation("TASK_INVOICES")
+  taskInvoiceReimbursements              Task[]                   @relation("TASK_INVOICE_REIMBURSEMENTS")
+  taskReceipts                           Task[]                   @relation("TASK_RECEIPTS")
+  taskReimbursements                     Task[]                   @relation("TASK_REIMBURSEMENTS")
+  taskBankSlips                          Task[]                   @relation("TASK_BANK_SLIPS")
+  taskProjectFiles                       Task[]                   @relation("TASK_PROJECT_FILES")
+  taskCheckinFiles                       Task[]                   @relation("TASK_CHECKIN_FILES")
+  taskCheckoutFiles                      Task[]                   @relation("TASK_CHECKOUT_FILES")
+  serviceOrderCheckinFiles               ServiceOrder[]           @relation("SERVICE_ORDER_CHECKIN_FILES")
+  serviceOrderCheckoutFiles              ServiceOrder[]           @relation("SERVICE_ORDER_CHECKOUT_FILES")
+  bankSlipPdfs                           BankSlip[]               @relation("BankSlipPdf")
+  installmentReceipts                    Installment[]            @relation("InstallmentReceipts")
+  bankTransactionImports                 BankTransaction[]        @relation("BankTransactionFile")
+  fiscalDocumentXmls                     FiscalDocument[]         @relation("FiscalDocXml")
+  wasteCertificatePdfs                   WasteCertificate[]       @relation("WASTE_CERTIFICATE_PDF")
+  wasteCertificateSigned                 WasteCertificate[]       @relation("WASTE_CERTIFICATE_SIGNED")
+  userBenefitDeclaration                 UserBenefit?             @relation("USER_BENEFIT_DECLARATION")
+  admissionDocuments                     AdmissionDocument[]      @relation("ADMISSION_DOCUMENT_FILE")
+  admissionDocumentsSigned               AdmissionDocument[]      @relation("ADMISSION_DOCUMENT_SIGNED_FILE")
+  admissionDocumentsAttached             AdmissionDocument[]      @relation("ADMISSION_DOCUMENT_FILES")
+  terminationDocuments                   TerminationDocument[]    @relation("TERMINATION_DOCUMENT_FILE")
+  medicalExamAsos                        MedicalExam[]            @relation("MEDICAL_EXAM_ASO")
+  leaves                                 Leave[]                  @relation("FileToLeave")
+  workAccidentReports                    WorkAccidentReport[]     @relation("WORK_ACCIDENT_REPORT_FILE")
+  fispqPdfs                              Fispq[]                  @relation("FISPQ_PDF")
+  signatureEnvelopeOriginals             SignatureEnvelope[]      @relation("ENVELOPE_ORIGINAL_FILE")
+  signatureEnvelopeFinals                SignatureEnvelope[]      @relation("ENVELOPE_FINAL_FILE")
+  signatureEnvelopeDossiers              SignatureEnvelope[]      @relation("ENVELOPE_DOSSIER_FILE")
+  signatureEnvelopeAddenda               SignatureEnvelope[]      @relation("ENVELOPE_ADDENDUM_FILE")
+  envelopeDocumentOriginals              EnvelopeDocument[]       @relation("ENVELOPE_DOCUMENT_ORIGINAL_FILE")
+  envelopeDocumentFinals                 EnvelopeDocument[]       @relation("ENVELOPE_DOCUMENT_FINAL_FILE")
 
   filenameNormalized     String? /// accent-insensitive search (generated column, see migration)
   mimetypeNormalized     String? /// accent-insensitive search (generated column, see migration)
@@ -1961,6 +1962,16 @@ model Budget {
   status      BudgetStatus @default(PENDING)
   statusOrder Int          @default(1)
 
+  /// [M3o-a] EIXO DA ASSINATURA (§2A.4). Escrito só pelo SignatureEnvelopeService na
+  /// transação do envelope; WAIVED só pela migração e pela conciliação (DD7); SIGNED_OFFLINE
+  /// só pelo ato "Assinado fora do sistema" (DD11). SIGNED/SIGNED_OFFLINE/WAIVED liberam a
+  /// cobrança. Guarda G29.
+  signatureStatus   BudgetSignatureStatus    @default(NOT_ISSUED)
+  /// [M3o-a] Aprovações do VALOR (registro append-only; a vigente é a última sem revokedAt).
+  valueApprovals    BudgetValueApproval[]
+  /// [M3o-a] "Assinado fora do sistema" (DD11).
+  offlineSignatures BudgetOfflineSignature[]
+
   /// A FILA: o que espera ação vem primeiro, e do mais antigo.
   ///
   /// Coluna GERADA pelo banco — o instante de criação em segundos, NEGADO
@@ -2096,6 +2107,55 @@ model Budget {
   @@index([statusOrder, queueRank])
   @@index([expiresAt])
   @@index([commercialUserId])
+  @@index([signatureStatus]) // [M3o-a]
+}
+
+// [M3o-a] bloco inteiro (BudgetValueApproval + BudgetOfflineSignature)
+/// Aprovação do VALOR (D-27). REGISTRO append-only: a vigente é a última com revokedAt nulo;
+/// é fechada quando o orçamento sai de APPROVED (sem hash: DD8). Ator discriminado:
+/// responsibleId OU userId, nunca os dois (CHECK "BudgetValueApproval_actor_check");
+/// nota obrigatória em ON_BEHALF (CHECK "BudgetValueApproval_note_check").
+model BudgetValueApproval {
+  id            String                    @id @default(uuid())
+  budgetId      String
+  source        BudgetValueApprovalSource
+  /// Contato do cliente (tabela física "Representative").
+  responsibleId String?
+  userId        String?
+  note          String?                   @db.Text
+  /// O total que foi aprovado (leitura).
+  total         Decimal?                  @db.Decimal(12, 2)
+  decidedAt     DateTime                  @default(now())
+  revokedAt     DateTime?
+  revokedReason String?                   @db.Text
+  budget        Budget                    @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  responsible   Responsible?              @relation("BUDGET_VALUE_APPROVAL_RESPONSIBLE", fields: [responsibleId], references: [id], onDelete: SetNull)
+  user          User?                     @relation("BUDGET_VALUE_APPROVAL_USER", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([budgetId, decidedAt])
+}
+
+/// "Assinado fora do sistema" (DD11). REGISTRO append-only: o vigente é o último com
+/// revokedAt nulo; fechado quando o orçamento sai de APPROVED. O anexo é a prova
+/// (Restrict: não se apaga o arquivo nem o orçamento por baixo dele). Nota não vazia
+/// (CHECK "BudgetOfflineSignature_note_check").
+model BudgetOfflineSignature {
+  id            String    @id @default(uuid())
+  budgetId      String
+  /// Foto ou PDF do documento assinado (obrigatório).
+  fileId        String
+  note          String    @db.Text
+  /// Quando o cliente assinou, se informado.
+  signedAt      DateTime?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  revokedReason String?   @db.Text
+  budget        Budget    @relation(fields: [budgetId], references: [id], onDelete: Restrict)
+  file          File      @relation("BUDGET_OFFLINE_SIGNATURE_FILE", fields: [fileId], references: [id], onDelete: Restrict)
+  createdBy     User      @relation("BUDGET_OFFLINE_SIGNATURE_USER", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([budgetId, createdAt])
 }
 
 /// O PEDIDO DO CLIENTE — o que ele mandou antes de existir preço.
@@ -2960,8 +3020,11 @@ model User {
   pisNormalized          String? /// accent-insensitive search (generated column, see migration)
   stateNormalized        String? /// accent-insensitive search (generated column, see migration)
   /// [M3] decisões de arte tomadas por este funcionário (em nome do cliente / reprovação interna).
-  layoutsDecided         Layout[]         @relation("LAYOUT_DECIDED_BY_USER")
-  layoutDecisions        LayoutDecision[] @relation("LAYOUT_DECISION_USER")
+  layoutsDecided         Layout[]                 @relation("LAYOUT_DECIDED_BY_USER")
+  layoutDecisions        LayoutDecision[]         @relation("LAYOUT_DECISION_USER")
+  /// [M3o-a] aprovações do valor feitas por este funcionário; "Assinado fora do sistema" (DD11).
+  valueApprovals         BudgetValueApproval[]    @relation("BUDGET_VALUE_APPROVAL_USER")
+  offlineSignatures      BudgetOfflineSignature[] @relation("BUDGET_OFFLINE_SIGNATURE_USER")
 
   @@index([currentContractStatus, sectorId])
   @@index([currentContractType])
@@ -3799,8 +3862,10 @@ model Responsible {
   nameNormalized  String? /// accent-insensitive search (generated column, see migration)
   phoneNormalized String? /// accent-insensitive search (generated column, see migration)
   /// [M3] decisões de arte tomadas por este contato.
-  layoutsDecided  Layout[]         @relation("LAYOUT_DECIDED_BY_RESPONSIBLE")
-  layoutDecisions LayoutDecision[] @relation("LAYOUT_DECISION_RESPONSIBLE")
+  layoutsDecided  Layout[]              @relation("LAYOUT_DECIDED_BY_RESPONSIBLE")
+  layoutDecisions LayoutDecision[]      @relation("LAYOUT_DECISION_RESPONSIBLE")
+  /// [M3o-a] aprovações do valor feitas por este contato (portal).
+  valueApprovals  BudgetValueApproval[] @relation("BUDGET_VALUE_APPROVAL_RESPONSIBLE")
 
   @@index([email])
   @@index([phone])
@@ -4876,6 +4941,31 @@ enum BudgetStatus {
   APPROVED
 
   CANCELLED
+}
+
+// [M3o-a] os dois enums novos do orçamento.
+/// EIXO DA ASSINATURA do orçamento (§2A.4).
+enum BudgetSignatureStatus {
+  NOT_ISSUED
+  AWAITING_CUSTOMER
+  AWAITING_ANKAA
+  SIGNED
+  /// "Assinada fora do sistema" (DD11): libera a cobrança como SIGNED, distinta na tela e na trilha.
+  SIGNED_OFFLINE
+  REFUSED
+  EXPIRED
+  INVALIDATED
+  /// "Dispensada (legado)": só a migração e a conciliação escrevem (DD7).
+  WAIVED
+}
+
+/// De onde veio a aprovação do VALOR (D-27).
+enum BudgetValueApprovalSource {
+  PORTAL
+  ON_BEHALF
+  SIGNATURE
+  LEGACY_APP
+  MIGRATED
 }
 
 /// O CICLO DO FATURAMENTO — nasce com a cobrança e morre quando ela é paga.

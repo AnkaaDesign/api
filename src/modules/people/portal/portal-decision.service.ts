@@ -90,9 +90,9 @@ export class PortalDecisionService {
     private readonly notifications: PortalNotificationService,
   ) {}
 
-  /** `PUT /cliente/me/orcamentos/:id/pre-aprovar` */
+  /** `PUT /cliente/me/orcamentos/:id/aprovar-valor` */
   async preApprove(principal: ResponsiblePrincipal, budgetId: string, nota?: string | null) {
-    return this.decide(principal, budgetId, 'PRE_APPROVE', nota ?? null);
+    return this.decide(principal, budgetId, 'APPROVE_VALUE', nota ?? null);
   }
 
   /** `PUT /cliente/me/orcamentos/:id/recusar` — `motivo` é OBRIGATÓRIO. */
@@ -138,7 +138,7 @@ export class PortalDecisionService {
     if (current !== from) {
       throw new BadRequestException(
         `Este orçamento está "${TASK_QUOTE_STATUS_LABELS[current] ?? current}" e não ` +
-          `pode mais ser ${decision === 'PRE_APPROVE' ? 'pré-aprovado' : 'recusado'}. ` +
+          `pode mais ser ${decision === 'APPROVE_VALUE' ? 'pré-aprovado' : 'recusado'}. ` +
           'Atualize a página.',
       );
     }
@@ -179,7 +179,7 @@ export class PortalDecisionService {
     const { label, taskId } = await this.budgets.buildQuoteLabel(budgetId);
     const quoteLabel = `nº ${budget.budgetNumber} · ${label}`;
 
-    if (decision === 'PRE_APPROVE') {
+    if (decision === 'APPROVE_VALUE') {
       await this.notifications.notifyBudgetCommercial({
         budgetId,
         taskId,
@@ -216,7 +216,7 @@ export class PortalDecisionService {
     return {
       success: true,
       message:
-        decision === 'PRE_APPROVE'
+        decision === 'APPROVE_VALUE'
           ? 'Orçamento pré-aprovado. O comercial foi avisado e vai lançar as assinaturas.'
           : 'Pedido de revisão enviado. O comercial foi avisado e vai refazer o orçamento.',
       data: {
@@ -267,7 +267,7 @@ export class PortalDecisionService {
     });
 
     const campos =
-      decision === 'PRE_APPROVE'
+      decision === 'APPROVE_VALUE'
         ? {
             preApprovedAt: at,
             preApprovedByResponsibleId: responsibleId,

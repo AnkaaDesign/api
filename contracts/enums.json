@@ -231,6 +231,17 @@
       "RETURNED",
       "LOST"
     ],
+    "BUDGET_SIGNATURE_STATUS": [
+      "NOT_ISSUED",
+      "AWAITING_CUSTOMER",
+      "AWAITING_ANKAA",
+      "SIGNED",
+      "SIGNED_OFFLINE",
+      "REFUSED",
+      "EXPIRED",
+      "INVALIDATED",
+      "WAIVED"
+    ],
     "BUDGET_STATUS": [
       "EXPIRED",
       "SIGNED",
@@ -240,6 +251,13 @@
       "REQUESTED",
       "IN_NEGOTIATION",
       "PRE_APPROVED"
+    ],
+    "BUDGET_VALUE_APPROVAL_SOURCE": [
+      "PORTAL",
+      "ON_BEHALF",
+      "SIGNATURE",
+      "LEGACY_APP",
+      "MIGRATED"
     ],
     "CAPTCHA_REQUIREMENT_LEVEL": [
       "NONE",

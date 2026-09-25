@@ -37,6 +37,8 @@ import {
   REAR_DOOR_LEAVES,
   LAYOUT_STATUS,
   LAYOUT_APPROVAL_SOURCE,
+  BUDGET_SIGNATURE_STATUS,
+  BUDGET_VALUE_APPROVAL_SOURCE,
   WARNING_SEVERITY,
   WARNING_CATEGORY,
   NOTIFICATION_TYPE,
@@ -2168,6 +2170,28 @@ export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
 // =====================
 // Billing Labels
 // =====================
+
+/** O eixo da assinatura (§2A.4), com as palavras do plano. */
+export const BUDGET_SIGNATURE_STATUS_LABELS: Record<BUDGET_SIGNATURE_STATUS, string> = {
+  [BUDGET_SIGNATURE_STATUS.NOT_ISSUED]: 'Não emitida',
+  [BUDGET_SIGNATURE_STATUS.AWAITING_CUSTOMER]: 'Aguardando assinaturas',
+  [BUDGET_SIGNATURE_STATUS.AWAITING_ANKAA]: 'Falta a Ankaa',
+  [BUDGET_SIGNATURE_STATUS.SIGNED]: 'Assinada',
+  [BUDGET_SIGNATURE_STATUS.SIGNED_OFFLINE]: 'Assinada fora do sistema',
+  [BUDGET_SIGNATURE_STATUS.REFUSED]: 'Recusada',
+  [BUDGET_SIGNATURE_STATUS.EXPIRED]: 'Vencida',
+  [BUDGET_SIGNATURE_STATUS.INVALIDATED]: 'Invalidada — reemitir',
+  [BUDGET_SIGNATURE_STATUS.WAIVED]: 'Dispensada (legado)',
+};
+
+/** De onde veio a aprovação do valor (D-27). */
+export const BUDGET_VALUE_APPROVAL_SOURCE_LABELS: Record<BUDGET_VALUE_APPROVAL_SOURCE, string> = {
+  [BUDGET_VALUE_APPROVAL_SOURCE.PORTAL]: 'Pelo cliente, no portal',
+  [BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF]: 'Em nome do cliente',
+  [BUDGET_VALUE_APPROVAL_SOURCE.SIGNATURE]: 'Pela assinatura do orçamento',
+  [BUDGET_VALUE_APPROVAL_SOURCE.LEGACY_APP]: 'Pelo app antigo (sem nota)',
+  [BUDGET_VALUE_APPROVAL_SOURCE.MIGRATED]: 'Aprovado antes do portal',
+};
 
 export const BILLING_STATUS_LABELS: Record<BILLING_STATUS, string> = {
   // Aqui "Vencido" é literal: há parcela em atraso.

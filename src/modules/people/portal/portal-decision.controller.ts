@@ -4,7 +4,7 @@
 //
 // Controller SEPARADO de `portal-read.controller.ts` de propósito: aquele lê e
 // este ESCREVE, e a diferença aparece no portão. Toda rota daqui exige
-// `PORTAL_CAPABILITY.PRE_APPROVE`, que é de COMMERCIAL, SELLER, REPRESENTATIVE e
+// `PORTAL_CAPABILITY.APPROVE_VALUE`, que é de COMMERCIAL, SELLER, REPRESENTATIVE e
 // COORDINATOR — e de mais ninguém. O Compras vê o orçamento e não decide; o
 // Marketing abre requisição e não vê preço; o Motorista acompanha. Um controller
 // só, com a capacidade posta rota a rota, é como uma rota nova nasce sem portão.
@@ -63,7 +63,7 @@ export class PortalDecisionController {
   constructor(private readonly decisions: PortalDecisionService) {}
 
   /**
-   * `PUT /cliente/me/orcamentos/:id/pre-aprovar` · corpo `{ nota? }`
+   * `PUT /cliente/me/orcamentos/:id/aprovar-valor` · corpo `{ nota? }`
    *
    * `IN_NEGOTIATION → PRE_APPROVED`. Grava `BudgetRequest.preApprovedAt`,
    * `preApprovedByResponsibleId` e `decisionNote`, apaga a recusa anterior se
@@ -74,8 +74,8 @@ export class PortalDecisionController {
    * do portal chamada `orcamento` nunca seria alcançada no `web`. O nome da rota
    * de API acompanha o da tela para os dois não divergirem.
    */
-  @Put('orcamentos/:id/pre-aprovar')
-  @PortalCapability(PORTAL_CAPABILITY.PRE_APPROVE)
+  @Put('orcamentos/:id/aprovar-valor')
+  @PortalCapability(PORTAL_CAPABILITY.APPROVE_VALUE)
   async preAprovar(
     @CurrentResponsible() principal: ResponsiblePrincipal,
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -95,7 +95,7 @@ export class PortalDecisionController {
    * número. Cancelar é `CANCELLED`, é terminal e não é ato do portal.
    */
   @Put('orcamentos/:id/recusar')
-  @PortalCapability(PORTAL_CAPABILITY.PRE_APPROVE)
+  @PortalCapability(PORTAL_CAPABILITY.APPROVE_VALUE)
   async recusar(
     @CurrentResponsible() principal: ResponsiblePrincipal,
     @Param('id', new ParseUUIDPipe()) id: string,

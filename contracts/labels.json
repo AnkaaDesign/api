@@ -428,6 +428,30 @@
         "LOST": "Perdido"
       }
     },
+    "BUDGET_SIGNATURE_STATUS_LABELS": {
+      "enum": "BUDGET_SIGNATURE_STATUS",
+      "labels": {
+        "NOT_ISSUED": "Não emitida",
+        "AWAITING_CUSTOMER": "Aguardando assinaturas",
+        "AWAITING_ANKAA": "Falta a Ankaa",
+        "SIGNED": "Assinada",
+        "SIGNED_OFFLINE": "Assinada fora do sistema",
+        "REFUSED": "Recusada",
+        "EXPIRED": "Vencida",
+        "INVALIDATED": "Invalidada — reemitir",
+        "WAIVED": "Dispensada (legado)"
+      }
+    },
+    "BUDGET_VALUE_APPROVAL_SOURCE_LABELS": {
+      "enum": "BUDGET_VALUE_APPROVAL_SOURCE",
+      "labels": {
+        "PORTAL": "Pelo cliente, no portal",
+        "ON_BEHALF": "Em nome do cliente",
+        "SIGNATURE": "Pela assinatura do orçamento",
+        "LEGACY_APP": "Pelo app antigo (sem nota)",
+        "MIGRATED": "Aprovado antes do portal"
+      }
+    },
     "CAPTCHA_REQUIREMENT_LEVEL_LABELS": {
       "enum": "CAPTCHA_REQUIREMENT_LEVEL",
       "labels": {

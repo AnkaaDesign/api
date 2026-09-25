@@ -46,7 +46,7 @@ import { PortalRequestModule } from './modules/people/portal/portal-request.modu
 // As rotas de LEITURA do portal do cliente (`/cliente/me/*`). Traz junto o
 // `PortalModule` (escopo + projeção), que ele importa.
 import { PortalReadModule } from './modules/people/portal/portal-read.module';
-// A PRÉ-APROVAÇÃO (`PUT /cliente/me/orcamentos/:id/{pre-aprovar,recusar}`).
+// A PRÉ-APROVAÇÃO (`PUT /cliente/me/orcamentos/:id/{aprovar-valor,recusar}`).
 // Módulo próprio porque ESCREVE: arrasta Prisma, `BudgetModule` (a máquina de
 // estados) e `NotificationModule` (o aviso ao comercial) — nada disso pode
 // entrar em `PortalModule`, que é a fundação pura.

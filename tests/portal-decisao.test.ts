@@ -158,11 +158,11 @@ console.log('\nOS PARES — o que a pré-aprovação e a recusa significam');
 {
   check(
     'pré-aprovar sai de EM NEGOCIAÇÃO',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.from === TASK_QUOTE_STATUS.IN_NEGOTIATION,
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.from === TASK_QUOTE_STATUS.IN_NEGOTIATION,
   );
   check(
     'pré-aprovar chega em PRÉ-APROVADO',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.to === TASK_QUOTE_STATUS.PRE_APPROVED,
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to === TASK_QUOTE_STATUS.PRE_APPROVED,
   );
   check(
     'recusar sai de EM NEGOCIAÇÃO',
@@ -181,22 +181,22 @@ console.log('\nOS PARES — o que a pré-aprovação e a recusa significam');
   );
   check(
     'pré-aprovar NÃO aprova',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.to !== TASK_QUOTE_STATUS.APPROVED,
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== TASK_QUOTE_STATUS.APPROVED,
     'APPROVED destrava a cobrança e exige assinatura',
   );
   check(
     'pré-aprovar NÃO pula para AGUARDANDO ASSINATURA',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.to !== TASK_QUOTE_STATUS.PENDING,
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== TASK_QUOTE_STATUS.PENDING,
     'quem lança o envelope é a Ankaa, não o cliente',
   );
   check(
     'as duas saem do MESMO estado',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.from ===
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.from ===
       PORTAL_DECISION_TRANSITIONS.REFUSE.from,
   );
   check(
     'e chegam em estados DIFERENTES',
-    PORTAL_DECISION_TRANSITIONS.PRE_APPROVE.to !== PORTAL_DECISION_TRANSITIONS.REFUSE.to,
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== PORTAL_DECISION_TRANSITIONS.REFUSE.to,
   );
 }
 
@@ -283,7 +283,7 @@ console.log('\nO CHECK `BudgetRequest_decisao_unica` NUNCA é consultado com os 
 
   check('o bloco `campos` foi encontrado', campos.length > 0);
 
-  for (const decision of ['PRE_APPROVE', 'REFUSE'] as const) {
+  for (const decision of ['APPROVE_VALUE', 'REFUSE'] as const) {
     const { escreve, apaga } = PORTAL_DECISION_STAMPS[decision];
     for (const coluna of escreve) {
       check(
@@ -309,7 +309,7 @@ console.log('\nO CHECK `BudgetRequest_decisao_unica` NUNCA é consultado com os 
 
   check(
     'as duas decisões nunca escrevem a mesma coluna com valor',
-    PORTAL_DECISION_STAMPS.PRE_APPROVE.escreve.every(
+    PORTAL_DECISION_STAMPS.APPROVE_VALUE.escreve.every(
       c => !(PORTAL_DECISION_STAMPS.REFUSE.escreve as readonly string[]).includes(c),
     ),
   );
@@ -498,7 +498,7 @@ console.log('\nO PORTÃO DA AÇÃO está nas DUAS rotas');
   const rotas = [...decisionController.matchAll(/@Put\('([^']+)'\)/g)].map(m => m[1]);
   check(
     'as duas rotas são as do contrato',
-    rotas.join(' ') === 'orcamentos/:id/pre-aprovar orcamentos/:id/recusar',
+    rotas.join(' ') === 'orcamentos/:id/aprovar-valor orcamentos/:id/recusar',
     `achei: ${rotas.join(' ') || '(nenhuma)'}`,
   );
   check(
@@ -507,8 +507,8 @@ console.log('\nO PORTÃO DA AÇÃO está nas DUAS rotas');
     'no web, `orcamento` singular é engolido pela rota pública',
   );
   check(
-    'toda rota tem @PortalCapability(PRE_APPROVE)',
-    (decisionController.match(/@PortalCapability\(PORTAL_CAPABILITY\.PRE_APPROVE\)/g) ?? [])
+    'toda rota tem @PortalCapability(APPROVE_VALUE)',
+    (decisionController.match(/@PortalCapability\(PORTAL_CAPABILITY\.APPROVE_VALUE\)/g) ?? [])
       .length === rotas.length,
   );
   check(

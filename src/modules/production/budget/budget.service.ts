@@ -5716,7 +5716,7 @@ export class BudgetService {
    * A MÁQUINA DE ESTADOS, ABERTA A QUEM NÃO É `BudgetService`.
    *
    * Existe por causa do portal do responsável: `PUT /cliente/me/orcamentos/:id/
-   * {pre-aprovar,recusar}` move o orçamento, e mover status escrevendo
+   * {aprovar-valor,recusar}` move o orçamento, e mover status escrevendo
    * `status` direto no Prisma é como a automação da O.S. já fazia em quatro
    * pontos (`service-order.service.ts:2003, 2087, 1155, 217`) — passando por
    * cima de toda esta tabela. O portal não repete isso.

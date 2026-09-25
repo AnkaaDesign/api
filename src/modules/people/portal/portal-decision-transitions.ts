@@ -36,7 +36,7 @@ import { TASK_QUOTE_STATUS } from '../../../constants/enums';
  *   E não é `EXPIRED`, que é o relógio, não a vontade de ninguém.
  */
 export const PORTAL_DECISION_TRANSITIONS = {
-  PRE_APPROVE: {
+  APPROVE_VALUE: {
     from: TASK_QUOTE_STATUS.IN_NEGOTIATION,
     to: TASK_QUOTE_STATUS.PRE_APPROVED,
   },
@@ -60,7 +60,7 @@ export type PortalDecision = keyof typeof PORTAL_DECISION_TRANSITIONS;
  * cliente recebe um 500 no lugar de uma confirmação.
  */
 export const PORTAL_DECISION_STAMPS = {
-  PRE_APPROVE: {
+  APPROVE_VALUE: {
     escreve: ['preApprovedAt', 'preApprovedByResponsibleId'] as const,
     apaga: ['refusedAt', 'refusedByResponsibleId'] as const,
   },
