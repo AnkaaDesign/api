@@ -1,6 +1,6 @@
 {
   "geradaEm": "2026-09-25",
-  "total": 135,
+  "total": 126,
   "assinaturas": {
     "scripts/check-users.ts|TS2353|Object literal may only specify known properties, and 'dismissedAt' does not exist in type 'UserWhereInput'.": 1,
     "scripts/create-test-production-user.ts|TS2339|Property 'effectedAt' does not exist on type '{ id: string; createdAt: Date; updatedAt: Date; name: string; email: string; avatarId: string; currentContractId: string; currentContractType: ContractType; currentContractStatus: ContractStatus; ... 42 more ...; pisNormalized: string; }'.": 1,
@@ -54,9 +54,6 @@
     "tests/portal-decisao.test.ts|TS2367|This comparison appears to be unintentional because the types 'TASK_QUOTE_STATUS.PRE_APPROVED' and 'TASK_QUOTE_STATUS.PENDING' have no overlap.": 1,
     "tests/portal-decisao.test.ts|TS2367|This comparison appears to be unintentional because the types 'TASK_QUOTE_STATUS.PRE_APPROVED' and 'TASK_QUOTE_STATUS.REQUESTED' have no overlap.": 1,
     "tests/portal-decisao.test.ts|TS2367|This comparison appears to be unintentional because the types 'TASK_QUOTE_STATUS.REQUESTED' and 'TASK_QUOTE_STATUS.CANCELLED' have no overlap.": 1,
-    "tests/portal-identificacao.test.ts|TS2345|Argument of type '{ plate: string; serialNumber: string; chassisNumber: any; orderNumber: any; }' is not assignable to parameter of type 'FrozenVehicleIdentity'. Type '{ plate: string; serialNumber: string; chassisNumber: any; orderNumber: any; }' is missing the following properties from type 'FrozenVehicleIdentity': category, implementType": 1,
-    "tests/portal-identificacao.test.ts|TS2345|Argument of type '{ serialNumber: string; plate: any; chassisNumber: any; orderNumber: any; }' is not assignable to parameter of type 'FrozenVehicleIdentity'. Type '{ serialNumber: string; plate: any; chassisNumber: any; orderNumber: any; }' is missing the following properties from type 'FrozenVehicleIdentity': category, implementType": 7,
-    "tests/portal-identificacao.test.ts|TS2345|Argument of type '{ serialNumber: string; plate: null; chassisNumber: null; orderNumber: null; }' is not assignable to parameter of type 'FrozenVehicleIdentity'. Type '{ serialNumber: string; plate: null; chassisNumber: null; orderNumber: null; }' is missing the following properties from type 'FrozenVehicleIdentity': category, implementType": 1,
     "tests/portal-requisicao.test.ts|TS2873|This kind of expression is always falsy.": 1,
     "tests/quote-diff.test.ts|TS2352|Conversion of type 'QuoteSnapshot' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first. Index signature for type 'string' is missing in type 'QuoteSnapshot'.": 16,
     "tests/quote-diff.test.ts|TS2739|Type '{ schemaVersion: number; budgetNumber: number; issuedAt: string; expiresAt: string; customer: { id: string; corporateName: string; fantasyName: string; document: string; }; task: { id: string; name: string; serialNumber: string; }; ... 13 more ...; commercialUserId: string; }' is missing the following properties from type 'QuoteSnapshot': vehicles, billingSplit": 1,
