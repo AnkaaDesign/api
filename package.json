@@ -113,6 +113,7 @@
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
     "test:layout-per-vehicle": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/layout-per-vehicle.test.ts",
     "test:implement-measure-writer": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-measure-writer.test.ts",
+    "test:implement-serial": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-serial.test.ts",
     "test:fiscal-labels": "tsx tests/fiscal-labels-golden.test.ts",
     "test:labels-exhaustive": "tsx tests/labels-exhaustive.test.ts",
     "contracts:export": "tsx scripts/export-contracts.ts",

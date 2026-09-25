@@ -60,6 +60,8 @@ PASSOS=(
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
   # ── P04: escritor único de medida ──
   "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"
+  # ── P11a: a série só no implemento (DD14) ──
+  "G19/G20/G22/G23/G24/G32 série só no implemento (escritores, criação, avisos, app, Agenda, tinta)|1|npm run -s test:implement-serial"
   # ── P05: fonte única de rótulos + contrato exportado ──
   "G21 ouro dos rótulos fiscais|0|npm run -s test:fiscal-labels"
   "exaustividade dos rótulos|0|npm run -s test:labels-exhaustive"

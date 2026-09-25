@@ -18,7 +18,7 @@ import { extname, join, normalize, resolve, sep } from 'path';
 import { existsSync } from 'fs';
 import helmet from 'helmet';
 import * as express from 'express';
-import * as qs from 'qs';
+import { parseQueryString } from './common/http/query-string-parser';
 import 'tsconfig-paths/register';
 import {
   handleMulterError,
@@ -119,30 +119,9 @@ async function bootstrap() {
     // Configure Socket.io adapter for WebSocket support
     app.useWebSocketAdapter(new SocketIoAdapter(app));
 
-    // Configure query string parser to handle bracket notation from axios.
-    // Numeric coercion is INTENTIONALLY NOT done here — query schemas that
-    // need numbers must opt in via z.coerce.number(). The previous blanket
-    // /^\d+$/ coercion silently broke z.string() params that received all-
-    // digit input (FITID search, CNPJ filter, amount filter) by turning the
-    // input into a Number before Zod validation.
-    app.set('query parser', (str: string) => {
-      return qs.parse(str, {
-        depth: 10,
-        arrayLimit: 100,
-        parameterLimit: 1000,
-        parseArrays: true,
-        allowDots: true, // Changed to true to support array[0].field notation
-        strictNullHandling: true,
-        decoder: (value, defaultDecoder, charset, type) => {
-          // Handle boolean strings (safe — Zod schemas expecting strings can
-          // re-coerce via z.preprocess if a literal "true"/"false" payload is
-          // needed; none currently exist).
-          if (value === 'true') return true;
-          if (value === 'false') return false;
-          return defaultDecoder(value, defaultDecoder, charset);
-        },
-      });
-    });
+    // Query string parser (bracket and dot notation, no numeric coercion):
+    // see src/common/http/query-string-parser.ts.
+    app.set('query parser', parseQueryString);
 
     // Capture raw body for webhook signature verification
     // This must be done BEFORE any JSON parsing
