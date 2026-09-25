@@ -1,4 +1,4 @@
-# Rework Implemento — ESTADO (fim de 23/09/2026)
+# Rework Implemento — ESTADO (24/09/2026, noite)
 
 Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1), e as notas de desenho de cada pacote estão em `notas/`.
 
@@ -16,37 +16,25 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 - Editar o valor depois de aprovado continua como hoje.
 - Decisões completas: DD1..DD12 no topo do `PLANO.md`.
 
+- **DD13 (24/09, durante o P11a): migração COMPLETA, sem janela bilíngue.** "Não quero nenhum valor antigo, nem mesmo para compatibilidade; será uma migração completa, com atualização em tudo de uma vez." API, web, app e AnkaaAero falam só `implement` e sobem JUNTOS; os dados gravados com o nome velho migram no banco na mesma release; app que não atualizar leva 426 (o G13/P31 liga no mesmo deploy). Contrato de nomes: `NOMENCLATURA.md` (substitui §5.4/D-04 do plano na parte da janela).
+
 ## 2. Onde está o trabalho (tudo LOCAL, nada foi enviado ao GitHub nem a produção)
 
-| Repo | Branch | HEAD | Situação |
-|---|---|---|---|
-| api | `feat/portal-do-responsavel` | `caf33ae2` | 96 commits à frente de `origin/feat/portal-do-responsavel`. Fase A inteira, mais Notas, P06 e P10 da Fase B. Régua **verde** (`bash scripts/pre-deploy.sh`, 26/26 no fim do P10) |
-| api | `wip/p11a-parcial-20260923` | `e2099c8b` | **P11a interrompido no meio** (117 arquivos). NÃO está verde: o tsc quebra no meio do rename |
-| web | `feat/portal-do-responsavel` | `15090225` | 32 commits à frente. Fase A (P03 + a parte web do P05 + correções da revisão) |
-| app | `feat/implemento` | `523769a` | 10 commits sobre `origin/main`. P02 + a parte app do P05 + correções |
-| app | `patch/p02-sobre-1.4.1+24` | `b534afa` | patch Shorebird do P02 portado para a base do release 1.4.1+24. **NÃO publicado** |
+| Repo | Branch | Situação |
+|---|---|---|
+| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`). Régua 23/26: G1+G4, G10 e G5 esperam o web migrado |
+| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); migração de nomenclatura em andamento (agente) |
+| app | `feat/implemento` | main (1.4.2+25) juntada; nomenclatura completa no app e no AnkaaAero (`856c2a3`, `901681e`, `1391b83`); catraca 0, analyze limpo, 1045 testes |
+| app | `patch/p02-sobre-1.4.1+24` | OBSOLETO com a DD13 (era o patch de compatibilidade) |
+| api | `wip/p11a-parcial-20260923` | já incorporada; pode ser apagada |
 
 Bancos locais (container `ankaa-postgres`):
 
-- `ankaa_production` é o clone local. **Não é usado pela Fase B.**
-- `ankaa_implemento` é a cópia isolada da Fase B. Tem a M0 e **também** as migrations `20260930120000_truck_vira_implement` e `20260930120050_serie_no_implemento_e_implemento_obrigatorio`, que o P11a aplicou antes de ser interrompido. Ou seja, o banco está no estado da branch WIP, não no da base.
-- `ankaa_veiculos` é da outra sessão. **Não tocar.**
-- Para apontar para o banco da Fase B (o arquivo de env ficava em `/tmp` e pode ter sumido):
-
-  ```bash
-  export DATABASE_URL="$(grep -E '^DATABASE_URL=' ~/Documents/repositories/api/.env | cut -d= -f2- | tr -d '"' | sed 's#/ankaa_production#/ankaa_implemento#')"
-  ```
-
-  Prisma, Nest e dotenv **não** sobrescrevem uma variável já exportada.
-- Para recomeçar o P11a da base limpa, recrie o banco:
-
-  ```bash
-  docker exec ankaa-postgres psql -U ankaa_prod -d postgres -c 'DROP DATABASE ankaa_implemento' \
-    -c 'CREATE DATABASE ankaa_implemento TEMPLATE ankaa_production'
-  ```
-
-  Depois aplique as migrations da base (até a M0) com `npx prisma migrate deploy` e o `DATABASE_URL` acima.
-- Para continuar da branch WIP, use o banco como está.
+- `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`) + as 6 migrations da main de 24/09.
+- `ankaa_implemento_base`: a base (main + M0), criado em 24/09 para separar defeito do merge de defeito do P11a. Pode ser apagado.
+- `ankaa_taskmatch_impl_test`: descartável do `test:task-match:integration` (db push).
+- `ankaa_production` (clone) e `ankaa_veiculos` (outra sessão): não tocar.
+- Env: `source ~/Documents/repositories/api/.git/implemento-env.sh` (aponta para `ankaa_implemento` e BLINDA envio: Firebase vazio, WhatsApp/e-mail/Sicredi/Elotech na sentinela, `REDIS_DB=3`). Fica em `.git/` para sobreviver ao reboot.
 
 ## 3. O que foi FEITO
 
@@ -110,7 +98,19 @@ Bancos locais (container `ankaa-postgres`):
   - G36 mede a distância até o alvo.
   - O ensaio pegou um defeito no gatilho da M1s, e ele foi corrigido.
 
+### 24/09 (esta sessão)
+- Merge da main de 24/09 na api e no web; régua da base com os ajustes do que a main trouxe (G9 lê `MAPA.chave`, G6/G5/G4).
+- **Re-carimbo**: a main publicou `20260924120000/120100/120200`, os mesmos carimbos de M1/M2/M3. M0 e as seis fatias foram para `20260930…`; regra nova no cruzamento: re-carimbar de novo no P30.
+- **P11a** retomado da WIP: promoção de M1/M1s, rename, série no implemento (W1–W6), G15 e layout-per-vehicle com implemento aninhado.
+- **DD13**: janela bilíngue removida; nomenclatura completa na API (código, rotas, avisos, histórico, arquivos, testes, scripts) e migração de dados `20260930120060`; G6 de 865 → 5 (rótulos "Truck" da categoria), G6b → 0.
+- Defeito achado: select sem tipo com `truck` na cotação do aerografista (código novo da main) → `implement` + `satisfies`.
+- App e AnkaaAero migrados (agente). Web em andamento (agente).
+
 ## 4. O que FALTA (na ordem)
+
+**Antes de tudo (DD13):** fechar a nomenclatura no web (agente), regerar `contracts/queries/web.json` e as cópias do contrato (web e app), conferir os ids de preferência do web contra a migração `20260930120060` (§5 dela), régua da api verde e as réguas do web e do app. Depois, os testes que faltam do P11a: G19 (escritores da série), G20 (toda criação com implemento), G22 (contexto de aviso com série), G23 (agora: corpo novo do app grava a série no implemento), G24 (catraca dos leitores da série), G32 (URL da Agenda), busca de tinta por placa e série. **Pendente com o dono: a série no topo e o espelho `Task.serialNumber` (ver §5).**
+
+Com a DD13 o plano encurta: não existe mais R-C/R-D separadas nem P32 "remove aliases"; web (P20–P23), app (P24) e AnkaaAero entram na MESMA release da API, e o 426 (P31) liga nela.
 
 ```
 P11a (retomar) → P11b → [P12 ∥ P13a] → [P14 ∥ P13b] → revisão da Fase B
@@ -132,6 +132,8 @@ P11a (retomar) → P11b → [P12 ∥ P13a] → [P14 ∥ P13b] → revisão da Fa
 Regime: no máximo 2 agentes por vez. Um pacote que cria exigência para o repositório inteiro roda sozinho. Revisão em duas lentes sobre a combinação. Nunca push, deploy ou patch sem o dono. Os pares da API rodam em worktree próprio (`impl/p13a`, `impl/p13b`), com banco próprio (`ankaa_implemento_p13a` e `_p13b`, criados com `CREATE DATABASE … TEMPLATE ankaa_implemento`) e `node_modules` próprio. O roteiro usado está em `~/.claude/projects/-home-kennedy-Documents-repositories-api/b5b01fad-…/workflows/scripts/implemento-fase-b-*.js` e pode ser reaproveitado, pulando os passos já feitos.
 
 ## 5. Pendências com o dono
+
+0. **Série no topo e espelho `Task.serialNumber` (DD13 × DD1).** Com "nenhum valor antigo", o corpo com série no topo (`serialNumber` fora de `implement`) e a coluna-espelho `Task.serialNumber` (gatilho da M1s) são compatibilidade. Tirar os dois agora = migrar ~500 leitores na api, ~430 no web e ~100 no app, e derrubar a coluna (M5s) na mesma release. Mantê-los = a série só se ESCREVE no implemento, mas se LÊ também pela tarefa. Decisão do dono.
 
 1. **F8**: a prévia do boleto no web passa a mostrar as palavras reais do boleto registrado ("Isoplastic / Carga Seca / Carroceria") no lugar de "Isotérmico / Prancha/Plataforma". Aceitar, ou reverter só o commit web `b6f64ccd`?
 2. **Duas telas do web já dão 500 em PRODUÇÃO**, fora do rework:
