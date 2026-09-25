@@ -125,7 +125,7 @@ um segundo mapa, pequeno e explícito:
 | capacidade | `COMMERCIAL` | `SELLER` | `REPRESENTATIVE` | `COORDINATOR` | `PURCHASING` | `MARKETING` | `FINANCIAL` | `FLEET_MANAGER` | `DRIVER` |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | `REQUEST_BUDGET` — abrir requisição | ✅ | ✅ | ✅ | ✅ | — | ✅¹ | — | — | — |
-| `PRE_APPROVE` — pré-aprovar/recusar | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
+| `APPROVE_VALUE` — aprovar o valor/recusar | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
 | `WRITE_PURCHASE_ORDER` — nº do pedido | — | — | — | — | ✅ | — | ✅ | — | — |
 | `WRITE_VEHICLE_IDENTITY` — série/placa/chassi/plaqueta | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — |
 | `SIGN` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅² | ✅² | — | — |
@@ -169,7 +169,7 @@ existe:
 > **Você vê o que assinaria, MAIS o que pode fazer.**
 
 `portalSectionsFor(roles) = sectionsForRoles(roles) ∪ ⋃ SECTION_IMPLIED_BY_CAPABILITY[cap]`,
-onde `PRE_APPROVE ⇒ PRICING` (não se aprova preço que não se vê), `WRITE_PURCHASE_ORDER ⇒
+onde `APPROVE_VALUE ⇒ PRICING` (não se aprova preço que não se vê), `WRITE_PURCHASE_ORDER ⇒
 PAYMENT` (o número do pedido é dado fiscal), `TRACK ⇒ DELIVERY`, `WRITE_VEHICLE_IDENTITY ⇒
 VEHICLE`.
 

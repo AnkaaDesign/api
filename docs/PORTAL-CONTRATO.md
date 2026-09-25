@@ -76,13 +76,13 @@ LAYOUT · FLEET_MANAGER/DRIVER = `[]`.
 ```ts
 export enum PORTAL_CAPABILITY {
   REQUEST_BUDGET         = 'REQUEST_BUDGET',
-  PRE_APPROVE            = 'PRE_APPROVE',
+  APPROVE_VALUE          = 'APPROVE_VALUE',
   WRITE_PURCHASE_ORDER   = 'WRITE_PURCHASE_ORDER',
   WRITE_VEHICLE_IDENTITY = 'WRITE_VEHICLE_IDENTITY',
   TRACK                  = 'TRACK',
 }
 ```
-| papel | REQUEST | PRE_APPROVE | PURCHASE_ORDER | VEHICLE_IDENTITY | TRACK |
+| papel | REQUEST | APPROVE_VALUE | PURCHASE_ORDER | VEHICLE_IDENTITY | TRACK |
 |---|:-:|:-:|:-:|:-:|:-:|
 | COMMERCIAL | ✅ | ✅ | — | ✅ | ✅ |
 | SELLER | ✅ | ✅ | — | ✅ | ✅ |
@@ -153,8 +153,8 @@ não acrescente `@UseGuards`. Papel: `@ResponsibleRoles(...)` ou
 | GET | `/cliente/me/orcamentos` | — | lista escopada, paginada |
 | GET | `/cliente/me/orcamentos/:id` | — | detalhe **recortado por seção** |
 | POST | `/cliente/me/orcamentos` | `REQUEST_BUDGET` | cria a requisição (§5) |
-| PUT | `/cliente/me/orcamentos/:id/pre-aprovar` | `PRE_APPROVE` | `{ nota? }` → `PRE_APPROVED` |
-| PUT | `/cliente/me/orcamentos/:id/recusar` | `PRE_APPROVE` | `{ motivo }` → `REQUESTED` |
+| PUT | `/cliente/me/orcamentos/:id/aprovar-valor` | `APPROVE_VALUE` | `{ nota? }` → `PRE_APPROVED` |
+| PUT | `/cliente/me/orcamentos/:id/recusar` | `APPROVE_VALUE` | `{ motivo }` → `REQUESTED` |
 | GET | `/cliente/me/veiculos` | — | frota escopada · `?semPedido=true\|false` (tri-estado) · `?orderBy=` |
 | GET | `/cliente/me/veiculos/:taskId` | — | veículo + andamento |
 | PATCH | `/cliente/me/veiculos/:taskId/identificacao` | `WRITE_VEHICLE_IDENTITY` | série/placa/chassi/plaqueta/pedido/categoria/tipo/previsão/medidas (4 faces)/porta traseira — com a trava de produção (§4.1) |
@@ -490,7 +490,7 @@ visíveis para quem a abriu.
 
 ## 6. A PRÉ-APROVAÇÃO
 
-`PUT …/pre-aprovar` → grava `BudgetRequest.preApprovedAt/preApprovedByResponsibleId/
+`PUT …/aprovar-valor` → grava `BudgetRequest.preApprovedAt/preApprovedByResponsibleId/
 decisionNote` e move `IN_NEGOTIATION → PRE_APPROVED`.
 `PUT …/recusar` → grava `refusedAt/refusedByResponsibleId/decisionNote` e move
 `IN_NEGOTIATION → REQUESTED`.
