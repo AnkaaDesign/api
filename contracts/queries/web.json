@@ -1,7 +1,7 @@
 {
   "cliente": "web",
   "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
-  "fonte": "web@feat/portal-do-responsavel (d5ea4d66)",
+  "fonte": "web@feat/portal-do-responsavel (43183934)",
   "formas": [
     {
       "id": "web.changelog.list/changelog-table.includeConfig",
@@ -3281,12 +3281,13 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/dashboard/widgets/task-table.tsx:1813 (TASK_INCLUDE)",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:1818 (TASK_INCLUDE)",
       "omitidas": [
         "where",
         "searchingFor",
         "createdByIds",
         "isOverdue",
+        "implementIdentified",
         "orderBy",
         "take"
       ],
@@ -3310,7 +3311,7 @@
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/dashboard/widgets/task-table.tsx:2096",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:2101",
       "consulta": {
         "include": {
           "layouts": {
@@ -3350,7 +3351,7 @@
         }
       },
       "origens": [
-        "web/src/dashboard/widgets/task-table.tsx:2096",
+        "web/src/dashboard/widgets/task-table.tsx:2101",
         "web/src/components/production/task/schedule/task-schedule-table-page.tsx:475",
         "web/src/components/production/task/history/table/task-history-table-page.tsx:402",
         "web/src/components/production/task/preparation/task-prep-page.tsx:355",
