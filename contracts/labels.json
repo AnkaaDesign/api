@@ -239,9 +239,32 @@
         "PAID": "Pago"
       }
     },
+    "AIRBRUSHING_QUOTE_ACTION_LABELS": {
+      "enum": "AIRBRUSHING_QUOTE_ACTION",
+      "labels": {
+        "PROPOSAL": "Proposta",
+        "COUNTER": "Contraproposta",
+        "ACCEPT": "Aceite",
+        "DECLINE": "Recusa",
+        "SELECT": "Seleção",
+        "CLOSE": "Encerramento"
+      }
+    },
+    "AIRBRUSHING_QUOTE_STATUS_LABELS": {
+      "enum": "AIRBRUSHING_QUOTE_STATUS",
+      "labels": {
+        "PROPOSED": "Proposta Recebida",
+        "COUNTERED": "Contraproposta Enviada",
+        "ACCEPTED": "Aceitou a Contraproposta",
+        "DECLINED": "Recusou",
+        "SELECTED": "Selecionado",
+        "NOT_SELECTED": "Não Selecionado"
+      }
+    },
     "AIRBRUSHING_STATUS_LABELS": {
       "enum": "AIRBRUSHING_STATUS",
       "labels": {
+        "QUOTING": "Em Cotação",
         "PREPARATION": "Em Preparação",
         "WAITING_PRODUCTION": "Aguardando Produção",
         "IN_PRODUCTION": "Em Produção",
@@ -955,6 +978,13 @@
         "RESUMED": "Retomado",
         "COMPLETED": "Concluído",
         "CANCELLED": "Cancelado"
+      }
+    },
+    "EXECUTION_TIME_UNIT_LABELS": {
+      "enum": "EXECUTION_TIME_UNIT",
+      "labels": {
+        "HOURS": "Horas",
+        "DAYS": "Dias"
       }
     },
     "EXPORT_FORMAT_LABELS": {

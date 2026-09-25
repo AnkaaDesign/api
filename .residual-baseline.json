@@ -25,7 +25,7 @@
     "src/modules/common/signature/document/quote-text.ts": 4,
     "src/modules/common/signature/dossier/dossier-assembler.service.ts": 4,
     "src/modules/common/signature/order-number-gate.ts": 3,
-    "src/modules/common/signature/services/signature-envelope.service.ts": 47,
+    "src/modules/common/signature/services/signature-envelope.service.ts": 43,
     "src/modules/domain/dashboard/dashboard.service.ts": 13,
     "src/modules/domain/dashboard/repositories/dashboard/dashboard-prisma.repository.ts": 38,
     "src/modules/domain/dashboard/repositories/dashboard/dashboard.repository.ts": 1,
@@ -55,6 +55,7 @@
     "src/modules/people/portal/portal-request.service.ts": 13,
     "src/modules/people/portal/portal-vehicle-identity.ts": 3,
     "src/modules/personnel-department/bonus/bonus.service.ts": 11,
+    "src/modules/production/airbrushing/airbrushing-quote.service.ts": 1,
     "src/modules/production/budget/budget.controller.ts": 1,
     "src/modules/production/budget/budget-receipt.service.ts": 7,
     "src/modules/production/budget/budget.service.ts": 10,
@@ -127,10 +128,10 @@
     "src/utils/changelog-fields.ts": 2
   },
   "totais": {
-    "g6a": 1782,
+    "g6a": 1779,
     "g6b": 39,
-    "g6aArquivos": 113,
+    "g6aArquivos": 114,
     "g6bArquivos": 6
   },
-  "geradaEm": "2026-09-23"
+  "geradaEm": "2026-09-24"
 }

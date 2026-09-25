@@ -82,7 +82,28 @@
       "PENDING",
       "PAID"
     ],
+    "AIRBRUSHING_QUOTE_ACTION": [
+      "PROPOSAL",
+      "COUNTER",
+      "ACCEPT",
+      "DECLINE",
+      "SELECT",
+      "CLOSE"
+    ],
+    "AIRBRUSHING_QUOTE_PARTY": [
+      "PAINTER",
+      "COMPANY"
+    ],
+    "AIRBRUSHING_QUOTE_STATUS": [
+      "PROPOSED",
+      "COUNTERED",
+      "ACCEPTED",
+      "DECLINED",
+      "SELECTED",
+      "NOT_SELECTED"
+    ],
     "AIRBRUSHING_STATUS": [
+      "QUOTING",
       "PREPARATION",
       "WAITING_PRODUCTION",
       "IN_PRODUCTION",
@@ -988,6 +1009,10 @@
       "RESUMED",
       "COMPLETED",
       "CANCELLED"
+    ],
+    "EXECUTION_TIME_UNIT": [
+      "HOURS",
+      "DAYS"
     ],
     "EXPORT_FORMAT": [
       "CSV",
@@ -2425,10 +2450,21 @@
   },
   "notificacoes": [
     "airbrushing.assigned",
+    "airbrushing.cancelled",
     "airbrushing.nfse.certificate_expiring",
     "airbrushing.nfse.issued",
     "airbrushing.nfse.rejected",
     "airbrushing.payment.received",
+    "airbrushing.quote.accepted",
+    "airbrushing.quote.closed",
+    "airbrushing.quote.countered",
+    "airbrushing.quote.declined",
+    "airbrushing.quote.proposed",
+    "airbrushing.quote.requested",
+    "airbrushing.quote.selected",
+    "airbrushing.released",
+    "airbrushing.reopened",
+    "airbrushing.unassigned",
     "artwork.approved",
     "artwork.pending_approval_reminder",
     "artwork.reproved",

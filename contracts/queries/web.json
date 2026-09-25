@@ -1,7 +1,7 @@
 {
   "cliente": "web",
   "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
-  "fonte": "web@feat/portal-do-responsavel (ee7b1bc6)",
+  "fonte": "web@feat/portal-do-responsavel (17ff1c04)",
   "formas": [
     {
       "id": "web.changelog.list/changelog-table.includeConfig",
@@ -106,7 +106,7 @@
       "rota": "GET /customers",
       "modelo": "Customer",
       "schema": "customer.customerGetManySchema",
-      "origem": "web/src/components/administration/customer/responsible/responsible-form.tsx:140",
+      "origem": "web/src/components/administration/customer/responsible/responsible-form.tsx:124",
       "omitidas": [
         "page"
       ],
@@ -120,7 +120,7 @@
         }
       },
       "origens": [
-        "web/src/components/administration/customer/responsible/responsible-form.tsx:140",
+        "web/src/components/administration/customer/responsible/responsible-form.tsx:124",
         "web/src/components/ui/customer-combobox.tsx:65",
         "web/src/components/administration/customer/form/customer-selector.tsx:66",
         "web/src/components/financial/shared/quote-table-shared.tsx:276",
@@ -411,7 +411,7 @@
       },
       "origens": [
         "web/src/components/financial/budget/vehicles/use-budget-vehicles.ts:54 (BUDGET_VEHICLE_TASK_INCLUDE)",
-        "web/src/pages/financial/budget/details/[taskId].tsx:284 (BUDGET_VEHICLE_TASK_INCLUDE)"
+        "web/src/pages/financial/budget/details/[taskId].tsx:285 (BUDGET_VEHICLE_TASK_INCLUDE)"
       ]
     },
     {
@@ -1761,7 +1761,7 @@
       "rota": "GET /airbrushings/:id",
       "modelo": "Airbrushing",
       "schema": "airbrushing.airbrushingQuerySchema",
-      "origem": "web/src/components/production/airbrushing/detail-page/airbrushing-detail-page.tsx:295",
+      "origem": "web/src/components/production/airbrushing/detail-page/airbrushing-detail-page.tsx:315",
       "consulta": {
         "include": {
           "task": {
@@ -1791,7 +1791,7 @@
       "rota": "GET /airbrushings/:id",
       "modelo": "Airbrushing",
       "schema": "airbrushing.airbrushingQuerySchema",
-      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:165",
+      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:182",
       "consulta": {
         "include": {
           "task": {
@@ -1816,7 +1816,7 @@
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:188",
+      "origem": "web/src/components/production/airbrushing/form/airbrushing-form.tsx:205",
       "consulta": {
         "include": {
           "customer": {
@@ -3575,7 +3575,7 @@
       "rota": "GET /customers",
       "modelo": "Customer",
       "schema": "customer.customerGetManySchema",
-      "origem": "web/src/pages/financial/budget/create.tsx:325",
+      "origem": "web/src/pages/financial/budget/create.tsx:327",
       "omitidas": [
         "where"
       ],
@@ -3591,7 +3591,7 @@
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/pages/financial/budget/details/[taskId].tsx:1731",
+      "origem": "web/src/pages/financial/budget/details/[taskId].tsx:1737",
       "consulta": {
         "include": {
           "responsibles": true
@@ -4607,19 +4607,19 @@
       "chamada": "useAirbrushingsByTask"
     },
     {
-      "origem": "web/src/components/production/task/form/task-edit-form.tsx:181",
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:182",
       "chamada": "useCutsByTask"
     },
     {
-      "origem": "web/src/components/production/task/form/task-edit-form.tsx:1815",
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:1820",
       "chamada": "updateAsync"
     },
     {
-      "origem": "web/src/components/production/task/form/task-edit-form.tsx:206",
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:207",
       "chamada": "useAirbrushingsByTask"
     },
     {
-      "origem": "web/src/components/production/task/form/task-edit-form.tsx:2124",
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:2129",
       "chamada": "updateAsync"
     },
     {

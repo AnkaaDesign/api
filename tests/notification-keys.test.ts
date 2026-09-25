@@ -74,6 +74,10 @@ const DINAMICAS_CONHECIDAS: Record<string, string> = {
     '`getTypedConfigKey` para o criador da OS',
   'src/modules/production/task/task.listener.ts configKey':
     '`getDeadlineConfigKey(dias, horas)` — prazo da tarefa',
+  'src/modules/common/notification/airbrushing-quote-notification.service.ts key':
+    'helper do aviso direcionado ao aerografista: recebe um valor de ' +
+    '`AIRBRUSHING_QUOTE_NOTIFICATION_KEYS`, que o `MAPA[intent.kind]` do mesmo ' +
+    'arquivo já confere inteiro contra o seed',
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -145,9 +149,14 @@ function resolve(node: ts.Expression, sf: ts.SourceFile, depth = 0): string[] | 
     }
     return out;
   }
-  if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)) {
-    // `MAPA[chave]` com MAPA = objeto literal: todos os valores possíveis
+  if (
+    (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node)) &&
+    ts.isIdentifier(node.expression)
+  ) {
+    // `MAPA[chave]` com MAPA = objeto literal: todos os valores possíveis;
+    // `MAPA.chave`: só o valor daquela propriedade
     const nome = node.expression.text;
+    const so = ts.isPropertyAccessExpression(node) ? node.name.text : null;
     let valores: string[] | null = null;
     const visit = (n: ts.Node) => {
       if (
@@ -168,6 +177,7 @@ function resolve(node: ts.Expression, sf: ts.SourceFile, depth = 0): string[] | 
           const vs: string[] = [];
           for (const prop of init.properties) {
             if (!ts.isPropertyAssignment(prop)) return;
+            if (so !== null && (!ts.isIdentifier(prop.name) || prop.name.text !== so)) continue;
             const r = resolve(prop.initializer, sf, depth + 1);
             if (!r) return;
             vs.push(...r);
