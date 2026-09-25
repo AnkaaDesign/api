@@ -693,7 +693,7 @@ export class PortalProjectionService {
     if (hasSection(sections, 'VEHICLE')) {
       view.vehicleChips = (row.tasks ?? []).map(t => ({
         taskId: t.id ?? null,
-        serialNumber: t.serialNumber ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
         plate: t.implement?.plate ?? null,
       })) as PortalBudgetView['vehicleChips'];
     }
@@ -840,7 +840,7 @@ export class PortalProjectionService {
     if (hasSection(sections, 'VEHICLE')) {
       const implement = row.implement ?? null;
       view.identity = {
-        serialNumber: row.serialNumber ?? null,
+        serialNumber: implement?.serialNumber ?? null,
         plate: implement?.plate ?? null,
         chassisNumber: implement?.chassisNumber ?? null,
         category: implement?.category ?? null,

@@ -200,7 +200,7 @@ const taskSearcher: EntitySearcher = {
           {
             AND: everyToken(tokens, (t) => [
           { nameNormalized: { contains: t } },
-          { serialNumberNormalized: { contains: t } },
+          { implement: { serialNumberNormalized: { contains: t } } },
           { detailsNormalized: { contains: t } },
           { customer: { fantasyNameNormalized: { contains: t } } },
           { customer: { corporateNameNormalized: { contains: t } } },
@@ -231,7 +231,6 @@ const taskSearcher: EntitySearcher = {
       select: {
         id: true,
         name: true,
-        serialNumber: true,
         details: true,
         status: true,
         finishedAt: true,
@@ -241,7 +240,7 @@ const taskSearcher: EntitySearcher = {
         createdAt: true,
         quote: { select: { budgetNumber: true } },
         customer: { select: { fantasyName: true, corporateName: true } },
-        implement: { select: { plate: true, chassisNumber: true } },
+        implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
         generalPainting: { select: { name: true } },
         // Only the relation rows that actually matched, so the "matched by"
         // hint can show them when the reason isn't visible in the row.
@@ -263,7 +262,7 @@ const taskSearcher: EntitySearcher = {
     return rankAndSlice(
       tasks.map((task) => {
         const fields: ScoredField[] = [
-          { value: task.serialNumber, weight: 2 },
+          { value: task.implement?.serialNumber, weight: 2 },
           { value: task.implement?.plate, weight: 2 },
           { value: task.name, weight: 1.5 },
           { value: task.customer?.fantasyName, weight: 1 },
@@ -286,7 +285,7 @@ const taskSearcher: EntitySearcher = {
           entity: 'TASK' as const,
           id: task.id,
           title: task.name || 'Tarefa sem nome',
-          fields: fieldList({ label: 'Nº série', value: task.serialNumber }, { label: 'Cliente', value: task.customer?.fantasyName }, { label: 'Placa', value: task.implement?.plate }),
+          fields: fieldList({ label: 'Nº série', value: task.implement?.serialNumber }, { label: 'Cliente', value: task.customer?.fantasyName }, { label: 'Placa', value: task.implement?.plate }),
           status: task.status,
           date: task.finishedAt ? isoDate('Concluída em', task.finishedAt) : isoDate('Criada em', task.createdAt),
           match,

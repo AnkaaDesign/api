@@ -69,7 +69,7 @@ async function main() {
   //
   // Apaga só o que ESTE arquivo cria (série `MED…`), e só isso.
   const antigos = await prisma.budget.findMany({
-    where: { tasks: { some: { serialNumber: { startsWith: 'MED' } } } },
+    where: { tasks: { some: { implement: { serialNumber: { startsWith: 'MED' } } } } },
     select: { id: true, budgetNumber: true },
   });
   for (const velho of antigos) {
@@ -113,16 +113,16 @@ async function main() {
     const tarefas = await prisma.task.findMany({
       where: { quoteId: budgetId },
       select: {
-        serialNumber: true,
         implement: {
           select: {
+            serialNumber: true,
             leftSideMeasure: { select: { height: true, sections: { select: { width: true, isDoor: true, doorHeight: true, position: true }, orderBy: { position: 'asc' } } } },
             rightSideMeasure: { select: { height: true, sections: { select: { width: true, isDoor: true, doorHeight: true, position: true }, orderBy: { position: 'asc' } } } },
             backSideMeasure: { select: { height: true, sections: { select: { width: true, isDoor: true, doorHeight: true, position: true }, orderBy: { position: 'asc' } } } },
           },
         },
       },
-      orderBy: { serialNumber: 'asc' },
+      orderBy: { implement: { serialNumber: 'asc' } },
     });
 
     check('as duas tarefas nasceram', tarefas.length === 2, `${tarefas.length} tarefa(s)`);
@@ -135,31 +135,31 @@ async function main() {
       ];
       for (const [nome, medida, esperado] of faces) {
         check(
-          `${t.serialNumber} · ${nome}: a face existe`,
+          `${t.implement?.serialNumber} · ${nome}: a face existe`,
           !!medida,
           medida ? '' : 'a coluna do implemento ficou nula',
         );
         if (!medida) continue;
         check(
-          `${t.serialNumber} · ${nome}: altura ${esperado.height} m (e NÃO ${esperado.height * 100})`,
+          `${t.implement?.serialNumber} · ${nome}: altura ${esperado.height} m (e NÃO ${esperado.height * 100})`,
           perto(medida.height, esperado.height),
           `gravado=${medida.height}`,
         );
         const larguras = medida.sections.map(s => s.width);
         check(
-          `${t.serialNumber} · ${nome}: ${esperado.widths.length} seção(ões) em metros`,
+          `${t.implement?.serialNumber} · ${nome}: ${esperado.widths.length} seção(ões) em metros`,
           larguras.length === esperado.widths.length &&
             esperado.widths.every((w, i) => perto(larguras[i], w)),
           `gravado=[${larguras.join(', ')}] esperado=[${esperado.widths.join(', ')}]`,
         );
         check(
-          `${t.serialNumber} · ${nome}: as posições são 0..n na ordem enviada`,
+          `${t.implement?.serialNumber} · ${nome}: as posições são 0..n na ordem enviada`,
           medida.sections.every((s, i) => s.position === i),
           `posições=[${medida.sections.map(s => s.position).join(', ')}]`,
         );
         const porta = medida.sections.find(s => s.isDoor);
         check(
-          `${t.serialNumber} · ${nome}: a porta ${esperado.doorHeight ? `tem ${esperado.doorHeight} m` : 'não existe'}`,
+          `${t.implement?.serialNumber} · ${nome}: a porta ${esperado.doorHeight ? `tem ${esperado.doorHeight} m` : 'não existe'}`,
           esperado.doorHeight ? perto(porta?.doorHeight, esperado.doorHeight) : !porta,
           `porta=${porta ? porta.doorHeight : '(nenhuma)'}`,
         );

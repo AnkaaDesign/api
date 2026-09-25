@@ -52,10 +52,9 @@ async function main() {
       task: {
         select: {
           name: true,
-          serialNumber: true,
           customer: { select: { fantasyName: true, corporateName: true } },
           implement: {
-            select: { plate: true, chassisNumber: true, category: true, type: true },
+            select: { serialNumber: true, plate: true, chassisNumber: true, category: true, type: true },
           },
         },
       },

@@ -388,7 +388,7 @@ export class SicrediWebhookService {
         where: { id: bankSlip.installment.invoiceId },
         include: {
           customer: { select: { fantasyName: true } },
-          task: { select: { id: true, name: true, serialNumber: true } },
+          task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
           externalOperation: { select: { id: true } },
         },
       });

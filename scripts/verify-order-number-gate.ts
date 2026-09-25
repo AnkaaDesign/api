@@ -61,7 +61,7 @@ check('tarefa cancelada sai do escopo; todas canceladas voltam', () => {
 
 check('rótulo: série · placa, senão nome, senão "Veículo N"', () => {
   const v = orderNumberVehicles([
-    { id: A, serialNumber: '1234', implement: { plate: 'abc1d23' } },
+    { id: A, implement: { serialNumber: '1234', plate: 'abc1d23' } },
     { id: B, name: 'Baú 3 eixos' },
     { id: C },
   ]);
@@ -98,8 +98,8 @@ check('vazio com número válido é gravado (normalizado)', () => {
 
 check('vários veículos: falta um → recusa nomeando o veículo; nada é gravado', () => {
   const vehicles = orderNumberVehicles([
-    { id: A, serialNumber: '10', customerOrderNumber: null },
-    { id: B, serialNumber: '11', customerOrderNumber: null },
+    { id: A, implement: { serialNumber: '10' }, customerOrderNumber: null },
+    { id: B, implement: { serialNumber: '11' }, customerOrderNumber: null },
   ]);
   const r = resolveOrderNumberSubmission(vehicles, [{ taskId: A, value: '4500' }]);
   assert.match(r.problem ?? '', /Série 11/);
@@ -108,8 +108,8 @@ check('vários veículos: falta um → recusa nomeando o veículo; nada é grava
 
 check('vários veículos: valor inválido → recusa com o rótulo', () => {
   const vehicles = orderNumberVehicles([
-    { id: A, serialNumber: '10', customerOrderNumber: null },
-    { id: B, serialNumber: '11', customerOrderNumber: null },
+    { id: A, implement: { serialNumber: '10' }, customerOrderNumber: null },
+    { id: B, implement: { serialNumber: '11' }, customerOrderNumber: null },
   ]);
   const r = resolveOrderNumberSubmission(vehicles, [
     { taskId: A, value: '4500' },

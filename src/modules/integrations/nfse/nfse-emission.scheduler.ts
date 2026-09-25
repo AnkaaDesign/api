@@ -361,9 +361,9 @@ export class NfseEmissionScheduler {
                 select: {
                   id: true,
                   name: true,
-                  serialNumber: true,
                   implement: {
                     select: {
+                      serialNumber: true,
                       plate: true,
                       chassisNumber: true,
                       category: true,
@@ -419,12 +419,12 @@ export class NfseEmissionScheduler {
                         select: {
                           id: true,
                           name: true,
-                          serialNumber: true,
                           // O NÚMERO DO PEDIDO DE COMPRA é do VEÍCULO: a nota
                           // conjunta cita o de todos os que ela cobre.
                           customerOrderNumber: true,
                           implement: {
                             select: {
+                              serialNumber: true,
                               plate: true,
                               chassisNumber: true,
                               category: true,
@@ -615,7 +615,7 @@ export class NfseEmissionScheduler {
             emitTask = {
               id: sliceTask?.id ?? invoice.id,
               name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
-              serialNumber: sliceTask?.serialNumber || undefined,
+              serialNumber: sliceTask?.implement?.serialNumber || undefined,
             };
             emitImplement = implement
               ? {
@@ -631,7 +631,7 @@ export class NfseEmissionScheduler {
             // esta nota cobra — nunca dos que estão noutra nota do mesmo
             // orçamento.
             emitVehicles = coveredRows.map((t: any) => ({
-              serialNumber: t.serialNumber ?? null,
+              serialNumber: t.implement?.serialNumber ?? null,
               plate: t.implement?.plate ?? null,
               chassisNumber: t.implement?.chassisNumber ?? null,
               category: t.implement?.category ?? null,
@@ -784,9 +784,9 @@ export class NfseEmissionScheduler {
               select: {
                 id: true,
                 name: true,
-                serialNumber: true,
                 implement: {
                   select: {
+                    serialNumber: true,
                     plate: true,
                     chassisNumber: true,
                     category: true,
@@ -840,11 +840,11 @@ export class NfseEmissionScheduler {
                       select: {
                         id: true,
                         name: true,
-                        serialNumber: true,
                         // Ver a nota do caminho agendado: o pedido é do veículo.
                         customerOrderNumber: true,
                         implement: {
                           select: {
+                            serialNumber: true,
                             plate: true,
                             chassisNumber: true,
                             category: true,
@@ -1005,7 +1005,7 @@ export class NfseEmissionScheduler {
           emitTask = {
             id: sliceTask?.id ?? invoice.id,
             name: sliceTask?.name ?? `Orçamento ${nfseQuote?.budgetNumber ?? ''}`.trim(),
-            serialNumber: sliceTask?.serialNumber || undefined,
+            serialNumber: sliceTask?.implement?.serialNumber || undefined,
           };
           emitImplement = implement
             ? {
@@ -1016,7 +1016,7 @@ export class NfseEmissionScheduler {
               }
             : undefined;
           emitVehicles = coveredRows.map((t: any) => ({
-            serialNumber: t.serialNumber ?? null,
+            serialNumber: t.implement?.serialNumber ?? null,
             plate: t.implement?.plate ?? null,
             chassisNumber: t.implement?.chassisNumber ?? null,
             category: t.implement?.category ?? null,

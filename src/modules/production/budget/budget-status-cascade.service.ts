@@ -44,12 +44,12 @@ export class BudgetStatusCascadeService {
         // migração vai ler).
       const task = await this.prisma.task.findFirst({
         where: { quoteId },
-        select: { id: true, name: true, serialNumber: true },
+        select: { id: true, name: true, implement: { select: { serialNumber: true } } },
         orderBy: QUOTE_TASKS_ORDER_BY,
       });
-      if (task?.serialNumber) {
+      if (task?.implement?.serialNumber) {
         return {
-          label: task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`,
+          label: task.name ? `#${task.implement?.serialNumber} (${task.name})` : `#${task.implement?.serialNumber}`,
           taskId: task.id,
         };
       }

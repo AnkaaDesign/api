@@ -118,8 +118,8 @@ async function main(): Promise<void> {
     };
     check('o relatório diz ok', rel.ok === true);
     check(
-      'as seis fatias da R-B estão no relatório, em ordem de carimbo',
-      rel.fatias.map(f => f.id).join(',') === 'M1,M1s,M2,M3,M3o-a,M3o-b',
+      'as oito fatias da R-B estão no relatório, em ordem de carimbo',
+      rel.fatias.map(f => f.id).join(',') === 'M1,M1s,Mnom,M5s,M2,M3,M3o-a,M3o-b',
       rel.fatias.map(f => f.id).join(','),
     );
     check(

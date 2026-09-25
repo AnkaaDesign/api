@@ -104,7 +104,8 @@ export const serviceOrderOrderBySchema = z
             name: orderByDirectionSchema.optional(),
             status: orderByDirectionSchema.optional(),
             statusOrder: orderByDirectionSchema.optional(),
-            serialNumber: orderByDirectionSchema.optional(),
+            // a série é do implemento (DD1)
+            implement: z.object({ serialNumber: orderByDirectionSchema.optional() }).strict().optional(),
             entryDate: orderByDirectionSchema.optional(),
             term: orderByDirectionSchema.optional(),
             startedAt: orderByDirectionSchema.optional(),

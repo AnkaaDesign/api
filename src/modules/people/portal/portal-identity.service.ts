@@ -127,7 +127,6 @@ const taskSelectFor = (customerId: string) =>
     name: true,
     quoteId: true,
     customerId: true,
-    serialNumber: true,
     customerOrderNumber: true,
     purchaseOrderId: true,
     // A previsão de liberação — o cliente a edita pelo portal.
@@ -135,8 +134,9 @@ const taskSelectFor = (customerId: string) =>
     customer: { select: { id: true, fantasyName: true, corporateName: true } },
     implement: {
       select: {
-        id: true,
         serialNumber: true,
+        id: true,
+        
         plate: true,
         chassisNumber: true,
         category: true,
@@ -525,10 +525,9 @@ export class PortalIdentityService {
 
       // ── A SÉRIE, no IMPLEMENTO (DD1, W5) ──────────────────────────────────
       //
-      // `Task.serialNumber` virou espelho somente leitura (gatilho da M1s): gravar
-      // lá é erro 23514. A trilha continua `TASK/serialNumber` (S-5) — é a chave
-      // que o aditivo da assinatura e o histórico leem.
-      const serieAtual = task.implement?.serialNumber ?? task.serialNumber ?? null;
+      // A tarefa não tem mais a coluna. A trilha continua `TASK/serialNumber`
+      // (S-5) — é a chave que o aditivo da assinatura e o histórico leem.
+      const serieAtual = task.implement?.serialNumber ?? null;
       if (serie !== undefined && (serie ?? null) !== serieAtual) {
         await tx.implement.update({
           where: { taskId: task.id },

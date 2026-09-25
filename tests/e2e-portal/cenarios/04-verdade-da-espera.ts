@@ -36,7 +36,7 @@ async function montarPendencia(
 
   // Faxina da corrida anterior — este cenário CRIA orçamento.
   const velhos = await prisma.budget.findMany({
-    where: { tasks: { some: { serialNumber: { startsWith: 'ESPERA' } } } },
+    where: { tasks: { some: { implement: { serialNumber: { startsWith: 'ESPERA' } } } } },
     select: { id: true },
   });
   for (const v of velhos) {

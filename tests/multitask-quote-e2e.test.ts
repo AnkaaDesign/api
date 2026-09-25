@@ -251,7 +251,7 @@ async function main() {
     const afterOne = await prisma.task.findMany({
       where: { id: { in: taskIds } },
       select: { id: true, customerOrderNumber: true },
-      orderBy: { serialNumber: 'asc' },
+      orderBy: { implement: { serialNumber: 'asc' } },
     });
     check(
       'o segundo caminhão mudou',

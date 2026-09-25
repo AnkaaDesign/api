@@ -868,9 +868,8 @@ console.log('\n▸ Descrição do serviço (xDescServ)');
     description: 'Dragão na lateral direita',
     task: {
       name: 'Carreta Confiança',
-      serialNumber: '12345',
       customer: { fantasyName: 'Confiança Transportes', corporateName: null },
-      implement: { plate: 'FIB9473', chassisNumber: '9BW123', category: 'TRUCK', type: 'DRY_CARGO' },
+      implement: { serialNumber: '12345', plate: 'FIB9473', chassisNumber: '9BW123', category: 'TRUCK', type: 'DRY_CARGO' },
     },
   });
 
@@ -887,7 +886,11 @@ console.log('\n▸ Descrição do serviço (xDescServ)');
 
   const semVeiculo = buildServiceDescription(base, {
     description: null,
-    task: { name: 'OS 999', serialNumber: '999', customer: null, implement: null },
+    task: {
+      name: 'OS 999',
+      customer: null,
+      implement: { serialNumber: '999', plate: null, chassisNumber: null, category: null, type: null },
+    },
   });
   check('sem veículo, cita a ordem de serviço', semVeiculo.includes('ordem de serviço 999'), semVeiculo);
 
@@ -897,7 +900,11 @@ console.log('\n▸ Descrição do serviço (xDescServ)');
   // NT 2.4.5: xDescServ tem limite de 1300 caracteres.
   const gigante = buildServiceDescription(base, {
     description: 'x'.repeat(3000),
-    task: { name: 'T', serialNumber: '1', customer: null, implement: null },
+    task: {
+      name: 'T',
+      customer: null,
+      implement: { serialNumber: '1', plate: null, chassisNumber: null, category: null, type: null },
+    },
   });
   check('respeita o limite de 1300 caracteres', gigante.length <= 1300, String(gigante.length));
   check('trunca com reticências', gigante.endsWith('...'), gigante.slice(-10));

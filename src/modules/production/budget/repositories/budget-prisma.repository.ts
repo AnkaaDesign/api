@@ -526,7 +526,6 @@ export class BudgetPrismaRepository
           select: {
             id: true,
             name: true,
-            serialNumber: true,
             status: true,
             createdAt: true,
             term: true,
@@ -541,6 +540,7 @@ export class BudgetPrismaRepository
             // cliente vai receber — a conferência deixaria de ser a mesma.
             implement: {
               select: {
+                serialNumber: true,
                 id: true,
                 plate: true,
                 chassisNumber: true,

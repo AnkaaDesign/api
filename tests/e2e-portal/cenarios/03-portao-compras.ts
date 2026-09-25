@@ -79,7 +79,7 @@ async function main() {
 
   // ── FAXINA DA CORRIDA ANTERIOR ──────────────────────────────────────────
   const velhos = await prisma.budget.findMany({
-    where: { tasks: { some: { serialNumber: { startsWith: 'PCGATE' } } } },
+    where: { tasks: { some: { implement: { serialNumber: { startsWith: 'PCGATE' } } } } },
     select: { id: true },
   });
   for (const v of velhos) {

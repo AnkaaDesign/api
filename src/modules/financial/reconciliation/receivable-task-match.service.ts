@@ -187,7 +187,7 @@ export class ReceivableTaskMatchService {
         status: { notIn: ReceivableTaskMatchService.EXCLUDED_TASK_STATUSES as unknown as any },
         OR: [
           { nameNormalized: { contains: normalized } },
-          { serialNumberNormalized: { contains: normalized } },
+          { implement: { serialNumberNormalized: { contains: normalized } } },
           // Placa e chassi entram no banco sem separador — o termo perde o
           // hífen também, senão colar "ABC-1234" da tela não casa nada.
           { implement: { plateNormalized: { contains: plateTerm } } },
@@ -330,7 +330,6 @@ export class ReceivableTaskMatchService {
       select: {
         id: true,
         name: true,
-        serialNumber: true,
         status: true,
         entryDate: true,
         finishedAt: true,
@@ -339,7 +338,7 @@ export class ReceivableTaskMatchService {
         customer: {
           select: { id: true, fantasyName: true, corporateName: true, cnpj: true, cpf: true },
         },
-        implement: { select: { plate: true } },
+        implement: { select: { serialNumber: true, plate: true } },
         quote: {
           select: {
             id: true,
@@ -437,7 +436,7 @@ export class ReceivableTaskMatchService {
       return {
         taskId: task.id,
         taskName: task.name,
-        taskSerialNumber: task.serialNumber,
+        taskSerialNumber: task.implement?.serialNumber,
         taskStatus: task.status,
         plate: task.implement?.plate ?? null,
         customerId: customer?.id ?? task.customerId ?? null,
@@ -702,7 +701,7 @@ export class ReceivableTaskMatchService {
         id: true,
         name: true,
         status: true,
-        serialNumber: true,
+        implement: { select: { serialNumber: true } },
         customerId: true,
         finishedAt: true,
         quoteId: true,
@@ -765,7 +764,7 @@ export class ReceivableTaskMatchService {
     const dueDate = alloc.dueDate ?? task.finishedAt ?? tx.postedAt;
     const description =
       alloc.description?.trim() ||
-      `Conciliação bancária${task.serialNumber ? ` — OS ${task.serialNumber}` : ''}`;
+      `Conciliação bancária${task.implement?.serialNumber ? ` — OS ${task.implement?.serialNumber}` : ''}`;
 
     let quoteId = task.quote?.id ?? null;
     let budgetNumber = task.quote?.budgetNumber ?? 0;
@@ -1585,10 +1584,13 @@ export class ReceivableTaskMatchService {
     }
   }
 
-  private taskLabel(task: { name: string | null; serialNumber: string | null; id: string }): string {
-    return task.serialNumber
-      ? `#${task.serialNumber}`
-      : (task.name ?? task.id.slice(-8).toUpperCase());
+  private taskLabel(task: {
+    name: string | null;
+    implement?: { serialNumber: string | null } | null;
+    id: string;
+  }): string {
+    const serial = task.implement?.serialNumber;
+    return serial ? `#${serial}` : (task.name ?? task.id.slice(-8).toUpperCase());
   }
 
   private brl(v: number): string {

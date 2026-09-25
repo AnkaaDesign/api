@@ -82,9 +82,9 @@ async function main() {
       quoteId = t!.quoteId!;
       const q = await prisma.budget.findUnique({
         where: { id: quoteId },
-        select: { budgetNumber: true, total: true, tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } } },
+        select: { budgetNumber: true, total: true, tasks: { select: { id: true, implement: { select: { serialNumber: true } } }, orderBy: { implement: { serialNumber: 'asc' } } } },
       });
-      tasks = q!.tasks;
+      tasks = q!.tasks.map(t => ({ id: t.id, serialNumber: t.implement?.serialNumber ?? null }));
       info(`orçamento nº ${q!.budgetNumber} · ${tasks.length} veículos · contrato ${money(Number(q!.total))}`);
       check(`${c.tag}: nasceram ${c.nVeic} veículos`, tasks.length === c.nVeic, `${tasks.length}`);
 
@@ -147,7 +147,7 @@ async function main() {
           customerConfigs: {
             select: {
               id: true, total: true,
-              billing: { select: { id: true, status: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
+              billing: { select: { id: true, status: true, approvedAt: true, tasks: { select: { task: { select: { implement: { select: { serialNumber: true } } } } } } } },
             },
           },
         },
@@ -210,14 +210,14 @@ async function main() {
         select: {
           id: true, totalAmount: true,
           installments: { select: { amount: true, dueDate: true, number: true }, orderBy: { number: 'asc' } },
-          customerConfig: { select: { billing: { select: { tasks: { select: { task: { select: { serialNumber: true } } } } } } } },
+          customerConfig: { select: { billing: { select: { tasks: { select: { task: { select: { implement: { select: { serialNumber: true } } } } } } } } } },
         },
       });
       check(`${c.tag}: saiu UMA NFS-e por fatura`, notas.length === invoices.length,
         `notas=${notas.length} faturas=${invoices.length}`);
 
       for (const inv of invoices) {
-        const cobertos = (inv.customerConfig!.billing?.tasks ?? []).map(r => r.task?.serialNumber).filter(Boolean) as string[];
+        const cobertos = (inv.customerConfig!.billing?.tasks ?? []).map(r => r.task?.implement?.serialNumber).filter(Boolean) as string[];
         const nota = notas.find(n => {
           const d = JSON.stringify(n.body ?? {});
           return cobertos.every(sn => d.includes(sn));
@@ -238,8 +238,8 @@ async function main() {
           check(`${c.tag}: a discriminação nomeia o veículo ${sn}`, disc.includes(sn), disc.slice(0, 160));
         }
         const outros = (await prisma.task.findMany({
-          where: { quoteId, serialNumber: { notIn: cobertos } }, select: { serialNumber: true },
-        })).map(t => t.serialNumber).filter(Boolean) as string[];
+          where: { quoteId, implement: { serialNumber: { notIn: cobertos } } }, select: { implement: { select: { serialNumber: true } } },
+        })).map(t => t.implement?.serialNumber).filter(Boolean) as string[];
         for (const sn of outros) {
           check(`${c.tag}: a discriminação NÃO cita ${sn} (está noutra nota)`, !disc.includes(sn), disc.slice(0, 160));
         }

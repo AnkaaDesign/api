@@ -6499,7 +6499,7 @@ export class TaskService {
                     select: {
                       id: true,
                       name: true,
-                      serialNumber: true,
+                      implement: { select: { serialNumber: true } },
                       status: true,
                     },
                   });
@@ -6508,8 +6508,8 @@ export class TaskService {
                     this.logger.log(`[Task Update] Task name reloaded: "${taskWithName.name}"`);
                   } else {
                     // If still no name, use a default
-                    updatedTask.name = updatedTask.serialNumber
-                      ? `Tarefa ${updatedTask.serialNumber}`
+                    updatedTask.name = updatedTask.implement?.serialNumber
+                      ? `Tarefa ${updatedTask.implement?.serialNumber}`
                       : 'Tarefa sem nome';
                     this.logger.warn(
                       `[Task Update] Task ${id} has no name in database, using default: "${updatedTask.name}"`,
@@ -7149,7 +7149,7 @@ export class TaskService {
           task: {
             id: updatedTask.id,
             name: updatedTask.name,
-            serialNumber: updatedTask.serialNumber,
+            serialNumber: updatedTask.implement?.serialNumber,
             status: updatedTask.status,
             sectorId: updatedTask.sectorId,
           },
@@ -7307,6 +7307,8 @@ export class TaskService {
           const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
             include: {
               ...include,
+              // a série (trilha e aviso) é do implemento: sempre carregado aqui
+              implement: (include as any)?.implement ?? { select: { serialNumber: true } },
               layouts: {
                 include: {
                   file: {
@@ -8591,6 +8593,7 @@ export class TaskService {
           // Fetch updated task with all relations for comparison
           const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
             include: {
+              implement: { select: { serialNumber: true } },
               layouts: {
                 include: {
                   file: {
@@ -9022,14 +9025,10 @@ export class TaskService {
             }
 
             // A SÉRIE (DD1, W2 em lote): gravada no implemento pelo repositório; a
-            // trilha é TASK/serialNumber (S-5), lida do espelho que o gatilho
-            // atualizou na mesma transação.
-            if (
-              (updateData as any).serialNumber !== undefined ||
-              (updateData as any).implement?.serialNumber !== undefined
-            ) {
-              const oldSerial = (existingTask as any).serialNumber ?? null;
-              const newSerial = (updatedTask as any).serialNumber ?? null;
+            // trilha é TASK/serialNumber (S-5).
+            if ((updateData as any).implement?.serialNumber !== undefined) {
+              const oldSerial = (existingTask as any).implement?.serialNumber ?? null;
+              const newSerial = (updatedTask as any).implement?.serialNumber ?? null;
               if (hasValueChanged(oldSerial, newSerial)) {
                 await this.changeLogService.logChange({
                   entityType: ENTITY_TYPE.TASK,
@@ -9536,14 +9535,14 @@ export class TaskService {
       where: { taskId: { in: taskIds }, billing: BILLING_FROZEN_WHERE },
       select: {
         taskId: true,
-        task: { select: { serialNumber: true, name: true, implement: { select: { plate: true } } } },
+        task: { select: { name: true, implement: { select: { serialNumber: true, plate: true } } } },
         billing: { select: { quote: { select: { budgetNumber: true } } } },
       },
     });
     return cobertos.map((row: any) => ({
       taskId: row.taskId,
       label:
-        row.task?.serialNumber ??
+        row.task?.implement?.serialNumber ??
         row.task?.implement?.plate ??
         row.task?.name ??
         String(row.taskId).slice(0, 8),
@@ -10397,13 +10396,9 @@ export class TaskService {
       }
     }
 
-    // A SÉRIE (DD1): mora no implemento — no corpo, `implement.serialNumber` ou
-    // o legado no topo (D-32; topo × implemento diferentes já deram 400 no
-    // tradutor). Unicidade no IMPLEMENTO (`Implement_serialNumber_key`).
-    const serial =
-      (data as any).implement?.serialNumber !== undefined
-        ? (data as any).implement?.serialNumber
-        : data.serialNumber;
+    // A SÉRIE (DD1): mora no implemento, e o corpo só a traz em
+    // `implement.serialNumber`. Unicidade no IMPLEMENTO (`Implement_serialNumber_key`).
+    const serial = (data as any).implement?.serialNumber;
     if (serial) {
       // V15: na EDIÇÃO, a regra da série vale só quando ela MUDA — as 42 séries
       // antigas fora da regra migraram como estavam, e o app reenvia a série
@@ -13321,6 +13316,7 @@ export class TaskService {
           include: {
             implement: {
               select: {
+                serialNumber: true,
                 id: true,
                 category: true,
                 type: true,
@@ -13494,6 +13490,7 @@ export class TaskService {
           include: {
             implement: {
               select: {
+                serialNumber: true,
                 id: true,
                 category: true,
                 type: true,

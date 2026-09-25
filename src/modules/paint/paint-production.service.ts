@@ -874,12 +874,11 @@ export class PaintProductionService {
       select: {
         id: true,
         name: true,
-        serialNumber: true,
         status: true,
         forecastDate: true,
         term: true,
         customer: { select: { fantasyName: true } },
-        implement: { select: { plate: true } },
+        implement: { select: { serialNumber: true, plate: true } },
       },
       orderBy: [{ forecastDate: 'asc' }, { name: 'asc' }],
     });
@@ -887,7 +886,7 @@ export class PaintProductionService {
     const tasksOut = tasks.map((t) => ({
       id: t.id,
       name: t.name ?? 'Tarefa sem nome',
-      serialNumber: t.serialNumber ?? null,
+      serialNumber: t.implement?.serialNumber ?? null,
       status: t.status as string,
       forecastDate: t.forecastDate
         ? t.forecastDate.toISOString()

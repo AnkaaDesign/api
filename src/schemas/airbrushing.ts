@@ -229,7 +229,8 @@ export const airbrushingOrderBySchema = z
             name: orderByDirectionSchema.optional(),
             // "Identificador" sorts on the serial with NULLS LAST in both directions — the
             // plate-fallback rows would otherwise jump to the top on DESC (Postgres default).
-            serialNumber: orderByWithNullsSchema.optional(),
+            // A série é do implemento (DD1).
+            implement: z.object({ serialNumber: orderByWithNullsSchema.optional() }).strict().optional(),
             status: orderByDirectionSchema.optional(),
             createdAt: orderByDirectionSchema.optional(),
             updatedAt: orderByDirectionSchema.optional(),
@@ -278,7 +279,7 @@ export const airbrushingOrderBySchema = z
             .object({
               id: orderByDirectionSchema.optional(),
               name: orderByDirectionSchema.optional(),
-              serialNumber: orderByWithNullsSchema.optional(),
+              implement: z.object({ serialNumber: orderByWithNullsSchema.optional() }).strict().optional(),
               status: orderByDirectionSchema.optional(),
               createdAt: orderByDirectionSchema.optional(),
               updatedAt: orderByDirectionSchema.optional(),
@@ -626,7 +627,7 @@ const airbrushingTransform = (data: any): any => {
         { descriptionNormalized: { contains: normalizeSearchTerm(data.searchingFor) } },
         // "Identificador" — the task serial, falling back to the implement plate (both are what the
         // Identificador column renders, so searching either must find the row).
-        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } },
+        { task: { implement: { serialNumberNormalized: { contains: normalizeSearchTerm(data.searchingFor) } } } },
         { task: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(data.searchingFor) } } } },
       ],
     });

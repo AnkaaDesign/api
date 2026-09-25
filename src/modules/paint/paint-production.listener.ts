@@ -99,6 +99,7 @@ export class PaintProductionListener {
               name: true,
             },
           },
+          implement: { select: { serialNumber: true } },
         },
       });
 
@@ -143,7 +144,7 @@ export class PaintProductionListener {
           continue;
         }
 
-        const taskNames = userTasks.map(t => t.name || `#${t.serialNumber}`).slice(0, 3);
+        const taskNames = userTasks.map(t => t.name || `#${t.implement?.serialNumber}`).slice(0, 3);
         const taskList = taskNames.join(', ');
         const firstTask = userTasks[0];
         const deepLinks = this.deepLinkService.generateTaskLinks(firstTask.id);
@@ -158,7 +159,7 @@ export class PaintProductionListener {
             data: {
               paintName: event.paintName,
               taskName: taskList,
-              taskNames: userTasks.map(t => t.name || `#${t.serialNumber}`),
+              taskNames: userTasks.map(t => t.name || `#${t.implement?.serialNumber}`),
               volumeLiters: event.volumeLiters,
               producedByName: event.producedBy.name,
             },

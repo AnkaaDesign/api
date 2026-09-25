@@ -145,11 +145,10 @@ export class BillingService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
             createdAt: true,
             customerOrderNumber: true,
             finishedAt: true,
-            implement: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
           },
         },
       },
@@ -162,11 +161,10 @@ export class BillingService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
             createdAt: true,
             finishedAt: true,
             customerOrderNumber: true,
-            implement: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
           },
         },
       },
@@ -246,12 +244,11 @@ export class BillingService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
             status: true,
             createdAt: true,
             finishedAt: true,
             customerOrderNumber: true,
-            implement: { select: { plate: true } },
+            implement: { select: { serialNumber: true, plate: true } },
             customer: { select: { id: true, fantasyName: true, corporateName: true } },
           },
         },
@@ -363,7 +360,7 @@ export class BillingService {
           orderBy: [{ task: { createdAt: 'asc' } }, { taskId: 'asc' }],
           select: {
             taskId: true,
-            task: { select: { id: true, serialNumber: true, implement: { select: { plate: true } } } },
+            task: { select: { id: true, implement: { select: { serialNumber: true, plate: true } } } },
           },
         },
         customerConfigs: {
@@ -771,7 +768,7 @@ export class BillingService {
 
     const or: Record<string, unknown>[] = [
       onTask({ nameNormalized: { contains: n } }),
-      onTask({ serialNumberNormalized: { contains: n } }),
+      onTask({ implement: { serialNumberNormalized: { contains: n } } }),
       onTask({ detailsNormalized: { contains: n } }),
       onTask({ customer: { fantasyNameNormalized: { contains: n } } }),
       onTask({ customer: { corporateNameNormalized: { contains: n } } }),

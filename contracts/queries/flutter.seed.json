@@ -93,7 +93,7 @@
         "orderBy": [
           { "forecastDate": { "sort": "asc", "nulls": "last" } },
           { "name": "asc" },
-          { "serialNumber": { "sort": "asc", "nulls": "last" } }
+          { "implement": { "serialNumber": { "sort": "asc", "nulls": "last" } } }
         ],
         "include": {
           "customer": { "select": { "id": true, "fantasyName": true, "corporateName": true } },

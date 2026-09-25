@@ -129,7 +129,7 @@ async function conferirDinheiro(
         select: {
           id: true, total: true, generateInvoice: true, generateBankSlip: true,
           customer: { select: { fantasyName: true, corporateName: true } },
-          billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
+          billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { implement: { select: { serialNumber: true } } } } } } } },
         },
       },
     },
@@ -180,7 +180,7 @@ async function conferirDinheiro(
   // veículo deste orçamento aparece na discriminação da nota e no informativo do
   // boleto —, que é a única âncora que atravessa processos.
   const seriesDoOrcamento = configs
-    .flatMap(c => (c.billing?.tasks ?? []).map(r => r.task?.serialNumber))
+    .flatMap(c => (c.billing?.tasks ?? []).map(r => r.task?.implement?.serialNumber))
     .filter(Boolean) as string[];
   const meu = (x: { body: unknown }) => {
     const texto = JSON.stringify(x.body ?? {});
@@ -199,7 +199,7 @@ async function conferirDinheiro(
   for (const inv of invoices) {
     const cfg = configs.find(c => c.id === inv.customerConfigId)!;
     const nomeCliente = `${cfg.customer?.corporateName ?? ''} ${cfg.customer?.fantasyName ?? ''}`.trim();
-    const cobertos = (cfg.billing?.tasks ?? []).map(r => r.task?.serialNumber).filter(Boolean) as string[];
+    const cobertos = (cfg.billing?.tasks ?? []).map(r => r.task?.implement?.serialNumber).filter(Boolean) as string[];
     const n = Math.max(1, cobertos.length);
     const esperadoFatura = Math.round(precoDe(nomeCliente) * n * 100) / 100;
     check(`${tag}: fatura de ${n} veículo(s) de ${nomeCliente.slice(0, 18)} = ${money(esperadoFatura)}`,
@@ -282,8 +282,8 @@ async function conferirDinheiro(
 async function veiculosDo(quoteId: string) {
   return prisma.task.findMany({
     where: { quoteId },
-    select: { id: true, serialNumber: true },
-    orderBy: { serialNumber: 'asc' },
+    select: { id: true, implement: { select: { serialNumber: true } } },
+    orderBy: { implement: { serialNumber: 'asc' } },
   });
 }
 
@@ -520,7 +520,7 @@ async function main() {
 
     await openQuoteDetail(page, vs[0].id);
     await gotoCustomerStep(page, 1);
-    await setLots(page, [[vs[0].serialNumber!, vs[1].serialNumber!], [vs[2].serialNumber!, vs[3].serialNumber!]]);
+    await setLots(page, [[vs[0].implement?.serialNumber!, vs[1].implement?.serialNumber!], [vs[2].implement?.serialNumber!, vs[3].implement?.serialNumber!]]);
     await saveDetail(page);
 
     const cobertura = await prisma.budgetPayer.findMany({
@@ -584,7 +584,7 @@ async function main() {
       const linhas: string[] = ((b.body as any)?.informativos ?? []) as string[];
       check('C3: o informativo do boleto declara 2 veículos',
         linhas.some(l => /2 veiculos/i.test(l)), JSON.stringify(linhas));
-      const citadas = vs.filter(v => linhas.join(' ').includes(v.serialNumber!)).length;
+      const citadas = vs.filter(v => linhas.join(' ').includes(v.implement?.serialNumber!)).length;
       check('C3: o boleto cita a faixa de séries do SEU lote (2 séries)', citadas === 2,
         `cita ${citadas}: ${JSON.stringify(linhas)}`);
     }
@@ -592,11 +592,11 @@ async function main() {
     // Cada nota fala SÓ dos seus dois caminhões.
     const notas = (await sentinelaCalls()).filter(
       x => x.seq > marcador && x.path.includes('salvar-nota-fiscal') &&
-        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.serialNumber!)),
+        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.implement?.serialNumber!)),
     );
     for (const n of notas) {
       const disc: string = (n.body as any)?.formDadosNFSe?.discriminacaoServico ?? '';
-      const citados = vs.filter(v => disc.includes(v.serialNumber!)).length;
+      const citados = vs.filter(v => disc.includes(v.implement?.serialNumber!)).length;
       check('C3: cada nota cita exatamente os 2 veículos do seu lote', citados === 2,
         `cita ${citados}: ${disc.replace(/\n/g, ' ⏎ ')}`);
     }
@@ -653,7 +653,7 @@ async function main() {
 
     const notas = (await sentinelaCalls()).filter(
       x => x.seq > marcador && x.path.includes('salvar-nota-fiscal') &&
-        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.serialNumber!)),
+        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.implement?.serialNumber!)),
     );
     check('C4: saiu uma nota por cliente', notas.length === 2, `${notas.length}`);
     for (const n of notas) {
@@ -730,7 +730,7 @@ async function main() {
     // Recorte pelo CONTEÚDO, como em `conferirDinheiro`: a sentinela é comum aos
     // quatro workers, e "nenhuma nota saiu" só é afirmável sobre ESTES veículos.
     const meuC5 = (x: { body: unknown }) =>
-      vs.some(v => JSON.stringify(x.body ?? {}).includes(v.serialNumber!));
+      vs.some(v => JSON.stringify(x.body ?? {}).includes(v.implement?.serialNumber!));
     const chamadas = (await sentinelaCalls()).filter(x => x.seq > marcador && meuC5(x));
     const notas = chamadas.filter(x => x.path.includes('salvar-nota-fiscal'));
     const boletos = chamadas.filter(x => x.integration === 'sicredi' && x.method === 'POST' && x.path.endsWith('/boletos'));
@@ -984,7 +984,7 @@ async function main() {
     // Cada nota fala de UM caminhão e de UM cliente.
     const notas = (await sentinelaCalls()).filter(
       x => x.seq > marcador && x.path.includes('salvar-nota-fiscal') &&
-        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.serialNumber!)),
+        vs.some(v => JSON.stringify(x.body ?? {}).includes(v.implement?.serialNumber!)),
     );
     check('C8: saíram 4 notas (uma por fatia)', notas.length === 4, `${notas.length}`);
     for (const n of notas) {
@@ -999,7 +999,7 @@ async function main() {
         itens.length === 1 && Number(itens[0]?.quantidade) === 1,
         JSON.stringify(itens.map(i => ({ q: i.quantidade, v: i.valorLiquido }))));
       const disc: string = body?.formDadosNFSe?.discriminacaoServico ?? '';
-      const citados = vs.filter(v => disc.includes(v.serialNumber!)).length;
+      const citados = vs.filter(v => disc.includes(v.implement?.serialNumber!)).length;
       check('C8: a discriminação cita exatamente UM veículo', citados === 1, disc.replace(/\n/g, ' ⏎ '));
     }
   });

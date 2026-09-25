@@ -2410,10 +2410,6 @@ model Task {
   name         String?    @default("Tarefa Sem Nome")
   status       TaskStatus @default(PREPARATION)
   statusOrder  Int        @default(1)
-  /// [R-B M1s] ESPELHO somente leitura de Implement.serialNumber (gatilho
-  /// "Implement_serial_mirror"). Sem @unique: a unicidade é só do implemento (DD1).
-  /// Escrever aqui = erro 23514 (gatilho "Task_serial_is_mirror"). Sai na M5s (R-D).
-  serialNumber String?
 
   /// O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE — por VEÍCULO.
   ///
@@ -2518,7 +2514,6 @@ model Task {
   nameNormalized         String? /// accent-insensitive search (generated column, see migration)
   /// [R-B M1s] a coluna gerada e o GIN da tarefa FICAM até a M5s (o espelho alimenta a busca
   /// dos leitores ainda não migrados); `omit` global como hoje.
-  serialNumberNormalized String? /// accent-insensitive search (generated column, see migration)
 
   @@index([status, sectorId])
   @@index([statusOrder])

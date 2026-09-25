@@ -114,7 +114,7 @@ export class ImplementService {
         select: {
           taskId: true,
           task: {
-            select: { id: true, name: true, serialNumber: true, sectorId: true, status: true },
+            select: { id: true, name: true, implement: { select: { serialNumber: true } }, sectorId: true, status: true },
           },
         },
       });

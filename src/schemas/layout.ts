@@ -352,7 +352,7 @@ const layoutTransform = (data: any) => {
         { file: { filenameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
         { file: { originalNameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
         { task: { nameNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
-        { task: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } },
+        { task: { implement: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } },
       ],
     });
   }

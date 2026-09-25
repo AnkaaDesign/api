@@ -84,7 +84,7 @@ export class LayoutListener {
     try {
       const task = event.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
+      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
@@ -136,7 +136,7 @@ export class LayoutListener {
     try {
       const task = event.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
+      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
       const reasonText = event.reason ? ` Motivo: ${event.reason}` : '';
 
       const deepLinks = task
@@ -191,7 +191,7 @@ export class LayoutListener {
     try {
       const task = event.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
+      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
       const daysText = event.daysPending === 1 ? '1 dia' : `${event.daysPending} dias`;
 
       const deepLinks = task

@@ -21,28 +21,9 @@ ALTER TABLE "Implement" DROP COLUMN IF EXISTS "plateNormalized";
 ALTER TABLE "Implement" ADD COLUMN "plateNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(plate))) STORED;
 
 -- ════ M1s (20260930120050_serie_no_implemento_e_implemento_obrigatorio) ════
-CREATE OR REPLACE FUNCTION public.implement_serial_mirror()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  UPDATE "Task" SET "serialNumber" = NEW."serialNumber"
-   WHERE "id" = NEW."taskId" AND "serialNumber" IS DISTINCT FROM NEW."serialNumber";
-  RETURN NULL;
-END $function$;
-
-CREATE OR REPLACE FUNCTION public.task_serial_is_mirror()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF pg_trigger_depth() = 1 AND NEW."serialNumber" IS DISTINCT FROM
-     (CASE WHEN TG_OP = 'UPDATE' THEN OLD."serialNumber" ELSE NULL END) THEN
-    RAISE EXCEPTION 'Task.serialNumber é espelho de Implement.serialNumber: grave no implemento'
-      USING ERRCODE = '23514';
-  END IF;
-  RETURN NEW;
-END $function$;
+-- O espelho Implement → Task.serialNumber e a guarda dele nascem na M1s e caem na M5s
+-- (20260930120070_serie_so_no_implemento), na MESMA release (decisão de 25/09): o estado final
+-- não os tem, então não entram aqui.
 
 CREATE OR REPLACE FUNCTION public.task_must_have_implement()
  RETURNS trigger
@@ -67,14 +48,16 @@ ALTER TABLE "Implement" DROP COLUMN IF EXISTS "serialNumberNormalized";
 ALTER TABLE "Implement" ADD COLUMN "serialNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("serialNumber"))) STORED;
 CREATE INDEX IF NOT EXISTS "Implement_serialNumberNormalized_trgm_idx" ON public."Implement" USING gin ("serialNumberNormalized" gin_trgm_ops);
 
-DROP TRIGGER IF EXISTS "Implement_serial_mirror" ON "Implement";
-CREATE TRIGGER "Implement_serial_mirror" AFTER INSERT OR UPDATE OF "serialNumber", "taskId" ON public."Implement" FOR EACH ROW EXECUTE FUNCTION implement_serial_mirror();
-DROP TRIGGER IF EXISTS "Task_serial_is_mirror" ON "Task";
-CREATE TRIGGER "Task_serial_is_mirror" BEFORE INSERT OR UPDATE OF "serialNumber" ON public."Task" FOR EACH ROW EXECUTE FUNCTION task_serial_is_mirror();
 DROP TRIGGER IF EXISTS "Task_has_implement" ON "Task";
 CREATE CONSTRAINT TRIGGER "Task_has_implement" AFTER INSERT ON public."Task" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
 DROP TRIGGER IF EXISTS "Implement_keeps_task_covered" ON "Implement";
 CREATE CONSTRAINT TRIGGER "Implement_keeps_task_covered" AFTER DELETE OR UPDATE OF "taskId" ON public."Implement" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
+
+-- ════ Mnom (20260930120060_implemento_nomenclatura_completa) ════
+-- Só renomeia tipo, valor de enum e dados: nenhum objeto novo.
+
+-- ════ M5s (20260930120070_serie_so_no_implemento) ════
+-- Só remove (a coluna-espelho da tarefa, a gerada e o GIN dela, o espelho e a guarda).
 
 -- ════ M2 (20260930120100_implemento_frente_e_porta_traseira) ════
 ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorBarCount_check";

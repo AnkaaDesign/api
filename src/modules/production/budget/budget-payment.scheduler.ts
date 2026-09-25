@@ -89,7 +89,7 @@ export class BudgetPaymentScheduler {
                     select: {
                       id: true,
                       name: true,
-                      serialNumber: true,
+                      implement: { select: { serialNumber: true } },
                       status: true,
                     },
                   },
@@ -153,7 +153,7 @@ export class BudgetPaymentScheduler {
           action: 'payment_due',
           data: {
             taskName: task.name,
-            serialNumber: task.serialNumber,
+            serialNumber: task.implement?.serialNumber,
             customerName: config.customer.fantasyName || 'N/A',
             installmentLabel,
             dueDate,
@@ -172,8 +172,8 @@ export class BudgetPaymentScheduler {
         // date has now passed and the quote is still not settled.
         try {
           const customerName = config.customer.fantasyName || 'N/A';
-          const quoteLabel = task.serialNumber
-            ? `#${task.serialNumber}${task.name ? ` (${task.name})` : ''}`
+          const quoteLabel = task.implement?.serialNumber
+            ? `#${task.implement?.serialNumber}${task.name ? ` (${task.name})` : ''}`
             : task.name || quote.id.slice(-8).toUpperCase();
           await this.dispatchService.dispatchByConfiguration(
             'task_quote.installment_overdue',
@@ -184,7 +184,7 @@ export class BudgetPaymentScheduler {
               action: 'installment_overdue',
               data: {
                 taskName: task.name,
-                serialNumber: task.serialNumber,
+                serialNumber: task.implement?.serialNumber,
                 customerName,
                 installmentLabel,
                 dueDate,

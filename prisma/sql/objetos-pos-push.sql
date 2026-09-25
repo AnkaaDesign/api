@@ -1,15 +1,15 @@
 -- G25 — OBJETOS DE BANCO QUE `prisma db push` NÃO CRIA.
 --
 -- GERADO por scripts/gen-objetos-pos-push.ts a partir de um banco migrado
--- (2026-09-23). NÃO EDITAR À MÃO: regerar quando uma migration
+-- (2026-09-25). NÃO EDITAR À MÃO: regerar quando uma migration
 -- criar coluna gerada, gatilho, função, índice GIN/expressão ou CHECK.
 --
 -- Uso, num banco de TESTE que subiu por `db push`:
 --   psql "$URL" -v ON_ERROR_STOP=1 -f prisma/sql/objetos-pos-push.sql
 -- Idempotente. NUNCA rodar em produção (lá tudo vem das migrations).
 --
--- 2 extensões, 11 funções, 172 colunas geradas,
--- 9 gatilhos, 18 índices, 21 CHECKs.
+-- 2 extensões, 9 funções, 171 colunas geradas,
+-- 7 gatilhos, 17 índices, 21 CHECKs.
 
 BEGIN;
 
@@ -126,16 +126,6 @@ CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
  IMMUTABLE PARALLEL SAFE STRICT
 AS $function$ SELECT public.unaccent('public.unaccent'::regdictionary, $1) $function$;
 
-CREATE OR REPLACE FUNCTION public.implement_serial_mirror()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  UPDATE "Task" SET "serialNumber" = NEW."serialNumber"
-   WHERE "id" = NEW."taskId" AND "serialNumber" IS DISTINCT FROM NEW."serialNumber";
-  RETURN NULL;
-END $function$;
-
 CREATE OR REPLACE FUNCTION public.item_latest_price(p_item_id text)
  RETURNS double precision
  LANGUAGE sql
@@ -233,19 +223,6 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
   RETURN NULL;
-END $function$;
-
-CREATE OR REPLACE FUNCTION public.task_serial_is_mirror()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  IF pg_trigger_depth() = 1 AND NEW."serialNumber" IS DISTINCT FROM
-     (CASE WHEN TG_OP = 'UPDATE' THEN OLD."serialNumber" ELSE NULL END) THEN
-    RAISE EXCEPTION 'Task.serialNumber é espelho de Implement.serialNumber: grave no implemento'
-      USING ERRCODE = '23514';
-  END IF;
-  RETURN NEW;
 END $function$;
 
 -- ── colunas geradas ──
@@ -507,8 +484,6 @@ ALTER TABLE "Task" DROP COLUMN IF EXISTS "detailsNormalized";
 ALTER TABLE "Task" ADD COLUMN "detailsNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(details))) STORED;
 ALTER TABLE "Task" DROP COLUMN IF EXISTS "nameNormalized";
 ALTER TABLE "Task" ADD COLUMN "nameNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(name))) STORED;
-ALTER TABLE "Task" DROP COLUMN IF EXISTS "serialNumberNormalized";
-ALTER TABLE "Task" ADD COLUMN "serialNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("serialNumber"))) STORED;
 ALTER TABLE "TaskFieldChangeLog" DROP COLUMN IF EXISTS "fieldNormalized";
 ALTER TABLE "TaskFieldChangeLog" ADD COLUMN "fieldNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(field))) STORED;
 ALTER TABLE "TaskForecastHistory" DROP COLUMN IF EXISTS "notesNormalized";
@@ -607,8 +582,6 @@ DROP TRIGGER IF EXISTS "file_no_delete_when_referenced" ON "File";
 CREATE TRIGGER file_no_delete_when_referenced BEFORE DELETE ON public."File" FOR EACH ROW EXECUTE FUNCTION file_block_referenced_delete();
 DROP TRIGGER IF EXISTS "Implement_keeps_task_covered" ON "Implement";
 CREATE CONSTRAINT TRIGGER "Implement_keeps_task_covered" AFTER DELETE OR UPDATE OF "taskId" ON public."Implement" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
-DROP TRIGGER IF EXISTS "Implement_serial_mirror" ON "Implement";
-CREATE TRIGGER "Implement_serial_mirror" AFTER INSERT OR UPDATE OF "serialNumber", "taskId" ON public."Implement" FOR EACH ROW EXECUTE FUNCTION implement_serial_mirror();
 DROP TRIGGER IF EXISTS "item_total_price_sync" ON "Item";
 CREATE TRIGGER item_total_price_sync BEFORE INSERT OR UPDATE OF quantity ON public."Item" FOR EACH ROW EXECUTE FUNCTION item_sync_total_price();
 DROP TRIGGER IF EXISTS "monetary_value_item_total_price_sync" ON "MonetaryValue";
@@ -617,8 +590,6 @@ DROP TRIGGER IF EXISTS "signature_audit_no_mutate" ON "SignatureAuditEvent";
 CREATE TRIGGER signature_audit_no_mutate BEFORE DELETE OR UPDATE ON public."SignatureAuditEvent" FOR EACH ROW EXECUTE FUNCTION signature_audit_append_only();
 DROP TRIGGER IF EXISTS "Task_has_implement" ON "Task";
 CREATE CONSTRAINT TRIGGER "Task_has_implement" AFTER INSERT ON public."Task" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
-DROP TRIGGER IF EXISTS "Task_serial_is_mirror" ON "Task";
-CREATE TRIGGER "Task_serial_is_mirror" BEFORE INSERT OR UPDATE OF "serialNumber" ON public."Task" FOR EACH ROW EXECUTE FUNCTION task_serial_is_mirror();
 
 -- ── índices (GIN/GiST, de expressão e sobre coluna gerada) ──
 CREATE INDEX IF NOT EXISTS "Budget_statusOrder_queueRank_idx" ON public."Budget" USING btree ("statusOrder", "queueRank");
@@ -637,7 +608,6 @@ CREATE INDEX IF NOT EXISTS "Representative_roles_idx" ON public."Representative"
 CREATE INDEX IF NOT EXISTS "Supplier_corporateNameNormalized_trgm_idx" ON public."Supplier" USING gin ("corporateNameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "Supplier_fantasyNameNormalized_trgm_idx" ON public."Supplier" USING gin ("fantasyNameNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "Task_nameNormalized_trgm_idx" ON public."Task" USING gin ("nameNormalized" gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS "Task_serialNumberNormalized_trgm_idx" ON public."Task" USING gin ("serialNumberNormalized" gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS "User_nameNormalized_trgm_idx" ON public."User" USING gin ("nameNormalized" gin_trgm_ops);
 
 -- ── CHECKs ──

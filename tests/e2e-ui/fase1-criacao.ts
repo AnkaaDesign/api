@@ -33,7 +33,7 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
   const taskId = taskUrl.split('/').pop()!;
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { quoteId: true, serialNumber: true },
+    select: { quoteId: true, implement: { select: { serialNumber: true } } },
   });
   if (!check(`${label}: a tela redirecionou para uma tarefa que existe`, !!task?.quoteId, taskUrl)) return null;
 
@@ -42,7 +42,7 @@ async function assertQuote(label: string, taskUrl: string, e: Expect) {
     select: {
       id: true, budgetNumber: true, vehicleCount: true, subtotal: true, total: true,
       billingSplit: true,
-      tasks: { select: { id: true, serialNumber: true } },
+      tasks: { select: { id: true, implement: { select: { serialNumber: true } } } },
       customerConfigs: {
         select: {
           id: true, customerId: true, total: true, subtotal: true,

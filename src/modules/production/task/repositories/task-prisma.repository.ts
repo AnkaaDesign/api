@@ -69,7 +69,7 @@ const TASK_SELECT_MINIMAL: Prisma.TaskSelect = {
   name: true,
   status: true,
   statusOrder: true,
-  serialNumber: true,
+  implement: { select: { serialNumber: true } },
   term: true,
   forecastDate: true,
   cleared: true,
@@ -105,6 +105,7 @@ const TASK_SELECT_CARD: Prisma.TaskSelect = {
   },
   implement: {
     select: {
+      serialNumber: true,
       id: true,
       plate: true,
       spot: true,
@@ -129,7 +130,6 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
   name: true,
   status: true,
   statusOrder: true,
-  serialNumber: true,
   entryDate: true,
   term: true,
   startedAt: true,
@@ -149,6 +149,7 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
   },
   implement: {
     select: {
+      serialNumber: true,
       id: true,
       plate: true,
       spot: true,
@@ -233,6 +234,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
   },
   implement: {
     select: {
+      serialNumber: true,
       id: true,
       plate: true,
       chassisNumber: true,
@@ -464,6 +466,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   },
   implement: {
     select: {
+      serialNumber: true,
       id: true,
       plate: true,
       chassisNumber: true,
@@ -571,7 +574,7 @@ const TASK_SELECT_DUE_DATE_SORT: Prisma.TaskSelect = {
   name: true,
   status: true,
   statusOrder: true,
-  serialNumber: true,
+  implement: { select: { serialNumber: true } },
   bonificationOrder: true,
   entryDate: true,
   term: true,
@@ -923,7 +926,6 @@ export class TaskPrismaRepository
     const {
       name,
       status,
-      serialNumber,
       // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. Sem estar nesta
       // desestruturação o campo é ACEITO pelo zod e DESCARTADO aqui: a tela
       // grava, a API responde 200, e o valor nunca chega ao banco.
@@ -970,8 +972,7 @@ export class TaskPrismaRepository
       ),
     };
 
-    // A SÉRIE NÃO vai para `Task` (W1, DD1): `Task.serialNumber` é espelho
-    // somente leitura (gatilho da M1s) — ela nasce no implemento, logo abaixo.
+    // A SÉRIE é do implemento (W1, DD1): nasce nele, logo abaixo.
     if (customerOrderNumber !== undefined) {
       taskData.customerOrderNumber = customerOrderNumber;
     }
@@ -1074,17 +1075,16 @@ export class TaskPrismaRepository
     // W1 (DD1): TODA tarefa nasce com implemento — mesmo sem nenhum campo (o
     // gatilho diferido "Task_has_implement" recusa, no COMMIT, a que nascer sem).
     // `spot` SEMPRE explícito: null até a tarefa ser liberada (o default antigo
-    // punha o veículo "no pátio"). A série do topo (legado, D-32) cai aqui
-    // quando o corpo não a trouxe dentro do implemento.
+    // punha o veículo "no pátio").
     {
       const implementInput: Record<string, any> =
         implement && typeof implement === 'object' ? implement : {};
       const implementData: Record<string, unknown> = {
         spot: implementInput.spot !== undefined ? implementInput.spot : null,
       };
-      const serial =
-        implementInput.serialNumber !== undefined ? implementInput.serialNumber : serialNumber;
-      if (serial !== undefined) implementData.serialNumber = serial ?? null;
+      if (implementInput.serialNumber !== undefined) {
+        implementData.serialNumber = implementInput.serialNumber ?? null;
+      }
       if (implementInput.plate !== undefined) implementData.plate = implementInput.plate;
       if (implementInput.chassisNumber !== undefined) {
         implementData.chassisNumber = implementInput.chassisNumber;
@@ -1282,7 +1282,6 @@ export class TaskPrismaRepository
     const {
       name,
       status,
-      serialNumber,
       // O PEDIDO DE COMPRA DO CLIENTE, deste veículo. Sem estar nesta
       // desestruturação o campo é ACEITO pelo zod e DESCARTADO aqui: a tela
       // grava, a API responde 200, e o valor nunca chega ao banco.
@@ -1322,7 +1321,7 @@ export class TaskPrismaRepository
     const updateData: Prisma.TaskUpdateInput = {};
 
     if (name !== undefined) updateData.name = name;
-    // A SÉRIE vai para o implemento (W2, logo abaixo): `Task.serialNumber` é espelho.
+    // A SÉRIE é do implemento (W2, logo abaixo).
     if (customerOrderNumber !== undefined) {
       updateData.customerOrderNumber = customerOrderNumber;
     }
@@ -1501,9 +1500,7 @@ export class TaskPrismaRepository
     }
 
     // W2 (DD1): o implemento SEMPRE existe — `update`, nunca `upsert`/`delete`.
-    // `implement: null` (ou o velho `implement: null`) já foi recusado com 400 pelo
-    // tradutor; aqui é a segunda cerca. A série do topo (legado, D-32) cai no
-    // implemento quando o corpo não a trouxe dentro dele.
+    // `implement: null` é recusado aqui com 400 (o schema também não o aceita).
     if (implement === null) {
       throw new BadRequestException(
         'O implemento não pode ser removido da tarefa; limpe os campos.',
@@ -1513,9 +1510,9 @@ export class TaskPrismaRepository
       const implementInput: Record<string, any> =
         implement && typeof implement === 'object' ? implement : {};
       const implementUpdate: Record<string, unknown> = {};
-      const serial =
-        implementInput.serialNumber !== undefined ? implementInput.serialNumber : serialNumber;
-      if (serial !== undefined) implementUpdate.serialNumber = serial ?? null;
+      if (implementInput.serialNumber !== undefined) {
+        implementUpdate.serialNumber = implementInput.serialNumber ?? null;
+      }
       if (implementInput.plate !== undefined) implementUpdate.plate = implementInput.plate;
       if (implementInput.chassisNumber !== undefined) {
         implementUpdate.chassisNumber = implementInput.chassisNumber;

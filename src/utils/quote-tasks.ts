@@ -41,8 +41,25 @@ export const QUOTE_TASKS_ORDER_BY = [{ createdAt: 'asc' as const }, { id: 'asc' 
 export interface QuoteTaskLike {
   id: string;
   createdAt?: Date | string | null;
+  /** A série é do implemento (DD1; a tarefa não tem mais a coluna). */
+  implement?: { serialNumber?: string | null; plate?: string | null } | null;
+  /**
+   * SÓ em grafo CONGELADO: envelopes, dossiês e trilhas gravados em JSONB antes
+   * de a série ir para o implemento guardam a série no topo da tarefa. É
+   * registro (não se reescreve); dado vivo nunca traz este campo.
+   */
   serialNumber?: string | null;
   name?: string | null;
+}
+
+/**
+ * A série de uma tarefa. Viva: `implement.serialNumber`. Grafo congelado antigo
+ * (ver `QuoteTaskLike.serialNumber`): o campo do topo, como foi gravado.
+ */
+export function taskSerialOf(
+  t: { implement?: { serialNumber?: string | null } | null; serialNumber?: string | null } | null | undefined,
+): string | null {
+  return t?.implement?.serialNumber ?? t?.serialNumber ?? null;
 }
 
 /**
@@ -397,7 +414,7 @@ export function coverageLabels<T extends QuoteTaskLike & { implement?: { plate?:
   return coverageRows(config).map(row => {
     const t = (row.task ?? byId.get(row.taskId) ?? null) as T | null;
     return (
-      (t?.serialNumber || undefined) ??
+      (taskSerialOf(t) || undefined) ??
       (t?.implement?.plate || undefined) ??
       (t?.name || undefined) ??
       row.taskId.slice(0, 8)
@@ -642,10 +659,9 @@ export const QUOTE_COVERAGE_INCLUDE: {
       select: {
         id: true,
         name: true,
-        serialNumber: true,
         createdAt: true,
         customerOrderNumber: true,
-        implement: { select: { plate: true } },
+        implement: { select: { serialNumber: true, plate: true } },
       },
     },
   },

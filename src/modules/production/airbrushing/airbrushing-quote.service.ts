@@ -932,10 +932,9 @@ export class AirbrushingQuoteService {
         select: {
           id: true,
           name: true,
-          serialNumber: true,
           term: true,
           customer: { select: { id: true, fantasyName: true } },
-          implement: { select: { id: true, plate: true, chassisNumber: true } },
+          implement: { select: { serialNumber: true, id: true, plate: true, chassisNumber: true } },
         },
       },
       layouts: {

@@ -619,7 +619,6 @@ export class SignatureEnvelopeService {
           select: {
             id: true,
             createdAt: true,
-            serialNumber: true,
             responsibles: {
               // `roles` entra porque é delas que sai o recorte padrão de cada
               // contato — o preflight existe justamente para mostrar isso ANTES
@@ -627,7 +626,7 @@ export class SignatureEnvelopeService {
               select: { id: true, name: true, phone: true, email: true, roles: true },
               orderBy: { createdAt: 'asc' },
             },
-            implement: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
           },
         },
       },
@@ -805,7 +804,7 @@ export class SignatureEnvelopeService {
       if (!t.implement?.chassisNumber?.trim()) missing.push('chassi');
       return {
         taskId: t.id,
-        serialNumber: t.serialNumber ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
         plate: t.implement?.plate ?? null,
         chassisNumber: t.implement?.chassisNumber ?? null,
         missing,
@@ -1152,8 +1151,7 @@ export class SignatureEnvelopeService {
           select: {
             id: true,
             createdAt: true,
-            serialNumber: true,
-            implement: { select: { plate: true } },
+            implement: { select: { serialNumber: true, plate: true } },
           },
         },
       },
@@ -1948,9 +1946,12 @@ export class SignatureEnvelopeService {
       tasks?: Array<{
         id: string;
         createdAt?: Date | null;
-        serialNumber?: string | null;
         customerOrderNumber?: string | null;
-        implement?: { plate?: string | null; chassisNumber?: string | null } | null;
+        implement?: {
+          serialNumber?: string | null;
+          plate?: string | null;
+          chassisNumber?: string | null;
+        } | null;
       }> | null;
     };
   }): Array<{ key: string; label: string }> {
@@ -1974,13 +1975,13 @@ export class SignatureEnvelopeService {
     const labelSuffix: Record<string, string> = {};
     tasks.forEach((t, index) => {
       const values: Record<string, string | null | undefined> = {
-        serialNumber: t.serialNumber,
+        serialNumber: t.implement?.serialNumber,
         plate: t.implement?.plate,
         chassis: t.implement?.chassisNumber,
         orderNumber: t.customerOrderNumber,
       };
       const suffix = multi
-        ? ` — ${t.serialNumber ? `nº ${t.serialNumber}` : (t.implement?.plate ?? t.id.slice(0, 8))}`
+        ? ` — ${t.implement?.serialNumber ? `nº ${t.implement.serialNumber}` : (t.implement?.plate ?? t.id.slice(0, 8))}`
         : '';
       for (const [field, value] of Object.entries(values)) {
         registry[lateSlotKey(field, t.id)] = value;
@@ -3434,7 +3435,7 @@ export class SignatureEnvelopeService {
               include: {
                 tasks: {
                   orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                  include: { customer: true, implement: { select: { plate: true } } },
+                  include: { customer: true, implement: { select: { serialNumber: true, plate: true } } },
                 },
               },
             },
@@ -5302,11 +5303,11 @@ export class SignatureEnvelopeService {
             taskId: t.id,
             name: t.name ?? null,
             label:
-              (t.serialNumber || undefined) ??
+              (t.implement?.serialNumber || undefined) ??
               (t.implement?.plate || undefined) ??
               (t.name || undefined) ??
               t.id.slice(0, 8),
-            serialNumber: t.serialNumber ?? null,
+            serialNumber: t.implement?.serialNumber ?? null,
             plate: t.implement?.plate ?? null,
             customerOrderNumber: (t.customerOrderNumber ?? '').trim() || null,
             purchaseOrder: t.purchaseOrder
@@ -6719,7 +6720,7 @@ export class SignatureEnvelopeService {
     const lateValues = buildLateValueMap(
       sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
         taskId: t.id,
-        serialNumber: t.serialNumber ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
         plate: t.implement?.plate ?? null,
         chassis: t.implement?.chassisNumber ?? null,
         orderNumber: t.customerOrderNumber ?? null,
@@ -7866,7 +7867,7 @@ export class SignatureEnvelopeService {
     const lateValues = buildLateValueMap(
       sortQuoteTasks(env.quote.tasks ?? []).map(t => ({
         taskId: t.id,
-        serialNumber: t.serialNumber ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
         plate: t.implement?.plate ?? null,
         chassis: t.implement?.chassisNumber ?? null,
         orderNumber: t.customerOrderNumber ?? null,
@@ -8107,7 +8108,7 @@ export class SignatureEnvelopeService {
       // documento sempre falou dele.
       if (!was) continue;
       const now: Record<string, string | null> = {
-        serialNumber: task.serialNumber ?? null,
+        serialNumber: task.implement?.serialNumber ?? null,
         plate: task.implement?.plate ?? null,
         chassis: task.implement?.chassisNumber ?? null,
         orderNumber: task.customerOrderNumber ?? null,
@@ -8143,7 +8144,7 @@ export class SignatureEnvelopeService {
           // chamadas "Chassi" e nenhuma diz a que implemento pertence.
           label: multiVehicle
             ? `${LATE_SLOT_LABELS[field] ?? field} — ${
-                task.serialNumber ? `nº ${task.serialNumber}` : (task.implement?.plate ?? task.id.slice(0, 8))
+                task.implement?.serialNumber ? `nº ${task.implement?.serialNumber}` : (task.implement?.plate ?? task.id.slice(0, 8))
               }`
             : (LATE_SLOT_LABELS[field] ?? field),
           value,
@@ -8806,9 +8807,8 @@ export class SignatureEnvelopeService {
           select: {
             id: true,
             createdAt: true,
-            serialNumber: true,
             customerOrderNumber: true,
-            implement: { select: { plate: true, chassisNumber: true } },
+            implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
           },
         },
       },

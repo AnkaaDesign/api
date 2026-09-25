@@ -141,11 +141,10 @@
                 "select": {
                   "id": true,
                   "name": true,
-                  "serialNumber": true,
                   "createdAt": true,
                   "customerOrderNumber": true,
                   "finishedAt": true,
-                  "implement": { "select": { "id": true, "plate": true, "chassisNumber": true } }
+                  "implement": { "select": { "id": true, "serialNumber": true, "plate": true, "chassisNumber": true } }
                 }
               }
             }

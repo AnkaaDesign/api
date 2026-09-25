@@ -1140,7 +1140,7 @@ export class InvoiceAnalyticsService {
             createdAt: true,
             totalAmount: true,
             paidAmount: true,
-            task: { select: { id: true, name: true, serialNumber: true } },
+            task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
             customer: {
               select: {
                 id: true,
@@ -1370,7 +1370,7 @@ export class InvoiceAnalyticsService {
             customerName: inst.invoice?.customer?.fantasyName ?? 'Cliente sem nome',
             taskId: inst.invoice?.task?.id ?? null,
             taskName: inst.invoice?.task?.name ?? null,
-            taskSerialNumber: inst.invoice?.task?.serialNumber ?? null,
+            taskSerialNumber: inst.invoice?.task?.implement?.serialNumber ?? null,
             invoiceTotalAmount: Number(inst.invoice?.totalAmount ?? 0),
             installmentNumber: inst.number,
             totalInstallments: inst.invoice?._count?.installments ?? 0,

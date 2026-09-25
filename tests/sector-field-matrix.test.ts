@@ -119,11 +119,11 @@ const CORPOS: Corpo[] = [
       name: 'Transportadora Exemplo',
       details: 'Pintura completa',
       customerId: U(40),
-      serialNumber: '38174',
       customerOrderNumber: 'PC-1234',
       forecastDate: AGORA,
       status: 'PREPARATION',
       implement: {
+        serialNumber: '38174',
         plate: 'ABC1D23',
         chassisNumber: '9BWZZZ377VT004251',
         category: 'TRUCK',
@@ -183,10 +183,9 @@ const CORPOS: Corpo[] = [
     corpo: {
       name: 'Transportadora Exemplo',
       customerId: U(70),
-      serialNumber: '38175',
       status: 'PREPARATION',
       forecastDate: AGORA,
-      implement: { plate: 'XYZ9A87', category: 'TRUCK', type: 'DRY_CARGO' },
+      implement: { serialNumber: '38175', plate: 'XYZ9A87', category: 'TRUCK', type: 'DRY_CARGO' },
       responsibleIds: [U(71)],
       serviceOrders: [
         { description: 'Aprovar com o Cliente', type: 'COMMERCIAL', status: 'PENDING' },
@@ -396,9 +395,9 @@ function main(): void {
     'o domínio `implement` só conhece o nome novo (migração completa, DD13)',
     JSON.stringify(TASK_FIELD_DOMAINS.implement) === JSON.stringify(['implement']),
   );
-  // O corpo do app antigo (1.4.1: `truck` com `implementType`) é RECUSADO: não
-  // há nome antigo aceito nem para compatibilidade (DD13). Quem não atualizou
-  // leva o 426 antes de chegar aqui.
+  // O corpo do app antigo (1.4.1: `truck` com `implementType`, série no topo) é
+  // RECUSADO: não há forma antiga aceita nem para compatibilidade (DD13). Quem
+  // não atualizou leva o 426 antes de chegar aqui.
   {
     const velho = taskCreateSchema.safeParse({
       name: 'Veículo da produção',
@@ -406,6 +405,12 @@ function main(): void {
       truck: { plate: 'UIO7P88', implementType: 'REFRIGERATED' },
     });
     check('o corpo com `truck` (app 1.4.1) é recusado pelo zod', !velho.success);
+    const serieNoTopo = taskCreateSchema.safeParse({
+      name: 'Veículo da produção',
+      status: 'PREPARATION',
+      serialNumber: '38177',
+    });
+    check('a série no TOPO do corpo é recusada (só em `implement`)', !serieNoTopo.success);
   }
 
   console.log(`\n${ok} ok, ${fail} falha(s)`);

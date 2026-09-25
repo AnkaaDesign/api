@@ -594,7 +594,7 @@ const customerTransform = (data: any) => {
       { neighborhoodNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { addressNormalized: { contains: normalizeSearchTerm(searchingFor) } },
       { tasks: { some: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(searchingFor) } } } } },
-      { tasks: { some: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } },
+      { tasks: { some: { implement: { serialNumberNormalized: { contains: normalizeSearchTerm(searchingFor) } } } } },
     ];
 
     // Add CNPJ search conditions - search both with original input and cleaned version

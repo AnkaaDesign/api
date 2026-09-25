@@ -204,7 +204,6 @@ const TASK_BASE_SELECT = {
   name: true,
   status: true,
   statusOrder: true,
-  serialNumber: true,
   customerOrderNumber: true,
   entryDate: true,
   startedAt: true,
@@ -216,12 +215,11 @@ const TASK_BASE_SELECT = {
   purchaseOrder: { select: { id: true, number: true, issuedAt: true } },
   implement: {
     select: {
+      serialNumber: true,
       plate: true,
       chassisNumber: true,
       category: true,
       type: true,
-      // DD1: a série é do implemento (o topo `serialNumber` da tarefa é o espelho)
-      serialNumber: true,
       vinPlate: { select: FILE_SELECT },
       leftSideMeasure: { select: MEASURE_SELECT },
       rightSideMeasure: { select: MEASURE_SELECT },
@@ -277,7 +275,7 @@ const VEHICLE_ORDER_BY: Record<
   name: { build: dir => ({ name: vazioNoFim(dir) }), section: null },
   budgetNumber: { build: dir => ({ quote: { budgetNumber: dir } }), section: null },
   createdAt: { build: dir => ({ createdAt: dir }), section: null },
-  serialNumber: { build: dir => ({ serialNumber: vazioNoFim(dir) }), section: 'VEHICLE' },
+  serialNumber: { build: dir => ({ implement: { serialNumber: vazioNoFim(dir) } }), section: 'VEHICLE' },
   plate: { build: dir => ({ implement: { plate: vazioNoFim(dir) } }), section: 'VEHICLE' },
   chassisNumber: { build: dir => ({ implement: { chassisNumber: vazioNoFim(dir) } }), section: 'VEHICLE' },
   customer: { build: dir => ({ customer: { fantasyName: dir } }), section: 'VEHICLE' },
@@ -871,10 +869,9 @@ export class PortalReadService {
             select: {
               id: true,
               name: true,
-              serialNumber: true,
               startedAt: true,
               forecastDate: true,
-              implement: { select: { plate: true } },
+              implement: { select: { serialNumber: true, plate: true } },
               quote: { select: { id: true, budgetNumber: true } },
             },
           }),
@@ -942,7 +939,7 @@ export class PortalReadService {
             vehicles: inProductionRows.map((t: any) => ({
               taskId: t.id,
               name: t.name,
-              serialNumber: t.serialNumber,
+              serialNumber: t.implement?.serialNumber ?? null,
               plate: t.implement?.plate ?? null,
               startedAt: t.startedAt,
               forecastDate: t.forecastDate,
@@ -973,7 +970,7 @@ export class PortalReadService {
         OR: [
           ...(Number.isFinite(numero) && numero > 0 ? [{ budgetNumber: numero }] : []),
           { tasks: { some: { name: { contains: termo, mode: 'insensitive' as const } } } },
-          { tasks: { some: { serialNumber: { contains: termo, mode: 'insensitive' as const } } } },
+          { tasks: { some: { implement: { serialNumber: { contains: termo, mode: 'insensitive' as const } } } } },
           {
             tasks: { some: { implement: { plate: { contains: termo, mode: 'insensitive' as const } } } },
           },
@@ -1424,7 +1421,7 @@ export class PortalReadService {
       filtros.push({
         OR: [
           { name: { contains: termo, mode: 'insensitive' } },
-          { serialNumber: { contains: termo, mode: 'insensitive' } },
+          { implement: { serialNumber: { contains: termo, mode: 'insensitive' } } },
           { customerOrderNumber: { contains: termo, mode: 'insensitive' } },
           { implement: { plate: { contains: termo, mode: 'insensitive' } } },
           { implement: { chassisNumber: { contains: termo, mode: 'insensitive' } } },
@@ -1685,9 +1682,8 @@ export class PortalReadService {
                         select: {
                           id: true,
                           name: true,
-                          serialNumber: true,
                           customerOrderNumber: true,
-                          implement: { select: { plate: true } },
+                          implement: { select: { serialNumber: true, plate: true } },
                         },
                       },
                     },
@@ -1700,9 +1696,8 @@ export class PortalReadService {
             select: {
               id: true,
               name: true,
-              serialNumber: true,
               customerOrderNumber: true,
-              implement: { select: { plate: true } },
+              implement: { select: { serialNumber: true, plate: true } },
               quote: { select: { id: true, budgetNumber: true, status: true, statusOrder: true } },
             },
           },
@@ -1799,7 +1794,7 @@ export class PortalReadService {
         vehicles: vehicles.map((t: any) => ({
           taskId: t.id,
           name: t.name,
-          serialNumber: t.serialNumber,
+          serialNumber: t.implement?.serialNumber ?? null,
           plate: t.implement?.plate ?? null,
           customerOrderNumber: t.customerOrderNumber ?? null,
         })),

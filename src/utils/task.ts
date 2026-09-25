@@ -190,8 +190,8 @@ export function getDaysUntilDeadline(task: Task): number | null {
  * Format task identifier
  */
 export function formatTaskIdentifier(task: Task): string {
-  if (task.serialNumber) return task.serialNumber;
-  if ((task as any).implement?.plate) return (task as any).implement.plate;
+  if (task.implement?.serialNumber) return task.implement.serialNumber;
+  if (task.implement?.plate) return task.implement.plate;
   return `#${task.id.slice(-6).toUpperCase()}`;
 }
 

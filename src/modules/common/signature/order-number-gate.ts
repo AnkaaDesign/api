@@ -84,9 +84,8 @@ export interface OrderNumberTask {
   id: string;
   name?: string | null;
   status?: string | null;
-  serialNumber?: string | null;
   customerOrderNumber?: string | null;
-  implement?: { plate?: string | null } | null;
+  implement?: { serialNumber?: string | null; plate?: string | null } | null;
 }
 
 /**
@@ -106,7 +105,8 @@ export function orderNumberScope<T extends OrderNumberTask>(tasks: readonly T[])
 /** "Série 1234 · ABC1D23" — como o signatário reconhece o veículo. */
 export function orderNumberVehicleLabel(task: OrderNumberTask, index: number): string {
   const parts: string[] = [];
-  if (task.serialNumber?.trim()) parts.push(`Série ${task.serialNumber.trim()}`);
+  const serial = task.implement?.serialNumber?.trim();
+  if (serial) parts.push(`Série ${serial}`);
   if (task.implement?.plate?.trim()) parts.push(task.implement.plate.trim().toUpperCase());
   if (parts.length === 0 && task.name?.trim()) parts.push(task.name.trim());
   return parts.length ? parts.join(' · ') : `Veículo ${index + 1}`;

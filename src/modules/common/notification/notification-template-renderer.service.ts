@@ -73,7 +73,8 @@ export interface NotificationContext {
   task?: {
     id?: string;
     name?: string;
-    serialNumber?: string;
+    /** a série é do implemento (DD1) */
+    implement?: { serialNumber?: string | null } | null;
     status?: TASK_STATUS;
   };
   taskId?: string;
@@ -388,7 +389,7 @@ export class NotificationTemplateRendererService {
     const variables: Record<string, any> = {
       // Task information
       taskName: context.taskName || context.task?.name || '',
-      serialNumber: context.serialNumber || context.task?.serialNumber || '',
+      serialNumber: context.serialNumber || context.task?.implement?.serialNumber || '',
       taskId: context.taskId || context.task?.id || '',
 
       // Value changes (formatted)
@@ -426,7 +427,7 @@ export class NotificationTemplateRendererService {
       task: {
         id: context.task?.id || context.taskId || '',
         name: context.task?.name || context.taskName || '',
-        serialNumber: context.task?.serialNumber || context.serialNumber || '',
+        serialNumber: context.task?.implement?.serialNumber || context.serialNumber || '',
         status: context.task?.status ? this.formatValue(context.task.status, 'formatStatus') : '',
       },
     };

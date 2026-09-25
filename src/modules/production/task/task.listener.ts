@@ -122,7 +122,7 @@ export class TaskListener {
     this.logger.log('[TASK EVENT] Task created event received');
     this.logger.log(`[TASK EVENT] Task ID: ${event.task.id}`);
     this.logger.log(`[TASK EVENT] Task Name: ${event.task.name}`);
-    this.logger.log(`[TASK EVENT] Serial Number: ${event.task.serialNumber || 'N/A'}`);
+    this.logger.log(`[TASK EVENT] Serial Number: ${event.task.implement?.serialNumber || 'N/A'}`);
     this.logger.log(`[TASK EVENT] Created By: ${event.createdBy.name} (${event.createdBy.id})`);
     this.logger.log('========================================');
 
@@ -134,7 +134,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           changedBy: event.createdBy?.name || 'Sistema',
         },
@@ -173,7 +173,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           fieldName: 'status',
           oldValue: TASK_STATUS_LABELS[event.oldStatus as TASK_STATUS] || event.oldStatus,
@@ -266,7 +266,7 @@ export class TaskListener {
             data: {
               taskId: event.task.id,
               taskName: event.task.name,
-              serialNumber: event.task.serialNumber,
+              serialNumber: event.task.implement?.serialNumber,
               taskSectorId: event.task.sectorId || null,
               fieldName: 'implement.measures',
               changedBy: changedByName,
@@ -312,7 +312,7 @@ export class TaskListener {
           data: {
             taskId: event.task.id,
             taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
+            serialNumber: event.task.implement?.serialNumber,
             taskSectorId: event.task.sectorId || null,
             fieldName: event.field,
             oldValue: event.oldValue,
@@ -389,7 +389,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           daysRemaining: event.daysRemaining,
           hoursRemaining: event.hoursRemaining,
@@ -425,7 +425,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           daysOverdue: event.daysOverdue,
           dueDate: event.task.term
@@ -473,7 +473,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           daysRemaining: event.daysRemaining,
           hasIncompleteOrders: event.hasIncompleteOrders,
@@ -512,7 +512,7 @@ export class TaskListener {
         data: {
           taskId: event.task.id,
           taskName: event.task.name,
-          serialNumber: event.task.serialNumber,
+          serialNumber: event.task.implement?.serialNumber,
           taskSectorId: event.task.sectorId || null,
           daysOverdue: event.daysOverdue,
           hasIncompleteOrders: event.hasIncompleteOrders,
@@ -548,7 +548,7 @@ export class TaskListener {
           data: {
             taskId: task.id,
             taskName: task.name,
-            serialNumber: task.serialNumber,
+            serialNumber: task.implement?.serialNumber,
             taskSectorId: task.sectorId || null,
             changedBy: changedBy?.name || 'Sistema',
           },

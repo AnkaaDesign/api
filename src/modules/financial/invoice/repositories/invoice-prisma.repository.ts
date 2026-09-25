@@ -40,7 +40,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
         select: {
           id: true,
           name: true,
-          serialNumber: true,
+          implement: { select: { serialNumber: true } },
         },
       },
       // A COBERTURA no include PADRÃO. É ela que responde "de quais veículos é
@@ -90,7 +90,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
 
     if (include.task) {
       prismaInclude.task = {
-        select: { id: true, name: true, serialNumber: true },
+        select: { id: true, name: true, implement: { select: { serialNumber: true } } },
       };
     }
 

@@ -70,7 +70,7 @@ const ALVO = join(STAGED, 'schema.alvo.prisma');
 const OBJETOS_RB = join(STAGED, 'objetos-pos-push.r-b.sql');
 const M0 = '20260930100000_arte_estados_e_tipos';
 
-export type FatiaId = 'M1' | 'M1s' | 'M2' | 'M3' | 'M3o-a' | 'M3o-b';
+export type FatiaId = 'M1' | 'M1s' | 'Mnom' | 'M5s' | 'M2' | 'M3' | 'M3o-a' | 'M3o-b';
 export const FATIAS: ReadonlyArray<{ id: FatiaId; nome: string; promotor: string }> = [
   { id: 'M1', nome: '20260930120000_truck_vira_implement', promotor: 'P11a' },
   {
@@ -78,6 +78,10 @@ export const FATIAS: ReadonlyArray<{ id: FatiaId; nome: string; promotor: string
     nome: '20260930120050_serie_no_implemento_e_implemento_obrigatorio',
     promotor: 'P11a',
   },
+  // DD13 (24/09): o nome antigo do implemento sai também dos dados.
+  { id: 'Mnom', nome: '20260930120060_implemento_nomenclatura_completa', promotor: 'P11a (DD13)' },
+  // Decisão de 25/09: a série só no implemento — o espelho da tarefa cai na mesma release.
+  { id: 'M5s', nome: '20260930120070_serie_so_no_implemento', promotor: 'P11a (série)' },
   { id: 'M2', nome: '20260930120100_implemento_frente_e_porta_traseira', promotor: 'P11b' },
   { id: 'M3', nome: '20260930120200_arte_do_implemento_e_projeto_da_tarefa', promotor: 'P12' },
   {
@@ -244,6 +248,8 @@ interface Estado {
   veiculo: 'Implement' | 'Truck';
   colunaTipo: 'type' | 'implementType';
   serieNoImplemento: boolean;
+  /** `Task.serialNumber` ainda existe (antes da M5s) */
+  serieNaTarefa: boolean;
   arteNoImplemento: boolean;
   temQuoteLayout: boolean;
   temBudgetLayoutTask: boolean;
@@ -254,6 +260,7 @@ async function lerEstado(c: PgClient): Promise<Estado> {
     veiculo,
     colunaTipo: (await temColuna(c, veiculo, 'type')) ? 'type' : 'implementType',
     serieNoImplemento: veiculo === 'Implement' && (await temColuna(c, 'Implement', 'serialNumber')),
+    serieNaTarefa: await temColuna(c, 'Task', 'serialNumber'),
     arteNoImplemento: await temColuna(c, 'Layout', 'implementId'),
     temQuoteLayout: await temColuna(c, 'File', 'quoteLayoutId'),
     temBudgetLayoutTask: await existe(c, 'BudgetLayoutTask'),
@@ -274,7 +281,12 @@ async function contagens(c: PgClient): Promise<Record<string, number>> {
     ),
     ImplementMeasure: await num(c, `SELECT count(*) FROM "ImplementMeasure"`),
     SignatureEnvelope: await num(c, `SELECT count(*) FROM "SignatureEnvelope"`),
-    seriesPreenchidas: await num(c, `SELECT count(*) FROM "Task" WHERE "serialNumber" IS NOT NULL`),
+    seriesPreenchidas: await num(
+      c,
+      e.serieNaTarefa
+        ? `SELECT count(*) FROM "Task" WHERE "serialNumber" IS NOT NULL`
+        : `SELECT count(*) FROM "Implement" WHERE "serialNumber" IS NOT NULL`,
+    ),
   };
   if (await existe(c, '_TaskLayouts'))
     out._TaskLayouts = await num(c, `SELECT count(*) FROM "_TaskLayouts"`);
@@ -379,7 +391,8 @@ async function leituras(c: PgClient, quoteIds: string[]): Promise<Map<string, Le
   );
   const tarefas = await rows(
     c,
-    `SELECT t."id", t."quoteId", t."status"::text AS status, t."serialNumber" AS "taskSerial",
+    `SELECT t."id", t."quoteId", t."status"::text AS status,
+            ${e.serieNaTarefa ? 't."serialNumber"' : 'NULL::text'} AS "taskSerial",
             v."plate", v."chassisNumber", v."category"::text AS category, v."${e.colunaTipo}"::text AS "implementType"
             ${e.serieNoImplemento ? ', v."serialNumber" AS "implSerial"' : ''}
        FROM "Task" t LEFT JOIN "${e.veiculo}" v ON v."taskId" = t."id"
@@ -738,6 +751,81 @@ const CHECAGENS: Record<FatiaId, Checagem> = {
       nome: 'gatilho: criar tarefa com série direto na Task → 23514',
       esperado: 'erro 23514',
       achado: e7 ?? 'erro 23514',
+    });
+  },
+
+  Mnom: async (c, _antes, add) => {
+    add({
+      nome: 'tipo TRUCK_SPOT renomeado (IMPLEMENT_SPOT existe, TRUCK_SPOT não)',
+      esperado: 1,
+      achado: await num(
+        c,
+        `SELECT (EXISTS (SELECT 1 FROM pg_type WHERE typname='IMPLEMENT_SPOT') AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typname='TRUCK_SPOT'))::int`,
+      ),
+    });
+    add({
+      nome: "ChangeLogEntityType sem o valor 'TRUCK' (virou 'IMPLEMENT')",
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT count(*) FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='ChangeLogEntityType' AND e.enumlabel='TRUCK'`,
+      ),
+    });
+    add({
+      nome: 'histórico sem campo `truck.*` (TaskFieldChangeLog e ChangeLog)',
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT (SELECT count(*) FROM "TaskFieldChangeLog" WHERE "field" LIKE 'truck.%') + (SELECT count(*) FROM "ChangeLog" WHERE "field" LIKE 'truck.%')`,
+      ),
+    });
+    add({
+      nome: 'nenhuma chave/evento de aviso com o nome antigo',
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT (SELECT count(*) FROM "NotificationConfiguration" WHERE "key" ~ '(^|\\.)truck\\.' OR "eventType" ~ '(^|\\.)truck\\.')
+              + (SELECT count(*) FROM "UserNotificationPreference" WHERE "eventType" ~ '(^|\\.)truck\\.')
+              + (SELECT count(*) FROM "Notification" WHERE "metadata"->>'configKey' ~ '(^|\\.)truck\\.' OR "metadata"->>'fieldName' LIKE 'truck.%')`,
+      ),
+    });
+    add({
+      nome: 'preferências de tela sem id composto do nome antigo (o ícone "truck"/"Truck" fica)',
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT count(*) FROM "Preferences" WHERE concat_ws(' ', "dashboardLayoutWeb"::text, "dashboardLayoutMobile"::text, "tableConfigsWeb"::text, "detailConfigsWeb"::text, "tableConfigsMobile"::text, "detailConfigsMobile"::text) ~ '"(hasTruck|trucks?[A-Z][A-Za-z0-9_]*|truck\\.[A-Za-z])'`,
+      ),
+    });
+    add({
+      nome: "Atenção sem entidade 'TRUCK'",
+      esperado: 0,
+      achado: await num(c, `SELECT count(*) FROM "AttentionAck" WHERE "entityType" = 'TRUCK'`),
+    });
+  },
+
+  M5s: async (c, antes, add) => {
+    add({
+      nome: 'Task.serialNumber e Task.serialNumberNormalized não existem mais',
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT count(*) FROM information_schema.columns WHERE table_name='Task' AND column_name IN ('serialNumber','serialNumberNormalized')`,
+      ),
+    });
+    add({
+      nome: 'o espelho e a guarda dele não existem mais (gatilhos e funções)',
+      esperado: 0,
+      achado: await num(
+        c,
+        `SELECT (SELECT count(*) FROM pg_trigger WHERE tgname IN ('Implement_serial_mirror','Task_serial_is_mirror'))
+              + (SELECT count(*) FROM pg_proc WHERE proname IN ('implement_serial_mirror','task_serial_is_mirror'))`,
+      ),
+    });
+    add({
+      nome: 'nenhuma série perdida: séries no implemento = séries de antes',
+      esperado: antes.seriesPreenchidas,
+      achado: await num(c, `SELECT count(*) FROM "Implement" WHERE "serialNumber" IS NOT NULL`),
     });
   },
 
@@ -1267,7 +1355,9 @@ async function impressaoDoDado(c: PgClient): Promise<string> {
   const e = await lerEstado(c);
   await h(
     'tarefa',
-    `SELECT md5(string_agg(id || ':' || coalesce("serialNumber",'∅'), ',' ORDER BY id)) h FROM "Task"`,
+    e.serieNaTarefa
+      ? `SELECT md5(string_agg(id || ':' || coalesce("serialNumber",'∅'), ',' ORDER BY id)) h FROM "Task"`
+      : `SELECT md5(string_agg(id, ',' ORDER BY id)) h FROM "Task"`,
   );
   await h(
     'veiculo',
@@ -1692,9 +1782,12 @@ const SOBREVIVENTES: Array<{ padrao: RegExp; porque: string }> = [
     porque: 'BudgetLayoutTask cai na M4 (DD6: a M3 já a transformou em arte de cada implemento)',
   },
   {
-    padrao: /^ALTER TABLE "Implement" ALTER COLUMN "serialNumberNormalized" DROP DEFAULT$/,
+    padrao: /^ALTER TABLE "Implement" ALTER COLUMN "(serialNumber|plate|chassisNumber)Normalized" DROP DEFAULT$/,
     porque:
-      'coluna GERADA (M1s) que o Prisma vê como default — a mesma deriva das 170 colunas *Normalized de hoje',
+      'colunas GERADAS (série da M1s; placa e chassi já eram de "Truck") que o Prisma vê como default — a ' +
+      'mesma deriva das 170 colunas *Normalized de hoje. Placa e chassi só aparecem aqui quando o banco de ' +
+      'origem ainda tem "Truck": o diff de ANTES é contra o schema.prisma, que já diz "Implement", e vê ' +
+      'tabela nova em vez da deriva antiga',
   },
   {
     padrao: /^DROP INDEX "Implement_serialNumberNormalized_trgm_idx"$/,

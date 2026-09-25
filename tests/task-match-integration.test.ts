@@ -643,7 +643,7 @@ async function main() {
     });
   }
   const c1 = await prisma.customer.create({ data: { fantasyName: 'Cli A', cnpj: '21212121000121', fantasyNameNormalized: 'cli a' } });
-  const t1 = await prisma.task.create({ data: { name: 'T A', serialNumber: 'E-1', status: 'COMPLETED' as any, statusOrder: 4, finishedAt: D('2026-07-10'), customerId: c1.id } });
+  const t1 = await prisma.task.create({ data: { name: 'T A', implement: { create: { serialNumber: 'E-1', spot: null } }, status: 'COMPLETED' as any, statusOrder: 4, finishedAt: D('2026-07-10'), customerId: c1.id } });
   const tx1 = await prisma.bankTransaction.create({ data: { bankCode:'748',bankName:'Sicredi',agency:'0710',accountNumber:'1',fitId:'E1',postedAt:D('2026-07-15'),amount:1000,type:'CREDIT' as any,subtype:'PIX' as any,counterpartyCnpjCpf:'21212121000121',counterpartyName:'CLI A',reconciliationStatus:'PENDING' as any } });
   await svc.matchTasks(tx1.id, [{ taskId: t1.id, amount: 1000 }], USER_ID);
   const tags = await prisma.bankTransactionCategory.findMany({ where: { transactionId: tx1.id }, include: { category: true } });
@@ -655,7 +655,7 @@ async function main() {
   const tasks = [], txs = [];
   for (let i = 0; i < 5; i++) {
     const c = await prisma.customer.create({ data: { fantasyName: `Cli C${i}`, cnpj: `3131313100012${i}`, fantasyNameNormalized: norm(`Cli C${i}`) } });
-    tasks.push(await prisma.task.create({ data: { name: `T C${i}`, serialNumber: `E-C${i}`, status: 'COMPLETED' as any, statusOrder: 4, finishedAt: D('2026-07-10'), customerId: c.id } }));
+    tasks.push(await prisma.task.create({ data: { name: `T C${i}`, implement: { create: { serialNumber: `E-C${i}`, spot: null } }, status: 'COMPLETED' as any, statusOrder: 4, finishedAt: D('2026-07-10'), customerId: c.id } }));
     txs.push(await prisma.bankTransaction.create({ data: { bankCode:'748',bankName:'Sicredi',agency:'0710',accountNumber:'1',fitId:`EC${i}`,postedAt:D('2026-07-15'),amount:1000+i,type:'CREDIT' as any,subtype:'PIX' as any,counterpartyCnpjCpf:`3131313100012${i}`,reconciliationStatus:'PENDING' as any } }));
   }
   const results = await Promise.allSettled(
@@ -677,7 +677,7 @@ async function main() {
 
   console.log('\nD. Crédito IGNORADO é recusado');
   const c2 = await prisma.customer.create({ data: { fantasyName: 'Cli D', cnpj: '41414141000141', fantasyNameNormalized: 'cli d' } });
-  const t2 = await prisma.task.create({ data: { name: 'T D', serialNumber: 'E-D', status: 'COMPLETED' as any, statusOrder: 4, customerId: c2.id } });
+  const t2 = await prisma.task.create({ data: { name: 'T D', implement: { create: { serialNumber: 'E-D', spot: null } }, status: 'COMPLETED' as any, statusOrder: 4, customerId: c2.id } });
   const tx2 = await prisma.bankTransaction.create({ data: { bankCode:'748',bankName:'Sicredi',agency:'0710',accountNumber:'1',fitId:'ED',postedAt:D('2026-07-15'),amount:500,type:'CREDIT' as any,subtype:'PIX' as any,reconciliationStatus:'IGNORED' as any, ignoredReason:'teste ignorado' } });
   let ign = false;
   try { await svc.matchTasks(tx2.id, [{ taskId: t2.id, amount: 500 }], USER_ID); }
@@ -687,8 +687,8 @@ async function main() {
 
   console.log('\nE. Rollback: falha em UMA alocação desfaz o lote inteiro');
   const c3 = await prisma.customer.create({ data: { fantasyName: 'Cli E', cnpj: '51515151000151', fantasyNameNormalized: 'cli e' } });
-  const tGood = await prisma.task.create({ data: { name: 'T E1', serialNumber: 'E-E1', status: 'COMPLETED' as any, statusOrder: 4, customerId: c3.id } });
-  const tBad  = await prisma.task.create({ data: { name: 'T E2', serialNumber: 'E-E2', status: 'COMPLETED' as any, statusOrder: 4, customerId: null } }); // sem cliente
+  const tGood = await prisma.task.create({ data: { name: 'T E1', implement: { create: { serialNumber: 'E-E1', spot: null } }, status: 'COMPLETED' as any, statusOrder: 4, customerId: c3.id } });
+  const tBad  = await prisma.task.create({ data: { name: 'T E2', implement: { create: { serialNumber: 'E-E2', spot: null } }, status: 'COMPLETED' as any, statusOrder: 4, customerId: null } }); // sem cliente
   const tx3 = await prisma.bankTransaction.create({ data: { bankCode:'748',bankName:'Sicredi',agency:'0710',accountNumber:'1',fitId:'EE',postedAt:D('2026-07-15'),amount:900,type:'CREDIT' as any,subtype:'PIX' as any,reconciliationStatus:'PENDING' as any } });
   let rolled = false;
   try { await svc.matchTasks(tx3.id, [{ taskId: tGood.id, amount: 400 }, { taskId: tBad.id, amount: 500 }], USER_ID); }

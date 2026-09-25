@@ -44,12 +44,12 @@ async function main() {
     where: { id: t0!.quoteId! },
     select: {
       budgetNumber: true,
-      tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } },
+      tasks: { select: { id: true, implement: { select: { serialNumber: true } } }, orderBy: { implement: { serialNumber: 'asc' } } },
       customerConfigs: { select: { id: true } },
     },
   });
   if (!quote) { check('orçamento criado', false); return; }
-  const seriais = quote.tasks.map(t => t.serialNumber!);
+  const seriais = quote.tasks.map(t => t.implement?.serialNumber!);
   info(`orçamento nº ${quote.budgetNumber} · ${quote.customerConfigs.length} cobranças · veículos ${seriais.join(', ')}`);
 
   await scenario('a tela de faturamento mostra UMA cobrança e não edita o orçamento', page, async () => {
@@ -57,7 +57,7 @@ async function main() {
       `${quote.customerConfigs.length}`)) return;
 
     const aberto = quote.tasks[0];
-    const outros = seriais.filter(x => x !== aberto.serialNumber);
+    const outros = seriais.filter(x => x !== aberto.implement?.serialNumber);
     await openBillingDetail(page, aberto.id);
 
     // ── 0. O ENDEREÇO ─────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ async function main() {
     await goToLastStep(page);
     const tela = await screenText(page);
     check('o Resumo cita o veículo desta cobrança',
-      tela.includes(aberto.serialNumber!), aberto.serialNumber!);
+      tela.includes(aberto.implement?.serialNumber!), aberto.implement?.serialNumber!);
     for (const outro of outros) {
       check(`o Resumo NÃO cita ${outro} (é cobrança de outra página)`,
         !tela.includes(outro),

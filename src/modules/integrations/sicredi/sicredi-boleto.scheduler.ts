@@ -321,9 +321,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                 select: {
                   id: true,
                   name: true,
-                  serialNumber: true,
                   implement: {
                     select: {
+                      serialNumber: true,
                       plate: true,
                       chassisNumber: true,
                       category: true,
@@ -362,13 +362,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
                         select: {
                           id: true,
                           customerOrderNumber: true,
-                          // SÉRIE E IMPLEMENTO: o informativo do boleto diz de
-                          // quais veículos ele é, e numa fatura conjunta
-                          // `Invoice.task` é nulo — sem estes campos o boleto de
-                          // R$ 4.401,76 saía sem citar implemento nenhum.
-                          serialNumber: true,
                           implement: {
                             select: {
+                              serialNumber: true,
                               plate: true,
                               chassisNumber: true,
                               category: true,
@@ -417,7 +413,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
             `[BOLETO_CREATE]   - id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, ` +
               `bankSlip=${inst.bankSlip ? `status=${inst.bankSlip.status}, errorCount=${inst.bankSlip.errorCount}` : 'NONE'}, ` +
               `customer=${inst.invoice?.customer?.fantasyName || 'N/A'} (${inst.invoice?.customer?.cnpj || 'N/A'}), ` +
-              `task=${inst.invoice?.task?.name || 'N/A'} #${inst.invoice?.task?.serialNumber || 'N/A'}`,
+              `task=${inst.invoice?.task?.name || 'N/A'} #${inst.invoice?.task?.implement?.serialNumber || 'N/A'}`,
           );
         }
       }
@@ -933,9 +929,10 @@ export class SicrediBoletoScheduler implements OnModuleInit {
     const vehicleType = [category, typeLabel].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];
-    if (task?.serialNumber) identifiers.push(`N.º serie: ${task.serialNumber}`);
+    const serial = implement?.serialNumber;
+    if (serial) identifiers.push(`N.º serie: ${serial}`);
     else if (implement?.plate) identifiers.push(`Placa: ${implement.plate}`);
-    if (task?.serialNumber && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
+    if (serial && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
     if (implement?.chassisNumber) identifiers.push(`chassi: ${implement.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
@@ -945,7 +942,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
       // sessenta implementos por extenso, e o que o cliente confere é quantos são
       // e a que faixa pertencem.
       const series = coveredRows
-        .map((t: any) => t.serialNumber)
+        .map((t: any) => t.implement?.serialNumber)
         .filter((n: any): n is string => Boolean(n))
         .sort();
       parts.push(
@@ -1607,7 +1604,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               invoice: {
                 include: {
                   customer: { select: { fantasyName: true } },
-                  task: { select: { id: true, name: true, serialNumber: true } },
+                  task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
                   externalOperation: { select: { id: true } },
                 },
               },
@@ -1629,7 +1626,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
           const dueWithdrawalId =
             (invoice as any).externalOperation?.id ?? invoice.externalOperationId ?? null;
           const taskName = dueWithdrawalId ? 'Operação Externa' : invoice.task?.name || 'N/A';
-          const serialNumber = invoice.task?.serialNumber || '';
+          const serialNumber = invoice.task?.implement?.serialNumber || '';
           const formattedAmount = new Intl.NumberFormat('pt-BR', {
             style: 'currency',
             currency: 'BRL',
@@ -2289,7 +2286,7 @@ export class SicrediBoletoScheduler implements OnModuleInit {
         where: { id: invoiceId },
         include: {
           customer: { select: { fantasyName: true } },
-          task: { select: { id: true, name: true, serialNumber: true } },
+          task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
           externalOperation: { select: { id: true } },
         },
       });

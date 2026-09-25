@@ -521,7 +521,7 @@ const budgetTransform = (data: any) => {
       // série de QUALQUER um deles é justamente o que o operador quer quando
       // digita o número que está lendo no implemento à frente dele.
       { tasks: { some: { nameNormalized: { contains: term } } } },
-      { tasks: { some: { serialNumberNormalized: { contains: term } } } },
+      { tasks: { some: { implement: { serialNumberNormalized: { contains: term } } } } },
       {
         tasks: {
           some: { implement: { plateNormalized: { contains: normalizeVehicleSearchTerm(term) } } },

@@ -475,10 +475,10 @@ export class PainterNfseService {
               select: {
                 id: true,
                 name: true,
-                serialNumber: true,
                 customer: { select: { fantasyName: true, corporateName: true } },
                 implement: {
                   select: {
+                    serialNumber: true,
                     plate: true,
                     chassisNumber: true,
                     category: true,

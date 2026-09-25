@@ -116,7 +116,6 @@ interface UpsertArgs {
 const TASK_SELECT = {
   id: true,
   name: true,
-  serialNumber: true,
   customerId: true,
   customerOrderNumber: true,
   purchaseOrderId: true,
@@ -124,7 +123,7 @@ const TASK_SELECT = {
   // coleta de assinaturas não teria onde procurar o envelope — e uma guarda que
   // não acha envelope passa TUDO, em silêncio.
   quoteId: true,
-  implement: { select: { plate: true } },
+  implement: { select: { serialNumber: true, plate: true } },
 } as const;
 
 /**
@@ -156,11 +155,10 @@ const taskSelectFor = (customerId: string) =>
 function vehicleLabel(task: {
   id: string;
   name?: string | null;
-  serialNumber?: string | null;
-  implement?: { plate?: string | null } | null;
+  implement?: { serialNumber?: string | null; plate?: string | null } | null;
 }): string {
   return (
-    (task.serialNumber || undefined) ??
+    (task.implement?.serialNumber || undefined) ??
     (task.implement?.plate || undefined) ??
     (task.name || undefined) ??
     task.id.slice(0, 8)
@@ -231,7 +229,7 @@ export class PurchaseOrderService {
                 tasks: {
                   some: {
                     OR: [
-                      { serialNumber: { contains: termo, mode: 'insensitive' as const } },
+                      { implement: { serialNumber: { contains: termo, mode: 'insensitive' as const } } },
                       { name: { contains: termo, mode: 'insensitive' as const } },
                       { implement: { plate: { contains: termo, mode: 'insensitive' as const } } },
                     ],
@@ -585,9 +583,8 @@ export class PurchaseOrderService {
     tasks?: Array<{
       id: string;
       name?: string | null;
-      serialNumber?: string | null;
       customerOrderNumber?: string | null;
-      implement?: { plate?: string | null } | null;
+      implement?: { serialNumber?: string | null; plate?: string | null } | null;
     }>;
   }): PurchaseOrderRow {
     return {
@@ -601,7 +598,7 @@ export class PurchaseOrderService {
         taskId: t.id,
         label: vehicleLabel(t),
         name: t.name ?? null,
-        serialNumber: t.serialNumber ?? null,
+        serialNumber: t.implement?.serialNumber ?? null,
         plate: t.implement?.plate ?? null,
         // ESPELHO DA COLUNA LEGADA, exposto de propósito. Quando ele divergir de
         // `number`, alguém escreveu a tarefa por um caminho que não passa por

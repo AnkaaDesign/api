@@ -196,7 +196,7 @@ export class AirbrushingNotificationService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             customer: { select: { fantasyName: true } },
           },
         },
@@ -217,7 +217,7 @@ export class AirbrushingNotificationService {
       airbrushingId: row.id,
       taskId: row.task?.id ?? '',
       taskName: row.task?.name ?? '',
-      serialNumber: row.task?.serialNumber ?? '',
+      serialNumber: row.task?.implement?.serialNumber ?? '',
       customerName: row.task?.customer?.fantasyName ?? '',
       description: row.description ?? '',
       price: this.formatBRL(row.price),

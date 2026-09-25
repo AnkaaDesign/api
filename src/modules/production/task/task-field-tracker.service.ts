@@ -108,13 +108,8 @@ const IMPLEMENT_MEASURE_SIDE_FIELDS: Record<string, string> = {
 function trackedValue(task: any, field: string): any {
   if (!task) return undefined;
   if (field === 'serialNumber') {
-    // DD1: a série é do implemento; `Task.serialNumber` é o espelho (recuo para
-    // a tarefa carregada sem o implemento).
-    const implement = task.implement;
-    if (implement && typeof implement === 'object' && 'serialNumber' in implement) {
-      return implement.serialNumber;
-    }
-    return task.serialNumber;
+    // DD1: a série é do implemento (a tarefa não tem mais a coluna).
+    return task.implement?.serialNumber;
   }
   if (field.includes('.')) {
     const [parent, child] = field.split('.');
@@ -204,7 +199,7 @@ export class TaskFieldTrackerService {
           data: {
             taskId: task.id,
             taskName,
-            serialNumber: (task as any)?.serialNumber,
+            serialNumber: (task as any)?.implement?.serialNumber,
             taskSectorId: (task as any)?.sectorId || null,
           },
           overrides: {

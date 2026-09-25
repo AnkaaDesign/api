@@ -547,7 +547,7 @@ export class TaskController {
     // Default sort: forecastDate first, then serialNumber (identificador)
     return this.tasksService.findMany({
       ...query,
-      orderBy: query.orderBy || [{ forecastDate: 'asc' }, { serialNumber: 'asc' }],
+      orderBy: query.orderBy || [{ forecastDate: 'asc' }, { implement: { serialNumber: 'asc' } }],
       where: {
         ...query.where,
         status: TASK_STATUS.PREPARATION,

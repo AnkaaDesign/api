@@ -49,7 +49,7 @@ async function main(): Promise<void> {
         invoice: {
           include: {
             customer: { select: { cnpj: true, corporateName: true, fantasyName: true } },
-            task: { select: { id: true, name: true, serialNumber: true } },
+            task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
             installments: {
               include: { bankSlip: true },
               orderBy: { number: 'asc' },
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     out(`  createdAt      ${doc.createdAt.toISOString()}`);
     out(`  updatedAt      ${doc.updatedAt.toISOString()}`);
     out(`  invoice        ${inv?.id} (${inv?.status}) total=${inv?.totalAmount}`);
-    out(`  tarefa         ${inv?.task?.name} | série=${inv?.task?.serialNumber ?? '-'} | ${inv?.task?.id}`);
+    out(`  tarefa         ${inv?.task?.name} | série=${inv?.task?.implement?.serialNumber ?? '-'} | ${inv?.task?.id}`);
     out(`  cliente        ${inv?.customer?.corporateName ?? inv?.customer?.fantasyName} CNPJ=${inv?.customer?.cnpj}`);
     for (const inst of inv?.installments ?? []) {
       out(

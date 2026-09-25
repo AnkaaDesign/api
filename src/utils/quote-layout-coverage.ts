@@ -32,7 +32,7 @@
  *   acumular lixo, não para a leitura ficar certa.
  */
 import { BadRequestException } from '@nestjs/common';
-import { sortQuoteTasks, type QuoteTaskLike } from './quote-tasks';
+import { sortQuoteTasks, taskSerialOf, type QuoteTaskLike } from './quote-tasks';
 
 export type QuoteLayoutScopeValue = 'SHARED' | 'PER_VEHICLE';
 
@@ -125,9 +125,7 @@ export interface LayoutFileLike {
   quoteLayoutTasks?: Array<{ taskId: string }> | null;
 }
 
-export interface VehicleTaskLike extends QuoteTaskLike {
-  implement?: { plate?: string | null } | null;
-}
+export type VehicleTaskLike = QuoteTaskLike;
 
 export interface QuoteLayoutLike<T extends VehicleTaskLike = VehicleTaskLike> {
   layoutScope?: string | null;
@@ -198,7 +196,7 @@ export function layoutSelectionByTask<T extends VehicleTaskLike>(
  * Carlotti" não diz qual dos dois.
  */
 export function vehicleLabel(task: VehicleTaskLike | null | undefined, index: number): string {
-  const serial = (task?.serialNumber ?? '').trim();
+  const serial = (taskSerialOf(task) ?? '').trim();
   if (serial) return serial;
   const plate = (task?.implement?.plate ?? '').trim();
   if (plate) return plate;

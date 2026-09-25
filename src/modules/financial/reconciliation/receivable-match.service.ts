@@ -1752,7 +1752,7 @@ export class ReceivableMatchService {
             customer: { select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true } },
             taskId: true,
             totalAmount: true,
-            task: { select: { id: true, name: true, serialNumber: true } },
+            task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
             _count: { select: { installments: true } },
           },
         },
@@ -1770,7 +1770,7 @@ export class ReceivableMatchService {
               select: {
                 tasks: {
                   orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                  select: { id: true, name: true, serialNumber: true },
+                  select: { id: true, name: true, implement: { select: { serialNumber: true } } },
                 },
               },
             },
@@ -1833,7 +1833,7 @@ export class ReceivableMatchService {
           linkOnly: inst.status === 'PAID',
           taskId: task?.id ?? inst.invoice?.taskId ?? null,
           taskName: task?.name ?? null,
-          taskSerialNumber: task?.serialNumber ?? null,
+          taskSerialNumber: task?.implement?.serialNumber ?? null,
           invoiceTotal: inst.invoice?.totalAmount != null ? Number(inst.invoice.totalAmount) : null,
           totalInstallments: inst.invoice?._count?.installments ?? null,
         };
@@ -2067,7 +2067,7 @@ export class ReceivableMatchService {
                 customer: {
                   select: { fantasyName: true, corporateName: true, cnpj: true, cpf: true },
                 },
-                task: { select: { id: true, name: true, serialNumber: true } },
+                task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
                 _count: { select: { installments: true } },
               },
             },
@@ -2087,7 +2087,7 @@ export class ReceivableMatchService {
                   select: {
                     tasks: {
                       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                      select: { id: true, name: true, serialNumber: true },
+                      select: { id: true, name: true, implement: { select: { serialNumber: true } } },
                     },
                   },
                 },
@@ -2140,7 +2140,7 @@ export class ReceivableMatchService {
           confidence,
           taskId: task?.id ?? inst.invoice?.taskId ?? null,
           taskName: task?.name ?? null,
-          taskSerialNumber: task?.serialNumber ?? null,
+          taskSerialNumber: task?.implement?.serialNumber ?? null,
           invoiceTotal: inst.invoice?.totalAmount != null ? Number(inst.invoice.totalAmount) : null,
           totalInstallments: inst.invoice?._count?.installments ?? null,
           // Boleto bridge: matching this candidate links the credit to the boleto,

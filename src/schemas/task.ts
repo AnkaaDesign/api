@@ -81,7 +81,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
       status: z.boolean().optional(),
       statusOrder: z.boolean().optional(),
       bonification: z.boolean().optional(),
-      serialNumber: z.boolean().optional(),
       details: z.boolean().optional(),
       entryDate: z.boolean().optional(),
       term: z.boolean().optional(),
@@ -678,7 +677,6 @@ const taskOrderByFieldsSchema = z.object({
   name: orderByDirectionSchema.optional(),
   status: orderByDirectionSchema.optional(),
   statusOrder: orderByDirectionSchema.optional(),
-  serialNumber: orderByWithNullsSchema.optional(),
   customerOrderNumber: orderByWithNullsSchema.optional(),
   bonificationOrder: orderByDirectionSchema.optional(),
   entryDate: orderByDirectionSchema.optional(),
@@ -734,7 +732,7 @@ const taskOrderByFieldsSchema = z.object({
       corporateName: orderByWithNullsSchema.optional(),
     })
     .optional(),
-  // Implemento (to-one). `implement.plate` do web velho chega traduzido para cá.
+  // Implemento (to-one): a série, a placa e o chassi ordenam por aqui (DD1).
   implement: z
     .object({
       serialNumber: orderByWithNullsSchema.optional(),
@@ -797,7 +795,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       statusOrder: z
         .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
         .optional(),
-      serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       // Pedido de compra do cliente, por veículo — o filtro "sem pedido" da lista
       // de Faturamento pergunta por ele.
       customerOrderNumber: z
@@ -928,7 +925,7 @@ const taskTransform = (data: any): any => {
     const searchConditions: any[] = [
       // Direct task fields
       { nameNormalized: { contains: normalizeSearchTerm(searchTerm) } },
-      { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } },
+      { implement: { serialNumberNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
       { detailsNormalized: { contains: normalizeSearchTerm(searchTerm) } },
       // Related entities
       { customer: { fantasyNameNormalized: { contains: normalizeSearchTerm(searchTerm) } } },
@@ -2134,9 +2131,6 @@ export const taskCreateSchema = z
         errorMap: () => ({ message: 'status inválido' }),
       })
       .default(TASK_STATUS.PREPARATION),
-    // LEGADO (D-32, janela): a série no topo. O repositório a grava no implemento
-    // (W1); topo e `implement.serialNumber` diferentes → 400.
-    serialNumber: serialNumberBodySchema('create'),
     /**
      * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo.
      *
@@ -2291,7 +2285,7 @@ export const taskCreateSchema = z
   .superRefine((data, ctx) => {
     // Require at least one of: customer, serialNumber, serialNumberFrom/To, plate, or name
     const hasCustomer = !!data.customerId;
-    const hasSerialNumber = !!data.serialNumber || !!data.implement?.serialNumber;
+    const hasSerialNumber = !!data.implement?.serialNumber;
     const hasSerialNumberRange =
       (data.serialNumberFrom !== undefined && data.serialNumberFrom !== null) ||
       (data.serialNumberTo !== undefined && data.serialNumberTo !== null);
@@ -2418,9 +2412,6 @@ export const taskUpdateSchema = z
         errorMap: () => ({ message: 'status inválido' }),
       })
       .optional(),
-    // LEGADO (D-32, janela): a série no topo; o repositório a grava no implemento
-    // (W2). A regra da série é conferida no serviço, só quando ela muda (V15).
-    serialNumber: serialNumberBodySchema('update'),
     /**
      * O NÚMERO DO PEDIDO DE COMPRA DO CLIENTE, deste veículo. Ver o schema de
      * criação: o pedido é por ENTREGA, e a tela edita veículo a veículo.
@@ -2752,7 +2743,7 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   name: task.name,
   status: task.status,
   statusOrder: task.statusOrder || undefined,
-  serialNumber: task.serialNumber,
+  serialNumber: task.implement?.serialNumber,
   details: task.details,
   entryDate: task.entryDate,
   term: task.term,

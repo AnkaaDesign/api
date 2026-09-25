@@ -398,10 +398,10 @@ async function main() {
         parse(taskCreateSchema, {
           name: `${NAME_PREFIX}-create`,
           customerId: customer.id,
-          serialNumber: nextSerial(),
-          implement: Object.fromEntries(
-            FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)]),
-          ),
+          implement: {
+            serialNumber: nextSerial(),
+            ...Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])),
+          },
         }),
         undefined,
         user.id,
@@ -422,8 +422,10 @@ async function main() {
       const body = () => ({
         name: `${NAME_PREFIX}-batch`,
         customerId: customer.id,
-        serialNumber: nextSerial(),
-        implement: Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])),
+        implement: {
+          serialNumber: nextSerial(),
+          ...Object.fromEntries(FACES_T.map(f => [REL[f], medida(H[f], W[f], photos[f].id)])),
+        },
       });
       const result = await tasks.batchCreate(
         parse(taskBatchCreateSchema, { tasks: [body(), body()] }),
@@ -763,7 +765,6 @@ async function main() {
           where: { id },
           select: {
             id: true,
-            serialNumber: true,
             forecastDate: true,
             implement: {
               select: {

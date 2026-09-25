@@ -113,7 +113,7 @@ export class NfseController {
             include: {
               invoice: {
                 include: {
-                  task: { select: { id: true, name: true, serialNumber: true } },
+                  task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
                   customer: { select: { id: true, fantasyName: true } },
                 },
               },
@@ -147,7 +147,7 @@ export class NfseController {
         invoiceId: localRef?.invoice?.id || null,
         taskId: localRef?.invoice?.task?.id || null,
         taskName: localRef?.invoice?.task?.name || null,
-        taskSerialNumber: localRef?.invoice?.task?.serialNumber || null,
+        taskSerialNumber: localRef?.invoice?.task?.implement?.serialNumber || null,
         customerName: localRef?.invoice?.customer?.fantasyName || null,
         nfseDocumentId: localRef?.id || null,
         localStatus: effectiveStatus,
@@ -239,7 +239,7 @@ export class NfseController {
       include: {
         invoice: {
           include: {
-            task: { select: { id: true, name: true, serialNumber: true } },
+            task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
             customer: { select: { id: true, fantasyName: true } },
           },
         },
@@ -264,7 +264,7 @@ export class NfseController {
       invoiceId: localRef?.invoice?.id || null,
       taskId: localRef?.invoice?.task?.id || null,
       taskName: localRef?.invoice?.task?.name || null,
-      taskSerialNumber: localRef?.invoice?.task?.serialNumber || null,
+      taskSerialNumber: localRef?.invoice?.task?.implement?.serialNumber || null,
       customerName: localRef?.invoice?.customer?.fantasyName || null,
       nfseDocumentId: localRef?.id || null,
       localStatus: effectiveStatus,

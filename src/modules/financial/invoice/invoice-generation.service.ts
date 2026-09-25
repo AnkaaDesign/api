@@ -953,9 +953,9 @@ export class InvoiceGenerationService {
             task: {
               select: {
                 name: true,
-                serialNumber: true,
                 implement: {
                   select: {
+                    serialNumber: true,
                     plate: true,
                     chassisNumber: true,
                     category: true,
@@ -999,12 +999,9 @@ export class InvoiceGenerationService {
                       select: {
                         id: true,
                         customerOrderNumber: true,
-                        // SÉRIE E IMPLEMENTO — numa fatura conjunta `Invoice.task`
-                        // é nulo, e sem eles o informativo do boleto não citava
-                        // veículo nenhum.
-                        serialNumber: true,
                         implement: {
                           select: {
+                            serialNumber: true,
                             plate: true,
                             chassisNumber: true,
                             category: true,
@@ -1326,9 +1323,10 @@ export class InvoiceGenerationService {
     const vehicleType = [category, typeLabel].filter(Boolean).join(' ');
 
     const identifiers: string[] = [];
-    if (task?.serialNumber) identifiers.push(`N.º serie: ${task.serialNumber}`);
+    const serial = implement?.serialNumber;
+    if (serial) identifiers.push(`N.º serie: ${serial}`);
     else if (implement?.plate) identifiers.push(`Placa: ${implement.plate}`);
-    if (task?.serialNumber && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
+    if (serial && implement?.plate) identifiers.push(`placa: ${implement.plate}`);
     if (implement?.chassisNumber) identifiers.push(`chassi: ${implement.chassisNumber}`);
     const idStr = identifiers.join(', ');
 
@@ -1336,7 +1334,7 @@ export class InvoiceGenerationService {
       // MAIS DE UM VEÍCULO: contagem e faixa de séries, como a discriminação da
       // nota. Cinco linhas de 80 caracteres não cabem sessenta por extenso.
       const series = coveredRows
-        .map((t: any) => t.serialNumber)
+        .map((t: any) => t.implement?.serialNumber)
         .filter((n: any): n is string => Boolean(n))
         .sort();
       parts.push(

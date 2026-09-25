@@ -28,7 +28,7 @@ async function main(): Promise<void> {
     const invoiceGen = app.get(InvoiceGenerationService);
 
     const targets = await prisma.installment.findMany({
-      where: { invoice: { task: { serialNumber: { in: SERIALS } } }, bankSlip: { isNot: null } },
+      where: { invoice: { task: { implement: { serialNumber: { in: SERIALS } } } }, bankSlip: { isNot: null } },
       select: {
         id: true,
         invoiceId: true,
@@ -36,12 +36,12 @@ async function main(): Promise<void> {
         amount: true,
         dueDate: true,
         bankSlip: { select: { id: true, nossoNumero: true, status: true, seuNumero: true } },
-        invoice: { select: { task: { select: { serialNumber: true } } } },
+        invoice: { select: { task: { select: { implement: { select: { serialNumber: true } } } } } },
       },
     });
 
     for (const inst of targets) {
-      const serie = inst.invoice?.task?.serialNumber ?? '?';
+      const serie = inst.invoice?.task?.implement?.serialNumber ?? '?';
       const bs = inst.bankSlip!;
       logger.log(
         `\n── Série ${serie}: installment ${inst.id} | boleto nossoNumero=${bs.nossoNumero} status=${bs.status} seuNumero="${bs.seuNumero}" → expected ${EXPECTED[serie]}`,

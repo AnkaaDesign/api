@@ -185,7 +185,7 @@ export class ServiceOrderPrismaRepository
           id: true,
           name: true,
           status: true,
-          serialNumber: true,
+          implement: { select: { serialNumber: true } },
         },
       },
     };

@@ -351,7 +351,7 @@ export class BudgetService {
           quote: { select: { budgetNumber: true } },
           // A placa nomeia o veículo sem número de série nas mensagens do layout
           // por veículo ("passou do veículo ABC1D23").
-          implement: { select: { plate: true } },
+          implement: { select: { serialNumber: true, plate: true } },
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
@@ -379,7 +379,7 @@ export class BudgetService {
           .slice(0, 5)
           .map(t => {
             const num = (t as any).quote?.budgetNumber;
-            const who = t.serialNumber ? `#${t.serialNumber}` : (t.name ?? t.id.slice(0, 8));
+            const who = t.implement?.serialNumber ? `#${t.implement.serialNumber}` : (t.name ?? t.id.slice(0, 8));
             return num ? `${who} (orçamento nº ${num})` : who;
           })
           .join(', ');
@@ -1205,8 +1205,7 @@ export class BudgetService {
             select: {
               id: true,
               createdAt: true,
-              serialNumber: true,
-              implement: { select: { plate: true } },
+              implement: { select: { serialNumber: true, plate: true } },
             },
           },
           // Captured BEFORE the write so an UNSELECTED reference (dropped from
@@ -1264,9 +1263,8 @@ export class BudgetService {
           select: {
             id: true,
             createdAt: true,
-            serialNumber: true,
             name: true,
-            implement: { select: { plate: true } },
+            implement: { select: { serialNumber: true, plate: true } },
           },
         });
         const entries = await this.reuseOwnLayoutFiles(
@@ -1519,15 +1517,15 @@ export class BudgetService {
             // Tarefa que já pertence a OUTRO orçamento não é roubada em silêncio.
             const conflicting = await tx.task.findMany({
               where: { id: { in: addedTaskIds }, quoteId: { not: null, notIn: [id] } },
-              select: { id: true, serialNumber: true, quote: { select: { budgetNumber: true } } },
+              select: { id: true, implement: { select: { serialNumber: true } }, quote: { select: { budgetNumber: true } } },
             });
             if (conflicting.length > 0) {
               const labels = conflicting
                 .slice(0, 5)
                 .map(t =>
                   t.quote?.budgetNumber
-                    ? `${t.serialNumber ?? t.id.slice(0, 8)} (orçamento nº ${t.quote.budgetNumber})`
-                    : (t.serialNumber ?? t.id.slice(0, 8)),
+                    ? `${t.implement?.serialNumber ?? t.id.slice(0, 8)} (orçamento nº ${t.quote.budgetNumber})`
+                    : (t.implement?.serialNumber ?? t.id.slice(0, 8)),
                 )
                 .join(', ');
               throw new BadRequestException(
@@ -1567,10 +1565,10 @@ export class BudgetService {
         if ((data as any).budgetNumber !== undefined) {
           const taken = await tx.budget.findFirst({
             where: { budgetNumber: (data as any).budgetNumber, id: { not: id } },
-            select: { id: true, tasks: { select: { serialNumber: true }, take: 1 } },
+            select: { id: true, tasks: { select: { implement: { select: { serialNumber: true } } }, take: 1 } },
           });
           if (taken) {
-            const serial = taken.tasks[0]?.serialNumber;
+            const serial = taken.tasks[0]?.implement?.serialNumber;
             throw new BadRequestException(
               `O número ${(data as any).budgetNumber} já é de outro orçamento` +
                 `${serial ? ` (veículo ${serial})` : ''}. Escolha um número livre.`,
@@ -1756,8 +1754,7 @@ export class BudgetService {
                 select: {
                   id: true,
                   createdAt: true,
-                  serialNumber: true,
-                  implement: { select: { plate: true } },
+                  implement: { select: { serialNumber: true, plate: true } },
                 },
               },
             },
@@ -3492,7 +3489,7 @@ export class BudgetService {
         where: { id: invoiceId },
         include: {
           customer: { select: { fantasyName: true } },
-          task: { select: { id: true, name: true, serialNumber: true } },
+          task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
         },
       });
       if (!invoice) return;
@@ -3921,8 +3918,7 @@ export class BudgetService {
           select: {
             id: true,
             createdAt: true,
-            serialNumber: true,
-            implement: { select: { plate: true } },
+            implement: { select: { serialNumber: true, plate: true } },
           },
         },
       },
@@ -3984,12 +3980,12 @@ export class BudgetService {
       // notificações precisam citar sempre o MESMO veículo.
       const task = await this.prisma.task.findFirst({
         where: { quoteId },
-        select: { id: true, name: true, serialNumber: true },
+        select: { id: true, name: true, implement: { select: { serialNumber: true } } },
         orderBy: QUOTE_TASKS_ORDER_BY,
       });
-      if (task?.serialNumber) {
+      if (task?.implement?.serialNumber) {
         return {
-          label: task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`,
+          label: task.name ? `#${task.implement?.serialNumber} (${task.name})` : `#${task.implement?.serialNumber}`,
           taskId: task.id,
         };
       }
@@ -4350,7 +4346,7 @@ export class BudgetService {
       // decidido por `onlyTaskIds`, não por ela.
       const quoteTaskRows = await this.prisma.task.findMany({
         where: { quoteId: id },
-        select: { id: true, name: true, serialNumber: true },
+        select: { id: true, name: true, implement: { select: { serialNumber: true } } },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       });
       const task = sliceTaskId
@@ -4358,7 +4354,7 @@ export class BudgetService {
         : quoteTaskRows[0];
 
       this.logger.log(
-        `[INTERNAL_APPROVE] Task lookup result: ${task ? `found task ${task.id} (${task.name} #${task.serialNumber}) de ${quoteTaskRows.length} tarefa(s)` : 'NO TASK FOUND'}`,
+        `[INTERNAL_APPROVE] Task lookup result: ${task ? `found task ${task.id} (${task.name} #${task.implement?.serialNumber}) de ${quoteTaskRows.length} tarefa(s)` : 'NO TASK FOUND'}`,
       );
 
       if (!task) {
@@ -5898,7 +5894,6 @@ export class BudgetService {
             select: {
               id: true,
               name: true,
-              serialNumber: true,
               status: true,
               startedAt: true,
               finishedAt: true,
@@ -5923,6 +5918,7 @@ export class BudgetService {
               },
               implement: {
                 select: {
+                  serialNumber: true,
                   id: true,
                   plate: true,
                   chassisNumber: true,

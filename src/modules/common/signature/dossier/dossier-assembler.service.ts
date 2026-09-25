@@ -342,9 +342,8 @@ export class DossierAssemblerService {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
-            serialNumber: true,
             customer: { select: { corporateName: true, fantasyName: true, cnpj: true, cpf: true } },
-            implement: { select: { plate: true } },
+            implement: { select: { serialNumber: true, plate: true } },
           },
         },
       },
@@ -993,7 +992,7 @@ export class DossierAssemblerService {
         description: true,
         observation: true,
         taskId: true,
-        task: { select: { serialNumber: true, implement: { select: { plate: true } } } },
+        task: { select: { implement: { select: { serialNumber: true, plate: true } } } },
         checkinFiles: { select: { path: true, mimetype: true } },
         checkoutFiles: { select: { path: true, mimetype: true } },
       },
@@ -1116,7 +1115,7 @@ export class DossierAssemblerService {
       if (multiVehicle) {
         const vehicleLine = winAnsi(
           [
-            so.task?.serialNumber ? `No de serie ${so.task.serialNumber}` : null,
+            so.task?.implement?.serialNumber ? `No de serie ${so.task.implement?.serialNumber}` : null,
             so.task?.implement?.plate ? `Placa ${so.task.implement.plate}` : null,
           ]
             .filter(Boolean)

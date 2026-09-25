@@ -1718,7 +1718,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -1754,7 +1754,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -1795,7 +1795,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -1831,7 +1831,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -3703,7 +3703,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -3737,7 +3737,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -3776,7 +3776,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },
@@ -3810,7 +3810,7 @@ export class ServiceOrderService {
           select: {
             id: true,
             name: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             status: true,
             sectorId: true,
           },

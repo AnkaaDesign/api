@@ -459,9 +459,9 @@ const MAX_SERVICE_DESCRIPTION = 1300;
 
 export interface ServicoTaskRef {
   name: string;
-  serialNumber: string | null;
   customer?: { fantasyName: string | null; corporateName: string | null } | null;
   implement?: {
+    serialNumber: string | null;
     plate: string | null;
     chassisNumber: string | null;
     category: string | null;
@@ -491,9 +491,9 @@ export function buildServiceDescription(
     description: string | null;
     task: {
       name: string;
-      serialNumber: string | null;
       customer?: { fantasyName: string | null; corporateName: string | null } | null;
       implement?: {
+        serialNumber: string | null;
         plate: string | null;
         chassisNumber: string | null;
         category: string | null;
@@ -538,7 +538,7 @@ export function buildServiceDescription(
   const temVeiculo = Boolean(implement?.plate || implement?.chassisNumber || tipo);
   const identificadores = temVeiculo
     ? [
-        task?.serialNumber ? `n série: ${task.serialNumber}` : null,
+        implement?.serialNumber ? `n série: ${implement.serialNumber}` : null,
         implement?.plate ? `placa: ${implement.plate}` : null,
         implement?.chassisNumber ? `chassi: ${implement.chassisNumber}` : null,
       ]
@@ -553,7 +553,7 @@ export function buildServiceDescription(
   } else if (identificadores) {
     linhas.push(`Referente aos serviços executados no veículo de ${identificadores}.`);
   } else if (task?.name) {
-    linhas.push(`Referente à ordem de serviço ${task.serialNumber ?? task.name}.`);
+    linhas.push(`Referente à ordem de serviço ${implement?.serialNumber ?? task.name}.`);
   }
 
   // 4. O cliente final, que é quem identifica o veículo no dia a dia.

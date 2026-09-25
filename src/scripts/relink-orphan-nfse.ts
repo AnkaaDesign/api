@@ -94,7 +94,12 @@ async function main(): Promise<void> {
 
       // Match strategy: serial -> Implement.serialNumber (unique, DD1). Fallback: order number.
       let task:
-        | { id: string; serialNumber: string | null; name: string; customer: { cnpj: string | null; cpf: string | null } | null }
+        | {
+            id: string;
+            implement: { serialNumber: string | null } | null;
+            name: string;
+            customer: { cnpj: string | null; cpf: string | null } | null;
+          }
         | null = null;
       if (serial) {
         const implement = await prisma.implement.findUnique({
@@ -103,7 +108,7 @@ async function main(): Promise<void> {
             task: {
               select: {
                 id: true,
-                serialNumber: true,
+                implement: { select: { serialNumber: true } },
                 name: true,
                 customer: { select: { cnpj: true, cpf: true } },
               },
@@ -149,7 +154,7 @@ async function main(): Promise<void> {
       logger.log(
         `MATCH ${label} serie=${serial} → task ${task.name} (${task.id}) ⇒ link as ${status}`,
       );
-      linked.push(`NF ${note.numeroNotaFiscal} → task ${task.serialNumber} (${task.name}) [${status}]`);
+      linked.push(`NF ${note.numeroNotaFiscal} → task ${task.implement?.serialNumber} (${task.name}) [${status}]`);
 
       if (APPLY) {
         // Avoid duplicate link if a row for this elotechNfseId already exists

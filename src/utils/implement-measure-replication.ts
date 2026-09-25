@@ -70,6 +70,7 @@ const MEASURE_SELECT = {
 const IMPLEMENT_MEASURES_SELECT = {
   select: {
     id: true,
+    serialNumber: true,
     plate: true,
     ...Object.fromEntries(FACES.map(face => [FACE_FK[face], true])),
     ...Object.fromEntries(FACES.map(face => [FACE_REL[face], MEASURE_SELECT])),
@@ -164,14 +165,12 @@ export async function replicateImplementMeasuresToQuoteSiblings(
   const quoteTasks: Array<{
     id: string;
     createdAt: Date;
-    serialNumber: string | null;
     implement: any;
   }> = await tx.task.findMany({
     where: { quoteId: source.quoteId },
     select: {
       id: true,
       createdAt: true,
-      serialNumber: true,
       implement: IMPLEMENT_MEASURES_SELECT,
     },
   });

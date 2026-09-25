@@ -26,10 +26,9 @@
  *      "Ref. OS" em silêncio (§6.15).
  *
  * As fixtures têm a forma que o `select` real de cada serviço carrega
- * (`Task { id, name, serialNumber, customerOrderNumber, implement { plate,
- * chassisNumber, category, implementType } }`). A série continua em
- * `task.serialNumber` — os leitores só mudam no P28, e este teste é o que vai
- * dizer se a mudança manteve o texto.
+ * (`Task { id, name, customerOrderNumber, implement { serialNumber, plate,
+ * chassisNumber, category, implementType } }`). A série mora só no implemento
+ * (NOMENCLATURA §5); este teste diz se a mudança manteve o texto.
  *
  * Rodar: `npx tsx tests/fiscal-labels-golden.test.ts` (sem banco).
  */
@@ -85,10 +84,10 @@ const elotech: any = new ElotechOxyNfseService(config, stub, elotechAuth);
 interface TaskRow {
   id: string;
   name: string;
-  serialNumber: string | null;
   customerOrderNumber: string | null;
   // O implemento como o `select` real o devolve.
   implement: {
+    serialNumber: string | null;
     plate: string | null;
     chassisNumber: string | null;
     category: string | null;
@@ -99,30 +98,26 @@ interface TaskRow {
 const COM_SERIE: TaskRow = {
   id: 'task-a-000001',
   name: 'Frota Carlotti',
-  serialNumber: '78000',
   customerOrderNumber: '4000000',
-  implement: { plate: 'TES1T01', chassisNumber: '9BM979026CS006620', category: 'RIGID', type: 'INSULATED' },
+  implement: { serialNumber: '78000', plate: 'TES1T01', chassisNumber: '9BM979026CS006620', category: 'RIGID', type: 'INSULATED' },
 };
 const SO_PLACA: TaskRow = {
   id: 'task-b-000002',
   name: 'Frota Carlotti',
-  serialNumber: null,
   customerOrderNumber: null,
-  implement: { plate: 'TES1T02', chassisNumber: null, category: 'TRUCK', type: 'FLATBED' },
+  implement: { serialNumber: null, plate: 'TES1T02', chassisNumber: null, category: 'TRUCK', type: 'FLATBED' },
 };
 const SO_CHASSI: TaskRow = {
   id: 'task-c-000003',
   name: 'Frota Carlotti',
-  serialNumber: null,
   customerOrderNumber: null,
-  implement: { plate: null, chassisNumber: '9BM979026CS006621', category: 'BITRUCK', type: 'DRY_CARGO' },
+  implement: { serialNumber: null, plate: null, chassisNumber: '9BM979026CS006621', category: 'BITRUCK', type: 'DRY_CARGO' },
 };
 const SEM_NADA: TaskRow = {
   id: 'task-d-000004',
   name: 'Frota Carlotti',
-  serialNumber: null,
   customerOrderNumber: null,
-  implement: { plate: null, chassisNumber: null, category: null, type: null },
+  implement: { serialNumber: null, plate: null, chassisNumber: null, category: null, type: null },
 };
 
 // ─── Como cada serviço transforma a tarefa no seu documento ────────────────
@@ -139,7 +134,7 @@ async function nfseDiscriminacao(rows: TaskRow[], budgetNumber = 990): Promise<s
     id: 'invoice-1',
     totalAmount: 100 * rows.length,
     customer: { name: 'Carlotti', cnpj: '12345678000199' },
-    task: { id: slice.id, name: slice.name, serialNumber: slice.serialNumber || undefined },
+    task: { id: slice.id, name: slice.name, serialNumber: implement?.serialNumber || undefined },
     implement: implement
       ? {
           plate: implement.plate || undefined,
@@ -149,7 +144,7 @@ async function nfseDiscriminacao(rows: TaskRow[], budgetNumber = 990): Promise<s
         }
       : undefined,
     vehicles: rows.map(t => ({
-      serialNumber: t.serialNumber ?? null,
+      serialNumber: t.implement?.serialNumber ?? null,
       plate: t.implement?.plate ?? null,
       chassisNumber: t.implement?.chassisNumber ?? null,
       category: t.implement?.category ?? null,
@@ -220,7 +215,6 @@ function dpsDescription(row: TaskRow): string {
     description: null,
     task: {
       name: row.name,
-      serialNumber: row.serialNumber,
       customer: { fantasyName: 'Carlotti', corporateName: null },
       implement: row.implement,
     },
@@ -412,7 +406,7 @@ const IMPLEMENTOS_BOLETO_E_PINTOR: Record<string, string> = {
 const umTipo = (category: string | null, implementType: string | null): TaskRow => ({
   ...COM_SERIE,
   customerOrderNumber: null,
-  implement: { plate: null, chassisNumber: null, category, type: implementType },
+  implement: { serialNumber: '78000', plate: null, chassisNumber: null, category, type: implementType },
 });
 
 async function cadaPalavra(): Promise<void> {

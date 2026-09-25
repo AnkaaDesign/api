@@ -80,10 +80,10 @@ export class InvoiceController {
       if (taskId) {
         const task = await this.prisma.task.findUnique({
           where: { id: taskId },
-          select: { name: true, serialNumber: true },
+          select: { name: true, implement: { select: { serialNumber: true } } },
         });
-        if (task?.serialNumber) {
-          label = task.name ? `#${task.serialNumber} (${task.name})` : `#${task.serialNumber}`;
+        if (task?.implement?.serialNumber) {
+          label = task.name ? `#${task.implement?.serialNumber} (${task.name})` : `#${task.implement?.serialNumber}`;
         } else if (task?.name) {
           label = task.name;
         }
@@ -126,7 +126,7 @@ export class InvoiceController {
         where: { id: invoiceId },
         include: {
           customer: { select: { fantasyName: true } },
-          task: { select: { id: true, name: true, serialNumber: true } },
+          task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
           externalOperation: { select: { id: true } },
         },
       });

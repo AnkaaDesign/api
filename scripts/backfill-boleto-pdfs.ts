@@ -176,7 +176,7 @@ async function main() {
                   select: { fantasyName: true },
                 },
                 task: {
-                  select: { name: true, serialNumber: true },
+                  select: { name: true, implement: { select: { serialNumber: true } } },
                 },
               },
             },
@@ -196,7 +196,7 @@ async function main() {
     for (const slip of bankSlips) {
       const customer = slip.installment?.invoice?.customer?.fantasyName || 'N/A';
       const task = slip.installment?.invoice?.task;
-      const taskInfo = task ? `${task.name} #${task.serialNumber}` : 'N/A';
+      const taskInfo = task ? `${task.name} #${task.implement?.serialNumber}` : 'N/A';
       console.log(
         `  - nossoNumero=${slip.nossoNumero}, customer="${customer}", task="${taskInfo}"`,
       );

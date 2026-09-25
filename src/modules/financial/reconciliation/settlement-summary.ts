@@ -67,7 +67,7 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
       totalAmount: true,
       status: true,
       customer: { select: { id: true, fantasyName: true, corporateName: true, cnpj: true } },
-      task: { select: { id: true, name: true, serialNumber: true } },
+      task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
       installments: { select: { id: true } },
     },
   },
@@ -89,7 +89,7 @@ export const INSTALLMENT_RECEIVABLE_SELECT = {
         select: {
           tasks: {
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true, serialNumber: true },
+            select: { id: true, name: true, implement: { select: { serialNumber: true } } },
           },
         },
       },
@@ -168,7 +168,7 @@ export const SETTLEMENT_ANCHOR_INCLUDE = {
     select: {
       id: true,
       price: true,
-      task: { select: { id: true, name: true, serialNumber: true } },
+      task: { select: { id: true, name: true, implement: { select: { serialNumber: true } } } },
     },
   },
   payrollMonthSettlement: { select: { id: true, year: true, month: true, amount: true } },
@@ -288,7 +288,11 @@ interface ReceivableInstallmentLike {
     id: string;
     totalAmount?: Prisma.Decimal | number | null;
     customer?: { fantasyName?: string | null; corporateName?: string | null } | null;
-    task?: { id: string; name?: string | null; serialNumber?: string | null } | null;
+    task?: {
+      id: string;
+      name?: string | null;
+      implement?: { serialNumber?: string | null } | null;
+    } | null;
     installments?: { id: string }[] | null;
   } | null;
   customerConfig?: {
@@ -300,7 +304,11 @@ interface ReceivableInstallmentLike {
        * nomeia uma tarefa para o operador se localizar e clicar, não descreve o
        * contrato.
        */
-      tasks?: Array<{ id: string; name?: string | null; serialNumber?: string | null }> | null;
+      tasks?: Array<{
+        id: string;
+        name?: string | null;
+        implement?: { serialNumber?: string | null } | null;
+      }> | null;
     } | null;
     _count?: { installments: number } | null;
   } | null;
@@ -344,7 +352,11 @@ interface MatchLike {
   airbrushing?: {
     id: string;
     price?: number | null;
-    task?: { id: string; name?: string | null; serialNumber?: string | null } | null;
+    task?: {
+      id: string;
+      name?: string | null;
+      implement?: { serialNumber?: string | null } | null;
+    } | null;
   } | null;
   payrollMonthSettlement?: {
     id: string;
@@ -610,7 +622,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
     // existed in the web's anchorHref switch.
     const label =
       [
-        task?.serialNumber ? `Tarefa ${task.serialNumber}` : null,
+        task?.implement?.serialNumber ? `Tarefa ${task.implement.serialNumber}` : null,
         customerName,
         parcelCount > 1 ? `parcela ${parcelNumber}/${parcelCount}` : null,
         slip?.nossoNumero && !task ? `Boleto ${slip.nossoNumero}` : null,
@@ -663,7 +675,7 @@ export function deriveSettlement(tx: TransactionLike): TransactionSettlement {
       ...empty,
       state: open ? 'OPEN' : 'SETTLED',
       anchor: 'AIRBRUSHING',
-      label: [task?.serialNumber, task?.name].filter(Boolean).join(' · ') || 'Aerografia',
+      label: [task?.implement?.serialNumber, task?.name].filter(Boolean).join(' · ') || 'Aerografia',
       link: { kind: 'task', id: task?.id ?? null },
       expectsNf: false,
     };

@@ -870,6 +870,7 @@ export class PersonalService {
             },
             implement: {
               select: {
+                serialNumber: true,
                 id: true,
                 plate: true,
               },

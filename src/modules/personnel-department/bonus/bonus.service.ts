@@ -876,7 +876,7 @@ export class BonusService {
             tasks: (live.tasks || []).map((task: any) => ({
               id: task.id,
               name: task.name,
-              serialNumber: task.serialNumber ?? null,
+              serialNumber: task.implement?.serialNumber ?? null,
               status: task.status,
               finishedAt: task.finishedAt,
               bonification: task.bonification,
@@ -1144,14 +1144,13 @@ export class BonusService {
         select: {
           id: true,
           name: true,
-          serialNumber: true,
           bonification: true,
           finishedAt: true,
           status: true,
           createdById: true,
           customer: { select: { id: true, fantasyName: true } },
           sector: { select: { id: true, name: true } },
-          implement: { select: { id: true, plate: true } },
+          implement: { select: { serialNumber: true, id: true, plate: true } },
         },
       });
 
@@ -1473,7 +1472,7 @@ export class BonusService {
         tasks: detailWindowTasks.map((task: any) => ({
           id: task.id,
           name: task.name,
-          serialNumber: task.serialNumber ?? null,
+          serialNumber: task.implement?.serialNumber ?? null,
           status: task.status,
           finishedAt: task.finishedAt,
           bonification: task.bonification,
@@ -2939,7 +2938,6 @@ export class BonusService {
         select: {
           id: true,
           name: true,
-          serialNumber: true,
           // `status` é constante nesta query (o where já filtra COMPLETED), mas
           // precisa vir selecionado: as duas montagens de resposta (linha viva e
           // linha salva com overlay) copiam `task.status` para o payload, e sem
@@ -2963,6 +2961,7 @@ export class BonusService {
           },
           implement: {
             select: {
+              serialNumber: true,
               id: true,
               plate: true,
             },
@@ -3635,7 +3634,7 @@ export class BonusService {
                         tasks: (liveBonus.tasks || []).map((task: any) => ({
                           id: task.id,
                           name: task.name,
-                          serialNumber: task.serialNumber ?? null,
+                          serialNumber: task.implement?.serialNumber ?? null,
                           status: task.status,
                           finishedAt: task.finishedAt,
                           bonification: task.bonification,
@@ -3768,7 +3767,7 @@ export class BonusService {
             tasks: (liveBonus.tasks || []).map((task: any) => ({
               id: task.id,
               name: task.name,
-              serialNumber: task.serialNumber ?? null,
+              serialNumber: task.implement?.serialNumber ?? null,
               status: task.status,
               finishedAt: task.finishedAt,
               bonification: task.bonification,

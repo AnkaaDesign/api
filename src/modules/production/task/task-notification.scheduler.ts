@@ -538,7 +538,7 @@ export class TaskNotificationScheduler {
             select: {
               id: true,
               name: true,
-              serialNumber: true,
+              implement: { select: { serialNumber: true } },
               sectorId: true,
               customerId: true,
             },

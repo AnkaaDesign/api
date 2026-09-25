@@ -21,8 +21,16 @@ CREATE TABLE IF NOT EXISTS "_Mig0924_SerialImplementCreated" (
   "implementId" text PRIMARY KEY,
   "taskId"      text NOT NULL UNIQUE
 );
-CREATE TABLE IF NOT EXISTS "_Mig0924_TaskSerial" AS
-  SELECT "id" AS "taskId", "serialNumber" FROM "Task" WHERE "serialNumber" IS NOT NULL;
+-- (Os passos que LEEM `Task.serialNumber` só rodam enquanto a coluna existe: a
+--  `20260930120070_serie_so_no_implemento`, da mesma release, a derruba, e a 2ª
+--  rodada desta fatia depois dela — o ensaio de idempotência — tem de ser no-op.)
+DO $m1s$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'Task' AND column_name = 'serialNumber') THEN
+    EXECUTE 'CREATE TABLE IF NOT EXISTS "_Mig0924_TaskSerial" AS
+      SELECT "id" AS "taskId", "serialNumber" FROM "Task" WHERE "serialNumber" IS NOT NULL';
+  END IF;
+END $m1s$;
 
 -- 1. UM IMPLEMENTO PARA TODA TAREFA (clone 23/09: 1.678; produção 23/09: 1.676 — todas COMPLETED).
 --    spot NULL EXPLÍCITO (o default YARD_WAIT poria O.S. concluídas "no pátio");
@@ -40,9 +48,14 @@ SELECT "id", "taskId" FROM c;
 -- 2. A SÉRIE NO IMPLEMENTO — cópia BYTE A BYTE (sem trim/upper: S-7; as 42 séries fora da regex
 --    ^[A-Z0-9-]+$ migram como estão, V15; o hash do snapshot compara o valor lido).
 ALTER TABLE "Implement" ADD COLUMN IF NOT EXISTS "serialNumber" TEXT;
-UPDATE "Implement" i SET "serialNumber" = t."serialNumber"
-  FROM "Task" t
- WHERE t."id" = i."taskId" AND i."serialNumber" IS DISTINCT FROM t."serialNumber";
+DO $m1s$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'Task' AND column_name = 'serialNumber') THEN
+    EXECUTE 'UPDATE "Implement" i SET "serialNumber" = t."serialNumber"
+      FROM "Task" t
+     WHERE t."id" = i."taskId" AND i."serialNumber" IS DISTINCT FROM t."serialNumber"';
+  END IF;
+END $m1s$;
 CREATE UNIQUE INDEX IF NOT EXISTS "Implement_serialNumber_key" ON "Implement"("serialNumber");  -- clone: 0 duplicatas
 ALTER TABLE "Implement" ADD COLUMN IF NOT EXISTS "serialNumberNormalized" text
   GENERATED ALWAYS AS (lower(immutable_unaccent("serialNumber"))) STORED;
@@ -53,21 +66,29 @@ CREATE INDEX IF NOT EXISTS "Implement_serialNumberNormalized_trgm_idx"
 DROP INDEX IF EXISTS "Task_serialNumber_key";
 
 -- 4. ESPELHO Implement → Task (sem tocar Task.updatedAt: o Prisma é quem escreve updatedAt)
-CREATE OR REPLACE FUNCTION implement_serial_mirror() RETURNS trigger LANGUAGE plpgsql AS $$
+DO $m1s$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'Task' AND column_name = 'serialNumber') THEN
+    EXECUTE $g$CREATE OR REPLACE FUNCTION implement_serial_mirror() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE "Task" SET "serialNumber" = NEW."serialNumber"
    WHERE "id" = NEW."taskId" AND "serialNumber" IS DISTINCT FROM NEW."serialNumber";
   RETURN NULL;
-END $$;
-DROP TRIGGER IF EXISTS "Implement_serial_mirror" ON "Implement";
-CREATE TRIGGER "Implement_serial_mirror" AFTER INSERT OR UPDATE OF "serialNumber", "taskId"
-  ON "Implement" FOR EACH ROW EXECUTE FUNCTION implement_serial_mirror();
+END $$$g$;
+    EXECUTE $g$DROP TRIGGER IF EXISTS "Implement_serial_mirror" ON "Implement"$g$;
+    EXECUTE $g$CREATE TRIGGER "Implement_serial_mirror" AFTER INSERT OR UPDATE OF "serialNumber", "taskId"
+  ON "Implement" FOR EACH ROW EXECUTE FUNCTION implement_serial_mirror()$g$;
+  END IF;
+END $m1s$;
 
 -- 5. Task.serialNumber SÓ muda pelo espelho (profundidade 2). Escrita direta = erro barulhento.
 --    Consequência: a criação da tarefa grava a série no IMPLEMENTO aninhado (W1); o INSERT da Task
 --    vem com serialNumber NULL e o espelho a preenche. `tx.task.create({ data: { serialNumber } })`
 --    passa a falhar — é o que o G19 caça.
-CREATE OR REPLACE FUNCTION task_serial_is_mirror() RETURNS trigger LANGUAGE plpgsql AS $$
+DO $m1s$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'Task' AND column_name = 'serialNumber') THEN
+    EXECUTE $g$CREATE OR REPLACE FUNCTION task_serial_is_mirror() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF pg_trigger_depth() = 1 AND NEW."serialNumber" IS DISTINCT FROM
      (CASE WHEN TG_OP = 'UPDATE' THEN OLD."serialNumber" ELSE NULL END) THEN
@@ -75,10 +96,12 @@ BEGIN
       USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
-END $$;
-DROP TRIGGER IF EXISTS "Task_serial_is_mirror" ON "Task";
-CREATE TRIGGER "Task_serial_is_mirror" BEFORE INSERT OR UPDATE OF "serialNumber"
-  ON "Task" FOR EACH ROW EXECUTE FUNCTION task_serial_is_mirror();
+END $$$g$;
+    EXECUTE $g$DROP TRIGGER IF EXISTS "Task_serial_is_mirror" ON "Task"$g$;
+    EXECUTE $g$CREATE TRIGGER "Task_serial_is_mirror" BEFORE INSERT OR UPDATE OF "serialNumber"
+  ON "Task" FOR EACH ROW EXECUTE FUNCTION task_serial_is_mirror()$g$;
+  END IF;
+END $m1s$;
 
 -- 6. TODA TAREFA TEM IMPLEMENTO — verificado no COMMIT (o create aninhado do Prisma roda na
 --    mesma transação, então o diferido funciona). FICAM PARA SEMPRE (a M5s não os derruba).

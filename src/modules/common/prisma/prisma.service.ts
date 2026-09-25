@@ -273,7 +273,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         task: {
           detailsNormalized: true,
           nameNormalized: true,
-          serialNumberNormalized: true,
         },
         taskFieldChangeLog: {
           fieldNormalized: true,

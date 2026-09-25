@@ -148,7 +148,6 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'status',
     'statusOrder',
     'bonification',
-    'serialNumber',
     // O Nº do pedido de compra do cliente. Passou a ser coluna de `Task` em
     // 17/09/2026 (era `BudgetPayer.orderNumber`) e a whitelist não veio junto —
     // e ela LANÇA 403 em campo não listado, não o descarta: qualquer cliente que
@@ -194,7 +193,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'relatedTo',
     'responsibles',
   ],
-  // DD1: a série é do implemento (a da tarefa segue como espelho até a M5s)
+  // DD1: a série é do implemento
   Implement: [
     'id',
     'serialNumber',

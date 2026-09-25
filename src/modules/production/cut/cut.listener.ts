@@ -88,7 +88,7 @@ export class CutListener {
     try {
       const cutTypeLabel = CUT_TYPE_LABELS[event.cut.type] || 'Recorte';
       const taskName = event.task?.name || 'Sem tarefa';
-      const serialNumber = event.task?.serialNumber || '';
+      const serialNumber = event.task?.implement?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
       await this.dispatchService.dispatchByConfiguration('cut.created', event.createdBy.id, {
@@ -128,7 +128,7 @@ export class CutListener {
     try {
       const cutTypeLabel = CUT_TYPE_LABELS[event.cut.type] || 'Recorte';
       const taskName = event.task?.name || 'Sem tarefa';
-      const serialNumber = event.task?.serialNumber || '';
+      const serialNumber = event.task?.implement?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
       await this.dispatchService.dispatchByConfiguration('cut.started', event.startedBy.id, {
@@ -169,7 +169,7 @@ export class CutListener {
     try {
       const cutTypeLabel = CUT_TYPE_LABELS[event.cut.type] || 'Recorte';
       const taskName = event.task?.name || 'Sem tarefa';
-      const serialNumber = event.task?.serialNumber || '';
+      const serialNumber = event.task?.implement?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
       await this.dispatchService.dispatchByConfiguration('cut.completed', event.completedBy.id, {
@@ -211,7 +211,7 @@ export class CutListener {
       const cutTypeLabel = CUT_TYPE_LABELS[event.cut.type] || 'Recorte';
       const reasonLabel = CUT_REQUEST_REASON_LABELS[event.reason] || 'Motivo não especificado';
       const taskName = event.task?.name || 'Sem tarefa';
-      const serialNumber = event.task?.serialNumber || '';
+      const serialNumber = event.task?.implement?.serialNumber || '';
       const ctx = this.buildCutContext(event.cut, event.task);
 
       await this.dispatchService.dispatchByConfiguration(
@@ -257,7 +257,7 @@ export class CutListener {
 
     try {
       const cutsCount = event.cuts.length;
-      const serialNumber = event.task.serialNumber || '';
+      const serialNumber = event.task.implement?.serialNumber || '';
       const ctx = this.buildCutContext(event.cuts[0], event.task);
 
       const detailedTitle =

@@ -71,7 +71,7 @@ async function main(): Promise<void> {
         task: {
           select: {
             id: true,
-            serialNumber: true,
+            implement: { select: { serialNumber: true } },
             name: true,
             finishedAt: true,
             quote: { select: { services: { select: { amount: true, invoiceToCustomerId: true } } } },
@@ -143,14 +143,14 @@ async function main(): Promise<void> {
           .reduce((sum, s) => sum + Number(s.amount), 0),
       );
       const refDate = (t.finishedAt ?? inv.createdAt).toISOString();
-      const label = `${t.serialNumber ?? '—'} ${t.name} (cliente ${inv.customer?.fantasyName ?? '?'}, R$${gross})`;
+      const label = `${t.implement?.serialNumber ?? '—'} ${t.name} (cliente ${inv.customer?.fantasyName ?? '?'}, R$${gross})`;
 
       const avail = orphans.filter(o => !o.usedBy);
       // tomador must match when we know it
       const tomadorOk = (o: (typeof orphans)[0]) =>
         custDocs.length === 0 || custDocs.includes(o.tomador) || o.tomador === '';
 
-      let cand = avail.filter(o => t.serialNumber && o.serie === t.serialNumber && tomadorOk(o));
+      let cand = avail.filter(o => t.implement?.serialNumber && o.serie === t.implement?.serialNumber && tomadorOk(o));
       let tier = 'HIGH/série';
       if (cand.length === 0 && order) {
         cand = avail.filter(o => o.pedido && digits(o.pedido) === order && tomadorOk(o));

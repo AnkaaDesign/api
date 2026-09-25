@@ -35,7 +35,6 @@ export interface Task extends BaseEntity {
   statusOrder: number;
   bonification: BONIFICATION_STATUS | null;
   bonificationOrder: number;
-  serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;
   term: Date | null;
@@ -119,7 +118,6 @@ export interface TaskSelectFields {
   status?: boolean;
   statusOrder?: boolean;
   bonification?: boolean;
-  serialNumber?: boolean;
   details?: boolean;
   entryDate?: boolean;
   term?: boolean;
@@ -274,6 +272,7 @@ export type TaskSelect = TaskSelectFields & {
     | {
         select?: {
           id?: boolean;
+          serialNumber?: boolean;
           plate?: boolean;
           chassisNumber?: boolean;
           vinPlateId?: boolean;
@@ -303,7 +302,6 @@ export const TASK_SELECT_MINIMAL: TaskSelect = {
   name: true,
   status: true,
   statusOrder: true,
-  serialNumber: true,
   term: true,
   forecastDate: true,
   cleared: true,
@@ -336,7 +334,7 @@ export const TASK_SELECT_CARD: TaskSelect = {
     select: { id: true, name: true },
   },
   implement: {
-    select: { id: true, plate: true, spot: true },
+    select: { serialNumber: true, id: true, plate: true, spot: true },
   },
   // Count-based info (handled via separate queries typically)
   serviceOrders: {
@@ -354,7 +352,6 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   status: true,
   statusOrder: true,
   bonification: true,
-  serialNumber: true,
   details: true,
   entryDate: true,
   term: true,
@@ -473,6 +470,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   },
   implement: {
     select: {
+      serialNumber: true,
       id: true,
       plate: true,
       chassisNumber: true,
@@ -518,7 +516,6 @@ export interface TaskMinimal {
   name: string;
   status: TASK_STATUS;
   statusOrder: number;
-  serialNumber: string | null;
   term: Date | null;
   forecastDate: Date | null;
   cleared: boolean;
@@ -553,7 +550,6 @@ export interface TaskDetailed extends BaseEntity {
   status: TASK_STATUS;
   statusOrder: number;
   bonification: BONIFICATION_STATUS | null;
-  serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;
   term: Date | null;
@@ -815,7 +811,6 @@ export interface TaskOrderBy {
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
   bonification?: ORDER_BY_DIRECTION;
-  serialNumber?: ORDER_BY_DIRECTION;
   details?: ORDER_BY_DIRECTION;
   entryDate?: ORDER_BY_DIRECTION;
   term?: ORDER_BY_DIRECTION;
@@ -841,7 +836,6 @@ export interface TaskWhere {
   name?: string;
   status?: TASK_STATUS;
   bonification?: BONIFICATION_STATUS;
-  serialNumber?: string;
   details?: string;
   entryDate?: Date;
   term?: Date;

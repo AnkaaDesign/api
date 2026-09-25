@@ -24,6 +24,8 @@ export const cutIncludeSchema = z
               customer: z.boolean().optional(),
               sector: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
+              // série, placa e chassi moram no implemento (DD1)
+              implement: z.boolean().optional(),
             })
             .optional(),
         }),

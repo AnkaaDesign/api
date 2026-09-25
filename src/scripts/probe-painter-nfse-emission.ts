@@ -47,7 +47,7 @@ async function main() {
     const ab = await prisma.airbrushing.findUniqueOrThrow({
       where: { id: airbrushingId },
       include: {
-        task: { select: { name: true, serialNumber: true } },
+        task: { select: { name: true, implement: { select: { serialNumber: true } } } },
         painter: { select: { id: true, name: true } },
         nfse: { select: { id: true, serie: true, nDps: true, dpsId: true, status: true } },
       },

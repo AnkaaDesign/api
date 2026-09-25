@@ -42,7 +42,7 @@ async function retrato(quoteId: string) {
       customerConfigs: {
         select: {
           id: true, total: true,
-          billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { serialNumber: true } } } } } },
+          billing: { select: { id: true, approvedAt: true, tasks: { select: { task: { select: { implement: { select: { serialNumber: true } } } } } } } },
           invoices: { select: { id: true, status: true } },
         },
       },
@@ -54,7 +54,7 @@ async function retrato(quoteId: string) {
       total: Number(c.total),
       aprovada: !!c.billing?.approvedAt,
       faturasVivas: c.invoices.filter(i => i.status !== 'CANCELLED').length,
-      seriais: (c.billing?.tasks ?? []).map(r => r.task?.serialNumber ?? '?').sort(),
+      seriais: (c.billing?.tasks ?? []).map(r => r.task?.implement?.serialNumber ?? '?').sort(),
     }))
     .sort((a, b) => (a.seriais[0] ?? '').localeCompare(b.seriais[0] ?? ''));
   return { split: q?.billingSplit, total: Number(q?.total ?? 0), grupos };
@@ -96,10 +96,10 @@ async function main() {
   });
   const quote = await prisma.budget.findUnique({
     where: { id: t0!.quoteId! },
-    select: { id: true, budgetNumber: true, tasks: { select: { id: true, serialNumber: true }, orderBy: { serialNumber: 'asc' } } },
+    select: { id: true, budgetNumber: true, tasks: { select: { id: true, implement: { select: { serialNumber: true } } }, orderBy: { implement: { serialNumber: 'asc' } } } },
   });
   if (!quote) { check('orçamento de apoio existe', false, 'não criou'); return; }
-  info(`orçamento nº ${quote.budgetNumber} · veículos ${quote.tasks.map(t => t.serialNumber).join(', ')}`);
+  info(`orçamento nº ${quote.budgetNumber} · veículos ${quote.tasks.map(t => t.implement?.serialNumber).join(', ')}`);
   const CONTRATO = PRECO * 4;
   const v = quote.tasks;
 

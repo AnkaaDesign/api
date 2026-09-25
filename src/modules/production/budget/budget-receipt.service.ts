@@ -90,13 +90,13 @@ export class BudgetReceiptService {
     // o veículo. Pelo menos um dos dois está disponível quando o orçamento chega
     // a SETTLED; mostra os dois quando ambos existirem.
     const implement = quoteTaskRows[0]?.implement ?? null;
-    const serialNumber = quoteTaskRows[0]?.serialNumber ?? null;
+    const serialNumber = quoteTaskRows[0]?.implement?.serialNumber ?? null;
     const plate = implement?.plate ?? null;
 
     /** `Série 38781 · Placa ABC1D23` para um veículo. */
     const describeVehicle = (t: (typeof quoteTaskRows)[number]): string | null => {
       const parts = [
-        t.serialNumber ? `Série ${t.serialNumber}` : null,
+        t.implement?.serialNumber ? `Série ${t.implement?.serialNumber}` : null,
         t.implement?.plate ? `Placa ${t.implement.plate}` : null,
       ].filter((part): part is string => Boolean(part));
       return parts.length ? parts.join(' · ') : null;
@@ -115,7 +115,7 @@ export class BudgetReceiptService {
       vehicleLabel = vehicleDescriptions.join(' | ');
     } else if (vehicleDescriptions.length > 3) {
       const serials = quoteTaskRows
-        .map(t => t.serialNumber)
+        .map(t => t.implement?.serialNumber)
         .filter((n): n is string => Boolean(n))
         .sort();
       const range =

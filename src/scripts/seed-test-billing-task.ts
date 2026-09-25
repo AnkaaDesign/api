@@ -127,7 +127,7 @@ async function main(): Promise<void> {
           finishedAt: now,
           quoteId: quote.id,
         },
-        select: { id: true, name: true, serialNumber: true },
+        select: { id: true, name: true, implement: { select: { serialNumber: true } } },
       });
 
       // A COBERTURA — agora que o veículo existe.
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     out('Tarefa de teste criada:');
     out(`  taskId       : ${result.task.id}`);
     out(`  nome         : ${result.task.name}`);
-    out(`  nº de série  : ${result.task.serialNumber}`);
+    out(`  nº de série  : ${result.task.implement?.serialNumber}`);
     out(`  orçamento nº : ${result.quote.budgetNumber} (PENDENTE, R$ 2,00 em 2 serviços)`);
     out(`  responsável  : ${responsible?.name ?? '(nenhum)'}`);
     out(`  faturamento  : https://ankaadesign.com.br/financeiro/faturamento/detalhes/${result.task.id}`);
