@@ -1,7 +1,7 @@
 {
   "cliente": "web",
   "descricao": "GERADO por web/scripts/extract-query-contracts.ts (P03) — não editar à mão; rode o extrator. `formas`: toda consulta estática do web para um schema registrado no teste de contrato. `semSchema`: consultas cuja rota o teste ainda não registra (fora do teste). `naoEstaticas`: includes montados em tempo de execução (o extrator não os vê; o censo do G3 vê). `foraDoTeste`: formas reais que o teste não sabe julgar ainda (motivo em cada uma).",
-  "fonte": "web@feat/portal-do-responsavel (43183934)",
+  "fonte": "web@feat/portal-do-responsavel (80aa1a4d)",
   "formas": [
     {
       "id": "web.changelog.list/changelog-table.includeConfig",
@@ -1833,7 +1833,7 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/components/production/airbrushing/form/task-selector.tsx:98 (LIST_INCLUDE)",
+      "origem": "web/src/components/production/airbrushing/form/task-selector.tsx:100 (LIST_INCLUDE)",
       "consulta": {
         "shouldDisplayInPreparation": true,
         "hasAirbrushingServiceOrder": true,
@@ -1878,6 +1878,7 @@
           "implement": {
             "select": {
               "id": true,
+              "serialNumber": true,
               "plate": true,
               "category": true,
               "chassisNumber": true,
@@ -2057,7 +2058,7 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/components/production/observation/form/observation-form.tsx:114",
+      "origem": "web/src/components/production/observation/form/observation-form.tsx:116",
       "omitidas": [
         "where"
       ],
@@ -2089,7 +2090,12 @@
           "serviceOrders": true,
           "files": true,
           "observation": true,
-          "bonifications": true
+          "bonifications": true,
+          "implement": {
+            "select": {
+              "serialNumber": true
+            }
+          }
         }
       }
     },
@@ -2725,7 +2731,7 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/components/production/task/preparation/task-prep-page.tsx:174 (LIST_INCLUDE)",
+      "origem": "web/src/components/production/task/preparation/task-prep-page.tsx:176 (LIST_INCLUDE)",
       "omitidas": [
         "...(statuses ? { status: statuses } : {})",
         "...scope"
@@ -2771,6 +2777,7 @@
           "implement": {
             "select": {
               "id": true,
+              "serialNumber": true,
               "plate": true,
               "category": true,
               "chassisNumber": true,
@@ -3152,7 +3159,7 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/dashboard/widgets/installment-table.tsx:560 (TASK_INCLUDE)",
+      "origem": "web/src/dashboard/widgets/installment-table.tsx:562 (TASK_INCLUDE)",
       "omitidas": [
         "...(refetchInterval > 0 && { refetchInterva"
       ],
@@ -3179,6 +3186,11 @@
               "id": true,
               "fantasyName": true,
               "corporateName": true
+            }
+          },
+          "implement": {
+            "select": {
+              "serialNumber": true
             }
           },
           "quote": {
@@ -3281,7 +3293,7 @@
       "rota": "GET /tasks",
       "modelo": "Task",
       "schema": "task.taskGetManySchema",
-      "origem": "web/src/dashboard/widgets/task-table.tsx:1818 (TASK_INCLUDE)",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:1820 (TASK_INCLUDE)",
       "omitidas": [
         "where",
         "searchingFor",
@@ -3311,7 +3323,7 @@
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/dashboard/widgets/task-table.tsx:2101",
+      "origem": "web/src/dashboard/widgets/task-table.tsx:2103",
       "consulta": {
         "include": {
           "layouts": {
@@ -3351,10 +3363,10 @@
         }
       },
       "origens": [
-        "web/src/dashboard/widgets/task-table.tsx:2101",
+        "web/src/dashboard/widgets/task-table.tsx:2103",
         "web/src/components/production/task/schedule/task-schedule-table-page.tsx:475",
         "web/src/components/production/task/history/table/task-history-table-page.tsx:402",
-        "web/src/components/production/task/preparation/task-prep-page.tsx:355",
+        "web/src/components/production/task/preparation/task-prep-page.tsx:357",
         "web/src/components/production/task/history/task-history-list.tsx:445",
         "web/src/components/production/task/schedule/task-schedule-content.tsx:199"
       ]
@@ -3514,13 +3526,13 @@
                 "select": {
                   "id": true,
                   "name": true,
-                  "serialNumber": true,
                   "createdAt": true,
                   "customerOrderNumber": true,
                   "finishedAt": true,
                   "implement": {
                     "select": {
                       "id": true,
+                      "serialNumber": true,
                       "plate": true,
                       "chassisNumber": true,
                       "category": true,
@@ -3592,7 +3604,7 @@
       "rota": "GET /tasks/:id",
       "modelo": "Task",
       "schema": "task.taskQuerySchema",
-      "origem": "web/src/pages/financial/budget/details/[taskId].tsx:1737",
+      "origem": "web/src/pages/financial/budget/details/[taskId].tsx:1738",
       "consulta": {
         "include": {
           "responsibles": true
@@ -4620,7 +4632,7 @@
       "chamada": "useAirbrushingsByTask"
     },
     {
-      "origem": "web/src/components/production/task/form/task-edit-form.tsx:2129",
+      "origem": "web/src/components/production/task/form/task-edit-form.tsx:2128",
       "chamada": "updateAsync"
     },
     {
@@ -5156,11 +5168,11 @@
       "chamada": "useWarning"
     },
     {
-      "origem": "web/src/pages/production/cutting/details/[id].tsx:103 (DETAIL_INCLUDE)",
+      "origem": "web/src/pages/production/cutting/details/[id].tsx:104 (DETAIL_INCLUDE)",
       "chamada": "useCut"
     },
     {
-      "origem": "web/src/pages/production/cutting/details/[id].tsx:116",
+      "origem": "web/src/pages/production/cutting/details/[id].tsx:117",
       "chamada": "useCuts"
     },
     {
