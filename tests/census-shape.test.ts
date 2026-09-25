@@ -122,9 +122,9 @@ function parteA(): void {
       orderBy: [
         { statusOrder: 'asc' },
         { term: { sort: 'asc', nulls: 'last' } },
-        { serialNumber: { sort: 'asc', nulls: 'last' } },
+        { implement: { serialNumber: { sort: 'asc', nulls: 'last' } } },
       ],
-      where: { OR: [{ status: 'PENDING' }, { status: 'IN_PRODUCTION', serialNumber: SERIE }] },
+      where: { OR: [{ status: 'PENDING' }, { status: 'IN_PRODUCTION', implement: { serialNumber: SERIE } }] },
       page: 1,
       limit: 40,
     },
@@ -135,12 +135,12 @@ function parteA(): void {
     '`orderBy` em lista guarda a POSIÇÃO de cada critério',
     agenda.includes('orderBy[0].statusOrder:str') &&
       agenda.includes('orderBy[1].term.nulls:str') &&
-      agenda.includes('orderBy[2].serialNumber.sort:str'),
+      agenda.includes('orderBy[2].implement.serialNumber.sort:str'),
     agenda.join(' '),
   );
   check(
     'lista fora de `orderBy` é FUNDIDA (`[]`) — união das chaves dos elementos',
-    agenda.includes('where.OR[].status:str') && agenda.includes('where.OR[].serialNumber:str'),
+    agenda.includes('where.OR[].status:str') && agenda.includes('where.OR[].implement.serialNumber:str'),
     agenda.join(' '),
   );
   check(
@@ -167,14 +167,12 @@ function parteB(): void {
   const consulta = queryPaths({
     where: {
       customer: { cpf: CPF, fantasyName: NOME },
-      implement: { plate: PLACA },
-      serialNumber: { in: [SERIE] },
+      implement: { plate: PLACA, serialNumber: { in: [SERIE] } },
     },
     searchingFor: PLACA,
   });
   const corpo = bodyPaths({
-    implement: { plate: PLACA },
-    serialNumber: SERIE,
+    implement: { plate: PLACA, serialNumber: SERIE },
     responsible: { cpf: CPF, name: NOME },
   });
   // chave com cara de valor (um cliente que põe o CPF na chave). Chave em
@@ -199,7 +197,7 @@ function parteB(): void {
     'mas a FORMA está lá: é o que o P11a precisa',
     consulta.includes('where.implement.plate:str') &&
       corpo.includes('implement.plate:str') &&
-      corpo.includes('serialNumber:str'),
+      corpo.includes('implement.serialNumber:str'),
   );
 }
 
@@ -210,7 +208,7 @@ function parteC(): void {
   const json = bodyPaths({
     tasks: [
       { name: 'a', implement: { plate: 'x' } },
-      { name: 'b', serialNumber: '1' },
+      { name: 'b', implement: { serialNumber: '1' } },
     ],
     ok: false,
     n: 2,
@@ -226,8 +224,8 @@ function parteC(): void {
       'obj:{}',
       'ok:bool',
       'tasks[].implement.plate:str',
+      'tasks[].implement.serialNumber:str',
       'tasks[].name:str',
-      'tasks[].serialNumber:str',
       'vazio:[]',
     ]),
     json.join(' '),

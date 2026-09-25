@@ -40,7 +40,7 @@ const prisma = new PrismaClient();
 
 async function limpar() {
   const tasks = await prisma.task.findMany({
-    where: { serialNumber: { startsWith: TAG } },
+    where: { implement: { serialNumber: { startsWith: TAG } } },
     select: { id: true, quoteId: true, name: true },
   });
   if (!tasks.length) return console.log('nada a limpar.');
@@ -115,8 +115,9 @@ async function main() {
       quoteId: quote.id,
       responsibles: { connect: [{ id: RESPONSIBLE_ID }] },
     },
+    include: { implement: { select: { serialNumber: true } } },
   });
-  console.log(`\norçamento nº ${quote.budgetNumber} · tarefa ${task.serialNumber}`);
+  console.log(`\norçamento nº ${quote.budgetNumber} · tarefa ${task.implement?.serialNumber}`);
 
   // 3. Envelope via a API EM EXECUÇÃO (é ela que detém a sessão do WhatsApp).
   //    Subir um segundo processo Nest inicializaria outro cliente Baileys com as

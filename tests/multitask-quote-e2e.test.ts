@@ -144,7 +144,7 @@ async function main() {
           status: 'PREPARATION',
           name: TASK_NAME,
           customerId: customer.id,
-          serialNumber: `ZZ${SUFFIX}${n}`,
+          implement: { serialNumber: `ZZ${SUFFIX}${n}` },
           customerOrderNumber: '4888888',
         })) as any,
         quote: {
@@ -577,7 +577,7 @@ async function main() {
           status: 'PREPARATION',
           name: `${TASK_NAME}-LEGADO`,
           customerId: customer.id,
-          serialNumber: `ZZ${SUFFIX}L`,
+          implement: { serialNumber: `ZZ${SUFFIX}L` },
         },
       ],
       quote: {

@@ -82,7 +82,7 @@ async function main() {
           status: 'PREPARATION',
           name: `ZZ-TESTE-RECUSA-${SUFFIX}`,
           customerId: customer.id,
-          serialNumber: `ZZR${SUFFIX}`,
+          implement: { serialNumber: `ZZR${SUFFIX}` },
           responsibleIds: criados.respIds,
         }] as any,
         quote: {
@@ -153,12 +153,18 @@ async function main() {
     await prisma.envelopeSigner.update({
       where: { id: recusante.id }, data: { informedCpf: '98765432100', informedCargo: 'Gerente' },
     });
-    const doc = await prisma.envelopeDocument.findFirst({
-      where: { envelopeId: env0.id }, select: { originalSha256: true },
-    });
+    // O código se amarra ao PDF DO SIGNATÁRIO (um recorte por responsável):
+    // o de outro recorte é "documento alterado" na verificação.
+    const docDe = async (signerId: string) =>
+      (
+        await prisma.envelopeSigner.findUnique({
+          where: { id: signerId },
+          select: { document: { select: { originalSha256: true } } },
+        })
+      )?.document?.originalSha256 ?? env0.originalSha256;
     const desafio = await challenges.issue({
       signerId: recusante.id, channel: 'email', destinationMask: 'z***@ankaa.local',
-      documentSha256: doc?.originalSha256 ?? env0.originalSha256, identity: '98765432100',
+      documentSha256: await docDe(recusante.id), identity: '98765432100',
     });
 
     await envelopes.refuse({
@@ -209,7 +215,7 @@ async function main() {
       });
       const d = await challenges.issue({
         signerId: s.id, channel: 'email', destinationMask: 'z***@ankaa.local',
-        documentSha256: doc?.originalSha256 ?? env0.originalSha256, identity: '12345678909',
+        documentSha256: await docDe(s.id), identity: '12345678909',
       });
       await envelopes.refuse({
         token: atual!.accessToken, challengeId: d.challengeId, code: d.code,
@@ -234,10 +240,27 @@ async function main() {
         .catch(() => {});
       await prisma.file.deleteMany({ where: { id: criados.layoutFileId } }).catch(() => {});
     }
-    // Limpeza. O envelope cairia por cascade do orçamento — ver acima por que
-    // isso não acontece quando a coleta chegou a gravar trilha.
+    // Limpeza. O envelope cai por cascade do orçamento, mas a trilha é
+    // append-only: sem a licença da sessão o `deleteMany` falhava calado e cada
+    // execução deixava um envelope RUNNING que o G11 acusa como "envelope novo
+    // que não casa com o build()". Os PDFs congelados saem junto.
     if (criados.quoteId) {
-      await prisma.budget.deleteMany({ where: { id: criados.quoteId } }).catch(() => {});
+      await prisma
+        .$transaction(async (tx: any) => {
+          await tx.$executeRawUnsafe(`SET LOCAL ankaa.allow_signature_audit_delete = 'on'`);
+          await tx.$executeRawUnsafe(`SET LOCAL ankaa.allow_referenced_file_delete = 'on'`);
+          const envelopes = await tx.signatureEnvelope.findMany({
+            where: { quoteId: criados.quoteId },
+            select: { id: true },
+          });
+          const pdfs = await tx.envelopeDocument.findMany({
+            where: { envelopeId: { in: envelopes.map((e: any) => e.id) } },
+            select: { originalFileId: true },
+          });
+          await tx.budget.deleteMany({ where: { id: criados.quoteId } });
+          await tx.file.deleteMany({ where: { id: { in: pdfs.map((d: any) => d.originalFileId) } } });
+        })
+        .catch((e: Error) => console.log(`  ⚠️  limpeza do orçamento falhou: ${e.message}`));
     }
     if (criados.taskIds.length) {
       await prisma.task.deleteMany({ where: { id: { in: criados.taskIds } } }).catch(() => {});

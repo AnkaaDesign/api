@@ -46,9 +46,8 @@ const varredura = new SicrediBoletoScheduler(
 /** Um veículo do orçamento, como as consultas o trazem. */
 const veiculo = (serial: string, pedido: string | null) => ({
   id: `t-${serial}`,
-  serialNumber: serial,
   customerOrderNumber: pedido,
-  implement: { plate: `ABC${serial.slice(-4)}`, chassisNumber: null, category: 'TRUCK', type: 'REFRIGERATED' },
+  implement: { serialNumber: serial, plate: `ABC${serial.slice(-4)}`, chassisNumber: null, category: 'TRUCK', type: 'REFRIGERATED' },
 });
 
 const FROTA = [

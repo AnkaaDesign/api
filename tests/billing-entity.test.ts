@@ -82,7 +82,8 @@ async function main() {
 
     for (let i = 0; i < 4; i++) {
       const t = await prisma.task.create({
-        data: { name: `${marca}-${i}`, quoteId, customerId: customerA },
+        // DD1: toda tarefa nasce com implemento (o gatilho diferido recusa sem ele).
+        data: { name: `${marca}-${i}`, quoteId, customerId: customerA, implement: { create: { spot: null } } },
         select: { id: true },
       });
       taskIds.push(t.id);

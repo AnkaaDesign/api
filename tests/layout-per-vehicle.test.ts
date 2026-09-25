@@ -80,17 +80,15 @@ async function rejectsWith(p: Promise<unknown>, fragment: string): Promise<strin
 // ═══════════════════════════════════════════════════════════════════════════
 
 function pureChecks() {
-  const t1 = { id: 't1', serialNumber: '39088', createdAt: new Date('2026-09-22T17:04:39.924Z') };
-  const t2 = { id: 't2', serialNumber: '39089', createdAt: new Date('2026-09-22T17:04:39.996Z') };
+  const t1 = { id: 't1', implement: { serialNumber: '39088' }, createdAt: new Date('2026-09-22T17:04:39.924Z') };
+  const t2 = { id: 't2', implement: { serialNumber: '39089' }, createdAt: new Date('2026-09-22T17:04:39.996Z') };
   const t3 = {
     id: 't3',
-    serialNumber: null,
-    implement: { plate: 'ABC1D23' },
+    implement: { serialNumber: null, plate: 'ABC1D23' },
     createdAt: new Date('2026-09-22T17:05:00Z'),
   };
   const t4 = {
     id: 't4',
-    serialNumber: null,
     implement: null,
     createdAt: new Date('2026-09-22T17:06:00Z'),
   };
@@ -224,7 +222,7 @@ function pureChecks() {
   {
     const many = Array.from({ length: 21 }, (_, i) => ({
       id: `v${i}`,
-      serialNumber: `S${i}`,
+      implement: { serialNumber: `S${i}` },
       createdAt: new Date(1000 + i),
     }));
     check(
@@ -351,7 +349,6 @@ function pureChecks() {
       {
         id: 'task-2',
         name: 'Carlotti',
-        serialNumber: '39089',
         createdAt: t2.createdAt,
         customerOrderNumber: null,
         customer,
@@ -361,7 +358,6 @@ function pureChecks() {
       {
         id: 'task-1',
         name: 'Carlotti',
-        serialNumber: '39088',
         createdAt: t1.createdAt,
         customerOrderNumber: null,
         customer,
