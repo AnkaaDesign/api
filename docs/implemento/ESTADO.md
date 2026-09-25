@@ -189,7 +189,7 @@ Regime: no máximo 2 agentes por vez. Um pacote que cria exigência para o repos
    - edição de item (`where.measures.some.AND[].type`).
 
    Corrigir na `main`?
-3. **Push de segurança** das branches (api/web `feat/portal-do-responsavel`, app `feat/implemento`): ainda não autorizado.
+3. ~~Push de segurança~~ — FEITO em 25/09 a pedido do dono ("commit e push tudo"): api e web `feat/portal-do-responsavel`, app `feat/implemento` (branch nova em `AnkaaDesign/mobile_migration`). O trabalho continua na nuvem a partir delas. Deploy e merge na `main` continuam SÓ com o dono.
 4. Recomendação do Notas, ainda sem resposta: o ato "Assinado fora do sistema" **não** exige a arte aprovada, porque a arte já trava a produção.
 5. A notificação de troca da foto da plaqueta (`task.field.truck.vinPlateId`) fica sem configuração **por ordem do dono**. Não mexer.
 6. Palavras da nota fiscal (Isotérmico/Isoplastic, Prancha/Carroceria, "OS #"/"Série"): nada muda até o dono escolher.
