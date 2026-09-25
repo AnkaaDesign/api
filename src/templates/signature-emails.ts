@@ -443,9 +443,9 @@ export function generateSignatureReminderEmail(data: ReminderEmailData): {
       footerNote: `Este é um e-mail automático referente ao orçamento nº ${esc(data.budgetNumber)}.`,
       body: `
 <p>Olá, ${esc(data.signerName)}.</p>
-<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> ainda aguarda sua assinatura — <strong>${esc(
-        prazoFrase,
-      )}</strong> (validade até ${esc(data.deadlineDate)}).</p>
+<p>O orçamento nº <strong>${esc(data.budgetNumber)}</strong> continua aguardando sua assinatura, e a
+ordem de serviço não avança enquanto ele não for assinado.</p>
+<p>Prazo: <strong>${esc(prazoFrase)}</strong> (validade até ${esc(data.deadlineDate)}).</p>
 <p style="text-align:center;margin:26px 0;">
   <a href="${data.signingUrl}" class="button">Revisar e assinar o orçamento</a>
 </p>

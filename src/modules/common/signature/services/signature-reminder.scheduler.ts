@@ -15,11 +15,12 @@
  * toques, dois deles mirando o vencimento) e `isInternalReminderDue` para a
  * nossa contra-assinatura.
  *
- * UMA RODADA POR DIA, às 9h de São Paulo. Não é de hora em hora com filtro de
- * dia porque as cadências são contadas em dias civis: acordar 24 vezes para mandar no
- * máximo uma mensagem por signatário é trabalho para produzir o mesmo resultado.
- * 9h é depois de o comercial chegar — um lembrete que gera resposta ("me liga")
- * cai em horário em que alguém atende.
+ * UMA RODADA POR DIA, às 8h de São Paulo (era 9h até 25/09/2026). Não é de hora
+ * em hora com filtro de dia porque as cadências são contadas em dias civis: acordar
+ * 24 vezes para mandar no máximo uma mensagem por signatário é trabalho para
+ * produzir o mesmo resultado. 8h é a abertura do expediente — o limite inferior da
+ * janela de notificações (seg-sex 08-18h) — e o lembrete chega no começo do dia de
+ * quem precisa decidir.
  */
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -40,14 +41,14 @@ export class SignatureReminderScheduler {
 
   constructor(private readonly envelopes: SignatureEnvelopeService) {}
 
-  @Cron('0 9 * * *', {
+  @Cron('0 8 * * *', {
     name: 'signature-pending-reminder',
     timeZone: 'America/Sao_Paulo',
   })
   async sweepReminders(): Promise<void> {
     // O mesmo portão que o lembrete de parcela usa. Sem ele, qualquer máquina de
     // desenvolvimento com uma cópia do banco de produção começaria a mandar
-    // WhatsApp para cliente de verdade às 9 da manhã.
+    // WhatsApp para cliente de verdade às 8 da manhã.
     if (process.env.NODE_ENV !== 'production') {
       this.logger.log('Lembretes de assinatura ignorados fora de produção.');
       return;

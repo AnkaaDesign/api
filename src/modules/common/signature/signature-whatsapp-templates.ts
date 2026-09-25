@@ -132,6 +132,16 @@ export const SIGNATURE_WHATSAPP_TEMPLATE_NAMES = {
 } as const;
 
 /**
+ * Versões novas SUBMETIDAS e ainda não em uso. Template aprovado não se edita:
+ * texto novo é nome novo, e a constante acima só troca quando a Meta aprovar
+ * (`npm run test:whatsapp-templates`). Trocar antes faz o envio falhar com 132001.
+ */
+export const SIGNATURE_WHATSAPP_TEMPLATE_V2_CANDIDATES = {
+  /** Mesma forma da v1; acrescenta "a ordem de serviço não avança…". 25/09/2026. */
+  REMINDER: 'orcamento_aguardando_assinatura_v2',
+} as const;
+
+/**
  * A Meta recusa variável com quebra de linha, tabulação ou corrida de espaços —
  * e recusa no ENVIO, não no cadastro. Um nome colado de planilha com `\n` no fim
  * derrubaria o convite de um cliente específico, de forma reprodutível e

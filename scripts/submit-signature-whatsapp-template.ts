@@ -21,7 +21,9 @@
 import { config } from 'dotenv';
 import {
   refusedTemplate,
+  reminderTemplate,
   SIGNATURE_WHATSAPP_TEMPLATE_NAMES,
+  SIGNATURE_WHATSAPP_TEMPLATE_V2_CANDIDATES,
 } from '../src/modules/common/signature/signature-whatsapp-templates';
 
 config();
@@ -41,7 +43,16 @@ const VERSION = process.env.WHATSAPP_CLOUD_API_VERSION || 'v25.0';
  */
 const CATALOGO: Record<
   string,
-  { category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION'; language: string; body: string; example: string[] }
+  {
+    category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION';
+    language: string;
+    body: string;
+    example: string[];
+    /** Quantas variáveis o CONSTRUTOR que a cerimônia usa manda no corpo. */
+    params: (example: string[]) => number;
+    /** Botão de URL com sufixo variável. */
+    urlButton?: { text: string; url: string; example: string };
+  }
 > = {
   [SIGNATURE_WHATSAPP_TEMPLATE_NAMES.REFUSED]: {
     // ⚠️ O CORPO MUDOU DEPOIS DA PRIMEIRA SUBMISSÃO (id 1812362519805697).
@@ -70,6 +81,31 @@ const CATALOGO: Record<
       '594',
       'O preço ficou acima do que aprovamos internamente para esta frota.',
     ],
+    params: ex =>
+      refusedTemplate({ refusedByName: ex[0], budgetNumber: ex[1], reason: ex[2], quoteTaskId: 'x' })
+        .bodyParams.length,
+  },
+  /**
+   * Lembrete v2 (25/09/2026): acrescenta a consequência — "a ordem de serviço
+   * não avança enquanto ele não for assinado". A v1
+   * (`orcamento_aguardando_assinatura`) está APROVADA e por isso congelada;
+   * nome novo, e a constante `REMINDER` só troca depois que esta for aprovada.
+   */
+  [SIGNATURE_WHATSAPP_TEMPLATE_V2_CANDIDATES.REMINDER]: {
+    category: 'UTILITY',
+    language: 'pt_BR',
+    body:
+      'Olá, {{1}}! O orçamento nº {{2}} continua aguardando sua assinatura, e a ordem de serviço não avança enquanto ele não for assinado.\n\n' +
+      'O link é pessoal e vale até {{3}} — toque no botão para revisar o documento e assinar pelo celular.',
+    example: ['Sérgio', '1459', '18/09/2026'],
+    params: ex =>
+      reminderTemplate({ signerName: ex[0], budgetNumber: ex[1], deadlineDate: ex[2], accessToken: 'x' })
+        .bodyParams.length,
+    urlButton: {
+      text: 'Revisar e assinar',
+      url: 'https://ankaadesign.com.br/cliente/assinar/{{1}}',
+      example: 'https://ankaadesign.com.br/cliente/assinar/9f2c1ab7d4e5',
+    },
   },
 };
 
@@ -101,12 +137,8 @@ async function main(): Promise<void> {
   const alvo = CATALOGO[nome];
 
   // As variáveis que o CONSTRUTOR manda — não um número digitado aqui.
-  const descritor = refusedTemplate({
-    refusedByName: alvo.example[0],
-    budgetNumber: alvo.example[1],
-    reason: alvo.example[2],
-  });
-  const erros = checkBody(alvo.body, descritor.bodyParams.length);
+  const esperadas = alvo.params(alvo.example);
+  const erros = checkBody(alvo.body, esperadas);
   if (erros.length) {
     console.error(`Corpo inválido para "${nome}":`);
     for (const e of erros) console.error(`  · ${e}`);
@@ -117,11 +149,28 @@ async function main(): Promise<void> {
     name: nome,
     language: alvo.language,
     category: alvo.category,
-    components: [{ type: 'BODY', text: alvo.body, example: { body_text: [alvo.example] } }],
+    components: [
+      { type: 'BODY', text: alvo.body, example: { body_text: [alvo.example] } },
+      ...(alvo.urlButton
+        ? [
+            {
+              type: 'BUTTONS',
+              buttons: [
+                {
+                  type: 'URL',
+                  text: alvo.urlButton.text,
+                  url: alvo.urlButton.url,
+                  example: [alvo.urlButton.example],
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
   };
 
   console.log(`Template : ${nome} (${alvo.category}, ${alvo.language})`);
-  console.log(`Variáveis: ${descritor.bodyParams.length} — conferidas contra o construtor`);
+  console.log(`Variáveis: ${esperadas} — conferidas contra o construtor`);
   console.log('Corpo:\n');
   console.log(alvo.body.split('\n').map(l => `  ${l}`).join('\n'));
   console.log();

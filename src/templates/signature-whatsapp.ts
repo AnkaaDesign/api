@@ -132,7 +132,9 @@ export function generateSignatureReminderWhatsApp(data: WhatsAppReminderData): s
         : `faltam *${data.daysLeft} dias*`;
 
   return [
-    `Olá, ${firstName(data.signerName)}. O orçamento nº *${data.budgetNumber}* ainda aguarda sua assinatura — ${prazo} (validade até ${data.deadlineDate}).`,
+    `Olá, ${firstName(data.signerName)}! O orçamento nº *${data.budgetNumber}* continua aguardando sua assinatura, e a ordem de serviço não avança enquanto ele não for assinado.`,
+    '',
+    `Prazo: ${prazo} (validade até ${data.deadlineDate}).`,
     '',
     'Seu link continua o mesmo:',
     '',
