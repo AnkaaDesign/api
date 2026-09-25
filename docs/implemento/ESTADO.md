@@ -1,4 +1,4 @@
-# Rework Implemento — ESTADO (25/09/2026, manhã)
+# Rework Implemento — ESTADO (25/09/2026, tarde)
 
 Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1), e as notas de desenho de cada pacote estão em `notas/`.
 
@@ -24,15 +24,15 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 
 | Repo | Branch | Situação |
 |---|---|---|
-| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`) + série só no implemento DD14 (`21c9e493`, `875aaf9f`) + testes do P11a e 2 defeitos achados por eles (`dc17ea42`, `19a48279`, `7ea83eb0`, `afc0102a`). **Régua verde (27/27, 261 s)** |
-| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); nomenclatura completa (`43183934`, `80aa1a4d`) e série só no implemento (`9ce33a03`, `6913c34d`, `9c553aaa`). Régua: G0/G6/G4/G5 verdes; vitest 641/647 — os 6 vermelhos são do menu (`navigation-context.test.ts`) e falham IGUAIS na `origin/main` |
+| api | `feat/portal-do-responsavel` | main de 24/09 juntada (`2e38b63c`); fatias re-carimbadas para `20260930…`; P11a (`1772c328`) + nomenclatura completa DD13 (`fdd3588d`) + série só no implemento DD14 (`21c9e493`, `875aaf9f`) + testes do P11a e 2 defeitos achados por eles (`dc17ea42`, `19a48279`, `7ea83eb0`, `afc0102a`) + **P11b** (`b13c9413`, `885b17c2`, `a5a2a636`). **Régua verde (30/30, 175 s)** |
+| web | `feat/portal-do-responsavel` | main de 24/09 juntada (`17ff1c04`); nomenclatura completa (`43183934`, `80aa1a4d`) e série só no implemento (`9ce33a03`, `6913c34d`, `9c553aaa`); contrato do P11b (`ffcb4685`). Régua: G0/G6/G4/G5 verdes; vitest 641/647 — os 6 vermelhos são do menu (`navigation-context.test.ts`) e falham IGUAIS na `origin/main` |
 | app | `feat/implemento` | main (1.4.2+25) juntada; nomenclatura completa no app e no AnkaaAero (`856c2a3`, `901681e`, `1391b83`); AnkaaAero manda versão/plataforma (`acac622`); série só no implemento no app e no AnkaaAero (`2a5cb9a`, `ef5dc44`, `12d46c6`, `8f774b0`). Régua verde (analyze, G6, G5, suíte) |
 | app | `patch/p02-sobre-1.4.1+24` | OBSOLETO com a DD13 (era o patch de compatibilidade) |
 | api | `wip/p11a-parcial-20260923` | já incorporada; pode ser apagada |
 
 Bancos locais (container `ankaa-postgres`):
 
-- `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`, Mnom) + a série só no implemento (`20260930120070`, M5s) + as 6 migrations da main de 24/09.
+- `ankaa_implemento`: banco da Fase B. Tem M0 + M1 + M1s + a nomenclatura (`20260930120060`, Mnom) + a série só no implemento (`20260930120070`, M5s) + **M2** (`20260930120100`) + os avisos da porta (`20260930120110`) + as 6 migrations da main de 24/09.
 - `ankaa_implemento_base`: a base (main + M0), criado em 24/09. É onde o ensaio roda a cadeia inteira (8 fatias); manter até o P30.
 - `ankaa_taskmatch_impl_test`: descartável do `test:task-match:integration` (db push).
 - `ankaa_production` (clone) e `ankaa_veiculos` (outra sessão): não tocar.
@@ -116,11 +116,19 @@ Bancos locais (container `ankaa-postgres`):
 - **Testes do P11a** (`tests/implement-serial.test.ts`, na régua): G19 (W1–W6, unicidade, desfazer para série em uso → 400), G20 (C1–C5 com implemento e `spot` nulo, a rede do banco, varredura da fonte por `task.create` sem implemento), G22 (contexto de `task.created` e `task.field.serialNumber`), G23 (o corpo do app de hoje; série no topo recusada), G24 (nenhuma leitura sem tipo nem SQL cru da série na tarefa), G32 (a URL exata da Agenda pelo parser e pipe da rota → 200 e ordenada) e a busca de tinta por série e placa. 36/36.
 - **Defeitos que os testes pegaram** (o espelho escondia): (1) editar a série não gravava a trilha `TASK/serialNumber` que o aditivo da assinatura lê; (2) desfazer a série respondia 200 sem desfazer; (3) a URL antiga da Agenda respondia 200 com OUTRA ordem — o G1 agora recusa com 400 nomeado a chave de `orderBy` que o modelo não tem (no `include`/`select` só conta: o web ainda pede chaves mortas); (4) dois testes com banco criavam tarefa sem implemento; (5) corpos de teste com a série no topo escondidos por `as any`; (6) o portal recuava para `task.serialNumber` num tipo local.
 - `signature-refusal` amarrava o código ao PDF errado (um recorte por responsável desde a main de 24/09) e deixava envelope RUNNING a cada execução (G11 acusava): corrigido.
+- **P11b** (frente, porta traseira e projeto do implemento), régua 30/30:
+  - M2 promovida (30 medidas descompartilhadas no banco da Fase B); `IMPLEMENT_FACES` com `front` e TODO mapa face a face virou laço sobre a lista (escritor, módulo de medidas, tarefa, cópia, desfazer, whitelist, zod, tracker, rótulos `IMPLEMENT_FACE_LABELS`); foto da medida na traseira e na frente; multipart `frontSide` nos 2 interceptores (o `POST /tasks` não aceita foto de medida e continua sem).
+  - **G12 pegou um defeito**: `ZodValidationPipe` PULA `param`, então `@Param('side', new ZodValidationPipe(...))` não validava nada — `side=rear` virava 500. Pipe novo `ZodParamValidationPipe`.
+  - Porta traseira (`REAR_DOOR_LEAVES` + rótulos, zod, CHECKs, trilha, desfazer, avisos `task.field.implement.rearDoor*` — migration `20260930120110` gerada das linhas do seed).
+  - **Cotador**: a frente em DUAS passadas (só disputa o retângulo que sobrou; frente e traseira têm a mesma proporção e numa passada única a traseira desenhada saía como "FRENTE"). Sem versão do app (DD13: o app velho leva 426). Testado com PDF sintético (`tests/layout-dimensions-front.test.ts`); o banco real de PDFs está só no servidor.
+  - `PUT /implements/:id/project-files` + contexto `implementProjectFiles` (pasta Projetos) + referência G10 + organizador; tokens de cópia `rearDoor` e `implementProjectFiles`.
+  - Portal (leitura, §7.4): bloco `implement` { id, type, category, measures {left,right,back,front}, rearDoor|null, projectFiles } separado de `identity` (que perdeu category/implementType/measures). **O web do portal (P23) tem de acompanhar** (`api-client/portal.ts`, `veiculo-identidade-card`, `step-veiculos`).
+  - Fica para os pacotes dos clientes: `PanelSide` do web com `FRENTE` (P20), o app (P24: frente, porta, 426), o aperto do schema da face embutida (`implementMeasureFaceInputSchema`, "junto com os clientes"), a pasta "Traseiras" recebe a frente sem renomear (D-24).
 - Ids de preferência: os 4 ids antigos gravados (`hasTruck`, `truckCategories`, `truckCategory`, `truckSpot`) viram, pela regra da `20260930120060`, ids que o web e o app usam hoje.
 
 ## 4. O que FALTA (na ordem)
 
-**P11a FECHADO em 25/09.** Próximo: **P11b** (face FRENTE e porta traseira; nota em `notas/P11b.md`). Fora do rework: `billing-entity` e `orcamento-faturamento-a-db` apontam para o banco `ankaa_qa_e2e`, que está sem esquema neste ambiente (não rodaram).
+**P11a e P11b FECHADOS em 25/09.** Próximo: **[P12 ∥ P13a]** (arte do implemento; escrita do portal com frente, porta, projeto e série). Fora do rework: `billing-entity` e `orcamento-faturamento-a-db` apontam para o banco `ankaa_qa_e2e`, que está sem esquema neste ambiente (não rodaram).
 
 Com a DD13 o plano encurta: não existe mais R-C/R-D separadas nem P32 "remove aliases"; web (P20–P23), app (P24) e AnkaaAero entram na MESMA release da API, e o 426 (P31) liga nela.
 
