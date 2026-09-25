@@ -455,14 +455,68 @@ function parteA(): void {
     resp?.message,
   );
 
-  // modo relatório: descartado pelo zod só conta
-  const raw = { include: { cuts: true, sector: true, inventada: true } };
-  const saida = enforceQueryShape('Task', { include: { sector: true } }, { raw });
+  // o que o zod descartou: no `include`/`select` só conta, exista a chave ou não
+  // (o web ainda pede chaves mortas; recusar derrubaria telas vivas). No `orderBy`,
+  // chave que o modelo NÃO tem é o 400 nomeado — responder 200 com outra ordem
+  // era a "chave fora do lugar some com 200" (a Agenda do app antigo ordenando
+  // por `serialNumber` no topo depois da M5s).
+  resetQueryKeyCounters();
+  const saida = enforceQueryShape(
+    'Task',
+    { include: { sector: true } },
+    { raw: { include: { cuts: true, sector: true } } },
+  );
+  check(
+    'descartada pelo zod e EXISTENTE no modelo: não é recusada, é contada',
+    (saida as any).include.sector === true &&
+      Object.keys(queryKeyCounters()).includes('dropped|Task|include.cuts'),
+    Object.keys(queryKeyCounters()).join(', '),
+  );
+  const recusa = (parsed: unknown, raw: unknown): string | null => {
+    try {
+      enforceQueryShape('Task', parsed, { raw });
+      return null;
+    } catch (e) {
+      return e instanceof UnknownQueryKeyException ? String((e.getResponse() as any).message) : String(e);
+    }
+  };
+  check(
+    'include descartado pelo zod e INEXISTENTE no modelo: contado, não recusado',
+    recusa({ include: { sector: true } }, { include: { sector: true, inventada: true } }) === null,
+  );
+  const inventada = recusa({ orderBy: { name: 'asc' } }, { orderBy: { name: 'asc', inventada: 'asc' } });
+  check(
+    'orderBy descartado pelo zod e INEXISTENTE no modelo: 400 nomeado',
+    /Task\.inventada \(em orderBy\.inventada\)/.test(inventada ?? ''),
+    inventada ?? 'passou',
+  );
+  const serieNoTopo = recusa(
+    { orderBy: [{ forecastDate: { sort: 'asc' } }, {}] },
+    { orderBy: [{ forecastDate: { sort: 'asc' } }, { serialNumber: { sort: 'asc', nulls: 'last' } }] },
+  );
+  check(
+    '`orderBy[1].serialNumber` (a série saiu da tarefa) → 400 nomeado, não outra ordem com 200',
+    /Task\.serialNumber/.test(serieNoTopo ?? ''),
+    serieNoTopo ?? 'passou',
+  );
+  const relacaoVelha = recusa({ orderBy: {} }, { orderBy: { truck: { plate: 'asc' } } });
+  check(
+    'relação que o modelo não tem, no meio do caminho (`orderBy.truck.plate`) → 400 nomeado',
+    /Task\.truck/.test(relacaoVelha ?? ''),
+    relacaoVelha ?? 'passou',
+  );
+
+  // modo relatório: descartado pelo zod só conta, exista ou não
+  resetQueryKeyCounters();
+  enforceQueryShape(
+    'Task',
+    { include: { sector: true } },
+    { raw: { include: { cuts: true, sector: true, inventada: true } }, reportOnly: true },
+  );
   const contadores = Object.keys(queryKeyCounters());
   check(
     'modo relatório: o que o zod descartou não é recusado, é contado',
-    (saida as any).include.sector === true &&
-      contadores.includes('dropped|Task|include.cuts') &&
+    contadores.includes('dropped|Task|include.cuts') &&
       contadores.includes('dropped|Task|include.inventada'),
     contadores.join(', '),
   );

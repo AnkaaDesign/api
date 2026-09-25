@@ -170,19 +170,36 @@ export function enforceQueryShape<T>(
   }
 
   if (isPlainObject(options.raw)) {
-    reportDroppedKeys(model, options.raw, parsed as Record<string, unknown>);
+    // ORDENAÇÃO por chave que o MODELO não tem, descartada calada pelo zod (o
+    // schema de `orderBy` não é `.strict()`): responder 200 com OUTRA ordem é a
+    // armadilha "chave fora do lugar some com 200" — a Agenda do app antigo
+    // ordenava por `serialNumber` no topo depois da M5s e recebia a lista fora de
+    // ordem sem aviso. Vira o mesmo 400 nomeado do validador.
+    // Só `orderBy`: no `include`/`select` o descarte só tira um dado que nunca
+    // veio (o web ainda pede `Task.files`, `Item.changeLogs`…, e recusar
+    // derrubaria telas vivas); lá, e para a chave que EXISTE, continua contado.
+    const inventadas = reportDroppedKeys(model, options.raw, parsed as Record<string, unknown>);
+    if (inventadas.length > 0) {
+      for (const i of inventadas) recordQueryKeyEvent('rejected', model, i.path, i.reason);
+      throw new UnknownQueryKeyException(inventadas);
+    }
   }
 
   return translated as T;
 }
 
+/**
+ * Conta (e loga) o que o zod descartou calado. Devolve as chaves de ORDENAÇÃO
+ * descartadas que o modelo NÃO tem — o chamador que recusa as transforma em 400.
+ */
 function reportDroppedKeys(
   model: string,
   raw: Record<string, unknown>,
   parsed: Record<string, unknown>,
-): void {
+): QueryKeyIssue[] {
+  const inventadas: QueryKeyIssue[] = [];
   // `where` fica de fora: no topo ele é `.strict()` nas rotas que têm where
-  // enumerado (recusa, não descarta), e as conveniências (`hasImplement`…) viram
+  // enumerado (recusa, não descarta), e as conveniências (`implementIdentified`…) viram
   // where no transform, o que faria toda chave parecer "descartada".
   for (const clause of ['include', 'select', 'orderBy'] as const) {
     const r = raw[clause];
@@ -200,8 +217,24 @@ function reportDroppedKeys(
         continue;
       }
       recordQueryKeyEvent('dropped', model, path, describeDropped(where));
+      if (
+        clause === 'orderBy' &&
+        where &&
+        !where.exists &&
+        !where.key.startsWith('_') && // `_count`, `_relevance`: argumentos do Prisma
+        !QUERY_KEY_ALLOWANCE.isAllowed(where.model, where.clause, where.key)
+      ) {
+        inventadas.push({
+          clause: where.clause,
+          model: where.model,
+          key: where.key,
+          path,
+          reason: 'unknown-field',
+        });
+      }
     }
   }
+  return inventadas;
 }
 
 interface DroppedKey {
@@ -230,8 +263,11 @@ function resolveDroppedKey(model: string, path: string): DroppedKey | null {
       const dep = findDeprecatedQueryKey(current, clause, seg);
       if (dep?.action === 'translate' && dep.to) f = getField(current, dep.to);
     }
-    if (!f) return null;
-    if (f.kind === 'object') current = f.type;
+    // relação que o modelo não tem, no meio do caminho (`orderBy.inexistente.campo`)
+    if (!f) return { model: current, clause, key: seg, exists: false };
+    // depois de um escalar vêm argumentos (`sort`, `nulls`), não campos
+    if (f.kind !== 'object') return null;
+    current = f.type;
   }
   return null;
 }
