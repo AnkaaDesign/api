@@ -29,7 +29,7 @@ Leia este arquivo primeiro. O plano completo está em `PLANO.md` (Revisão 3.1),
 Bancos locais (container `ankaa-postgres`):
 
 - `ankaa_production` é o clone local. **Não é usado pela Fase B.**
-- `ankaa_implemento` é a cópia isolada da Fase B. Tem a M0 e **também** as migrations `20260924120000_truck_vira_implement` e `20260924120050_serie_no_implemento_e_implemento_obrigatorio`, que o P11a aplicou antes de ser interrompido. Ou seja, o banco está no estado da branch WIP, não no da base.
+- `ankaa_implemento` é a cópia isolada da Fase B. Tem a M0 e **também** as migrations `20260930120000_truck_vira_implement` e `20260930120050_serie_no_implemento_e_implemento_obrigatorio`, que o P11a aplicou antes de ser interrompido. Ou seja, o banco está no estado da branch WIP, não no da base.
 - `ankaa_veiculos` é da outra sessão. **Não tocar.**
 - Para apontar para o banco da Fase B (o arquivo de env ficava em `/tmp` e pode ter sumido):
 
@@ -98,7 +98,7 @@ Bancos locais (container `ankaa-postgres`):
   - Protocolo de **promoção de migrations por fatia** (`prisma/staged/r-b/`, com carimbos reservados).
   - Notas P06, P10, P11a, P11b, P12, P13a, P14, P13b e `cruzamento-fase-b.md`.
 - **P06**:
-  - M0 (`20260924100000_arte_estados_e_tipos`);
+  - M0 (`20260930100000_arte_estados_e_tipos`);
   - censo de consultas G3 (`src/modules/common/census`);
   - log de versão do app;
   - CORS aceitando `x-client` e `x-app-*`.

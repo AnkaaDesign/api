@@ -391,7 +391,7 @@ Trilha de decisão: recomendo registrar cada aprovar/reprovar também numa tabel
 
 Divido em **três migrações** para respeitar "builde ANTES de migrar" e a janela do processo velho. Datas depois de `20260923120000_layout_aprovado_por_veiculo` (outra branch) — ver §5.8.
 
-#### M1 — `20260924120000_truck_vira_implement` (catálogo apenas)
+#### M1 — `20260930120000_truck_vira_implement` (catálogo apenas)
 
 ```sql
 -- IMPLEMENTO DEIXA DE SE CHAMAR "TRUCK". Catálogo apenas: nenhum byte de dado muda.
@@ -431,7 +431,7 @@ ALTER TYPE "TruckCategory" RENAME TO "ImplementCategory";
 
 Reversão de M1: os mesmos RENAMEs com os lados trocados.
 
-#### M2 — `20260924120100_implemento_frente_e_porta_traseira` (aditiva)
+#### M2 — `20260930120100_implemento_frente_e_porta_traseira` (aditiva)
 
 ```sql
 ALTER TABLE "Implement" ADD COLUMN IF NOT EXISTS "frontSideMeasureId" TEXT;
@@ -466,7 +466,7 @@ ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorHatches_check"
 
 Reversão: `DROP CONSTRAINT`/`DROP COLUMN`/`DROP TYPE` — sem perda (dado novo).
 
-#### M3 — `20260924120200_arte_do_implemento_e_projeto_da_tarefa` (estrutura + dado)
+#### M3 — `20260930120200_arte_do_implemento_e_projeto_da_tarefa` (estrutura + dado)
 
 Ordem obrigatória: arquivo morto → estrutura aditiva → projeto do implemento (antes de encher `_TASK_PROJECT_FILES`) → PDFs → fan-out das imagens → orçamento → órfãos → constraints finais → drop do M2M. **Nenhum `DELETE FROM "File"`.**
 

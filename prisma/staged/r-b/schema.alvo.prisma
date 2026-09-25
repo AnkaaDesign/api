@@ -1963,7 +1963,7 @@ model Budget {
   /// expressar de outro jeito.
   ///
   /// A direção depende de QUEM DEVE A PRÓXIMA AÇÃO (recriada na M3o-b,
-  /// `20260924120350_orcamento_valor_aprovado`, Modelo C):
+  /// `20260930120350_orcamento_valor_aprovado`, Modelo C):
   ///
   ///   · bola com a ANKAA, ou terminou → mais RECENTE primeiro
   ///     REQUESTED, EXPIRED, PENDING, APPROVED, SIGNED, CANCELLED
@@ -2555,7 +2555,7 @@ model Task {
   // [R-B M3] `layouts` (M2M "_TaskLayouts") sai: a arte é do implemento (Implement.layouts).
   /// PROJETO DA TAREFA: o PDF com as cotas de colagem (o que abre no cotador).
   /// Até 09/2026 este nome guardava o projeto da Furgões — os 4 arquivos foram
-  /// para Implement.projectFiles (migração 20260924120200).
+  /// para Implement.projectFiles (migração 20260930120200).
   projectFiles          File[]                @relation("TASK_PROJECT_FILES")
   checkinFiles          File[]                @relation("TASK_CHECKIN_FILES")
   checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")

@@ -13,14 +13,14 @@
 
 BEGIN;
 
--- ════ M1 (20260924120000_truck_vira_implement) ════
+-- ════ M1 (20260930120000_truck_vira_implement) ════
 -- As colunas geradas da busca sem acento acompanham o RENAME: no canônico, "Truck" vira "Implement".
 ALTER TABLE "Implement" DROP COLUMN IF EXISTS "chassisNumberNormalized";
 ALTER TABLE "Implement" ADD COLUMN "chassisNumberNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent("chassisNumber"))) STORED;
 ALTER TABLE "Implement" DROP COLUMN IF EXISTS "plateNormalized";
 ALTER TABLE "Implement" ADD COLUMN "plateNormalized" text GENERATED ALWAYS AS (lower(immutable_unaccent(plate))) STORED;
 
--- ════ M1s (20260924120050_serie_no_implemento_e_implemento_obrigatorio) ════
+-- ════ M1s (20260930120050_serie_no_implemento_e_implemento_obrigatorio) ════
 CREATE OR REPLACE FUNCTION public.implement_serial_mirror()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -76,19 +76,19 @@ CREATE CONSTRAINT TRIGGER "Task_has_implement" AFTER INSERT ON public."Task" DEF
 DROP TRIGGER IF EXISTS "Implement_keeps_task_covered" ON "Implement";
 CREATE CONSTRAINT TRIGGER "Implement_keeps_task_covered" AFTER DELETE OR UPDATE OF "taskId" ON public."Implement" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION task_must_have_implement();
 
--- ════ M2 (20260924120100_implemento_frente_e_porta_traseira) ════
+-- ════ M2 (20260930120100_implemento_frente_e_porta_traseira) ════
 ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorBarCount_check";
 ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorBarCount_check" CHECK ((("rearDoorBarCount" IS NULL) OR ("rearDoorBarCount" = ANY (ARRAY[2, 3, 4]))));
 ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorHatchCount_check";
 ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorHatchCount_check" CHECK ((("rearDoorHatchCount" IS NULL) OR (("rearDoorHatchCount" >= 0) AND ("rearDoorHatchCount" <= 6))));
 
--- ════ M3 (20260924120200_arte_do_implemento_e_projeto_da_tarefa) ════
+-- ════ M3 (20260930120200_arte_do_implemento_e_projeto_da_tarefa) ════
 ALTER TABLE "Layout" DROP CONSTRAINT IF EXISTS "Layout_one_owner_check";
 ALTER TABLE "Layout" ADD CONSTRAINT "Layout_one_owner_check" CHECK ((("implementId" IS NOT NULL) <> ("airbrushingId" IS NOT NULL)));
 ALTER TABLE "Layout" DROP CONSTRAINT IF EXISTS "Layout_decision_note_check";
 ALTER TABLE "Layout" ADD CONSTRAINT "Layout_decision_note_check" CHECK (((status <> 'REPROVED'::"LayoutStatus") OR ("approvalSource" IS DISTINCT FROM 'PORTAL'::"LayoutApprovalSource") OR ("decisionNote" IS NOT NULL)));
 
--- ════ M3o-a (20260924120300_orcamento_eixo_da_assinatura) ════
+-- ════ M3o-a (20260930120300_orcamento_eixo_da_assinatura) ════
 ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_note_check";
 ALTER TABLE "BudgetValueApproval" ADD CONSTRAINT "BudgetValueApproval_note_check" CHECK (((source <> 'ON_BEHALF'::"BudgetValueApprovalSource") OR (note IS NOT NULL)));
 ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_actor_check";
@@ -96,7 +96,7 @@ ALTER TABLE "BudgetValueApproval" ADD CONSTRAINT "BudgetValueApproval_actor_chec
 ALTER TABLE "BudgetOfflineSignature" DROP CONSTRAINT IF EXISTS "BudgetOfflineSignature_note_check";
 ALTER TABLE "BudgetOfflineSignature" ADD CONSTRAINT "BudgetOfflineSignature_note_check" CHECK ((length(btrim(note)) > 0));
 
--- ════ M3o-b (20260924120350_orcamento_valor_aprovado) ════
+-- ════ M3o-b (20260930120350_orcamento_valor_aprovado) ════
 -- A fila recriada: no canônico, a expressão de "queueRank" muda (EXPIRED e PENDING trocam de grupo).
 ALTER TABLE "Budget" DROP COLUMN IF EXISTS "queueRank";
 ALTER TABLE "Budget" ADD COLUMN "queueRank" double precision GENERATED ALWAYS AS (

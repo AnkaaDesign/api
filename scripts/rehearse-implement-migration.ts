@@ -68,24 +68,24 @@ const STAGED = join(ROOT, 'prisma/staged/r-b');
 const MIGRATIONS = join(ROOT, 'prisma/migrations');
 const ALVO = join(STAGED, 'schema.alvo.prisma');
 const OBJETOS_RB = join(STAGED, 'objetos-pos-push.r-b.sql');
-const M0 = '20260924100000_arte_estados_e_tipos';
+const M0 = '20260930100000_arte_estados_e_tipos';
 
 export type FatiaId = 'M1' | 'M1s' | 'M2' | 'M3' | 'M3o-a' | 'M3o-b';
 export const FATIAS: ReadonlyArray<{ id: FatiaId; nome: string; promotor: string }> = [
-  { id: 'M1', nome: '20260924120000_truck_vira_implement', promotor: 'P11a' },
+  { id: 'M1', nome: '20260930120000_truck_vira_implement', promotor: 'P11a' },
   {
     id: 'M1s',
-    nome: '20260924120050_serie_no_implemento_e_implemento_obrigatorio',
+    nome: '20260930120050_serie_no_implemento_e_implemento_obrigatorio',
     promotor: 'P11a',
   },
-  { id: 'M2', nome: '20260924120100_implemento_frente_e_porta_traseira', promotor: 'P11b' },
-  { id: 'M3', nome: '20260924120200_arte_do_implemento_e_projeto_da_tarefa', promotor: 'P12' },
+  { id: 'M2', nome: '20260930120100_implemento_frente_e_porta_traseira', promotor: 'P11b' },
+  { id: 'M3', nome: '20260930120200_arte_do_implemento_e_projeto_da_tarefa', promotor: 'P12' },
   {
     id: 'M3o-a',
-    nome: '20260924120300_orcamento_eixo_da_assinatura',
+    nome: '20260930120300_orcamento_eixo_da_assinatura',
     promotor: 'P14 (commit zero)',
   },
-  { id: 'M3o-b', nome: '20260924120350_orcamento_valor_aprovado', promotor: 'P14 (fim)' },
+  { id: 'M3o-b', nome: '20260930120350_orcamento_valor_aprovado', promotor: 'P14 (fim)' },
 ];
 
 // ─── argumentos ───

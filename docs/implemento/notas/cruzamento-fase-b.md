@@ -14,19 +14,19 @@ Banco: o checkout principal usa **sempre** `source …/scratchpad/implemento-env
 
 ## Migrações: o protocolo e os carimbos
 
-As fatias da R-B nascem **escritas e ensaiadas** no P10 em `prisma/staged/r-b/` e são **promovidas** (pasta para `prisma/migrations/`, blocos do `schema.alvo.prisma` para `schema.prisma`, `migrate deploy` + `generate`) pelo pacote cujo código as torna verdadeiras, no mesmo commit (§4.1). Última migração da `main`: `20260923120000` (duas pastas com esse carimbo).
+As fatias da R-B nascem **escritas e ensaiadas** no P10 em `prisma/staged/r-b/` e são **promovidas** (pasta para `prisma/migrations/`, blocos do `schema.alvo.prisma` para `schema.prisma`, `migrate deploy` + `generate`) pelo pacote cujo código as torna verdadeiras, no mesmo commit (§4.1). Última migração da `main`: `20260924190000` (merge de 24/09). **Re-carimbo de 24/09:** a `main` publicou `20260924120000`, `…120100` e `…120200` (aerografia), os mesmos carimbos das fatias; M0 e as seis fatias passaram a `20260930…` (os `_prisma_migrations` do `ankaa_implemento` e do `ankaa_implemento_base` foram renomeados junto). Regra: **no P30, antes do deploy, re-carimbar de novo para depois da última migração da `main` que estiver em produção** — um banco novo (teste, sombra) aplica na ordem lexical, e ela tem de ser a ordem da produção.
 
 | Carimbo | Fatia | Escreve | Promove | Reserva para migração extra do dono |
 |---|---|---|---|---|
-| `20260924100000_arte_estados_e_tipos` | M0 | P06 | P06 (direto em `prisma/migrations/`) | `20260924100010`–`100090` |
-| `20260924120000_truck_vira_implement` | M1 | P10 | P11a | — |
-| `20260924120050_serie_no_implemento_e_implemento_obrigatorio` | M1s | P10 | P11a | `20260924120060`–`120090` |
-| `20260924120100_implemento_frente_e_porta_traseira` (+ `_IMPLEMENT_PROJECT_FILES`) | M2 | P10 | P11b | `20260924120110`–`120190` |
-| `20260924120200_arte_do_implemento_e_projeto_da_tarefa` | M3 | P10 | P12 | `20260924120210`–`120290` |
-| — | — | — | P13a (só pela integração do par 1) | `20260924120295`–`120299` |
-| `20260924120300_orcamento_eixo_da_assinatura` | M3o-a | P10 | P14 (commit zero) | `20260924120310`–`120340` |
-| `20260924120350_orcamento_valor_aprovado` | M3o-b | P10 | P14 (fim) | `20260924120360`–`120390` |
-| — | — | — | P13b (só pela integração do par 2) | `20260924120395`–`120399` |
+| `20260930100000_arte_estados_e_tipos` | M0 | P06 | P06 (direto em `prisma/migrations/`) | `20260930100010`–`100090` |
+| `20260930120000_truck_vira_implement` | M1 | P10 | P11a | — |
+| `20260930120050_serie_no_implemento_e_implemento_obrigatorio` | M1s | P10 | P11a | `20260930120060`–`120090` |
+| `20260930120100_implemento_frente_e_porta_traseira` (+ `_IMPLEMENT_PROJECT_FILES`) | M2 | P10 | P11b | `20260930120110`–`120190` |
+| `20260930120200_arte_do_implemento_e_projeto_da_tarefa` | M3 | P10 | P12 | `20260930120210`–`120290` |
+| — | — | — | P13a (só pela integração do par 1) | `20260930120295`–`120299` |
+| `20260930120300_orcamento_eixo_da_assinatura` | M3o-a | P10 | P14 (commit zero) | `20260930120310`–`120340` |
+| `20260930120350_orcamento_valor_aprovado` | M3o-b | P10 | P14 (fim) | `20260930120360`–`120390` |
+| — | — | — | P13b (só pela integração do par 2) | `20260930120395`–`120399` |
 | M4, M5s | R-D | P32 | P32 | datas da R-D |
 
 Os carimbos estão na ordem de promoção: o banco da Fase B aplica as fatias na mesma ordem que a produção aplicará na R-B. Pacote de worktree **nunca** cria migração nem roda `migrate deploy` no banco do checkout principal.

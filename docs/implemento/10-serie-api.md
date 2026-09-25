@@ -306,11 +306,11 @@ Consequência [INF]: nas tarefas antigas, o campo "série" funcionou como **iden
 
 | Migração | Release | Conteúdo | Relação com este recorte |
 |---|---|---|---|
-| M0 `20260924100000_arte_estados_e_tipos` | R-A | enums | nenhuma |
-| M1 `20260924120000_truck_vira_implement` | R-B | rename (catálogo) | **pré-requisito**: `M1s` fala `"Implement"` |
-| **M1s `20260924120050_serie_no_implemento_e_implemento_obrigatorio`** | **R-B** | §4.4 | **nova**; roda entre M1 e M2 |
-| M2 `20260924120100_…` | R-B | frente, porta, medidas compartilhadas | independente. Os implementos criados por `M1s` não têm medida |
-| M3 `20260924120200_…` | R-B | arte, projetos | O passo **1b** (`PLANO.md:470-495`, "implementos faltantes") vira **no-op** porque toda tarefa já tem implemento; o `WHERE NOT EXISTS` o mantém idempotente. Manter o passo e o invariante |
+| M0 `20260930100000_arte_estados_e_tipos` | R-A | enums | nenhuma |
+| M1 `20260930120000_truck_vira_implement` | R-B | rename (catálogo) | **pré-requisito**: `M1s` fala `"Implement"` |
+| **M1s `20260930120050_serie_no_implemento_e_implemento_obrigatorio`** | **R-B** | §4.4 | **nova**; roda entre M1 e M2 |
+| M2 `20260930120100_…` | R-B | frente, porta, medidas compartilhadas | independente. Os implementos criados por `M1s` não têm medida |
+| M3 `20260930120200_…` | R-B | arte, projetos | O passo **1b** (`PLANO.md:470-495`, "implementos faltantes") vira **no-op** porque toda tarefa já tem implemento; o `WHERE NOT EXISTS` o mantém idempotente. Manter o passo e o invariante |
 | M4 `…_orcamento_sem_layout_coluna` | R-D | `quoteLayoutId` | nenhuma |
 | **M5s `2026XXXX_serie_sai_da_tarefa`** | **R-D**, com a catraca G-S6 zerada | §4.6 | **nova** |
 
@@ -319,7 +319,7 @@ Por que `M1s` não vai na R-A (antecipada) [INF]: o código velho grava `Task.se
 ### 4.4 `M1s` (SQL)
 
 ```sql
--- M1s — 20260924120050_serie_no_implemento_e_implemento_obrigatorio  (R-B, depois de M1)
+-- M1s — 20260930120050_serie_no_implemento_e_implemento_obrigatorio  (R-B, depois de M1)
 -- Pré-condição: "Implement" existe (M1). Tudo numa transação (padrão do migrate deploy).
 
 -- 0. ARQUIVO MORTO (reversão e auditoria)
