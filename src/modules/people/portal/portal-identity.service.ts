@@ -771,12 +771,17 @@ export class PortalIdentityService {
   // A ESCRITA
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * ⚠️ `plano` vem da rota (o MESMO que a trava julgou). O padrão existe para
+   * quem chama a escrita direto — os testes do escritor de medida (G15) e da
+   * série (G19) —, e calcula o plano do mesmo jeito: nunca uma segunda regra.
+   */
   private async gravar(
     task: TaskDaIdentidade,
     dados: PortalIdentificacaoFormData,
     plaqueta: Express.Multer.File | null,
     responsibleId: string,
-    plano: PlanoDoImplemento,
+    plano: PlanoDoImplemento = this.planejarImplemento(task, dados),
   ): Promise<void> {
     const serie = dados?.serialNumber;
     const placa = dados?.plate;
