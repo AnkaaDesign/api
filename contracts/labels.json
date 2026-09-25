@@ -1370,6 +1370,27 @@
         "MISMATCH": "Divergência"
       }
     },
+    "LAYOUT_APPROVAL_SOURCE_LABELS": {
+      "enum": "LAYOUT_APPROVAL_SOURCE",
+      "labels": {
+        "PORTAL": "Pelo cliente, no portal",
+        "ON_BEHALF": "Em nome do cliente",
+        "MIGRATED_TASK": "Aprovada na tarefa (antes do portal)",
+        "MIGRATED_BUDGET": "Aprovada no orçamento (antes do portal)",
+        "MIGRATED_ENVELOPE": "Assinada no orçamento (antes do portal)",
+        "INTERNAL": "Ankaa"
+      }
+    },
+    "LAYOUT_STATUS_LABELS": {
+      "enum": "LAYOUT_STATUS",
+      "labels": {
+        "DRAFT": "Rascunho",
+        "PENDING_APPROVAL": "Aguardando aprovação do cliente",
+        "APPROVED": "Aprovada",
+        "REPROVED": "Reprovada",
+        "SUPERSEDED": "Substituída"
+      }
+    },
     "LEAVE_STATUS_LABELS": {
       "enum": "LEAVE_STATUS",
       "labels": {

@@ -1356,10 +1356,20 @@
       "DAMAGE",
       "MISMATCH"
     ],
+    "LAYOUT_APPROVAL_SOURCE": [
+      "PORTAL",
+      "ON_BEHALF",
+      "MIGRATED_TASK",
+      "MIGRATED_BUDGET",
+      "MIGRATED_ENVELOPE",
+      "INTERNAL"
+    ],
     "LAYOUT_STATUS": [
       "DRAFT",
+      "PENDING_APPROVAL",
       "APPROVED",
-      "REPROVED"
+      "REPROVED",
+      "SUPERSEDED"
     ],
     "LEAVE_STATUS": [
       "SCHEDULED",
@@ -3154,6 +3164,28 @@
         {
           "nome": "implementProjectFiles",
           "maxCount": 30
+        }
+      ]
+    },
+    {
+      "rota": "POST /implements/:id/layouts",
+      "arquivo": "src/modules/production/implement/implement.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /implements/:id/layouts/:layoutId/new-version",
+      "arquivo": "src/modules/production/implement/implement.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "files",
+          "maxCount": 1
         }
       ]
     },
