@@ -120,6 +120,9 @@ export class BillingService {
         id: true,
         budgetNumber: true,
         status: true,
+        // O eixo da assinatura: é ele que diz se "Aprovar" pode (DD7). A tela
+        // lê o selo daqui e desabilita o botão com a frase da DD7.
+        signatureStatus: true,
         statusOrder: true,
         subtotal: true,
         total: true,
@@ -223,6 +226,7 @@ export class BillingService {
         id: true,
         budgetNumber: true,
         status: true,
+        signatureStatus: true,
         statusOrder: true,
         subtotal: true,
         total: true,
@@ -445,6 +449,12 @@ export class BillingService {
     searchingFor?: string;
     /** Estado do ORÇAMENTO (`TASK_QUOTE_STATUS`) — ver o comentário abaixo. */
     quoteStatuses?: string[];
+    /**
+     * Eixo da ASSINATURA do orçamento (`BUDGET_SIGNATURE_STATUS`). "Prontas para
+     * aprovar" é `quoteStatuses=APPROVED` + `signatureStatuses=SIGNED,SIGNED_OFFLINE,WAIVED`
+     * — a mesma lista de `BILLABLE_SIGNATURE_STATUSES`, que a tela lê do contrato.
+     */
+    signatureStatuses?: string[];
     budgetNumber?: number;
     /** "Faturar Para" — os pagadores desta cobrança, e a LENTE (ver `lens` abaixo). */
     customerIds?: string[];
@@ -519,6 +529,9 @@ export class BillingService {
     // orçamento seja qual for o estado dele.
     if (params.quoteStatuses && params.quoteStatuses.length > 0) {
       quoteWhere.status = { in: params.quoteStatuses };
+    }
+    if (params.signatureStatuses && params.signatureStatuses.length > 0) {
+      quoteWhere.signatureStatus = { in: params.signatureStatuses };
     }
     if (params.budgetNumber !== undefined) {
       quoteWhere.budgetNumber = params.budgetNumber;

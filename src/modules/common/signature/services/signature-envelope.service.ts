@@ -28,7 +28,13 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { DossierAssemblerService } from '../dossier/dossier-assembler.service';
 import { join, resolve as resolvePath, dirname, basename } from 'path';
-import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
+import {
+  BudgetSignatureStatus,
+  EnvelopeSignerStatus,
+  EnvelopeStatus,
+  Prisma,
+  SignatureAuthMethod,
+} from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY, receivingAccountFor } from '@/config/company';
 import {
@@ -60,7 +66,12 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
-import { artworkGateFailure, quoteArtworkOf } from '@utils/quote-artwork';
+import { quoteArtworkOf } from '@utils/quote-artwork';
+import {
+  assertEmissionReady,
+  emissionGatesOf,
+  type EmissionGate,
+} from '@utils/emission-gate';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
@@ -81,11 +92,6 @@ import {
 } from '../quote-sections';
 import { budgetPdfFilename } from '../document/document-filename';
 import { ceremonyKindOfAuthMethod, isSessionCeremony } from '../ceremony-kind';
-import {
-  isSolePurchasingContact,
-  purchaseOrderGateVerdict,
-  PURCHASE_ORDER_REQUIRED_MESSAGE,
-} from '../purchase-order-gate';
 import { commercialTaskLink } from '@modules/people/portal/portal-scope.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
@@ -96,10 +102,9 @@ import {
 } from '@/constants/enums';
 import { TASK_QUOTE_STATUS_ORDER } from '@/constants/sortOrders';
 import {
-  orderNumberVehicles,
+  orderNumberRequirement,
   resolveOrderNumberSubmission,
-  signerRequiresOrderNumber,
-  ORDER_NUMBER_MAX_LENGTH,
+  type OrderNumberRequirement,
   type OrderNumberVehicle,
 } from '../order-number-gate';
 import { PadesSignerService } from '../pades/pades-signer.service';
@@ -515,8 +520,10 @@ export class SignatureEnvelopeService {
     mode: SignatureDeliveryMode;
     channels: SignatureDeliveryChannel[];
     defaultChannel: SignatureDeliveryChannel;
-    /** Impedem QUALQUER canal — a tela desabilita o envio inteiro. */
+    /** Impedem QUALQUER canal — a tela desabilita o envio inteiro. FORMA INTOCADA (G27). */
     blockers: string[];
+    /** O mesmo portão, estruturado: `{ code, ok, message, detail }` por E1–E6 (D-29). */
+    gates: EmissionGate[];
     recipients: Array<{
       id: string;
       name: string;
@@ -635,56 +642,15 @@ export class SignatureEnvelopeService {
 
     const blockers: string[] = [];
 
-    // Os MESMOS dois estados que `createEnvelope` recusa — viva e concluída. Um
-    // preflight que diz "pode" e um POST que responde 400 é pior que não ter
-    // preflight nenhum.
-    const previousLive = await this.prisma.signatureEnvelope.findFirst({
-      where: {
-        quoteId,
-        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-      },
-      select: { id: true, status: true, version: true },
-    });
-    if (previousLive?.status === EnvelopeStatus.RUNNING) {
-      blockers.push(
-        'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
-          'Cancele-a antes de emitir outra.',
-      );
-    } else if (previousLive) {
-      blockers.push(
-        `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${previousLive.version}). ` +
-          'Reemitir criaria um segundo contrato selado para o mesmo número.',
-      );
-    }
-
-    // O MESMO recorte que `createEnvelope` recusa: um documento só não descreve
-    // dois pagadores. Ver a nota longa lá.
-    const pagadoresPreflight = new Set(
-      (quote.customerConfigs ?? []).map((c: { customerId: string }) => c.customerId),
-    );
-    if (pagadoresPreflight.size > 1) {
-      blockers.push(
-        `Este orçamento fatura para ${pagadoresPreflight.size} clientes, e a cerimônia de ` +
-          'assinatura ainda não recorta o documento por pagador — todos assinariam um instrumento ' +
-          'com os serviços, o desconto e as cláusulas de apenas um deles. Separe em um orçamento ' +
-          'por cliente antes de enviar para assinatura.',
-      );
-    }
-
-    const artGatePreflight = artworkGateFailure(quote as any);
-    if (artGatePreflight) {
-      blockers.push(
-        `${artGatePreflight.message} O documento leva a arte aprovada de cada veículo: ` +
-          'aprove a arte antes de enviar o orçamento para assinatura.',
-      );
-    }
-
-    if (quote.expiresAt.getTime() <= Date.now()) {
-      blockers.push(
-        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
-          'Atualize a data de validade antes de enviar para assinatura.',
-      );
-    }
+    // ── O PORTÃO DE EMISSÃO (D-29) ────────────────────────────────────────────
+    //
+    // E1 (valor aprovado) a E6 (alguém para assinar), pela MESMA função que o
+    // `createEnvelope` chama antes do render e dentro da transação: um preflight
+    // que diz "pode" e um POST que responde 400 é pior que não ter preflight
+    // nenhum. `blockers` continua sendo texto (o app instalado só lê string,
+    // G27); `gates`, ao lado, é a forma estruturada para a tela nova.
+    const gates = (await emissionGatesOf(this.prisma, quoteId)) ?? [];
+    for (const g of gates) if (!g.ok) blockers.push(g.message);
 
     // União dos responsáveis de TODAS as tarefas, deduplicada — mesma regra do
     // snapshot. Ler só a primeira esconderia do preflight um contato
@@ -699,11 +665,7 @@ export class SignatureEnvelopeService {
         seenResponsibleIds.add(r.id);
         return true;
       });
-    if (responsibles.length === 0) {
-      blockers.push(
-        'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
-      );
-    }
+    // "Nenhum responsável" é o E6, já contado acima pelo portão.
 
     // Best-effort: um orçamento sem representante comercial nem diretor
     // cadastrado é um problema real, mas ele já vira 400 no POST com a mensagem
@@ -807,6 +769,7 @@ export class SignatureEnvelopeService {
     return {
       ...settings,
       blockers,
+      gates,
       recipients,
       // Só as RECORTÁVEIS. A identificação do veículo sai em todo recorte e não
       // é uma escolha — oferecer a caixa convidaria a desmarcá-la, e o servidor
@@ -927,6 +890,86 @@ export class SignatureEnvelopeService {
       return;
     }
     await this.onEnvelopeExpired(quoteId, envelopeId);
+  }
+
+  // ===========================================================================
+  // O EIXO DA ASSINATURA (D-28)
+  // ===========================================================================
+
+  /**
+   * ESCRITOR ÚNICO de `Budget.signatureStatus` a partir da coleta — sempre DENTRO
+   * da transação que muda o envelope (emissão, grupo 0, conclusão, recusa,
+   * vencimento, invalidação, cancelamento). Um eixo escrito depois, em outro
+   * commit, é o `markSigned` fire-and-forget de antes (X9): o envelope anda e o
+   * orçamento fica para trás sem ninguém saber.
+   *
+   * `onlyFrom` torna a escrita CONDICIONAL ao eixo atual — é o que impede um
+   * evento atrasado (o vencimento de uma coleta que a Ankaa acabou de concluir)
+   * de rebaixar um `SIGNED`. A leitura e a escrita estão na mesma transação.
+   *
+   * A trilha vai no `ChangeLog` do orçamento (campo `signatureStatus`), na
+   * mesma transação: estado e registro nascem juntos ou não nascem.
+   *
+   * Devolve `true` quando escreveu.
+   */
+  async writeSignatureAxis(
+    tx: Prisma.TransactionClient,
+    args: {
+      quoteId: string;
+      to: BudgetSignatureStatus;
+      reason: string;
+      actorUserId?: string | null;
+      onlyFrom?: readonly BudgetSignatureStatus[];
+    },
+  ): Promise<boolean> {
+    const current = await tx.budget.findUnique({
+      where: { id: args.quoteId },
+      select: { signatureStatus: true },
+    });
+    if (!current) return false;
+    const from = current.signatureStatus;
+    if (from === args.to) return false;
+    if (args.onlyFrom && !args.onlyFrom.includes(from)) return false;
+
+    // `updateMany` condicionado ao valor lido: duas escritas concorrentes não se
+    // sobrepõem — a segunda acha o eixo já mudado e não escreve.
+    const written = await tx.budget.updateMany({
+      where: { id: args.quoteId, signatureStatus: from },
+      data: { signatureStatus: args.to },
+    });
+    if (written.count === 0) return false;
+
+    await this.changeLogs.logChange({
+      entityType: ENTITY_TYPE.TASK_QUOTE,
+      entityId: args.quoteId,
+      action: CHANGE_ACTION.UPDATE,
+      field: 'signatureStatus',
+      oldValue: from,
+      newValue: args.to,
+      reason: args.reason,
+      triggeredBy: args.actorUserId
+        ? CHANGE_TRIGGERED_BY.USER_ACTION
+        : CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      triggeredById: args.actorUserId ?? null,
+      userId: args.actorUserId ?? null,
+      transaction: tx,
+    });
+    return true;
+  }
+
+  /**
+   * O grupo 0 (o cliente) fechou: eixo `AWAITING_CUSTOMER → AWAITING_ANKAA`.
+   * Idempotente — `replayCompletion` o chama de novo para reparar o X9.
+   */
+  private async markCustomerSideSigned(quoteId: string, envelopeId: string): Promise<boolean> {
+    return this.prisma.$transaction(tx =>
+      this.writeSignatureAxis(tx, {
+        quoteId,
+        to: BudgetSignatureStatus.AWAITING_ANKAA,
+        onlyFrom: [BudgetSignatureStatus.AWAITING_CUSTOMER],
+        reason: `Todos os responsáveis do cliente assinaram (envelope ${envelopeId}); falta a Ankaa.`,
+      }),
+    );
   }
 
   // ===========================================================================
@@ -1059,106 +1102,17 @@ export class SignatureEnvelopeService {
     // suas cláusulas). Enquanto ela não existe, recusar é a única resposta
     // honesta: assinatura eletrônica sobre documento errado não se conserta
     // depois.
-    const pagadores = new Set(
-      (quote.customerConfigs ?? []).map((c: { customerId: string }) => c.customerId),
-    );
-    if (pagadores.size > 1) {
-      throw new BadRequestException(
-        `Este orçamento fatura para ${pagadores.size} clientes, e a cerimônia de assinatura ainda ` +
-          'não recorta o documento por pagador — todos assinariam um instrumento com os serviços, ' +
-          'o desconto e as cláusulas de apenas um deles. Separe em um orçamento por cliente antes ' +
-          'de enviar para assinatura.',
-      );
-    }
-
-    // ── COLETA VIVA, OU COLETA JÁ CONCLUÍDA ──────────────────────────────────
     //
-    // `RUNNING` sempre foi barrado. `COMPLETED` não era, e a rota aceitava
-    // reemitir por cima de um contrato JÁ ASSINADO E SELADO — a tela e o app
-    // escondem o botão, mas esconder não é impedir. O acervo mostra o resultado:
-    // o orçamento nº 591 tem TRÊS envelopes concluídos e selados, um por cima do
-    // outro, cada um com bytes diferentes e todos válidos aos olhos do PAdES.
-    // "Qual é o contrato?" deixa de ter resposta.
+    // ── O PORTÃO DE EMISSÃO, 2ª DE 3 CONFERÊNCIAS (D-29) ─────────────────────
     //
-    // O que existia no lugar da recusa era a SUBSTITUIÇÃO (o anterior virava
-    // `SUPERSEDED`). Ela resolvia o sintoma da lista — dois envelopes vivos —
-    // sem resolver o fato: o documento superado continua selado, continua
-    // verificável no portal público e continua sendo um instrumento assinado
-    // pelas duas partes. Um contrato não se revoga emitindo outro.
-    //
-    // Depois de selado, o caminho é o ADITIVO (identificação do veículo) ou um
-    // orçamento novo. Nunca uma segunda coleta sobre o mesmo número.
-    const existing = await this.prisma.signatureEnvelope.findFirst({
-      where: {
-        quoteId: args.quoteId,
-        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-      },
-      select: { id: true, status: true, version: true },
-    });
-    if (existing?.status === EnvelopeStatus.RUNNING) {
-      throw new BadRequestException(
-        'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
-          'Cancele-a antes de emitir outra.',
-      );
-    }
-    if (existing) {
-      throw new BadRequestException(
-        `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${existing.version}). ` +
-          'Reemitir criaria um segundo contrato selado para o mesmo número. Para acrescentar a ' +
-          'identificação do veículo use o aditivo; para mudar as condições, abra um orçamento novo.',
-      );
-    }
-
-    // ── A ARTE APROVADA É CONDIÇÃO PARA EMITIR ───────────────────────────────
-    //
-    // O portão ficava em `BudgetService.budgetApprove`, chamado DEPOIS de tudo:
-    // cliente assinou, Ankaa contra-assinou, PAdES aplicado, dossiê congelado. Ele
-    // estourava dentro do `try/catch` best-effort de `finalize`, que só loga — e o
-    // orçamento ficava PENDING com um contrato selado em cima dele (o nº 591: três
-    // envelopes concluídos e ZERO layouts). Aqui corrigir ainda é barato: nada foi
-    // congelado e ninguém assinou. Com a arte no implemento (R2), aprovar o VALOR
-    // não exige arte (§2A.5); a exigência mora só aqui, na emissão (DD2).
-    //
-    // A ARTE (DD2): o documento leva a arte APROVADA de cada implemento, então
-    // todo veículo (não cancelado) tem de ter a sua — nomeado quando falta. Um
-    // implemento sem arte chegaria ao documento como um contrato sem pintura.
-    const gate = await this.prisma.budget.findUnique({
-      where: { id: args.quoteId },
-      select: {
-        tasks: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          select: {
-            id: true,
-            createdAt: true,
-            status: true,
-            implement: {
-              select: {
-                serialNumber: true,
-                plate: true,
-                layouts: { where: { status: 'APPROVED' }, select: { fileId: true, status: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-    const artGate = artworkGateFailure(gate as any);
-    if (artGate) {
-      throw new BadRequestException(
-        `${artGate.message} O documento leva a arte aprovada de cada veículo: aprove a arte ` +
-          'antes de enviar o orçamento para assinatura.',
-      );
-    }
-
-    // O prazo do envelope é a validade do orçamento. Criar uma coleta sobre um
-    // orçamento já vencido produzia um envelope nascido expirado: a página abria
-    // com "esta coleta não está mais ativa" e o operador não entendia por quê.
-    if (quote.expiresAt.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
-          'Atualize a data de validade antes de enviar para assinatura.',
-      );
-    }
+    // E1 valor aprovado, E2 arte aprovada de todo veículo, E3 nenhuma coleta viva
+    // ou concluída (nem "assinado fora do sistema"), E4 um pagador só (a recusa
+    // acima), E5 validade em dia, E6 alguém para assinar. A mesma função do
+    // preflight e da transação abaixo — antes eram seis blocos escritos à mão
+    // aqui e outros seis no preflight, e o portão de arte (que já morou no
+    // `budgetApprove`, DEPOIS do selo: o nº 591 com três contratos selados e zero
+    // layouts) é a prova do que acontece quando os lugares divergem.
+    await assertEmissionReady(this.prisma, args.quoteId);
 
     // UNIÃO dos responsáveis das N tarefas, deduplicada por `Responsible.id` —
     // a mesma regra do snapshot, e tem de ser a mesma: o elenco impresso no
@@ -1168,11 +1122,7 @@ export class SignatureEnvelopeService {
     const responsibles = dedupeResponsibles(
       sortQuoteTasks(quote.tasks ?? []).flatMap(t => t.responsibles ?? []),
     );
-    if (responsibles.length === 0) {
-      throw new BadRequestException(
-        'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
-      );
-    }
+    // Nenhum responsável é o E6, recusado acima pelo portão.
 
     // ---- Quem assina, e o que cada um recebe ---------------------------------
     //
@@ -1532,6 +1482,9 @@ export class SignatureEnvelopeService {
             'emissão. Recarregue a tela e confira antes de emitir novamente.',
         );
       }
+      // O PORTÃO INTEIRO, 3ª conferência, DENTRO da transação (D-29): o valor
+      // pode ter sido reprovado e a arte reprovada entre o render e o commit.
+      await assertEmissionReady(tx, args.quoteId);
 
       // NOVA COLETA, NOVO DIREITO A UM AVISO DE VENCIMENTO.
       //
@@ -1582,65 +1535,26 @@ export class SignatureEnvelopeService {
       });
 
       // ═══════════════════════════════════════════════════════════════════
-      // O ORÇAMENTO PASSA A "AGUARDANDO ASSINATURA" — no MESMO commit
+      // O EIXO DA ASSINATURA PASSA A "AGUARDANDO ASSINATURAS" — no MESMO commit
       // ═══════════════════════════════════════════════════════════════════
       //
-      // ⛔ POR QUE AQUI DENTRO, E NÃO NUM SEGUNDO ATO DO OPERADOR.
+      // ⛔ A EMISSÃO NÃO ESCREVE MAIS `Budget.status` (D-29; fecha o X1). Antes
+      // ela forçava `PENDING` a partir de qualquer estado — inclusive de
+      // `APPROVED` com cobrança faturada. No Modelo C a emissão só acontece com
+      // o valor APROVADO (E1 do `assertEmissionReady`), e o valor continua
+      // aprovado durante a coleta: quem anda é o eixo da assinatura.
       //
-      // A emissão congela o documento e dispara os convites: a partir deste
-      // instante o orçamento ESTÁ aguardando assinatura, quer alguém se lembre
-      // de mudar o estado, quer não. Enquanto isso dependeu de uma segunda
-      // ação, o estado derivou — e derivou em silêncio: no acervo do dono havia
-      // NOVE orçamentos em `REQUESTED` com coleta `RUNNING` e assinaturas já
-      // colhidas. A tela do comercial, lendo só o estado, continuava
-      // oferecendo "Enviar para pré-aprovação" para um documento que o cliente
-      // já tinha assinado.
-      //
-      // ⛔ E a deriva tinha um FIM SEM SAÍDA, não só feiura: quando a coleta
-      // conclui, o fluxo chama `budgetApprove()` — e `REQUESTED → APPROVED` NÃO
-      // é aresta do grafo (`budget.service.ts`, `ALLOWED`). O documento
-      // assinado não teria como virar orçamento aprovado; nenhuma tela ofereceu
-      // saída porque nenhuma sabia que havia problema.
-      //
-      // ⚠️ `CANCELLED` fica de fora: `CANCELLED → ∅` é terminal de propósito, e
-      // forçá-lo a PENDING aqui contrabandearia uma ressurreição por uma porta
-      // que não é a dela.
-      const antes = await tx.budget.findUnique({
-        where: { id: args.quoteId },
-        select: { status: true },
+      // Na mesma transação do envelope: um eixo que só muda se o envelope
+      // existir, e um envelope que só existe se o eixo mudar. De qualquer estado
+      // (reemitir de `REFUSED`, `EXPIRED`, `INVALIDATED`, `WAIVED` ou
+      // `NOT_ISSUED`); os estados que impedem a emissão já foram recusados pelo
+      // portão acima.
+      await this.writeSignatureAxis(tx, {
+        quoteId: args.quoteId,
+        to: BudgetSignatureStatus.AWAITING_CUSTOMER,
+        reason: `Documento emitido para assinatura (coleta versão ${created.version}).`,
+        actorUserId: args.actorUserId ?? null,
       });
-      const estadoAnterior = antes?.status as TASK_QUOTE_STATUS | undefined;
-      if (
-        estadoAnterior &&
-        estadoAnterior !== TASK_QUOTE_STATUS.PENDING &&
-        estadoAnterior !== TASK_QUOTE_STATUS.CANCELLED
-      ) {
-        await tx.budget.update({
-          where: { id: args.quoteId },
-          data: {
-            status: TASK_QUOTE_STATUS.PENDING,
-            // ⚠️ Pela TABELA, nunca `MAP[status] || 1`: aquela forma transforma
-            // ordem 0 em 1 em silêncio, e o mesmo status passa a ter ordem
-            // diferente conforme o caminho que o escreveu.
-            statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
-          },
-        });
-        await this.changeLogs.logChange({
-          entityType: ENTITY_TYPE.TASK_QUOTE,
-          entityId: args.quoteId,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'status',
-          oldValue: estadoAnterior,
-          newValue: TASK_QUOTE_STATUS.PENDING,
-          reason: 'Documento emitido para assinatura — o orçamento passa a aguardar as assinaturas.',
-          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-          triggeredById: args.actorUserId ?? null,
-          userId: args.actorUserId ?? null,
-          // MESMA transação: um estado que só mude se o envelope existir, e um
-          // envelope que só exista se o estado mudar.
-          transaction: tx,
-        });
-      }
 
       for (const { plan, render, sha256, fileId } of persisted) {
         const document = await tx.envelopeDocument.create({
@@ -3666,16 +3580,12 @@ export class SignatureEnvelopeService {
   private orderNumberGateOf(signer: {
     responsible?: { roles?: string[] | null } | null;
     envelope: { quote: { tasks?: Array<Record<string, any>> | null } };
-  }): { required: boolean; maxLength: number; vehicles: OrderNumberVehicle[] } | null {
-    if (!signerRequiresOrderNumber(signer.responsible?.roles)) return null;
-    const vehicles = orderNumberVehicles(
-      sortQuoteTasks((signer.envelope.quote.tasks ?? []) as any[]) as any[],
-    );
-    return {
-      required: vehicles.some(v => !v.value),
-      maxLength: ORDER_NUMBER_MAX_LENGTH,
-      vehicles,
-    };
+  }): OrderNumberRequirement | null {
+    // O predicado ÚNICO das duas cerimônias (DD12).
+    return orderNumberRequirement({
+      roles: signer.responsible?.roles,
+      tasks: sortQuoteTasks((signer.envelope.quote.tasks ?? []) as any[]) as any[],
+    });
   }
 
   /**
@@ -4541,10 +4451,23 @@ export class SignatureEnvelopeService {
         // Reivindicação condicionada ao estado atual, como em `advanceEnvelope`:
         // duas recusas simultâneas (ou uma recusa concorrente com a conclusão)
         // não podem sobrescrever um envelope que já saiu de RUNNING.
-        await tx.signatureEnvelope.updateMany({
+        const refused = await tx.signatureEnvelope.updateMany({
           where: { id: env.id, status: EnvelopeStatus.RUNNING },
           data: { status: EnvelopeStatus.REFUSED },
         });
+        // O eixo acompanha só se ESTA recusa foi a que tirou o envelope de
+        // RUNNING — a outra ponta de uma corrida já escreveu o dela.
+        if (refused.count > 0) {
+          await this.writeSignatureAxis(tx, {
+            quoteId: env.quoteId,
+            to: BudgetSignatureStatus.REFUSED,
+            onlyFrom: [
+              BudgetSignatureStatus.AWAITING_CUSTOMER,
+              BudgetSignatureStatus.AWAITING_ANKAA,
+            ],
+            reason: `O cliente recusou a assinatura. Motivo: ${reason}`,
+          });
+        }
       }
     });
 
@@ -5212,8 +5135,13 @@ export class SignatureEnvelopeService {
         /** A ENTIDADE do pedido. O portão aceita os dois lados da escrita dupla. */
         purchaseOrder: { id: string; number: string; issuedAt: Date | null } | null;
       }>;
-      /** O portão do pedido de compra, já resolvido para a tela. */
-      pedidoDeCompra: { exigido: boolean; pendente: boolean; mensagem: string | null };
+      /**
+       * O nº do pedido de compra (DD12), na MESMA forma da página pública:
+       * `null` quando este contato não está sujeito (não tem Compras); senão os
+       * veículos do escopo e se falta algum. O número é informado NO ATO de
+       * assinar (`orderNumbers[]`). Substitui o `pedidoDeCompra` (403) da branch.
+       */
+      orderNumber: OrderNumberRequirement | null;
       declaracoes: Array<{ key: string; text: string }>;
     }>
   > {
@@ -5309,20 +5237,13 @@ export class SignatureEnvelopeService {
           }))
         : [];
 
-      // ⛔ O VEREDITO OLHA `tasks`, NUNCA `veiculos`. O recorte acima esvazia a
-      // lista para quem não tem `VEHICLE`, e um portão alimentado pela lista
-      // recortada diria "nenhum veículo, nada a cobrar" — liberando por falta de
-      // visão o que o servidor recusaria com 403 no ato.
-      const gate = purchaseOrderGateVerdict({
+      // ⛔ O PREDICADO OLHA `tasks`, NUNCA `veiculos`. O recorte acima esvazia
+      // a lista para quem não tem `VEHICLE`, e um predicado alimentado pela
+      // lista recortada diria "nenhum veículo, nada a pedir" — deixando passar
+      // por falta de visão o que o ato recusaria com 400.
+      const orderNumber = orderNumberRequirement({
         roles: signer.responsible?.roles ?? [],
-        vehicles: tasks.map(t => ({
-          ...t,
-          // (a) PAGADOR ∨ (b) DONO — o MESMO predicado que
-          // `POST /cliente/me/pedidos` usa no `where`. Se as duas portas não
-          // lessem a mesma regra, o portão cobraria o que a outra recusa.
-          canIssuePurchaseOrder:
-            commercialTaskLink(t as any, signer.responsible?.companyId ?? null) !== null,
-        })),
+        tasks: tasks as any[],
       });
 
       return {
@@ -5352,11 +5273,7 @@ export class SignatureEnvelopeService {
           ? formatCurrencyBRL(Number(env.quote.total))
           : null,
         veiculos,
-        pedidoDeCompra: {
-          exigido: isSolePurchasingContact(signer.responsible?.roles ?? []),
-          pendente: gate.blocked,
-          mensagem: gate.message,
-        },
+        orderNumber,
         // O TEXTO EXATO que ele vai aceitar, renderizado aqui e não na tela: é
         // ele que será persistido byte a byte em `declarations`, e montá-lo no
         // navegador faria o que foi exibido e o que foi guardado poderem
@@ -5420,6 +5337,8 @@ export class SignatureEnvelopeService {
     acceptedDeclarationKeys: string[];
     clientTimestamp?: string | null;
     geo?: { lat?: number; lon?: number; accuracy?: number | null } | null;
+    /** O nº do pedido de cada veículo, para quem tem Compras (DD12). */
+    orderNumbers?: Array<{ taskId?: string; value?: string }> | null;
     ctx: RequestContext;
   }): Promise<{ status: EnvelopeSignerStatus; envelopeStatus: EnvelopeStatus }> {
     this.assertCeremonyConfigured();
@@ -5494,33 +5413,20 @@ export class SignatureEnvelopeService {
     const tasks = sortQuoteTasks(env.quote?.tasks ?? []);
     const roles = signer.responsible?.roles ?? [];
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // O PORTÃO DO PEDIDO DE COMPRA — exigência explícita do dono
-    // ═══════════════════════════════════════════════════════════════════════
+    // ── O Nº DO PEDIDO, PELO PREDICADO ÚNICO (DD12) ─────────────────────────
     //
-    // Quem tem Compras como ÚNICA função só assina com o número do pedido no
-    // veículo. Quem acumula Compras com Comercial/Vendedor/Representante/
-    // Coordenador NÃO é barrado — essas quatro recebem o documento inteiro e
-    // aprovam o negócio. A regra e a razão moram em `purchase-order-gate.ts`.
-    //
-    // ⚠️ AQUI, E NÃO NA EMISSÃO. Na emissão o número pode legitimamente não
-    // existir ainda (é o próprio Compras que vai emiti-lo, muitas vezes depois
-    // de ver o orçamento); no instante do clique ele ou existe ou não existe, e
-    // é aí que a cobrança é barata. É a mesma escolha que `countersign` faz com
-    // as lacunas de cadastro tardio, com o sinal trocado: lá a ausência é
-    // normal e se REGISTRA; aqui ela é o que o dono mandou BARRAR.
-    const gate = purchaseOrderGateVerdict({
-      roles,
-      vehicles: tasks.map(t => ({
-        ...t,
-        canIssuePurchaseOrder:
-          commercialTaskLink(t as any, signer.responsible?.companyId ?? null) !== null,
-      })),
-    });
-    if (gate.blocked) {
-      // A mensagem é LITERAL e vem da constante — a tela do portal a reconhece
-      // para desenhar o atalho de "informar o pedido" em vez de um toast cru.
-      throw new ForbiddenException(gate.message ?? PURCHASE_ORDER_REQUIRED_MESSAGE);
+    // Quem TEM Compras (mesmo acumulando outras funções) só assina com o pedido
+    // de cada veículo — o que já está na tarefa, ou o que ele informa AGORA, no
+    // próprio ato. A mesma regra da página pública (`orderNumberRequirement`),
+    // e a mesma recusa: 400 com a frase da `main`, ANTES de qualquer escrita. O
+    // 403 da branch (só quem era SÓ Compras, sem jeito de informar o número
+    // ali) saiu com o `purchase-order-gate.ts`.
+    const orderGate = orderNumberRequirement({ roles, tasks: tasks as any[] });
+    const orderResolution = orderGate
+      ? resolveOrderNumberSubmission(orderGate.vehicles, args.orderNumbers)
+      : null;
+    if (orderResolution?.problem) {
+      throw new BadRequestException(orderResolution.problem);
     }
 
     // As declarações do PORTAL: `reviewed`, `authority`, `method`. `identity`
@@ -5653,15 +5559,16 @@ export class SignatureEnvelopeService {
       // estava satisfeita NO INSTANTE DO ATO tem de viajar dentro da evidência
       // — o número pode ser editado depois, e a trilha é o que fixa o que o
       // servidor viu.
-      ...(isSolePurchasingContact(roles)
+      ...(orderGate
         ? {
             comprasGate: {
               aplicado: true,
-              veiculos: tasks.map(t => ({
-                taskId: t.id,
-                purchaseOrderId: t.purchaseOrderId ?? null,
-                numeroDoPedido: (t.customerOrderNumber ?? '').trim() || null,
+              veiculos: orderGate.vehicles.map(v => ({
+                taskId: v.taskId,
+                numeroDoPedido: v.value,
+                temPedido: v.hasNumber,
               })),
+              informados: orderResolution?.toWrite ?? [],
             },
           }
         : {}),
@@ -5731,9 +5638,23 @@ export class SignatureEnvelopeService {
         sections,
         ceremony: 'responsible_session',
         portalSessionId: args.responsible.sessionId ?? null,
-        ...(isSolePurchasingContact(roles) ? { comprasGate: 'aprovado' } : {}),
+        ...(orderGate ? { comprasGate: 'aprovado' } : {}),
       },
     });
+
+    // O número informado entra DEPOIS do ato, com a identidade provada pela
+    // sessão — o mesmo escritor da página pública: só preenche o que estava
+    // vazio, com a linha de trilha de cada tarefa (DD12).
+    if (orderGate && orderResolution && orderResolution.toWrite.length > 0) {
+      await this.writeInformedOrderNumbers({
+        envelopeId: env.id,
+        signer: { id: signer.id, declaredName: signer.declaredName },
+        budgetNumber: env.quote?.budgetNumber ?? null,
+        vehicles: orderGate.vehicles,
+        toWrite: orderResolution.toWrite,
+        ctx: args.ctx,
+      });
+    }
 
     const envelopeStatus = await this.advanceEnvelope(env.id);
     return { status: EnvelopeSignerStatus.SIGNED, envelopeStatus };
@@ -6164,22 +6085,26 @@ export class SignatureEnvelopeService {
     // assinou do outro lado).
     const group0Pending = pending.filter(s => s.orderGroup === 0);
     if (group0Pending.length === 0) {
-      // O ORÇAMENTO PASSA A "ASSINADO".
+      // O EIXO PASSA A "FALTA A ANKAA" (D-28).
       //
       // Este ramo só é alcançado com `pending.length > 0` — ou seja, sempre há
       // alguém do grupo 1 faltando. Quando NÃO há signatário da Ankaa, o bloco
-      // acima já finalizou e o orçamento vai direto a APROVADO, que é o certo:
-      // ASSINADO quer dizer "espera por nós", e sem contraparte nossa não há
-      // espera nenhuma.
+      // acima já finalizou e o eixo vai direto a `SIGNED`.
       //
-      // SEM `await`, e best-effort, pela mesma razão do aviso à Ankaa logo
-      // abaixo: isto roda dentro do POST do CLIENTE, que está com a tela do
-      // celular aberta. A assinatura dele já está persistida; o rótulo da nossa
-      // lista interna não é motivo para segurar a resposta.
+      // COM `await` e condicionado a `AWAITING_CUSTOMER`: é uma linha, no banco
+      // local, e é ESTADO. Era `void` (o `markSigned` fire-and-forget, X9): o
+      // processo morria entre a assinatura e a marca e o orçamento ficava
+      // dizendo "aguardando o cliente" com o cliente já assinado. Se falhar
+      // ainda assim, `replayCompletion` reconhece "grupo 0 completo com o eixo
+      // em AWAITING_CUSTOMER" e repara.
+      await this.markCustomerSideSigned(env.quoteId, env.id);
+
+      // O AVISO de setor (`task_quote.signed`) continua best-effort e sem
+      // `await`: roda dentro do POST do CLIENTE, e a mensagem é para nós.
       if (this.onCustomerSideSigned) {
         void this.onCustomerSideSigned(env.quoteId, env.id).catch(error =>
           this.logger.error(
-            `Falha ao marcar o orçamento ${env.quoteId} como assinado: ${
+            `Falha ao avisar que o orçamento ${env.quoteId} foi assinado pelo cliente: ${
               error instanceof Error ? error.message : error
             }`,
           ),
@@ -6410,10 +6335,35 @@ export class SignatureEnvelopeService {
         finalFileId: true,
         quoteId: true,
         createdById: true,
-        quote: { select: { status: true, budgetNumber: true } },
+        version: true,
+        quote: { select: { status: true, budgetNumber: true, signatureStatus: true } },
+        signers: { select: { orderGroup: true, status: true } },
       },
     });
     if (!env) throw new NotFoundException('Envelope não encontrado.');
+
+    // ── X9: O GRUPO 0 FECHOU E O EIXO FICOU PARA TRÁS ───────────────────────
+    //
+    // A coleta ainda RUNNING, o cliente inteiro assinado, e o eixo ainda em
+    // "aguardando o cliente": o processo morreu entre a assinatura e a marca.
+    // Reparar é escrever a marca que faltou — nada mais.
+    if (env.status === EnvelopeStatus.RUNNING) {
+      const clienteFechou =
+        env.signers.some(s => s.orderGroup === 0) &&
+        env.signers
+          .filter(s => s.orderGroup === 0)
+          .every(s => s.status === EnvelopeSignerStatus.SIGNED);
+      if (
+        clienteFechou &&
+        env.quote?.signatureStatus === BudgetSignatureStatus.AWAITING_CUSTOMER
+      ) {
+        await this.markCustomerSideSigned(env.quoteId, env.id);
+        return { executado: true, motivo: null };
+      }
+      throw new BadRequestException(
+        `Esta coleta está em ${env.status} e não há conclusão a reexecutar.`,
+      );
+    }
 
     if (env.status !== EnvelopeStatus.COMPLETED) {
       throw new BadRequestException(
@@ -6437,15 +6387,37 @@ export class SignatureEnvelopeService {
       );
     }
 
+    // O EIXO primeiro: coleta concluída e selada é `SIGNED`, com ou sem o gancho
+    // de domínio. Idempotente (não escreve se já está lá).
+    const eixoReparado = await this.prisma.$transaction(tx =>
+      this.writeSignatureAxis(tx, {
+        quoteId: env.quoteId,
+        to: BudgetSignatureStatus.SIGNED,
+        onlyFrom: [
+          BudgetSignatureStatus.AWAITING_CUSTOMER,
+          BudgetSignatureStatus.AWAITING_ANKAA,
+          BudgetSignatureStatus.NOT_ISSUED,
+        ],
+        reason: `Conclusão reexecutada: coleta versão ${env.version} concluída e selada.`,
+        actorUserId,
+      }),
+    );
+
     // A ÚNICA pergunta que este método faz ao domínio de orçamento, e ela existe
     // para distinguir "não havia o que fazer" de "falhou". Sem ela, reexecutar
     // um gancho já executado devolveria o 400 de transição inválida ("O status
     // já é Aprovado") — tecnicamente inofensivo, e ilegível para quem apertou um
     // botão chamado "Reexecutar aprovação".
+    //
+    // No Modelo C a coleta NOVA é emitida sobre o valor já aprovado: a conclusão
+    // não mexe no valor, só no eixo. O gancho só aprova a coleta LEGADA (emitida
+    // sobre `PENDING` antes da R-B).
     if (env.quote?.status === 'APPROVED') {
       return {
-        executado: false,
-        motivo: `O orçamento nº ${env.quote.budgetNumber} já está aprovado. Nada a reexecutar.`,
+        executado: eixoReparado,
+        motivo: eixoReparado
+          ? null
+          : `O orçamento nº ${env.quote.budgetNumber} já está aprovado e assinado. Nada a reexecutar.`,
       };
     }
 
@@ -6943,17 +6915,28 @@ export class SignatureEnvelopeService {
     // "o documento do envelope" tem uma resposta certa para todo leitor de fora
     // da cerimônia, e é o instrumento inteiro.
     const fullSealed = sealed.find(x => x.isFull) ?? sealed[0];
-    await this.prisma.signatureEnvelope.update({
-      where: { id: envelopeId },
-      data: {
-        status: EnvelopeStatus.COMPLETED,
-        completedAt: new Date(),
-        finalFileId: fullSealed.finalFileId,
-        finalSha256: fullSealed.finalSha256,
-        sealedAt: fullSealed.padesLevel ? new Date() : null,
-        padesLevel: fullSealed.padesLevel,
-        ...fullSealed.certMeta,
-      },
+    // O artefato selado e o eixo `SIGNED` no MESMO commit (D-28). É o artefato
+    // que torna a conclusão real (`releaseFinalizationClaim` desfaz a
+    // reivindicação sem ele), então é aqui, e não na reivindicação, que a
+    // assinatura passa a liberar a cobrança (DD7).
+    await this.prisma.$transaction(async tx => {
+      await tx.signatureEnvelope.update({
+        where: { id: envelopeId },
+        data: {
+          status: EnvelopeStatus.COMPLETED,
+          completedAt: new Date(),
+          finalFileId: fullSealed.finalFileId,
+          finalSha256: fullSealed.finalSha256,
+          sealedAt: fullSealed.padesLevel ? new Date() : null,
+          padesLevel: fullSealed.padesLevel,
+          ...fullSealed.certMeta,
+        },
+      });
+      await this.writeSignatureAxis(tx, {
+        quoteId: env.quoteId,
+        to: BudgetSignatureStatus.SIGNED,
+        reason: `Coleta concluída e selada (envelope versão ${env.version}).`,
+      });
     });
 
     await this.audit.record(envelopeId, {
@@ -7417,6 +7400,16 @@ export class SignatureEnvelopeService {
           lastSeenSnapshotSha256: loaded.hash,
         },
       });
+      // "Invalidada — reemitir" (D-28). O VALOR não é tocado aqui: se o que mudou
+      // foi o valor, o auto-revert de hoje já o levou a PENDING (DD8); se foi
+      // arte, elenco ou validade, ele segue APROVADO e o orçamento volta a
+      // "pronto para emitir" assim que o checklist fechar.
+      await this.writeSignatureAxis(tx, {
+        quoteId,
+        to: BudgetSignatureStatus.INVALIDATED,
+        reason: `Assinaturas invalidadas — ${reason}`,
+        actorUserId,
+      });
     });
 
     await this.challenges.supersedeAllForEnvelope(running.id);
@@ -7729,6 +7722,13 @@ export class SignatureEnvelopeService {
       await tx.signatureEnvelope.update({
         where: { id: envelopeId },
         data: { status: EnvelopeStatus.CANCELLED },
+      });
+      // A Ankaa desistiu desta coleta: o eixo volta a "Não emitida" (D-28).
+      await this.writeSignatureAxis(tx, {
+        quoteId: env.quoteId,
+        to: BudgetSignatureStatus.NOT_ISSUED,
+        reason: `Coleta cancelada pela Ankaa (envelope versão ${env.version}).`,
+        actorUserId,
       });
     });
     await this.challenges.supersedeAllForEnvelope(envelopeId);

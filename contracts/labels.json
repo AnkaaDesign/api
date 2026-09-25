@@ -2308,11 +2308,10 @@
       "enum": "TASK_QUOTE_STATUS",
       "labels": {
         "EXPIRED": "Aguardando Reanálise",
-        "SIGNED": "Assinado",
-        "PENDING": "Aguardando Assinatura",
+        "SIGNED": "Assinado (legado)",
+        "PENDING": "Pendente",
         "REQUESTED": "Requisição",
-        "IN_NEGOTIATION": "Em Negociação",
-        "PRE_APPROVED": "Pré-aprovado",
+        "IN_NEGOTIATION": "Aguardando aprovação do cliente",
         "APPROVED": "Aprovado",
         "CANCELLED": "Cancelado"
       }

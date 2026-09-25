@@ -265,6 +265,21 @@ export const portalSignSchema = z.object({
     .max(20, 'Lista de declarações inválida.'),
   clientTimestamp: clientTimestampSchema,
   geo: geoSchema,
+  /**
+   * Nº do pedido de compra por veículo (DD12) — a MESMA forma da página pública
+   * (`signatureSignSchema.orderNumbers`): quem tem Compras informa no próprio
+   * ato. O teor é regra do serviço (`orderNumberRequirement`).
+   */
+  orderNumbers: z
+    .array(
+      z.object({
+        taskId: z.string().uuid('Veículo inválido.'),
+        value: z.string().max(200, 'Nº do pedido muito longo.'),
+      }),
+    )
+    .max(100, 'Lista de pedidos inválida.')
+    .nullish()
+    .transform(value => value ?? []),
 });
 
 export type PortalSignFormData = z.infer<typeof portalSignSchema>;

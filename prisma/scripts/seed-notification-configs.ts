@@ -8770,7 +8770,7 @@ const CONFIGS: ConfigDef[] = [
     name: "Orçamento Aprovado",
     notificationType: "GENERAL",
     eventType: "task_quote.budget_approved",
-    description: "Cliente aprovou os valores do orçamento; libera a etapa de aprovação comercial.",
+    description: "O valor do orçamento foi aprovado (Modelo C). A cobrança espera a assinatura (DD7).",
     enabled: true,
     importance: "HIGH",
     workHoursOnly: false,
@@ -8787,18 +8787,94 @@ const CONFIGS: ConfigDef[] = [
     templates: {
       inApp: {
         title: "Orçamento Aprovado",
-        body: "Os valores do orçamento {{quoteLabel}} foram aprovados pelo cliente. A aprovação comercial já pode ser feita.",
+        body: "O valor do orçamento {{quoteLabel}} foi aprovado. A cobrança poderá ser aprovada depois da assinatura.",
       },
       push: {
         title: "Orçamento Aprovado",
-        body: "Orçamento {{quoteLabel}} aprovado pelo cliente — segue para aprovação comercial",
+        body: "Valor do orçamento {{quoteLabel}} aprovado — a cobrança espera a assinatura",
       },
       whatsapp: {
-        body: "Os valores do orçamento {{quoteLabel}} foram aprovados pelo cliente. A aprovação comercial já pode ser feita.",
+        body: "O valor do orçamento {{quoteLabel}} foi aprovado. A cobrança poderá ser aprovada depois da assinatura.",
       },
     },
     metadata: {
       trigger: "task-quote.service.ts ~:1611,:1407",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "task_quote.value_approved",
+    name: "Valor Aprovado",
+    notificationType: "GENERAL",
+    eventType: "task_quote.value_approved",
+    description: "O valor do orçamento foi aprovado (pelo cliente no portal ou em nome dele); diz ao comercial o que falta para emitir (P14, §2A.3).",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Valor aprovado",
+        body: "O valor do orçamento {{quoteLabel}} foi aprovado. Confira o que falta para emitir para assinatura.",
+      },
+      push: {
+        title: "Valor aprovado",
+        body: "Valor do orçamento {{quoteLabel}} aprovado",
+      },
+      whatsapp: {
+        body: "O valor do orçamento {{quoteLabel}} foi aprovado. Confira o que falta para emitir para assinatura.",
+      },
+    },
+    metadata: {
+      trigger: "budget.service.ts approveValue → dispatchValueApprovedNotifications",
+      registry: "seed-notification-configs",
+      targeted: false,
+    },
+  },
+  {
+    key: "task_quote.ready_for_signature",
+    name: "Pronto para Emitir",
+    notificationType: "GENERAL",
+    eventType: "task_quote.ready_for_signature",
+    description: "Valor e arte de todos os veículos aprovados: o orçamento pode ser emitido para assinatura (P14, §2A.7). A emissão não é automática.",
+    enabled: true,
+    importance: "HIGH",
+    workHoursOnly: false,
+    batchingEnabled: false,
+    maxFrequencyPerDay: null,
+    deduplicationWindow: null,
+    sectors: ["ADMIN", "COMMERCIAL"],
+    channels: {
+      IN_APP: { enabled: true, mandatory: false, defaultOn: true },
+      PUSH: { enabled: true, mandatory: false, defaultOn: true },
+      EMAIL: { enabled: false, mandatory: false, defaultOn: false },
+      WHATSAPP: { enabled: false, mandatory: false, defaultOn: false },
+    },
+    templates: {
+      inApp: {
+        title: "Pronto para emitir",
+        body: "O orçamento {{quoteLabel}} tem o valor e a arte de todos os veículos aprovados. Emita para assinatura.",
+      },
+      push: {
+        title: "Pronto para emitir",
+        body: "Orçamento {{quoteLabel}} pronto para emitir",
+      },
+      whatsapp: {
+        body: "O orçamento {{quoteLabel}} tem o valor e a arte de todos os veículos aprovados. Emita para assinatura.",
+      },
+    },
+    metadata: {
+      trigger: "budget.service.ts dispatchReadyForSignature",
       registry: "seed-notification-configs",
       targeted: false,
     },

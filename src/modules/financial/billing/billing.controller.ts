@@ -15,7 +15,12 @@ import { BillingStatusCascadeService } from './billing-status-cascade.service';
 import { BudgetService } from '@modules/production/budget/budget.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
+import {
+  BILLING_STATUS,
+  BUDGET_SIGNATURE_STATUS,
+  SECTOR_PRIVILEGES,
+  TASK_QUOTE_STATUS,
+} from '@constants';
 
 /**
  * OS ÚNICOS `orderBy` QUE ESTA ROTA ACEITA — a lista vem do serviço
@@ -194,6 +199,7 @@ export class BillingController {
     @Query('deliveredOnly') deliveredOnly?: unknown,
     @Query('statuses') statuses?: unknown,
     @Query('quoteStatuses') quoteStatuses?: unknown,
+    @Query('signatureStatuses') signatureStatuses?: unknown,
     @Query('searchingFor') searchingFor?: unknown,
     @Query('budgetNumber') budgetNumber?: unknown,
     @Query('customerIds') customerIds?: unknown,
@@ -219,6 +225,13 @@ export class BillingController {
       parsedQuoteStatuses,
       Object.values(TASK_QUOTE_STATUS) as string[],
       'Estado de orçamento',
+    );
+
+    const parsedSignatureStatuses = parseList(signatureStatuses);
+    assertEnumList(
+      parsedSignatureStatuses,
+      Object.values(BUDGET_SIGNATURE_STATUS) as string[],
+      'Estado da assinatura',
     );
 
     // ORDENAÇÃO EM LISTA, porque o padrão da tela tem DUAS chaves (o estado da
@@ -286,6 +299,7 @@ export class BillingController {
       deliveredOnly: parseBool(deliveredOnly) ?? false,
       statuses: parsedStatuses,
       quoteStatuses: parsedQuoteStatuses,
+      signatureStatuses: parsedSignatureStatuses,
       searchingFor: search || undefined,
       budgetNumber: parsedBudgetNumber,
       customerIds: parseList(customerIds),

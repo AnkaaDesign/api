@@ -1,22 +1,24 @@
 /**
- * O PORTÃO DO PEDIDO DE COMPRA E AS TRÊS CERIMÔNIAS DE ASSINATURA.
+ * O Nº DO PEDIDO DE COMPRA (DD12, G35) E AS TRÊS CERIMÔNIAS DE ASSINATURA.
  *
  * `npm run test:portal-assinatura-compras`
  *
  * TSX PURO, SEM BANCO — a régua desta branch, no estilo de `test:responsible-otp`.
  * As três unidades que este arquivo percorre foram EXTRAÍDAS para arquivos sem
  * dependência nenhuma justamente para poderem ser percorridas:
- * `purchase-order-gate.ts`, `ceremony-kind.ts` e `signature.constants.ts`.
+ * `order-number-gate.ts`, `ceremony-kind.ts` e `signature.constants.ts`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * OS DOIS DEFEITOS QUE ESTE ARQUIVO IMPEDE
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * 1. **`roles.includes(PURCHASING)` no lugar de `roles.length === 1`.**
- *    As duas expressões são quase idênticas de ler e opostas de efeito: a
- *    primeira barra o contato que acumula Compras com Comercial — quem recebe o
- *    documento inteiro e aprova o negócio —, travando a aprovação de um
- *    orçamento na pessoa errada. A tabela-verdade abaixo fixa as duas metades.
+ * 1. **Duas regras para o mesmo pedido (G35).** Até a DD12 conviviam dois
+ *    portões: o da `main` (quem TEM Compras informa o número na página pública)
+ *    e o da branch (`purchase-order-gate.ts`: só quem era SÓ Compras, com 403 e
+ *    sem jeito de informar o número ali). A DD12 escolheu a regra da `main` e a
+ *    pôs num predicado só, `orderNumberRequirement`, lido pelas DUAS cerimônias.
+ *    A tabela-verdade abaixo fixa o sujeito, o escopo e o "tem número", e a
+ *    varredura de fonte fixa que os dois atos perguntam ao mesmo lugar.
  *
  * 2. **Um valor novo de `SignatureAuthMethod` caindo em `OTP` por omissão.**
  *    `ceremonyKindOf` era um ternário de uma linha com QUATRO dependentes
@@ -32,11 +34,12 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ResponsibleRole, SignatureAuthMethod } from '@prisma/client';
 import {
-  isSolePurchasingContact,
-  purchaseOrderGateVerdict,
-  taskHasPurchaseOrder,
-  PURCHASE_ORDER_REQUIRED_MESSAGE,
-} from '../src/modules/common/signature/purchase-order-gate';
+  orderNumberRequirement,
+  resolveOrderNumberSubmission,
+  taskHasOrderNumber,
+  ORDER_NUMBER_REQUIRED_MESSAGE,
+} from '../src/modules/common/signature/order-number-gate';
+import { existsSync } from 'fs';
 import {
   ceremonyKindOfAuthMethod,
   isSessionCeremony,
@@ -85,179 +88,123 @@ function semComentarios(fonte: string): string {
 }
 
 /** Um veículo COM pedido e um SEM, para a tabela-verdade. */
-const comPedido = { id: 't1', label: '1001', customerOrderNumber: '8842' };
-const semPedido = { id: 't2', label: '1002', customerOrderNumber: null };
-const comFkSoh = { id: 't3', label: '1003', purchaseOrderId: 'po-1' };
+const comPedido = { id: 't1', name: '1001', customerOrderNumber: '8842' };
+const semPedido = { id: 't2', name: '1002', customerOrderNumber: null };
+const comFkSoh = { id: 't3', name: '1003', purchaseOrderId: 'po-1' };
+const cancelado = { id: 't9', name: '1009', status: 'CANCELLED', customerOrderNumber: null };
 
 // =============================================================================
-console.log('\nO TESTE É LITERALMENTE `roles.length === 1 && roles[0] === PURCHASING`');
+console.log('\nG35 — O SUJEITO: quem TEM Compras, mesmo acumulando (DD12, a regra da main)');
 // =============================================================================
 {
-  check(
-    'Compras sozinho É o caso da regra',
-    isSolePurchasingContact([ResponsibleRole.PURCHASING]),
-  );
-  check(
-    'Compras + Comercial NÃO é',
-    !isSolePurchasingContact([ResponsibleRole.PURCHASING, ResponsibleRole.COMMERCIAL]),
-  );
-  check(
-    'a ORDEM não muda nada (Comercial + Compras)',
-    !isSolePurchasingContact([ResponsibleRole.COMMERCIAL, ResponsibleRole.PURCHASING]),
-  );
-  check('Comercial sozinho não é', !isSolePurchasingContact([ResponsibleRole.COMMERCIAL]));
-  check('lista vazia não é', !isSolePurchasingContact([]));
-  check('nulo não é, e não estoura', !isSolePurchasingContact(null));
-  check('indefinido não é, e não estoura', !isSolePurchasingContact(undefined));
+  const exige = (roles: ResponsibleRole[] | null | undefined) =>
+    orderNumberRequirement({ roles, tasks: [semPedido] });
 
-  // ⚠️ A ARMADILHA CENTRAL, escrita como asserção: `includes` e `length === 1`
-  // divergem exatamente no acúmulo, que é o caso que o dono mandou NÃO barrar.
-  const acumulado = [ResponsibleRole.PURCHASING, ResponsibleRole.COMMERCIAL];
+  check('Compras sozinho é sujeito', exige([ResponsibleRole.PURCHASING])?.required === true);
+  for (const par of Object.values(ResponsibleRole).filter(r => r !== ResponsibleRole.PURCHASING)) {
+    check(
+      `Compras + ${par} TAMBÉM é sujeito (o acúmulo não escapa)`,
+      exige([ResponsibleRole.PURCHASING, par as ResponsibleRole])?.required === true,
+    );
+    check(`${par} sem Compras NÃO é sujeito`, exige([par as ResponsibleRole]) === null);
+  }
+  check('lista vazia não é sujeito', exige([]) === null);
+  check('nulo não é, e não estoura', exige(null) === null);
+  check('indefinido não é, e não estoura', exige(undefined) === null);
   check(
-    '`includes(PURCHASING)` daria o veredito ERRADO no acúmulo',
-    acumulado.includes(ResponsibleRole.PURCHASING) && !isSolePurchasingContact(acumulado),
-    'se esta linha falhar, alguém trocou a expressão pela parecida',
-  );
-
-  const fonte = SRC('modules/common/signature/purchase-order-gate.ts');
-  check(
-    'a fonte escreve `list.length === 1`, não `includes`',
-    /list\.length === 1 && list\[0\] === ResponsibleRole\.PURCHASING/.test(fonte),
+    'o portão da branch (só quem era SÓ Compras, 403) foi APAGADO',
+    !existsSync(join(__dirname, '..', 'src', 'modules/common/signature/purchase-order-gate.ts')),
   );
 }
 
 // =============================================================================
-console.log('\nA TABELA-VERDADE DO PORTÃO');
+console.log('\nG35 — O ESCOPO e o "TEM NÚMERO"');
 // =============================================================================
 {
-  const veredito = (roles: ResponsibleRole[], vehicles: any[]) =>
-    purchaseOrderGateVerdict({ roles, vehicles });
+  const req = (tasks: any[]) =>
+    orderNumberRequirement({ roles: [ResponsibleRole.PURCHASING], tasks })!;
 
-  // ── Compras SOZINHO ──────────────────────────────────────────────────────
-  const barrado = veredito([ResponsibleRole.PURCHASING], [semPedido]);
-  check('Compras sozinho, SEM número → BARRADO', barrado.blocked);
+  check('SEM número → exige', req([semPedido]).required);
+  check('COM número → não exige', !req([comPedido]).required);
   check(
-    'e a mensagem é exatamente a do dono',
-    barrado.message === 'Informe o número do pedido de compra antes de assinar.',
-    JSON.stringify(barrado.message),
+    'com o pedido do portal (purchaseOrderId) e sem número digitado → não exige',
+    !req([comFkSoh]).required,
+    'DD12: tem número = customerOrderNumber não vazio ∨ purchaseOrderId',
+  );
+  check('TODOS os veículos, não "algum": 1 de 2 sem número → exige', req([comPedido, semPedido]).required);
+  check('número em branco não conta', req([{ id: 't4', customerOrderNumber: '   ' }]).required);
+  check('string vazia não conta', req([{ id: 't5', customerOrderNumber: '' }]).required);
+  check(
+    'veículo CANCELADO sai do escopo (não se cobra pedido de quem não vai ser pintado)',
+    !req([comPedido, cancelado]).required && req([comPedido, cancelado]).vehicles.length === 1,
   );
   check(
-    'a constante exportada carrega a MESMA frase',
-    PURCHASE_ORDER_REQUIRED_MESSAGE === 'Informe o número do pedido de compra antes de assinar.',
+    'todos cancelados → o conjunto inteiro volta (a regra não some por anomalia)',
+    req([cancelado]).required,
   );
-  check('e o veredito nomeia QUAL veículo faltou', barrado.missing.length === 1 && barrado.missing[0].id === 't2');
+  check('o predicado isolado: FK nova', taskHasOrderNumber({ id: 'x', purchaseOrderId: 'po-1' }));
+  check('o predicado isolado: coluna legada', taskHasOrderNumber({ id: 'x', customerOrderNumber: '8842' }));
+  check('o predicado isolado: vazio', !taskHasOrderNumber({ id: 'x' }));
+}
 
+// =============================================================================
+console.log('\nG35 — A SUBMISSÃO NO ATO: falta número → 400 com a frase da main');
+// =============================================================================
+{
+  const { vehicles } = orderNumberRequirement({
+    roles: [ResponsibleRole.PURCHASING],
+    tasks: [semPedido],
+  })!;
+  const faltou = resolveOrderNumberSubmission(vehicles, []);
+  check('sem número informado → problema', !!faltou.problem);
   check(
-    'Compras sozinho, COM número → passa',
-    !veredito([ResponsibleRole.PURCHASING], [comPedido]).blocked,
+    'e a frase é a da main',
+    faltou.problem === ORDER_NUMBER_REQUIRED_MESSAGE &&
+      ORDER_NUMBER_REQUIRED_MESSAGE === 'Informe o nº do pedido de compra para assinar.',
+    JSON.stringify(faltou.problem),
   );
+  const ok = resolveOrderNumberSubmission(vehicles, [{ taskId: 't2', value: ' PC-4500 ' }]);
+  check('com número → passa, e grava só o vazio', !ok.problem && ok.toWrite.length === 1);
+  check('o número é normalizado', ok.toWrite[0]?.value === 'PC-4500');
+  const alheio = resolveOrderNumberSubmission(vehicles, [{ taskId: 'outro', value: '1' }]);
+  check('veículo de outro orçamento → recusado', !!alheio.problem);
+  const jaTem = orderNumberRequirement({ roles: [ResponsibleRole.PURCHASING], tasks: [comFkSoh] })!;
   check(
-    'Compras sozinho, com a FK nova e sem a coluna legada → passa',
-    !veredito([ResponsibleRole.PURCHASING], [comFkSoh]).blocked,
-    'a escrita dupla é de mão dupla: os caminhos antigos deixam a FK nula',
+    'veículo com pedido do portal não é cobrado nem sobrescrito',
+    resolveOrderNumberSubmission(jaTem.vehicles, [{ taskId: 't3', value: '999' }]).toWrite.length === 0,
   );
+}
 
-  // ⚠️ TODOS os veículos, não "algum".
-  const misto = veredito([ResponsibleRole.PURCHASING], [comPedido, semPedido]);
-  check('Compras sozinho, 1 de 2 veículos sem número → BARRADO', misto.blocked);
-  check('e só o veículo sem número entra em `missing`', misto.missing.length === 1);
-
+// =============================================================================
+console.log('\nG35 — VARREDURA DE FONTE: as DUAS cerimônias perguntam ao MESMO predicado');
+// =============================================================================
+{
+  const svc = semComentarios(SRC('modules/common/signature/services/signature-envelope.service.ts'));
+  const otp = svc.slice(svc.indexOf('private orderNumberGateOf('), svc.indexOf('private async writeInformedOrderNumbers('));
+  check('a página pública (OTP) usa orderNumberRequirement', /orderNumberRequirement\(/.test(otp));
+  const portal = svc.slice(svc.indexOf('async signByPortalSession('), svc.indexOf('async refuseByPortalSession('));
+  check('a sessão do portal usa orderNumberRequirement', /orderNumberRequirement\(/.test(portal));
   check(
-    'número em branco não conta como número',
-    veredito([ResponsibleRole.PURCHASING], [{ id: 't4', customerOrderNumber: '   ' }]).blocked,
+    'e resolve a submissão ANTES do ato (400, nada escrito)',
+    portal.indexOf('resolveOrderNumberSubmission(') > 0 &&
+      portal.indexOf('resolveOrderNumberSubmission(') < portal.indexOf('envelopeSigner.update'),
   );
   check(
-    'string vazia não conta como número',
-    veredito([ResponsibleRole.PURCHASING], [{ id: 't5', customerOrderNumber: '' }]).blocked,
+    'e grava com o MESMO escritor da página pública',
+    /this\.writeInformedOrderNumbers\(/.test(portal),
   );
   check(
-    'envelope SEM veículo não barra (não há entrega a cobrir)',
-    !veredito([ResponsibleRole.PURCHASING], []).blocked,
-  );
-
-  // ── Compras ACUMULADO — as quatro funções que o contrato nomeia ──────────
-  for (const par of [
-    ResponsibleRole.COMMERCIAL,
-    ResponsibleRole.SELLER,
-    ResponsibleRole.REPRESENTATIVE,
-    ResponsibleRole.COORDINATOR,
-  ]) {
-    check(
-      `Compras + ${par}, SEM número → NÃO é barrado`,
-      !veredito([ResponsibleRole.PURCHASING, par], [semPedido]).blocked,
-    );
-  }
-
-  // ── Qualquer outro acúmulo também escapa: a regra é sobre CARDINALIDADE ──
-  for (const par of [
-    ResponsibleRole.FINANCIAL,
-    ResponsibleRole.MARKETING,
-    ResponsibleRole.FLEET_MANAGER,
-    ResponsibleRole.DRIVER,
-  ]) {
-    check(
-      `Compras + ${par}, SEM número → NÃO é barrado (length > 1)`,
-      !veredito([ResponsibleRole.PURCHASING, par], [semPedido]).blocked,
-    );
-  }
-
-  // ── Quem NÃO é Compras nunca é barrado, tenha número ou não ─────────────
-  for (const papel of Object.values(ResponsibleRole).filter(
-    r => r !== ResponsibleRole.PURCHASING,
-  )) {
-    check(
-      `${papel} sozinho, SEM número → NÃO é barrado`,
-      !veredito([papel as ResponsibleRole], [semPedido]).blocked,
-    );
-  }
-  check('sem papel nenhum → não é barrado', !veredito([], [semPedido]).blocked);
-
-  // ── ⛔ O BECO SEM SAÍDA, FECHADO — quem não pode emitir não é cobrado ────
-  //
-  // `POST /cliente/me/pedidos` exige (a) PAGADOR ∨ (b) DONO; o caminho pessoal
-  // "sou contato desta tarefa" não autoriza ato comercial. Mas a EMISSÃO
-  // convoca todo `Task.responsibles`, sem conferir empresa. Cruzadas, as duas
-  // regras produziam uma pessoa convocada a assinar, barrada por falta do
-  // pedido, e recusada no único endereço que o criaria — presa, e sem que nada
-  // pudesse desatolá-la.
-  const semPedidoDeOutraEmpresa = { ...semPedido, canIssuePurchaseOrder: false };
-  const semPedidoMeu = { ...semPedido, canIssuePurchaseOrder: true };
-
-  check(
-    'Compras sozinho, veículo que ele NÃO pode emitir → NÃO é barrado',
-    !veredito([ResponsibleRole.PURCHASING], [semPedidoDeOutraEmpresa]).blocked,
+    'nenhum 403 de pedido de compra sobrou',
+    !/ForbiddenException\(gate\.message/.test(svc) && !/purchaseOrderGateVerdict|isSolePurchasingContact/.test(svc),
   );
   check(
-    '⛔ mas o caso normal continua barrado (a regra do dono, intacta)',
-    veredito([ResponsibleRole.PURCHASING], [semPedidoMeu]).blocked,
+    'o corpo do ato do portal aceita `orderNumbers[]`',
+    /portalSignSchema = z\.object\(\{[\s\S]*?orderNumbers:/.test(SRC('schemas/signature.ts')),
   );
   check(
-    'misto: cobra o que é DELE e ignora o que não é',
-    veredito([ResponsibleRole.PURCHASING], [semPedidoDeOutraEmpresa, semPedidoMeu]).blocked,
+    'a leitura do portal devolve `orderNumber` (sai `pedidoDeCompra`)',
+    /orderNumber,\s*\n/.test(svc) && !/pedidoDeCompra:/.test(svc),
   );
-  check(
-    'e a lista de faltantes cita SÓ o veículo dele',
-    veredito([ResponsibleRole.PURCHASING], [semPedidoDeOutraEmpresa, semPedidoMeu]).missing
-      .length === 1,
-  );
-  check(
-    'todos de outra empresa → nada a cobrar, nada a barrar',
-    !veredito([ResponsibleRole.PURCHASING], [semPedidoDeOutraEmpresa, semPedidoDeOutraEmpresa])
-      .blocked,
-  );
-  check(
-    // ⛔ O PADRÃO É "PODE", e é a regra de segurança da interface: um `select`
-    // incompleto NÃO pode desligar o portão em silêncio. Só um `false`
-    // explícito, calculado com o dado na mão, relaxa a cobrança.
-    '⚠️ campo AUSENTE conta como "pode emitir" — o portão continua mordendo',
-    veredito([ResponsibleRole.PURCHASING], [semPedido]).blocked,
-  );
-
-  // ── O predicado de "tem pedido", isolado ────────────────────────────────
-  check('tem pedido: pela FK nova', taskHasPurchaseOrder({ purchaseOrderId: 'po-1' }));
-  check('tem pedido: pela coluna legada', taskHasPurchaseOrder({ customerOrderNumber: '8842' }));
-  check('não tem: os dois vazios', !taskHasPurchaseOrder({}));
-  check('não tem: espaços em branco', !taskHasPurchaseOrder({ customerOrderNumber: '  ' }));
 }
 
 // =============================================================================
@@ -499,13 +446,13 @@ console.log('\nO ATO NO PORTAL: sem desafio, resolvido por `{ id, responsibleId 
       /createHmac\('sha256', pepper\)\.update\(evidenceHash\)/.test(corpo),
   );
   check(
-    'o portão do pedido de compra roda ANTES de qualquer escrita',
-    corpo.indexOf('purchaseOrderGateVerdict') > 0 &&
-      corpo.indexOf('purchaseOrderGateVerdict') < corpo.indexOf('envelopeSigner.update'),
+    'o nº do pedido é resolvido ANTES de qualquer escrita (DD12)',
+    corpo.indexOf('resolveOrderNumberSubmission') > 0 &&
+      corpo.indexOf('resolveOrderNumberSubmission') < corpo.indexOf('envelopeSigner.update'),
   );
   check(
-    'e devolve 403 (ForbiddenException), não 400',
-    /throw new ForbiddenException\(gate\.message/.test(corpo),
+    'e devolve 400 (BadRequestException), não 403',
+    /throw new BadRequestException\(orderResolution\.problem\)/.test(corpo),
   );
   check(
     'a evidência grava a SESSÃO, que é o que prova a identidade deste ato',

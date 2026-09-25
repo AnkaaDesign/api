@@ -1938,12 +1938,10 @@ export class TaskPrismaRepository
             subtotal,
             total,
             expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
-            status: quoteData.status || 'PENDING',
-            // Persist the status sort key on create too — omitting it stored the
-            // column @default(1) on every new quote (PENDING's real order is 8),
-            // corrupting statusOrder-based sorting until the next update.
-            statusOrder:
-              TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
+            // O servidor decide o nascimento (D-34): PENDING, sempre. O `status`
+            // do bloco aninhado é ignorado (o serviço da tarefa loga quem manda).
+            status: 'PENDING',
+            statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
             guaranteeYears: quoteData.guaranteeYears || null,
             customGuaranteeText: quoteData.customGuaranteeText || null,
             customForecastDays: quoteData.customForecastDays || null,
@@ -2428,9 +2426,9 @@ export class TaskPrismaRepository
                 subtotal: calculatedSubtotal,
                 total: calculatedSubtotal,
                 expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
-                status: quoteData.status || 'PENDING',
-                statusOrder:
-                  TASK_QUOTE_STATUS_ORDER[(quoteData.status || 'PENDING') as TASK_QUOTE_STATUS],
+                // D-34: o servidor decide o nascimento.
+                status: 'PENDING',
+                statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
                 guaranteeYears: quoteData.guaranteeYears || null,
                 customGuaranteeText: quoteData.customGuaranteeText || null,
                 customForecastDays: quoteData.customForecastDays || null,

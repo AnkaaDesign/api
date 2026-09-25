@@ -3,6 +3,7 @@
   "_fontes": [
     "src/constants/enums.ts",
     "src/modules/production/budget/budget.service.ts (validateStatusTransition)",
+    "src/modules/production/budget/budget-transitions.ts (BUDGET_SYSTEM_TRANSITIONS)",
     "src/constants/sortOrders.ts (TASK_QUOTE_STATUS_ORDER)",
     "prisma/scripts/seed-notification-configs.ts",
     "src/modules/**/*.controller.ts (interceptadores de arquivo)",
@@ -249,8 +250,7 @@
       "APPROVED",
       "CANCELLED",
       "REQUESTED",
-      "IN_NEGOTIATION",
-      "PRE_APPROVED"
+      "IN_NEGOTIATION"
     ],
     "BUDGET_VALUE_APPROVAL_SOURCE": [
       "PORTAL",
@@ -2141,8 +2141,7 @@
       "APPROVED",
       "CANCELLED",
       "REQUESTED",
-      "IN_NEGOTIATION",
-      "PRE_APPROVED"
+      "IN_NEGOTIATION"
     ],
     "TASK_STATUS": [
       "PREPARATION",
@@ -2429,14 +2428,13 @@
       "APPROVED",
       "CANCELLED",
       "REQUESTED",
-      "IN_NEGOTIATION",
-      "PRE_APPROVED"
+      "IN_NEGOTIATION"
     ],
     "transicoesManuais": {
       "EXPIRED": [
         "PENDING",
         "CANCELLED",
-        "REQUESTED"
+        "IN_NEGOTIATION"
       ],
       "SIGNED": [
         "PENDING",
@@ -2455,29 +2453,55 @@
       "CANCELLED": [],
       "REQUESTED": [
         "PENDING",
+        "APPROVED",
         "CANCELLED",
         "IN_NEGOTIATION"
       ],
       "IN_NEGOTIATION": [
-        "CANCELLED",
-        "REQUESTED",
-        "PRE_APPROVED"
-      ],
-      "PRE_APPROVED": [
         "PENDING",
-        "CANCELLED",
-        "IN_NEGOTIATION"
+        "APPROVED",
+        "CANCELLED"
+      ]
+    },
+    "transicoesDoSistema": {
+      "EXPIRED": [
+        "CANCELLED"
+      ],
+      "SIGNED": [
+        "CANCELLED"
+      ],
+      "PENDING": [
+        "EXPIRED",
+        "APPROVED",
+        "CANCELLED"
+      ],
+      "APPROVED": [
+        "PENDING",
+        "CANCELLED"
+      ],
+      "CANCELLED": [
+        "REQUESTED",
+        "PENDING",
+        "IN_NEGOTIATION",
+        "EXPIRED"
+      ],
+      "REQUESTED": [
+        "CANCELLED"
+      ],
+      "IN_NEGOTIATION": [
+        "APPROVED",
+        "PENDING",
+        "CANCELLED"
       ]
     },
     "ordem": {
       "REQUESTED": 1,
       "EXPIRED": 2,
-      "PRE_APPROVED": 3,
-      "SIGNED": 4,
-      "IN_NEGOTIATION": 5,
-      "PENDING": 6,
-      "APPROVED": 7,
-      "CANCELLED": 8
+      "PENDING": 3,
+      "IN_NEGOTIATION": 4,
+      "APPROVED": 5,
+      "SIGNED": 5,
+      "CANCELLED": 6
     }
   },
   "faces": {
@@ -2704,9 +2728,11 @@
     "task_quote.expired",
     "task_quote.installment_overdue",
     "task_quote.payment_due",
+    "task_quote.ready_for_signature",
     "task_quote.refused",
     "task_quote.settled",
     "task_quote.signed",
+    "task_quote.value_approved",
     "timeentry.due",
     "timeentry.missing.escalation",
     "timeentry.reminder",
@@ -3116,6 +3142,17 @@
         {
           "nome": "receipts",
           "maxCount": 10
+        }
+      ]
+    },
+    {
+      "rota": "POST /budgets/:id/offline-signature",
+      "arquivo": "src/modules/production/budget/budget.controller.ts",
+      "interceptor": "FileInterceptor",
+      "campos": [
+        {
+          "nome": "offlineSignatureFile",
+          "maxCount": 1
         }
       ]
     },
@@ -3737,6 +3774,7 @@
     "benefitDocuments",
     "budgetSignatures",
     "budgetDossiers",
+    "budgetOfflineSignature",
     "fiscalDocumentXml",
     "bankStatements",
     "installmentReceipts",

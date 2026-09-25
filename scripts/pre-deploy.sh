@@ -78,6 +78,11 @@ PASSOS=(
   "G4 formas do web extraídas em dia|0|bash scripts/check-web-query-contracts.sh"
   # ── P06: release R-A (censo de formas G3 + versão do app G13) ──
   "G3 censo de formas (sem valor, teto, versão do app)|0|npm run -s test:census"
+  # ── P14: a máquina do orçamento (Modelo C), a cobrança só depois de assinado, DD11 e DD12 ──
+  "máquina do orçamento (G26 grafo manual × sistema, G31, D-34, atos do valor, DD8, portal)|1|npm run -s test:budget-state-machine"
+  "portão de emissão e eixo da assinatura (G27, G28, G29, G34, X1, X9)|1|npm run -s test:emission-gate"
+  "assinado fora do sistema (DD11: nota, anexo, E1/E3, trilha, invalidação)|1|npm run -s test:offline-signature"
+  "G35 nº do pedido de compra nas duas cerimônias (DD12) + cerimônias|0|npm run -s test:portal-assinatura-compras"
   # ── P10: migrações da R-B escritas e ensaiadas (prisma/staged/r-b/) ──
   "ensaio da R-B (fatias pendentes em transação revertida; invariantes, G25, G11-dados)|1|npm run -s test:rehearse-r-b"
   "G36 informativo (distância schema.prisma × esquema-alvo da R-B)|0|bash scripts/check-schema-target.sh"

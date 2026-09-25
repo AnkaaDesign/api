@@ -1,9 +1,9 @@
 // api/src/modules/people/portal/portal-decision.service.ts
 //
-// A PRÉ-APROVAÇÃO — a razão de ser do portal.
+// A APROVAÇÃO DO VALOR PELO CLIENTE — a razão de ser do portal (D-35).
 //
 // O orçamento sai da Ankaa precificado e para na mesa do VENDEDOR DO CLIENTE,
-// que aprova para seguir ou devolve pedindo revisão. Até aqui esse momento não
+// que aprova o valor para seguir ou devolve pedindo revisão. Até aqui esse momento não
 // existia como estado: era a `description` — texto livre — de uma `ServiceOrder`
 // comercial chamada "Em Negociação", comparada em três lugares com três
 // normalizações diferentes, e concluí-la APROVAVA o orçamento enquanto reabri-la
@@ -17,9 +17,9 @@
 //     orçamento de qualquer empresa — e o id vem da URL.
 //
 //  2. A MÁQUINA DE ESTADOS É DE `BudgetService`, e passa-se por ela, não ao lado
-//     dela. `assertTransitionAllowed` é a MESMA tabela que o endpoint interno
-//     usa; o movimento é `updateStatus`, que é quem grava changelog e aplica as
-//     travas de dinheiro. Escrever `status` direto no Prisma é o defeito que a
+//     dela. `assertTransitionAllowed` confere a tabela de SISTEMA; o movimento é
+//     `applyPortalDecision`, que grava changelog, a `BudgetValueApproval{PORTAL}`
+//     na mesma transação do status e aplica as travas de dinheiro. Escrever `status` direto no Prisma é o defeito que a
 //     automação da O.S. tem em quatro pontos, e não se reproduz aqui.
 //
 //  3. NENHUM `@UserId()`, NENHUM `request.user`. O ator é um `Responsible`, e os
@@ -28,9 +28,8 @@
 //     contato em coluna de funcionário.
 //
 //  4. O CHECK `BudgetRequest_decisao_unica` NÃO PODE VIRAR 500. O banco recusa
-//     pré-aprovado E recusado ao mesmo tempo, e as duas decisões são
-//     REVERSÍVEIS pela máquina de estados (PRE_APPROVED → IN_NEGOTIATION →
-//     REQUESTED e a volta). Toda gravação de decisão APAGA a decisão oposta na
+//     aprovado E recusado ao mesmo tempo, e as duas decisões se sucedem pela
+//     máquina de estados (recusa, a Ankaa reenvia, o cliente aprova). Toda gravação de decisão APAGA a decisão oposta na
 //     mesma linha do `update` — o CHECK nunca chega a ser consultado com os dois
 //     preenchidos.
 import {
@@ -61,22 +60,6 @@ import {
 
 export { PORTAL_DECISION_TRANSITIONS, type PortalDecision };
 
-/**
- * ⚠️ O ATOR DESTE MOVIMENTO NÃO É UM FUNCIONÁRIO.
- *
- * `BudgetService.updateStatus` pede `userId: string` porque nasceu de rotas
- * internas. Aqui não há funcionário nenhum — quem decidiu foi um contato do
- * cliente, e a autoria dele fica onde é verdade: `BudgetRequest
- * .preApprovedByResponsibleId` / `.refusedByResponsibleId`, que são FKs de
- * `Responsible`.
- *
- * A string vazia é reconhecida por `ACTOR_SENTINELS`
- * (`changelog.service.ts:42`), que a normaliza para `null` antes de gravar. Isso
- * importa: `ChangeLog.userId` é FK de `User`, e um UUID de contato ali derruba a
- * transação de NEGÓCIO com P2025 — exatamente o incidente de 07/2026. Um id
- * inventado seria pior que nenhum.
- */
-const SEM_FUNCIONARIO = '';
 
 
 @Injectable()
@@ -138,7 +121,7 @@ export class PortalDecisionService {
     if (current !== from) {
       throw new BadRequestException(
         `Este orçamento está "${TASK_QUOTE_STATUS_LABELS[current] ?? current}" e não ` +
-          `pode mais ser ${decision === 'APPROVE_VALUE' ? 'pré-aprovado' : 'recusado'}. ` +
+          `pode mais ser ${decision === 'APPROVE_VALUE' ? 'aprovado' : 'recusado'}. ` +
           'Atualize a página.',
       );
     }
@@ -156,7 +139,7 @@ export class PortalDecisionService {
 
     // ── 4. O MOVIMENTO, PELA MÁQUINA ────────────────────────────────────────
     try {
-      await this.budgets.updateStatus(budgetId, to, SEM_FUNCIONARIO);
+      await this.budgets.applyPortalDecision(budgetId, decision, responsibleId, note);
     } catch (error) {
       // Compensação: devolve o carimbo ao que era. Sem isto, um orçamento que
       // mudou de estado entre o passo 2 e o passo 4 (outra aba, o comercial
@@ -180,16 +163,22 @@ export class PortalDecisionService {
     const quoteLabel = `nº ${budget.budgetNumber} · ${label}`;
 
     if (decision === 'APPROVE_VALUE') {
+      // O aviso diz O QUE FALTA para emitir (§2A.5): o valor era uma das peças,
+      // e o comercial precisa saber se ainda depende de arte.
+      const emission = await this.budgets.emissionOf(budgetId);
+      const falta = emission.blockers.filter(b => b.code !== 'VALUE_NOT_APPROVED');
       await this.notifications.notifyBudgetCommercial({
         budgetId,
         taskId,
         quoteLabel,
         configKey: PORTAL_NOTIFICATION_KEYS.PRE_APPROVED,
-        title: 'Orçamento pré-aprovado pelo cliente',
+        title: 'Valor aprovado pelo cliente',
         body:
-          `${principal.name} pré-aprovou o orçamento ${quoteLabel}` +
+          `${principal.name} aprovou o valor do orçamento ${quoteLabel}` +
           `${principal.companyName ? ` (${principal.companyName})` : ''}. ` +
-          'Lance as assinaturas.' +
+          (falta.length === 0
+            ? 'Nada mais falta: emita para assinatura.'
+            : `Para emitir falta: ${falta.map(b => b.message).join(' ')}`) +
           (note ? ` Observação do cliente: "${note}"` : ''),
         importance: NOTIFICATION_IMPORTANCE.HIGH,
         extraMetadata: { decidedByResponsibleId: responsibleId, decisionNote: note },
@@ -217,7 +206,7 @@ export class PortalDecisionService {
       success: true,
       message:
         decision === 'APPROVE_VALUE'
-          ? 'Orçamento pré-aprovado. O comercial foi avisado e vai lançar as assinaturas.'
+          ? 'Valor aprovado. O comercial foi avisado e emite o documento para assinatura assim que a arte estiver aprovada.'
           : 'Pedido de revisão enviado. O comercial foi avisado e vai refazer o orçamento.',
       data: {
         id: budgetId,
@@ -241,12 +230,12 @@ export class PortalDecisionService {
    * (PRE_APPROVED → IN_NEGOTIATION → REQUESTED e a volta), e sem o apagamento a
    * segunda decisão encontraria a primeira ainda de pé.
    *
-   * ⚠️ `upsert` E NÃO `update`. Nem todo orçamento em negociação nasceu do
-   * portal: `PENDING → IN_NEGOTIATION` existe para o cliente pedir revisão de
-   * preço com o envelope já lançado, e esse orçamento nunca teve
-   * `BudgetRequest`. Recusar a decisão por falta da linha bloquearia o caso, e a
-   * linha criada aqui é honesta sobre o que é — o LIVRO DO PORTAL para este
-   * orçamento, cujo primeiro ato registrado é justamente esta decisão.
+   * ⚠️ SÓ QUANDO A REQUISIÇÃO EXISTE (D-35). Antes era `upsert`, e o portal
+   * FABRICAVA uma `BudgetRequest` (com briefing de mentira) para todo orçamento
+   * nascido por dentro — só para ter onde carimbar a decisão. A fonte de verdade
+   * da aprovação agora é `BudgetValueApproval{PORTAL}`, gravada com o status; a
+   * recusa vai para a trilha com o motivo. O carimbo em `BudgetRequest` continua
+   * para quem tem requisição, porque a tela e o changelog o leem.
    */
   private async stampDecision(
     budgetId: string,
@@ -283,17 +272,8 @@ export class PortalDecisionService {
             decisionNote: note,
           };
 
-    await this.prisma.budgetRequest.upsert({
-      where: { budgetId },
-      update: campos,
-      create: {
-        budgetId,
-        requestedByResponsibleId: responsibleId,
-        requestedAt: at,
-        briefing: BRIEFING_SEM_REQUISICAO,
-        ...campos,
-      },
-    });
+    if (!anterior) return { existia: false };
+    await this.prisma.budgetRequest.update({ where: { budgetId }, data: campos });
 
     return anterior
       ? { existia: true, ...anterior }
@@ -302,12 +282,8 @@ export class PortalDecisionService {
 
   /** Desfaz `stampDecision`. Ver a compensação no passo 4 de `decide`. */
   private async restoreDecision(budgetId: string, previous: DecisionSnapshot): Promise<void> {
-    if (!previous.existia) {
-      // A linha foi criada por nós nesta chamada — some com ela inteira. É
-      // seguro: `BudgetRequest` é 1:1 com `Budget` e nada mais a referencia.
-      await this.prisma.budgetRequest.delete({ where: { budgetId } });
-      return;
-    }
+    // Sem requisição não houve carimbo (D-35): nada a desfazer.
+    if (!previous.existia) return;
 
     await this.prisma.budgetRequest.update({
       where: { budgetId },
@@ -322,15 +298,6 @@ export class PortalDecisionService {
   }
 }
 
-/**
- * O texto que ocupa `BudgetRequest.briefing` quando a linha nasce de uma
- * DECISÃO, e não de uma requisição. `briefing` é NOT NULL; deixá-lo vazio faria
- * a caixa de entrada do comercial mostrar um pedido em branco, que parece
- * defeito. A frase diz o que é.
- */
-const BRIEFING_SEM_REQUISICAO =
-  'Orçamento aberto internamente — não veio de uma requisição do portal. ' +
-  'Este registro existe para guardar a decisão do cliente.';
 
 interface DecisionSnapshotFields {
   preApprovedAt?: Date | null;
@@ -343,10 +310,8 @@ interface DecisionSnapshotFields {
 /**
  * O estado da decisão ANTES da gravação.
  *
- * `existia` é o discriminante e não um `null`: desfazer uma linha que NÓS
- * criamos é apagá-la, e desfazer uma que já estava lá é devolvê-la ao valor
- * anterior. Os dois casos não se confundem, e um `| null` faria o `delete`
- * depender de o chamador lembrar da diferença.
+ * `existia` é o discriminante e não um `null`: sem requisição não há carimbo a
+ * desfazer; com ela, desfazer é devolver a linha ao valor anterior.
  */
 type DecisionSnapshot =
   | ({ existia: true } & DecisionSnapshotFields)

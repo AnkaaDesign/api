@@ -265,7 +265,7 @@ ALTER TABLE "BonusExtra" ADD COLUMN "referenceNormalized" text GENERATED ALWAYS 
 ALTER TABLE "Budget" DROP COLUMN IF EXISTS "queueRank";
 ALTER TABLE "Budget" ADD COLUMN "queueRank" double precision GENERATED ALWAYS AS (
 CASE
-    WHEN (status = ANY (ARRAY['REQUESTED'::"BudgetStatus", 'PRE_APPROVED'::"BudgetStatus", 'SIGNED'::"BudgetStatus", 'APPROVED'::"BudgetStatus", 'CANCELLED'::"BudgetStatus"])) THEN (- EXTRACT(epoch FROM "createdAt"))
+    WHEN (status = ANY (ARRAY['REQUESTED'::"BudgetStatus", 'EXPIRED'::"BudgetStatus", 'PENDING'::"BudgetStatus", 'APPROVED'::"BudgetStatus", 'SIGNED'::"BudgetStatus", 'CANCELLED'::"BudgetStatus"])) THEN (- EXTRACT(epoch FROM "createdAt"))
     ELSE EXTRACT(epoch FROM "createdAt")
 END) STORED;
 ALTER TABLE "BudgetItem" DROP COLUMN IF EXISTS "descriptionNormalized";

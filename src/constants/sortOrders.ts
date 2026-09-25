@@ -180,24 +180,23 @@ export const BONIFICATION_STATUS_ORDER: Record<BONIFICATION_STATUS, number> = {
 // espera a Ankaa começar.
 //
 // ⚠️ ESTE MAPA É PERSISTIDO em `Budget.statusOrder` e tem um GÊMEO EM SQL, no
-// `UPDATE` de backfill da migration `20260920120000`. Mexer aqui sem mexer lá
+// `UPDATE` de backfill da M3o-b (`20260930120350`). Mexer aqui sem mexer lá
 // deixa a ordenação do servidor e a do cliente discordando — e nada falha.
 //
 // ⚠️ NUNCA use 0: `sortOrder.ts` e `budget.service.ts` calculam `MAP[status] || 1`
 // (0 vira 1) enquanto `budget-prisma.repository.ts` usa `?? 8` (0 sobrevive). O
 // mesmo status ganharia ordem diferente no CREATE e no UPDATE, sem erro.
 export const TASK_QUOTE_STATUS_ORDER: Record<TASK_QUOTE_STATUS, number> = {
-  // ── a Ankaa deve ──
+  // Modelo C (§2A.3, M3o-b): REQUESTED 1, EXPIRED 2, PENDING 3, IN_NEGOTIATION 4,
+  // APPROVED 5, SIGNED 5 (legado), CANCELLED 6. `@default(3)` no Prisma E no
+  // banco — o default é o do nascimento interno, `PENDING` (fecha o X8).
   [TASK_QUOTE_STATUS.REQUESTED]: 1,
   [TASK_QUOTE_STATUS.EXPIRED]: 2,
-  [TASK_QUOTE_STATUS.PRE_APPROVED]: 3,
-  [TASK_QUOTE_STATUS.SIGNED]: 4,
-  // ── o cliente deve ──
-  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 5,
-  [TASK_QUOTE_STATUS.PENDING]: 6,
-  // ── terminais ──
-  [TASK_QUOTE_STATUS.APPROVED]: 7,
-  [TASK_QUOTE_STATUS.CANCELLED]: 8,
+  [TASK_QUOTE_STATUS.PENDING]: 3,
+  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 4,
+  [TASK_QUOTE_STATUS.APPROVED]: 5,
+  [TASK_QUOTE_STATUS.SIGNED]: 5,
+  [TASK_QUOTE_STATUS.CANCELLED]: 6,
 };
 
 // ⚠️ PERSISTIDA em `Billing.statusOrder`, escrita junto com `Billing.status` por

@@ -185,11 +185,10 @@ export const INBOUND_REFERENCES: Readonly<
     context: null,
     label: 'certificado de resíduo assinado',
   },
-  // O anexo do "Assinado fora do sistema" (DD11). A tabela nasceu com a M3o-a
-  // (commit zero do P14); o contexto `budgetOfflineSignature`, com pasta, vem
-  // com o ato, no corpo do P14. Até lá: protegido, nunca movido.
+  // O anexo do "Assinado fora do sistema" (DD11): a pasta dos contratos do
+  // cliente. A FK é `Restrict` — a prova não se apaga por baixo do registro.
   'BudgetOfflineSignature.fileId': {
-    context: null,
+    context: 'budgetOfflineSignature',
     label: 'documento assinado fora do sistema',
   },
   // O PDF do orçamento persistido para assinatura. Tem pasta canônica desde que o

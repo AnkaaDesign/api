@@ -85,6 +85,8 @@ export interface OrderNumberTask {
   name?: string | null;
   status?: string | null;
   customerOrderNumber?: string | null;
+  /** O pedido de compra registrado pelo portal (`POST /cliente/me/pedidos`). */
+  purchaseOrderId?: string | null;
   implement?: { serialNumber?: string | null; plate?: string | null } | null;
 }
 
@@ -117,6 +119,17 @@ export interface OrderNumberVehicle {
   label: string;
   /** O número registrado AGORA; `null` quando falta. */
   value: string | null;
+  /**
+   * O veículo JÁ TEM pedido: `customerOrderNumber` não vazio OU um pedido de
+   * compra do portal (`purchaseOrderId`) — a UNIÃO das duas leituras de hoje
+   * (DD12). Um veículo com pedido do portal e sem número digitado não é cobrado.
+   */
+  hasNumber: boolean;
+}
+
+/** O veículo tem pedido? (DD12: número digitado ∨ pedido do portal.) */
+export function taskHasOrderNumber(task: OrderNumberTask): boolean {
+  return !!normalizeOrderNumber(task.customerOrderNumber) || !!task.purchaseOrderId;
 }
 
 export function orderNumberVehicles(tasks: readonly OrderNumberTask[]): OrderNumberVehicle[] {
@@ -124,8 +137,47 @@ export function orderNumberVehicles(tasks: readonly OrderNumberTask[]): OrderNum
     taskId: t.id,
     label: orderNumberVehicleLabel(t, index),
     value: normalizeOrderNumber(t.customerOrderNumber) || null,
+    hasNumber: taskHasOrderNumber(t),
   }));
 }
+
+/** O que as DUAS cerimônias devolvem na leitura (DD12). */
+export interface OrderNumberRequirement {
+  /** Falta número em algum veículo do escopo — a assinatura pede os números. */
+  required: boolean;
+  maxLength: number;
+  vehicles: OrderNumberVehicle[];
+}
+
+/**
+ * O PREDICADO ÚNICO DO PEDIDO DE COMPRA (DD12) — a página pública (OTP) e a
+ * sessão do portal perguntam aqui, e só aqui.
+ *
+ *   · SUJEITO: quem TEM `PURCHASING` entre as funções (mesmo acumulando outras)
+ *     — a regra da `main`. O portão da branch (`purchase-order-gate.ts`, só quem
+ *     era SÓ Compras, com 403) saiu: o beco sem saída que ele tapava some quando
+ *     o próprio ato de assinar aceita o número.
+ *   · ESCOPO: as tarefas vivas do orçamento (`orderNumberScope`).
+ *   · TEM NÚMERO: `customerOrderNumber` não vazio ∨ `purchaseOrderId`.
+ *
+ * `null` quando o signatário não está sujeito. As tarefas chegam na ordem do
+ * documento (`sortQuoteTasks`).
+ */
+export function orderNumberRequirement(args: {
+  roles: readonly string[] | null | undefined;
+  tasks: readonly OrderNumberTask[];
+}): OrderNumberRequirement | null {
+  if (!signerRequiresOrderNumber(args.roles)) return null;
+  const vehicles = orderNumberVehicles(args.tasks);
+  return {
+    required: vehicles.some(v => !v.hasNumber),
+    maxLength: ORDER_NUMBER_MAX_LENGTH,
+    vehicles,
+  };
+}
+
+/** A frase do 400 quando falta o número (a mesma da `main`). */
+export const ORDER_NUMBER_REQUIRED_MESSAGE = 'Informe o nº do pedido de compra para assinar.';
 
 export interface OrderNumberResolution {
   /** Veículos sem número em que o signatário informou um válido. */
@@ -166,7 +218,7 @@ export function resolveOrderNumberSubmission(
   const toWrite: Array<{ taskId: string; value: string }> = [];
   const multi = vehicles.length > 1;
   for (const v of vehicles) {
-    if (v.value) continue;
+    if (v.hasNumber) continue;
     const typed = byTask.get(v.taskId) ?? '';
     const problem = orderNumberProblem(typed);
     if (problem) {
@@ -178,7 +230,7 @@ export function resolveOrderNumberSubmission(
             : problem
           : multi
             ? `Informe o nº do pedido de compra de cada veículo para assinar (falta: ${v.label}).`
-            : 'Informe o nº do pedido de compra para assinar.',
+            : ORDER_NUMBER_REQUIRED_MESSAGE,
       };
     }
     toWrite.push({ taskId: v.taskId, value: typed });

@@ -6,6 +6,7 @@ import {
   Inject,
   forwardRef,
   NotFoundException,
+  ConflictException,
   BadRequestException,
   InternalServerErrorException,
   HttpException,
@@ -57,7 +58,19 @@ import {
   NFSE_IN_FLIGHT_STATUSES,
   BILLING_STATUS,
   BILLING_STATUS_ORDER,
+  BUDGET_VALUE_APPROVAL_SOURCE,
+  BUDGET_SIGNATURE_STATUS,
+  BUDGET_SIGNATURE_STATUS_LABELS,
+  SECTOR_PRIVILEGES,
 } from '@constants';
+
+/** De onde o "Assinado fora do sistema" pode partir (§2A.5). */
+const OFFLINE_SIGNATURE_FROM: readonly BUDGET_SIGNATURE_STATUS[] = [
+  BUDGET_SIGNATURE_STATUS.NOT_ISSUED,
+  BUDGET_SIGNATURE_STATUS.REFUSED,
+  BUDGET_SIGNATURE_STATUS.EXPIRED,
+  BUDGET_SIGNATURE_STATUS.INVALIDATED,
+];
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
 import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
@@ -120,6 +133,18 @@ import {
 } from '@utils/billing-teardown';
 import { reconcileBillingsForQuote } from '@utils/budget-customer-config-sync';
 import { quoteArtworkOf } from '@utils/quote-artwork';
+import { isManualBudgetTransition, isSystemBudgetTransition } from './budget-transitions';
+import { emissionOf, type Emission } from '../../../utils/emission-gate';
+import {
+  currentValueApproval,
+  LEGACY_APP_APPROVAL_NOTE,
+  syncValueApprovalAndLog,
+  syncValueApprovalWithStatus,
+} from '../../../utils/budget-value-approval';
+import {
+  BILLING_REQUIRES_SIGNATURE_MESSAGE,
+  isBillableSignatureStatus,
+} from '../../../utils/budget-signature';
 
 /**
  * Compute the discount amount for a customer config based on its discount type, value, and subtotal.
@@ -240,9 +265,19 @@ export class BudgetService {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
+      // O DETALHE carrega os dois eixos lidos por quem decide o próximo passo
+      // (§2A.6, D-29): a aprovação do valor VIGENTE ("quem aprovou, quando,
+      // como") e o portão de emissão ("para emitir falta…"). Na mesma resposta,
+      // porque a tela do orçamento não tem outra forma de saber por que o botão
+      // "Enviar para assinatura" está desabilitado.
+      const [valueApproval, emission] = await Promise.all([
+        currentValueApproval(this.prisma as any, id),
+        emissionOf(this.prisma, id),
+      ]);
+
       return {
         success: true,
-        data: quote,
+        data: { ...quote, valueApproval, emission } as any,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
@@ -497,6 +532,20 @@ export class BudgetService {
 
       // Create quote with items in transaction (ou DENTRO da transação de quem
       // chamou, no caminho atômico de tarefas + orçamento).
+      // ── O NASCIMENTO É DECIDIDO AQUI (D-34; fecha o X4) ─────────────────────
+      //
+      // Todo orçamento criado por dentro nasce `PENDING` ("Pendente": a Ankaa
+      // monta). O `status` do corpo é IGNORADO — antes nascia em qualquer estado,
+      // inclusive `APPROVED`, sem aprovação nem registro. Onze escritores mandam
+      // `PENDING` hoje (o app instalado inclusive) e não mudam; quem mandar outra
+      // coisa fica no log, que é o contador de quem ainda insiste.
+      if (data.status && data.status !== TASK_QUOTE_STATUS.PENDING) {
+        this.logger.warn(
+          `[D-34] Criação de orçamento pediu status ${data.status}: ignorado, nasce PENDING ` +
+            `(usuário ${userId || 'desconhecido'}).`,
+        );
+      }
+
       const createInTransaction = async (tx: PrismaTransaction) => {
         // Get next budget number (auto-increment, advisory-locked against concurrent minters)
         const nextBudgetNumber = await allocateBudgetNumber(tx);
@@ -507,11 +556,8 @@ export class BudgetService {
             subtotal: aggregateSubtotal,
             total: aggregateTotal,
             expiresAt: data.expiresAt,
-            status: data.status || TASK_QUOTE_STATUS.PENDING,
-            statusOrder:
-              TASK_QUOTE_STATUS_ORDER[
-                (data.status || TASK_QUOTE_STATUS.PENDING) as TASK_QUOTE_STATUS
-              ] ?? 8,
+            status: TASK_QUOTE_STATUS.PENDING,
+            statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.PENDING],
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,
@@ -1057,6 +1103,21 @@ export class BudgetService {
     userId: string,
     _internal = false,
     actorPrivilege?: string,
+    /**
+     * O REGISTRO do ato quando esta gravação leva o orçamento a `APPROVED`
+     * (D-27): de onde veio a aprovação do valor, quem e com que nota. Os atos
+     * (`approveValue`) passam o deles; a gravação genérica que chega a APPROVED
+     * sem ato registra `ON_BEHALF` com a nota automática — ver
+     * `syncValueApprovalWithStatus`.
+     */
+    valueApproval?: {
+      source: BUDGET_VALUE_APPROVAL_SOURCE;
+      userId?: string | null;
+      responsibleId?: string | null;
+      note?: string | null;
+    },
+    /** Por que o orçamento SAI de APPROVED nesta gravação (vai para o registro fechado). */
+    leftApprovedReason?: string,
   ): Promise<BudgetUpdateResponse> {
     try {
       const existing = await this.budgetRepository.findById(id, {
@@ -1173,6 +1234,17 @@ export class BudgetService {
         data.status !== currentStatus
       ) {
         validateQuoteStatusChangeRole(data.status as TASK_QUOTE_STATUS, actorPrivilege);
+        // APROVAR O VALOR É UM ATO, NÃO UM CAMPO (D-27, X7): tem origem, autor e
+        // nota obrigatória em nome do cliente. Pela gravação genérica chegava-se a
+        // APPROVED sem nada disso — era o seletor da tela reaprovando um segundo
+        // depois do auto-revert (nº 984). Fixar o APPROVED atual continua valendo
+        // (é "manter", e foi filtrado acima como no-op).
+        if (data.status === TASK_QUOTE_STATUS.APPROVED) {
+          throw new BadRequestException(
+            'Aprovar o valor é um ato com nota: use "Aprovar valor em nome do cliente" ' +
+              '(PUT /budgets/:id/value-approval).',
+          );
+        }
         // I41: also enforce the status-machine allowlist on the generic update()
         // path — not just the dedicated /status endpoint. Without this, a manual
         // PUT with a status body could jump the machine (e.g. PENDING → DUE).
@@ -1483,6 +1555,41 @@ export class BudgetService {
             },
           },
         });
+
+        // ── O REGISTRO DA APROVAÇÃO DO VALOR ACOMPANHA O STATUS (D-27, DD8) ──
+        //
+        // Na MESMA transação: entrou em APPROVED → nasce a aprovação vigente;
+        // saiu → a vigente é fechada com o motivo e um "assinado fora do
+        // sistema" vigente cai junto (DD11). Idempotente.
+        if (data.status !== undefined && data.status !== currentStatus) {
+          const sync = await syncValueApprovalWithStatus(tx, id, {
+            leftReason:
+              leftApprovedReason ??
+              (data.status === TASK_QUOTE_STATUS.CANCELLED
+                ? 'Orçamento cancelado.'
+                : 'Valor alterado: o orçamento voltou a Pendente.'),
+            approvedFallback: valueApproval ?? {
+              source: BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF,
+              userId,
+              note: 'Aprovado pela gravação do orçamento, sem ato de aprovação.',
+            },
+          });
+          for (const entry of sync.log) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK_QUOTE,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: entry.field,
+              oldValue: entry.oldValue,
+              newValue: entry.newValue,
+              reason: entry.reason,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+              triggeredById: userId || null,
+              userId: userId || null,
+              transaction: tx,
+            });
+          }
+        }
 
         // Track individual field changes
         await trackAndLogFieldChanges({
@@ -2138,10 +2245,12 @@ export class BudgetService {
       // ⚠️ `!_internal` EVITA O AVISO EM DOBRO: `updateStatus` chama este método
       // com `_internal = true` logo depois de ter validado a transição, e sem
       // esta condição o requisitante receberia duas mensagens por um movimento.
+      //
+      // De QUALQUER origem (§2A.3), como no ato `sendToCustomer`.
       if (
         !_internal &&
         data.status === TASK_QUOTE_STATUS.IN_NEGOTIATION &&
-        currentStatus === TASK_QUOTE_STATUS.REQUESTED
+        currentStatus !== TASK_QUOTE_STATUS.IN_NEGOTIATION
       ) {
         const { label, taskId } = await this.buildQuoteLabel(id);
         await this.portalNotifications.notifyRequesterValuesVisible({
@@ -2415,6 +2524,10 @@ export class BudgetService {
             statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.PENDING),
           },
         });
+        await syncValueApprovalAndLog(tx, this.changeLogService, survivor.id, {
+          leftReason: 'União de orçamentos: o documento é outro, o valor precisa ser aprovado de novo.',
+          userId: userId || null,
+        });
 
         await resliceQuoteCoverage(tx, survivor.id, { billingSplit, taskIds: allTaskIds });
 
@@ -2643,6 +2756,509 @@ export class BudgetService {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // O EIXO DO VALOR — os ATOS (Modelo C, PLANO §2A.3 e §2A.5)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // `PUT /budgets/:id/status` continua existindo (o app instalado e o web o
+  // usam), mas DELEGA aos atos: cada destino tem a sua regra — aprovar exige
+  // nota, reprovar exige motivo, enviar exige valor — e a regra mora no ato, não
+  // num `switch` da rota. É o que fecha o X7 (o FINANCIAL aprovava valor pelo
+  // `/status` sem nota).
+
+  /**
+   * `PUT /budgets/:id/status` — o roteador para os atos.
+   *
+   * `validateQuoteStatusChangeRole` aqui também (X7): antes só a gravação
+   * genérica o aplicava, e esta rota deixava o FINANCIAL aprovar valor.
+   */
+  async updateStatus(
+    id: string,
+    status: TASK_QUOTE_STATUS,
+    userId: string,
+    reason?: string,
+    actorPrivilege?: string,
+  ): Promise<BudgetUpdateResponse> {
+    validateQuoteStatusChangeRole(status, actorPrivilege);
+    const existing = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!existing) throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+    const from = existing.status as TASK_QUOTE_STATUS;
+
+    if (status === TASK_QUOTE_STATUS.APPROVED) {
+      // "Aprovar valor em nome do cliente": a nota é o `reason`.
+      return this.approveValue(id, {
+        userId,
+        note: reason,
+        source: BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF,
+      });
+    }
+    if (status === TASK_QUOTE_STATUS.IN_NEGOTIATION) {
+      return this.sendToCustomer(id, userId);
+    }
+    if (status === TASK_QUOTE_STATUS.PENDING && from === TASK_QUOTE_STATUS.APPROVED) {
+      return this.revokeValueApproval(id, userId, reason ?? '');
+    }
+    if (status === TASK_QUOTE_STATUS.PENDING && from === TASK_QUOTE_STATUS.IN_NEGOTIATION) {
+      return this.withdrawFromCustomer(id, userId, reason);
+    }
+    return this.moveStatus(id, status, userId, reason);
+  }
+
+  /**
+   * "Aprovar valor" — o ÚNICO caminho até `APPROVED` (D-27).
+   *
+   * Origens: `ON_BEHALF` (ADMIN/COMMERCIAL, nota OBRIGATÓRIA — de REQUESTED,
+   * PENDING ou IN_NEGOTIATION), `LEGACY_APP` (`/budget-approve` sem nota, D-36),
+   * `SIGNATURE` (conclusão de coleta LEGADA sobre PENDING) e `PORTAL` (o cliente,
+   * por `approveValueFromPortal`). Registra a `BudgetValueApproval` na mesma
+   * transação do status.
+   *
+   * SEM portão de arte (R1, §2A.5): o valor pode vir antes da arte. A arte é
+   * exigida na EMISSÃO (E2).
+   */
+  async approveValue(
+    id: string,
+    args: {
+      userId: string;
+      note?: string | null;
+      source: BUDGET_VALUE_APPROVAL_SOURCE;
+      responsibleId?: string | null;
+    },
+  ): Promise<BudgetUpdateResponse> {
+    const note = args.note?.trim() || null;
+    if (args.source === BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF && !note) {
+      throw new BadRequestException(
+        'Escreva a nota: aprovar o valor em nome do cliente exige dizer como ele aprovou ' +
+          '(e-mail, telefone, reunião).',
+      );
+    }
+    const services = await this.prisma.budgetItem.count({
+      where: { quoteId: id, amount: { gt: 0 } },
+    });
+    if (services === 0) {
+      throw new BadRequestException(
+        'O orçamento não tem nenhum serviço com valor. Monte o valor antes de aprová-lo.',
+      );
+    }
+
+    const graph =
+      args.source === BUDGET_VALUE_APPROVAL_SOURCE.PORTAL ||
+      args.source === BUDGET_VALUE_APPROVAL_SOURCE.SIGNATURE
+        ? 'system'
+        : 'manual';
+    const result = await this.moveStatus(id, TASK_QUOTE_STATUS.APPROVED, args.userId, undefined, {
+      graph,
+      valueApproval: {
+        source: args.source,
+        userId: args.responsibleId ? null : args.userId || null,
+        responsibleId: args.responsibleId ?? null,
+        note:
+          note ??
+          (args.source === BUDGET_VALUE_APPROVAL_SOURCE.LEGACY_APP ? LEGACY_APP_APPROVAL_NOTE : null),
+      },
+    });
+
+    await this.dispatchValueApprovedNotifications(id, args.userId);
+    return result;
+  }
+
+  /**
+   * `emission { ready, blockers[] }` — o portão de emissão (E1–E6) para o
+   * detalhe do orçamento e para o portal. A conta é `utils/emission-gate.ts`, a
+   * mesma que o envelope chama nos três lugares da emissão.
+   */
+  async emissionOf(id: string): Promise<Emission> {
+    return emissionOf(this.prisma, id);
+  }
+
+  /**
+   * "ASSINADO FORA DO SISTEMA" (DD11) — `POST /budgets/:id/offline-signature`.
+   *
+   * O cliente assinou por fora (papel, WhatsApp). COMMERCIAL/ADMIN registram, com
+   * NOTA e ANEXO obrigatórios, e o eixo vai a `SIGNED_OFFLINE`: libera a cobrança
+   * como `SIGNED` (DD7), mas aparece distinto na tela e na trilha. É o caminho do
+   * nº 885 (coleta legada vencida, cobrança pendente).
+   *
+   * Guardas: E1 (valor aprovado com aprovação vigente) e E3 (nenhuma coleta
+   * `RUNNING`/`COMPLETED`: "cancele a coleta em andamento"); o eixo tem de estar
+   * num estado de onde se possa (`NOT_ISSUED`, `REFUSED`, `EXPIRED`,
+   * `INVALIDATED`) — 409 nos outros. NÃO exige E2: a arte continua travando a
+   * PRODUÇÃO (DD3), não a cobrança (recomendação em aberto com o dono, ESTADO §5).
+   *
+   * Uma transação: o arquivo, o `BudgetOfflineSignature`, o eixo (condicionado ao
+   * estado lido — corrida vira 409) e a linha de `ChangeLog` com a nota como
+   * motivo. Se o orçamento SAIR de APPROVED depois, o eixo vai a `INVALIDATED` e
+   * o registro é fechado (`syncValueApprovalWithStatus`).
+   */
+  async registerOfflineSignature(
+    id: string,
+    file: Express.Multer.File | undefined,
+    args: { note?: string | null; signedAt?: Date | null },
+    userId: string,
+  ): Promise<{ success: true; message: string; data: { id: string; fileId: string } }> {
+    const note = args.note?.trim();
+    if (!note) {
+      throw new BadRequestException(
+        'Escreva a nota: como e quando o cliente assinou fora do sistema.',
+      );
+    }
+    if (!file) {
+      throw new BadRequestException(
+        'Anexe o documento assinado (foto ou PDF): ele é a prova da assinatura.',
+      );
+    }
+    const mime = (file.mimetype ?? '').toLowerCase();
+    if (mime !== 'application/pdf' && !mime.startsWith('image/')) {
+      throw new BadRequestException('O anexo tem de ser um PDF ou uma imagem.');
+    }
+
+    const quote = await this.prisma.budget.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        signatureStatus: true,
+        budgetNumber: true,
+        valueApprovals: { where: { revokedAt: null }, select: { id: true }, take: 1 },
+        tasks: {
+          orderBy: QUOTE_TASKS_ORDER_BY,
+          take: 1,
+          select: { customer: { select: { fantasyName: true } } },
+        },
+      },
+    });
+    if (!quote) throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+
+    // E1
+    if (quote.status !== TASK_QUOTE_STATUS.APPROVED || quote.valueApprovals.length === 0) {
+      throw new BadRequestException(
+        'O valor deste orçamento não está aprovado. Aprove o valor antes de registrar a assinatura.',
+      );
+    }
+    // E3
+    const live = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId: id, status: { in: ['RUNNING', 'COMPLETED'] } },
+      select: { status: true, version: true },
+    });
+    if (live) {
+      throw new ConflictException(
+        live.status === 'RUNNING'
+          ? 'Há uma coleta de assinaturas em andamento. Cancele a coleta em andamento antes de ' +
+            'registrar a assinatura fora do sistema.'
+          : `Este orçamento já tem uma coleta concluída e assinada (versão ${live.version}).`,
+      );
+    }
+    const from = quote.signatureStatus as BUDGET_SIGNATURE_STATUS;
+    if (!OFFLINE_SIGNATURE_FROM.includes(from)) {
+      throw new ConflictException(
+        `A assinatura deste orçamento está "${
+          BUDGET_SIGNATURE_STATUS_LABELS[from] ?? from
+        }" — não se registra assinatura fora do sistema por cima.`,
+      );
+    }
+
+    const created = await this.prisma.$transaction(async tx => {
+      const record = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        file,
+        'budgetOfflineSignature',
+        userId,
+        {
+          entityId: id,
+          entityType: 'TASK_QUOTE',
+          customerName: quote.tasks[0]?.customer?.fantasyName ?? undefined,
+        },
+      );
+      const row = await tx.budgetOfflineSignature.create({
+        data: {
+          budgetId: id,
+          fileId: record.id,
+          note,
+          signedAt: args.signedAt ?? null,
+          createdById: userId,
+        },
+        select: { id: true, fileId: true },
+      });
+      const moved = await tx.budget.updateMany({
+        where: { id, signatureStatus: from as any, status: TASK_QUOTE_STATUS.APPROVED as any },
+        data: { signatureStatus: BUDGET_SIGNATURE_STATUS.SIGNED_OFFLINE as any },
+      });
+      if (moved.count === 0) {
+        throw new ConflictException(
+          'O orçamento mudou enquanto a assinatura era registrada. Recarregue e confira.',
+        );
+      }
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.TASK_QUOTE,
+        entityId: id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'signatureStatus',
+        oldValue: from,
+        newValue: BUDGET_SIGNATURE_STATUS.SIGNED_OFFLINE,
+        // A NOTA é o motivo: é ela que diz como o cliente assinou.
+        reason: note,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: userId,
+        userId,
+        metadata: { offlineSignatureId: row.id, fileId: row.fileId },
+        transaction: tx,
+      });
+      return row;
+    });
+
+    // A cobrança pode ser aprovada agora (DD7): o financeiro precisa saber.
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      await this.dispatchService.dispatchByConfiguration('task_quote.signed', userId, {
+        entityType: 'Budget',
+        entityId: taskId ?? id,
+        action: 'signed',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento assinado fora do sistema',
+          body:
+            `A assinatura do orçamento ${quoteLabel} foi registrada fora do sistema. ` +
+            'A cobrança já pode ser aprovada.',
+          relatedEntityType: 'TASK_QUOTE',
+          ...(taskId
+            ? {
+                webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+              }
+            : {}),
+        },
+      });
+    } catch (error) {
+      this.logger.error('Falha ao avisar a assinatura fora do sistema (task_quote.signed):', error);
+    }
+
+    return {
+      success: true,
+      message: 'Assinatura fora do sistema registrada. A cobrança já pode ser aprovada.',
+      data: created,
+    };
+  }
+
+  /**
+   * "Enviar para aprovação do cliente": REQUESTED/PENDING/EXPIRED → IN_NEGOTIATION.
+   * Exige ≥1 serviço com valor — enviar um orçamento sem preço é pedir ao
+   * cliente que aprove nada.
+   */
+  async sendToCustomer(id: string, userId: string): Promise<BudgetUpdateResponse> {
+    const services = await this.prisma.budgetItem.count({
+      where: { quoteId: id, amount: { gt: 0 } },
+    });
+    if (services === 0) {
+      throw new BadRequestException(
+        'O orçamento não tem nenhum serviço com valor. Monte o valor antes de enviá-lo ao cliente.',
+      );
+    }
+    return this.moveStatus(id, TASK_QUOTE_STATUS.IN_NEGOTIATION, userId);
+  }
+
+  /** "Retirar do cliente": IN_NEGOTIATION → PENDING (a Ankaa volta a mexer). */
+  async withdrawFromCustomer(
+    id: string,
+    userId: string,
+    reason?: string,
+  ): Promise<BudgetUpdateResponse> {
+    const existing = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!existing) throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+    if (existing.status !== TASK_QUOTE_STATUS.IN_NEGOTIATION) {
+      throw new BadRequestException(
+        `Só se retira do cliente um orçamento "${
+          TASK_QUOTE_STATUS_LABELS[TASK_QUOTE_STATUS.IN_NEGOTIATION]
+        }".`,
+      );
+    }
+    return this.moveStatus(id, TASK_QUOTE_STATUS.PENDING, userId, reason);
+  }
+
+  /**
+   * "Reprovar valor": APPROVED → PENDING, com MOTIVO obrigatório. Fecha a
+   * aprovação vigente (e um "assinado fora do sistema" vigente cai junto). Com
+   * cobrança já aprovada é recusado — o caminho é "Reverter Faturamento".
+   */
+  async revokeValueApproval(
+    id: string,
+    userId: string,
+    reason: string,
+  ): Promise<BudgetUpdateResponse> {
+    const motivo = reason?.trim();
+    if (!motivo) {
+      throw new BadRequestException(
+        'Escreva o motivo: reprovar o valor devolve o orçamento ao comercial, e é o motivo ' +
+          'que diz o que refazer.',
+      );
+    }
+    const existing = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!existing) throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+    if (existing.status !== TASK_QUOTE_STATUS.APPROVED) {
+      throw new BadRequestException('Só se reprova o valor de um orçamento aprovado.');
+    }
+    return this.moveStatus(id, TASK_QUOTE_STATUS.PENDING, userId, motivo);
+  }
+
+  /**
+   * O cliente decide no PORTAL (`portal-decision.service.ts`). Arestas de
+   * SISTEMA: `IN_NEGOTIATION → APPROVED` com `BudgetValueApproval{PORTAL}` e o
+   * contato como ator (nunca em FK de `User`); `IN_NEGOTIATION → PENDING` na
+   * recusa (a Ankaa refaz — era `REQUESTED` antes do Modelo C).
+   *
+   * ⚠️ O ATOR NÃO É UM FUNCIONÁRIO: o `userId` vai VAZIO, que `ACTOR_SENTINELS`
+   * (`changelog.service.ts`) normaliza para `null` antes de gravar. Um UUID de
+   * contato em `ChangeLog.userId` (FK de `User`) derruba a transação com P2025 —
+   * o incidente de 07/2026. A autoria fica onde é verdade: a `BudgetValueApproval`
+   * (`responsibleId`) e a `BudgetRequest` (`…ByResponsibleId`).
+   */
+  async applyPortalDecision(
+    id: string,
+    decision: 'APPROVE_VALUE' | 'REFUSE',
+    responsibleId: string,
+    note: string | null,
+  ): Promise<BudgetUpdateResponse> {
+    // O portal só decide o que está COM O CLIENTE. A aresta PENDING → APPROVED
+    // também é de sistema (a conclusão de coleta legada), e sem esta guarda o
+    // portal a percorreria.
+    const current = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (current?.status !== TASK_QUOTE_STATUS.IN_NEGOTIATION) {
+      throw new BadRequestException(
+        `Este orçamento está "${
+          TASK_QUOTE_STATUS_LABELS[current?.status as TASK_QUOTE_STATUS] ?? current?.status
+        }" e não está com o cliente para decidir. Atualize a página.`,
+      );
+    }
+    if (decision === 'APPROVE_VALUE') {
+      return this.approveValue(id, {
+        userId: '',
+        responsibleId,
+        note,
+        source: BUDGET_VALUE_APPROVAL_SOURCE.PORTAL,
+      });
+    }
+    return this.moveStatus(id, TASK_QUOTE_STATUS.PENDING, '', note ?? undefined, {
+      graph: 'system',
+    });
+  }
+
+  /**
+   * Os avisos da aprovação do valor (§2A.3):
+   *   · `task_quote.budget_approved` ao financeiro — o texto diz que a cobrança
+   *     ESPERA a assinatura (DD7);
+   *   · `task_quote.value_approved` ao comercial, com o que falta para emitir;
+   *   · se nada falta, `task_quote.ready_for_signature` (a emissão não é
+   *     automática: o operador escolhe canal, recorte e cerimônia).
+   * Best-effort: nenhum deles desfaz a aprovação.
+   */
+  private async dispatchValueApprovedNotifications(id: string, userId: string): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      const links = taskId
+        ? {
+            webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+            mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+          }
+        : {};
+      await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
+        entityType: 'Budget',
+        entityId: taskId ?? id,
+        action: 'budget_approved',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Orçamento Aprovado',
+          body:
+            `O valor do orçamento ${quoteLabel} foi aprovado. A cobrança poderá ser aprovada ` +
+            'depois da assinatura.',
+          relatedEntityType: 'TASK_QUOTE',
+          ...links,
+        },
+      });
+
+      const emission = await this.emissionOf(id);
+      const falta = emission.blockers.filter(b => b.code !== 'VALUE_NOT_APPROVED');
+      await this.dispatchService.dispatchByConfiguration('task_quote.value_approved', userId, {
+        entityType: 'Budget',
+        entityId: taskId ?? id,
+        action: 'value_approved',
+        data: { quoteLabel },
+        overrides: {
+          title: 'Valor aprovado',
+          body:
+            falta.length === 0
+              ? `O valor do orçamento ${quoteLabel} foi aprovado e nada mais falta: pode emitir para assinatura.`
+              : `O valor do orçamento ${quoteLabel} foi aprovado. Para emitir falta: ${falta
+                  .map(b => b.message)
+                  .join(' ')}`,
+          relatedEntityType: 'TASK_QUOTE',
+          ...links,
+        },
+      });
+      if (emission.ready) await this.dispatchReadyForSignature(id, userId);
+    } catch (error) {
+      this.logger.error('Falha ao avisar a aprovação do valor:', error);
+    }
+  }
+
+  /**
+   * Chamado quando uma arte é aprovada: se o orçamento da tarefa já tem o valor
+   * aprovado e mais nada falta para emitir, avisa `task_quote.ready_for_signature`.
+   */
+  async notifyReadyForSignatureIfComplete(taskId: string): Promise<void> {
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { quoteId: true },
+    });
+    if (!task?.quoteId) return;
+    const emission = await this.emissionOf(task.quoteId);
+    if (emission.ready) await this.dispatchReadyForSignature(task.quoteId, '');
+  }
+
+  /**
+   * "Pronto para assinatura" (§2A.7): a última peça chegou — o valor aprovado
+   * com todas as artes, ou a última arte com o valor já aprovado. PÚBLICO: o
+   * serviço da arte (P12) chama depois de aprovar uma arte.
+   */
+  async dispatchReadyForSignature(id: string, userId: string): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
+      await this.dispatchService.dispatchByConfiguration(
+        'task_quote.ready_for_signature',
+        userId || 'system',
+        {
+          entityType: 'Budget',
+          entityId: taskId ?? id,
+          action: 'ready_for_signature',
+          data: { quoteLabel },
+          overrides: {
+            title: 'Pronto para emitir',
+            body: `O orçamento ${quoteLabel} tem o valor e a arte de todos os veículos aprovados. Emita para assinatura.`,
+            relatedEntityType: 'TASK_QUOTE',
+            ...(taskId
+              ? {
+                  webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                  mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+                }
+              : {}),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Falha ao avisar "pronto para emitir" (task_quote.ready_for_signature):', error);
+    }
+  }
+
   /**
    * Update quote status (approve/reject/cancel)
    */
@@ -2659,11 +3275,25 @@ export class BudgetService {
    *   rebaixamento por invalidação de assinatura (`markPendingAfterSignature-
    *   Invalidation`) e do cancelamento, que já anexavam a frase do sistema.
    */
-  async updateStatus(
+  private async moveStatus(
     id: string,
     status: TASK_QUOTE_STATUS,
     userId: string,
     reason?: string,
+    opts: {
+      /** O registro da aprovação do valor, quando o destino é APPROVED. */
+      valueApproval?: {
+        source: BUDGET_VALUE_APPROVAL_SOURCE;
+        userId?: string | null;
+        responsibleId?: string | null;
+        note?: string | null;
+      };
+      /**
+       * `system`: a aresta é de SISTEMA (portal, conclusão legada) e é conferida
+       * em `BUDGET_SYSTEM_TRANSITIONS`; o padrão é a tabela manual.
+       */
+      graph?: 'manual' | 'system';
+    } = {},
   ): Promise<BudgetUpdateResponse> {
     try {
       const existing = await this.budgetRepository.findById(id);
@@ -2673,7 +3303,11 @@ export class BudgetService {
       }
 
       // Validate status transition
-      this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, status);
+      if (opts.graph === 'system') {
+        this.assertTransitionAllowed(existing.status as TASK_QUOTE_STATUS, status);
+      } else {
+        this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, status);
+      }
 
       // Liquidar deixou de ser um estado do ORÇAMENTO — quem liquida é a
       // COBRANÇA, e a liquidação manual mora em `PUT /billings/:id/settle`. Este
@@ -2741,8 +3375,19 @@ export class BudgetService {
         };
       }
 
-      // Update status — pass _internal=true to bypass the external-call guard
-      const updated = await this.update(id, { status }, userId, true);
+      // Update status — pass _internal=true to bypass the external-call guard.
+      // O registro da aprovação do valor vai junto (mesma transação, D-27).
+      const updated = await this.update(
+        id,
+        { status },
+        userId,
+        true,
+        undefined,
+        opts.valueApproval,
+        // CANCELLED já saiu acima pelo desmonte: aqui, sair de APPROVED com
+        // motivo é a reprovação do valor.
+        reason?.trim() ? `Reprovado: ${reason.trim()}` : undefined,
+      );
 
       // O MOTIVO, na trilha. `update()` escreve a linha genérica do campo
       // ("Campo Status atualizado"); esta é a que carrega a frase do operador —
@@ -2768,13 +3413,8 @@ export class BudgetService {
         });
       }
 
-      // Generic status route (PUT /:id/status) can advance a quote to the approval
-      // state directly (bypassing budgetApprove). When that happens, notify the NEXT
-      // approver (financial) that billing approval is pending. The dedicated approve
-      // method emits its own *_approved key; this covers the generic path.
-      if (status === TASK_QUOTE_STATUS.APPROVED) {
-        await this.dispatchApprovalPendingNotification(id, status, userId);
-      }
+      // Os avisos da aprovação do valor são do ATO (`approveValue`), que é o
+      // único caminho até APPROVED — este método só move.
 
       // ── O BASTÃO VOLTA PARA O CLIENTE ──────────────────────────────────────
       //
@@ -2787,13 +3427,10 @@ export class BudgetService {
       // `Notification.responsibleId` existir; antes de 20/09/2026 este aviso era
       // literalmente impossível de mandar.
       //
-      // Só na aresta que vem de `REQUESTED`: voltar de `PRE_APPROVED` ou de
-      // `PENDING` para `IN_NEGOTIATION` é a Ankaa ou o próprio cliente
-      // retomando a conversa, e ali não há valor novo a anunciar.
-      if (
-        status === TASK_QUOTE_STATUS.IN_NEGOTIATION &&
-        (existing.status as TASK_QUOTE_STATUS) === TASK_QUOTE_STATUS.REQUESTED
-      ) {
+      // De QUALQUER origem (§2A.3): no Modelo C "enviar para aprovação do
+      // cliente" é um ato só, de `REQUESTED`, `PENDING` ou `EXPIRED`, e em todos
+      // eles há um valor novo (ou revisto) que o cliente ainda não viu.
+      if (status === TASK_QUOTE_STATUS.IN_NEGOTIATION) {
         const { label, taskId } = await this.buildQuoteLabel(id);
         await this.portalNotifications.notifyRequesterValuesVisible({
           budgetId: id,
@@ -3220,42 +3857,18 @@ export class BudgetService {
   /**
    * TODOS OS RESPONSÁVEIS DO CLIENTE ASSINARAM. Falta a contra-assinatura da Ankaa.
    *
-   * Chamado pela cerimônia (`setOnCustomerSideSigned`), nunca por rota. Escreve
-   * `SIGNED`, que é o estado que a lista de Orçamentos usa para responder à
-   * pergunta "o que está parado esperando a gente?".
-   *
-   * POR QUE O ESTADO PRECISAVA EXISTIR
-   *   Entre a assinatura do cliente e a nossa podem passar dias — o cliente
-   *   assina na sexta à noite, quem contra-assina volta na segunda. Nesse
-   *   intervalo o orçamento era `PENDING`, exatamente igual a um criado naquela
-   *   manhã e ainda não enviado. Quem abria a lista para achar o que travou não
-   *   tinha como distinguir "o cliente nem viu" de "só falta a nossa caneta".
-   *
-   * NÃO USA `updateStatus`: a máquina de transição é um catálogo de mudanças
-   * MANUAIS, e esta não é uma. Vai pelo `update(..., _internal: true)`, como o
-   * cascateamento de parcelas.
+   * Chamado pela cerimônia (`setOnCustomerSideSigned`), nunca por rota. SÓ AVISA:
+   * o estado — "falta a Ankaa" — é o eixo `signatureStatus = AWAITING_ANKAA`,
+   * escrito pela própria cerimônia na transação dela (D-28). `Budget.status =
+   * SIGNED` é legado e nunca mais escrito (D-26): era este método, disparado sem
+   * `await`, que deixava o orçamento para trás do envelope (X9).
    */
   async markSigned(quoteId: string, userId: string = 'system'): Promise<void> {
     const existing = await this.prisma.budget.findUnique({
       where: { id: quoteId },
       select: { status: true },
     });
-    if (!existing) return;
-
-    // SÓ DE PENDING.
-    //
-    // Um orçamento já aprovado, faturado ou cancelado não volta para "assinado"
-    // porque uma assinatura atrasada chegou: `APPROVED` é posterior a este
-    // estado, e regredir apagaria a aprovação. Cancelado, então, é pior —
-    // reviveria na lista de quem vende um negócio que morreu.
-    if (existing.status !== TASK_QUOTE_STATUS.PENDING) {
-      this.logger.log(
-        `Orçamento ${quoteId} não foi marcado como assinado: está em ${existing.status}.`,
-      );
-      return;
-    }
-
-    await this.update(quoteId, { status: TASK_QUOTE_STATUS.SIGNED }, userId, true);
+    if (!existing || existing.status === TASK_QUOTE_STATUS.CANCELLED) return;
 
     // O aviso de contra-assinatura para QUEM ASSINA pela Ankaa sai da própria
     // cerimônia (`notifyAnkaaSigner`, com link). Este é o aviso de SETOR: o
@@ -3416,37 +4029,19 @@ export class BudgetService {
   }
 
   /**
-   * AS ASSINATURAS CAÍRAM PORQUE O ORÇAMENTO MUDOU — ele volta para pendente.
+   * AS ASSINATURAS CAÍRAM PORQUE O ORÇAMENTO MUDOU.
    *
-   * Um orçamento APROVADO ou ASSINADO afirma que alguém concordou com AQUELE
-   * documento. Quando uma alteração material derruba a coleta, o documento
-   * aceito deixou de existir — e o status ficava de pé. A tela mostrava
-   * "Aprovado" ao lado do aviso "as assinaturas foram invalidadas porque o
-   * orçamento mudou": duas frases contraditórias no mesmo cartão, e a de cima
-   * era a que o resto do sistema lia.
+   * No Modelo C (§2A.4) isto NÃO move o valor. O eixo da assinatura já foi a
+   * `INVALIDATED` na transação da invalidação (D-28), e o valor segue a regra
+   * dele: se o que mudou foi o VALOR, o auto-revert de hoje já o levou a
+   * PENDING na própria gravação (DD8); se foi a arte, o elenco ou a validade,
+   * ele continua APROVADO e o orçamento volta a "pronto para emitir" assim que
+   * o checklist fechar. Antes, trocar a arte de um orçamento assinado o
+   * rebaixava a PENDENTE (nº 973, 17/09) — com a arte no implemento isso
+   * viraria rotina, e o cliente teria de reaprovar um preço que não mudou.
    *
-   * ⚠️ POR QUE NÃO BASTAVA O AUTO-REVERT QUE JÁ EXISTIA em `update()`: aquele
-   * dispara por `hasValueAffectingChange` — lista de serviços e campos de
-   * dinheiro do pagador. Trocar o LAYOUT não mexe em valor nenhum e mesmo assim
-   * é material para a assinatura: é a imagem que o cliente aprovou. Foi
-   * exatamente o nº 973, em 17/09/2026. As duas regras convivem porque
-   * respondem a perguntas diferentes — "o preço mudou?" e "o documento aceito
-   * mudou?" — e esta segunda tem a autoridade certa, que é o próprio motor de
-   * assinatura dizendo que invalidou.
-   *
-   * A LISTA DE ESTADOS É A MESMA (`QUOTE_VALUE_REVERTABLE_STATUSES`), de
-   * propósito: o destino é o mesmo, só o gatilho difere. Duas listas para a
-   * mesma regra divergiriam na primeira edição.
-   *
-   * ⚠️ NÃO REVERTE COM O DINHEIRO TRAVADO. Uma cobrança aprovada tem NFS-e na
-   * prefeitura e boleto no Sicredi emitidos contra este orçamento; devolvê-lo a
-   * PENDENTE afirmaria que nada foi acordado enquanto os títulos seguem
-   * pagáveis. Aí a saída é `revertBilling`, que desmonta os artefatos, e o log
-   * sai como aviso porque é uma situação que alguém precisa olhar.
-   *
-   * Sem recursão: `update` reavalia as assinaturas ao final, mas o envelope já
-   * é `INVALIDATED` quando esta linha roda, e `onQuoteContentChanged` só procura
-   * `RUNNING` e `COMPLETED`.
+   * Continua como ouvinte para o log de operação e para que um `SIGNED` legado
+   * (0 depois da M3o-b) ainda volte a PENDENTE.
    */
   async markInvalidatedBySignature(
     quoteId: string,
@@ -3458,73 +4053,70 @@ export class BudgetService {
       select: { status: true, ...QUOTE_MONEY_LOCK_INCLUDE },
     });
     if (!existing) return;
-
-    const currentStatus = existing.status as TASK_QUOTE_STATUS;
-    if (!QUOTE_VALUE_REVERTABLE_STATUSES.includes(currentStatus)) {
+    if (existing.status !== TASK_QUOTE_STATUS.SIGNED) {
       this.logger.log(
-        `Orçamento ${quoteId} seguiu em ${currentStatus} após a invalidação das assinaturas: ` +
-          'o estado não regride a partir daí.',
+        `Orçamento ${quoteId}: assinaturas invalidadas (${reason}); o valor segue em ${existing.status}.`,
       );
       return;
     }
-
-    if (isQuoteMoneyLocked(existing.billings)) {
-      this.logger.warn(
-        `Orçamento ${quoteId} teve as assinaturas invalidadas mas CONTINUA em ${currentStatus}: ` +
-          'há cobrança aprovada. Reverta o faturamento antes de reemitir a proposta.',
-      );
-      return;
-    }
-
-    await this.update(quoteId, { status: TASK_QUOTE_STATUS.PENDING }, userId, true);
-
-    await this.changeLogService.logChange({
-      entityType: ENTITY_TYPE.TASK_QUOTE,
-      entityId: quoteId,
-      action: CHANGE_ACTION.ROLLBACK,
-      field: 'status',
-      oldValue: currentStatus,
-      newValue: TASK_QUOTE_STATUS.PENDING,
-      // O motivo do motor de assinatura, palavra por palavra: é a mesma frase
-      // que o signatário recebeu por e-mail e que a tela mostra. Reescrevê-la
-      // aqui faria a trilha e o aviso contarem histórias parecidas mas
-      // diferentes sobre o mesmo ato.
-      reason: `Assinaturas invalidadas — ${reason}`,
-      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-      triggeredById: userId,
+    if (isQuoteMoneyLocked(existing.billings)) return;
+    await this.moveStatus(
+      quoteId,
+      TASK_QUOTE_STATUS.PENDING,
       userId,
-    });
-
-    this.logger.log(
-      `Orçamento ${quoteId} voltou de ${currentStatus} para PENDENTE: as assinaturas foram invalidadas.`,
+      `Assinaturas invalidadas — ${reason}`,
     );
   }
 
-  /**
-   * Commercial approves the budget.
-   *
-   * This is the single commercial approval gate. Once the budget is approved
-   * (blue "Orçamento Aprovado" badge) the commercial sector is done — there is
-   * no separate second commercial double-check. From this state financial can
-   * approve billing directly, regardless of whether the task is finished yet.
-   */
-  async budgetApprove(id: string, userId: string): Promise<BudgetUpdateResponse> {
-    // SEM portão de arte (R1, §2A.5): aprovar o orçamento é aprovar o VALOR, e o
-    // valor pode vir antes da arte (o "orçamento prévio" do dono). A arte aprovada
-    // de cada veículo é exigida na EMISSÃO do documento (DD2), não aqui.
-    const result = await this.updateStatus(id, TASK_QUOTE_STATUS.APPROVED, userId);
 
-    // Budget approved -> notify financial that billing can now be approved.
+  /**
+   * `PUT /budgets/:id/budget-approve` — "Aprovar valor" pela rota antiga.
+   *
+   * Com nota: `ON_BEHALF`. Sem nota: `LEGACY_APP` com a nota automática (D-36)
+   * — é o que o app instalado manda. O resto é `approveValue`.
+   */
+  async budgetApprove(id: string, userId: string, note?: string | null): Promise<BudgetUpdateResponse> {
+    return this.approveValue(id, {
+      userId,
+      note,
+      source: note?.trim()
+        ? BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF
+        : BUDGET_VALUE_APPROVAL_SOURCE.LEGACY_APP,
+    });
+  }
+
+  /**
+   * A conclusão de uma coleta (gancho do envelope). No Modelo C a coleta NOVA é
+   * emitida sobre o valor já APROVADO, e concluir não mexe no valor — só o eixo,
+   * que o envelope já escreveu na transação dele. A coleta LEGADA (emitida sobre
+   * `PENDING` antes da R-B) aprova o valor, com `BudgetValueApproval{SIGNATURE}`,
+   * como fazia `budgetApprove` antes.
+   */
+  async onSignatureCompleted(id: string, userId: string): Promise<void> {
+    const existing = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!existing) return;
+    if (existing.status === TASK_QUOTE_STATUS.PENDING) {
+      await this.approveValue(id, {
+        userId,
+        source: BUDGET_VALUE_APPROVAL_SOURCE.SIGNATURE,
+        note: 'Aprovado pela conclusão da coleta de assinaturas (legada).',
+      });
+      return;
+    }
+    // A cobrança pode ser aprovada agora (DD7) — o financeiro precisa saber.
     try {
       const { label: quoteLabel, taskId } = await this.buildQuoteLabel(id);
-      await this.dispatchService.dispatchByConfiguration('task_quote.budget_approved', userId, {
+      await this.dispatchService.dispatchByConfiguration('task_quote.signed', userId || 'system', {
         entityType: 'Budget',
         entityId: taskId ?? id,
-        action: 'budget_approved',
+        action: 'signed',
         data: { quoteLabel },
         overrides: {
-          title: 'Orçamento Aprovado', // o EVENTO, não o nome do estado (que agora é só "Aprovado")
-          body: `O orçamento ${quoteLabel} foi aprovado e já está pronto para aprovação de faturamento.`,
+          title: 'Orçamento Assinado',
+          body: `O orçamento ${quoteLabel} foi assinado por todos. A cobrança já pode ser aprovada.`,
           relatedEntityType: 'TASK_QUOTE',
           ...(taskId
             ? {
@@ -3535,13 +4127,8 @@ export class BudgetService {
         },
       });
     } catch (error) {
-      this.logger.error(
-        'Falha ao notificar aprovação de orçamento (task_quote.budget_approved):',
-        error,
-      );
+      this.logger.error('Falha ao avisar a assinatura concluída (task_quote.signed):', error);
     }
-
-    return result;
   }
 
   /** Best-effort human label for a quote — uses the linked task serial/name when
@@ -3756,6 +4343,17 @@ export class BudgetService {
           existing.status as TASK_QUOTE_STATUS,
         )}". Aprove o orçamento antes de aprovar o faturamento.`,
       );
+    }
+    // ── A GUARDA DA ASSINATURA (DD7 + DD11) ───────────────────────────────────
+    //
+    // `APPROVED` agora quer dizer "valor aprovado" (Modelo C), e isso vem ANTES
+    // da assinatura. A cobrança espera o eixo: coleta concluída (`SIGNED`),
+    // "Assinado fora do sistema" (`SIGNED_OFFLINE`) ou o legado sem coleta
+    // (`WAIVED`). É o ponto único: `PUT /billings/:id/approve` e as rotas por
+    // tarefa chegam aqui. Liquidar e reverter uma cobrança JÁ aprovada não
+    // passam por aqui — a trava é na aprovação.
+    if (!isBillableSignatureStatus((existing as any).signatureStatus)) {
+      throw new BadRequestException(BILLING_REQUIRES_SIGNATURE_MESSAGE);
     }
 
     // ── E A COLETA DE ASSINATURAS AINDA VALE? ────────────────────────────────
@@ -5137,6 +5735,11 @@ export class BudgetService {
           billingApprovedAt: null,
         } as any,
       });
+      // A aprovação do valor (e um "assinado fora do sistema") fecha junto.
+      await syncValueApprovalAndLog(tx, this.changeLogService, id, {
+        leftReason: 'Orçamento cancelado.',
+        userId: userId || null,
+      });
     });
 
     // ── O ESTADO DAS COBRANÇAS TEM DE ACOMPANHAR ─────────────────────────────
@@ -5709,21 +6312,13 @@ export class BudgetService {
   }
 
   /**
-   * Validate status transition
-   * @private
-   */
-  /**
-   * A MÁQUINA DE ESTADOS, ABERTA A QUEM NÃO É `BudgetService`.
+   * A MÁQUINA DE ESTADOS PARA QUEM NÃO É OPERADOR — as arestas de SISTEMA.
    *
-   * Existe por causa do portal do responsável: `PUT /cliente/me/orcamentos/:id/
-   * {aprovar-valor,recusar}` move o orçamento, e mover status escrevendo
-   * `status` direto no Prisma é como a automação da O.S. já fazia em quatro
-   * pontos (`service-order.service.ts:2003, 2087, 1155, 217`) — passando por
-   * cima de toda esta tabela. O portal não repete isso.
-   *
-   * É um invólucro de UMA LINHA de propósito: a tabela `ALLOWED` continua
-   * privada e única. Duplicá-la no portal criaria dois grafos que divergiriam na
-   * primeira aresta nova, e o mais novo seria o que ninguém audita.
+   * O portal do responsável (`PUT /cliente/me/orcamentos/:id/{aprovar-valor,
+   * recusar}`) move o orçamento por EVENTO do cliente, não por botão da Ankaa:
+   * `IN_NEGOTIATION → APPROVED` e `IN_NEGOTIATION → PENDING` são arestas de
+   * `BUDGET_SYSTEM_TRANSITIONS`, e não estão todas na tabela manual. As duas
+   * tabelas moram em `budget-transitions.ts` e saem no contrato gerado (G26).
    *
    * Lança `BadRequestException` com os RÓTULOS em português, que é o que o
    * cliente do portal vê.
@@ -5732,9 +6327,24 @@ export class BudgetService {
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
   ): void {
-    this.validateStatusTransition(currentStatus, newStatus);
+    const label = (s: TASK_QUOTE_STATUS) => TASK_QUOTE_STATUS_LABELS[s] ?? s;
+    if (currentStatus === newStatus) {
+      throw new BadRequestException(`O status já é "${label(currentStatus)}".`);
+    }
+    if (!isSystemBudgetTransition(currentStatus, newStatus)) {
+      throw new BadRequestException(
+        `Não é possível alterar o status de "${label(currentStatus)}" para "${label(newStatus)}".`,
+      );
+    }
   }
 
+  /**
+   * O validador das mudanças MANUAIS (`PUT /:id/status` e a escrita genérica).
+   *
+   * A tabela é `BUDGET_MANUAL_TRANSITIONS` (`budget-transitions.ts`), a mesma
+   * que o contrato exporta — antes era um `ALLOWED` privado daqui, copiado à mão
+   * no web (`quote-permissions.ts`) e no app (`budget_permissions.dart`).
+   */
   private validateStatusTransition(
     currentStatus: TASK_QUOTE_STATUS,
     newStatus: TASK_QUOTE_STATUS,
@@ -5745,112 +6355,7 @@ export class BudgetService {
     if (currentStatus === newStatus) {
       throw new BadRequestException(`O status já é "${label(currentStatus)}".`);
     }
-
-    // Explicit allowlist for manual status changes via the /status endpoint.
-    //
-    // Scheduler-driven cascades (UPCOMING↔DUE↔PARTIAL on installment events)
-    // bypass this via direct prisma.budget.update — the scheduler is the
-    // authoritative source for those transitions. This allowlist covers
-    // operator-initiated overrides (admin corrections, chargebacks, manual
-    // re-cycles when the scheduler hasn't caught up or made a wrong call).
-    //
-    // Mirrors web/src/utils/permissions/quote-permissions.ts VALID_TRANSITIONS
-    // exactly — drift here breaks the UI (advertised transitions returning 400).
-    //
-    // ─────────────────────────────────────────────────────────────────────────
-    // O GRAFO ENCOLHEU PARA QUATRO ARESTAS, e o que sobrou é o ciclo do
-    // ORÇAMENTO. Antes ele descrevia também o do pagamento — BILLING_APPROVED →
-    // UPCOMING → PARTIAL/DUE → SETTLED, com as voltas de estorno. Nada disso é
-    // transição de orçamento: é a cobrança andando, e a cobrança agora é o
-    // `Billing`, cujo estado NINGUÉM digita — `BillingStatusCascadeService` o
-    // deriva das parcelas.
-    //
-    // Some com isso uma classe inteira de bug que este grafo tinha por
-    // construção: um orçamento com duas cobranças, uma paga e outra vencida,
-    // precisava escolher UMA aresta. Escolhia a última que rodasse.
-    //
-    // ⚠️ `APPROVED` é terminal para frente: dele só se volta (PENDING) ou se
-    // cancela. Não há "aprovar faturamento" aqui — isso é `PUT
-    // /billings/:id/approve`, que não mexe no status do orçamento.
-    const ALLOWED: Record<TASK_QUOTE_STATUS, TASK_QUOTE_STATUS[]> = {
-      // Ganhou IN_NEGOTIATION em 20/09: o cliente pede revisão de preço com o
-      // envelope já lançado, e o orçamento volta à mesa do vendedor. Antes disso
-      // o único caminho era cancelar e recotar, perdendo o número.
-      [TASK_QUOTE_STATUS.PENDING]: [
-        TASK_QUOTE_STATUS.APPROVED,
-        TASK_QUOTE_STATUS.IN_NEGOTIATION,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-      // SIGNED é escrito pela CERIMÔNIA (grupo do cliente completo), nunca à
-      // mão — por isso não é destino de ninguém aqui. O que esta linha declara
-      // é como se SAI dele: aprovar (a contra-assinatura aconteceu, ou o
-      // operador aprova à mão porque ela travou), voltar para PENDING (o
-      // cliente desistiu, ou o valor foi editado e as assinaturas caíram) e
-      // cancelar. EXPIRED não está na lista de propósito: uma vez que o cliente
-      // aceitou dentro do prazo, o relógio deixa de correr contra ele — o que
-      // falta é nosso. Ver `SignatureExpiryScheduler`.
-      [TASK_QUOTE_STATUS.SIGNED]: [
-        TASK_QUOTE_STATUS.APPROVED,
-        TASK_QUOTE_STATUS.PENDING,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-      // Vencido sem todas as assinaturas. O comercial reanalisa o valor: ou
-      // reformula (o que já devolve o orçamento a PENDING pelo auto-revert de
-      // edição de valor), ou estende a validade, ou cancela. Não vai direto
-      // para APPROVED — aprovar sem assinatura é exatamente o que a cerimônia
-      // existe para impedir.
-      [TASK_QUOTE_STATUS.EXPIRED]: [
-        TASK_QUOTE_STATUS.PENDING,
-        // Vencido que nasceu de requisição volta a ser requisição: o comercial
-        // remonta serviços e valores do zero, que é o que "reanalisar" quer dizer
-        // quando o pedido veio de fora.
-        TASK_QUOTE_STATUS.REQUESTED,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-      // APPROVED → PENDING existe para o caminho de cancelamento mais comum: o
-      // cliente desiste antes de haver cobrança. Depois que alguma cobrança foi
-      // aprovada, `isQuoteMoneyLocked` barra a edição e o caminho é
-      // /revert-billing, que limpa boleto e NFS-e antes.
-      [TASK_QUOTE_STATUS.APPROVED]: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.CANCELLED],
-      // Terminal — a quote is cancelled when its task is cancelled. Re-quoting
-      // creates a new quote rather than transitioning out of CANCELLED.
-      [TASK_QUOTE_STATUS.CANCELLED]: [],
-
-      // ─── O CAMINHO DO PORTAL (20/09/2026) ───────────────────────────────────
-      //
-      // A requisição nasce sem serviço e sem valor. O comercial monta, e daí saem
-      // dois caminhos: manda ao VENDEDOR do cliente pré-aprovar (IN_NEGOTIATION),
-      // ou vai direto para assinatura quando não há intermediário a consultar —
-      // cliente direto não tem vendedor para pré-aprovar.
-      //
-      // ⚠️ NÃO vai direto para APPROVED. Uma requisição não tem documento, não tem
-      // assinatura e não tem valor acordado; aprovar dali criaria contrato do
-      // nada — e é `APPROVED` que destrava a cobrança.
-      [TASK_QUOTE_STATUS.REQUESTED]: [
-        TASK_QUOTE_STATUS.IN_NEGOTIATION,
-        TASK_QUOTE_STATUS.PENDING,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-      // Com o vendedor do cliente. Ele aprova (PRE_APPROVED) ou recusa, e recusar
-      // devolve a REQUESTED — para o comercial refazer, não para o limbo. É a
-      // volta que a O.S. "Em Negociação" fazia reabrindo a si mesma.
-      [TASK_QUOTE_STATUS.IN_NEGOTIATION]: [
-        TASK_QUOTE_STATUS.PRE_APPROVED,
-        TASK_QUOTE_STATUS.REQUESTED,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-      // Acertado, esperando a Ankaa LANÇAR as assinaturas. `PENDING` é escrito
-      // pela emissão do envelope; a volta a IN_NEGOTIATION existe para quando o
-      // vendedor se retrata antes de o documento sair.
-      [TASK_QUOTE_STATUS.PRE_APPROVED]: [
-        TASK_QUOTE_STATUS.PENDING,
-        TASK_QUOTE_STATUS.IN_NEGOTIATION,
-        TASK_QUOTE_STATUS.CANCELLED,
-      ],
-    };
-
-    const allowed = ALLOWED[currentStatus] ?? [];
-    if (!allowed.includes(newStatus)) {
+    if (!isManualBudgetTransition(currentStatus, newStatus)) {
       throw new BadRequestException(
         `Não é possível alterar o status de "${label(currentStatus)}" para "${label(newStatus)}".`,
       );
@@ -5878,41 +6383,13 @@ export class BudgetService {
     // A pergunta não é de que estado se vem: é se este orçamento tem a quem
     // cobrar. Ela vale para todo caminho que chegue em APROVADO.
     if (newStatus === TASK_QUOTE_STATUS.APPROVED) {
-      // ── NÃO SE APROVA SOBRE UMA COLETA QUE ACABOU DE CAIR ──────────────────
-      //
-      // Quando uma alteração material derruba as assinaturas, o gancho
-      // `markInvalidatedBySignature` devolve o orçamento a PENDENTE — e essa
-      // parte funciona. O que a desfazia era a gravação seguinte: o assistente
-      // manda o valor e, logo depois, replica pelo endpoint de status o alvo que
-      // o SELETOR carrega desde a abertura da página. O seletor ainda dizia
-      // "Aprovado" porque era esse o estado quando a tela abriu, e o orçamento
-      // voltava a aprovado um segundo depois de ter sido revertido.
-      //
-      // Medido em produção (orçamento nº 984, 17/09 20:05): a reversão registrou
-      // sucesso às 20:05:32 e a reaprovação gravou às 20:05:33, com notificação
-      // de "aguarda aprovação de faturamento" para o financeiro.
-      //
-      // A pergunta é do DOMÍNIO, não da tela: um orçamento APROVADO afirma que
-      // alguém concordou com AQUELE documento. Se o documento aceito morreu e
-      // nada foi colhido depois, não há o que a aprovação esteja afirmando.
-      // Vale para todo caminho que chegue em APROVADO — inclusive o replay.
-      //
-      // Só morde quem TEVE coleta: orçamento aprovado sem nunca ter ido à
-      // assinatura (a maioria) não passa por aqui.
-      const ultimoEnvelope = await this.prisma.signatureEnvelope.findFirst({
-        where: { quoteId },
-        orderBy: { createdAt: 'desc' },
-        select: { status: true, invalidatedReason: true },
-      });
-      if (ultimoEnvelope?.status === 'INVALIDATED') {
-        throw new BadRequestException(
-          'As assinaturas deste orçamento foram invalidadas por uma alteração' +
-            (ultimoEnvelope.invalidatedReason
-              ? ` (${ultimoEnvelope.invalidatedReason.replace(/^Alteração em:\s*/, '')})`
-              : '') +
-            '. Reenvie para assinatura e colha a aceitação antes de aprovar de novo.',
-        );
-      }
+      // A trava "não se aprova sobre uma coleta que acabou de cair" SAIU com o
+      // Modelo C (§2A): aprovar é aprovar o VALOR, que vem ANTES da coleta, e
+      // uma coleta invalidada é o eixo da assinatura (`INVALIDATED`), não o do
+      // valor. O caso que ela tapava — o seletor da tela reaprovando um segundo
+      // depois do auto-revert (nº 984, 17/09) — agora esbarra na NOTA
+      // obrigatória: aprovar em nome do cliente é um ato com texto, não um
+      // status replicado.
 
       // Must have at least one customerConfig with total > 0
       const configs = await this.prisma.budgetPayer.findMany({

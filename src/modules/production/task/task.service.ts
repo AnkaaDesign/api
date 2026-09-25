@@ -1,3 +1,4 @@
+import { syncValueApprovalAndLog } from '../../../utils/budget-value-approval';
 import {
   BadRequestException,
   ConflictException,
@@ -883,24 +884,23 @@ export class TaskService {
   }
 
   /**
-   * Guards for a nested quote CREATE (POST /tasks with a `quote` block):
-   * a brand-new quote cannot be born in a billing-lifecycle status, and
-   * starting it directly at an approval stage requires the same roles as the
-   * dedicated approval endpoints.
+   * Um orçamento aninhado que NASCE (POST /tasks com bloco `quote`): o servidor
+   * decide o estado (D-34) — `PENDING`, sempre. O `status` do corpo é ignorado
+   * (o repositório grava PENDING) e fica no log, que é o contador de quem ainda
+   * o manda. Antes, com o papel certo, nascia até `APPROVED`: um valor aprovado
+   * sem ato de aprovação nem registro.
    */
   private enforceNestedQuoteCreateGuards(
     quoteData: any,
-    userPrivilege: SECTOR_PRIVILEGES | string | undefined,
+    _userPrivilege: SECTOR_PRIVILEGES | string | undefined,
   ): void {
     if (!quoteData?.status || quoteData.status === TASK_QUOTE_STATUS.PENDING) return;
-    // A checagem "não pode nascer em estágio de faturamento" perdeu o objeto: os
-    // estados de cobrança não existem mais neste enum, e o zod recusa o valor
-    // antes de chegar aqui. Um orçamento novo não tem cobrança nenhuma.
-
-    if (userPrivilege !== SECTOR_PRIVILEGES.ADMIN) {
-      validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
-    }
+    this.logger.warn(
+      `[D-34] Orçamento aninhado pediu status ${quoteData.status}: ignorado, nasce PENDING.`,
+    );
+    delete quoteData.status;
   }
+
 
   /**
    * A ARTE DA AEROGRAFIA: as linhas de `Layout` (dono `airbrushingId`) para os
@@ -8645,6 +8645,11 @@ export class TaskService {
           status: TASK_QUOTE_STATUS.CANCELLED,
           statusOrder: getTaskQuoteStatusOrder(TASK_QUOTE_STATUS.CANCELLED),
         },
+      });
+      // Saiu de APPROVED? A aprovação do valor fecha junto (D-27, DD8).
+      await syncValueApprovalAndLog(tx, this.changeLogService, orcamento.id, {
+        leftReason: 'Orçamento cancelado: o último veículo foi excluído.',
+        userId: userId || null,
       });
       await this.changeLogService.logChange({
         entityType: ENTITY_TYPE.TASK_QUOTE,

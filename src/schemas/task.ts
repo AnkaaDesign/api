@@ -1247,12 +1247,13 @@ const taskTransform = (data: any): any => {
       AND: [
         taskStatusFilter,
         { quote: { isNot: null } },
-        // SIGNED e EXPIRED entram junto de PENDING: os três são ANTERIORES à
-        // aprovação comercial, e a tela do financeiro é para aprovar
-        // faturamento. Um orçamento vencido, à espera de reanálise do valor,
-        // aparecendo na fila de faturar é pedir para alguém faturar um preço
-        // que o comercial acabou de decidir rever.
-        { quote: { status: { notIn: ['PENDING', 'SIGNED', 'EXPIRED'] } } },
+        // POSITIVO (X6, D-30): só o valor APROVADO entra na fila de faturar.
+        // O filtro era negativo (`notIn [PENDING, SIGNED, EXPIRED]`) e deixava
+        // passar todo estado que alguém esquecesse de listar — `REQUESTED` e
+        // `IN_NEGOTIATION`, que não têm preço acertado, apareciam para cobrar.
+        // A assinatura NÃO filtra aqui: o financeiro vê o aprovado ainda sem
+        // assinatura, com o selo, e o `internalApprove` recusa com a frase da DD7.
+        { quote: { status: 'APPROVED' } },
       ],
     });
     delete data.shouldDisplayForFinancial;

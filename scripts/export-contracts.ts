@@ -57,6 +57,7 @@ import {
   CATEGORY_PROFILE_LABELS,
 } from '../src/constants/document-labels';
 import { TASK_QUOTE_STATUS_ORDER } from '../src/constants/sortOrders';
+import { BUDGET_SYSTEM_TRANSITIONS } from '../src/modules/production/budget/budget-transitions';
 import { BudgetService } from '../src/modules/production/budget/budget.service';
 import { FilesStorageService } from '../src/modules/common/file/services/files-storage.service';
 
@@ -344,6 +345,7 @@ export function buildContracts(): Contracts {
       _fontes: [
         'src/constants/enums.ts',
         'src/modules/production/budget/budget.service.ts (validateStatusTransition)',
+        'src/modules/production/budget/budget-transitions.ts (BUDGET_SYSTEM_TRANSITIONS)',
         'src/constants/sortOrders.ts (TASK_QUOTE_STATUS_ORDER)',
         'prisma/scripts/seed-notification-configs.ts',
         'src/modules/**/*.controller.ts (interceptadores de arquivo)',
@@ -353,6 +355,11 @@ export function buildContracts(): Contracts {
       orcamento: {
         status: quoteStatuses,
         transicoesManuais: collectBudgetGraph(quoteStatuses),
+        // As arestas que só um EVENTO move (portal, auto-revert, coleta legada,
+        // desmonte, reativação). Nunca viram botão (G26, §2A.5).
+        transicoesDoSistema: Object.fromEntries(
+          quoteStatuses.map(st => [st, [...(BUDGET_SYSTEM_TRANSITIONS as any)[st] ?? []]]),
+        ),
         ordem: { ...TASK_QUOTE_STATUS_ORDER },
       },
       faces: {

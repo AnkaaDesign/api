@@ -1,13 +1,14 @@
 /**
- * A PRÉ-APROVAÇÃO DO PORTAL — as duas arestas e o destinatário único.
+ * A APROVAÇÃO DO VALOR PELO PORTAL (D-35, Modelo C) — as duas arestas e o
+ * destinatário único.
  *
  * O DEFEITO QUE ESTE ARQUIVO IMPEDE
  * ─────────────────────────────────────────────────────────────────────────────
  * São dois, e nenhum dos dois aparece como erro:
  *
  *   1. UMA ARESTA QUE A MÁQUINA NÃO TEM. O portal move o orçamento
- *      `IN_NEGOTIATION → PRE_APPROVED` e `IN_NEGOTIATION → REQUESTED`. Se
- *      alguém tirar uma dessas linhas de `ALLOWED` (ou trocar o destino da
+ *      `IN_NEGOTIATION → APPROVED` e `IN_NEGOTIATION → PENDING`. Se alguém
+ *      tirar uma dessas linhas de `BUDGET_SYSTEM_TRANSITIONS` (ou trocar o destino da
  *      recusa por `CANCELLED`, que é o engano natural), o `tsc` não diz nada: o
  *      tipo é o mesmo, e o que muda é um 400 na cara do cliente — ou, pior, um
  *      orçamento terminal onde deveria haver um pedido de revisão.
@@ -43,6 +44,10 @@ import {
   PORTAL_DECISION_TRANSITIONS,
   PORTAL_DECISION_STAMPS,
 } from '../src/modules/people/portal/portal-decision-transitions';
+import {
+  BUDGET_MANUAL_TRANSITIONS,
+  BUDGET_SYSTEM_TRANSITIONS,
+} from '../src/modules/production/budget/budget-transitions';
 import {
   isExactlyOneRecipient,
   recipientColumns,
@@ -140,54 +145,33 @@ const decisionServiceCode = stripComments(decisionService);
 const decisionControllerCode = stripComments(decisionController);
 const dispatchServiceCode = stripComments(dispatchService);
 
-/** O corpo de `ALLOWED[X]`, como texto. É onde a máquina de estados mora. */
-function allowedFor(status: string): string {
-  const marker = `[TASK_QUOTE_STATUS.${status}]:`;
-  const start = budgetService.indexOf(marker);
-  if (start < 0) return '';
-  const from = budgetService.indexOf('[', start + marker.length);
-  if (from < 0) return '';
-  // O array termina no primeiro `]` depois da abertura; nenhum valor do enum
-  // contém colchete, então não há aninhamento a rastrear.
-  const end = budgetService.indexOf(']', from);
-  return budgetService.slice(from, end + 1);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\nOS PARES — o que a pré-aprovação e a recusa significam');
+console.log('\nOS PARES — o que a aprovação do valor e a recusa significam');
 {
   check(
-    'pré-aprovar sai de EM NEGOCIAÇÃO',
+    'aprovar o valor sai de AGUARDANDO APROVAÇÃO DO CLIENTE',
     PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.from === TASK_QUOTE_STATUS.IN_NEGOTIATION,
   );
   check(
-    'pré-aprovar chega em PRÉ-APROVADO',
-    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to === TASK_QUOTE_STATUS.PRE_APPROVED,
+    'aprovar o valor chega em APROVADO (Modelo C: APPROVED = valor aprovado)',
+    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to === TASK_QUOTE_STATUS.APPROVED,
   );
   check(
-    'recusar sai de EM NEGOCIAÇÃO',
+    'recusar sai de AGUARDANDO APROVAÇÃO DO CLIENTE',
     PORTAL_DECISION_TRANSITIONS.REFUSE.from === TASK_QUOTE_STATUS.IN_NEGOTIATION,
   );
   check(
-    'recusar chega em REQUISIÇÃO — volta para o comercial refazer',
-    PORTAL_DECISION_TRANSITIONS.REFUSE.to === TASK_QUOTE_STATUS.REQUESTED,
+    'recusar chega em PENDENTE — volta para a Ankaa refazer',
+    PORTAL_DECISION_TRANSITIONS.REFUSE.to === TASK_QUOTE_STATUS.PENDING,
   );
-
-  // As três negativas que importam, e cada uma é um engano plausível.
   check(
     'recusar NÃO cancela',
-    PORTAL_DECISION_TRANSITIONS.REFUSE.to !== TASK_QUOTE_STATUS.CANCELLED,
+    (PORTAL_DECISION_TRANSITIONS.REFUSE.to as string) !== TASK_QUOTE_STATUS.CANCELLED,
     'CANCELLED é terminal; quem recusa um preço quer outro preço',
   );
   check(
-    'pré-aprovar NÃO aprova',
-    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== TASK_QUOTE_STATUS.APPROVED,
-    'APPROVED destrava a cobrança e exige assinatura',
-  );
-  check(
-    'pré-aprovar NÃO pula para AGUARDANDO ASSINATURA',
-    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== TASK_QUOTE_STATUS.PENDING,
-    'quem lança o envelope é a Ankaa, não o cliente',
+    'recusar NÃO volta a REQUISIÇÃO (a requisição é o pedido SEM preço)',
+    (PORTAL_DECISION_TRANSITIONS.REFUSE.to as string) !== TASK_QUOTE_STATUS.REQUESTED,
   );
   check(
     'as duas saem do MESMO estado',
@@ -196,55 +180,35 @@ console.log('\nOS PARES — o que a pré-aprovação e a recusa significam');
   );
   check(
     'e chegam em estados DIFERENTES',
-    PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to !== PORTAL_DECISION_TRANSITIONS.REFUSE.to,
+    (PORTAL_DECISION_TRANSITIONS.APPROVE_VALUE.to as string) !== PORTAL_DECISION_TRANSITIONS.REFUSE.to,
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('\nA MÁQUINA DE ESTADOS autoriza as duas arestas (budget.service.ts)');
+console.log('\nA MÁQUINA DE ESTADOS autoriza as duas arestas (budget-transitions.ts)');
 {
-  const deEmNegociacao = allowedFor('IN_NEGOTIATION');
-
-  check('ALLOWED[IN_NEGOTIATION] existe', deEmNegociacao.length > 0);
+  const sistema = BUDGET_SYSTEM_TRANSITIONS[TASK_QUOTE_STATUS.IN_NEGOTIATION];
   check(
-    'IN_NEGOTIATION → PRE_APPROVED está na tabela',
-    deEmNegociacao.includes('TASK_QUOTE_STATUS.PRE_APPROVED'),
+    'IN_NEGOTIATION → APPROVED é aresta de SISTEMA',
+    sistema.includes(TASK_QUOTE_STATUS.APPROVED),
   );
   check(
-    'IN_NEGOTIATION → REQUESTED está na tabela',
-    deEmNegociacao.includes('TASK_QUOTE_STATUS.REQUESTED'),
-  );
-
-  // Os destinos que NÃO podem estar lá. Um `IN_NEGOTIATION → APPROVED` faria o
-  // portal aprovar contrato sem assinatura e sem valor acordado.
-  check(
-    'IN_NEGOTIATION NÃO vai direto para APPROVED',
-    !deEmNegociacao.includes('TASK_QUOTE_STATUS.APPROVED'),
+    'IN_NEGOTIATION → PENDING é aresta de SISTEMA',
+    sistema.includes(TASK_QUOTE_STATUS.PENDING),
   );
   check(
-    'IN_NEGOTIATION NÃO vai direto para PENDING',
-    !deEmNegociacao.includes('TASK_QUOTE_STATUS.PENDING'),
-    'o envelope é lançado a partir de PRE_APPROVED',
+    'a recusa não tem aresta para REQUESTED nem para CANCELLED pelo portal',
+    !sistema.includes(TASK_QUOTE_STATUS.REQUESTED),
   );
-
-  // A volta: PRE_APPROVED tem de poder retornar a IN_NEGOTIATION, senão a
-  // reversão de decisão que o CHECK teme nunca aconteceria — e o apagamento da
-  // decisão oposta seria código morto defendendo um caso impossível.
-  const dePreAprovado = allowedFor('PRE_APPROVED');
   check(
-    'PRE_APPROVED volta para IN_NEGOTIATION (é o que torna a reversão real)',
-    dePreAprovado.includes('TASK_QUOTE_STATUS.IN_NEGOTIATION'),
+    'a volta é real: a Ankaa reenvia (PENDING → IN_NEGOTIATION é manual)',
+    BUDGET_MANUAL_TRANSITIONS[TASK_QUOTE_STATUS.PENDING].includes(TASK_QUOTE_STATUS.IN_NEGOTIATION),
   );
-  const deRequisicao = allowedFor('REQUESTED');
   check(
-    'REQUESTED volta para IN_NEGOTIATION (o comercial reprecifica e devolve)',
-    deRequisicao.includes('TASK_QUOTE_STATUS.IN_NEGOTIATION'),
+    'e o cliente decide de novo (a reversão que o CHECK teme acontece de verdade)',
+    sistema.includes(TASK_QUOTE_STATUS.APPROVED) && sistema.includes(TASK_QUOTE_STATUS.PENDING),
   );
-
-  check(
-    'CANCELLED continua terminal',
-    allowedFor('CANCELLED').replace(/\s/g, '') === '[]',
-  );
+  check('CANCELLED continua terminal para o operador', BUDGET_MANUAL_TRANSITIONS.CANCELLED.length === 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,8 +219,8 @@ console.log('\nO PORTAL PASSA PELA MÁQUINA — não ao lado dela');
     decisionService.includes('this.budgets.assertTransitionAllowed('),
   );
   check(
-    'o movimento é updateStatus, que grava changelog e aplica as travas',
-    decisionService.includes('this.budgets.updateStatus('),
+    'o movimento é applyPortalDecision (status + BudgetValueApproval{PORTAL} numa transação)',
+    decisionService.includes('this.budgets.applyPortalDecision('),
   );
   check(
     'o serviço NÃO escreve `status` no Prisma',
@@ -264,11 +228,14 @@ console.log('\nO PORTAL PASSA PELA MÁQUINA — não ao lado dela');
     'escrever status direto é o defeito da automação da O.S. em 4 pontos',
   );
   check(
-    'assertTransitionAllowed é só um invólucro de validateStatusTransition',
-    /assertTransitionAllowed\([\s\S]{0,200}?this\.validateStatusTransition\(/.test(
+    'assertTransitionAllowed confere a tabela de SISTEMA',
+    /assertTransitionAllowed\([\s\S]{0,600}?isSystemBudgetTransition\(/.test(budgetService),
+  );
+  check(
+    'a aprovação pelo portal grava a origem PORTAL com o contato como ator',
+    /applyPortalDecision[\s\S]{0,900}?responsibleId,[\s\S]{0,200}?BUDGET_VALUE_APPROVAL_SOURCE\.PORTAL/.test(
       budgetService,
     ),
-    'se ele ganhar lógica própria, passam a existir dois grafos',
   );
 }
 
@@ -278,7 +245,7 @@ console.log('\nO CHECK `BudgetRequest_decisao_unica` NUNCA é consultado com os 
   // A forma do `stampDecision`: cada ramo escreve as DUAS colunas da sua
   // decisão E anula as DUAS da oposta, na mesma instrução.
   const inicio = decisionService.indexOf('const campos =');
-  const fim = decisionService.indexOf('await this.prisma.budgetRequest.upsert(');
+  const fim = decisionService.indexOf('if (!anterior) return { existia: false };');
   const campos = inicio >= 0 && fim > inicio ? decisionService.slice(inicio, fim) : '';
 
   check('o bloco `campos` foi encontrado', campos.length > 0);
@@ -315,8 +282,9 @@ console.log('\nO CHECK `BudgetRequest_decisao_unica` NUNCA é consultado com os 
   );
 
   check(
-    'é `upsert`, não `update` — nem todo orçamento em negociação veio do portal',
-    decisionService.includes('this.prisma.budgetRequest.upsert('),
+    'o portal NÃO fabrica mais `BudgetRequest` (D-35): sem requisição, não carimba',
+    !decisionServiceCode.includes('budgetRequest.upsert(') &&
+      !decisionServiceCode.includes('budgetRequest.create('),
   );
 }
 
@@ -475,8 +443,12 @@ console.log('\nOS DOIS SUJEITOS NÃO SE MISTURAM no código do portal');
 
   check(
     'o ator do movimento é a sentinela vazia, não um UUID de contato',
-    decisionService.includes("const SEM_FUNCIONARIO = '';") &&
-      decisionService.includes('SEM_FUNCIONARIO'),
+    // O movimento mora em `BudgetService.applyPortalDecision`: o `userId` do
+    // status é a string vazia (ACTOR_SENTINELS), e o contato só entra como
+    // `responsibleId` (FK de "Representative").
+    /async applyPortalDecision[\s\S]{0,1500}?userId: '',[\s\S]{0,600}?this\.moveStatus\(id, TASK_QUOTE_STATUS\.PENDING, '',/.test(
+      budgetService,
+    ) && !/userId:\s*responsibleId/.test(budgetService),
     'um UUID de contato em ChangeLog.userId derruba a transação com P2025',
   );
 
@@ -540,7 +512,7 @@ console.log('\nOS DOIS AVISOS nascem num lugar só, com destinatário de tipo ce
       !/data:\s*\{\s*userId:/.test(portalNotifications),
   );
   check(
-    'a pré-aprovação avisa o comercial',
+    'a aprovação do valor avisa o comercial (com o que falta para emitir)',
     decisionService.includes('PORTAL_NOTIFICATION_KEYS.PRE_APPROVED'),
   );
   check(
@@ -548,8 +520,8 @@ console.log('\nOS DOIS AVISOS nascem num lugar só, com destinatário de tipo ce
     decisionService.includes('PORTAL_NOTIFICATION_KEYS.REFUSED'),
   );
   check(
-    'REQUESTED → IN_NEGOTIATION avisa o requisitante',
-    /TASK_QUOTE_STATUS\.IN_NEGOTIATION[\s\S]{0,400}?TASK_QUOTE_STATUS\.REQUESTED[\s\S]{0,400}?notifyRequesterValuesVisible/.test(
+    'enviar ao cliente (de qualquer origem) avisa o requisitante',
+    /status === TASK_QUOTE_STATUS\.IN_NEGOTIATION\) \{[\s\S]{0,200}?notifyRequesterValuesVisible/.test(
       budgetService,
     ),
   );
@@ -558,7 +530,7 @@ console.log('\nOS DOIS AVISOS nascem num lugar só, com destinatário de tipo ce
     /Motivo: "\$\{note\}"/.test(decisionService),
   );
 
-  // Os DOIS caminhos que movem REQUESTED → IN_NEGOTIATION: o seletor de status
+  // Os DOIS caminhos que movem para IN_NEGOTIATION: o seletor de status
   // (`updateStatus`) e o formulário (`update`). O segundo é o real — o
   // assistente grava serviços, valores e status na mesma requisição.
   const budgetCode = stripComments(budgetService);

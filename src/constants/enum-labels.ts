@@ -2152,14 +2152,14 @@ export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
   // `BILLING_STATUS.OVERDUE`, noutra entidade. Este diz o que o comercial tem de
   // FAZER com o orçamento.
   [TASK_QUOTE_STATUS.EXPIRED]: 'Aguardando Reanálise',
-  [TASK_QUOTE_STATUS.SIGNED]: 'Assinado',
-  // Era "Pendente". Com `REQUESTED` ("Requisição") do outro lado, a palavra
-  // passou a nomear duas esperas opostas: lá a ANKAA deve um preço, aqui o
-  // CLIENTE deve uma assinatura. O valor do enum continua `'PENDING'`.
-  [TASK_QUOTE_STATUS.PENDING]: 'Aguardando Assinatura',
+  // Legado, nunca mais escrito (D-26): a assinatura tem eixo próprio.
+  [TASK_QUOTE_STATUS.SIGNED]: 'Assinado (legado)',
+  // Volta ao rótulo de produção (Modelo C, §2A.3): a Ankaa monta ou revisa. A
+  // branch dizia "Aguardando Assinatura", e um PENDING sem coleta mentia (X2).
+  [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
   [TASK_QUOTE_STATUS.REQUESTED]: 'Requisição',
-  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 'Em Negociação',
-  [TASK_QUOTE_STATUS.PRE_APPROVED]: 'Pré-aprovado',
+  // A frase da pergunta 12: o valor foi enviado e a bola é do cliente.
+  [TASK_QUOTE_STATUS.IN_NEGOTIATION]: 'Aguardando aprovação do cliente',
   // Sem o prefixo "Orçamento": a tela já se chama Orçamentos, e o estado de
   // faturamento mudou de entidade. Repetir a palavra era desambiguar de algo que
   // não mora mais aqui.

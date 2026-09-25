@@ -133,6 +133,24 @@ async function main() {
       });
     }
 
+    // ── O VALOR APROVADO (E1, Modelo C) ──────────────────────────────────────
+    //
+    // A emissão agora exige o valor aprovado com a aprovação vigente
+    // (`assertEmissionReady`). Montagem direta, com a nota que o CHECK
+    // `BudgetValueApproval_note_check` exige em ON_BEHALF — o ato em si é de
+    // `budget-value-approval.test.ts`.
+    await prisma.$transaction([
+      prisma.budget.update({ where: { id: criados.quoteId }, data: { status: 'APPROVED' } }),
+      prisma.budgetValueApproval.create({
+        data: {
+          budgetId: criados.quoteId,
+          source: 'ON_BEHALF',
+          userId: user.id,
+          note: 'Montagem do teste de recusa.',
+        },
+      }),
+    ]);
+
     console.log('\nColeta com dois responsáveis');
     await envelopes.createEnvelope({
       quoteId: criados.quoteId, actorUserId: user.id, ctx: CTX, channel: 'EMAIL' as any, signers: null,

@@ -1,5 +1,7 @@
 // api/src/modules/production/budget/budget.module.ts
 
+import { EventEmitter } from 'events';
+import { LayoutApprovedEvent } from '../task/layout.events';
 import { Module, forwardRef, Inject, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { SignatureModule } from '@modules/common/signature/signature.module';
@@ -76,11 +78,27 @@ export class BudgetModule implements OnModuleInit {
     @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly signatureEnvelopes: SignatureEnvelopeService,
     private readonly budgetService: BudgetService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   onModuleInit(): void {
+    // A ÚLTIMA ARTE CHEGOU (§2A.7): com o valor já aprovado e nada mais faltando,
+    // o comercial é avisado de que pode emitir. A outra metade — o valor chegando
+    // com as artes já aprovadas — é `approveValue`. Best-effort: um aviso que
+    // falha não desfaz a arte.
+    this.eventEmitter.on('artwork.approved', (event: LayoutApprovedEvent) => {
+      const taskId = event?.context?.task?.id;
+      if (!taskId) return;
+      void this.budgetService
+        .notifyReadyForSignatureIfComplete(taskId)
+        .catch(() => undefined);
+    });
+
+    // A coleta concluiu. O EIXO já foi a `SIGNED` na transação do envelope
+    // (D-28); aqui só o domínio do valor: a coleta LEGADA (sobre PENDING) aprova
+    // com `BudgetValueApproval{SIGNATURE}`, a nova só avisa o financeiro.
     this.signatureEnvelopes.setOnEnvelopeCompleted(async (quoteId, _envelopeId, actorUserId) => {
-      await this.budgetService.budgetApprove(quoteId, actorUserId ?? '');
+      await this.budgetService.onSignatureCompleted(quoteId, actorUserId ?? '');
     });
 
     // O cliente fechou o lado dele; falta a nossa caneta. Momento distinto da
@@ -105,7 +123,11 @@ export class BudgetModule implements OnModuleInit {
       await this.budgetService.markRefusedBySignature(quoteId, reason);
     });
 
-    // O orçamento MUDOU e derrubou a coleta: ele não pode continuar aprovado.
+    // O orçamento MUDOU e derrubou a coleta. No Modelo C o VALOR não regride
+    // por isso (o eixo da assinatura já foi a INVALIDATED na transação); o
+    // ouvinte registra, e só o `SIGNED` legado volta a PENDENTE.
+    //
+    // (Histórico:) o orçamento não podia continuar aprovado.
     //
     // O caso que abriu isto: trocaram o LAYOUT de um orçamento assinado. As
     // assinaturas foram invalidadas — corretamente, é a imagem que o cliente

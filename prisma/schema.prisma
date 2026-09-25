@@ -1959,8 +1959,10 @@ model Budget {
   subtotal    Decimal      @db.Decimal(10, 2)
   total       Decimal      @db.Decimal(10, 2)
   expiresAt   DateTime
+  /// [M3o-b] EIXO DO VALOR (§2A): APPROVED = valor aprovado (DD2, Modelo C).
   status      BudgetStatus @default(PENDING)
-  statusOrder Int          @default(1)
+  /// [M3o-b] = BUDGET_STATUS_ORDER[PENDING]; alinha schema e banco (X8: o schema dizia 1 e o banco 6).
+  statusOrder Int          @default(3)
 
   /// [M3o-a] EIXO DA ASSINATURA (§2A.4). Escrito só pelo SignatureEnvelopeService na
   /// transação do envelope; WAIVED só pela migração e pela conciliação (DD7); SIGNED_OFFLINE
@@ -1979,15 +1981,13 @@ model Budget {
   /// ascendentes, dá direções OPOSTAS por grupo, que é o que o Prisma não sabe
   /// expressar de outro jeito.
   ///
-  /// A direção depende de QUEM DEVE A PRÓXIMA AÇÃO
-  /// (`20260920190000_fila_hibrida_por_estado`):
+  /// A direção depende de QUEM DEVE A PRÓXIMA AÇÃO (recriada na M3o-b,
+  /// `20260930120350_orcamento_valor_aprovado`, Modelo C):
   ///
-  ///   · bola com a ANKAA  → mais RECENTE primeiro (trabalho que chegou)
-  ///     REQUESTED, PRE_APPROVED, SIGNED
+  ///   · bola com a ANKAA, ou terminou → mais RECENTE primeiro
+  ///     REQUESTED, EXPIRED, PENDING, APPROVED, SIGNED, CANCELLED
   ///   · espera-se o CLIENTE → mais ANTIGO primeiro (cobrança que envelhece)
-  ///     EXPIRED, IN_NEGOTIATION, PENDING
-  ///   · TERMINAIS → mais RECENTE primeiro (histórico se lê de trás)
-  ///     APPROVED, CANCELLED
+  ///     IN_NEGOTIATION
   ///
   /// A versão anterior (`20260917210000_fila_do_orcamento`) tinha só dois
   /// grupos e mandava TODA requisição nova para o FIM do próprio grupo — quem
@@ -4900,45 +4900,27 @@ enum QuoteLayoutScope {
 /// de `APPROVED` porque pede mais atenção.
 enum BudgetStatus {
   /// O cliente pediu pelo portal e NINGUÉM precificou ainda. Nasce sem serviço e
-  /// sem valor: só briefing, arquivos e veículos. É o primeiro da fila porque é
-  /// o único estado em que alguém de fora está esperando a Ankaa começar.
+  /// sem valor: só briefing, arquivos e veículos.
   REQUESTED
 
-  /// Passou de `expiresAt` sem colher todas as assinaturas. Volta para o
-  /// comercial reanalisar o valor. Rotulado "Aguardando Reanálise" e não
-  /// "Vencido": vencida é a PARCELA, e isso agora é `BillingStatus.OVERDUE`,
-  /// noutra entidade.
+  /// Coleta LEGADA (emitida sobre PENDING antes da R-B) venceu ou foi recusada.
+  /// Volta para o comercial reanalisar o valor. Rotulado "Aguardando Reanálise".
   EXPIRED
 
-  /// O vendedor do cliente clicou em Aprovar. O orçamento está acertado e espera
-  /// a Ankaa LANÇAR as assinaturas. Some assim que o envelope nasce.
-  PRE_APPROVED
-
-  /// Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
-  /// Ankaa. Sem este estado o momento era indistinguível de PENDING, e quem
-  /// precisa saber o que depende de NÓS não tinha como ver numa lista.
-  SIGNED
-
-  /// O comercial montou serviços e valores, e o orçamento está com o VENDEDOR do
-  /// cliente para pré-aprovar ou recusar. É daqui que o valor passa a ser visível
-  /// para quem requisitou.
-  ///
-  /// ⚠️ Substituiu a O.S. comercial "Em Negociação", removida em 20/09/2026 — ela
-  /// era uma `description` de TEXTO LIVRE que aprovava e rebaixava o orçamento
-  /// sozinha, comparada em três arquivos com três normalizações diferentes.
-  IN_NEGOTIATION
-
-  /// Envelope lançado, esperando as assinaturas do cliente.
-  ///
-  /// ⚠️ O VALOR continua `PENDING` de propósito: ele viaja para fora da API em
-  /// filtro salvo, no app Flutter em produção e em changelog gravado como string.
-  /// Só o RÓTULO mudou, para "Aguardando Assinatura" — o par com `REQUESTED` fica
-  /// honesto: lá a Ankaa deve um preço, aqui o cliente deve uma decisão.
+  /// "Pendente": orçamento em montagem ou revisão pela Ankaa; nascimento interno.
+  /// (Volta ao rótulo de produção; na branch chegou a dizer "Aguardando Assinatura".)
   PENDING
 
-  /// O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia para
-  /// desambiguar de `BILLING_APPROVED`, que morreu junto com a confusão.
+  /// "Aguardando aprovação do cliente": o valor foi enviado ao cliente.
+  IN_NEGOTIATION
+
+  /// "Aprovado" = VALOR aprovado (DD2). Habilita a emissão quando a arte estiver
+  /// aprovada; NÃO libera a cobrança sozinho (DD7: a cobrança espera
+  /// signatureStatus ∈ {SIGNED, SIGNED_OFFLINE, WAIVED}).
   APPROVED
+
+  /// LEGADO: nunca mais escrito; fica porque o app 1.4.1 filtra por ele.
+  SIGNED
 
   CANCELLED
 }

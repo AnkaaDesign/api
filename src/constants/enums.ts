@@ -2870,31 +2870,38 @@ export const formatResponsibleRoles = (roles: readonly string[] | null | undefin
  */
 export enum TASK_QUOTE_STATUS {
   /**
-   * Passou da validade sem todas as assinaturas; volta ao comercial para
-   * reanálise do valor. O rótulo é "Aguardando Reanálise" e não "Vencido":
-   * vencida é a PARCELA, e isso é {@link BILLING_STATUS.OVERDUE}, noutra
-   * entidade.
+   * EIXO DO VALOR (Modelo C, DD2). A ASSINATURA é outro eixo —
+   * {@link BUDGET_SIGNATURE_STATUS}, em `Budget.signatureStatus` — e é ele, não
+   * este, que libera a cobrança (DD7).
+   *
+   * Coleta LEGADA (emitida sobre `PENDING` antes da R-B) venceu ou foi recusada;
+   * volta ao comercial para reanálise do valor. O rótulo é "Aguardando
+   * Reanálise" e não "Vencido": vencida é a PARCELA, e isso é
+   * {@link BILLING_STATUS.OVERDUE}, noutra entidade.
    */
   EXPIRED = 'EXPIRED',
   /**
-   * Todos os responsáveis do CLIENTE assinaram; falta a contra-assinatura da
-   * Ankaa. Existe para que "o que depende de nós" seja visível numa lista — até
-   * aqui esse momento era PENDING, igual a um orçamento criado há cinco minutos.
+   * LEGADO, NUNCA MAIS ESCRITO (D-26): era "o cliente assinou, falta a Ankaa",
+   * que agora é `signatureStatus = AWAITING_ANKAA`. Fica no enum porque o app
+   * instalado filtra por ele — tirá-lo daria 400 na lista do celular.
    */
   SIGNED = 'SIGNED',
   /**
-   * Envelope lançado, esperando as assinaturas do cliente.
+   * "Pendente": o orçamento em montagem ou revisão pela Ankaa. É o nascimento
+   * interno (D-34) e o destino de toda volta ("reprovar valor", "retirar do
+   * cliente", recusa do cliente, auto-revert por valor alterado).
    *
-   * ⚠️ O VALOR continua `'PENDING'` de propósito — ele viaja para fora da API em
-   * filtro salvo, no app Flutter em produção e em changelog gravado como string.
-   * Só o RÓTULO mudou, em 20/09/2026, para "Aguardando Assinatura": com
-   * {@link TASK_QUOTE_STATUS.REQUESTED} do outro lado, "Pendente" passou a
-   * significar duas esperas diferentes na mesma palavra.
+   * ⚠️ Deixou de ser "Aguardando Assinatura" (o rótulo da branch): a assinatura
+   * tem eixo próprio, e um `PENDING` sem coleta afirmava uma espera que não
+   * existia (X2).
    */
   PENDING = 'PENDING',
   /**
-   * O ÚLTIMO estado do orçamento. Era `BUDGET_APPROVED`; o prefixo existia só
-   * para desambiguar de `BILLING_APPROVED`, que morreu junto com a confusão.
+   * VALOR APROVADO (Modelo C) — pelo cliente no portal, em nome dele (nota
+   * obrigatória) ou pela conclusão de uma coleta legada. Habilita a EMISSÃO
+   * quando a arte de todo veículo estiver aprovada (E1 ∧ E2), e NÃO libera a
+   * cobrança sozinho: a cobrança espera o eixo da assinatura (DD7).
+   * O registro do ato é `BudgetValueApproval` (D-27).
    */
   APPROVED = 'APPROVED',
   CANCELLED = 'CANCELLED',
@@ -2908,21 +2915,13 @@ export enum TASK_QUOTE_STATUS {
    */
   REQUESTED = 'REQUESTED',
   /**
-   * O comercial montou serviços e valores, e o orçamento está com o VENDEDOR do
-   * cliente para pré-aprovar ou recusar. É daqui que o valor passa a ser visível
-   * para quem requisitou.
+   * "Aguardando aprovação do cliente": o comercial ENVIOU o valor e o orçamento
+   * está com o cliente para aprovar (`APPROVE_VALUE`, no portal) ou recusar. É
+   * daqui que o valor passa a ser visível para quem requisitou.
    *
-   * ⚠️ Substituiu a O.S. comercial "Em Negociação", removida em 20/09/2026. Ela
-   * era uma `description` de TEXTO LIVRE que aprovava o orçamento ao ser concluída
-   * e o rebaixava de APPROVED para PENDING ao ser reaberta, comparada em três
-   * arquivos com três normalizações diferentes.
+   * ⚠️ Substituiu a O.S. comercial "Em Negociação", removida em 20/09/2026.
    */
   IN_NEGOTIATION = 'IN_NEGOTIATION',
-  /**
-   * O vendedor do cliente clicou em Aprovar. O orçamento está acertado e espera a
-   * Ankaa LANÇAR as assinaturas. Some assim que o envelope nasce.
-   */
-  PRE_APPROVED = 'PRE_APPROVED',
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 import type { Budget } from '@types';
 import {
   TASK_QUOTE_STATUS,
+  BUDGET_SIGNATURE_STATUS,
   BILLING_STATUS,
   DISCOUNT_TYPE,
   PAYMENT_CONDITION,
@@ -24,25 +25,14 @@ import {
 // Budget Status Schema
 // =====================
 
-// ⚠️ ESTA LISTA É ESCRITA À MÃO e o `tsc` não a confere contra o enum: um
-// estado que exista no banco e falte aqui não vira erro de tipo — o zod o APAGA
-// do filtro, e a lista volta sem ele em silêncio. Ver
-// `reference_untyped_prisma_paths_hide_migrations`. Estado novo entra AQUI
-// também, sempre.
-export const budgetStatusSchema = z.enum([
-  // Os TRÊS do portal do responsável entraram em 20/09/2026 junto com o enum.
-  // Sem eles aqui a advertência acima se cumpria à risca: `updateStatus` não
-  // tipava (`pnpm build` vermelho) e um filtro `status=IN_NEGOTIATION` na lista
-  // era APAGADO pelo zod, devolvendo a tabela inteira sem dizer nada.
-  TASK_QUOTE_STATUS.REQUESTED,
-  TASK_QUOTE_STATUS.IN_NEGOTIATION,
-  TASK_QUOTE_STATUS.PRE_APPROVED,
-  TASK_QUOTE_STATUS.EXPIRED,
-  TASK_QUOTE_STATUS.SIGNED,
-  TASK_QUOTE_STATUS.PENDING,
-  TASK_QUOTE_STATUS.APPROVED,
-  TASK_QUOTE_STATUS.CANCELLED,
-]);
+// G31: DERIVADA DO ENUM, nunca mais escrita à mão. A lista manual deixava o zod
+// APAGAR do filtro um estado que faltasse nela, e a lista voltava sem ele em
+// silêncio (foi assim com os três do portal, em 20/09). Estado novo no enum
+// entra aqui sozinho.
+export const budgetStatusSchema = z.nativeEnum(TASK_QUOTE_STATUS);
+
+/** O eixo da assinatura (D-28), pela mesma regra. */
+export const budgetSignatureStatusSchema = z.nativeEnum(BUDGET_SIGNATURE_STATUS);
 
 // O ciclo do FATURAMENTO, que saiu do orçamento em 16/09/2026. Mesmo aviso da
 // lista acima: escrita à mão, não conferida pelo compilador.
@@ -1123,3 +1113,41 @@ export type BudgetPayerCreateNestedFormData = z.infer<
   typeof budgetPayerCreateNestedSchema
 >;
 export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema>;
+
+// =====================
+// Eixo do valor — os atos (Modelo C, §2A.5)
+// =====================
+
+/**
+ * "Aprovar valor em nome do cliente" (`PUT /budgets/:id/value-approval`). A nota é
+ * OBRIGATÓRIA (CHECK `BudgetValueApproval_note_check` no banco): é ela que diz como
+ * o cliente aprovou. `.strict()`: chave desconhecida é 400, nunca descartada.
+ */
+export const budgetValueApprovalSchema = z
+  .object({
+    note: z
+      .string({ required_error: 'Escreva a nota: como o cliente aprovou o valor.' })
+      .trim()
+      .min(1, 'Escreva a nota: como o cliente aprovou o valor.')
+      .max(2000, 'Máximo de 2000 caracteres'),
+  })
+  .strict();
+export type BudgetValueApprovalFormData = z.infer<typeof budgetValueApprovalSchema>;
+
+/** "Reprovar valor" (`DELETE /budgets/:id/value-approval`): motivo obrigatório. */
+export const budgetValueRevokeSchema = z
+  .object({
+    reason: z
+      .string({ required_error: 'Escreva o motivo da reprovação.' })
+      .trim()
+      .min(1, 'Escreva o motivo da reprovação.')
+      .max(2000, 'Máximo de 2000 caracteres'),
+  })
+  .strict();
+export type BudgetValueRevokeFormData = z.infer<typeof budgetValueRevokeSchema>;
+
+/** `PUT /budgets/:id/withdraw-from-customer` — o motivo é opcional. */
+export const budgetWithdrawSchema = z
+  .object({ reason: z.string().trim().max(2000, 'Máximo de 2000 caracteres').optional() })
+  .strict();
+export type BudgetWithdrawFormData = z.infer<typeof budgetWithdrawSchema>;

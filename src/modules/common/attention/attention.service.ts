@@ -573,6 +573,39 @@ export const RULE_QUERIES: RuleQuery[] = [
     }),
   },
 
+  {
+    // PRONTO PARA EMITIR (§2A.7, P14): valor aprovado com aprovação vigente, a
+    // arte de todo veículo vivo aprovada, e o eixo da assinatura num estado de
+    // onde se emite. A emissão NÃO é automática (o operador escolhe canal,
+    // recorte e cerimônia) — por isso é atenção, e some no instante em que a
+    // coleta nasce (`AWAITING_CUSTOMER`).
+    //
+    // `WAIVED` fica de fora de propósito: são os 504 aprovados sem coleta da
+    // migração, já faturáveis; acendê-los todos seria um alerta que ninguém
+    // precisa atender. `SIGNED`/`SIGNED_OFFLINE`, idem: já assinados.
+    //
+    // Só COMMERCIAL: é ele quem emite. (O gêmeo da tela, `web/src/lib/attention/
+    // rules.ts`, entra com o orçamento do web, P22.)
+    ruleId: 'budget.ready-to-emit',
+    entityType: 'TASK_QUOTE',
+    privileges: [SectorPrivileges.COMMERCIAL],
+    where: (): Prisma.BudgetWhereInput => ({
+      status: BudgetStatus.APPROVED,
+      signatureStatus: { in: ['NOT_ISSUED', 'REFUSED', 'EXPIRED', 'INVALIDATED'] },
+      valueApprovals: { some: { revokedAt: null } },
+      tasks: {
+        some: { status: { not: TaskStatus.CANCELLED } },
+        none: {
+          status: { not: TaskStatus.CANCELLED },
+          OR: [
+            { implement: { is: null } },
+            { implement: { layouts: { none: { status: 'APPROVED' } } } },
+          ],
+        },
+      },
+    }),
+  },
+
   // ── Every sector ──────────────────────────────────────────────────────────
   {
     // The one rule with an EMPTY audience, and the reason the feature now

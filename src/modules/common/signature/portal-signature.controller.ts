@@ -130,8 +130,8 @@ export class PortalSignatureController {
   ) {
     const data = await this.envelopes.signByPortalSession({
       signerId,
-      // O PRINCIPAL INTEIRO, e não só o id: `roles` decide o portão do pedido de
-      // compra e `sessionId` entra na evidência como a prova de COMO esta pessoa
+      // O PRINCIPAL INTEIRO, e não só o id: `roles` decide a exigência do nº do
+      // pedido (DD12) e `sessionId` entra na evidência como a prova de COMO esta pessoa
       // foi autenticada — é o campo que, no caminho do código, seria o
       // `challengeId`. Relê-los do banco aqui seria reler o que a guarda acabou
       // de ler, e abriria a janela em que os dois discordam.
@@ -147,6 +147,7 @@ export class PortalSignatureController {
       acceptedDeclarationKeys: body.declarations,
       clientTimestamp: body.clientTimestamp,
       geo: body.geo,
+      orderNumbers: body.orderNumbers,
       ctx: ctxOf(req),
     });
 

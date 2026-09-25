@@ -18,7 +18,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { EnvelopeSignerStatus, EnvelopeStatus } from '@prisma/client';
+import { BudgetSignatureStatus, EnvelopeSignerStatus, EnvelopeStatus } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureAuditService } from './signature-audit.service';
 import { SignatureEnvelopeService } from './signature-envelope.service';
@@ -84,16 +84,31 @@ export class SignatureExpiryScheduler {
         // Reivindicação atômica: um sweep concorrente (ou uma conclusão
         // acontecendo neste exato instante) não pode marcar como expirado algo
         // que já saiu de RUNNING.
-        const claim = await this.prisma.signatureEnvelope.updateMany({
-          where: { id: env.id, status: EnvelopeStatus.RUNNING },
-          data: { status: EnvelopeStatus.EXPIRED },
-        });
-        if (claim.count === 0) continue;
+        //
+        // Envelope, signatários e o EIXO DA ASSINATURA (D-28) no mesmo commit:
+        // antes eram três escritas soltas, e um processo morrendo entre elas
+        // deixava o envelope vencido com o orçamento "aguardando o cliente".
+        const claimed = await this.prisma.$transaction(async tx => {
+          const claim = await tx.signatureEnvelope.updateMany({
+            where: { id: env.id, status: EnvelopeStatus.RUNNING },
+            data: { status: EnvelopeStatus.EXPIRED },
+          });
+          if (claim.count === 0) return false;
 
-        await this.prisma.envelopeSigner.updateMany({
-          where: { envelopeId: env.id, status: { not: EnvelopeSignerStatus.SIGNED } },
-          data: { status: EnvelopeSignerStatus.EXPIRED },
+          await tx.envelopeSigner.updateMany({
+            where: { envelopeId: env.id, status: { not: EnvelopeSignerStatus.SIGNED } },
+            data: { status: EnvelopeSignerStatus.EXPIRED },
+          });
+          await this.envelopes.writeSignatureAxis(tx, {
+            quoteId: env.quoteId,
+            to: BudgetSignatureStatus.EXPIRED,
+            onlyFrom: [BudgetSignatureStatus.AWAITING_CUSTOMER],
+            reason: 'A validade venceu com assinatura do cliente faltando.',
+          });
+          return true;
         });
+        if (!claimed) continue;
+
         await this.challenges.supersedeAllForEnvelope(env.id);
         await this.audit.record(env.id, {
           eventType: 'ENVELOPE_EXPIRED',

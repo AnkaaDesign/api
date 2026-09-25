@@ -62,6 +62,7 @@ export interface FilesFolderMapping {
   // Entity-specific folders - Financial
   budgetSignatures: string;
   budgetDossiers: string;
+  budgetOfflineSignature: string;
   admissionDocuments: string;
   terminationDocuments: string;
   medicalExams: string;
@@ -188,6 +189,9 @@ export class FilesStorageService {
     // um sanitizador só, tudo cai na pasta do cliente que o resto do sistema usa.
     budgetSignatures: 'Orcamentos/Assinaturas',
     budgetDossiers: 'Orcamentos/Dossies',
+    // "Assinado fora do sistema" (DD11): a foto/PDF do papel assinado. Ao lado
+    // dos contratos selados, porque é o mesmo documento por outro caminho.
+    budgetOfflineSignature: 'Orcamentos/Assinaturas',
 
     // Raiz do storage (sem entidade dona).
     //
@@ -304,6 +308,7 @@ export class FilesStorageService {
     'implementVinPlate',
     'budgetSignatures',
     'budgetDossiers',
+    'budgetOfflineSignature',
     'plotterEspovo',
     'plotterAdesivo',
     'installmentReceipts',

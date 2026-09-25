@@ -964,10 +964,27 @@ export class ReceivableTaskMatchService {
         // do `Billing` criado logo abaixo, e quem o deriva é a cascata.
         status: TASK_QUOTE_STATUS.APPROVED,
         statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.APPROVED],
+        // `WAIVED` ("Dispensada, legado"): o ÚNICO escritor dele fora da migração
+        // (D-34, DD7). Não houve documento para assinar — o dinheiro entrou antes
+        // de existir orçamento —, e a cobrança é registrada, não aprovada agora.
+        // A conciliação NÃO usa o "Assinado fora do sistema" (DD11): não há nota
+        // nem anexo de assinatura a registrar, e fingir um seria pior.
+        signatureStatus: 'WAIVED',
         // O contrato inteiro está faturado: há um veículo e uma cobrança só.
         billingApprovedAt: now,
         services: {
           create: [{ description: input.description, amount, position: 0 }],
+        },
+        // O registro do valor aprovado (D-27): o que o E1 e o portal leem.
+        valueApprovals: {
+          create: [
+            {
+              source: 'MIGRATED',
+              userId: input.userId || null,
+              total: amount,
+              decidedAt: now,
+            },
+          ],
         },
       },
       select: { id: true },

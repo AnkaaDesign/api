@@ -1,3 +1,4 @@
+import { syncValueApprovalAndLog } from '../../../utils/budget-value-approval';
 import {
   BadRequestException,
   Inject,
@@ -220,9 +221,18 @@ export class ServiceOrderService {
         });
         if (!current || current.status !== TASK_QUOTE_STATUS.CANCELLED) continue;
 
+        // NÃO RESSUSCITA `APPROVED` (§2A.5): o cancelamento fechou a aprovação do
+        // valor, e um APROVADO sem aprovação vigente afirmaria um acordo que ninguém
+        // renovou. Volta a PENDENTE — a Ankaa reenvia ao cliente. O `SIGNED` legado,
+        // idem.
+        const restored =
+          previousStatus === TASK_QUOTE_STATUS.APPROVED ||
+          previousStatus === TASK_QUOTE_STATUS.SIGNED
+            ? TASK_QUOTE_STATUS.PENDING
+            : (previousStatus as TASK_QUOTE_STATUS);
         await tx.budget.update({
           where: { id: current.id },
-          data: { status: previousStatus as TASK_QUOTE_STATUS, statusOrder },
+          data: { status: restored, statusOrder: TASK_QUOTE_STATUS_ORDER[restored] },
         });
 
         await this.changeLogService.logChange({
@@ -231,9 +241,12 @@ export class ServiceOrderService {
           action: CHANGE_ACTION.UPDATE,
           field: 'status',
           oldValue: TASK_QUOTE_STATUS.CANCELLED,
-          newValue: previousStatus,
+          newValue: restored,
           reason:
-            'Orçamento restaurado automaticamente pois a ordem de serviço comercial foi reativada',
+            'Orçamento restaurado automaticamente pois a ordem de serviço comercial foi reativada' +
+            (restored !== previousStatus
+              ? ` (era ${previousStatus}; o valor precisa ser aprovado de novo)`
+              : ''),
           triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
           triggeredById: commercialServiceOrderId,
           userId: userId || '',
@@ -1164,6 +1177,10 @@ export class ServiceOrderService {
                     status: TASK_QUOTE_STATUS.CANCELLED,
                     statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.CANCELLED],
                   },
+                });
+                await syncValueApprovalAndLog(tx, this.changeLogService, qfc.id, {
+                  leftReason: 'Orçamento cancelado pelo cancelamento da tarefa.',
+                  userId: userId || null,
                 });
                 await this.changeLogService.logChange({
                   entityType: ENTITY_TYPE.TASK_QUOTE,
@@ -3184,6 +3201,10 @@ export class ServiceOrderService {
                           status: TASK_QUOTE_STATUS.CANCELLED,
                           statusOrder: TASK_QUOTE_STATUS_ORDER[TASK_QUOTE_STATUS.CANCELLED],
                         },
+                      });
+                      await syncValueApprovalAndLog(tx, this.changeLogService, qfc.id, {
+                        leftReason: 'Orçamento cancelado pelo cancelamento da tarefa.',
+                        userId: userId || null,
                       });
                       await this.changeLogService.logChange({
                         entityType: ENTITY_TYPE.TASK_QUOTE,

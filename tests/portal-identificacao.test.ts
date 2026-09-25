@@ -69,7 +69,7 @@
 
 import { readFileSync } from 'fs';
 import { Logger } from '@nestjs/common';
-import { isSolePurchasingContact } from '../src/modules/common/signature/purchase-order-gate';
+import { orderNumberRequirement } from '../src/modules/common/signature/order-number-gate';
 import { join } from 'path';
 
 import {
@@ -518,7 +518,7 @@ console.log('\nO SUB-PORTAO DO PEDIDO DE COMPRA');
   // dono: "vendedor tambem pode definir o numero de pedido, nao apenas o
   // compras, todos os papeis; mas se nao tiver, pelo menos o compras fica
   // impedido de assinar". A exigencia migrou inteira para o PORTAO DA
-  // ASSINATURA (`purchase-order-gate.ts`), que e' onde ela sempre pertenceu: a
+  // ASSINATURA (`order-number-gate.ts`, DD12), que e' onde ela sempre pertenceu: a
   // regra e' sobre o ATO DE APROVAR, nao sobre quem digita.
   //
   // O codigo do sub-portao fica de pe: ele volta a morder no dia em que a
@@ -547,8 +547,9 @@ console.log('\nO SUB-PORTAO DO PEDIDO DE COMPRA');
       hasCapability(['COMMERCIAL'], PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER),
   );
   check(
-    '⛔ e mesmo assim o COMPRAS-PURO segue barrado de ASSINAR sem o numero',
-    isSolePurchasingContact(['PURCHASING']) && !isSolePurchasingContact(['COMMERCIAL']),
+    '⛔ e mesmo assim quem TEM COMPRAS so assina com o numero (DD12, order-number-gate)',
+    orderNumberRequirement({ roles: ['PURCHASING'], tasks: [{ id: 't' }] })?.required === true &&
+      orderNumberRequirement({ roles: ['COMMERCIAL'], tasks: [{ id: 't' }] }) === null,
   );
   check(
     'quem acumula COMPRAS com GESTOR DE FROTA escreve os dois',

@@ -1,5 +1,5 @@
 /**
- * O PORTÃO DO PEDIDO DE COMPRA — a tabela-verdade, de ponta a ponta.
+ * O Nº DO PEDIDO DE COMPRA NA ASSINATURA (DD12) — a tabela-verdade, de ponta a ponta.
  *
  * O dono enunciou a regra assim: "tente aprovar como compras sem ter numero de
  * pedido, e com outros responsaveis sem ter numero de pedido, deveria bloquear
@@ -8,8 +8,10 @@
  *
  * A regra PURA já tem teste sem banco (`tests/portal-assinatura-compras.test.ts`).
  * O que ESTE arquivo prova é o que faltava: que ela chega inteira até a ponta —
- * a listagem ANUNCIA o veredito, o `POST .../assinar` RECUSA com a mesma frase,
- * quem não é Compras-puro NÃO é barrado, e preencher o número ABRE o caminho.
+ * a listagem ANUNCIA a exigência (`orderNumber`), o `POST .../assinar` RECUSA
+ * com 400 e a frase da `main` quando falta o número, quem TEM Compras (mesmo
+ * acumulando) é cobrado, quem não tem não é, e informar o número NO PRÓPRIO ATO
+ * (ou pelo pedido do portal) abre o caminho. DD12: vale a regra da `main`.
  *
  * ⛔ ELE MONTA O PRÓPRIO CASO, E ISSO NÃO É LUXO.
  * A primeira versão procurava um orçamento que já existisse. Funcionou uma vez
@@ -28,7 +30,7 @@ import { prisma, CONTATOS, FUNCIONARIOS, SENHA_INTERNA, API } from '../helpers/e
 import { abreNavegador, novaAba } from '../helpers/navegador';
 import { sessaoDoPortal, apiPortal } from '../helpers/ui';
 import { check, phase, scenario, report, info } from '../../e2e-ui/helpers/harness';
-import { PURCHASE_ORDER_REQUIRED_MESSAGE } from '@modules/common/signature/purchase-order-gate';
+import { ORDER_NUMBER_REQUIRED_MESSAGE } from '@modules/common/signature/order-number-gate';
 
 async function tokenInterno(email: string): Promise<string> {
   const r = await fetch(`${API}/auth/login`, {
@@ -64,12 +66,17 @@ async function apiInterna(token: string, caminho: string, init: { method?: strin
 const doOrcamento = (resposta: any, budgetId: string) =>
   (resposta.body?.data ?? []).find((i: any) => i.envelope?.budgetId === budgetId);
 
-const corpoDeAssinatura = (item: any, cargo: string) => ({
+const corpoDeAssinatura = (
+  item: any,
+  cargo: string,
+  orderNumbers?: Array<{ taskId: string; value: string }>,
+) => ({
   cpf: '111.444.777-35',
   cargo,
   declarations: (item.declaracoes ?? []).map((d: any) => d.key),
   clientTimestamp: new Date().toISOString(),
   geo: null,
+  ...(orderNumbers ? { orderNumbers } : {}),
 });
 
 async function main() {
@@ -175,6 +182,19 @@ async function main() {
   }
   info('montagem: 3 contatos convocados, arte aprovada nos implementos, nenhum pedido de compra');
 
+  // O VALOR APROVADO (E1, Modelo C): a emissão só sai com ele. Em nome do
+  // cliente, pela rota interna, com nota — é montagem, não o objeto do teste.
+  const internoValor = await tokenInterno(FUNCIONARIOS.comercial);
+  await apiInterna(internoValor, `/budgets/${budgetId}`, {
+    method: 'PUT',
+    body: { services: [{ description: 'Caso do portão', amount: 100 }] },
+  });
+  const valor = await apiInterna(internoValor, `/budgets/${budgetId}/value-approval`, {
+    method: 'PUT',
+    body: { note: 'Montagem da bateria do pedido de compra.' },
+  });
+  check('o valor é aprovado em nome do cliente (montagem)', valor.status === 200, `status=${valor.status}`);
+
   // ── A EMISSÃO, pela API interna, com cerimônia de SESSÃO ────────────────
   const interno = await tokenInterno(FUNCIONARIOS.comercial);
   const emissao = await apiInterna(interno, `/signature-envelopes/quote/${budgetId}`, {
@@ -189,70 +209,54 @@ async function main() {
     `status=${emissao.status} · ${emissao.body?.message ?? JSON.stringify(emissao.body?.blockers ?? emissao.body).slice(0, 220)}`,
   );
 
-  // ⛔ A EMISSÃO MOVE O ESTADO, no MESMO commit do envelope.
-  //
-  // Enquanto não movia, o estado derivava em silêncio: havia NOVE orçamentos em
-  // `REQUESTED` com coleta `RUNNING` e assinaturas colhidas, e a tela do
-  // comercial — que lê o estado — seguia oferecendo "Enviar para pré-aprovação"
-  // para um documento que o cliente já tinha assinado. Pior que a feiura: ao
-  // concluir a coleta o fluxo chama `budgetApprove()`, e `REQUESTED → APPROVED`
-  // não é aresta do grafo. O documento assinado não teria como virar orçamento
-  // aprovado.
+  // ⛔ A EMISSÃO MOVE O EIXO DA ASSINATURA, e NÃO o valor (D-28, D-29): o
+  // orçamento segue APROVADO (valor aprovado) e a assinatura passa a
+  // AGUARDANDO O CLIENTE no mesmo commit do envelope.
   const depoisDaEmissao = await prisma.budget.findUnique({
     where: { id: budgetId },
-    select: { status: true, statusOrder: true },
+    select: { status: true, signatureStatus: true },
   });
+  check('o valor continua APROVADO', depoisDaEmissao?.status === 'APPROVED', `status=${depoisDaEmissao?.status}`);
   check(
-    '⛔ e o orçamento passa a AGUARDANDO ASSINATURA junto',
-    depoisDaEmissao?.status === 'PENDING',
-    `status=${depoisDaEmissao?.status}`,
-  );
-  check(
-    'com a ordem da TABELA, não um `|| 1` improvisado',
-    depoisDaEmissao?.statusOrder === 6,
-    `statusOrder=${depoisDaEmissao?.statusOrder}`,
+    'e o eixo passa a AWAITING_CUSTOMER junto',
+    depoisDaEmissao?.signatureStatus === 'AWAITING_CUSTOMER',
+    `signatureStatus=${depoisDaEmissao?.signatureStatus}`,
   );
 
-  // ── COMPRAS-PURO: anunciado e barrado ───────────────────────────────────
+  // ── QUEM TEM COMPRAS: anunciado e barrado sem número ──────────────────
   const pgCompras = await novaAba(browser);
   const tkCompras = await sessaoDoPortal(pgCompras, CONTATOS.compras.fone, CONTATOS.compras.nome);
 
   let itemCompras: any = null;
-  await scenario('Compras-puro: a listagem ANUNCIA o portão', pgCompras, async () => {
+  await scenario('Compras: a listagem ANUNCIA a exigência do número', pgCompras, async () => {
     itemCompras = doOrcamento(await apiPortal(tkCompras, '/cliente/me/assinaturas'), budgetId);
     check('Compras foi convocado e a assinatura está pendente', !!itemCompras);
     if (!itemCompras) return;
     check(
-      'pedidoDeCompra.exigido = true (papel ÚNICO Compras)',
-      itemCompras.pedidoDeCompra?.exigido === true,
-      JSON.stringify(itemCompras.pedidoDeCompra),
+      'orderNumber.required = true (o veículo não tem pedido)',
+      itemCompras.orderNumber?.required === true,
+      JSON.stringify(itemCompras.orderNumber),
     );
     check(
-      'pedidoDeCompra.pendente = true (o veículo não tem número)',
-      itemCompras.pedidoDeCompra?.pendente === true,
-      JSON.stringify(itemCompras.pedidoDeCompra),
-    );
-    check(
-      'a mensagem é a MESMA constante do servidor, byte a byte',
-      itemCompras.pedidoDeCompra?.mensagem === PURCHASE_ORDER_REQUIRED_MESSAGE,
-      `recebida="${itemCompras.pedidoDeCompra?.mensagem}"`,
+      'e lista o veículo, com o teto do número',
+      (itemCompras.orderNumber?.vehicles ?? []).length === tarefas.length &&
+        typeof itemCompras.orderNumber?.maxLength === 'number',
     );
   });
 
-  await scenario('Compras-puro: assinar SEM pedido é recusado com 403', pgCompras, async () => {
+  await scenario('Compras: assinar SEM número é recusado com 400', pgCompras, async () => {
     if (!itemCompras) return check('há signatário de Compras para tentar assinar', false);
     const r = await apiPortal(tkCompras, `/cliente/me/assinaturas/${itemCompras.signerId}/assinar`, {
       method: 'POST',
       body: corpoDeAssinatura(itemCompras, 'Compras'),
     });
-    check('a assinatura do Compras-puro é RECUSADA', r.status === 403, `status=${r.status}`);
+    check('a assinatura é RECUSADA com 400 (não 403)', r.status === 400, `status=${r.status}`);
     check(
-      'a recusa traz a frase exata do portão',
-      String(r.body?.message ?? '').includes(PURCHASE_ORDER_REQUIRED_MESSAGE),
+      'com a frase da main',
+      String(r.body?.message ?? '').includes(ORDER_NUMBER_REQUIRED_MESSAGE) ||
+        String(r.body?.message ?? '').includes('Informe o nº do pedido de compra'),
       `mensagem="${r.body?.message}"`,
     );
-    // ⚠️ Guarda contra `undefined`: `where: { id: undefined }` faz o Prisma
-    // DESCARTAR a chave, e a contagem viraria "todos os assinados da base".
     const assinou = itemCompras.signerId
       ? await prisma.envelopeSigner.count({
           where: { id: itemCompras.signerId, status: 'SIGNED' as any },
@@ -262,24 +266,19 @@ async function main() {
   });
 
   // ── OS DOIS CONTROLES ───────────────────────────────────────────────────
-  await scenario('quem ACUMULA Compras com Comercial não é barrado', pgAutor, async () => {
+  await scenario('quem ACUMULA Compras com Comercial TAMBÉM é cobrado (DD12)', pgAutor, async () => {
     const meu = doOrcamento(await apiPortal(tkAutor, '/cliente/me/assinaturas'), budgetId);
     check('o acumulador foi convocado', !!meu);
     if (!meu) return;
-    // É a diferença entre `roles.length === 1 && roles[0] === PURCHASING` e
-    // `roles.includes(PURCHASING)` — e é a regra inteira.
     check(
-      'pedidoDeCompra.exigido = false, apesar de ele TER Compras',
-      meu.pedidoDeCompra?.exigido === false,
-      JSON.stringify(meu.pedidoDeCompra),
+      'orderNumber.required = true — a regra é TER Compras, não SÓ Compras',
+      meu.orderNumber?.required === true,
+      JSON.stringify(meu.orderNumber),
     );
   });
 
   const pgVendedor = await novaAba(browser);
   await scenario('Vendedor: o MESMO documento sem pedido NÃO o barra', pgVendedor, async () => {
-    // O login vem para DENTRO do cenário: o teto de 5 desafios por hora por
-    // contato é real, e um contato no teto derrubava a bateria inteira aqui,
-    // apagando os resultados dos cenários que já tinham passado.
     const tkVendedor = await sessaoDoPortal(
       pgVendedor,
       CONTATOS.vendedor.fone,
@@ -288,47 +287,37 @@ async function main() {
     const meu = doOrcamento(await apiPortal(tkVendedor, '/cliente/me/assinaturas'), budgetId);
     check('o Vendedor foi convocado para este documento', !!meu);
     if (!meu) return;
-    check(
-      'pedidoDeCompra.exigido = false para o Vendedor',
-      meu.pedidoDeCompra?.exigido === false,
-      JSON.stringify(meu.pedidoDeCompra),
-    );
+    check('orderNumber = null para o Vendedor (não está sujeito)', meu.orderNumber === null);
     const r = await apiPortal(tkVendedor, `/cliente/me/assinaturas/${meu.signerId}/assinar`, {
       method: 'POST',
       body: corpoDeAssinatura(meu, 'Vendedor'),
     });
-    check(
-      'o Vendedor NÃO recebe a recusa do pedido de compra',
-      !String(r.body?.message ?? '').includes(PURCHASE_ORDER_REQUIRED_MESSAGE),
-      `status=${r.status} · mensagem="${r.body?.message}"`,
-    );
     check('e a assinatura dele é aceita', r.status === 200 || r.status === 201, `status=${r.status}`);
   });
 
-  // ── O DESTRAVE ──────────────────────────────────────────────────────────
-  await scenario('Compras emite o pedido e o portão abre', pgCompras, async () => {
-    const numero = `PC-${Date.now().toString().slice(-7)}`;
-    const r = await apiPortal(tkCompras, '/cliente/me/pedidos', {
-      method: 'POST',
-      body: { number: numero, taskIds: tarefas.map(t => t.id) },
-    });
-    check(
-      'POST /cliente/me/pedidos aceita o número',
-      r.status === 200 || r.status === 201,
-      `status=${r.status} · ${r.body?.message ?? ''}`,
-    );
-
+  // ── O DESTRAVE: o número informado NO ATO ───────────────────────────────
+  await scenario('Compras informa o número ao assinar e assina', pgCompras, async () => {
     const meu = doOrcamento(await apiPortal(tkCompras, '/cliente/me/assinaturas'), budgetId);
-    check('agora pedidoDeCompra.pendente = false', meu?.pedidoDeCompra?.pendente === false,
-      JSON.stringify(meu?.pedidoDeCompra));
-    if (!meu) return;
-
-    const r2 = await apiPortal(tkCompras, `/cliente/me/assinaturas/${meu.signerId}/assinar`, {
+    if (!meu) {
+      check('Compras ainda tem a assinatura pendente', false);
+      return;
+    }
+    const numero = `PC-${Date.now().toString().slice(-7)}`;
+    const r = await apiPortal(tkCompras, `/cliente/me/assinaturas/${meu.signerId}/assinar`, {
       method: 'POST',
-      body: corpoDeAssinatura(meu, 'Compras'),
+      body: corpoDeAssinatura(
+        meu,
+        'Compras',
+        tarefas.map(t => ({ taskId: t.id, value: numero })),
+      ),
     });
-    check('e o Compras ASSINA', r2.status === 200 || r2.status === 201,
-      `status=${r2.status} · ${r2.body?.message ?? ''}`);
+    check('e o Compras ASSINA', r.status === 200 || r.status === 201,
+      `status=${r.status} · ${r.body?.message ?? ''}`);
+    const gravado = await prisma.task.findFirst({
+      where: { id: tarefas[0].id },
+      select: { customerOrderNumber: true },
+    });
+    check('o número informado foi gravado na tarefa', gravado?.customerOrderNumber === numero);
   });
 
   await browser.close();

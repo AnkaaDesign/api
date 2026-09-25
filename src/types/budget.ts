@@ -23,11 +23,25 @@ import type { File } from './file';
 // contra o outro: estado que exista lá e falte aqui vira `never` numa comparação
 // e some da tela sem erro nenhum. Mexeu num, mexa no outro.
 export type TASK_QUOTE_STATUS =
+  | 'REQUESTED'
   | 'EXPIRED'
-  | 'SIGNED'
   | 'PENDING'
+  | 'IN_NEGOTIATION'
   | 'APPROVED'
+  | 'SIGNED'
   | 'CANCELLED';
+
+/** O eixo da ASSINATURA — espelho de `BUDGET_SIGNATURE_STATUS`, mesmo aviso acima. */
+export type BUDGET_SIGNATURE_STATUS =
+  | 'NOT_ISSUED'
+  | 'AWAITING_CUSTOMER'
+  | 'AWAITING_ANKAA'
+  | 'SIGNED'
+  | 'SIGNED_OFFLINE'
+  | 'REFUSED'
+  | 'EXPIRED'
+  | 'INVALIDATED'
+  | 'WAIVED';
 
 /** O ciclo do FATURAMENTO — espelho de `BILLING_STATUS`, mesmo aviso acima. */
 export type BILLING_STATUS =
@@ -62,6 +76,15 @@ export interface Budget extends BaseEntity {
   expiresAt: Date;
   status: TASK_QUOTE_STATUS;
   statusOrder: number;
+  /**
+   * O EIXO DA ASSINATURA (D-28), separado do valor (`status`). Escrito só pelo
+   * serviço do envelope, na transação dele, e pelo ato "Assinado fora do
+   * sistema" (DD11). É ele — e não `status` — que libera a cobrança (DD7):
+   * `isBillableSignatureStatus` em `utils/budget-signature.ts`.
+   */
+  signatureStatus?: BUDGET_SIGNATURE_STATUS;
+  /** Valor aprovado E assinatura resolvida (`isQuoteBillable`); só nas leituras que trazem o eixo. */
+  billable?: boolean;
 
   // Guarantee Terms
   guaranteeYears: number | null;

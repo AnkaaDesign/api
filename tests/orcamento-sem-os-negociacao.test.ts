@@ -195,8 +195,9 @@ console.log('\nA STRING deixou de existir como comparação');
     check(`nenhum literal ${re.source} fora do mapa de rótulos`, hits.length === 0, hits.join(', '));
   }
   check(
-    'e o rótulo do ESTADO novo continua sendo "Em Negociação"',
-    /\[TASK_QUOTE_STATUS\.IN_NEGOTIATION\]:\s*'Em Negociação'/.test(codeOf(ROTULOS)),
+    // Pergunta 12 (Modelo C, §2A.3): o valor foi ENVIADO e a bola é do cliente.
+    'e o rótulo do ESTADO é "Aguardando aprovação do cliente"',
+    /\[TASK_QUOTE_STATUS\.IN_NEGOTIATION\]:\s*'Aguardando aprovação do cliente'/.test(codeOf(ROTULOS)),
   );
 
   const soService = codeOf('src/modules/production/service-order/service-order.service.ts');
@@ -253,13 +254,15 @@ console.log('\nIN_NEGOTIATION só é escrito pela máquina do orçamento');
   );
 
   const budgetService = codeOf('src/modules/production/budget/budget.service.ts');
+  // As duas tabelas (manuais × sistema) moram em `budget-transitions.ts` (G26).
+  const transicoes = codeOf('src/modules/production/budget/budget-transitions.ts');
   check(
     'a tabela de transições do orçamento conhece IN_NEGOTIATION',
-    /\[TASK_QUOTE_STATUS\.IN_NEGOTIATION\]:\s*\[/.test(budgetService),
+    /\[S\.IN_NEGOTIATION\]:\s*\[/.test(transicoes),
   );
   check(
     'IN_NEGOTIATION é destino de alguma transição',
-    /TASK_QUOTE_STATUS\.IN_NEGOTIATION,/.test(budgetService),
+    /S\.IN_NEGOTIATION,/.test(transicoes),
   );
   check(
     'validateStatusTransition é quem guarda a porta',

@@ -1,5 +1,6 @@
 // api/src/modules/production/budget/repositories/budget-prisma.repository.ts
 
+import { isQuoteBillable } from '../../../../utils/budget-signature';
 import { Injectable, Logger } from '@nestjs/common';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -94,6 +95,12 @@ export class BudgetPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Budget {
     return {
       ...databaseEntity,
+      // "Já se pode cobrar?" (DD7): valor aprovado E assinatura resolvida, pelo
+      // predicado único. Só quando a leitura trouxe o eixo — um `select` que não
+      // pediu `signatureStatus` não ganha um `false` que ele não perguntou.
+      ...(databaseEntity.signatureStatus !== undefined
+        ? { billable: isQuoteBillable(databaseEntity) }
+        : {}),
       total: databaseEntity.total ? Number(databaseEntity.total) : 0,
       // ⚠️ `subtotal` FALTAVA na conversão, e só ele.
       //

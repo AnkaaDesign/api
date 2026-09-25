@@ -29,7 +29,7 @@ import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
 import { multerConfig } from '@modules/common/file/config/upload.config';
-import { SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
+import { BUDGET_VALUE_APPROVAL_SOURCE, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -41,8 +41,14 @@ import {
   budgetQuerySchema,
   budgetMergeSchema,
   customerConfigOrderNumberSchema,
+  budgetValueApprovalSchema,
+  budgetValueRevokeSchema,
+  budgetWithdrawSchema,
 } from '@schemas/budget';
 import type {
+  BudgetValueApprovalFormData,
+  BudgetValueRevokeFormData,
+  BudgetWithdrawFormData,
   BudgetCreateFormData,
   BudgetUpdateFormData,
   BudgetGetManyFormData,
@@ -194,6 +200,7 @@ export class BudgetController {
     @Body('reason') reason: string | undefined,
     @UserId() userId: string,
     @Req() req: Request,
+    @User('role') userPrivilege: string,
   ) {
     const validStatuses = Object.values(TASK_QUOTE_STATUS);
     if (!validStatuses.includes(status as any)) {
@@ -211,11 +218,119 @@ export class BudgetController {
     //
     // Chamadas antigas caem no `Status inválido` acima, que é o correto: o valor
     // não existe mais no contrato.
+    //
+    // No Modelo C a rota DELEGA aos atos (aprovar valor exige nota, reprovar
+    // exige motivo, enviar exige valor) e confere o papel por destino (X7).
     return this.budgetService.updateStatus(
       id,
       status as TASK_QUOTE_STATUS,
       userId,
       typeof reason === 'string' && reason.trim() ? reason.trim() : undefined,
+      userPrivilege,
+    );
+  }
+
+  /**
+   * PUT /budgets/:id/send-to-customer — "Enviar para aprovação do cliente"
+   * (REQUESTED/PENDING/EXPIRED → IN_NEGOTIATION). O contato é avisado de que os
+   * valores apareceram no portal.
+   *
+   * Access: COMMERCIAL, ADMIN
+   */
+  @Put(':id/send-to-customer')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async sendToCustomer(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.budgetService.sendToCustomer(id, userId);
+  }
+
+  /**
+   * PUT /budgets/:id/withdraw-from-customer — "Retirar do cliente"
+   * (IN_NEGOTIATION → PENDING).
+   *
+   * Access: COMMERCIAL, ADMIN
+   */
+  @Put(':id/withdraw-from-customer')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async withdrawFromCustomer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(budgetWithdrawSchema)) body: BudgetWithdrawFormData,
+    @UserId() userId: string,
+  ) {
+    return this.budgetService.withdrawFromCustomer(id, userId, body?.reason);
+  }
+
+  /**
+   * PUT /budgets/:id/value-approval `{ note }` — "Aprovar valor em nome do
+   * cliente" (REQUESTED/PENDING/IN_NEGOTIATION → APPROVED), com
+   * `BudgetValueApproval{ON_BEHALF}`. Nota obrigatória.
+   *
+   * Access: COMMERCIAL, ADMIN (o FINANCIAL não aprova valor — X7)
+   */
+  @Put(':id/value-approval')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async approveValue(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(budgetValueApprovalSchema)) body: BudgetValueApprovalFormData,
+    @UserId() userId: string,
+  ) {
+    return this.budgetService.approveValue(id, {
+      userId,
+      note: body.note,
+      source: BUDGET_VALUE_APPROVAL_SOURCE.ON_BEHALF,
+    });
+  }
+
+  /**
+   * DELETE /budgets/:id/value-approval `{ reason }` — "Reprovar valor"
+   * (APPROVED → PENDING). Fecha a aprovação vigente; motivo obrigatório.
+   *
+   * Access: COMMERCIAL, ADMIN
+   */
+  @Delete(':id/value-approval')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async revokeValueApproval(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(budgetValueRevokeSchema)) body: BudgetValueRevokeFormData,
+    @UserId() userId: string,
+  ) {
+    return this.budgetService.revokeValueApproval(id, userId, body.reason);
+  }
+
+  /**
+   * POST /budgets/:id/offline-signature — "Assinado fora do sistema" (DD11).
+   *
+   * Multipart: UM arquivo `offlineSignatureFile` (PDF ou imagem, a prova),
+   * `note` obrigatória e `signedAt` opcional (ISO). O eixo vai a `SIGNED_OFFLINE`
+   * e a cobrança passa a poder ser aprovada. 409 com coleta viva/concluída ou com
+   * o eixo num estado de onde não se registra.
+   *
+   * Access: COMMERCIAL, ADMIN
+   */
+  @Post(':id/offline-signature')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  @UseInterceptors(FileInterceptor('offlineSignatureFile', multerConfig))
+  async registerOfflineSignature(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body('note') note: string | undefined,
+    @Body('signedAt') signedAt: string | undefined,
+    @UserId() userId: string,
+  ) {
+    let quando: Date | null = null;
+    if (typeof signedAt === 'string' && signedAt.trim()) {
+      quando = new Date(signedAt);
+      if (Number.isNaN(quando.getTime())) {
+        throw new BadRequestException('Data da assinatura inválida (use o formato ISO).');
+      }
+      if (quando.getTime() > Date.now()) {
+        throw new BadRequestException('A data da assinatura não pode ser no futuro.');
+      }
+    }
+    return this.budgetService.registerOfflineSignature(
+      id,
+      file,
+      { note: typeof note === 'string' ? note : null, signedAt: quando },
+      userId,
     );
   }
 
@@ -229,8 +344,14 @@ export class BudgetController {
    */
   @Put(':id/budget-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async budgetApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.budgetService.budgetApprove(id, userId);
+  async budgetApprove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    // Com nota: "aprovar valor em nome do cliente" (ON_BEHALF). Sem nota: o app
+    // antigo (LEGACY_APP, nota automática, D-36).
+    @Body('note') note?: string,
+  ) {
+    return this.budgetService.budgetApprove(id, userId, typeof note === 'string' ? note : null);
   }
 
   /**
