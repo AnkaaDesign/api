@@ -4148,6 +4148,8 @@ enum LayoutApprovalSource {
   MIGRATED_TASK
   MIGRATED_BUDGET
   MIGRATED_ENVELOPE
+  /// Gesto interno da Ankaa na trilha (enviar, reprovação interna, substituir) — P12, `20260930120210`.
+  INTERNAL
 }
 
 /// Folhas da porta traseira do implemento (M0, R-A). Nenhum modelo usa ainda: a coluna nasce na M2.

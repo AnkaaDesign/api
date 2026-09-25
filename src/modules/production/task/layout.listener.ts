@@ -6,16 +6,23 @@ import {
   LayoutApprovedEvent,
   LayoutReprovedEvent,
   LayoutPendingApprovalReminderEvent,
+  type LayoutActor,
 } from './layout.events';
 
+/** Quem decidiu, para o texto: o contato do cliente é identificado como tal. */
+function actorLabel(actor: LayoutActor): string {
+  const name =
+    actor.name?.trim() || (actor.kind === 'RESPONSIBLE' ? 'contato do cliente' : 'usuário');
+  return actor.kind === 'RESPONSIBLE' ? `${name} (cliente)` : name;
+}
+
 /**
- * Layout status labels for notifications (user-friendly names in Portuguese)
+ * O funcionário que não deve receber o próprio aviso. Contato do cliente não é
+ * `User`: nunca vai neste campo (o id seria gravado como de funcionário).
  */
-const LAYOUT_STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Rascunho',
-  APPROVED: 'Aprovada',
-  REPROVED: 'Reprovada',
-};
+function triggeringUserOf(actor: LayoutActor): string {
+  return actor.kind === 'USER' ? actor.id : 'system';
+}
 
 /**
  * Layout Event Listener
@@ -42,14 +49,9 @@ export class LayoutListener {
     this.logger.log('========================================');
     this.logger.log('[ARTWORK LISTENER] Initializing Layout Event Listener');
     this.logger.log('[ARTWORK LISTENER] Registering event handlers...');
-    this.logger.log(
-      '[ARTWORK LISTENER] Note: layout.uploaded is handled by task.field.layouts notification',
-    );
-
-    // Register event listeners
-    // Note: layout.uploaded and layout.revision_uploaded are NOT registered here
-    // because task.field.layouts already notifies when layout files are added/removed.
-    // These handlers focus specifically on the APPROVAL WORKFLOW (status changes).
+    // A arte é do implemento (P12): estes avisos são do FLUXO DE APROVAÇÃO (a
+    // decisão). O envio ao cliente avisa o contato pelo portal
+    // (`PortalNotificationService.notifyArtworkPendingApproval`).
 
     this.eventEmitter.on('artwork.approved', this.handleLayoutApproved.bind(this));
     this.logger.log('[ARTWORK LISTENER] Registered: artwork.approved');
@@ -72,47 +74,51 @@ export class LayoutListener {
    * Config key: artwork.approved (targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC)
    */
   private async handleLayoutApproved(event: LayoutApprovedEvent): Promise<void> {
-    this.logger.log('========================================');
-    this.logger.log('[ARTWORK EVENT] Layout approved event received');
-    this.logger.log(`[ARTWORK EVENT] Layout ID: ${event.layout.id}`);
-    this.logger.log(`[ARTWORK EVENT] Task ID: ${event.task?.id || 'N/A'}`);
+    const { context, approvedBy } = event;
     this.logger.log(
-      `[ARTWORK EVENT] Approved By: ${event.approvedBy.name} (${event.approvedBy.id})`,
+      `[ARTWORK EVENT] Arte ${context.layout.id} aprovada (${approvedBy.kind} ${approvedBy.name ?? approvedBy.id}); tarefa ${context.task?.id ?? '—'}`,
     );
-    this.logger.log('========================================');
 
     try {
-      const task = event.task;
+      const task = context.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
+      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
+      const who = actorLabel(approvedBy);
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
         : { web: '/producao/cronograma', mobile: '', universalLink: '' };
 
-      await this.dispatchService.dispatchByConfiguration('artwork.approved', event.approvedBy.id, {
-        entityType: 'Task',
-        entityId: task?.id || event.layout.id,
-        action: 'approved',
-        data: {
-          taskName,
-          serialNumber,
-          changedBy: event.approvedBy.name,
+      await this.dispatchService.dispatchByConfiguration(
+        'artwork.approved',
+        triggeringUserOf(approvedBy),
+        {
+          entityType: 'Task',
+          entityId: task?.id || context.layout.id,
+          action: 'approved',
+          data: {
+            taskName,
+            serialNumber,
+            changedBy: who,
+          },
+          metadata: {
+            layoutId: context.layout.id,
+            implementId: context.implementId,
+            taskId: task?.id,
+            actorKind: approvedBy.kind,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
+            relatedEntityType: task ? 'TASK' : 'ARTWORK',
+            title: `Arte aprovada: "${taskName}" ${serialNumber}`,
+            body:
+              approvedBy.kind === 'RESPONSIBLE'
+                ? `O cliente (${who}) aprovou a arte da tarefa "${taskName}" ${serialNumber}. Pronta para produção.`
+                : `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada em nome do cliente por ${who}.${event.note ? ` Nota: ${event.note}` : ''}`,
+          },
         },
-        metadata: {
-          layoutId: event.layout.id,
-          taskId: task?.id,
-        },
-        overrides: {
-          actionUrl: JSON.stringify(deepLinks),
-          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
-          relatedEntityType: task ? 'TASK' : 'ARTWORK',
-          title: `Arte aprovada: "${taskName}" ${serialNumber}`,
-          body: `A arte da tarefa "${taskName}" ${serialNumber} foi aprovada. Pronta para produção.`,
-        },
-      });
-
-      this.logger.log('[ARTWORK EVENT] Layout approved dispatch completed');
+      );
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling layout approved event:', error.message);
     }
@@ -123,51 +129,51 @@ export class LayoutListener {
    * Config key: artwork.reproved (targets ADMIN, COMMERCIAL, DESIGNER, LOGISTIC)
    */
   private async handleLayoutReproved(event: LayoutReprovedEvent): Promise<void> {
-    this.logger.log('========================================');
-    this.logger.log('[ARTWORK EVENT] Layout reproved event received');
-    this.logger.log(`[ARTWORK EVENT] Layout ID: ${event.layout.id}`);
-    this.logger.log(`[ARTWORK EVENT] Task ID: ${event.task?.id || 'N/A'}`);
+    const { context, reprovedBy } = event;
     this.logger.log(
-      `[ARTWORK EVENT] Reproved By: ${event.reprovedBy.name} (${event.reprovedBy.id})`,
+      `[ARTWORK EVENT] Arte ${context.layout.id} reprovada (${reprovedBy.kind} ${reprovedBy.name ?? reprovedBy.id}); motivo: ${event.reason ?? '—'}`,
     );
-    this.logger.log(`[ARTWORK EVENT] Reason: ${event.reason || 'N/A'}`);
-    this.logger.log('========================================');
 
     try {
-      const task = event.task;
+      const task = context.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
+      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
       const reasonText = event.reason ? ` Motivo: ${event.reason}` : '';
+      const who = actorLabel(reprovedBy);
 
       const deepLinks = task
         ? this.deepLinkService.generateTaskLinks(task.id)
         : { web: '/producao/cronograma', mobile: '', universalLink: '' };
 
-      await this.dispatchService.dispatchByConfiguration('artwork.reproved', event.reprovedBy.id, {
-        entityType: 'Task',
-        entityId: task?.id || event.layout.id,
-        action: 'reproved',
-        data: {
-          taskName,
-          serialNumber,
-          changedBy: event.reprovedBy.name,
-          reason: event.reason,
+      await this.dispatchService.dispatchByConfiguration(
+        'artwork.reproved',
+        triggeringUserOf(reprovedBy),
+        {
+          entityType: 'Task',
+          entityId: task?.id || context.layout.id,
+          action: 'reproved',
+          data: {
+            taskName,
+            serialNumber,
+            changedBy: who,
+            reason: event.reason ?? undefined,
+          },
+          metadata: {
+            layoutId: context.layout.id,
+            implementId: context.implementId,
+            taskId: task?.id,
+            actorKind: reprovedBy.kind,
+            rejectionReason: event.reason ?? undefined,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
+            relatedEntityType: task ? 'TASK' : 'ARTWORK',
+            title: `Arte reprovada: "${taskName}" ${serialNumber}`,
+            body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada por ${who}.${reasonText} Uma nova versão é necessária.`,
+          },
         },
-        metadata: {
-          layoutId: event.layout.id,
-          taskId: task?.id,
-          rejectionReason: event.reason,
-        },
-        overrides: {
-          actionUrl: JSON.stringify(deepLinks),
-          webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
-          relatedEntityType: task ? 'TASK' : 'ARTWORK',
-          title: `Arte reprovada: "${taskName}" ${serialNumber}`,
-          body: `A arte da tarefa "${taskName}" ${serialNumber} foi reprovada.${reasonText} Uma nova versão é necessária.`,
-        },
-      });
-
-      this.logger.log('[ARTWORK EVENT] Layout reproved dispatch completed');
+      );
     } catch (error) {
       this.logger.error('[ARTWORK EVENT] Error handling layout reproved event:', error.message);
     }
@@ -181,17 +187,15 @@ export class LayoutListener {
   private async handleLayoutPendingApprovalReminder(
     event: LayoutPendingApprovalReminderEvent,
   ): Promise<void> {
-    this.logger.log('========================================');
-    this.logger.log('[ARTWORK EVENT] Layout pending approval reminder event received');
-    this.logger.log(`[ARTWORK EVENT] Layout ID: ${event.layout.id}`);
-    this.logger.log(`[ARTWORK EVENT] Task ID: ${event.task?.id || 'N/A'}`);
-    this.logger.log(`[ARTWORK EVENT] Days Pending: ${event.daysPending}`);
-    this.logger.log('========================================');
+    const { context } = event;
+    this.logger.log(
+      `[ARTWORK EVENT] Lembrete: arte ${context.layout.id} aguardando o cliente há ${event.daysPending} dia(s)`,
+    );
 
     try {
-      const task = event.task;
+      const task = context.task;
       const taskName = task?.name || 'Sem tarefa';
-      const serialNumber = task?.implement?.serialNumber ? `#${task.implement?.serialNumber}` : '';
+      const serialNumber = task?.serialNumber ? `#${task.serialNumber}` : '';
       const daysText = event.daysPending === 1 ? '1 dia' : `${event.daysPending} dias`;
 
       const deepLinks = task
@@ -203,7 +207,7 @@ export class LayoutListener {
         'system',
         {
           entityType: 'Task',
-          entityId: task?.id || event.layout.id,
+          entityId: task?.id || context.layout.id,
           action: 'pending_approval_reminder',
           data: {
             taskName,
@@ -212,7 +216,8 @@ export class LayoutListener {
             daysText,
           },
           metadata: {
-            layoutId: event.layout.id,
+            layoutId: context.layout.id,
+            implementId: context.implementId,
             taskId: task?.id,
             daysPending: event.daysPending,
           },
@@ -220,13 +225,11 @@ export class LayoutListener {
             actionUrl: JSON.stringify(deepLinks),
             webUrl: task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/cronograma',
             relatedEntityType: task ? 'TASK' : 'ARTWORK',
-            title: `Lembrete: Arte aguardando aprovação há ${daysText}`,
-            body: `A arte da tarefa "${taskName}" ${serialNumber} está aguardando aprovação há ${daysText}. Por favor, revise e aprove ou reprove a arte.`,
+            title: `Lembrete: arte aguardando o cliente há ${daysText}`,
+            body: `A arte da tarefa "${taskName}" ${serialNumber} foi enviada ao cliente há ${daysText} e segue sem resposta. Cobre o cliente ou aprove em nome dele, com nota.`,
           },
         },
       );
-
-      this.logger.log('[ARTWORK EVENT] Layout pending approval reminder dispatch completed');
     } catch (error) {
       this.logger.error(
         '[ARTWORK EVENT] Error handling layout pending approval reminder event:',

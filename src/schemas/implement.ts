@@ -64,7 +64,6 @@ export const implementIncludeSchema = z
                 observation: z.boolean().optional(),
                 generalPainting: z.boolean().optional(),
                 createdBy: z.boolean().optional(),
-                layouts: z.boolean().optional(),
                 logoPaints: z.boolean().optional(),
                 serviceOrders: z.boolean().optional(),
               })
@@ -84,6 +83,15 @@ export const implementIncludeSchema = z
     vinPlate: z.boolean().optional(),
     // Projeto do implemento (a Furgões): PDFs.
     projectFiles: z.boolean().optional(),
+    // A arte do implemento (R2), com o arquivo.
+    layouts: z
+      .union([
+        z.boolean(),
+        z
+          .object({ include: z.object({ file: z.boolean().optional() }).strict().optional() })
+          .strict(),
+      ])
+      .optional(),
   })
   .strict();
 

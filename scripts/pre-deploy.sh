@@ -57,6 +57,9 @@ PASSOS=(
   "billing-lens|0|npm run -s test:billing-lens"
   "orcamento-sem-os-negociacao|0|npm run -s test:orcamento-sem-os-negociacao"
   "a arte do orçamento é a dos implementos (G11 puro, portão, filtro por papel, aerografia)|1|npm run -s test:quote-artwork"
+  # ── P12: o portão da arte na liberação (DD3/DD10), tabela das funções puras ──
+  "portão da arte na liberação (automática e manual; trabalho novo × legado)|0|npm run -s test:artwork-gate"
+  "arte do implemento (máquina §7.1, corrida, portão, portal, lote, G33 lado arte)|1|npm run -s test:implement-layout"
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
   # ── P04: escritor único de medida ──
   "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"

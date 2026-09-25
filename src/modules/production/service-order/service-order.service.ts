@@ -53,6 +53,11 @@ import {
   calculateCorrectTaskStatus,
   areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
+import {
+  ARTWORK_GATE_BLOCKED_MESSAGE,
+  artworkGateFor,
+  entersProduction,
+} from '../../../utils/artwork-gate';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
 import {
   SERVICE_ORDER_STATUS_ORDER,
@@ -924,6 +929,7 @@ export class ServiceOrderService {
         // service order is COMPLETED AND all COMMERCIAL service orders are concluded.
         // Triggered by either an artwork or a commercial SO completing. The commercial gate only
         // blocks the AUTOMATIC transition — an explicit "Disponibilizar para produção" bypasses it.
+        // O portão da ARTE (D-15/DD3) vale para as duas: ver `utils/artwork-gate.ts`.
         if (
           data.status === SERVICE_ORDER_STATUS.COMPLETED &&
           oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
@@ -956,7 +962,14 @@ export class ServiceOrderService {
               })),
             );
 
-            if (anyArtworkCompleted && allCommercialCompleted) {
+            // O portão da arte (D-15/DD3): trabalho novo sem a arte do implemento
+            // aprovada fica em preparação; a aprovação libera depois, sozinha.
+            const artworkGate =
+              anyArtworkCompleted && allCommercialCompleted
+                ? await artworkGateFor(tx, task.id)
+                : 'NOT_APPLICABLE';
+
+            if (anyArtworkCompleted && allCommercialCompleted && artworkGate !== 'PENDING') {
               this.logger.log(
                 `[AUTO-TRANSITION] ${updated.type} service order ${id} completed for task ${task.id} (artwork done, commercial done), transitioning PREPARATION → WAITING_PRODUCTION`,
               );
@@ -992,7 +1005,7 @@ export class ServiceOrderService {
               };
             } else {
               this.logger.log(
-                `[AUTO-TRANSITION] Task ${task.id} stays in PREPARATION (artwork completed: ${anyArtworkCompleted}, commercial completed: ${allCommercialCompleted})`,
+                `[AUTO-TRANSITION] Task ${task.id} stays in PREPARATION (artwork completed: ${anyArtworkCompleted}, commercial completed: ${allCommercialCompleted}, artwork gate: ${artworkGate})`,
               );
             }
           }
@@ -1281,6 +1294,7 @@ export class ServiceOrderService {
                 status: so.status as SERVICE_ORDER_STATUS,
                 type: so.type as SERVICE_ORDER_TYPE,
               })),
+              await artworkGateFor(tx, task.id),
             );
 
             this.logger.log(
@@ -2973,7 +2987,11 @@ export class ServiceOrderService {
                     })),
                   );
 
-                  if (anyArtworkCompleted && allCommercialCompleted) {
+                  if (
+                    anyArtworkCompleted &&
+                    allCommercialCompleted &&
+                    (await artworkGateFor(tx, task.id)) !== 'PENDING'
+                  ) {
                     this.logger.log(
                       `[AUTO-TRANSITION BATCH] ${serviceOrder.type} service order ${serviceOrder.id} completed for task ${task.id} (artwork done, commercial done), transitioning PREPARATION → WAITING_PRODUCTION`,
                     );
@@ -3286,6 +3304,7 @@ export class ServiceOrderService {
                       status: so.status as SERVICE_ORDER_STATUS,
                       type: so.type as SERVICE_ORDER_TYPE,
                     })),
+                    await artworkGateFor(tx, task.id),
                   );
 
                   this.logger.log(

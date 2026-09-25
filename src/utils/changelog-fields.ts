@@ -776,6 +776,9 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     rearDoorLeaves: 'Folhas da Porta Traseira',
     rearDoorBarCount: 'Varões da Porta Traseira',
     rearDoorHatchCount: 'Portinholas da Porta Traseira',
+    projectFiles: 'Projeto do Implemento',
+    // A arte do implemento (P12): enviar, aprovar, reprovar, versão nova.
+    layouts: 'Arte',
   },
   [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: {
     subtotal: 'Subtotal',

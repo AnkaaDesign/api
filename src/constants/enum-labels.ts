@@ -35,6 +35,8 @@ import {
   IMPLEMENT_TYPE,
   IMPLEMENT_SPOT,
   REAR_DOOR_LEAVES,
+  LAYOUT_STATUS,
+  LAYOUT_APPROVAL_SOURCE,
   WARNING_SEVERITY,
   WARNING_CATEGORY,
   NOTIFICATION_TYPE,
@@ -432,6 +434,24 @@ export const IMPLEMENT_TYPE_LABELS: Record<IMPLEMENT_TYPE, string> =
 export const REAR_DOOR_LEAVES_LABELS: Record<REAR_DOOR_LEAVES, string> = {
   [REAR_DOOR_LEAVES.BIPARTITE]: 'Bipartida',
   [REAR_DOOR_LEAVES.TRIPARTITE]: 'Tripartida',
+};
+
+/** Os estados da arte, com as palavras do plano (§1). */
+export const LAYOUT_STATUS_LABELS: Record<LAYOUT_STATUS, string> = {
+  [LAYOUT_STATUS.DRAFT]: 'Rascunho',
+  [LAYOUT_STATUS.PENDING_APPROVAL]: 'Aguardando aprovação do cliente',
+  [LAYOUT_STATUS.APPROVED]: 'Aprovada',
+  [LAYOUT_STATUS.REPROVED]: 'Reprovada',
+  [LAYOUT_STATUS.SUPERSEDED]: 'Substituída',
+};
+
+export const LAYOUT_APPROVAL_SOURCE_LABELS: Record<LAYOUT_APPROVAL_SOURCE, string> = {
+  [LAYOUT_APPROVAL_SOURCE.PORTAL]: 'Pelo cliente, no portal',
+  [LAYOUT_APPROVAL_SOURCE.ON_BEHALF]: 'Em nome do cliente',
+  [LAYOUT_APPROVAL_SOURCE.MIGRATED_TASK]: 'Aprovada na tarefa (antes do portal)',
+  [LAYOUT_APPROVAL_SOURCE.MIGRATED_BUDGET]: 'Aprovada no orçamento (antes do portal)',
+  [LAYOUT_APPROVAL_SOURCE.MIGRATED_ENVELOPE]: 'Assinada no orçamento (antes do portal)',
+  [LAYOUT_APPROVAL_SOURCE.INTERNAL]: 'Ankaa',
 };
 
 export const IMPLEMENT_SPOT_LABELS: Record<IMPLEMENT_SPOT, string> = {

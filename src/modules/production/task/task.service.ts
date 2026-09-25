@@ -100,6 +100,11 @@ import {
   calculateCorrectTaskStatus,
   areCommercialServiceOrdersComplete,
 } from '../../../utils/task-service-order-sync';
+import {
+  ARTWORK_GATE_BLOCKED_MESSAGE,
+  artworkGateFor,
+  entersProduction,
+} from '../../../utils/artwork-gate';
 import { getServiceOrderStatusOrder, getTaskQuoteStatusOrder } from '../../../utils/sortOrder';
 import {
   getBidirectionalSyncActions,
@@ -262,6 +267,24 @@ export class TaskService {
     @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly signatureEnvelopes: SignatureEnvelopeService,
   ) {}
+
+  /**
+   * DD10: a liberação MANUAL ("Disponibilizar para produção", ou qualquer troca de
+   * status que ENTRE em produção) também respeita o portão da arte — trabalho novo
+   * só vai para o chão de fábrica com a arte do implemento aprovada. Sem dispensa
+   * (DD9): quem precisa liberar sem o cliente aprova a arte em nome dele, com nota.
+   */
+  private async assertArtworkAllowsRelease(
+    tx: PrismaTransaction,
+    taskId: string,
+    fromStatus: TASK_STATUS,
+    toStatus: TASK_STATUS,
+  ): Promise<void> {
+    if (!entersProduction(fromStatus, toStatus)) return;
+    if ((await artworkGateFor(tx, taskId)) === 'PENDING') {
+      throw new BadRequestException(ARTWORK_GATE_BLOCKED_MESSAGE);
+    }
+  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Inline-quote no-op filter
@@ -2545,6 +2568,7 @@ export class TaskService {
               `Transição de status inválida: ${getTaskStatusLabel(fromStatus)} → ${getTaskStatusLabel(toStatus)}`,
             );
           }
+          await this.assertArtworkAllowsRelease(tx, id, fromStatus, toStatus);
 
           // Only PRODUCTION_MANAGER, LOGISTIC and ADMIN can set a task to
           // COMPLETED or move it away from COMPLETED (COMPLETED feeds
@@ -3168,6 +3192,7 @@ export class TaskService {
                         updatedServiceOrder.status as SERVICE_ORDER_STATUS,
                         updatedServiceOrder.type as SERVICE_ORDER_TYPE,
                         currentTask.status as TASK_STATUS,
+                        await artworkGateFor(tx, id),
                       );
 
                       if (layoutSyncResult?.shouldUpdate) {
@@ -3382,6 +3407,7 @@ export class TaskService {
                         updatedServiceOrder.status as SERVICE_ORDER_STATUS,
                         updatedServiceOrder.type as SERVICE_ORDER_TYPE,
                         currentTask.status as TASK_STATUS,
+                        await artworkGateFor(tx, id),
                       );
 
                       if (layoutSyncResult?.shouldUpdate) {
@@ -3524,7 +3550,8 @@ export class TaskService {
                   if (
                     currentTask &&
                     currentTask.status === TASK_STATUS.PREPARATION &&
-                    preparationGateSatisfied
+                    preparationGateSatisfied &&
+                    (await artworkGateFor(tx, id)) !== 'PENDING'
                   ) {
                     this.logger.log(
                       `[ARTWORK→TASK SYNC] New ${createdServiceOrder.type} SO ${createdServiceOrder.id} created with COMPLETED status (layout done, commercial done), updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
@@ -3924,9 +3951,10 @@ export class TaskService {
           }
 
           // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service
-          // orders are COMPLETED AND all COMMERCIAL service orders are concluded.
-          // The commercial gate only blocks the AUTOMATIC transition — an explicit
-          // "Disponibilizar para produção" (manual status change) bypasses it.
+          // orders are COMPLETED AND all COMMERCIAL service orders are concluded AND the
+          // artwork gate is not PENDING (D-15/DD3). The commercial gate only blocks the
+          // AUTOMATIC transition — an explicit "Disponibilizar para produção" (manual status
+          // change) bypasses it; the artwork gate holds the manual one too (DD10).
           if (updatedTask && updatedTask.status === TASK_STATUS.PREPARATION) {
             // Get all ARTWORK service orders for this task (from the refetched data)
             const layoutServiceOrders = (updatedTask.serviceOrders || []).filter(
@@ -3947,7 +3975,12 @@ export class TaskService {
               })),
             );
 
-            if (hasLayoutOrders && allLayoutCompleted && allCommercialCompleted) {
+            if (
+              hasLayoutOrders &&
+              allLayoutCompleted &&
+              allCommercialCompleted &&
+              (await artworkGateFor(tx, id)) !== 'PENDING'
+            ) {
               this.logger.log(
                 `[AUTO-TRANSITION Task Update] All ${layoutServiceOrders.length} ARTWORK service orders completed and all COMMERCIAL service orders concluded for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
               );
@@ -4157,6 +4190,7 @@ export class TaskService {
                       status: so.status as SERVICE_ORDER_STATUS,
                       type: so.type as SERVICE_ORDER_TYPE,
                     })),
+                    await artworkGateFor(tx, id),
                   );
 
                   this.logger.log(
@@ -6743,6 +6777,12 @@ export class TaskService {
                     `Transição de status inválida: ${getTaskStatusLabel(existingTask.status as TASK_STATUS)} → ${getTaskStatusLabel(update.data.status as TASK_STATUS)}`,
                   );
                 }
+                await this.assertArtworkAllowsRelease(
+                  tx,
+                  update.id,
+                  existingTask.status as TASK_STATUS,
+                  update.data.status as TASK_STATUS,
+                );
 
                 // Only PRODUCTION_MANAGER, LOGISTIC and ADMIN can set a task to
                 // COMPLETED or move it away from COMPLETED (mirrors the
@@ -9498,6 +9538,15 @@ export class TaskService {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
         }
 
+        // A arte saiu do orçamento (R1): o histórico antigo de layout do orçamento
+        // não tem mais onde ser gravado (§6.2 item 31).
+        if (['layoutFileIds', 'layoutFiles', 'layouts', 'layoutCoverage'].includes(fieldToRevert)) {
+          throw new BadRequestException(
+            'Não é possível desfazer a arte por aqui: a arte não é mais do orçamento, é do ' +
+              'implemento de cada veículo. Use a arte do implemento (versão nova).',
+          );
+        }
+
         // ── DINHEIRO NA RUA NÃO SE DESFAZ PELO HISTÓRICO ───────────────────────
         //
         // Este caminho escreve `Budget` e `BudgetItem` direto pelo `tx`: não passa
@@ -10568,6 +10617,7 @@ export class TaskService {
             `Não é possível reverter status de ${getTaskStatusLabel(currentStatus)} para ${getTaskStatusLabel(targetStatus)}: transição inválida`,
           );
         }
+        await this.assertArtworkAllowsRelease(tx, currentTask.id, currentStatus, targetStatus);
 
         // Update statusOrder when status changes
         updateData.statusOrder = getTaskStatusOrder(targetStatus);

@@ -3,6 +3,9 @@ import {
   Get,
   Put,
   Post,
+  Delete,
+  HttpCode,
+  HttpStatus,
   Param,
   Body,
   Query,
@@ -16,9 +19,18 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { User, UserId, type UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { ImplementService } from './implement.service';
+import { ImplementLayoutService } from './implement-layout.service';
+import {
+  implementLayoutApproveOnBehalfSchema,
+  implementLayoutBulkSchema,
+  implementLayoutReproveSchema,
+  type ImplementLayoutApproveOnBehalfFormData,
+  type ImplementLayoutBulkFormData,
+  type ImplementLayoutReproveFormData,
+} from '../../../schemas/implement-layout';
 import {
   implementAvailabilityQuerySchema,
   implementBulkSpotUpdateSchema,
@@ -74,6 +86,40 @@ export const IMPLEMENT_PROJECT_ROLES = [
   SECTOR_PRIVILEGES.ADMIN,
 ] as const;
 
+/**
+ * A ARTE DO IMPLEMENTO (§5.1, §7.1). Subir, enviar ao cliente, versão nova, lote e
+ * apagar rascunho: quem faz a arte (designer) e quem fala com o cliente (comercial).
+ * Aprovar em nome do cliente e reprovar: comercial e administrador (nota obrigatória).
+ */
+export const IMPLEMENT_ART_EDIT_ROLES = [
+  SECTOR_PRIVILEGES.DESIGNER,
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.ADMIN,
+] as const;
+export const IMPLEMENT_ART_DECIDE_ROLES = [
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.ADMIN,
+] as const;
+/** Quem LÊ a arte: os papéis do implemento e o designer. */
+export const IMPLEMENT_ART_READ_ROLES = [
+  ...IMPLEMENT_READ_ROLES,
+  SECTOR_PRIVILEGES.DESIGNER,
+] as const;
+/** Quem vê a arte em todos os estados; os demais só a APROVADA (o filtro por papel, risco 25). */
+const SEES_ALL_ART = new Set<string>([
+  SECTOR_PRIVILEGES.COMMERCIAL,
+  SECTOR_PRIVILEGES.DESIGNER,
+  SECTOR_PRIVILEGES.LOGISTIC,
+  SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+  SECTOR_PRIVILEGES.ADMIN,
+]);
+
+/** O filtro por papel da arte (risco 25) também quando ela vem pelo include do implemento. */
+function onlyApprovedArtUnlessAllowed(implement: any, role?: string): void {
+  if (!Array.isArray(implement?.layouts) || (role && SEES_ALL_ART.has(role))) return;
+  implement.layouts = implement.layouts.filter((l: { status?: string }) => l.status === 'APPROVED');
+}
+
 export const IMPLEMENT_UPDATE_ROLES = [
   SECTOR_PRIVILEGES.WAREHOUSE,
   SECTOR_PRIVILEGES.FINANCIAL,
@@ -97,21 +143,40 @@ export function sectorGarageMapping() {
   }));
 }
 
-/**
- * IMPLEMENTO (era `/implements`, que continua como alias fino até a R-D:
- * `implement-alias.controller.ts`). Toda entrada validada em runtime (G12).
- */
+/** IMPLEMENTO. Toda entrada validada em runtime (G12). */
 @Controller('implements')
 export class ImplementController {
-  constructor(private readonly implementService: ImplementService) {}
+  constructor(
+    private readonly implementService: ImplementService,
+    private readonly implementLayoutService: ImplementLayoutService,
+  ) {}
+
+  // ─── A ARTE: rota estática ANTES das rotas com `:id` ─────────────────────
+
+  /** A mesma arte (arquivo já no sistema) para N implementos, numa transação. */
+  @Post('layouts/bulk')
+  @Roles(...IMPLEMENT_ART_EDIT_ROLES)
+  @HttpCode(HttpStatus.OK)
+  async bulkLayouts(
+    @Body(new ZodValidationPipe(implementLayoutBulkSchema)) data: ImplementLayoutBulkFormData,
+    @UserId() userId: string,
+  ) {
+    return {
+      success: true,
+      message: 'Arte adicionada aos implementos (rascunho)',
+      data: await this.implementLayoutService.bulk(data.implementIds, data.fileId, userId),
+    };
+  }
 
   @Get()
   @Roles(...IMPLEMENT_READ_ROLES)
   async findAll(
     @Query(new ZodQueryValidationPipe(implementGetManySchema, IMPLEMENT_QUERY_SHAPE))
     query: ImplementGetManyFormData,
+    @User() user: UserPayload,
   ) {
     const { data, total } = await this.implementService.findAll(query);
+    for (const row of data as any[]) onlyApprovedArtUnlessAllowed(row, user?.role);
     return {
       success: true,
       message: 'Implementos encontrados com sucesso',
@@ -220,9 +285,11 @@ export class ImplementController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(implementQuerySchema, IMPLEMENT_QUERY_SHAPE))
     query: ImplementQueryFormData,
+    @User() user: UserPayload,
   ) {
     const implement = await this.implementService.findById(id, query.include);
     if (!implement) throw new NotFoundException('Implemento não encontrado');
+    onlyApprovedArtUnlessAllowed(implement, user?.role);
     return {
       success: true,
       message: 'Implemento encontrado com sucesso',
@@ -268,6 +335,114 @@ export class ImplementController {
         files?.implementProjectFiles ?? [],
         userId,
       ),
+    };
+  }
+
+  // ─── A ARTE DO IMPLEMENTO ───────────────────────────────────────────────
+
+  @Get(':id/layouts')
+  @Roles(...IMPLEMENT_ART_READ_ROLES)
+  async listLayouts(@Param('id', ParseUUIDPipe) id: string, @User() user: UserPayload) {
+    return {
+      success: true,
+      message: 'Arte do implemento carregada',
+      data: await this.implementLayoutService.list(id, SEES_ALL_ART.has(user?.role)),
+    };
+  }
+
+  /** Sobe arte nova (multipart `files`, só imagem): nasce rascunho. */
+  @Post(':id/layouts')
+  @Roles(...IMPLEMENT_ART_EDIT_ROLES)
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
+  async uploadLayouts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @UploadedFiles() files?: { files?: Express.Multer.File[] },
+  ) {
+    return {
+      success: true,
+      message: 'Arte enviada (rascunho)',
+      data: await this.implementLayoutService.upload(id, files?.files ?? [], userId),
+    };
+  }
+
+  @Post(':id/layouts/:layoutId/send')
+  @Roles(...IMPLEMENT_ART_EDIT_ROLES)
+  @HttpCode(HttpStatus.OK)
+  async sendLayout(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('layoutId', ParseUUIDPipe) layoutId: string,
+    @UserId() userId: string,
+  ) {
+    return {
+      success: true,
+      message: 'Arte enviada ao cliente para aprovação',
+      data: await this.implementLayoutService.send(id, layoutId, userId),
+    };
+  }
+
+  @Post(':id/layouts/:layoutId/approve-on-behalf')
+  @Roles(...IMPLEMENT_ART_DECIDE_ROLES)
+  @HttpCode(HttpStatus.OK)
+  async approveLayoutOnBehalf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('layoutId', ParseUUIDPipe) layoutId: string,
+    @Body(new ZodValidationPipe(implementLayoutApproveOnBehalfSchema))
+    data: ImplementLayoutApproveOnBehalfFormData,
+    @UserId() userId: string,
+  ) {
+    return {
+      success: true,
+      message: 'Arte aprovada em nome do cliente',
+      data: await this.implementLayoutService.approveOnBehalf(id, layoutId, data.note, userId),
+    };
+  }
+
+  @Post(':id/layouts/:layoutId/reprove')
+  @Roles(...IMPLEMENT_ART_DECIDE_ROLES)
+  @HttpCode(HttpStatus.OK)
+  async reproveLayout(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('layoutId', ParseUUIDPipe) layoutId: string,
+    @Body(new ZodValidationPipe(implementLayoutReproveSchema)) data: ImplementLayoutReproveFormData,
+    @UserId() userId: string,
+  ) {
+    return {
+      success: true,
+      message: 'Arte reprovada',
+      data: await this.implementLayoutService.reprove(id, layoutId, data.note, userId),
+    };
+  }
+
+  /** Versão nova de uma arte (multipart `files`, uma imagem): rascunho com `supersedesId`. */
+  @Post(':id/layouts/:layoutId/new-version')
+  @Roles(...IMPLEMENT_ART_EDIT_ROLES)
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 1 }], multerConfig))
+  async newLayoutVersion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('layoutId', ParseUUIDPipe) layoutId: string,
+    @UserId() userId: string,
+    @UploadedFiles() files?: { files?: Express.Multer.File[] },
+  ) {
+    return {
+      success: true,
+      message: 'Versão nova da arte enviada (rascunho)',
+      data: await this.implementLayoutService.newVersion(id, layoutId, files?.files ?? [], userId),
+    };
+  }
+
+  /** Só rascunho. */
+  @Delete(':id/layouts/:layoutId')
+  @Roles(...IMPLEMENT_ART_EDIT_ROLES)
+  async deleteLayout(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('layoutId', ParseUUIDPipe) layoutId: string,
+    @UserId() userId: string,
+  ) {
+    return {
+      success: true,
+      message: 'Arte em rascunho apagada',
+      data: await this.implementLayoutService.remove(id, layoutId, userId),
     };
   }
 }

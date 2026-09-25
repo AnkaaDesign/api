@@ -22,6 +22,7 @@ import {
   NOTIFICATION_ACTION_TYPE,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
+  RESPONSIBLE_ROLE,
   SECTOR_PRIVILEGES,
 } from '../../../constants';
 import { EMPLOYED_USER_WHERE } from '../../../utils/contract';
@@ -43,7 +44,25 @@ export const PORTAL_NOTIFICATION_KEYS = {
   VALUES_VISIBLE: 'budget.portal_values_visible',
   /** O contato do cliente ABRIU uma requisição. Vai para o comercial da Ankaa. */
   REQUESTED: 'budget.portal_requested',
+  /** A Ankaa enviou a arte do implemento para aprovar. Vai para o contato (P12). */
+  ARTWORK_PENDING: 'layout.portal_pending_approval',
+  /** Lembrete: a arte segue sem resposta do contato (P12, lembrete diário). */
+  ARTWORK_PENDING_REMINDER: 'layout.portal_pending_approval_reminder',
 } as const;
+
+/**
+ * Quem aprova a arte do lado do cliente (PLANO §7.2, `APPROVE_ARTWORK`): comercial,
+ * vendedor, representante, coordenador e marketing. PURCHASING não (DD5). O P13b
+ * troca esta lista pela capacidade `APPROVE_ARTWORK` do portal, a mesma fonte do
+ * portão de escopo.
+ */
+export const ARTWORK_APPROVER_ROLES = [
+  RESPONSIBLE_ROLE.COMMERCIAL,
+  RESPONSIBLE_ROLE.SELLER,
+  RESPONSIBLE_ROLE.REPRESENTATIVE,
+  RESPONSIBLE_ROLE.COORDINATOR,
+  RESPONSIBLE_ROLE.MARKETING,
+] as const;
 
 interface PortalNotificationInput {
   recipient: NotificationRecipient;
@@ -176,6 +195,78 @@ export class PortalNotificationService {
     } catch (error) {
       this.logger.error(
         `Falha ao avisar o requisitante do orçamento ${args.budgetId}: ` +
+          `${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  /**
+   * A arte do implemento foi ao cliente — avisa quem pode aprová-la.
+   *
+   * DESTINATÁRIOS: os contatos ATIVOS da tarefa com um papel que aprova arte
+   * (`ARTWORK_APPROVER_ROLES`). O aviso leva ao veículo no portal, onde a arte
+   * pendente está. Tarefa sem contato que aprove: ninguém a avisar (a Ankaa ainda
+   * pode aprovar em nome do cliente, com nota).
+   *
+   * ⚠️ NÃO LANÇA: a arte já foi enviada.
+   */
+  async notifyArtworkPendingApproval(args: {
+    taskId: string;
+    layoutIds: string[];
+    reminder?: { daysPending: number };
+  }): Promise<void> {
+    try {
+      const task = await this.prisma.task.findUnique({
+        where: { id: args.taskId },
+        select: {
+          id: true,
+          name: true,
+          quoteId: true,
+          quote: { select: { budgetNumber: true } },
+          implement: { select: { serialNumber: true, plate: true } },
+          responsibles: {
+            where: { isActive: true, roles: { hasSome: [...ARTWORK_APPROVER_ROLES] as any } },
+            select: { id: true },
+          },
+        },
+      });
+      if (!task || task.responsibles.length === 0) {
+        this.logger.debug(
+          `Tarefa ${args.taskId}: nenhum contato que aprove arte — aviso não enviado.`,
+        );
+        return;
+      }
+      const vehicle =
+        task.implement?.serialNumber || task.implement?.plate || task.name || 'veículo';
+      const quoteLabel = task.quote?.budgetNumber
+        ? `nº ${String(task.quote.budgetNumber).padStart(4, '0')} · ${vehicle}`
+        : vehicle;
+      const days = args.reminder?.daysPending;
+      for (const responsible of task.responsibles) {
+        await this.create({
+          recipient: responsibleRecipient(responsible.id),
+          title: args.reminder
+            ? 'A arte do seu veículo espera a sua aprovação'
+            : 'Arte para aprovar',
+          body: args.reminder
+            ? `A arte do veículo ${vehicle} está esperando a sua aprovação há ${days === 1 ? '1 dia' : `${days} dias`}. ` +
+              'Aprove ou peça ajuste no portal.'
+            : `A Ankaa enviou a arte do veículo ${vehicle} para você aprovar. Confira no portal e aprove ` +
+              'ou peça ajuste.',
+          configKey: args.reminder
+            ? PORTAL_NOTIFICATION_KEYS.ARTWORK_PENDING_REMINDER
+            : PORTAL_NOTIFICATION_KEYS.ARTWORK_PENDING,
+          budgetId: task.quoteId ?? task.id,
+          taskId: task.id,
+          webUrl: `/cliente/painel/veiculos/${task.id}`,
+          quoteLabel,
+          importance: NOTIFICATION_IMPORTANCE.HIGH,
+          extraMetadata: { layoutIds: args.layoutIds },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Falha ao avisar os contatos da arte da tarefa ${args.taskId}: ` +
           `${error instanceof Error ? error.message : error}`,
       );
     }

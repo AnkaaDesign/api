@@ -1,0 +1,11 @@
+-- P12: a trilha da arte (LayoutDecision) registra também os gestos INTERNOS da Ankaa.
+--
+-- `LayoutDecision.source` é obrigatória, e o enum só conhecia quem APROVA
+-- (PORTAL, ON_BEHALF) e as origens da migração (MIGRATED_*). Enviar ao cliente,
+-- reprovar internamente e a versão anterior virar SUPERSEDED são gestos da Ankaa
+-- que não são "em nome do cliente": marcá-los ON_BEHALF mentiria na trilha que o
+-- portal mostra ("quem, quando, por quê").
+--
+-- `Layout.approvalSource` continua só com quem aprovou; INTERNAL é da trilha.
+-- Idempotente (IF NOT EXISTS). Faixa reservada ao P12 (20260930120210–120290).
+ALTER TYPE "LayoutApprovalSource" ADD VALUE IF NOT EXISTS 'INTERNAL';

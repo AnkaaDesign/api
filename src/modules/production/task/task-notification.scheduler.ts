@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskDeadlineApproachingEvent, TaskOverdueEvent } from './task.events';
 import { LayoutPendingApprovalReminderEvent } from './layout.events';
+import { PortalNotificationService } from '@modules/common/notification/portal-notification.service';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '../../../constants/enums';
 
 /**
@@ -53,6 +54,7 @@ export class TaskNotificationScheduler {
   constructor(
     private readonly prisma: PrismaService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly portalNotifications: PortalNotificationService,
   ) {}
 
   /** Returns midnight of today in São Paulo time as a UTC Date */
@@ -583,8 +585,25 @@ export class TaskNotificationScheduler {
             );
             this.eventEmitter.emit(
               'artwork.pending_approval_reminder',
-              new LayoutPendingApprovalReminderEvent(layout as any, task as any, daysPending),
+              new LayoutPendingApprovalReminderEvent(
+                {
+                  layout: { id: layout.id, fileId: layout.fileId, status: layout.status },
+                  implementId: layout.implementId ?? '',
+                  task: {
+                    id: task.id,
+                    name: task.name,
+                    serialNumber: layout.implement?.serialNumber ?? null,
+                  },
+                },
+                daysPending,
+              ),
             );
+            // E o contato do cliente, que é quem tem de responder (P12).
+            await this.portalNotifications.notifyArtworkPendingApproval({
+              taskId: task.id,
+              layoutIds: [layout.id],
+              reminder: { daysPending },
+            });
           }
         } catch (error) {
           this.logger.error(

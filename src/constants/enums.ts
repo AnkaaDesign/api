@@ -659,10 +659,28 @@ export enum ORDER_INSTALLMENT_STATUS {
   CANCELLED = 'CANCELLED',
 }
 
+/**
+ * A arte (espelho de `$Enums.LayoutStatus`). Do implemento: DRAFT → (enviar)
+ * PENDING_APPROVAL → APPROVED | REPROVED; uma versão nova aprovada deixa a
+ * anterior SUPERSEDED (D-21: aprovada não se desaprova). A arte da aerografia usa
+ * só DRAFT/APPROVED/REPROVED.
+ */
 export enum LAYOUT_STATUS {
   DRAFT = 'DRAFT',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
   APPROVED = 'APPROVED',
   REPROVED = 'REPROVED',
+  SUPERSEDED = 'SUPERSEDED',
+}
+
+/** De onde veio a decisão sobre a arte (espelho de `$Enums.LayoutApprovalSource`). */
+export enum LAYOUT_APPROVAL_SOURCE {
+  PORTAL = 'PORTAL',
+  ON_BEHALF = 'ON_BEHALF',
+  MIGRATED_TASK = 'MIGRATED_TASK',
+  MIGRATED_BUDGET = 'MIGRATED_BUDGET',
+  MIGRATED_ENVELOPE = 'MIGRATED_ENVELOPE',
+  INTERNAL = 'INTERNAL',
 }
 
 export enum CUT_TYPE {

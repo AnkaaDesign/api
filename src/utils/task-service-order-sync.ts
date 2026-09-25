@@ -18,9 +18,15 @@
  *    - When SO goes back to IN_PROGRESS from COMPLETED → Task may rollback (COMPLETED → IN_PRODUCTION)
  *    - When Task goes back to WAITING_PRODUCTION → All production SOs reset to PENDING
  *    - When Task goes back to IN_PRODUCTION → Completed SOs reset to IN_PROGRESS
+ *
+ * 4. O PORTÃO DA ARTE (D-15; DD3, DD9, DD10): a ida PREPARATION → WAITING_PRODUCTION
+ *    de trabalho novo exige a arte do implemento APROVADA. As funções continuam
+ *    puras: quem chama calcula o `artworkGate` (`utils/artwork-gate.ts`) e o passa.
+ *    Com `PENDING` a liberação não acontece; a volta a PREPARATION continua igual.
  */
 
 import { TASK_STATUS, SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '../constants/enums';
+import type { ArtworkGate } from './artwork-gate';
 import { SERVICE_ORDER_STATUS_ORDER, TASK_STATUS_ORDER } from '../constants/sortOrders';
 
 /**
@@ -116,6 +122,19 @@ export function determineTaskStatusFromServiceOrders(
  * 3. If no PRODUCTION SOs exist → based on ARTWORK status
  */
 export function calculateCorrectTaskStatus(
+  serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
+  artworkGate: ArtworkGate,
+): TASK_STATUS {
+  const status = calculateStatusFromServiceOrders(serviceOrders);
+  // O portão da arte só segura a LIBERAÇÃO: o que já está em produção fica onde está
+  // (arte aprovada não se desaprova, D-21 — só trabalho legado chega lá sem ela).
+  if (artworkGate === 'PENDING' && status === TASK_STATUS.WAITING_PRODUCTION) {
+    return TASK_STATUS.PREPARATION;
+  }
+  return status;
+}
+
+function calculateStatusFromServiceOrders(
   serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
 ): TASK_STATUS {
   const layoutOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
@@ -614,7 +633,8 @@ export function areCommercialServiceOrdersComplete(
  * - When at least ONE layout SO is COMPLETED AND ALL commercial SOs are concluded
  *   → Task transitions to WAITING_PRODUCTION (triggered by either an layout or a
  *   commercial SO completing; the commercial gate only blocks the AUTOMATIC
- *   transition — an explicit "Disponibilizar para produção" bypasses it)
+ *   transition — an explicit "Disponibilizar para produção" bypasses it) AND the
+ *   artwork gate is not `PENDING` (the artwork gate holds the manual release too, DD10)
  * - When ALL layout SOs are rolled back (none remain COMPLETED) → Task rolls back to PREPARATION
  *
  * @param allServiceOrders - All service orders for the task (with their current/updated statuses)
@@ -623,6 +643,7 @@ export function areCommercialServiceOrdersComplete(
  * @param newServiceOrderStatus - The new status of the changed service order
  * @param serviceOrderType - The type of the changed service order
  * @param currentTaskStatus - The current status of the task
+ * @param artworkGate - o portão da arte (`utils/artwork-gate.ts`)
  * @returns Update info if task should be updated, null otherwise
  */
 export function getTaskUpdateForLayoutServiceOrderStatusChange(
@@ -636,6 +657,7 @@ export function getTaskUpdateForLayoutServiceOrderStatusChange(
   newServiceOrderStatus: SERVICE_ORDER_STATUS,
   serviceOrderType: SERVICE_ORDER_TYPE,
   currentTaskStatus: TASK_STATUS,
+  artworkGate: ArtworkGate,
 ): {
   shouldUpdate: boolean;
   newTaskStatus: TASK_STATUS;
@@ -668,7 +690,9 @@ export function getTaskUpdateForLayoutServiceOrderStatusChange(
     );
     const allCommercialCompleted = areCommercialServiceOrdersComplete(updatedServiceOrders);
 
-    if (anyLayoutCompleted && allCommercialCompleted) {
+    // Trabalho novo sem a arte do implemento aprovada: a O.S. conclui, a tarefa
+    // fica em preparação até a aprovação (que libera sozinha, sem outro clique).
+    if (anyLayoutCompleted && allCommercialCompleted && artworkGate !== 'PENDING') {
       return {
         shouldUpdate: true,
         newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
@@ -708,4 +732,23 @@ export function getTaskUpdateForLayoutServiceOrderStatusChange(
   }
 
   return null;
+}
+
+/**
+ * A regra da liberação automática, num lugar só: alguma O.S. de ARTE concluída,
+ * todas as comerciais concluídas (canceladas não contam) e o portão da arte não
+ * fechado. É o que a conclusão de O.S. e a aprovação da arte perguntam.
+ */
+export function isReadyForProductionRelease(
+  serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
+  artworkGate: ArtworkGate,
+): boolean {
+  const anyArtworkCompleted = serviceOrders.some(
+    so => so.type === SERVICE_ORDER_TYPE.ARTWORK && so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+  return (
+    anyArtworkCompleted &&
+    areCommercialServiceOrdersComplete(serviceOrders) &&
+    artworkGate !== 'PENDING'
+  );
 }

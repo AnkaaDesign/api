@@ -7366,6 +7366,36 @@ export class SignatureEnvelopeService {
     }
 
     const materialEntries = changes.entries.filter(c => c.severity === 'MATERIAL');
+
+    // ── D-31: ARTE NOVA DEPOIS DO SELO (`tolerateArtworkAfterSeal`) ──────────
+    //
+    // Contrato CONCLUÍDO: a arte que o cliente aprovou está no PDF selado, e ele
+    // continua valendo. Aprovar uma versão nova da arte do implemento depois disso
+    // é o curso normal da produção (a arte agora é do implemento, P12) — não pode
+    // anular o contrato nem devolver o orçamento a pendente, com a cobrança dele
+    // possivelmente em andamento. Registra a deriva, que a tela mostra como "arte
+    // alterada depois da assinatura", e segue. SÓ quando TODA mudança material é
+    // da arte: qualquer outra (preço, serviço, prazo) continua invalidando.
+    // Coleta RUNNING não entra aqui: ela cai, e a reemissão já leva a arte nova.
+    if (
+      running.status === EnvelopeStatus.COMPLETED &&
+      materialEntries.length > 0 &&
+      materialEntries.every(c => c.key === 'layout' || c.key === 'layoutCoverage')
+    ) {
+      await this.recordDriftOnce(
+        running.id,
+        loaded.hash,
+        ['Arte alterada depois da assinatura', ...changes.material, ...changes.cosmetic],
+        actorUserId,
+      );
+      await this.rememberSeenSnapshot(running.id, loaded.hash);
+      this.logger.warn(
+        `Orçamento ${quoteId}: a arte mudou depois do contrato selado (envelope ${running.id}); ` +
+          'deriva registrada, contrato mantido (D-31).',
+      );
+      return false;
+    }
+
     // Uma frase, com no máximo quatro itens — cabe no aviso de uma linha da tela
     // e no parágrafo do e-mail. A lista inteira e detalhada é servida pelas
     // rotas de leitura (`changes`), que é onde há espaço para ela.
