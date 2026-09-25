@@ -101,6 +101,11 @@ import {
 } from '@utils/quote-tasks';
 import { allocateBudgetNumber } from '../../../utils/budget-number';
 import {
+  QUOTE_VALIDITY_DEFAULT_DAYS,
+  formatQuoteValidity,
+  quoteValidityEnd,
+} from '../../../utils/budget-validity';
+import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
 } from '../../../utils/budget-customer-config-sync';
@@ -2559,7 +2564,10 @@ export class BudgetService {
    * condições de pagamento. Sem esta rota o diálogo teria de adivinhar ou pedir
    * o grafo inteiro de N orçamentos só para desenhar um botão.
    */
-  async previewMergeQuotes(taskIds: string[]): Promise<{
+  async previewMergeQuotes(
+    taskIds: string[],
+    options?: { validityDays?: number | null },
+  ): Promise<{
     success: boolean;
     data: {
       survivor: { id: string; budgetNumber: number } | null;
@@ -2572,6 +2580,23 @@ export class BudgetService {
   }> {
     const { candidates, semOrcamento } = await this.loadMergeCandidates(taskIds);
     const verdict = judgeMerge(candidates);
+
+    // A VALIDADE RECOMEÇA HOJE. Não é regra pura porque depende de "hoje" — por
+    // isso o aviso nasce aqui, e com a MESMA conta que a união grava.
+    if (verdict.survivor && verdict.absorbed.length) {
+      const dias = options?.validityDays ?? QUOTE_VALIDITY_DEFAULT_DAYS;
+      const vencidos = candidates.filter(c => c.expiresAt.getTime() <= Date.now());
+      verdict.warnings.unshift({
+        code: 'VALIDITY_RESET',
+        message:
+          `A validade recomeça hoje: o orçamento unido vale até ${formatQuoteValidity(quoteValidityEnd(dias))} ` +
+          `(${dias} ${dias === 1 ? 'dia' : 'dias'})` +
+          (vencidos.length
+            ? `. ${vencidos.length === candidates.length ? 'Todos estavam vencidos' : `${vencidos.length} ${vencidos.length === 1 ? 'estava vencido' : 'estavam vencidos'}`}.`
+            : '.'),
+        budgetNumbers: candidates.map(c => c.budgetNumber).sort((a, b) => a - b),
+      });
+    }
 
     // Veículo sem orçamento na seleção BLOQUEIA. Unir não é atribuir: dar a ele
     // o orçamento do vizinho cobraria do cliente um serviço que ninguém orçou
@@ -2632,7 +2657,7 @@ export class BudgetService {
   async mergeQuotes(
     taskIds: string[],
     userId: string,
-    options?: { billingSplit?: string | null },
+    options?: { billingSplit?: string | null; validityDays?: number | null },
   ): Promise<{
     success: boolean;
     data: {
@@ -2644,7 +2669,9 @@ export class BudgetService {
     };
     message: string;
   }> {
-    const preview = await this.previewMergeQuotes(taskIds);
+    const preview = await this.previewMergeQuotes(taskIds, {
+      validityDays: options?.validityDays ?? null,
+    });
     if (preview.data.blockers.length) {
       throw new BadRequestException(preview.data.blockers.map(b => b.message).join(' '));
     }
@@ -2689,10 +2716,13 @@ export class BudgetService {
         //    pagadores e faturamentos — todos já provados sem dinheiro vivo.
         await tx.budget.deleteMany({ where: { id: { in: absorbedIds } } });
 
-        // 5. O modo e a validade do resultado. A validade mais DISTANTE: encurtar
-        //    a de um veículo por causa da união seria decidir contra o cliente.
-        const expiresAt = new Date(
-          Math.max(...[survivor, ...verdict.absorbed].map(c => c.expiresAt.getTime())),
+        // 5. O modo e a validade do resultado. A validade RECOMEÇA HOJE: o
+        //    documento é outro e vai ser reemitido. Até 25/09/2026 ela herdava a
+        //    mais distante dos absorvidos — num grupo de maio, uma data vencida
+        //    havia meses, e o orçamento saía da união sem poder ser assinado
+        //    (nº 421 da Marquespan, válido "até 26/06").
+        const expiresAt = quoteValidityEnd(
+          options?.validityDays ?? QUOTE_VALIDITY_DEFAULT_DAYS,
         );
         await tx.budget.update({
           where: { id: survivor.id },
@@ -2787,6 +2817,53 @@ export class BudgetService {
       message:
         `Orçamento nº ${survivor.budgetNumber} agora cobre ${result.vehicleCount} veículos. ` +
         `${verdict.absorbed.length} ${verdict.absorbed.length === 1 ? 'orçamento foi absorvido' : 'orçamentos foram absorvidos'}.`,
+    };
+  }
+
+  /**
+   * ESTENDER A VALIDADE — "vale até daqui a N dias".
+   *
+   * Conta a partir de HOJE, como o seletor da tela, e não soma sobre a data
+   * antiga: num orçamento vencido há três meses, "mais 30 dias" continuaria no
+   * passado.
+   *
+   * Pelo `update` normal, de propósito: é ele que grava o histórico, que propaga
+   * o prazo novo à cerimônia de assinatura em andamento (`onQuoteContentChanged`
+   * → `propagateExtendedDeadline`) e que deixa isto passar com faturamento
+   * aprovado (`expiresAt` está na lista segura).
+   *
+   * "Aguardando Reanálise" (EXPIRED) volta a PENDENTE: é o estado a que o
+   * vencimento o levou, e estender é o comercial dizendo que o valor continua de
+   * pé. Pela rota de status, que é a que valida a transição.
+   */
+  async extendValidity(
+    id: string,
+    days: number,
+    userId: string,
+  ): Promise<BudgetUpdateResponse> {
+    const existing = await this.prisma.budget.findUnique({
+      where: { id },
+      select: { status: true, expiresAt: true, budgetNumber: true },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+    }
+    if (existing.status === TASK_QUOTE_STATUS.CANCELLED) {
+      throw new BadRequestException('Orçamento cancelado não tem validade a estender.');
+    }
+
+    const expiresAt = quoteValidityEnd(days);
+    let result = await this.update(id, { expiresAt }, userId);
+
+    if (existing.status === TASK_QUOTE_STATUS.EXPIRED) {
+      result = await this.updateStatus(id, TASK_QUOTE_STATUS.PENDING, userId);
+    }
+
+    return {
+      ...result,
+      message:
+        `Orçamento nº ${existing.budgetNumber} vale até ${formatQuoteValidity(expiresAt)}` +
+        (existing.status === TASK_QUOTE_STATUS.EXPIRED ? ' e voltou para Pendente.' : '.'),
     };
   }
 

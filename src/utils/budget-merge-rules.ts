@@ -147,12 +147,17 @@ const termsKey = (c: MergeCustomerConfig): string =>
     c.paymentConfig ?? null,
   ]);
 
-/** O conjunto de pagadores, como chave — quem paga, e sob quais termos. */
+/**
+ * O conjunto de pagadores, como chave — quem paga, e sob quais termos.
+ *
+ * CONJUNTO, não lista: um orçamento `PER_TASK` tem UMA linha de pagador POR
+ * VEÍCULO, todas iguais. Contar as repetições fazia o nº 421 da Marquespan (28
+ * veículos, 28 linhas idênticas, resultado de uma união) nunca bater com o nº
+ * 430 (1 veículo, 1 linha) — e TODO orçamento já simplificado recusava absorver
+ * mais alguém, com "as condições de pagamento diferem" sobre termos idênticos.
+ */
 const payersKey = (configs: MergeCustomerConfig[]): string =>
-  configs
-    .map(c => `${c.customerId}::${termsKey(c)}`)
-    .sort()
-    .join('|');
+  [...new Set(configs.map(c => `${c.customerId}::${termsKey(c)}`))].sort().join('|');
 
 /**
  * Julga um conjunto de orçamentos candidatos à união.
@@ -299,17 +304,12 @@ export function judgeMerge(candidates: MergeCandidate[]): MergeVerdict {
 
   // ── AVISOS ─────────────────────────────────────────────────────────────────
 
-  const validades = [...new Set(ordered.map(c => c.expiresAt.getTime()))];
-  if (validades.length > 1) {
-    const maisLonga = new Date(Math.max(...validades));
-    warnings.push({
-      code: 'EXPIRES_AT',
-      message:
-        'As validades diferem. O orçamento unido vale até ' +
-        `${maisLonga.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}, a mais distante.`,
-      budgetNumbers: nums(ordered),
-    });
-  }
+  // A VALIDADE NÃO É JULGADA AQUI. Ela recomeça no dia da união (o documento é
+  // outro e vai ser reemitido), e "hoje" não entra numa regra pura — quem avisa
+  // a data nova é o serviço (`VALIDITY_RESET`). Herdar a mais distante, como
+  // era até 25/09/2026, entregava ao grupo antigo uma validade já VENCIDA: o nº
+  // 421 da Marquespan saiu da união válido até 26/06, três meses no passado, e
+  // não podia ser assinado.
 
   const statuses = [...new Set(ordered.map(c => c.status))];
   if (statuses.length > 1 || statuses[0] !== 'PENDING') {

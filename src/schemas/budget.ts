@@ -996,6 +996,12 @@ export const customerConfigOrderNumberSchema = z
 
 export type CustomerConfigOrderNumberFormData = z.infer<typeof customerConfigOrderNumberSchema>;
 
+const validityDaysSchema = z
+  .number({ invalid_type_error: 'Validade deve ser um número de dias' })
+  .int('Validade deve ser um número inteiro de dias')
+  .min(1, 'Validade de pelo menos 1 dia')
+  .max(365, 'Validade de no máximo 365 dias');
+
 export const budgetMergeSchema = z.object({
   taskIds: z
     .array(z.string().uuid('Veículo inválido'))
@@ -1007,9 +1013,30 @@ export const budgetMergeSchema = z.object({
    * quatro faturamentos independentes, e `JOINT` os colapsaria numa fatura só.
    */
   billingSplit: z.enum(['JOINT', 'PER_TASK']).optional(),
+  /**
+   * Por quantos dias, A PARTIR DE HOJE, o orçamento unido vale. Padrão 30.
+   *
+   * A validade RECOMEÇA na união: o documento é outro e vai ser reemitido. Até
+   * 25/09/2026 ela herdava a mais distante dos absorvidos — num grupo de maio,
+   * uma data já vencida, e o orçamento saía da união sem poder ser assinado.
+   */
+  validityDays: validityDaysSchema.optional(),
 });
 
 export type BudgetMergeFormData = z.infer<typeof budgetMergeSchema>;
+
+/**
+ * `PUT /budgets/:id/validity` — ESTENDER a validade.
+ *
+ * Conta a partir de HOJE, como o seletor da tela: "30 dias" é "vale até daqui a
+ * 30 dias", não "mais 30 dias sobre a data antiga" — que, num orçamento vencido
+ * há três meses, continuaria no passado.
+ */
+export const budgetExtendValiditySchema = z.object({
+  days: validityDaysSchema,
+});
+
+export type BudgetExtendValidityFormData = z.infer<typeof budgetExtendValiditySchema>;
 
 export const budgetUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
