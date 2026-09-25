@@ -1,7 +1,9 @@
 // api/src/modules/people/portal/portal-identity.module.ts
 //
 // A IDENTIFICAÇÃO DO VEÍCULO pelo portal — `PATCH /cliente/me/veiculos/:taskId/
-// identificacao`.
+// identificacao` — e o PROJETO DO IMPLEMENTO, `POST /cliente/me/veiculos/:taskId/
+// projeto` (P13a), que usa as mesmas dependências (escopo comercial, arquivo na
+// mesma transação, trilha com `userId: null`).
 //
 // Módulo PRÓPRIO, e não um controlador dentro de `PortalModule`, pela razão que
 // aquele arquivo declara no cabeçalho: `PortalModule` é a FUNDAÇÃO (escopo e
@@ -63,8 +65,9 @@ import { PortalIdentityService } from './portal-identity.service';
     // `ChangeLogService` — a auditoria, sempre com `userId: null` e a autoria do
     // contato em `metadata` (id de responsável não existe em `User`).
     ChangeLogModule,
-    // `FileService.createFromUploadWithTransaction` — a foto da plaqueta, que
-    // tem de nascer no MESMO commit do implemento a que se liga.
+    // `FileService.createFromUploadWithTransaction` — a foto da plaqueta e o
+    // projeto do implemento, que têm de nascer no MESMO commit do implemento a
+    // que se ligam.
     FileModule,
     // `PurchaseOrderService` — a ESCRITA DUPLA do número do pedido
     // (`Task.purchaseOrderId` + `customerOrderNumber`). Escrever a coluna

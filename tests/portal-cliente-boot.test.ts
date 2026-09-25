@@ -118,6 +118,10 @@ async function main(): Promise<void> {
     // controller cujo modulo nao esta no `AppModule`, e a ausencia so aparece
     // como 404 em producao.
     'PATCH /cliente/me/veiculos/:taskId/identificacao',
+    // O PROJETO DO IMPLEMENTO (P13a) — o desenho do furgao, anexado pelo proprio
+    // cliente. Mora no MESMO controller da identificacao; se o modulo sair do
+    // `AppModule`, as duas somem juntas e esta lista acusa as duas.
+    'POST /cliente/me/veiculos/:taskId/projeto',
     // A requisicao e as duas decisoes
     'POST /cliente/me/orcamentos',
     'PUT /cliente/me/orcamentos/:id/pre-aprovar',
