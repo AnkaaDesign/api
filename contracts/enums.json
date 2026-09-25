@@ -2900,6 +2900,17 @@
       ]
     },
     {
+      "rota": "POST /cliente/me/veiculos/:taskId/projeto",
+      "arquivo": "src/modules/people/portal/portal-identity.controller.ts",
+      "interceptor": "FileFieldsInterceptor",
+      "campos": [
+        {
+          "nome": "implementProject",
+          "maxCount": null
+        }
+      ]
+    },
+    {
       "rota": "POST /cliente/me/orcamentos",
       "arquivo": "src/modules/people/portal/portal-request.controller.ts",
       "interceptor": "FileFieldsInterceptor",
