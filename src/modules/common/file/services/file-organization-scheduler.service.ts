@@ -41,7 +41,7 @@ interface OrganizationReport {
  */
 const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null> = {
   // Customer-based contexts
-  tasksLayouts: 'customer',
+  implementLayouts: 'customer',
   taskBudgets: 'customer',
   taskInvoices: 'customer',
   taskReceipts: 'customer',
@@ -58,7 +58,6 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   customerLogo: 'customer',
   observations: 'customer',
   implementMeasurePhotos: 'customer',
-  'quote-layouts': 'customer',
   plotterEspovo: 'customer',
   plotterAdesivo: 'customer',
   // Faltavam neste mapa: sem entrada aqui, getEntityNameForFile nem era chamado
@@ -132,7 +131,7 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   { pattern: /\/Clientes\/[^/]+\/Aerografias\//, context: 'airbrushingLayouts' },
 
   // Customer contexts
-  { pattern: /\/Clientes\/[^/]+\/Layouts\//, context: 'tasksLayouts' },
+  { pattern: /\/Clientes\/[^/]+\/Layouts\//, context: 'implementLayouts' },
   { pattern: /\/Clientes\/[^/]+\/Projetos\//, context: 'taskProjectFiles' },
   { pattern: /\/Clientes\/[^/]+\/Checkin\//, context: 'taskCheckinFiles' },
   { pattern: /\/Clientes\/[^/]+\/Checkout\//, context: 'taskCheckoutFiles' },
@@ -183,7 +182,7 @@ const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolder
   // upload with an unrecognised fileContext used to land. Mapping it to a customer
   // context makes such files visible to the organizer so they get pulled back into
   // Clientes/{cliente}/Layouts/ as soon as their owner is resolvable.
-  { pattern: /\/Layouts\//, context: 'tasksLayouts' },
+  { pattern: /\/Layouts\//, context: 'implementLayouts' },
 ];
 
 @Injectable()
@@ -281,62 +280,24 @@ export class FileOrganizationSchedulerService {
    */
   private async getCustomerNameForFile(fileId: string): Promise<string | null> {
     try {
-      // Check layout relationship (file -> layout -> tasks -> customer)
-      // A Layout is EITHER a task layout (connected via the TaskLayouts M2M) OR an
-      // airbrushing layout (airbrushingId set, tasks empty) — never both. Resolve the
-      // airbrushing branch too, otherwise airbrushing layouts return null here and the
-      // organizer silently skips them forever.
-      const layout = await this.prisma.layout.findFirst({
+      // Arte (file -> layout -> implemento OU aerografia -> task -> customer).
+      // Desde a M3 o Layout tem UM dono (implemento ou aerografia), mas o mesmo
+      // arquivo pode ter mais de um dono; o mais antigo com cliente decide, com
+      // ordem estável entre execuções. A arte do orçamento (`File.quoteLayoutId`)
+      // não existe mais: ela foi copiada para os implementos.
+      const customerSelect = { customer: { select: { fantasyName: true } } };
+      const layouts = await this.prisma.layout.findMany({
         where: { fileId },
-        include: {
-          tasks: {
-            include: {
-              customer: { select: { fantasyName: true } },
-            },
-            take: 1,
-          },
-          airbrushing: {
-            include: {
-              task: {
-                include: {
-                  customer: { select: { fantasyName: true } },
-                },
-              },
-            },
-          },
-        },
-      });
-      if (layout?.tasks?.[0]?.customer?.fantasyName) {
-        return layout.tasks[0].customer.fantasyName;
-      }
-      if (layout?.airbrushing?.task?.customer?.fantasyName) {
-        return layout.airbrushing.task.customer.fantasyName;
-      }
-
-      // Quote layout (File.quoteLayoutId -> Budget -> task -> customer).
-      // These are uploaded standalone and attached to the quote afterwards, so the
-      // upload itself has no customer to route by; this lets the organizer re-file
-      // them into Clientes/{cliente}/Layouts/ once the attachment exists.
-      const quoteLayoutFile = await this.prisma.file.findFirst({
-        where: { id: fileId, quoteLayoutId: { not: null } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: {
-          quoteLayout: {
-            select: {
-              tasks: {
-                orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
-                take: 1,
-                select: { customer: { select: { fantasyName: true } } },
-              },
-            },
-          },
+          implement: { select: { task: { select: customerSelect } } },
+          airbrushing: { select: { task: { select: customerSelect } } },
         },
       });
-      // A pasta do arquivo é por CLIENTE, e as N tarefas de um orçamento são do
-      // mesmo cliente por construção (a criação parte de um cliente só). A
-      // primeira responde, e `take: 1` evita carregar sessenta linhas para ler
-      // um nome.
-      if (quoteLayoutFile?.quoteLayout?.tasks?.[0]?.customer?.fantasyName) {
-        return quoteLayoutFile.quoteLayout.tasks[0].customer.fantasyName;
+      for (const l of layouts) {
+        const name =
+          l.implement?.task?.customer?.fantasyName ?? l.airbrushing?.task?.customer?.fantasyName;
+        if (name) return name;
       }
 
       // Boleto (BankSlip.pdfFileId -> installment -> customerConfig -> customer).

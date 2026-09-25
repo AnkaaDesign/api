@@ -16,7 +16,8 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
  */
 export interface FilesFolderMapping {
   // Entity-specific folders - Tasks
-  tasksLayouts: string;
+  /** A arte do implemento (R2). */
+  implementLayouts: string;
   taskBudgets: string;
   taskInvoices: string;
   taskReceipts: string;
@@ -75,7 +76,6 @@ export interface FilesFolderMapping {
   warning: string;
   implementMeasurePhotos: string;
   implementVinPlate: string;
-  'quote-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
   thumbnails: string;
@@ -127,7 +127,7 @@ export class FilesStorageService {
    */
   private readonly folderMapping: FilesFolderMapping = {
     // Task folders (under Clientes/{customerName}/)
-    tasksLayouts: 'Layouts',
+    implementLayouts: 'Layouts',
     taskBudgets: 'Orcamentos',
     taskInvoices: 'Notas Fiscais',
     taskReceipts: 'Comprovantes',
@@ -207,7 +207,6 @@ export class FilesStorageService {
     warning: 'Advertencias',
     implementMeasurePhotos: 'Traseiras',
     implementVinPlate: 'Plaquetas',
-    'quote-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
     thumbnails: 'Thumbnails',
@@ -278,7 +277,7 @@ export class FilesStorageService {
    * Contexts that belong under Clientes/{customerName}/
    */
   private readonly customerContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
-    'tasksLayouts',
+    'implementLayouts',
     'taskBudgets',
     'taskInvoices',
     'taskReceipts',
@@ -303,7 +302,6 @@ export class FilesStorageService {
     'observations',
     'implementMeasurePhotos',
     'implementVinPlate',
-    'quote-layouts',
     'budgetSignatures',
     'budgetDossiers',
     'plotterEspovo',
@@ -420,7 +418,7 @@ export class FilesStorageService {
           contextSuffix = this.folderMapping.archives;
           break;
         case FileTypeCategory.ARTWORK:
-          contextSuffix = this.folderMapping.tasksLayouts;
+          contextSuffix = this.folderMapping.implementLayouts;
           break;
         default:
           contextSuffix = this.folderMapping.general;
@@ -463,11 +461,7 @@ export class FilesStorageService {
       if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
         const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
         folderPath = join(folderPath, cutSubfolder);
-      } else if (
-        fileContext === 'tasksLayouts' ||
-        fileContext === 'quote-layouts' ||
-        fileContext === 'airbrushingLayouts'
-      ) {
+      } else if (fileContext === 'implementLayouts' || fileContext === 'airbrushingLayouts') {
         const isPdf = mimetype === 'application/pdf';
         folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
       } else if (fileContext === 'taskBaseFiles') {
@@ -486,7 +480,7 @@ export class FilesStorageService {
     }
 
     // Add project-specific subfolder if provided
-    if (projectId && projectName && fileContext === 'tasksLayouts') {
+    if (projectId && projectName && fileContext === 'implementLayouts') {
       const sanitizedProjectName = this.sanitizeFileName(projectName);
       folderPath = join(folderPath, sanitizedProjectName);
     }
@@ -757,7 +751,6 @@ export class FilesStorageService {
 
     const entityContextMap: Record<string, Array<keyof FilesFolderMapping>> = {
       task: [
-        'tasksLayouts',
         'taskBudgets',
         'taskInvoices',
         'taskReceipts',
@@ -771,7 +764,7 @@ export class FilesStorageService {
       observation: ['observations'],
       warning: ['warning'],
       implementMeasure: ['implementMeasurePhotos'],
-      implement: ['implementVinPlate', 'implementProjectFiles'],
+      implement: ['implementLayouts', 'implementVinPlate', 'implementProjectFiles'],
       airbrushing: [
         'airbrushingLayouts',
         'airbrushingBudgets',
@@ -810,7 +803,7 @@ export class FilesStorageService {
       if (entityType.toLowerCase() === 'task') {
         switch (category) {
           case FileTypeCategory.ARTWORK:
-            return 'tasksLayouts';
+            return 'implementLayouts';
           case FileTypeCategory.DOCUMENT:
             return 'taskBudgets';
           default:
@@ -827,7 +820,7 @@ export class FilesStorageService {
 
     switch (category) {
       case FileTypeCategory.ARTWORK:
-        return 'tasksLayouts';
+        return 'implementLayouts';
       case FileTypeCategory.IMAGE:
         return 'images';
       case FileTypeCategory.DOCUMENT:

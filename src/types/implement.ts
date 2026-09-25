@@ -5,17 +5,17 @@
 // calado sobre quem ainda fala `Implement`.
 
 import type { Implement as PrismaImplement, Prisma } from '@prisma/client';
-import type {
-  BaseGetUniqueResponse,
-  BaseGetManyResponse,
-  BaseUpdateResponse,
-} from './common';
+import type { BaseGetUniqueResponse, BaseGetManyResponse, BaseUpdateResponse } from './common';
 import type { Task, TaskIncludes } from './task';
 import type { ImplementMeasure, ImplementMeasureIncludes } from './implement-measure';
 import type { File } from './file';
+import type { Layout, LayoutIncludes } from './layout';
 
 /** Colunas GERADAS da busca (omit global em `prisma.service.ts`): nunca saem na resposta. */
-type ImplementGeneratedColumns = 'plateNormalized' | 'chassisNumberNormalized' | 'serialNumberNormalized';
+type ImplementGeneratedColumns =
+  | 'plateNormalized'
+  | 'chassisNumberNormalized'
+  | 'serialNumberNormalized';
 
 export type ImplementScalars = Omit<PrismaImplement, ImplementGeneratedColumns>;
 
@@ -29,6 +29,8 @@ export interface Implement extends ImplementScalars {
   frontSideMeasure?: ImplementMeasure | null;
   /** Projeto do implemento (a Furgões): PDFs. */
   projectFiles?: File[];
+  /** A arte do implemento (R2): imagens, cada uma com o seu status e o `file`. */
+  layouts?: Layout[];
 }
 
 type RelationArg<I> = boolean | { include?: I };
@@ -40,6 +42,7 @@ export interface ImplementIncludes {
   rightSideMeasure?: RelationArg<ImplementMeasureIncludes>;
   frontSideMeasure?: RelationArg<ImplementMeasureIncludes>;
   projectFiles?: boolean;
+  layouts?: RelationArg<LayoutIncludes>;
   /** Foto da plaqueta de identificação (VIN). */
   vinPlate?: boolean;
 }

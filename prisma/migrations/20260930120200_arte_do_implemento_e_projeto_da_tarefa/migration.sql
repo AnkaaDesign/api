@@ -1,7 +1,7 @@
 -- M3 — a arte vai para o implemento e o projeto se separa em projeto da tarefa × projeto do
 -- implemento (release R-B; R2, R6, D-11, D-12, D-13, DD5, DD6; PLANO §2A.9, §3.1, §3.3, §4.3).
 --
--- FATIA ESCRITA E ENSAIADA NO P10, PROMOVIDA PELO P12 (protocolo do §4.1), no mesmo commit em
+-- FATIA ESCRITA E ENSAIADA NO P10, PROMOVIDA PELO P12 em 25/09 (protocolo do §4.1), no mesmo commit em
 -- que `quoteArtworkOf` passa a alimentar o snapshot (G11: quem casava antes casa depois).
 -- Blocos do esquema-alvo que esta fatia traz:
 --   · model Layout inteiro (implementId, version, supersedesId, sentAt, decidedAt, approvalSource,

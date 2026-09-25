@@ -102,20 +102,68 @@ model Airbrushing {
   @@index([painterId])
 }
 
+/// A ARTE. Dono: exatamente UM de implementId (arte do implemento, R2) ou
+/// airbrushingId (aerografia) — CHECK "Layout_one_owner_check" em SQL (M3).
+/// O mesmo File pode ser arte de N implementos (uma linha por implemento):
+/// a unicidade é (dono, arquivo), não o arquivo.
 model Layout {
-  id            String       @id @default(uuid())
-  fileId        String       @unique
-  status        LayoutStatus @default(APPROVED)
-  airbrushingId String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  airbrushing   Airbrushing? @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
-  file          File         @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  tasks         Task[]       @relation("TaskLayouts")
+  id                     String                @id @default(uuid())
+  fileId                 String
+  /// O APPROVED padrão mentia: arte nova nasce rascunho.
+  status                 LayoutStatus          @default(DRAFT)
+  implementId            String?
+  airbrushingId          String?
+  version                Int                   @default(1)
+  supersedesId           String?               @unique
+  /// Entrou em PENDING_APPROVAL (enviada ao cliente).
+  sentAt                 DateTime?
+  decidedAt              DateTime?
+  approvalSource         LayoutApprovalSource?
+  /// Contato do cliente (tabela física "Representative").
+  decidedByResponsibleId String?
+  /// Funcionário (ON_BEHALF ou reprovação interna).
+  decidedByUserId        String?
+  /// Obrigatória em REPROVED pelo portal (CHECK "Layout_decision_note_check") e em ON_BEHALF (regra de serviço).
+  decisionNote           String?               @db.Text
+  /// Hash dos bytes NO ATO da decisão.
+  fileSha256             String?
+  createdById            String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  implement              Implement?            @relation("IMPLEMENT_LAYOUTS", fields: [implementId], references: [id], onDelete: Cascade)
+  airbrushing            Airbrushing?          @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  file                   File                  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  supersedes             Layout?               @relation("LAYOUT_SUPERSEDES", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy           Layout?               @relation("LAYOUT_SUPERSEDES")
+  decidedByResponsible   Responsible?          @relation("LAYOUT_DECIDED_BY_RESPONSIBLE", fields: [decidedByResponsibleId], references: [id], onDelete: SetNull)
+  decidedByUser          User?                 @relation("LAYOUT_DECIDED_BY_USER", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  decisions              LayoutDecision[]
 
+  @@unique([implementId, fileId])
+  @@unique([airbrushingId, fileId])
   @@index([fileId])
   @@index([airbrushingId])
   @@index([status])
+  @@index([implementId, status])
+}
+
+/// Trilha append-only de cada gesto sobre a arte (enviar, aprovar, reprovar, substituir).
+/// Layout guarda só a ÚLTIMA palavra; o portal precisa responder "quem, quando, por quê".
+model LayoutDecision {
+  id            String               @id @default(uuid())
+  layoutId      String
+  toStatus      LayoutStatus
+  source        LayoutApprovalSource
+  responsibleId String?
+  userId        String?
+  note          String?              @db.Text
+  fileSha256    String?
+  createdAt     DateTime             @default(now())
+  layout        Layout               @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  responsible   Responsible?         @relation("LAYOUT_DECISION_RESPONSIBLE", fields: [responsibleId], references: [id], onDelete: SetNull)
+  user          User?                @relation("LAYOUT_DECISION_USER", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([layoutId, createdAt])
 }
 
 model Borrow {
@@ -776,10 +824,11 @@ model File {
   path                                   String
   size                                   Int
   thumbnailUrl                           String?
-  quoteLayoutId                          String?
+  // [M3] quoteLayoutId saiu do Prisma; a COLUNA, a FK e o índice ficam no banco até a M4 (R-D).
   createdAt                              DateTime               @default(now())
   updatedAt                              DateTime               @updatedAt
-  layouts                                Layout?
+  /// [M3] Era `layouts Layout?` (to-one): um arquivo pode ser arte de N implementos.
+  artLayouts                             Layout[]
   customerLogo                           Customer[]             @relation("CUSTOMER_LOGO")
   taskCuts                               Cut[]                  @relation("TASK_CUTS")
   implementMeasurePhotos                 ImplementMeasure[]     @relation("IMPLEMENT_MEASURE_PHOTO")
@@ -790,9 +839,6 @@ model File {
   warningSignatureDocuments              WarningSignature[]     @relation("WARNING_SIGNATURE_DOCUMENT")
   supplierLogo                           Supplier[]             @relation("SUPPLIER_LOGO")
   configCustomerSignatures               BudgetPayer[]          @relation("CONFIG_CUSTOMER_SIGNATURE")
-  quoteLayout                            Budget?                @relation("QUOTE_LAYOUT", fields: [quoteLayoutId], references: [id], onDelete: SetNull)
-  /// Os veículos que esta arte cobre, quando o orçamento dono dela é `PER_VEHICLE`.
-  quoteLayoutTasks                       BudgetLayoutTask[]     @relation("QUOTE_LAYOUT_TASKS")
   userAvatar                             User[]                 @relation("USER_AVATAR")
   thumbnailJob                           ThumbnailJob?
   paintingFaceFiles                      PaintingAnalysisFace[] @relation("PAINTING_FACE_FILE")
@@ -850,7 +896,6 @@ model File {
   @@index([originalName])
   @@index([mimetype])
   @@index([path])
-  @@index([quoteLayoutId])
 }
 
 model MonetaryValue {
@@ -2005,7 +2050,8 @@ model Budget {
   ///
   /// Ver `QuoteBillingSplit`, `Billing` e `BillingTask`.
   billingSplit QuoteBillingSplit @default(JOINT)
-  layoutFiles  File[]            @relation("QUOTE_LAYOUT")
+  // [M3] layoutFiles saiu: o orçamento não seleciona arte, ela vem do implemento
+  // (quoteArtworkOf). A coluna File.quoteLayoutId fica no banco até a M4.
 
   /// DE QUAL VEÍCULO É CADA LAYOUT APROVADO.
   ///
@@ -2023,6 +2069,10 @@ model Budget {
   /// O preço continua um só: é o layout que passa a ser por veículo, não o
   /// orçamento. Veículo que precisa de outra LISTA de serviços continua sendo
   /// outro orçamento.
+  ///
+  /// [M3] FLAG LEGADO DE LEITURA (DD6): a M3 passo 5 transformou a cobertura
+  /// de `BudgetLayoutTask` em arte de cada implemento; o builder do snapshot só LÊ
+  /// o flag (emite `layoutCoverage` quando PER_VEHICLE). A tabela sai na M4.
   layoutScope QuoteLayoutScope @default(SHARED)
   services    BudgetItem[]     @relation("QUOTE_SERVICES")
   /// OS FATURAMENTOS deste orçamento — 1 ou N, entidades de verdade.
@@ -2334,33 +2384,8 @@ model BillingTask {
   @@index([taskId])
 }
 
-/// A COBERTURA DE UM LAYOUT APROVADO — "esta arte vale para este veículo".
-///
-/// Só existe em orçamento `layoutScope = PER_VEHICLE`; num `SHARED` a tabela não
-/// tem linha nenhuma dele, e voltar para `SHARED` apaga as que houver.
-///
-/// Sem `budgetId` de propósito: o orçamento é o dono da ARTE
-/// (`File.quoteLayoutId`) e o dono do VEÍCULO (`Task.quoteId`), e uma linha só
-/// vale quando os dois apontam para o mesmo orçamento. Guardar um terceiro
-/// ponteiro criaria o caso "a linha diz um orçamento, a arte diz outro". Quem lê
-/// a cobertura parte da arte (`layoutFiles[].quoteLayoutTasks`) e cruza com as
-/// tarefas do orçamento; quem tira um veículo do orçamento apaga as linhas dele
-/// (ver `utils/quote-layout-coverage.ts`).
-///
-/// `Cascade` dos dois lados: sem a arte ou sem o veículo a afirmação não tem
-/// sujeito. Um veículo apagado perde a cobertura, e NUNCA a ganha de volta por
-/// inferência.
-model BudgetLayoutTask {
-  fileId    String
-  taskId    String
-  createdAt DateTime @default(now())
-
-  file File @relation("QUOTE_LAYOUT_TASKS", fields: [fileId], references: [id], onDelete: Cascade)
-  task Task @relation("TASK_QUOTE_LAYOUTS", fields: [taskId], references: [id], onDelete: Cascade)
-
-  @@id([fileId, taskId])
-  @@index([taskId])
-}
+// [M3] model BudgetLayoutTask saiu do Prisma (DD6): a M3 passo 5 transformou a cobertura
+// em arte de cada implemento. A TABELA fica no banco até a M4.
 
 model Supplier {
   id                String             @id @default(uuid())
@@ -2480,7 +2505,7 @@ model Task {
   receipts              File[]                @relation("TASK_RECEIPTS")
   bankSlips             File[]                @relation("TASK_BANK_SLIPS")
   reimbursements        File[]                @relation("TASK_REIMBURSEMENTS")
-  layouts               Layout[]              @relation("TaskLayouts")
+  // [M3] `layouts` (M2M "_TaskLayouts") saiu: a arte é do implemento (Implement.layouts).
   projectFiles          File[]                @relation("TASK_PROJECT_FILES")
   checkinFiles          File[]                @relation("TASK_CHECKIN_FILES")
   checkoutFiles         File[]                @relation("TASK_CHECKOUT_FILES")
@@ -2507,9 +2532,7 @@ model Task {
   /// Como de-um, `orderBy: { billingEntry: { billing: { statusOrder: 'asc' } } }`
   /// funciona nativamente, sem coluna desnormalizada e sem ordenar em memória.
   billingEntry          BillingTask?          @relation("TaskBillingEntity")
-  /// As artes do orçamento que valem para ESTE veículo, quando o orçamento é
-  /// `PER_VEHICLE`. Num `SHARED` é sempre vazia: ali toda arte vale para todos.
-  quoteLayoutCoverage   BudgetLayoutTask[]    @relation("TASK_QUOTE_LAYOUTS")
+  // [M3] quoteLayoutCoverage (BudgetLayoutTask) saiu do Prisma; a tabela fica até a M4.
 
   detailsNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized    String? /// accent-insensitive search (generated column, see migration)
@@ -2650,6 +2673,8 @@ model Implement {
   /// [M2]
   frontSideMeasure   ImplementMeasure?  @relation("IMPLEMENT_FRONT_SIDE", fields: [frontSideMeasureId], references: [id], onDelete: SetNull)
   task               Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  /// [M3] A ARTE (R2).
+  layouts            Layout[]           @relation("IMPLEMENT_LAYOUTS")
   /// [M2] PROJETO DO IMPLEMENTO (R6): o projeto da Furgões.
   projectFiles       File[]             @relation("IMPLEMENT_PROJECT_FILES")
 
@@ -2934,6 +2959,9 @@ model User {
   phoneNormalized        String? /// accent-insensitive search (generated column, see migration)
   pisNormalized          String? /// accent-insensitive search (generated column, see migration)
   stateNormalized        String? /// accent-insensitive search (generated column, see migration)
+  /// [M3] decisões de arte tomadas por este funcionário (em nome do cliente / reprovação interna).
+  layoutsDecided         Layout[]         @relation("LAYOUT_DECIDED_BY_USER")
+  layoutDecisions        LayoutDecision[] @relation("LAYOUT_DECISION_USER")
 
   @@index([currentContractStatus, sectorId])
   @@index([currentContractType])
@@ -3770,6 +3798,9 @@ model Responsible {
   emailNormalized String? /// accent-insensitive search (generated column, see migration)
   nameNormalized  String? /// accent-insensitive search (generated column, see migration)
   phoneNormalized String? /// accent-insensitive search (generated column, see migration)
+  /// [M3] decisões de arte tomadas por este contato.
+  layoutsDecided  Layout[]         @relation("LAYOUT_DECIDED_BY_RESPONSIBLE")
+  layoutDecisions LayoutDecision[] @relation("LAYOUT_DECISION_RESPONSIBLE")
 
   @@index([email])
   @@index([phone])

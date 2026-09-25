@@ -37,7 +37,7 @@
  */
 import { Logger } from '@nestjs/common';
 import { sortQuoteTasks } from './quote-tasks';
-import { vehicleLabel } from './quote-layout-coverage';
+import { vehicleLabel } from './quote-tasks';
 import {
   FACES,
   FACE_FK,

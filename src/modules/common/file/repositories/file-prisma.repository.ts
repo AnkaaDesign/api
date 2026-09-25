@@ -70,8 +70,8 @@ export class FilePrismaRepository
     const mappedInclude: any = {};
 
     // Map valid File relations with explicit field validation
-    if (include.layouts !== undefined) {
-      mappedInclude.layouts = include.layouts;
+    if (include.artLayouts !== undefined) {
+      mappedInclude.artLayouts = include.artLayouts;
     }
     if (include.customerLogo !== undefined) {
       mappedInclude.customerLogo = include.customerLogo;
@@ -113,10 +113,13 @@ export class FilePrismaRepository
 
   protected getDefaultInclude(): Prisma.FileInclude {
     return {
-      layouts: {
+      // A arte que usa este arquivo — uma linha por dono (implemento ou aerografia, M3).
+      artLayouts: {
         select: {
           id: true,
           status: true,
+          implementId: true,
+          airbrushingId: true,
         },
       },
       customerLogo: {

@@ -707,10 +707,10 @@ export class AirbrushingService {
         // CRITICAL: convert layout File IDs (payload + uploads) into Layout
         // entities linked to this airbrushing. Without this, art uploaded at
         // creation would be an orphaned File with no Layout row (mirrors update()).
-        const layoutFileIds = [...(data.layoutIds || []), ...uploadedLayoutFileIds];
-        if (layoutFileIds.length > 0) {
+        const artFileIds = [...(data.layoutIds || []), ...uploadedLayoutFileIds];
+        if (artFileIds.length > 0) {
           await this.convertFileIdsToLayoutIds(
-            layoutFileIds,
+            artFileIds,
             newAirbrushing.id,
             this.mergeNewLayoutStatuses(layoutStatuses, uploadedLayoutFileIds, newLayoutStatuses),
             userRole,
@@ -1141,17 +1141,15 @@ export class AirbrushingService {
   /**
    * Release an airbrushing's files before the row (and its cascades) disappear.
    *
-   * Two distinct problems this solves:
+   * Desde a M3 cada linha de arte tem um dono só: as desta aerografia caem por
+   * cascata, e a arte de um implemento que use o mesmo arquivo é OUTRA linha, que
+   * fica. (Antes, uma linha compartilhada com tarefas tinha de ser desligada daqui
+   * para a cascata não levá-la junto.)
    *
-   *  1. SHARED LAYOUTS WERE BEING DESTROYED. Layout.airbrushingId is onDelete: Cascade, so
-   *     deleting an airbrushing deletes its Layout rows outright — including any Layout that
-   *     is ALSO connected to tasks through the TaskLayouts join table, silently removing the
-   *     layout from those tasks. Such layouts are detached (airbrushingId = null) instead, so
-   *     the cascade cannot reach them and the tasks keep their art.
-   *  2. FILES AND BYTES WERE LEAKING. delete() never touched files, so the File rows became
-   *     unreachable orphans and their bytes stayed on disk forever — and because
-   *     'Aerografias' is in FileCleanupSchedulerService.sambaExcludedFolders, the nightly
-   *     orphan reaper never walks that tree to reclaim them.
+   * FILES AND BYTES WERE LEAKING. delete() never touched files, so the File rows became
+   * unreachable orphans and their bytes stayed on disk forever — and because
+   * 'Aerografias' is in FileCleanupSchedulerService.sambaExcludedFolders, the nightly
+   * orphan reaper never walks that tree to reclaim them.
    *
    * Deletion is deliberately conservative: a file is removed only when nothing outside this
    * airbrushing still references it (checked against the live FK catalog), and any error in
@@ -1165,30 +1163,18 @@ export class AirbrushingService {
     const owned = await tx.airbrushing.findUnique({
       where: { id: airbrushingId },
       select: {
-        layouts: {
-          select: { id: true, fileId: true, tasks: { select: { id: true }, take: 1 } },
-        },
+        layouts: { select: { id: true, fileId: true } },
         receipts: { select: { id: true } },
         invoices: { select: { id: true } },
       },
     });
     if (!owned) return [];
 
-    // (1) Protect layouts shared with tasks from the cascade.
-    const sharedLayoutIds = owned.layouts.filter(l => (l.tasks?.length ?? 0) > 0).map(l => l.id);
-    if (sharedLayoutIds.length > 0) {
-      await tx.layout.updateMany({
-        where: { id: { in: sharedLayoutIds } },
-        data: { airbrushingId: null },
-      });
-      this.logger.log(
-        `[Airbrushing Delete] Detached ${sharedLayoutIds.length} task-linked layout(s) from airbrushing ${airbrushingId} so the cascade cannot delete them.`,
-      );
-    }
-
-    // (2) Reclaim files that nothing else references.
+    // Reclaim files that nothing else references. As linhas de arte DESTA aerografia
+    // caem por cascata; a de outro dono (implemento, outra aerografia) usando o mesmo
+    // arquivo é outra linha (M3) e segura o arquivo em `fileHasOtherReferences`.
     const candidateFileIds = [
-      ...owned.layouts.filter(l => (l.tasks?.length ?? 0) === 0).map(l => l.fileId),
+      ...owned.layouts.map(l => l.fileId),
       ...owned.receipts.map(f => f.id),
       ...owned.invoices.map(f => f.id),
     ];
@@ -1208,7 +1194,9 @@ export class AirbrushingService {
         // naquele instante a linha Layout ainda existe e o arquivo ainda esta "em uso".
         // Apagar o Layout primeiro deixa a ordem honesta -- e a trava continua valendo
         // para todo mundo, em vez de abrir excecao para este caminho.
-        await tx.layout.deleteMany({ where: { fileId } });
+        // Só a linha DESTA aerografia: `{ fileId }` sozinho apagaria também a arte de
+        // implementos que usem o mesmo arquivo (M3, risco 29 do plano).
+        await tx.layout.deleteMany({ where: { fileId, airbrushingId } });
         await tx.file.delete({ where: { id: fileId } });
         if (file?.path) purge.push({ id: fileId, path: file.path });
       } catch (error: any) {
@@ -1868,7 +1856,7 @@ export class AirbrushingService {
    *     status/painter/price edit) provides none of them and must leave the relations
    *     untouched — pushing `set: []` silently detaches every attached file.
    *  2. ID DOMAIN. `layoutIds` from clients are FILE ids; the `layouts` relation stores
-   *     LAYOUT entity ids. They must be converted (creating/adopting Layout rows) first,
+   *     LAYOUT entity ids. They must be converted (finding/creating THIS airbrushing's rows) first,
    *     or Prisma is handed ids that do not exist in the target table.
    *  3. EXPLICIT CLEAR. Emptying a relation is a destructive, irreversible-looking
    *     operation, so it is only ever performed when this method decided the payload
@@ -1975,8 +1963,8 @@ export class AirbrushingService {
     updateData._allowRelationClear = true;
 
     // A clear that detaches nothing is noise; one that detaches real rows is the exact
-    // event that went unnoticed for weeks (files stay on disk, the Layout row just loses
-    // its airbrushingId, and nothing in the UI says so). Count what is actually about to
+    // event that went unnoticed for weeks (files stay on disk, the Layout row of this
+    // airbrushing is deleted, and nothing in the UI says so). Count what is actually about to
     // be lost and log it at ERROR so it is greppable/alertable after the fact.
     const current = await tx.airbrushing.findUnique({
       where: { id },
@@ -2037,10 +2025,16 @@ export class AirbrushingService {
   }
 
   /**
-   * Convert File IDs to Layout entity IDs
-   * Creates Layout entities if they don't exist for the given File IDs
+   * Convert File IDs to Layout entity IDs of THIS airbrushing.
+   *
+   * Desde a M3 o Layout tem um dono só (CHECK `Layout_one_owner_check`) e é único
+   * por (dono, arquivo): o mesmo arquivo pode ser arte desta aerografia e de outra
+   * (ou de um implemento), cada um com a sua linha e o seu status. Por isso não há
+   * mais clone nem "adoção" de linha alheia — a linha desta aerografia é achada ou
+   * criada, e só ela muda.
+   *
    * @param fileIds - Array of File IDs
-   * @param airbrushingId - Airbrushing ID for creating new Layout records
+   * @param airbrushingId - the owner
    * @param layoutStatuses - Map of File ID to layout status
    * @param userRole - User role for permission checking
    * @param tx - Prisma transaction
@@ -2055,106 +2049,21 @@ export class AirbrushingService {
   ): Promise<string[]> {
     const prisma = tx || this.prisma;
     const layoutIds: string[] = [];
-
-    // Debug: Log permission check info
     const hasApprovalPermission = this.canApproveLayouts(userRole);
-    this.logger.log(
-      `[convertFileIdsToLayoutIds] Permission check: userRole=${userRole}, canApproveLayouts=${hasApprovalPermission}`,
-    );
-    this.logger.log(
-      `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
-    );
 
-    for (const rawFileId of fileIds) {
-      let fileId = rawFileId;
-      // fileId is GLOBALLY @unique on Layout, so look up by fileId alone. Looking up by
-      // (fileId + airbrushingId) would miss an existing Layout that is currently detached
-      // (airbrushingId=null, e.g. removed from this airbrushing earlier) or attached to a
-      // different airbrushing — and the fallback create() would then violate the fileId
-      // unique constraint (P2002 → 500).
-      let layout: any = await prisma.layout.findUnique({
-        where: { fileId },
-        include: { tasks: { select: { id: true }, take: 1 } },
-      });
-
-      // OWNERSHIP: because fileId is unique and airbrushingId is a single FK, a File backs
-      // exactly ONE airbrushing layout. Re-pointing an already-owned Layout at this
-      // airbrushing silently STEALS it from its current owner, so clone the file and give
-      // this airbrushing its own copy instead. Only a genuinely free Layout (no airbrushing,
-      // no task links) is adopted — that is the re-attach-what-you-just-removed case.
-      // Mirrors task.service.ts convertFileIdsToLayoutIds; keep the two in sync.
-      if (layout) {
-        const ownedByOtherAirbrushing =
-          !!layout.airbrushingId && layout.airbrushingId !== airbrushingId;
-        const ownedByTask = (layout.tasks?.length ?? 0) > 0;
-
-        if (ownedByOtherAirbrushing || ownedByTask) {
-          const current = await prisma.airbrushing.findUnique({
-            where: { id: airbrushingId },
-            select: { task: { select: { customer: { select: { fantasyName: true } } } } },
-          });
-          const clonedFileId = await this.fileService.cloneFile(
-            prisma as PrismaTransaction,
-            fileId,
-            'airbrushingLayouts',
-            undefined,
-            current?.task?.customer?.fantasyName ?? undefined,
-          );
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] File ${fileId} already backs Layout ${layout.id} ` +
-              `(${ownedByOtherAirbrushing ? `owned by airbrushing ${layout.airbrushingId}` : 'linked to a task'}). ` +
-              `Cloned to File ${clonedFileId} for airbrushing ${airbrushingId} instead of reassigning it.`,
-          );
-          fileId = clonedFileId;
-          layout = null;
-        }
-      }
-
-      // Determine the status to use. The map is keyed by the File ID the CLIENT sent,
-      // so it must be read with `rawFileId` — a file cloned just above has a brand-new
-      // id that appears nowhere in the payload, and looking it up would silently drop
-      // the status the user picked.
-      const requestedStatus = layoutStatuses?.[rawFileId] ?? layoutStatuses?.[fileId];
-      const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
-
-      this.logger.log(
-        `[convertFileIdsToLayoutIds] File ${fileId}: found=${!!layout}, currentStatus=${layout?.status}, requestedStatus=${requestedStatus}`,
-      );
+    for (const fileId of [...new Set(fileIds)]) {
+      const requestedStatus = layoutStatuses?.[fileId];
+      let layout = await prisma.layout.findFirst({ where: { airbrushingId, fileId } });
 
       if (!layout) {
-        // Create new Layout with the provided or default status
-        // If status is APPROVED/REPROVED, check permissions
-        if (status !== 'DRAFT' && !hasApprovalPermission) {
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] User without approval permission tried to create layout with status ${status}. Using DRAFT instead.`,
-          );
-          layout = await prisma.layout.create({
-            data: {
-              fileId,
-              status: 'DRAFT', // Force DRAFT if user doesn't have permission
-              airbrushingId,
-            },
-          });
-        } else {
-          layout = await prisma.layout.create({
-            data: {
-              fileId,
-              status,
-              airbrushingId,
-            },
-          });
-        }
+        // Sem permissão de aprovar, nasce rascunho (o status pedido é ignorado, como antes).
+        const status = requestedStatus && hasApprovalPermission ? requestedStatus : 'DRAFT';
+        layout = await prisma.layout.create({ data: { fileId, status, airbrushingId } });
         this.logger.log(
-          `[convertFileIdsToLayoutIds] Created new Layout record ${layout.id} for File ${fileId} with status ${layout.status}`,
+          `[convertFileIdsToLayoutIds] Created Layout ${layout.id} for File ${fileId} on airbrushing ${airbrushingId} (${layout.status})`,
         );
-      } else {
-        // A Layout already exists for this file. Adopt it onto THIS airbrushing if it isn't
-        // already (it may have been detached or belong to another airbrushing) and apply any
-        // permitted status change. Never create a second row — fileId is unique.
-        const needsAdopt = layout.airbrushingId !== airbrushingId;
-        const wantsStatusChange = !!requestedStatus && layout.status !== requestedStatus;
-
-        if (wantsStatusChange && !hasApprovalPermission) {
+      } else if (requestedStatus && layout.status !== requestedStatus) {
+        if (!hasApprovalPermission) {
           // Recusa EXPLÍCITA em vez de ignorar em silêncio. Antes o servidor
           // engolia a tentativa e respondia 200, e o interceptor do axios
           // transformava isso em "Sucesso" — o usuário via um toast verde e o
@@ -2163,25 +2072,10 @@ export class AirbrushingService {
             'Apenas os setores Comercial e Administrador podem aprovar ou reprovar layouts.',
           );
         }
-
-        const applyStatusChange = wantsStatusChange && hasApprovalPermission;
-        if (needsAdopt || applyStatusChange) {
-          const oldStatus = layout.status;
-          layout = await prisma.layout.update({
-            where: { id: layout.id },
-            data: {
-              ...(needsAdopt ? { airbrushingId } : {}),
-              ...(applyStatusChange ? { status: requestedStatus } : {}),
-            },
-          });
-          this.logger.log(
-            `[convertFileIdsToLayoutIds] ✅ Reconciled Layout ${layout.id} (adopt=${needsAdopt}, status ${oldStatus}→${layout.status})`,
-          );
-        } else {
-          this.logger.log(
-            `[convertFileIdsToLayoutIds] No change for File ${fileId}: already on airbrushing ${airbrushingId} with status ${layout.status}`,
-          );
-        }
+        layout = await prisma.layout.update({
+          where: { id: layout.id },
+          data: { status: requestedStatus },
+        });
       }
 
       layoutIds.push(layout.id);

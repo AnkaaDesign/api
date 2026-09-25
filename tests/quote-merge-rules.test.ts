@@ -38,7 +38,6 @@ const base = (over: Partial<MergeCandidate> = {}): MergeCandidate => ({
   guaranteeYears: 5,
   customGuaranteeText: null,
   customForecastDays: null,
-  layoutFileIds: ['f1'],
   services: [
     { description: 'Logomarca Laterais', amount: 4545 },
     { description: 'Logomarca Traseira', amount: 1285 },
@@ -235,12 +234,10 @@ console.log('\nO que NÃO bloqueia — a união apenas decide');
     check('e avisa que volta para pendente', v.warnings.some(w => w.code === 'STATUS_RESET'));
   }
   {
-    const v = judgeMerge([
-      base({ budgetNumber: 1, id: 'a', layoutFileIds: ['f1'] }),
-      base({ budgetNumber: 2, id: 'b', layoutFileIds: ['f9'] }),
-    ]);
-    check('layout diferente só AVISA', v.blockers.length === 0);
-    check('e diz de quem é o que prevalece', v.warnings.some(w => w.code === 'LAYOUT' && w.message.includes('nº 1')));
+    // A arte é do implemento (R2): cada veículo leva a sua para o orçamento
+    // unido, e não há "layout do orçamento" que prevaleça ou se perca.
+    const v = judgeMerge([base({ budgetNumber: 1, id: 'a' }), base({ budgetNumber: 2, id: 'b' })]);
+    check('a arte não entra na união: nenhum aviso de layout', !v.warnings.some(w => /LAYOUT/.test(w.code)));
   }
   {
     const v = judgeMerge([

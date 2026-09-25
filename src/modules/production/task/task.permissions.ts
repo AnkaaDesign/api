@@ -56,30 +56,15 @@ export const TASK_FIELD_DOMAINS = {
   /** Responsible users (incl. inline-created responsibles on create) */
   responsibles: ['responsibleIds', 'responsibles', 'newResponsibles'],
   /**
-   * Layout files and approval statuses.
+   * Paint selection.
    *
    * ⚠️ QUEM ACRESCENTA TEM DE PODER REMOVER. Os `remove*` deste bloco e dos
-   * quatro abaixo estavam fora de todo domínio: o designer adicionava layout e
-   * tomava 400 ao apagar um. Um campo ausente do mapa não é "negado a todos" —
-   * é negado a todos MENOS ao ADMIN, silenciosamente, e só aparece no dia em que
-   * alguém tenta remover.
+   * abaixo estavam fora de todo domínio: o designer adicionava layout e tomava
+   * 400 ao apagar um. Um campo ausente do mapa não é "negado a todos" — é negado
+   * a todos MENOS ao ADMIN, silenciosamente, e só aparece no dia em que alguém
+   * tenta remover. (A arte saiu da tarefa — R2 —: é o `ImplementLayoutService`
+   * que diz quem envia, aprova e reprova.)
    */
-  layouts: ['layoutIds', 'layoutStatuses', 'newLayoutStatuses'],
-  /**
-   * APAGAR arquivo de layout — separado de `layouts` de propósito.
-   *
-   * FINANCEIRO, LOGÍSTICA e GERENTE DE PRODUÇÃO têm `layouts` como PASSTHROUGH:
-   * o formulário reenvia `layoutIds` só para preservar o estado, e o comentário
-   * de `SECTOR_TASK_UPDATE_ACCESS` diz isso. Pôr `removeLayoutIds` no mesmo
-   * domínio daria aos três o poder de APAGAR a arte — um direito que o
-   * passthrough nunca pretendeu conceder.
-   *
-   * Fica com quem de fato cura o layout: comercial, designer e o gerente que
-   * responde pela produção. (`layoutStatuses` já estava em `layouts` antes e
-   * segue lá: aprovar não destrói.)
-   */
-  layoutRemoval: ['removeLayoutIds'],
-  /** Paint selection */
   paint: ['paintId', 'paintIds', 'removeGeneralPainting', 'removeLogoPaints'],
   /** Cutting plans */
   cuts: ['cuts', 'cut', 'removeCutIds'],
@@ -146,7 +131,6 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'orderNumber',
     'serviceOrders',
     // Passthrough: form sends these to preserve existing state
-    'layouts',
     'baseFiles',
     'implement',
     'meta',
@@ -164,8 +148,6 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'bonification',
     'implement',
     'responsibles',
-    'layouts',
-    'layoutRemoval',
     'paint',
     'serviceOrders',
     'quote',
@@ -177,15 +159,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.PRODUCTION]: ['status', 'meta'],
 
-  [SECTOR_PRIVILEGES.DESIGNER]: [
-    'layouts',
-    'layoutRemoval',
-    'paint',
-    'cuts',
-    'serviceOrders',
-    'baseFiles',
-    'meta',
-  ],
+  [SECTOR_PRIVILEGES.DESIGNER]: ['paint', 'cuts', 'serviceOrders', 'baseFiles', 'meta'],
 
   [SECTOR_PRIVILEGES.LOGISTIC]: [
     'identity',
@@ -203,7 +177,6 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'serviceOrderFiles',
     'observation',
     // Passthrough: form sends these to preserve existing state
-    'layouts',
     'meta',
   ],
 
@@ -223,8 +196,6 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'serviceOrderFiles',
     'observation',
     'sector',
-    'layouts',
-    'layoutRemoval',
     'meta',
   ],
 
@@ -262,7 +233,6 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'bonification',
     'implement',
     'responsibles',
-    'layouts',
     'paint',
     'serviceOrders',
     'quote',
@@ -285,7 +255,6 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'implement',
     'responsibles',
-    'layouts',
     'paint',
     'serviceOrders',
     'quote',
@@ -309,7 +278,6 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'implement',
     'responsibles',
-    'layouts',
     'paint',
     'serviceOrders',
     'baseFiles',
@@ -330,7 +298,6 @@ export const SECTOR_TASK_CREATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'status',
     'implement',
     'responsibles',
-    'layouts',
     'paint',
     'serviceOrders',
     'baseFiles',
@@ -356,8 +323,6 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   bonification: 'bonificação',
   implement: 'implemento',
   responsibles: 'responsáveis',
-  layouts: 'layouts',
-  layoutRemoval: 'exclusão de layout',
   paint: 'tintas',
   cuts: 'plano de corte',
   airbrushings: 'aerografias',

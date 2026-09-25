@@ -67,7 +67,6 @@ export interface Task extends BaseEntity {
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
-  layouts?: Layout[];
   logoPaints?: Paint[];
   serviceOrders?: ServiceOrder[]; // Prisma relation field
   quoteId?: string | null; // Foreign key to Budget
@@ -228,7 +227,6 @@ export type TaskSelect = TaskSelectFields & {
   observation?: boolean | { select?: { id?: boolean; description?: boolean } };
   generalPainting?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
   createdBy?: boolean | { select?: { id?: boolean; name?: boolean; email?: boolean } };
-  layouts?: boolean | { select?: { id?: boolean; fileId?: boolean; status?: boolean } };
   logoPaints?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
   serviceOrders?:
     | boolean
@@ -278,6 +276,7 @@ export type TaskSelect = TaskSelectFields & {
           vinPlateId?: boolean;
           spot?: boolean;
           category?: boolean;
+          layouts?: boolean | { select?: { id?: boolean; fileId?: boolean; status?: boolean } };
         };
       };
   relatedTasks?: boolean | { select?: TaskSelect };
@@ -422,13 +421,6 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   createdBy: {
     select: { id: true, name: true, email: true },
   },
-  layouts: {
-    select: {
-      id: true,
-      fileId: true,
-      status: true,
-    },
-  },
   logoPaints: {
     select: { id: true, name: true, code: true },
   },
@@ -477,6 +469,13 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       vinPlateId: true,
       spot: true,
       category: true,
+      layouts: {
+        select: {
+          id: true,
+          fileId: true,
+          status: true,
+        },
+      },
     },
   },
   responsibles: {
@@ -600,7 +599,6 @@ export interface TaskDetailed extends BaseEntity {
   observation?: { id: string; description: string } | null;
   generalPainting?: { id: string; name: string; code: string | null } | null;
   createdBy?: { id: string; name: string; email: string } | null;
-  layouts?: Array<{ id: string; fileId: string; status: string }>;
   logoPaints?: Array<{ id: string; name: string; code: string | null }>;
   serviceOrders?: Array<{
     id: string;
@@ -632,6 +630,7 @@ export interface TaskDetailed extends BaseEntity {
     vinPlateId: string | null;
     spot: string | null;
     category: string | null;
+    layouts?: Array<{ id: string; fileId: string; status: string }>;
   } | null;
   responsibles?: Array<{
     id: string;
@@ -741,11 +740,6 @@ export interface TaskIncludes {
     | {
         include?: UserIncludes;
       };
-  layouts?:
-    | boolean
-    | {
-        include?: LayoutIncludes;
-      };
   logoPaints?:
     | boolean
     | {
@@ -761,7 +755,6 @@ export interface TaskIncludes {
     | {
         include?: {
           services?: boolean;
-          layoutFiles?: boolean;
           customerSignature?: boolean;
           customerConfigs?: boolean;
           responsible?: boolean;

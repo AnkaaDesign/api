@@ -9,7 +9,7 @@
 -- Idempotente. NUNCA rodar em produção (lá tudo vem das migrations).
 --
 -- 2 extensões, 9 funções, 171 colunas geradas,
--- 7 gatilhos, 17 índices, 23 CHECKs.
+-- 7 gatilhos, 17 índices, 25 CHECKs.
 
 BEGIN;
 
@@ -655,6 +655,10 @@ ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorBarCount_ch
 ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorBarCount_check" CHECK ((("rearDoorBarCount" IS NULL) OR ("rearDoorBarCount" = ANY (ARRAY[2, 3, 4]))));
 ALTER TABLE "Implement" DROP CONSTRAINT IF EXISTS "Implement_rearDoorHatchCount_check";
 ALTER TABLE "Implement" ADD CONSTRAINT "Implement_rearDoorHatchCount_check" CHECK ((("rearDoorHatchCount" IS NULL) OR (("rearDoorHatchCount" >= 0) AND ("rearDoorHatchCount" <= 6))));
+ALTER TABLE "Layout" DROP CONSTRAINT IF EXISTS "Layout_decision_note_check";
+ALTER TABLE "Layout" ADD CONSTRAINT "Layout_decision_note_check" CHECK (((status <> 'REPROVED'::"LayoutStatus") OR ("approvalSource" IS DISTINCT FROM 'PORTAL'::"LayoutApprovalSource") OR ("decisionNote" IS NOT NULL)));
+ALTER TABLE "Layout" DROP CONSTRAINT IF EXISTS "Layout_one_owner_check";
+ALTER TABLE "Layout" ADD CONSTRAINT "Layout_one_owner_check" CHECK ((("implementId" IS NOT NULL) <> ("airbrushingId" IS NOT NULL)));
 ALTER TABLE "Notification" DROP CONSTRAINT IF EXISTS "Notification_exactly_one_recipient";
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_exactly_one_recipient" CHECK ((("userId" IS NULL) <> ("responsibleId" IS NULL)));
 ALTER TABLE "ReconciliationMatch" DROP CONSTRAINT IF EXISTS "ReconciliationMatch_has_anchor";

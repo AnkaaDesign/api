@@ -46,7 +46,7 @@ export const fileIncludeSchema = z
     // File associations — só relações que existem em `File` (G1): `tasksLayouts`,
     // `airbrushingLayouts` e `externalOperationBudgets` estavam aqui sem existir
     // no modelo, e o Prisma respondia 500.
-    layouts: z.boolean().optional(),
+    artLayouts: z.boolean().optional(),
     customerLogo: z.boolean().optional(),
     supplierLogo: z.boolean().optional(),
     observations: z.boolean().optional(),
@@ -467,7 +467,7 @@ const fileTransform = (data: any) => {
   //
   // "Órfão" = nenhuma relação de `File` aponta para ele. A lista era escrita à
   // mão e PARCIAL (13 relações): foto de medida do implemento, plaqueta,
-  // documentos do envelope, arte por veículo (BudgetLayoutTask), NFS-e do
+  // documentos do envelope, arte do implemento, NFS-e do
   // aerografista… saíam como "órfãos" ainda referenciados (F10). Agora ela sai
   // do DMMF — TODA relação de `File`, menos as derivadas do próprio arquivo
   // (`FILE_DERIVED_RELATIONS`) —, completa por construção.

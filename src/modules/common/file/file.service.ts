@@ -221,7 +221,7 @@ export class FileService {
    */
   async getFileSuggestions(params: {
     customerId: string;
-    fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles' | 'airbrushingLayouts';
+    fileContext: 'implementLayouts' | 'taskBaseFiles' | 'taskProjectFiles' | 'airbrushingLayouts';
     limit?: number;
     excludeIds?: string[];
   }): Promise<{ success: boolean; data: Array<File & { url: string }> }> {
@@ -254,15 +254,15 @@ export class FileService {
     // Task layouts live under Clientes/<cliente>/Layouts/ and airbrushing layouts under
     // Clientes/<cliente>/Aerografias/Layouts/, but the split is NOT relied on here: files
     // predating that separation still sit in the shared Layouts/ folder, so matching by
-    // path prefix would silently miss them. A Layout row belongs to an airbrushing when
-    // `airbrushingId` is set; otherwise it's a task layout (connected to a Task via TaskLayouts).
-    // tasksLayouts   → only files that were used as a TASK layout for this customer.
+    // path prefix would silently miss them. A Layout row has ONE owner (M3): an
+    // implement (the implement's art) or an airbrushing.
+    // implementLayouts   → only files that were used as IMPLEMENT art for this customer.
     // airbrushingLayouts → only files that were used as an AIRBRUSHING layout for this customer.
-    if (fileContext === 'tasksLayouts' || fileContext === 'airbrushingLayouts') {
+    if (fileContext === 'implementLayouts' || fileContext === 'airbrushingLayouts') {
       const layoutWhere =
         fileContext === 'airbrushingLayouts'
           ? { airbrushingId: { not: null }, airbrushing: { task: { customerId } } }
-          : { airbrushingId: null, tasks: { some: { customerId } } };
+          : { implementId: { not: null }, implement: { task: { customerId } } };
 
       const layouts = await this.prisma.layout.findMany({
         where: {
@@ -479,137 +479,6 @@ export class FileService {
     });
 
     return newFile.id;
-  }
-
-  async cloneFileForQuoteLayout(
-    tx: PrismaTransaction,
-    sourceFileId: string,
-    userId?: string,
-  ): Promise<string> {
-    const source = await this.fileRepository.findByIdWithTransaction(tx, sourceFileId);
-    if (!source) {
-      throw new NotFoundException('Arquivo de layout de origem não encontrado.');
-    }
-
-    // New unique destination path under the quote-layouts folder. generateFilePath's
-    // only uniqueness token is a seconds-resolution timestamp; since File.path is NOT
-    // unique-constrained and copyToStorage overwrites silently, two same-named clones
-    // (same originalName + mimetype) created in the same second would otherwise collide
-    // on one path — re-introducing the shared-bytes data-loss bug this clone fixes
-    // (a single-file delete would unlink the other quote's layout). Inject a random
-    // suffix to guarantee a distinct destination path per clone.
-    const generatedPath = this.filesStorageService.generateFilePath(
-      source.originalName,
-      'quote-layouts',
-      source.mimetype,
-    );
-    const generatedExt = extname(generatedPath);
-    const newPath = `${generatedPath.slice(0, generatedPath.length - generatedExt.length)}_${uuidv4().slice(0, 8)}${generatedExt}`;
-
-    const createData: FileCreateFormData = {
-      filename: basename(newPath),
-      originalName: source.originalName,
-      mimetype: source.mimetype,
-      path: newPath,
-      size: source.size,
-      // thumbnailUrl intentionally null: thumbnails are keyed by fileId, so the
-      // clone gets its own generated lazily; never share the source thumbnail.
-    };
-
-    const newFile = await this.fileRepository.createWithTransaction(tx, createData);
-
-    // Copy the physical bytes to the new path (best-effort; fail loud so the tx
-    // rolls back rather than leaving a File row with no backing bytes).
-    try {
-      await this.filesStorageService.copyToStorage(source.path, newPath);
-    } catch (error: any) {
-      this.logger.error(`Falha ao clonar arquivo de layout ${sourceFileId}: ${error.message}`);
-      throw new InternalServerErrorException('Falha ao clonar arquivo de layout.');
-    }
-
-    const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
-    const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
-    await logEntityChange({
-      changeLogService: this.changeLogService,
-      entityType: ENTITY_TYPE.FILE,
-      entityId: newFile.id,
-      action: CHANGE_ACTION.CREATE,
-      entity: fileForLog,
-      reason: `Layout clonado de arquivo ${source.filename}`,
-      userId: userId || null,
-      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-      transaction: tx,
-    });
-
-    return newFile.id;
-  }
-
-  /**
-   * Resolve a desired list of layout File ids for a target quote, cloning any
-   * File that currently belongs to a DIFFERENT quote so ownership is never
-   * stolen. Pass targetQuoteId=null when the quote does not exist yet (create).
-   * Order of the returned ids matches the input order.
-   */
-  async resolveLayoutFileIdsForQuote(
-    tx: PrismaTransaction,
-    targetQuoteId: string | null,
-    requestedIds: string[],
-    userId?: string,
-  ): Promise<string[]> {
-    const map = await this.resolveLayoutFileIdMapForQuote(tx, targetQuoteId, requestedIds, userId);
-    return [...map.values()];
-  }
-
-  /**
-   * A mesma resolução, devolvendo o MAPA pedido → resolvido.
-   *
-   * Existe para o layout aprovado POR VEÍCULO: o pedido diz "a arte X vale para o
-   * implemento 39088", e X costuma ser o arquivo da galeria da tarefa — que esta
-   * função troca por um CLONE privado do orçamento. A cobertura precisa cair no
-   * clone, e só o mapa diz qual clone nasceu de qual pedido. Id que não existe
-   * mais fica fora do mapa (descartado, como sempre foi).
-   *
-   * A ordem de inserção do mapa é a do pedido, sem repetição.
-   */
-  async resolveLayoutFileIdMapForQuote(
-    tx: PrismaTransaction,
-    targetQuoteId: string | null,
-    requestedIds: string[],
-    userId?: string,
-  ): Promise<Map<string, string>> {
-    const resolved = new Map<string, string>();
-    // Dedupe first — a repeated id owned by ANOTHER quote would otherwise be cloned
-    // once per occurrence, producing multiple stray File copies for a single slot.
-    const uniqueIds = [...new Set(requestedIds)];
-    for (const id of uniqueIds) {
-      const file = await tx.file.findUnique({
-        where: { id },
-        // `layouts` is the to-one Layout back-relation (Layout.fileId is @unique):
-        // a non-null value means this File is a TASK layout, shared across every
-        // task that references it.
-        select: { id: true, quoteLayoutId: true, layouts: { select: { id: true } } },
-      });
-      if (!file) continue; // drop ids that no longer exist
-
-      const isOwnByThisQuote = targetQuoteId !== null && file.quoteLayoutId === targetQuoteId;
-      const isTaskLayout = !!file.layouts;
-      const ownedByAnotherQuote = !!file.quoteLayoutId && file.quoteLayoutId !== targetQuoteId;
-
-      // Give this quote its OWN private copy whenever the File is shared — either a
-      // task layout (referenced by Task.layouts, possibly across sibling tasks) or
-      // already owned by another quote. `File.quoteLayoutId` is a single-owner FK,
-      // so connecting a shared File directly lets the next quote STEAL it, silently
-      // emptying this quote's approved layout. Cloning gives each quote an
-      // independent copy (same image, own record) that can never be stolen; the
-      // original stays the task layout. Skip cloning only when this quote already
-      // owns the File (a plain re-save) or the File is an unshared fresh upload.
-      if (!isOwnByThisQuote && (isTaskLayout || ownedByAnotherQuote)) {
-        resolved.set(id, await this.cloneFileForQuoteLayout(tx, id, userId));
-      } else {
-        resolved.set(id, id);
-      }
-    }
-    return resolved;
   }
 
   /**

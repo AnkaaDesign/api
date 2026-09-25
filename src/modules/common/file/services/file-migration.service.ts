@@ -89,7 +89,8 @@ export class FileMigrationService {
    * Find the customer for a file by tracing database relationships.
    *
    * The relationship chain depends on the file context:
-   * - Layout files (Layouts): File → Layout → Task[] → Customer
+   * - Layout files (Layouts): File → Layout → Implement → Task → Customer (arte do
+   *   implemento) ou → Airbrushing → Task → Customer (arte da aerografia)
    * - Observation files: File → Observation → Task → Customer
    * - Task files (budgets, invoices, etc.): File → Task → Customer
    * - Cut files: File → Cut → Task → Customer
@@ -98,26 +99,28 @@ export class FileMigrationService {
     fileId: string,
   ): Promise<{ id: string; fantasyName: string; source: string } | null> {
     // 1. Check if file is an layout (Layouts folder)
-    const layout = await this.prisma.layout.findFirst({
+    // O mesmo arquivo pode ter mais de um dono (M3); qualquer um com cliente serve,
+    // e o mais antigo decide — a ordem tem de ser estável entre execuções.
+    const customerSelect = { customer: { select: { id: true, fantasyName: true } } };
+    const layouts = await this.prisma.layout.findMany({
       where: { fileId },
-      include: {
-        tasks: {
-          include: {
-            customer: {
-              select: { id: true, fantasyName: true },
-            },
-          },
-          take: 1,
-        },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        implement: { select: { task: { select: customerSelect } } },
+        airbrushing: { select: { task: { select: customerSelect } } },
       },
     });
-
-    if (layout?.tasks?.[0]?.customer) {
-      return {
-        id: layout.tasks[0].customer.id,
-        fantasyName: layout.tasks[0].customer.fantasyName,
-        source: 'layout.task.customer',
-      };
+    for (const l of layouts) {
+      const customer = l.implement?.task?.customer ?? l.airbrushing?.task?.customer;
+      if (customer) {
+        return {
+          id: customer.id,
+          fantasyName: customer.fantasyName,
+          source: l.implement
+            ? 'layout.implement.task.customer'
+            : 'layout.airbrushing.task.customer',
+        };
+      }
     }
 
     // 2. Check if file is linked to a task directly (budgets, invoices, etc.)

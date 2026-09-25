@@ -507,8 +507,10 @@ export class TaskNotificationScheduler {
   // =====================
 
   /**
-   * Run daily at 9:00 AM to check for layouts pending approval > 24 hours
-   * Sends reminders to COMMERCIAL and ADMIN users to approve/reject pending layouts
+   * Run daily at 9:00 AM: arte do implemento ENVIADA ao cliente (PENDING_APPROVAL)
+   * há mais de 24 horas, numa tarefa viva. Lembra COMMERCIAL e ADMIN (o lembrete
+   * ao contato do cliente vem com o portal, P12.2). Arte de aerografia não entra:
+   * ela não passa pelo cliente.
    */
   @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkPendingLayouts() {
@@ -518,31 +520,26 @@ export class TaskNotificationScheduler {
       const now = new Date();
       const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // Find layouts in DRAFT status created more than 24 hours ago,
-      // only where there is at least one active (non-CANCELLED) task associated
       const pendingLayouts = await this.prisma.layout.findMany({
         where: {
-          status: 'DRAFT',
-          createdAt: { lt: twentyFourHoursAgo },
-          tasks: {
-            some: {
-              status: { not: 'CANCELLED' },
-            },
-          },
+          status: 'PENDING_APPROVAL',
+          sentAt: { lt: twentyFourHoursAgo },
+          implement: { task: { status: { not: 'CANCELLED' } } },
         },
         include: {
-          tasks: {
-            where: {
-              status: { not: 'CANCELLED' },
-            },
+          implement: {
             select: {
-              id: true,
-              name: true,
-              implement: { select: { serialNumber: true } },
-              sectorId: true,
-              customerId: true,
+              serialNumber: true,
+              task: {
+                select: {
+                  id: true,
+                  name: true,
+                  implement: { select: { serialNumber: true } },
+                  sectorId: true,
+                  customerId: true,
+                },
+              },
             },
-            take: 1, // Get the first associated active task
           },
           file: {
             select: {
@@ -557,10 +554,10 @@ export class TaskNotificationScheduler {
 
       for (const layout of pendingLayouts) {
         try {
-          // Calculate days pending
-          const createdAt = new Date(layout.createdAt);
+          // Dias desde o envio ao cliente (é o envio que abre a espera).
+          const sentAt = new Date(layout.sentAt ?? layout.createdAt);
           const daysPending = Math.floor(
-            (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24),
+            (now.getTime() - sentAt.getTime()) / (1000 * 60 * 60 * 24),
           );
 
           // Only send reminders at specific intervals to avoid spam:
@@ -574,7 +571,7 @@ export class TaskNotificationScheduler {
             (daysPending > 7 && daysPending % 7 === 0);
 
           if (shouldNotify) {
-            const task = layout.tasks && layout.tasks.length > 0 ? layout.tasks[0] : null;
+            const task = layout.implement?.task ?? null;
 
             if (!task) {
               this.logger.log(`Skipping layout ${layout.id} - no active task found`);

@@ -44,18 +44,28 @@ import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
 } from '../../../../utils/budget-customer-config-sync';
-import { syncTaskLayoutsFromQuote } from '../../../../utils/sync-quote-task-layouts';
 import { allocateBudgetNumber } from '../../../../utils/budget-number';
 import { syncImplementSpotWithCleared } from '../../../../utils/task-implement-spot';
 import { hasEntered } from '../../../../utils/task-cleared';
 import { IMPLEMENT_REAR_DOOR_FIELDS } from '../../../../constants/implement-faces';
 import { QUOTE_BILLING_INCLUDE, withCoverageInclude } from '../../../../utils/quote-tasks';
-import {
-  PER_VEHICLE_LEGACY_WRITE_MESSAGE,
-  pruneQuoteLayoutCoverage,
-  QUOTE_LAYOUT_FILES_INCLUDE,
-  withLayoutCoverageInclude,
-} from '../../../../utils/quote-layout-coverage';
+
+/**
+ * A arte de uma aerografia NOVA a partir dos arquivos escolhidos (`layoutIds` é
+ * lista de `File.id`, como no update — ver `TaskService.airbrushingLayoutIds`).
+ * O Layout tem um dono só (CHECK `Layout_one_owner_check`): cada arquivo vira
+ * uma linha nova, rascunho.
+ */
+function airbrushingLayoutsCreate(
+  fileIds: unknown,
+): { create: { file: { connect: { id: string } } }[] } | undefined {
+  if (!Array.isArray(fileIds) || fileIds.length === 0) return undefined;
+  return {
+    create: [...new Set(fileIds as string[])].map(fileId => ({
+      file: { connect: { id: fileId } },
+    })),
+  };
+}
 
 // =====================
 // Query Pattern Definitions
@@ -267,8 +277,6 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
           },
         },
       },
-      // Com a cobertura de cada arte — ver `withLayoutCoverageInclude`.
-      layoutFiles: QUOTE_LAYOUT_FILES_INCLUDE,
       customerConfigs: {
         include: {
           billing: QUOTE_BILLING_INCLUDE,
@@ -380,23 +388,6 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       },
     },
   },
-  layouts: {
-    select: {
-      id: true,
-      fileId: true,
-      status: true,
-      file: {
-        select: {
-          id: true,
-          filename: true,
-          path: true,
-          mimetype: true,
-          size: true,
-          thumbnailUrl: true,
-        },
-      },
-    },
-  },
   projectFiles: {
     select: {
       id: true,
@@ -486,6 +477,25 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       rearDoorLeaves: true,
       rearDoorBarCount: true,
       rearDoorHatchCount: true,
+      // A arte é do implemento (R2): a lista do detalhe, a mais velha primeiro.
+      layouts: {
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          fileId: true,
+          status: true,
+          file: {
+            select: {
+              id: true,
+              filename: true,
+              path: true,
+              mimetype: true,
+              size: true,
+              thumbnailUrl: true,
+            },
+          },
+        },
+      },
       // Don't include full implementMeasure data by default - fetch separately when needed
       // This reduces payload by 60-70% for tasks with implementMeasures
     },
@@ -828,28 +838,6 @@ export class TaskPrismaRepository
       task.logoPaints = task.logoPaints.map((paint: any) => transformPaintColorPreview(paint));
     }
 
-    // Transform task layouts from nested Layout+File structure to flattened File structure
-    if (task.layouts && Array.isArray(task.layouts)) {
-      task.layouts = task.layouts.map((layout: any) => {
-        if (layout.file) {
-          return {
-            id: layout.file.id,
-            layoutId: layout.id,
-            status: layout.status,
-            filename: layout.file.filename,
-            originalName: layout.file.originalName,
-            path: layout.file.path,
-            mimetype: layout.file.mimetype,
-            size: layout.file.size,
-            thumbnailUrl: layout.file.thumbnailUrl,
-            createdAt: layout.file.createdAt,
-            updatedAt: layout.file.updatedAt,
-          };
-        }
-        return layout;
-      });
-    }
-
     // Transform airbrushing layouts
     if (task.airbrushings && Array.isArray(task.airbrushings)) {
       task.airbrushings = task.airbrushings.map((airbrushing: any) => {
@@ -953,7 +941,6 @@ export class TaskPrismaRepository
       bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      layoutIds,
       baseFileIds,
       projectFileIds,
       checkinFileIds,
@@ -1008,9 +995,6 @@ export class TaskPrismaRepository
     }
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
       taskData.invoiceReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
-    }
-    if (layoutIds && layoutIds.length > 0) {
-      taskData.layouts = { connect: layoutIds.map(id => ({ id })) };
     }
     if (baseFileIds && baseFileIds.length > 0) {
       taskData.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
@@ -1220,10 +1204,10 @@ export class TaskPrismaRepository
               item.invoiceIds && item.invoiceIds.length > 0
                 ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
                 : undefined,
-            layouts:
-              item.layoutIds && item.layoutIds.length > 0
-                ? { connect: item.layoutIds.map((id: string) => ({ id })) }
-                : undefined,
+            // A arte da aerografia é por dono (M3): cada arquivo escolhido vira uma
+            // linha NOVA desta aerografia — `connect` de um Layout existente o
+            // roubaria de outra aerografia (e viola o CHECK de dono único).
+            layouts: airbrushingLayoutsCreate(item.layoutIds),
           };
         }),
       };
@@ -1312,7 +1296,6 @@ export class TaskPrismaRepository
       bankSlipIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      layoutIds,
       baseFileIds,
       projectFileIds,
       checkinFileIds,
@@ -1395,9 +1378,6 @@ export class TaskPrismaRepository
     }
     if (reimbursementInvoiceIds !== undefined) {
       updateData.invoiceReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
-    }
-    if (layoutIds !== undefined) {
-      updateData.layouts = { set: layoutIds.map(id => ({ id })) };
     }
     if (baseFileIds !== undefined) {
       updateData.baseFiles = { set: baseFileIds.map(id => ({ id })) };
@@ -1641,12 +1621,10 @@ export class TaskPrismaRepository
           // Batch path: full create + update + notIn-delete in one nested write.
           //
           // Build a scalar/relation create payload for a new airbrushing.
-          // layouts: a NEW airbrushing has nothing to preserve, so connect the
-          // Layout ids the form selected (mirrors the nested task-create path).
-          // Without this, batch-created airbrushings silently dropped their
-          // layouts. (Existing-airbrushing UPDATES below still leave layouts
-          // untouched — resolving File→Layout there needs the service helper the
-          // repository can't reach, so absence = preserve.)
+          // layouts: a NEW airbrushing has nothing to preserve, so each File the
+          // form selected becomes a NEW Layout row of it (mirrors the nested
+          // task-create path). (Existing-airbrushing UPDATES below still leave
+          // layouts untouched — absence = preserve.)
           // Sem aerografista, nasce em cotação — mesma regra do caminho de criação.
           const buildCreate = (item: any) => {
             const status = resolveNewAirbrushingStatus(item.status, item.painterId);
@@ -1681,10 +1659,7 @@ export class TaskPrismaRepository
               finishedAt: item.finishedAt || null,
               paymentStatus: item.paymentStatus || 'PENDING',
               painter: !quoting && item.painterId ? { connect: { id: item.painterId } } : undefined,
-              layouts:
-                item.layoutIds && item.layoutIds.length > 0
-                  ? { connect: item.layoutIds.map((aid: string) => ({ id: aid })) }
-                  : undefined,
+              layouts: airbrushingLayoutsCreate(item.layoutIds),
               receipts:
                 item.receiptIds && item.receiptIds.length > 0
                   ? { connect: item.receiptIds.map((fid: string) => ({ id: fid })) }
@@ -1873,19 +1848,6 @@ export class TaskPrismaRepository
       if (nested && nested.customerConfigs !== undefined && nested.customerConfigs !== false) {
         nested.customerConfigs = withCoverageInclude(nested.customerConfigs);
       }
-      // ─── E A COBERTURA DE CADA ARTE DE LAYOUT, pelo mesmo motivo ─────────
-      //
-      // A tela de Faturamento lê o orçamento por AQUI (`quote: { include: {
-      // layoutFiles: true } }`), e num orçamento com layout por veículo a arte
-      // sem `quoteLayoutTasks` não diz de qual implemento é. `layoutScope` chega
-      // sozinho quando o nó é `include` (escalar); num `select` à mão ele só vem
-      // se pedido, então é pendurado junto.
-      if (nested && nested.layoutFiles !== undefined && nested.layoutFiles !== false) {
-        nested.layoutFiles = withLayoutCoverageInclude(nested.layoutFiles);
-        if (quoteNode.select && !('layoutScope' in (quoteNode.select as object))) {
-          (quoteNode.select as Record<string, unknown>).layoutScope = true;
-        }
-      }
     }
 
     this.logger.log(
@@ -1970,25 +1932,6 @@ export class TaskPrismaRepository
 
         const nextBudgetNumber = await allocateBudgetNumber(transaction);
 
-        // Clone any implementMeasure File owned by another quote so the new quote owns an
-        // INDEPENDENT copy — connecting the source ids would steal them (FK on File).
-        const resolvedImplementMeasureIds =
-          quoteData.layoutFileIds !== undefined
-            ? await this.fileService.resolveLayoutFileIdsForQuote(
-                transaction,
-                null,
-                quoteData.layoutFileIds ?? [],
-              )
-            : undefined;
-        const layoutFileConnect =
-          resolvedImplementMeasureIds !== undefined
-            ? {
-                layoutFiles: {
-                  connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
-                },
-              }
-            : {};
-
         const newQuote = await transaction.budget.create({
           data: {
             budgetNumber: nextBudgetNumber,
@@ -2006,7 +1949,6 @@ export class TaskPrismaRepository
             customForecastDays: quoteData.customForecastDays || null,
             simultaneousTasks: quoteData.simultaneousTasks ?? null,
             ...(quoteData.billingSplit && { billingSplit: quoteData.billingSplit }),
-            ...layoutFileConnect,
             // ⚠️ OS PAGADORES NÃO NASCEM AQUI — ver `reconcileQuoteCustomerConfigs`
             // logo após a criação da tarefa.
             //
@@ -2084,12 +2026,6 @@ export class TaskPrismaRepository
         // Só agora os totais: `recalcQuoteTotals` conta os veículos e multiplica
         // por eles, e o veículo passou a existir nesta linha.
         await recalcQuoteTotals(transaction, createdPricingId);
-      }
-
-      // Task↔quote link now exists: materialize any quote layout file as an
-      // APPROVED task layout.
-      if (createdPricingId && quoteData?.layoutFileIds !== undefined) {
-        await syncTaskLayoutsFromQuote(transaction, createdPricingId, undefined);
       }
 
       return this.mapDatabaseEntityToEntity(result);
@@ -2319,9 +2255,6 @@ export class TaskPrismaRepository
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       const quoteData = (data as any).quote;
-      // Quote whose layout files must be reconciled into APPROVED task layouts
-      // once the task↔quote link is settled (set below in whichever branch runs).
-      let quoteIdForLayoutSync: string | null = null;
 
       if (quoteData !== undefined && quoteData !== null) {
         const hasServices =
@@ -2329,8 +2262,6 @@ export class TaskPrismaRepository
           Array.isArray(quoteData.services) &&
           quoteData.services.length > 0;
         const hasConfigs = typeof quoteData === 'object' && quoteData.customerConfigs !== undefined;
-        const hasImplementMeasure =
-          typeof quoteData === 'object' && quoteData.layoutFileIds !== undefined;
         const hasQuoteScalars =
           typeof quoteData === 'object' &&
           (quoteData.expiresAt !== undefined ||
@@ -2341,11 +2272,11 @@ export class TaskPrismaRepository
             quoteData.simultaneousTasks !== undefined);
 
         // Decouple the quote-write decision from `services` presence. A config /
-        // discount / implementMeasure / scalar-only edit (services stripped as no-ops
+        // discount / scalar-only edit (services stripped as no-ops
         // upstream) must still persist — gating the whole branch on
         // services.length>0 silently dropped discount-only edits (200 OK, change
         // vanished on reload).
-        if (hasServices || hasConfigs || hasImplementMeasure || hasQuoteScalars) {
+        if (hasServices || hasConfigs || hasQuoteScalars) {
           const hasNewItems = hasServices && quoteData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
@@ -2378,12 +2309,9 @@ export class TaskPrismaRepository
               // ── OS ESCALARES MATERIAIS TAMBÉM SÃO MATERIAIS ────────────────
               //
               // A guarda cobria status, serviços, pagadores e modo. Mas validade,
-              // garantia, prazo e o LAYOUT de referência estão todos na
-              // `materialProjection` do diff de assinatura — e passavam por aqui
-              // sem reavaliar coleta nenhuma. Trocar o layout de um orçamento
-              // ASSINADO por esta porta é exatamente o incidente do nº 973, pelos
-              // fundos: a correção daquele dia mora no serviço de orçamento, e
-              // nada aqui a chama.
+              // garantia e prazo estão todos na `materialProjection` do diff de
+              // assinatura — e passavam por aqui sem reavaliar coleta nenhuma.
+              // (A arte saiu do orçamento: é do implemento, R1/R2.)
               //
               // ⚠️ SÓ QUANDO MUDA DE VALOR. O formulário da tarefa reenvia o bloco
               // inteiro a cada gravação, então recusar pela PRESENÇA derrubaria
@@ -2398,8 +2326,6 @@ export class TaskPrismaRepository
                   customGuaranteeText: true,
                   customForecastDays: true,
                   simultaneousTasks: true,
-                  layoutScope: true,
-                  layoutFiles: { select: { id: true } },
                 },
               });
               const mudou = (novo: unknown, velho: unknown): boolean => {
@@ -2420,22 +2346,6 @@ export class TaskPrismaRepository
                   forbiddenHere.push('prazo de execução');
                 if (mudou((quoteData as any).simultaneousTasks, atual.simultaneousTasks))
                   forbiddenHere.push('veículos simultâneos');
-                if (hasImplementMeasure) {
-                  const pedidos = [...((quoteData as any).layoutFileIds ?? [])].sort().join('|');
-                  const gravados = atual.layoutFiles
-                    .map(f => f.id)
-                    .sort()
-                    .join('|');
-                  // LAYOUT POR VEÍCULO: a lista crua de ids não diz de qual
-                  // implemento cada arte é. Conjunto igual é o eco do formulário e
-                  // passa SEM TOCAR em nada (ver `layoutEcho` abaixo); diferente
-                  // é recusado com o endereço da única tela que atribui arte a
-                  // veículo.
-                  if (pedidos !== gravados && (atual as any).layoutScope === 'PER_VEHICLE') {
-                    throw new BadRequestException(PER_VEHICLE_LEGACY_WRITE_MESSAGE);
-                  }
-                  if (pedidos !== gravados) forbiddenHere.push('layout de referência');
-                }
               }
             }
             if (forbiddenHere.length > 0) {
@@ -2445,38 +2355,6 @@ export class TaskPrismaRepository
                   'totais e reavalia as assinaturas já coletadas.',
               );
             }
-
-            // Chegando aqui, `layoutFileIds` é o MESMO conjunto gravado (a guarda
-            // acima recusa o resto). Num orçamento por veículo esse eco não
-            // regrava nada — nem a relação, nem a galeria das tarefas: a
-            // cobertura de cada arte fica exatamente como o comercial deixou.
-            const layoutEchoOnPerVehicle =
-              hasImplementMeasure &&
-              (
-                await transaction.budget.findUnique({
-                  where: { id: currentTask.quoteId },
-                  select: { layoutScope: true },
-                })
-              )?.layoutScope === 'PER_VEHICLE';
-
-            // Clone any implementMeasure File owned by ANOTHER quote so this quote owns an
-            // INDEPENDENT copy — a raw `set` of foreign ids would steal them.
-            const resolvedImplementMeasureIds =
-              hasImplementMeasure && !layoutEchoOnPerVehicle
-                ? await this.fileService.resolveLayoutFileIdsForQuote(
-                    transaction,
-                    currentTask.quoteId,
-                    quoteData.layoutFileIds ?? [],
-                  )
-                : undefined;
-            const layoutFileUpdate =
-              resolvedImplementMeasureIds !== undefined
-                ? {
-                    layoutFiles: {
-                      set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
-                    },
-                  }
-                : {};
 
             await transaction.budget.update({
               where: { id: currentTask.quoteId },
@@ -2500,9 +2378,8 @@ export class TaskPrismaRepository
                   quoteData.simultaneousTasks !== undefined
                     ? quoteData.simultaneousTasks
                     : undefined,
-                ...layoutFileUpdate,
                 // Services: rewrite ONLY when actually sent. Omitting them (a
-                // config/implementMeasure-only edit) must never wipe the existing services.
+                // config-only edit) must never wipe the existing services.
                 ...(hasServices && {
                   services: {
                     deleteMany: {},
@@ -2519,10 +2396,6 @@ export class TaskPrismaRepository
                 }),
               },
             });
-
-            if (hasImplementMeasure && !layoutEchoOnPerVehicle) {
-              quoteIdForLayoutSync = currentTask.quoteId;
-            }
 
             // Configs: non-destructive upsert by (quoteId, customerId) — preserves
             // issued Invoice/Installments and DB-owned fields (customerSignatureId,
@@ -2549,25 +2422,6 @@ export class TaskPrismaRepository
               0,
             );
 
-            // Clone any implementMeasure File owned by another quote so the new quote owns
-            // an INDEPENDENT copy — connecting source ids would steal them.
-            const resolvedImplementMeasureIds =
-              quoteData.layoutFileIds !== undefined
-                ? await this.fileService.resolveLayoutFileIdsForQuote(
-                    transaction,
-                    null,
-                    quoteData.layoutFileIds ?? [],
-                  )
-                : undefined;
-            const layoutFileConnect =
-              resolvedImplementMeasureIds !== undefined
-                ? {
-                    layoutFiles: {
-                      connect: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
-                    },
-                  }
-                : {};
-
             const newQuote = await transaction.budget.create({
               data: {
                 budgetNumber: nextBudgetNumber,
@@ -2582,7 +2436,6 @@ export class TaskPrismaRepository
                 customForecastDays: quoteData.customForecastDays || null,
                 simultaneousTasks: quoteData.simultaneousTasks ?? null,
                 ...(quoteData.billingSplit && { billingSplit: quoteData.billingSplit }),
-                ...layoutFileConnect,
                 // ⚠️ OS PAGADORES NÃO NASCEM AQUI — ver a nota gêmea no caminho de
                 // criação. `BudgetPayer.billingId` é obrigatório desde que o
                 // faturamento virou entidade, e aninhar `customerConfigs` em
@@ -2623,8 +2476,6 @@ export class TaskPrismaRepository
 
             await resliceQuoteCoverage(transaction, newQuote.id);
             await recalcQuoteTotals(transaction, newQuote.id);
-
-            if (hasImplementMeasure) quoteIdForLayoutSync = newQuote.id;
 
             updateInput.quote = {
               connect: { id: newQuote.id },
@@ -2671,18 +2522,7 @@ export class TaskPrismaRepository
           // destino não cobraria o que recebeu.
           await resliceQuoteCoverage(transaction, quoteId);
           await recalcQuoteTotals(transaction, quoteId);
-          // E a cobertura de LAYOUT, nos dois lados: quem saiu perde a dele, quem
-          // chegou não traz a do orçamento de onde veio — e, num orçamento por
-          // veículo, fica descoberto até alguém atribuir.
-          await pruneQuoteLayoutCoverage(transaction, quoteId);
         }
-      }
-
-      // Task↔quote link is now settled (existing quote, or the new one connected
-      // via updateInput.quote above): materialize quote layout files as APPROVED
-      // task layouts.
-      if (quoteIdForLayoutSync) {
-        await syncTaskLayoutsFromQuote(transaction, quoteIdForLayoutSync, undefined);
       }
 
       // Keep the yard position in sync with `cleared`. Read the *effective* value from
@@ -2742,10 +2582,6 @@ export class TaskPrismaRepository
           // um grupo de N num orçamento de N−1.
           await resliceQuoteCoverage(transaction, before.quoteId);
           await recalcQuoteTotals(transaction, before.quoteId);
-          // As linhas de layout do veículo apagado caem por cascata; a arte que
-          // era SÓ dele sai do orçamento aqui (num orçamento por veículo, uma
-          // arte sem veículo nenhum seria layout aprovado de ninguém).
-          await pruneQuoteLayoutCoverage(transaction, before.quoteId);
         }
       }
 

@@ -105,26 +105,33 @@ async function main() {
     criados.taskIds = ((created as any)?.data?.tasks ?? []).map((t: any) => t.id);
     if (!criados.quoteId) { check('orçamento criado', false); return; }
 
-    // ── LAYOUT APROVADO, sem o qual a emissão RECUSA (17/09) ────────────────
+    // ── ARTE APROVADA, sem a qual a emissão RECUSA (17/09) ──────────────────
     //
-    // O portão de layout morava em `budgetApprove` e estourava DEPOIS de tudo:
+    // O portão de arte morava em `budgetApprove` e estourava DEPOIS de tudo:
     // cliente assinado, Ankaa contra-assinada, PAdES aplicado — dentro de um
     // `try/catch` que só logava. O orçamento ficava PENDING com um contrato
     // selado em cima. Ele passou para `createEnvelope`, que é quando corrigir
     // ainda é barato, e por isso toda coleta (inclusive as deste arquivo) precisa
-    // de um layout antes de sair.
+    // da arte aprovada de cada veículo antes de sair. A arte é do IMPLEMENTO (R2).
     const layout = await prisma.file.create({
       data: {
-        filename: `zz-layout-recusa-${SUFFIX}.pdf`,
-        originalName: 'Layout aprovado (teste).pdf',
-        mimetype: 'application/pdf',
-        path: `/tmp/zz-layout-recusa-${SUFFIX}.pdf`,
+        filename: `zz-layout-recusa-${SUFFIX}.png`,
+        originalName: 'Arte aprovada (teste).png',
+        mimetype: 'image/png',
+        path: `/tmp/zz-layout-recusa-${SUFFIX}.png`,
         size: 1,
-        quoteLayoutId: criados.quoteId,
       },
       select: { id: true },
     });
     criados.layoutFileId = layout.id;
+    for (const implement of await prisma.implement.findMany({
+      where: { taskId: { in: criados.taskIds } },
+      select: { id: true },
+    })) {
+      await prisma.layout.create({
+        data: { fileId: layout.id, implementId: implement.id, status: 'APPROVED' },
+      });
+    }
 
     console.log('\nColeta com dois responsáveis');
     await envelopes.createEnvelope({
@@ -228,16 +235,14 @@ async function main() {
     // ⚠️ O ARQUIVO SAI PRIMEIRO, e desvinculado antes de apagado.
     //
     // Dois gatilhos do banco conspiram contra a ordem ingênua:
-    // `file_block_referenced_delete` recusa apagar arquivo ainda apontado por
-    // `File.quoteLayoutId`, e `signature_audit_append_only` faz o cascade do
+    // `file_block_referenced_delete` recusa apagar arquivo ainda apontado pela
+    // arte (`Layout.fileId`), e `signature_audit_append_only` faz o cascade do
     // orçamento estourar assim que existe um evento de trilha — ou seja, o
     // `deleteMany` do orçamento abaixo FALHA sempre que houve coleta, e o
-    // `.catch` engole. Desvincular e apagar o arquivo aqui é o que impede que
+    // `.catch` engole. Tirar a arte e apagar o arquivo aqui é o que impede que
     // cada execução deste arquivo deixe um `File` órfão no banco.
     if (criados.layoutFileId) {
-      await prisma.file
-        .updateMany({ where: { id: criados.layoutFileId }, data: { quoteLayoutId: null } })
-        .catch(() => {});
+      await prisma.layout.deleteMany({ where: { fileId: criados.layoutFileId } }).catch(() => {});
       await prisma.file.deleteMany({ where: { id: criados.layoutFileId } }).catch(() => {});
     }
     // Limpeza. O envelope cai por cascade do orçamento, mas a trilha é

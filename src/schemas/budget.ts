@@ -117,22 +117,29 @@ const quoteTasksIncludeSchema = z
           observation: z.boolean().optional(),
           generalPainting: z.boolean().optional(),
           createdBy: z.boolean().optional(),
-          // `layouts` (renamed Artwork relation) carries a File. The mobile
-          // budget/quote detail sends `layouts: { include: { file: true } }`
-          // to render the layout thumbnail, so accept the nested form as well
-          // as the plain boolean — a bare boolean here broke the whole `task`
-          // union with invalid_union.
-          layouts: z
+          logoPaints: z.boolean().optional(),
+          serviceOrders: z.boolean().optional(),
+          // A arte é do implemento (R2): a miniatura do detalhe pede
+          // `implement: { include: { layouts: { include: { file: true } } } }`.
+          implement: z
             .union([
               z.boolean(),
               z.object({
-                include: z.object({ file: z.boolean().optional() }).optional(),
+                include: z
+                  .object({
+                    layouts: z
+                      .union([
+                        z.boolean(),
+                        z.object({
+                          include: z.object({ file: z.boolean().optional() }).optional(),
+                        }),
+                      ])
+                      .optional(),
+                  })
+                  .optional(),
               }),
             ])
             .optional(),
-          logoPaints: z.boolean().optional(),
-          serviceOrders: z.boolean().optional(),
-          implement: z.boolean().optional(),
           airbrushing: z.boolean().optional(),
           quote: z.boolean().optional(),
         })
@@ -146,14 +153,6 @@ export const budgetIncludeSchema = z
     /** As tarefas do orçamento — uma por veículo. */
     tasks: quoteTasksIncludeSchema,
     services: z.boolean().optional(),
-    /**
-     * `true` é o que as telas mandam, e basta: o repositório pendura a cobertura
-     * de cada arte (`quoteLayoutTasks`) sozinho — ver `withLayoutCoverageInclude`.
-     * A forma de objeto passa para quem monta o nó à mão; um `z.boolean()` puro
-     * RECUSAVA esse corpo, e um objeto zod estrito descartaria a chave nova em
-     * silêncio, que é o defeito que esta base já teve com `billing`.
-     */
-    layoutFiles: z.union([z.boolean(), z.record(z.any())]).optional(),
     /**
      * A REQUISIÇÃO que originou o orçamento, quando ele nasceu no portal.
      *
@@ -812,39 +811,6 @@ export const discountReferenceSchema = z
   .nullable()
   .optional();
 
-/**
- * O LAYOUT APROVADO, arte a arte, com os veículos de cada uma.
- *
- * `taskIds` ausente ou nulo = "esta arte vale para todos os veículos". Se TODAS
- * as artes valem para todos, o orçamento é gravado como `SHARED` (o de sempre);
- * se alguma vale só para parte deles, `PER_VEHICLE`, com uma linha por (arte ×
- * veículo). `[]` ou `null` na lista inteira limpa o layout — igual a
- * `layoutFileIds: []`.
- *
- * O teto aqui é folgado de propósito (a lista pode repetir `fileId`, e as
- * coberturas se juntam): quem impõe os limites de verdade — 2 por veículo, 20
- * distintas, 2 no `SHARED` — é `planLayoutCoverage`, que sabe nomear o veículo
- * que passou.
- *
- * Não convive com `layoutFileIds` no mesmo corpo: as duas dizem a mesma coisa
- * de formas diferentes, e escolher uma em silêncio esconderia o erro de quem
- * mandou as duas.
- */
-export const budgetLayoutsSchema = z
-  .array(
-    z.object({
-      fileId: z.string().uuid('Arquivo de layout invalido'),
-      taskIds: z
-        .array(z.string().uuid('Veiculo invalido'))
-        .max(200, 'Maximo de 200 veiculos por layout')
-        .optional()
-        .nullable(),
-    }),
-  )
-  .max(100, 'Layouts demais para um orcamento')
-  .optional()
-  .nullable();
-
 // BudgetItem nested schema
 // Amount is optional and defaults to 0 (courtesy services)
 export const budgetItemCreateNestedSchema = z.object({
@@ -883,9 +849,6 @@ export const budgetCreateNestedSchema = z.object({
 
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
-
-  // Layout Files (max 2, ordered File ids)
-  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
@@ -955,11 +918,6 @@ export const budgetCreateBaseSchema = z.object({
 
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
-
-  // Layout Files (max 2, ordered File ids)
-  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
-  // Layout aprovado POR VEÍCULO — ver `budgetLayoutsSchema`.
-  layouts: budgetLayoutsSchema,
 
   simultaneousTasks: simultaneousTasksSchema,
   customerConfigs: z
@@ -1107,12 +1065,6 @@ export const budgetUpdateSchema = z.object({
 
   // Custom Forecast - manual override for production days displayed in budget (1-30 days)
   customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
-
-  // Layout Files (max 2, ordered File ids)
-  layoutFileIds: z.array(z.string().uuid()).max(2).optional().nullable(),
-  // Layout aprovado POR VEÍCULO — ver `budgetLayoutsSchema`. Seguro depois do
-  // faturamento, como `layoutFileIds` (ver `QUOTE_SAFE_AFTER_BILLING_FIELDS`).
-  layouts: budgetLayoutsSchema,
 
   simultaneousTasks: simultaneousTasksSchema,
   // `.min(1)` mirrors the create schema: an empty array is not "no change", it

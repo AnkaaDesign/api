@@ -111,7 +111,7 @@
     "test:dossier-signed-trail": "tsx tests/dossier-signed-trail.test.ts",
     "test:dossier-paginacao": "tsx tests/dossier-paginacao.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
-    "test:layout-per-vehicle": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/layout-per-vehicle.test.ts",
+    "test:quote-artwork": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/quote-artwork.test.ts",
     "test:implement-measure-writer": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-measure-writer.test.ts",
     "test:layout-dimensions-front": "ts-node -r tsconfig-paths/register --transpile-only tests/layout-dimensions-front.test.ts",
     "test:implement-rear-door": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-rear-door.test.ts",

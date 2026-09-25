@@ -3,15 +3,7 @@
 
 import { z } from 'zod';
 
-// =====================
-// Bulk Arts Schema
-// =====================
-export const taskBulkArtsSchema = z.object({
-  taskIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma tarefa deve ser selecionada'),
-  layoutIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma arte deve ser selecionada'),
-});
-
-export type TaskBulkArtsFormData = z.infer<typeof taskBulkArtsSchema>;
+// A arte em lote é do implemento: `POST /implements/layouts/bulk` (R2).
 
 // =====================
 // Bulk Documents Schema
@@ -68,17 +60,3 @@ export const bulkOperationResultSchema = z.object({
 });
 
 export type BulkOperationResult = z.infer<typeof bulkOperationResultSchema>;
-
-// =====================
-// Bulk File Upload Schema
-// =====================
-// This schema is for uploading files that will be applied to multiple tasks
-// The files are uploaded once and their IDs are added to all selected tasks
-export const taskBulkFileUploadSchema = z.object({
-  taskIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma tarefa deve ser selecionada'),
-  fileType: z.enum(['budgets', 'invoices', 'receipts', 'layouts'], {
-    required_error: 'Tipo de arquivo é obrigatório',
-  }),
-});
-
-export type TaskBulkFileUploadFormData = z.infer<typeof taskBulkFileUploadSchema>;

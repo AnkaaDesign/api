@@ -31,7 +31,9 @@ import { FilesStorageService, type FilesFolderMapping } from './files-storage.se
  *    from a hand-maintained list. A relation added by a migration is covered the day
  *    it ships — nobody has to remember to update a constant.
  *  · Outbound references (columns on File itself) are checked explicitly. There is
- *    exactly one today, quoteLayoutId; OUTBOUND_REFERENCES is where any future one goes.
+ *    none today (the only one, quoteLayoutId, left Prisma with the M3: the quote's art
+ *    was copied to the implements, which reference the File inbound through
+ *    Layout.fileId); OUTBOUND_REFERENCES is where any future one goes.
  *  · The folder a file lives in is NEVER an input. Placement is a display concern;
  *    letting it inform a delete decision is what turned a routing typo into data loss.
  *  · It fails CLOSED. Any error resolving references means "referenced" — a file we
@@ -47,14 +49,7 @@ export const OUTBOUND_REFERENCES: ReadonlyArray<{
   targetTable: string;
   context: keyof FilesFolderMapping;
   label: string;
-}> = [
-  {
-    column: 'quoteLayoutId',
-    targetTable: 'Budget',
-    context: 'quote-layouts',
-    label: 'layout aprovado de orçamento',
-  },
-];
+}> = [];
 
 /**
  * Tables whose rows are DERIVED from a File rather than uses of it. A reference from
@@ -75,7 +70,9 @@ export const INBOUND_REFERENCES: Readonly<
   Record<string, { context: keyof FilesFolderMapping | null; label: string }>
 > = {
   // --- Task (Clientes/{cliente}/…) ---
-  'Layout.fileId': { context: 'tasksLayouts', label: 'layout de tarefa' },
+  // O contexto real depende do DONO da linha (implemento ou aerografia): ver
+  // `layoutReferences`. Esta entrada só nomeia a coluna para o aviso de boot.
+  'Layout.fileId': { context: 'implementLayouts', label: 'arte do implemento' },
   '_TASK_BUDGETS.A': { context: 'taskBudgets', label: 'orçamento de tarefa' },
   '_TASK_INVOICES.A': { context: 'taskInvoices', label: 'nota fiscal de tarefa' },
   '_TASK_RECEIPTS.A': { context: 'taskReceipts', label: 'comprovante de tarefa' },
@@ -318,11 +315,15 @@ export class FileReferenceService implements OnModuleInit {
     const found: FileReference[] = [];
 
     // Outbound first — the cheap single-row read, and the one every inbound-only
-    // check in this codebase's history has missed.
-    const self = await client.file.findUnique({
-      where: { id: fileId },
-      select: Object.fromEntries(OUTBOUND_REFERENCES.map(r => [r.column, true])),
-    });
+    // check in this codebase's history has missed. Lista vazia não vai ao Prisma
+    // (`select: {}` é recusado, e a recusa faria TODA exclusão falhar fechada).
+    const self =
+      OUTBOUND_REFERENCES.length > 0
+        ? await client.file.findUnique({
+            where: { id: fileId },
+            select: Object.fromEntries(OUTBOUND_REFERENCES.map(r => [r.column, true])),
+          })
+        : null;
     if (self) {
       for (const ref of OUTBOUND_REFERENCES) {
         if (self[ref.column]) {
@@ -339,6 +340,10 @@ export class FileReferenceService implements OnModuleInit {
     const columns = await this.getInboundReferenceColumns(options.transaction);
 
     for (const { table, column } of columns) {
+      if (table === 'Layout' && column === 'fileId') {
+        found.push(...(await this.layoutReferences(client, fileId, options.exclude)));
+        continue;
+      }
       // Identifiers come from the catalog, never from user input.
       let sql = `SELECT 1 FROM "${table}" WHERE "${column}" = $1`;
       const params: any[] = [fileId];
@@ -362,6 +367,50 @@ export class FileReferenceService implements OnModuleInit {
     }
 
     return found;
+  }
+
+  /**
+   * A arte que usa o arquivo, uma referência por TIPO de dono (M3: o Layout tem um
+   * dono só, implemento ou aerografia, e o mesmo arquivo pode ter vários). O
+   * contexto sai do dono: arte de implemento → `implementLayouts`, de aerografia →
+   * `airbrushingLayouts` — as duas vão para `Layouts/`, mas em árvores diferentes.
+   */
+  private async layoutReferences(
+    client: any,
+    fileId: string,
+    exclude?: ReferenceExclusion[],
+  ): Promise<FileReference[]> {
+    let sql = `SELECT "implementId", "airbrushingId" FROM "Layout" WHERE "fileId" = $1`;
+    const params: any[] = [fileId];
+    const exclusion = exclude?.find(e => e.table === 'Layout');
+    if (exclusion) {
+      sql += ` AND "${exclusion.ownerColumn}" IS DISTINCT FROM $2`;
+      params.push(exclusion.ownerId);
+    }
+    const rows: Array<{ implementId: string | null; airbrushingId: string | null }> =
+      await client.$queryRawUnsafe(sql, ...params);
+    const refs: FileReference[] = [];
+    if (rows.some(r => r.implementId)) {
+      refs.push({
+        table: 'Layout',
+        column: 'fileId',
+        context: 'implementLayouts',
+        label: 'arte do implemento',
+      });
+    }
+    if (rows.some(r => r.airbrushingId)) {
+      refs.push({
+        table: 'Layout',
+        column: 'fileId',
+        context: 'airbrushingLayouts',
+        label: 'arte de aerografia',
+      });
+    }
+    // Linha sem dono não deveria existir (CHECK `Layout_one_owner_check`); se existir, protege.
+    if (rows.some(r => !r.implementId && !r.airbrushingId)) {
+      refs.push({ table: 'Layout', column: 'fileId', context: null, label: 'arte' });
+    }
+    return refs;
   }
 
   /**
@@ -423,8 +472,9 @@ export class FileReferenceService implements OnModuleInit {
       if (distinct.length === 1) return distinct[0];
 
       // Vários contextos não significam conflito. Um mesmo arquivo é rotineiramente
-      // layout de tarefa E layout de orçamento ('tasksLayouts' + 'quote-layouts'), e os
-      // dois apontam para a MESMA pasta ('Layouts'). Comparar a chave do contexto trataria
+      // referenciado por contextos diferentes que apontam para a MESMA pasta (antes da
+      // M3: layout de tarefa + layout de orçamento, os dois em 'Layouts'). Comparar a
+      // chave do contexto trataria
       // isso como ambíguo e deixaria o arquivo parado — a auditoria de 2026-08-04 achou 19
       // arquivos exatamente nesse caso, todos presos em pasta genérica.
       //

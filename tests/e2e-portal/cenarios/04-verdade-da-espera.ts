@@ -74,10 +74,17 @@ async function montarPendencia(
     select: { id: true },
   });
   if (arquivo) {
-    await prisma.budget.update({
-      where: { id: budgetId },
-      data: { layoutFiles: { connect: { id: arquivo.id } } },
-    });
+    // A arte é do IMPLEMENTO (R2): aprovada em cada veículo do orçamento.
+    for (const implement of await prisma.implement.findMany({
+      where: { task: { quoteId: budgetId } },
+      select: { id: true },
+    })) {
+      await prisma.layout.upsert({
+        where: { implementId_fileId: { implementId: implement.id, fileId: arquivo.id } },
+        create: { implementId: implement.id, fileId: arquivo.id, status: 'APPROVED' },
+        update: { status: 'APPROVED' },
+      });
+    }
   }
 
   const login = await fetch(`${API}/auth/login`, {

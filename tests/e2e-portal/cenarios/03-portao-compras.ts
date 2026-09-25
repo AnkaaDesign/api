@@ -154,19 +154,26 @@ async function main() {
     data: { responsibles: { connect: contatos.map(c => ({ id: c.id })) } },
   });
 
-  // O layout aprovado — a emissão o exige, e aprová-lo é ato do comercial.
+  // A arte aprovada de cada veículo — a emissão a exige.
   const arquivo = await prisma.file.findFirst({
     where: { mimetype: { startsWith: 'image/' } },
     orderBy: { createdAt: 'desc' },
     select: { id: true },
   });
   if (arquivo) {
-    await prisma.budget.update({
-      where: { id: budgetId },
-      data: { layoutFiles: { connect: { id: arquivo.id } } },
-    });
+    // A arte é do IMPLEMENTO (R2): aprovada em cada veículo do orçamento.
+    for (const implement of await prisma.implement.findMany({
+      where: { task: { quoteId: budgetId } },
+      select: { id: true },
+    })) {
+      await prisma.layout.upsert({
+        where: { implementId_fileId: { implementId: implement.id, fileId: arquivo.id } },
+        create: { implementId: implement.id, fileId: arquivo.id, status: 'APPROVED' },
+        update: { status: 'APPROVED' },
+      });
+    }
   }
-  info('montagem: 3 contatos convocados, layout aprovado pendurado, nenhum pedido de compra');
+  info('montagem: 3 contatos convocados, arte aprovada nos implementos, nenhum pedido de compra');
 
   // ── A EMISSÃO, pela API interna, com cerimônia de SESSÃO ────────────────
   const interno = await tokenInterno(FUNCIONARIOS.comercial);

@@ -761,3 +761,27 @@ function withoutRetiredCoverageKeys(
   for (const k of RETIRED_CONFIG_KEYS) delete next[k];
   return next;
 }
+
+/**
+ * O nome humano de um veículo: número de série, senão placa, senão "N" — a
+ * posição dele no orçamento, contada de 1.
+ *
+ * Sem o nome da tarefa de propósito: nos orçamentos multiveículo as N tarefas
+ * costumam ter o MESMO nome (o do cliente), e "Falta a arte do veículo
+ * Carlotti" não diz qual dos dois.
+ */
+export function vehicleLabel(task: QuoteTaskLike | null | undefined, index: number): string {
+  const serial = (taskSerialOf(task) ?? '').trim();
+  if (serial) return serial;
+  const plate = (task?.implement?.plate ?? '').trim();
+  if (plate) return plate;
+  return String(index + 1);
+}
+
+/** "do veículo 39089" / "dos veículos 39088, 39089" — com teto, para sessenta implementos não virarem um parágrafo. */
+export function describeVehicleList(labels: readonly string[], max = 10): string {
+  if (labels.length === 1) return `do veículo ${labels[0]}`;
+  const shown = labels.slice(0, max).join(', ');
+  const rest = labels.length - Math.min(labels.length, max);
+  return `dos veículos ${shown}${rest > 0 ? ` e mais ${rest}` : ''}`;
+}

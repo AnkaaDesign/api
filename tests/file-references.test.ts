@@ -75,7 +75,8 @@ function check(nome: string, cond: boolean, detalhe = ''): void {
  * desconhecida ⇒ referenciada); só não têm pasta canônica, então o organizador
  * não as arquiva. Pôr contexto nelas muda onde o organizador guarda arquivo:
  * fica para o dono de cada área — `BudgetLayoutTask.fileId` (layout por
- * veículo, DD6) sai no P12. SÓ ENCOLHE.
+ * veículo, DD6) saiu do Prisma no P12, mas a TABELA fica no banco até a M4.
+ * SÓ ENCOLHE.
  */
 const FKS_SEM_LINHA_CONHECIDAS = new Set([
   'PaintingAnalysisFace.fileId',
@@ -87,6 +88,18 @@ const FKS_SEM_LINHA_CONHECIDAS = new Set([
   'SignatureEnvelope.addendumFileId',
   '_ADMISSION_DOCUMENT_FILES.A',
   'BudgetLayoutTask.fileId',
+]);
+
+/**
+ * Contextos que web e app AINDA mandam e a API não aceita mais (DD13: sem nome
+ * velho na API). São as telas de arte na tarefa e no orçamento, que a Fase C
+ * reescreve — a arte é do implemento (R2) e o orçamento não escolhe arte (R1).
+ * Até lá, o upload por esses contextos leva 400 ("Contexto de arquivo
+ * inválido"). SÓ ENCOLHE: contexto que sumiu dos clientes tem de sair daqui.
+ */
+const CONTEXTOS_VELHOS_ATE_A_FASE_C = new Map<string, string>([
+  ['tasksLayouts', 'P21 (web) e P24 (app): arte do implemento, contexto `implementLayouts`'],
+  ['quote-layouts', 'P22 (web) e P24 (app): o orçamento não escolhe arte'],
 ]);
 
 async function main(): Promise<void> {
@@ -156,11 +169,28 @@ async function main(): Promise<void> {
     // app mandam tem de estar nela (e, por ela, em folderMapping). Contexto
     // novo num cliente sem entrar aqui reprova.
     const vistos = contextosDosClientes();
-    const foraDaSemente = [...vistos.entries()].filter(([c]) => !(c in clientes.contextos));
+    const foraDaSemente = [...vistos.entries()].filter(
+      ([c]) => !(c in clientes.contextos) && !CONTEXTOS_VELHOS_ATE_A_FASE_C.has(c),
+    );
     check(
       `todo fileContext literal de web/app está em contracts/file-contexts.json (${vistos.size} vistos)`,
       vistos.size > 0 && foraDaSemente.length === 0,
       foraDaSemente.map(([c, onde]) => `${c} ← ${onde.slice(0, 3).join(', ')}`).join('; '),
+    );
+
+    const velhosQueSumiram = [...CONTEXTOS_VELHOS_ATE_A_FASE_C.keys()].filter(
+      c => vistos.size > 0 && !vistos.has(c),
+    );
+    check(
+      'CONTEXTOS_VELHOS_ATE_A_FASE_C só lista contexto que um cliente ainda manda (a lista só encolhe)',
+      velhosQueSumiram.length === 0,
+      velhosQueSumiram.join(', '),
+    );
+    const velhosAceitos = [...CONTEXTOS_VELHOS_ATE_A_FASE_C.keys()].filter(c => known.has(c));
+    check(
+      'e a API não aceita nenhum deles (DD13)',
+      velhosAceitos.length === 0,
+      velhosAceitos.join(', '),
     );
 
     // F10: o filtro de "órfão" sai do DMMF — toda relação de uso de File.
@@ -169,8 +199,8 @@ async function main(): Promise<void> {
     const devemEstar = [
       'implementMeasurePhotos',
       'implementVinPlates',
-      'quoteLayoutTasks',
-      'quoteLayout',
+      // A arte (M3): uma linha por dono, implemento ou aerografia.
+      'artLayouts',
       'airbrushingNfsePdfs',
       'envelopeDocumentOriginals',
       'signatureEnvelopeFinals',

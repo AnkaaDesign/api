@@ -312,6 +312,19 @@ const FORMAS_QUEBRADAS_CONHECIDAS: Record<string, string> = {
   'web.user.edit/id.includeParams':
     'GET /users/:id com include.tasks — User não tem `tasks`: a tela de edição de colaborador pede e o Prisma dá 500',
   'web.item.edit/id#3': 'GET /items com where.measures.some.AND[].type — Measure não tem `type`',
+  // P12 (R1): a arte saiu do orçamento — `quote.include.layoutFiles` não existe
+  // mais. A web ainda pede nestas telas; a Fase C as troca pela arte do
+  // implemento (`implement.include.layouts`). DD13: a API não guarda nome velho.
+  'web.task.detail/task-detail-page.DETAIL_INCLUDE':
+    'GET /tasks/:id com quote.include.layoutFiles — P21 (detalhe da tarefa lê implement.layouts)',
+  'web.task.modals/task-duplicate-modal.DUPLICATE_TASK_INCLUDE':
+    'GET /tasks/:id com quote.include.layoutFiles — P21 (duplicar tarefa)',
+  'web.task.schedule/set-quote-layout-modal':
+    'GET /tasks com quote.include.layoutFiles — P22 (o modal de layout do orçamento sai: R1)',
+  'web.task.details/id': 'GET /tasks/:id com quote.include.layoutFiles — P21',
+  'web.tarefa.detalhe': 'GET /tasks/:id com quote.include.layoutFiles — P21',
+  'web.faturamento.detalhe':
+    'GET /tasks/:id com quote.include.layoutFiles — P22 (faturamento mostra a arte dos implementos)',
 };
 
 const DESCARTADAS_CONHECIDAS: Record<string, string> = {
@@ -348,6 +361,12 @@ const DESCARTADAS_CONHECIDAS: Record<string, string> = {
   'Supplier|include.orders.orderBy':
     'web supplier edit: argumento da relação que o zod não conhece',
   'Supplier|include.orders.take': 'web supplier edit: argumento da relação que o zod não conhece',
+  // P12 (R1/R2): a arte saiu da tarefa e do orçamento. Os clientes ainda pedem;
+  // a Fase C troca por `implement.include.layouts` (DD13: sem nome velho na API).
+  'Budget|include.layoutFiles':
+    'app orcamento.detalhe: a arte do orçamento é a dos implementos — P24',
+  'Task|include.layouts':
+    'web (tabela, edição, garagem, lote, copiar-de), app (detalhe) e AnkaaAero: a arte é do implemento — P21/P24/AnkaaAero',
 };
 
 // ─── A. validador, sem banco ─────────────────────────────────────────────────

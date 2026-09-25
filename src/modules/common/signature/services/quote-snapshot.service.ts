@@ -53,7 +53,7 @@ import { onlyDigits } from '../utils/identity';
 // nada de runtime daqui — o import de lá para cá é só de tipos, e é isso que
 // mantém o ciclo entre os dois arquivos inofensivo.
 import { sortQuoteTasks } from '@utils/quote-tasks';
-import { canonicalLayoutCoverage } from '@utils/quote-layout-coverage';
+import { quoteArtworkOf } from '@utils/quote-artwork';
 import {
   snapshotVehicles,
   describeQuoteChange,
@@ -422,12 +422,6 @@ export interface QuoteMaterialProjection {
 /** Include compartilhado — o renderizador e o snapshot precisam ver o MESMO grafo. */
 export const QUOTE_SNAPSHOT_INCLUDE = {
   services: { orderBy: { position: 'asc' } },
-  // Com a cobertura de cada arte: o snapshot a congela (`layoutCoverage`) e o
-  // documento a imprime como legenda de cada imagem.
-  layoutFiles: {
-    orderBy: { createdAt: 'asc' },
-    include: { quoteLayoutTasks: { select: { taskId: true } } },
-  },
   customerConfigs: {
     orderBy: { createdAt: 'asc' },
     include: {
@@ -474,8 +468,18 @@ export const QUOTE_SNAPSHOT_INCLUDE = {
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: {
       customer: true,
-      // DD1: série, placa, chassi, categoria e tipo moram no implemento.
-      implement: true,
+      // DD1: série, placa, chassi, categoria e tipo moram no implemento — e a
+      // ARTE também (R2): a arte APROVADA de cada implemento é a arte do
+      // orçamento (`quoteArtworkOf`), que o snapshot congela e o documento imprime.
+      implement: {
+        include: {
+          layouts: {
+            where: { status: 'APPROVED' },
+            orderBy: { createdAt: 'asc' },
+            include: { file: true },
+          },
+        },
+      },
       responsibles: { orderBy: { name: 'asc' } },
     },
   },
@@ -570,14 +574,22 @@ export class QuoteSnapshotService {
       customGuaranteeText: quote.customGuaranteeText ?? null,
       customForecastDays: quote.customForecastDays ?? null,
       simultaneousTasks: quote.simultaneousTasks ?? null,
-      // Ordenado: a ordem de leitura do Prisma não é garantida entre versões, e
-      // uma permutação mudaria o hash sem que nada tivesse mudado de fato.
-      layoutFileIds: quote.layoutFiles.map(f => f.id).sort(),
-      // A cobertura, só em `PER_VEHICLE` — em `SHARED` a chave nem existe, e o
-      // snapshot sai idêntico ao de antes. Ver `QuoteSnapshot.layoutCoverage`.
+      // A ARTE (§2A.9): a aprovada dos implementos de todas as tarefas, pelo
+      // `quoteArtworkOf` — o MESMO cálculo que o ensaio da M3 usou para provar que
+      // quem casava antes casa depois (G11). Ordenado: a ordem de leitura do Prisma
+      // não é garantida, e uma permutação mudaria o hash sem nada ter mudado.
+      // A cobertura só quando `PER_VEHICLE` ou a arte difere entre os veículos —
+      // em orçamento uniforme a chave nem existe e o snapshot sai idêntico ao de
+      // antes. Ver `QuoteSnapshot.layoutCoverage`.
       ...(() => {
-        const coverage = canonicalLayoutCoverage(quote as any);
-        return coverage ? { layoutCoverage: coverage } : {};
+        const artwork = quoteArtworkOf({
+          layoutScope: quote.layoutScope,
+          tasks: quote.tasks as any,
+        });
+        return {
+          layoutFileIds: artwork.fileIds,
+          ...(artwork.coverage ? { layoutCoverage: artwork.coverage } : {}),
+        };
       })(),
       // Os signatários aparecem no documento (uma linha de assinatura cada), logo
       // adicionar ou remover um responsável É alteração material.

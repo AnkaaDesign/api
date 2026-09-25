@@ -55,7 +55,7 @@ function sanitize(name: string): string {
     .substring(0, 100);
 }
 
-/** Mirrors the tasksLayouts/quote-layouts/airbrushingLayouts split in getFolderPath. */
+/** Mirrors the implementLayouts/airbrushingLayouts split in getFolderPath. */
 function layoutSubfolder(mimetype: string): string {
   return mimetype === 'application/pdf' ? 'PDFs' : 'Imagens';
 }

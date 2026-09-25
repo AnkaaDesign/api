@@ -647,7 +647,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     size: 'Tamanho',
     thumbnailUrl: 'URL da Miniatura',
     // Relationship fields
-    tasksLayouts: 'Layouts das Tarefas',
+    artLayouts: 'Arte',
     customerLogo: 'Logo do Cliente',
     supplierLogo: 'Logo do Fornecedor',
     observations: 'Observações',

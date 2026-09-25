@@ -18,8 +18,9 @@ export const COPYABLE_TASK_FIELDS = [
   'customerId',
   'quoteId',
   'paintId',
+  // A arte do implemento (linhas NOVAS, em rascunho, no implemento de destino)
+  'implementLayouts',
   // Shared file IDs (many-to-many relations)
-  'layoutIds',
   'baseFileIds',
   'projectFileIds',
   'logoPaintIds',
@@ -152,8 +153,8 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
     SECTOR_PRIVILEGES.MAINTENANCE,
   ],
 
-  // Layouts (ImplementMeasures files) - hidden for Warehouse, Financial, Logistic
-  layoutIds: [
+  // A arte do implemento - hidden for Warehouse, Financial, Logistic
+  implementLayouts: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,

@@ -74,7 +74,6 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'observation',
     'generalPainting',
     'createdBy',
-    'layouts',
     'logoPaints',
     'serviceOrders',
     'quote',
@@ -95,6 +94,8 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'rightSideMeasure',
     'frontSideMeasure',
     'projectFiles',
+    // A arte do implemento (R2).
+    'layouts',
   ],
   Customer: [
     'id',
@@ -191,7 +192,6 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'checkinFiles',
     'checkoutFiles',
     'observation',
-    'layouts',
     'logoPaints',
     'serviceOrders',
     'quote',
@@ -228,6 +228,8 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'rightSideMeasure',
     'frontSideMeasure',
     'projectFiles',
+    // A arte do implemento (R2).
+    'layouts',
   ],
   Customer: [
     'id',

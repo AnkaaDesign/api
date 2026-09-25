@@ -17,7 +17,7 @@ import {
   UsePipes,
 } from '@nestjs/common';
 import { validateIncludes } from '@modules/common/base/include-access-control';
-import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { IMPLEMENT_FACES } from '../../../constants/implement-faces';
@@ -51,11 +51,9 @@ import {
 } from '../../../schemas/task';
 import { taskCopyFromSchema, type TaskCopyFromFormData } from '../../../schemas/task-copy';
 import {
-  taskBulkArtsSchema,
   taskBulkDocumentsSchema,
   taskBulkPaintsSchema,
   taskBulkCuttingPlansSchema,
-  taskBulkFileUploadSchema,
 } from '../../../schemas/task-bulk';
 import type {
   TaskCreateFormData,
@@ -72,11 +70,9 @@ import type {
   TaskForecastHistoryQueryFormData,
 } from '../../../schemas/task';
 import type {
-  TaskBulkArtsFormData,
   TaskBulkDocumentsFormData,
   TaskBulkPaintsFormData,
   TaskBulkCuttingPlansFormData,
-  TaskBulkFileUploadFormData,
 } from '../../../schemas/task-bulk';
 import type {
   Task,
@@ -167,7 +163,6 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
@@ -217,39 +212,6 @@ export class TaskController {
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskCreateResponse> {
     return this.tasksService.create(data, query.include, userId, files);
-  }
-
-  // Diagnostic Endpoints (for debugging copy-from-task issues)
-  @Get(':id/layouts/diagnostic')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  async diagnosticLayouts(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
-    const task: any = await this.tasksService.findById(id, {
-      layouts: { include: { file: true } },
-    });
-
-    if (!task || !task.data) {
-      throw new Error(`Task ${id} not found`);
-    }
-
-    const taskData = task.data;
-    return {
-      taskId: taskData.id,
-      taskName: taskData.name,
-      layoutCount: taskData.layouts?.length || 0,
-      layouts:
-        taskData.layouts?.map((layout: any) => ({
-          layoutId: layout.id,
-          fileId: layout.fileId,
-          status: layout.status,
-          file: layout.file
-            ? {
-                id: layout.file.id,
-                filename: layout.file.filename,
-                originalName: layout.file.originalName,
-              }
-            : null,
-        })) || [],
-    };
   }
 
   // Batch Operations
@@ -310,7 +272,6 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
@@ -353,22 +314,6 @@ export class TaskController {
   // =====================
   // BULK OPERATIONS
   // =====================
-
-  @Post('bulk/arts')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async bulkAddLayouts(
-    @Body(new ZodValidationPipe(taskBulkArtsSchema)) data: TaskBulkArtsFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
-    @UserId() userId: string,
-  ): Promise<{
-    success: number;
-    failed: number;
-    total: number;
-    errors: Array<{ taskId: string; error: string }>;
-  }> {
-    return this.tasksService.bulkAddLayouts(data.taskIds, data.layoutIds, userId, query.include);
-  }
 
   @Post('bulk/documents')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
@@ -430,34 +375,6 @@ export class TaskController {
         reason: data.cutData.reason,
         quantity: data.cutData.quantity,
       },
-      userId,
-      query.include,
-    );
-  }
-
-  @Post('bulk/upload-files')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FilesInterceptor('files', 30, multerConfig))
-  async bulkUploadFiles(
-    @Body(new ZodValidationPipe(taskBulkFileUploadSchema)) data: TaskBulkFileUploadFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema, TASK_QUERY_SHAPE)) query: TaskQueryFormData,
-    @UserId() userId: string,
-    @UploadedFiles() files?: Express.Multer.File[],
-  ): Promise<{
-    success: number;
-    failed: number;
-    total: number;
-    errors: Array<{ taskId: string; error: string }>;
-  }> {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    return this.tasksService.bulkUploadFiles(
-      data.taskIds,
-      data.fileType,
-      files,
       userId,
       query.include,
     );
@@ -746,7 +663,6 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'bankSlips', maxCount: 10 },
-        { name: 'layouts', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
         { name: 'projectFiles', maxCount: 30 },
         { name: 'checkinFiles', maxCount: 20 },
@@ -757,8 +673,6 @@ export class TaskController {
         { name: 'observationFiles', maxCount: 10 },
         // Foto da plaqueta de identificação (VIN) do implemento — imagem única.
         { name: 'implementVinPlate', maxCount: 1 },
-        // Quote implementMeasure file
-        { name: 'quoteLayoutFile', maxCount: 2 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
@@ -883,16 +797,6 @@ export class TaskController {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
         'Use PUT /tasks/:id com FormData incluindo o campo apropriado.',
-    );
-  }
-
-  @Post(':id/upload/layouts')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async uploadLayout() {
-    throw new BadRequestException(
-      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-        'Use PUT /tasks/:id com FormData incluindo o campo "layouts".',
     );
   }
 

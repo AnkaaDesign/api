@@ -115,9 +115,9 @@ export class FileController {
    *
    * getFolderPath treats an unknown context as "no context": it falls back to
    * MIME-based routing AND skips the Clientes/{cliente}/ prefix, so the file is
-   * written to a root-level folder. That is how uploads sent with the singular
-   * "quote-layout" (the mapping key is "quote-layouts") ended up in {root}/Layouts/
-   * instead of Clientes/{cliente}/Layouts/PDFs/ — with no error anywhere.
+   * written to a root-level folder. That is how uploads sent with a misspelled
+   * layout context ended up in {root}/Layouts/ instead of
+   * Clientes/{cliente}/Layouts/PDFs/ — with no error anywhere.
    */
   private assertValidFileContext(fileContext?: string): void {
     if (!fileContext) return;
@@ -319,14 +319,20 @@ export class FileController {
   @ReadRateLimit()
   async getFileSuggestions(
     @Query('customerId', ParseUUIDPipe) customerId: string,
-    @Query('fileContext') fileContext: 'tasksLayouts' | 'taskBaseFiles' | 'taskProjectFiles' | 'airbrushingLayouts',
+    @Query('fileContext')
+    fileContext: 'implementLayouts' | 'taskBaseFiles' | 'taskProjectFiles' | 'airbrushingLayouts',
     @Query('limit') limit?: string,
     @Query('excludeIds') excludeIds?: string,
   ): Promise<{ success: boolean; data: any[] }> {
-    const validContexts = ['tasksLayouts', 'taskBaseFiles', 'taskProjectFiles', 'airbrushingLayouts'];
+    const validContexts = [
+      'implementLayouts',
+      'taskBaseFiles',
+      'taskProjectFiles',
+      'airbrushingLayouts',
+    ];
     if (!validContexts.includes(fileContext)) {
       throw new BadRequestException(
-        'fileContext deve ser: tasksLayouts, taskBaseFiles, taskProjectFiles ou airbrushingLayouts',
+        'fileContext deve ser: implementLayouts, taskBaseFiles, taskProjectFiles ou airbrushingLayouts',
       );
     }
     return this.fileService.getFileSuggestions({

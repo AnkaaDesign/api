@@ -19,7 +19,7 @@ export const observationIncludeSchema = z
         z.object({
           include: z
             .object({
-              tasksLayouts: z.boolean().optional(),
+              artLayouts: z.boolean().optional(),
               customerLogo: z.boolean().optional(),
               taskBudget: z.boolean().optional(),
               taskNfe: z.boolean().optional(),

@@ -208,6 +208,14 @@ export class AirbrushingPrismaRepository
         );
         return;
       }
+      if (relation === 'layouts') {
+        // A arte tem UM dono (CHECK `Layout_one_owner_check`, M3): `set` desligaria as
+        // linhas que saíram (`airbrushingId = NULL`) e o CHECK recusaria. As linhas que
+        // ficam já são desta aerografia (`convertFileIdsToLayoutIds` as acha ou cria);
+        // as que saíram são APAGADAS — o arquivo fica, só a arte desta aerografia sai.
+        (updateData as any).layouts = { deleteMany: { id: { notIn: ids } } };
+        return;
+      }
       (updateData as any)[relation] = { set: ids.map(id => ({ id })) };
     };
 

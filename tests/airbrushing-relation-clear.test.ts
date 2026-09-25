@@ -58,16 +58,18 @@ console.log('\nairbrushing repository — file-relation replacement guard\n');
 // 2. A deliberate clear (user removed every file) must still work when vouched for.
 {
   const out = mapUpdate({ layoutIds: [], _allowRelationClear: true });
+  // A arte tem UM dono (M3): limpar APAGA as linhas desta aerografia (desligar
+  // violaria o CHECK `Layout_one_owner_check`).
   check('vouched empty layoutIds DOES clear layouts',
-    JSON.stringify(out.layouts) === JSON.stringify({ set: [] }),
+    JSON.stringify(out.layouts) === JSON.stringify({ deleteMany: { id: { notIn: [] } } }),
     `got ${JSON.stringify(out.layouts)}`);
 }
 
 // 3. Non-empty arrays are unaffected by the guard (no marker needed to replace).
 {
   const out = mapUpdate({ layoutIds: ['l1', 'l2'] });
-  check('non-empty layoutIds replaces without a marker',
-    JSON.stringify(out.layouts) === JSON.stringify({ set: [{ id: 'l1' }, { id: 'l2' }] }),
+  check('non-empty layoutIds replaces without a marker (the rows that left are deleted)',
+    JSON.stringify(out.layouts) === JSON.stringify({ deleteMany: { id: { notIn: ['l1', 'l2'] } } }),
     `got ${JSON.stringify(out.layouts)}`);
 }
 

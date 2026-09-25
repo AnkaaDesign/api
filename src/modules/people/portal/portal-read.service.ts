@@ -1118,9 +1118,8 @@ export class PortalReadService {
       select.guaranteeYears = true;
       select.customGuaranteeText = true;
     }
-    if (verLayout) {
-      select.layoutFiles = { orderBy: { createdAt: 'asc' as const }, select: FILE_SELECT };
-    }
+    // A arte do orçamento (seção LAYOUT) é a aprovada dos implementos das tarefas
+    // (`quoteArtworkOf`, §2A.9): vem pelas tarefas, no `taskSelect` com a seção.
     if (verPagamento) {
       // ⛔ `payerScopeSelect` espalhado — nunca `customerConfigs: true`, nunca um
       // `select` de pagador sem o `where`. Ver o cabeçalho deste arquivo.
@@ -1221,11 +1220,18 @@ export class PortalReadService {
       select.generalPainting = { select: PAINT_SELECT };
       select.logoPaints = { select: PAINT_SELECT };
       select.baseFiles = { select: FILE_SELECT };
-      select.layouts = {
-        // Só o layout APROVADO: um layout em revisão é conversa interna, e
-        // mandá-lo ao cliente é pedir aprovação do que ainda não foi proposto.
-        where: { status: 'APPROVED' as any },
-        select: { id: true, status: true, file: { select: FILE_SELECT } },
+      // A ARTE é do implemento (R2). Só a APROVADA: uma arte em revisão é
+      // conversa interna, e mandá-la ao cliente é pedir aprovação do que ainda
+      // não foi proposto (as pendentes de aprovação entram com o P13b).
+      select.implement = {
+        select: {
+          ...TASK_BASE_SELECT.implement.select,
+          layouts: {
+            where: { status: 'APPROVED' as const },
+            orderBy: { createdAt: 'asc' as const },
+            select: { id: true, status: true, fileId: true, file: { select: FILE_SELECT } },
+          },
+        },
       };
     }
 

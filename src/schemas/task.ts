@@ -298,38 +298,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      layouts: z
-        .union([
-          z.boolean(),
-          z.object({
-            select: z
-              .object({
-                id: z.boolean().optional(),
-                fileId: z.boolean().optional(),
-                status: z.boolean().optional(),
-                createdAt: z.boolean().optional(),
-                updatedAt: z.boolean().optional(),
-                file: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      select: z
-                        .object({
-                          id: z.boolean().optional(),
-                          path: z.boolean().optional(),
-                          mimetype: z.boolean().optional(),
-                          size: z.boolean().optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-
       baseFiles: z
         .union([
           z.boolean(),
@@ -505,6 +473,38 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 rearDoorHatchCount: z.boolean().optional(),
                 // Projeto do implemento (a Furgões): PDFs.
                 projectFiles: z.union([z.boolean(), z.object({ select: z.record(z.string(), z.boolean()).optional() })]).optional(),
+                // A arte do implemento (R2), com o arquivo.
+                layouts: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      select: z
+                        .object({
+                          id: z.boolean().optional(),
+                          fileId: z.boolean().optional(),
+                          status: z.boolean().optional(),
+                          createdAt: z.boolean().optional(),
+                          updatedAt: z.boolean().optional(),
+                          file: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                select: z
+                                  .object({
+                                    id: z.boolean().optional(),
+                                    path: z.boolean().optional(),
+                                    mimetype: z.boolean().optional(),
+                                    size: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
                 // As medidas de cada face, da lista única (`leftSideMeasure`, …, `frontSideMeasure`)
                 ...IMPLEMENT_FACE_MEASURE_SELECT_SHAPE,
               })
@@ -613,7 +613,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
       observation: prismaRelationValue.optional(),
       generalPainting: prismaRelationValue.optional(),
       createdBy: prismaRelationValue.optional(),
-      layouts: prismaRelationValue.optional(),
       baseFiles: prismaRelationValue.optional(),
       projectFiles: prismaRelationValue.optional(),
       checkinFiles: prismaRelationValue.optional(),
@@ -803,13 +802,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       observation: z.any().optional(),
       generalPainting: z.any().optional(),
       createdBy: z.any().optional(),
-      layouts: z
-        .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
-        })
-        .optional(),
       logoPaints: z
         .object({
           some: z.any().optional(),
@@ -988,12 +980,13 @@ const taskTransform = (data: any): any => {
     delete data.hasObservation;
   }
 
-  if (data.hasLayouts === true) {
-    andConditions.push({ layouts: { some: {} } });
-    delete data.hasLayouts;
-  } else if (data.hasLayouts === false) {
-    andConditions.push({ layouts: { none: {} } });
-    delete data.hasLayouts;
+  // "Com arte" = o implemento tem arte APROVADA (a que vai para o chão de fábrica).
+  if (data.hasArt === true) {
+    andConditions.push({ implement: { layouts: { some: { status: 'APPROVED' } } } });
+    delete data.hasArt;
+  } else if (data.hasArt === false) {
+    andConditions.push({ implement: { layouts: { none: { status: 'APPROVED' } } } });
+    delete data.hasArt;
   }
 
   if (data.hasPaints === true) {
@@ -1723,7 +1716,8 @@ export const taskGetManySchema = z
     // série ∨ placa ∨ chassi (toda tarefa tem implemento: "tem implemento" não filtra)
     implementIdentified: z.boolean().optional(),
     hasObservation: z.boolean().optional(),
-    hasLayouts: z.boolean().optional(),
+    // Arte APROVADA no implemento (era `hasLayouts`, sobre a arte da tarefa).
+    hasArt: z.boolean().optional(),
     hasPaints: z.boolean().optional(),
     hasServices: z.boolean().optional(),
     // Only tasks with >=1 PRODUCTION service order whose description starts with "Aerografia".
@@ -2186,16 +2180,6 @@ export const taskCreateSchema = z
     bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
-    layoutIds: uuidArraySchema('Arquivo inválido'),
-    // Layout statuses map - maps File ID to layout status (for approval workflow)
-    layoutStatuses: z
-      .record(
-        z.string().uuid(),
-        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-          errorMap: () => ({ message: 'Status de layout inválido' }),
-        }),
-      )
-      .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     projectFileIds: uuidArraySchema('Arquivo de projeto inválido'),
     checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
@@ -2448,55 +2432,6 @@ export const taskUpdateSchema = z
     bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
-    layoutIds: uuidArraySchema('Arquivo inválido'),
-    // Layout statuses map - maps File ID to layout status (for approval workflow on existing files)
-    // PREPROCESS: Handle malformed FormData where layoutStatuses comes as array-like object with stringified JSON
-    layoutStatuses: z
-      .preprocess(
-        val => {
-          // If it's already a proper record, return as-is
-          if (!val || typeof val !== 'object') return val;
-
-          // Check if it looks like array-like object: { "0": "...", "1": "..." }
-          const keys = Object.keys(val);
-          const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
-
-          if (isArrayLike) {
-            // Merge all parsed values into single record
-            const merged: any = {};
-            for (const value of Object.values(val)) {
-              if (typeof value === 'string') {
-                try {
-                  const parsed = JSON.parse(value);
-                  if (typeof parsed === 'object') Object.assign(merged, parsed);
-                } catch (e) {
-                  // Skip invalid JSON
-                }
-              } else if (typeof value === 'object') {
-                Object.assign(merged, value);
-              }
-            }
-            return Object.keys(merged).length > 0 ? merged : val;
-          }
-
-          return val;
-        },
-        z.record(
-          z.string().uuid(),
-          z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-            errorMap: () => ({ message: 'Status de layout inválido' }),
-          }),
-        ),
-      )
-      .optional(),
-    // New layout statuses array - array of statuses for new files being uploaded (matches files array order)
-    newLayoutStatuses: z
-      .array(
-        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-          errorMap: () => ({ message: 'Status de layout inválido' }),
-        }),
-      )
-      .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     projectFileIds: uuidArraySchema('Arquivo de projeto inválido'),
     checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
@@ -2542,7 +2477,6 @@ export const taskUpdateSchema = z
     removeInvoiceIds: z.array(z.string().uuid()).optional(),
     removeReceiptIds: z.array(z.string().uuid()).optional(),
     removeAirbrushingIds: z.array(z.string().uuid()).optional(),
-    removeLayoutIds: z.array(z.string().uuid()).optional(),
     removeReimbursementIds: z.array(z.string().uuid()).optional(),
     removeReimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
   })
@@ -2727,19 +2661,6 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   reimbursementIds: task.reimbursements?.map(reimbursement => reimbursement.id),
   reimbursementInvoiceIds: task.invoiceReimbursements?.map(
     reimbursementInvoice => reimbursementInvoice.id,
-  ),
-  // CRITICAL: layoutIds should be File IDs (layout.fileId), not Layout entity IDs
-  layoutIds: task.layouts?.map(layout => layout.fileId || (layout as any).file?.id),
-  // Map layout statuses (File ID → status)
-  layoutStatuses: task.layouts?.reduce(
-    (acc, layout) => {
-      const fileId = layout.fileId || (layout as any).file?.id;
-      if (fileId && layout.status) {
-        acc[fileId] = layout.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
-      }
-      return acc;
-    },
-    {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
   ),
   baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
   projectFileIds: (task as any).projectFiles?.map((f: any) => f.id),

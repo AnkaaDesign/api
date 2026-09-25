@@ -56,7 +56,7 @@ PASSOS=(
   "nfse-discriminacao|0|npm run -s test:nfse-discriminacao"
   "billing-lens|0|npm run -s test:billing-lens"
   "orcamento-sem-os-negociacao|0|npm run -s test:orcamento-sem-os-negociacao"
-  "layout-per-vehicle|1|npm run -s test:layout-per-vehicle"
+  "a arte do orçamento é a dos implementos (G11 puro, portão, filtro por papel, aerografia)|1|npm run -s test:quote-artwork"
   "boot do portal do cliente|1|npm run -s test:portal-cliente:boot"
   # ── P04: escritor único de medida ──
   "G15 escritor × face (medida do implemento)|1|npm run -s test:implement-measure-writer"

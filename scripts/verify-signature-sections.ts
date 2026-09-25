@@ -562,7 +562,6 @@ async function verifySalutation(): Promise<void> {
     guaranteeYears: 2,
     customGuaranteeText: null,
     services: [{ description: 'Pintura', amount: 48500, observation: null }],
-    layoutFiles: [],
     customerConfigs: [],
     commercialUserId: null,
     billingSplit: 'JOINT',

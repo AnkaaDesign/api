@@ -19,8 +19,7 @@ const FILES_ROOT = process.env.FILES_ROOT || '/srv/files';
 
 /** contexto -> subpasta, espelho de FilesStorageService.folderMapping */
 const FOLDER: Record<string, string> = {
-  tasksLayouts: 'Layouts',
-  'quote-layouts': 'Layouts',
+  implementLayouts: 'Layouts',
   taskBudgets: 'Orcamentos',
   budgetSignatures: 'Orcamentos/Assinaturas',
   budgetDossiers: 'Orcamentos/Dossies',
@@ -54,7 +53,7 @@ const FOLDER: Record<string, string> = {
 
 /** Subpasta extra por tipo de arquivo, igual ao getFolderPath. */
 function leaf(context: string, mimetype: string): string {
-  if (context === 'tasksLayouts' || context === 'quote-layouts' || context === 'airbrushingLayouts')
+  if (context === 'implementLayouts' || context === 'airbrushingLayouts')
     return mimetype === 'application/pdf' ? 'PDFs' : 'Imagens';
   if (context === 'taskProjectFiles') return mimetype === 'application/pdf' ? 'PDFs' : 'Imagens';
   if (context === 'taskBaseFiles') return mimetype.startsWith('image/') ? 'Imagens' : 'Documentos';
@@ -73,42 +72,29 @@ function sanitize(name: string): string {
 
 type Ref = { key: string; context: string | null; owner: string | null };
 
-async function referencesOf(fileId: string, quoteLayoutId: string | null): Promise<Ref[]> {
+async function referencesOf(fileId: string): Promise<Ref[]> {
   const out: Ref[] = [];
   const push = (key: string, context: string | null, owner: string | null) =>
     out.push({ key, context, owner });
 
-  if (quoteLayoutId) {
-    const q = await prisma.budget.findUnique({
-      where: { id: quoteLayoutId },
-      // `tasks` (lista) desde o orçamento multitarefa: `Budget.task` não
-      // existe mais e mandá-lo ao Prisma estoura a consulta. O nome de pasta sai
-      // do PRIMEIRO veículo — qualquer um serve para nomear o diretório do
-      // cliente, e nos sessenta é o mesmo cliente.
-      select: {
-        tasks: {
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          take: 1,
-          select: { customer: { select: { fantasyName: true } } },
-        },
-      },
-    });
-    push('File.quoteLayoutId', 'quote-layouts', q?.tasks?.[0]?.customer?.fantasyName ?? null);
-  }
-
-  const layout = await prisma.layout.findFirst({
+  // A arte (M3): uma linha por dono — implemento ou aerografia —, e o mesmo
+  // arquivo pode ter vários. A arte do orçamento (`File.quoteLayoutId`) foi
+  // copiada para os implementos e saiu do Prisma.
+  const customer = { select: { customer: { select: { fantasyName: true } } } };
+  const layouts = await prisma.layout.findMany({
     where: { fileId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: {
-      tasks: { select: { customer: { select: { fantasyName: true } } }, take: 1 },
-      airbrushing: { select: { task: { select: { customer: { select: { fantasyName: true } } } } } },
+      implement: { select: { task: customer } },
+      airbrushing: { select: { task: customer } },
     },
   });
-  if (layout) {
-    const owner =
-      layout.tasks[0]?.customer?.fantasyName ??
-      layout.airbrushing?.task?.customer?.fantasyName ??
-      null;
-    push('Layout.fileId', layout.airbrushing ? 'airbrushingLayouts' : 'tasksLayouts', owner);
+  for (const layout of layouts) {
+    if (layout.implement) {
+      push('Layout.fileId', 'implementLayouts', layout.implement.task?.customer?.fantasyName ?? null);
+    } else if (layout.airbrushing) {
+      push('Layout.fileId', 'airbrushingLayouts', layout.airbrushing.task?.customer?.fantasyName ?? null);
+    }
   }
 
   const taskRels: Array<[string, string, any]> = [
@@ -173,7 +159,7 @@ async function referencesOf(fileId: string, quoteLayoutId: string | null): Promi
 async function main() {
   const files = await prisma.file.findMany({
     where: { path: { startsWith: FILES_ROOT } },
-    select: { id: true, filename: true, path: true, mimetype: true, quoteLayoutId: true },
+    select: { id: true, filename: true, path: true, mimetype: true },
   });
 
   const moves: Array<{ from: string; to: string; why: string }> = [];
@@ -181,7 +167,7 @@ async function main() {
   const stay: Record<string, number> = {};
 
   for (const f of files) {
-    const refs = await referencesOf(f.id, f.quoteLayoutId);
+    const refs = await referencesOf(f.id);
     const withCtx = refs.filter(r => r.context && FOLDER[r.context]);
     if (withCtx.length === 0) {
       stay['sem contexto canônico'] = (stay['sem contexto canônico'] || 0) + 1;

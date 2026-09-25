@@ -66,7 +66,6 @@ const TRACKED_FIELDS = [
   'sectorId',
   'bonification',
   'responsibles',
-  'layouts', // array of files
   'budgets', // array of files
   'invoices', // array of files
   'receipts', // array of files
@@ -126,7 +125,6 @@ function trackedValue(task: any, field: string): any {
  * File array fields that require special handling
  */
 const FILE_ARRAY_FIELDS = [
-  'layouts',
   'budgets',
   'invoices',
   'receipts',

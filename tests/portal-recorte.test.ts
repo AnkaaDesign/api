@@ -510,16 +510,8 @@ const LINHA_CRUA: any = {
       position: 1,
     },
   ],
-  layoutFiles: [
-    {
-      id: 'f-lay',
-      filename: 'layout.pdf',
-      originalName: 'Layout.pdf',
-      mimetype: 'application/pdf',
-      size: 10,
-      path: '/srv/uploads/Clientes/RKO/layout.pdf',
-    },
-  ],
+  // A arte do orçamento não mora mais aqui (R1): é a arte APROVADA dos
+  // implementos das tarefas (`quoteArtworkOf`), abaixo em `implement.layouts`.
   request: {
     briefing: 'Baú de 14 metros, pintura branca.',
     logoName: 'RKO Alimentos',
@@ -651,6 +643,35 @@ const LINHA_CRUA: any = {
             path: '/srv/uploads/projeto.pdf',
           },
         ],
+        // A arte do implemento (R2). O select do portal só traz a APROVADA; a
+        // pendente está aqui para provar que o projetor não a deixa passar.
+        layouts: [
+          {
+            id: 'lay-1',
+            status: 'APPROVED',
+            fileId: 'f-ok',
+            file: {
+              id: 'f-ok',
+              filename: 'aprovado.png',
+              originalName: 'Aprovado.png',
+              mimetype: 'image/png',
+              size: 40,
+              path: '/srv/uploads/Clientes/RKO/aprovado.png',
+            },
+          },
+          {
+            id: 'lay-2',
+            status: 'PENDING_APPROVAL',
+            fileId: 'f-rascunho',
+            file: {
+              id: 'f-rascunho',
+              filename: 'rascunho.png',
+              originalName: 'Rascunho.png',
+              mimetype: 'image/png',
+              size: 41,
+            },
+          },
+        ],
       },
       generalPainting: { id: 'p-1', name: 'Branco Geada', hex: '#FFFFFF', finish: 'SOLID' },
       logoPaints: [{ id: 'p-2', name: 'Vermelho RKO', hex: '#CC0000', finish: 'SOLID' }],
@@ -665,30 +686,6 @@ const LINHA_CRUA: any = {
         },
       ],
       artworks: [],
-      layouts: [
-        {
-          id: 'lay-1',
-          status: 'APPROVED',
-          file: {
-            id: 'f-ok',
-            filename: 'aprovado.png',
-            originalName: 'Aprovado.png',
-            mimetype: 'image/png',
-            size: 40,
-          },
-        },
-        {
-          id: 'lay-2',
-          status: 'PENDING',
-          file: {
-            id: 'f-rascunho',
-            filename: 'rascunho.png',
-            originalName: 'Rascunho.png',
-            mimetype: 'image/png',
-            size: 41,
-          },
-        },
-      ],
       serviceOrders: [
         {
           id: 'so-1',
@@ -945,7 +942,7 @@ console.log('\nFINANCEIRO — vê tudo menos a arte');
   check('tem garantia', v.guarantee?.years === 5);
   check('⛔ NÃO tem layout no orçamento', v.layout === undefined);
   check('⛔ NÃO tem layout no veículo', v.vehicles[0].layout === undefined);
-  check('⛔ e o arquivo de arte não aparece em lugar nenhum', !JSON.stringify(v).includes('f-lay'));
+  check('⛔ e o arquivo de arte não aparece em lugar nenhum', !JSON.stringify(v).includes('f-ok'));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

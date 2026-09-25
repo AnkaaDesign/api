@@ -31,6 +31,7 @@ import {
 } from '@/modules/common/signature/quote-sections';
 import { portalSectionsFor } from './portal-capabilities';
 import { IMPLEMENT_FACES, type ImplementFace } from '../../../constants/implement-faces';
+import { quoteArtworkOf } from '../../../utils/quote-artwork';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ⛔ O QUE NUNCA SAI, DE NENHUM PAPEL, EM NENHUMA SEÇÃO
@@ -205,12 +206,13 @@ export interface PortalTaskRow {
     rearDoorBarCount?: number | null;
     rearDoorHatchCount?: number | null;
     projectFiles?: PortalFileRow[];
+    /** A arte do implemento (R2), só a APROVADA — o select do portal já filtra. */
+    layouts?: Array<{ id?: string; status?: string; fileId?: string; file?: PortalFileRow | null }>;
   } | null;
   generalPainting?: PortalPaintRow | null;
   logoPaints?: PortalPaintRow[];
   baseFiles?: PortalFileRow[];
   artworks?: PortalFileRow[];
-  layouts?: Array<{ id?: string; status?: string; file?: PortalFileRow | null }>;
   serviceOrders?: PortalServiceOrderRow[];
   [extra: string]: unknown;
 }
@@ -238,7 +240,6 @@ export interface PortalBudgetRow {
     observation?: string | null;
     position?: number;
   }>;
-  layoutFiles?: PortalFileRow[];
   request?: {
     briefing?: string | null;
     logoName?: string | null;
@@ -802,7 +803,19 @@ export class PortalProjectionService {
     }
 
     if (hasSection(sections, 'LAYOUT')) {
-      view.layout = { files: (row.layoutFiles ?? []).map(f => this.projectFile(f)) };
+      // A arte do orçamento é a aprovada dos implementos (`quoteArtworkOf`, a
+      // mesma que o documento de assinatura imprime).
+      view.layout = {
+        files: quoteArtworkOf<PortalFileRow>({
+          tasks: (row.tasks ?? []).map(t => ({
+            id: t.id ?? '',
+            status: t.status ?? null,
+            implement: { layouts: (t.implement?.layouts ?? []) as any },
+          })),
+        })
+          .files.map(f => this.projectFile(f))
+          .filter((f): f is PortalFileRow => f !== null),
+      };
     }
 
     if (row.request) {
@@ -910,7 +923,7 @@ export class PortalProjectionService {
         // aprovados. Só os APROVADOS saem: um layout em revisão é conversa
         // interna, e mandá-lo ao cliente é pedir aprovação do que ainda não
         // foi proposto.
-        artworks: (row.layouts ?? [])
+        artworks: (row.implement?.layouts ?? [])
           .filter(l => l?.status === 'APPROVED' && l?.file)
           .map(l => this.projectFile(l.file)),
       };

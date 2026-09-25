@@ -1116,14 +1116,14 @@ export function diffQuoteSnapshots(
       severity: 'MATERIAL',
       kind: 'CHANGED',
       group: 'LAYOUT',
-      label: 'Layout aprovado',
+      label: 'Arte aprovada',
       subject: null,
       before: before.layoutFileIds.length
         ? plural(before.layoutFileIds.length, 'imagem', 'imagens')
-        : 'Sem layout',
+        : 'Sem arte',
       after: after.layoutFileIds.length
         ? plural(after.layoutFileIds.length, 'imagem', 'imagens')
-        : 'Sem layout',
+        : 'Sem arte',
     });
   } else {
     // ---- Layout por veículo ------------------------------------------------
@@ -1152,7 +1152,7 @@ export function diffQuoteSnapshots(
         severity: 'MATERIAL',
         kind: 'CHANGED',
         group: 'LAYOUT',
-        label: 'Layout aprovado por veículo',
+        label: 'Arte aprovada por veículo',
         subject: null,
         before: sameShape ? 'Atribuição anterior' : describe(before),
         after: sameShape ? 'Artes atribuídas a outros veículos' : describe(after),

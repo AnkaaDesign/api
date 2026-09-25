@@ -63,7 +63,6 @@ import {
   QUOTE_SAFE_AFTER_BILLING_FIELDS,
   validateQuoteStatusChangeRole,
 } from '../budget/budget.guards';
-import { syncTaskLayoutsFromQuote } from '../../../utils/sync-quote-task-layouts';
 import { SERIAL_NUMBER_PATTERN, SERIAL_NUMBER_PATTERN_MESSAGE } from '../../../schemas/task';
 import {
   isImplementHistoryField,
@@ -115,11 +114,6 @@ import {
   reconcileQuoteCustomerConfigs,
   resliceQuoteCoverage,
 } from '../../../utils/budget-customer-config-sync';
-import {
-  layoutFileCoverage,
-  PER_VEHICLE_LEGACY_WRITE_MESSAGE,
-  pruneQuoteLayoutCoverage,
-} from '../../../utils/quote-layout-coverage';
 import {
   replicateImplementMeasuresToQuoteSiblings,
   type ReplicationLogEntry,
@@ -211,6 +205,29 @@ const FACE_MEASURES_WITH_SECTIONS = Object.fromEntries(
   FACES.map(face => [FACE_REL[face], { include: { sections: true } }]),
 ) as Record<FaceRel, { include: { sections: true } }>;
 
+/** Quem vê a arte do implemento em todos os estados; os demais só a APROVADA. */
+const ROLES_THAT_SEE_ALL_ART = [
+  'COMMERCIAL',
+  'DESIGNER',
+  'LOGISTIC',
+  'PRODUCTION_MANAGER',
+  'ADMIN',
+];
+
+/**
+ * O FILTRO POR PAPEL DA ARTE (plano §6.12, risco 25): fora de COMMERCIAL,
+ * DESIGNER, LOGISTIC, PRODUCTION_MANAGER e ADMIN, só a arte APROVADA. Era o
+ * filtro de `task.layouts`; sem ele sobre `implement.layouts`, a produção veria,
+ * calada, rascunho, arte aguardando o cliente e arte reprovada. Muta a tarefa.
+ */
+function filterImplementArtForRole(task: any, userRole?: string): void {
+  if (!userRole || ROLES_THAT_SEE_ALL_ART.includes(userRole)) return;
+  const layouts = task?.implement?.layouts;
+  if (Array.isArray(layouts)) {
+    task.implement.layouts = layouts.filter((l: { status?: string }) => l.status === 'APPROVED');
+  }
+}
+
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
@@ -245,15 +262,6 @@ export class TaskService {
     @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly signatureEnvelopes: SignatureEnvelopeService,
   ) {}
-
-  /**
-   * Helper: Check if user has permission to approve/reprove layouts
-   * Only COMMERCIAL and ADMIN users can change layout status
-   */
-  private canApproveLayouts(userRole?: string): boolean {
-    const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
-    return userRole ? allowedRoles.includes(userRole as any) : false;
-  }
 
   // ───────────────────────────────────────────────────────────────────────
   // Inline-quote no-op filter
@@ -872,248 +880,35 @@ export class TaskService {
   }
 
   /**
-   * Helper: Convert File IDs to Layout entity IDs
-   * Finds existing Layout records or creates new ones for the given File IDs.
+   * A ARTE DA AEROGRAFIA: as linhas de `Layout` (dono `airbrushingId`) para os
+   * arquivos pedidos, criando como RASCUNHO as que faltam.
    *
-   * IMPORTANT: Layouts are SHARED across tasks (many-to-many relationship).
-   * - Each File has at most ONE Layout entity (fileId is unique in Layout)
-   * - Multiple Tasks can reference the same Layout
-   * - Status changes on an Layout reflect on ALL tasks that share it
-   *
-   * @param fileIds - Array of File IDs
-   * @param layoutStatuses - Map of File ID to layout status
-   * @param userRole - User role for permission checking
-   * @param tx - Prisma transaction
-   * @param eventContext - Optional context for emitting layout events (user, task)
-   * @returns Array of Layout IDs (to be connected to Task via many-to-many)
+   * A arte das TAREFAS saiu daqui: ela é do implemento (R2) e só se escreve por
+   * `/implements/:id/layouts/*`. A unicidade é (dono, arquivo): o mesmo arquivo
+   * pode ser arte de N aerografias, cada uma com a SUA linha — por isso não há
+   * mais o clone que evitava "roubar" a linha de outro dono.
    */
-  /**
-   * fantasyName of the customer owning an airbrushing's task — the folder segment a
-   * cloned airbrushing layout must land under. Returns undefined when the task has no
-   * customer yet, which routes the clone to the Clientes/Outros/ catch-all (and
-   * migrateTaskFilesToCustomerFolder relocates it once a customer is assigned).
-   */
-  private async resolveAirbrushingCustomerName(
-    prisma: any,
-    airbrushingId: string,
-  ): Promise<string | undefined> {
-    const airbrushing = await prisma.airbrushing.findUnique({
-      where: { id: airbrushingId },
-      select: { task: { select: { customer: { select: { fantasyName: true } } } } },
-    });
-    return airbrushing?.task?.customer?.fantasyName ?? undefined;
-  }
-
-  private async convertFileIdsToLayoutIds(
+  private async airbrushingLayoutIds(
     fileIds: string[],
-    _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
-    airbrushingId?: string | null,
-    layoutStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
-    userRole?: string,
+    airbrushingId: string,
     tx?: PrismaTransaction,
-    eventContext?: { user?: any; task?: any },
   ): Promise<string[]> {
     const prisma = tx || this.prisma;
-    const layoutIds: string[] = [];
-
-    // Debug: Log permission check info
-    const hasApprovalPermission = this.canApproveLayouts(userRole);
-    this.logger.log(
-      `[convertFileIdsToLayoutIds] Permission check: userRole=${userRole}, canApproveLayouts=${hasApprovalPermission}`,
-    );
-    this.logger.log(
-      `[convertFileIdsToLayoutIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(layoutStatuses)}`,
-    );
-
-    for (const rawFileId of fileIds) {
-      let fileId = rawFileId;
-      this.logger.log(`[convertFileIdsToLayoutIds] Processing fileId: ${fileId}`);
-
-      // Find existing Layout by fileId only (since fileId is unique in the new schema)
-      // Layouts are now SHARED across tasks, so we don't filter by taskId
-      let layout: any = await prisma.layout.findUnique({
-        where: { fileId },
-        include: { tasks: { select: { id: true }, take: 1 } },
+    const ids: string[] = [];
+    for (const fileId of fileIds) {
+      const existing = await prisma.layout.findFirst({
+        where: { airbrushingId, fileId },
+        select: { id: true },
       });
-
-      // OWNERSHIP: Layout.fileId is globally @unique and Layout.airbrushingId is a single
-      // FK, so a File can back exactly ONE airbrushing layout. Binding an already-owned
-      // Layout to `airbrushingId` therefore STEALS it from its current owner — silently,
-      // with no changelog on the victim. This is reachable from the UI: the airbrushing
-      // layout suggestions list is built from files that already belong to ANOTHER
-      // airbrushing of the same customer, so every pick would move it.
-      //
-      // Give this airbrushing its own copy instead — the same defence cloneFileForQuoteLayout
-      // provides for quote layouts and cloneFile provides for task copy. Adoption is kept
-      // only for a genuinely free Layout (no airbrushing, no task links), which is the
-      // re-attach-what-you-just-removed case.
-      if (airbrushingId && layout) {
-        const ownedByOtherAirbrushing =
-          !!layout.airbrushingId && layout.airbrushingId !== airbrushingId;
-        const ownedByTask = (layout.tasks?.length ?? 0) > 0;
-
-        if (ownedByOtherAirbrushing || ownedByTask) {
-          const clonedFileId = await this.fileService.cloneFile(
-            prisma as PrismaTransaction,
-            fileId,
-            'airbrushingLayouts',
-            undefined,
-            await this.resolveAirbrushingCustomerName(prisma, airbrushingId),
-          );
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] File ${fileId} already backs Layout ${layout.id} ` +
-              `(${ownedByOtherAirbrushing ? `owned by airbrushing ${layout.airbrushingId}` : 'linked to a task'}). ` +
-              `Cloned to File ${clonedFileId} for airbrushing ${airbrushingId} instead of reassigning it.`,
-          );
-          fileId = clonedFileId;
-          layout = null;
-        }
-      }
-
-      this.logger.log(
-        `[convertFileIdsToLayoutIds] Lookup result for ${fileId}: ${layout ? `found (id: ${layout.id})` : 'not found'}`,
-      );
-
-      // Determine the status to use
-      const requestedStatus = layoutStatuses?.[fileId];
-      const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
-
-      this.logger.log(
-        `[convertFileIdsToLayoutIds] File ${fileId}: found=${!!layout}, currentStatus=${layout?.status}, requestedStatus=${requestedStatus}`,
-      );
-
-      if (!layout) {
-        // Create new Layout (shared across all tasks that will reference it)
-        // Note: airbrushingId is only set for airbrushing-specific layouts
-        if (status !== 'DRAFT' && !hasApprovalPermission) {
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] User without approval permission tried to create layout with status ${status}. Using DRAFT instead.`,
-          );
-          layout = await prisma.layout.create({
-            data: {
-              fileId,
-              status: 'DRAFT', // Force DRAFT if user doesn't have permission
-              airbrushingId: airbrushingId || null,
-            },
-          });
-        } else {
-          layout = await prisma.layout.create({
-            data: {
-              fileId,
-              status,
-              airbrushingId: airbrushingId || null,
-            },
-          });
-        }
-        this.logger.log(
-          `[convertFileIdsToLayoutIds] Created new shared Layout record ${layout.id} for File ${fileId} with status ${layout.status}`,
-        );
-      } else if (requestedStatus && layout.status !== requestedStatus) {
-        // Update existing Layout status if it changed
-        // This will affect ALL tasks that share this layout!
-        const oldStatus = layout.status;
-        // Check permissions for status changes
-        if (!hasApprovalPermission) {
-          this.logger.warn(
-            `[convertFileIdsToLayoutIds] User without approval permission (role=${userRole}) tried to change layout status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
-          );
-        } else {
-          layout = await prisma.layout.update({
-            where: { id: layout.id },
-            data: { status: requestedStatus },
-          });
-          this.logger.log(
-            `[convertFileIdsToLayoutIds] ✅ Updated shared Layout ${layout.id} status from ${oldStatus} to ${requestedStatus} (affects all connected tasks)`,
-          );
-
-          // Emit layout status change events if context is provided
-          if (eventContext?.user) {
-            const layoutForEvent = { ...layout, fileId };
-            const taskForEvent = eventContext.task || null;
-
-            if (requestedStatus === 'APPROVED') {
-              this.logger.log(
-                `[convertFileIdsToLayoutIds] 🎨 Emitting artwork.approved event for layout ${layout.id}`,
-              );
-              this.eventEmitter.emit(
-                'artwork.approved',
-                new LayoutApprovedEvent(layoutForEvent, taskForEvent, eventContext.user),
-              );
-            } else if (requestedStatus === 'REPROVED') {
-              this.logger.log(
-                `[convertFileIdsToLayoutIds] 🎨 Emitting artwork.reproved event for layout ${layout.id}`,
-              );
-              this.eventEmitter.emit(
-                'artwork.reproved',
-                new LayoutReprovedEvent(layoutForEvent, taskForEvent, eventContext.user),
-              );
-            }
-          }
-        }
-      } else {
-        // Log why we're not updating
-        if (!requestedStatus) {
-          this.logger.log(
-            `[convertFileIdsToLayoutIds] No status change for File ${fileId}: requestedStatus is undefined`,
-          );
-        } else {
-          this.logger.log(
-            `[convertFileIdsToLayoutIds] No status change for File ${fileId}: current status (${layout.status}) already matches requested (${requestedStatus})`,
-          );
-        }
-      }
-
-      layoutIds.push(layout.id);
+      const layout =
+        existing ??
+        (await prisma.layout.create({
+          data: { fileId, airbrushingId, status: 'DRAFT' },
+          select: { id: true },
+        }));
+      ids.push(layout.id);
     }
-
-    return layoutIds;
-  }
-
-  /**
-   * Helper: Create Layout entity when uploading a new layout file
-   * Creates a shared Layout that can be connected to multiple Tasks.
-   *
-   * @param fileRecord - The uploaded File entity
-   * @param airbrushingId - Airbrushing ID (optional, for airbrushing-specific layouts)
-   * @param status - Initial layout status
-   * @param tx - Prisma transaction
-   * @returns Layout entity ID
-   */
-  private async createLayoutForFile(
-    fileRecord: { id: string },
-    _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
-    airbrushingId?: string | null,
-    status: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT',
-    tx?: PrismaTransaction,
-  ): Promise<string> {
-    const prisma = tx || this.prisma;
-
-    // First check if layout already exists for this file
-    const existing = await prisma.layout.findUnique({
-      where: { fileId: fileRecord.id },
-    });
-
-    if (existing) {
-      this.logger.log(
-        `[createLayoutForFile] Found existing shared Layout ${existing.id} for File ${fileRecord.id}`,
-      );
-      return existing.id;
-    }
-
-    // Create new shared Layout (no taskId - tasks connect via many-to-many)
-    const layout = await prisma.layout.create({
-      data: {
-        fileId: fileRecord.id,
-        status,
-        airbrushingId: airbrushingId || null,
-      },
-    });
-
-    this.logger.log(
-      `[createLayoutForFile] Created shared Layout ${layout.id} for File ${fileRecord.id} with status ${status}`,
-    );
-
-    return layout.id;
+    return ids;
   }
 
   /**
@@ -1128,7 +923,6 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
       projectFiles?: Express.Multer.File[];
@@ -1154,8 +948,8 @@ export class TaskService {
       }
 
       // Capture pre-uploaded file IDs before any processing
-      // These come from the web form when files are pre-uploaded (e.g., serial range creation)
-      const preUploadedLayoutFileIds = data.layoutIds ? [...(data.layoutIds as string[])] : [];
+      // These come from the web form when files are pre-uploaded (e.g., serial range creation).
+      // A ARTE não vem mais aqui: ela é do implemento (R2) — `/implements/:id/layouts/*`.
       const preUploadedBaseFileIds = (data as any).baseFileIds
         ? [...((data as any).baseFileIds as string[])]
         : [];
@@ -1168,16 +962,11 @@ export class TaskService {
       const preUploadedCheckoutFileIds = (data as any).checkoutFileIds
         ? [...((data as any).checkoutFileIds as string[])]
         : [];
-      const layoutStatusesMap = (data as any).layoutStatuses || null;
 
       this.logger.log(`[Task Create] Incoming data keys: ${Object.keys(data).join(', ')}`);
       this.logger.log(
-        `[Task Create] preUploadedLayoutFileIds: ${JSON.stringify(preUploadedLayoutFileIds)}`,
-      );
-      this.logger.log(
         `[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`,
       );
-      this.logger.log(`[Task Create] layoutStatusesMap: ${JSON.stringify(layoutStatusesMap)}`);
 
       // Check if this is a bulk create from serial number range
       const serialNumberFrom = (data as any).serialNumberFrom;
@@ -1230,19 +1019,14 @@ export class TaskService {
           }
         }
 
-        // layoutIds/baseFileIds connection is handled AFTER task creation (post-create update).
-        // Strip them from data before repository processing because:
-        // - layoutIds are File IDs but mapCreateFormDataToDatabaseCreateInput tries to connect them as Layout entity IDs
-        // - baseFileIds are stripped too to avoid double-processing (post-create update handles them)
-        // Create the task first
-        // Add createdById to data for service orders creation
+        // The pre-uploaded file ids are connected AFTER task creation (post-create
+        // update), so they are stripped before repository processing to avoid
+        // double-processing. Add createdById to data for service orders creation.
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
-        delete (dataWithCreator as any).layoutIds;
         delete (dataWithCreator as any).baseFileIds;
         delete (dataWithCreator as any).projectFileIds;
         delete (dataWithCreator as any).checkinFileIds;
         delete (dataWithCreator as any).checkoutFileIds;
-        delete (dataWithCreator as any).layoutStatuses;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
           include: {
             ...include,
@@ -1250,35 +1034,19 @@ export class TaskService {
           },
         });
 
-        // ======= EXPLICIT POST-CREATION: Connect pre-uploaded layouts and base files =======
+        // ======= EXPLICIT POST-CREATION: Connect pre-uploaded files =======
         // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
         // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
         this.logger.log(
-          `[Task Create] Post-creation check: layoutFileIds=${preUploadedLayoutFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`,
+          `[Task Create] Post-creation check: baseFileIds=${preUploadedBaseFileIds.length}`,
         );
         const hasPreUploadedFiles =
-          preUploadedLayoutFileIds.length > 0 ||
           preUploadedBaseFileIds.length > 0 ||
           preUploadedProjectFileIds.length > 0 ||
           preUploadedCheckinFileIds.length > 0 ||
           preUploadedCheckoutFileIds.length > 0;
         if (hasPreUploadedFiles) {
           const postCreateUpdates: any = {};
-
-          // Convert layout File IDs to Layout entity IDs and connect
-          if (preUploadedLayoutFileIds.length > 0) {
-            const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-              preUploadedLayoutFileIds,
-              null,
-              null,
-              layoutStatusesMap,
-              undefined,
-              tx,
-            );
-            if (layoutEntityIds.length > 0) {
-              postCreateUpdates.layouts = { connect: layoutEntityIds.map(id => ({ id })) };
-            }
-          }
 
           // Connect base files directly (they're already File IDs)
           if (preUploadedBaseFileIds.length > 0) {
@@ -1486,36 +1254,6 @@ export class TaskService {
             fileUpdates.bankSlips = { connect: bankSlipIds.map(id => ({ id })) };
           }
 
-          // Layout files - Create File entities and then Layout entities
-          if (files.layouts && files.layouts.length > 0) {
-            const layoutEntityIds: string[] = [];
-            for (const layoutFile of files.layouts) {
-              // First, create the File entity
-              const fileRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                layoutFile,
-                'tasksLayouts',
-                userId,
-                {
-                  entityId: newTask.id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              // Then, create the Layout entity that references this File
-              const layoutEntityId = await this.createLayoutForFile(
-                fileRecord,
-                newTask.id,
-                null,
-                'DRAFT', // Default status for new uploads
-                tx,
-              );
-              layoutEntityIds.push(layoutEntityId);
-            }
-            // Connect Layout entities (not File entities) to the Task
-            fileUpdates.layouts = { connect: layoutEntityIds.map(id => ({ id })) };
-          }
-
           // Base files (files used as base for layout design)
           // Files are renamed to match task name with measures format
           if (files.baseFiles && files.baseFiles.length > 0) {
@@ -1648,15 +1386,10 @@ export class TaskService {
                       customerName,
                     },
                   );
-                  // Create Layout entity
-                  const layoutEntityId = await this.createLayoutForFile(
-                    fileRecord,
-                    null,
-                    airbrushing.id,
-                    'DRAFT', // Default status for airbrushing uploads
-                    tx,
+                  // A linha de arte da aerografia (rascunho)
+                  layoutEntityIds.push(
+                    ...(await this.airbrushingLayoutIds([fileRecord.id], airbrushing.id, tx)),
                   );
-                  layoutEntityIds.push(layoutEntityId);
                 }
 
                 // Update the airbrushing with Layout entity IDs
@@ -1729,12 +1462,8 @@ export class TaskService {
           });
         }
 
-        // Re-fetch task if implementMeasures or layouts/baseFiles were created/connected so response includes them
-        if (
-          hasImplementMeasures ||
-          preUploadedLayoutFileIds.length > 0 ||
-          preUploadedBaseFileIds.length > 0
-        ) {
+        // Re-fetch task if implementMeasures or baseFiles were created/connected so response includes them
+        if (hasImplementMeasures || preUploadedBaseFileIds.length > 0) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
             tx,
             newTask.id,
@@ -1834,7 +1563,6 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.implementVinPlate || []),
         ];
@@ -1874,7 +1602,6 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
@@ -1968,33 +1695,6 @@ export class TaskService {
               delete implementData[rel];
             }
             taskImplementMeasureDataMap.set(index, saved);
-          }
-        }
-
-        // Pre-convert layoutIds from File IDs to Layout entity IDs
-        // The web create form pre-uploads layout files and sends File IDs as layoutIds.
-        // The repository expects Layout entity IDs, so we need to convert them first.
-        // We do this ONCE and share the Layout entities across all tasks (shared layouts).
-        if (data.tasks.length > 0 && (data.tasks[0] as any).layoutIds?.length > 0) {
-          const fileIds = (data.tasks[0] as any).layoutIds as string[];
-          const batchLayoutStatuses = (data.tasks[0] as any).layoutStatuses || undefined;
-          this.logger.log(
-            `[batchCreate] Converting ${fileIds.length} layout File IDs to Layout entity IDs`,
-          );
-          const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-            fileIds,
-            null,
-            null,
-            batchLayoutStatuses,
-            undefined,
-            tx,
-          );
-          this.logger.log(`[batchCreate] Converted to ${layoutEntityIds.length} Layout entity IDs`);
-          // Replace File IDs with Layout entity IDs in all tasks
-          // and remove layoutStatuses (already processed above)
-          for (const task of data.tasks) {
-            (task as any).layoutIds = layoutEntityIds;
-            delete (task as any).layoutStatuses;
           }
         }
 
@@ -2325,7 +2025,6 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
@@ -2334,7 +2033,6 @@ export class TaskService {
       checkoutFiles?: Express.Multer.File[];
       soCheckinFiles?: Express.Multer.File[];
       soCheckoutFiles?: Express.Multer.File[];
-      quoteLayoutFile?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
       implementVinPlate?: Express.Multer.File[];
     },
@@ -2412,17 +2110,6 @@ export class TaskService {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
-            layouts: {
-              include: {
-                file: {
-                  select: {
-                    id: true,
-                    filename: true,
-                    thumbnailUrl: true,
-                  },
-                },
-              },
-            }, // Include for changelog tracking with file info
             baseFiles: true, // Include for changelog tracking
             projectFiles: true, // Include for changelog tracking
             checkinFiles: true, // Include for changelog tracking
@@ -3157,55 +2844,6 @@ export class TaskService {
           );
         }
 
-        // Process quote implementMeasure file(s) BEFORE task update (to get the File ids for the quote).
-        // Up to 2 implementMeasure files (controller maxCount=2). Newly-uploaded File ids are merged,
-        // order-preserving, with any existing-selected ids the client sent in layoutFileIds.
-        if (files?.quoteLayoutFile && files.quoteLayoutFile.length > 0 && (data as any).quote) {
-          // Arte NOVA num orçamento com layout por veículo: a porta da tarefa não
-          // sabe de qual implemento ela é, e o repositório recusaria a lista
-          // mudada logo adiante — mas DEPOIS de os bytes irem para o disco, onde
-          // o rollback da transação não alcança. Recusar antes do upload.
-          if (existingTask.quoteId) {
-            const escopo = await tx.budget.findUnique({
-              where: { id: existingTask.quoteId },
-              select: { layoutScope: true },
-            });
-            if (escopo?.layoutScope === 'PER_VEHICLE') {
-              throw new BadRequestException(PER_VEHICLE_LEGACY_WRITE_MESSAGE);
-            }
-          }
-          console.log('[TaskService] Processing quote implementMeasure file(s)');
-          const customerName = existingTask.customer?.fantasyName;
-
-          const uploadedLayoutIds: string[] = [];
-          for (const layoutFile of files.quoteLayoutFile) {
-            const fileRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              layoutFile,
-              'quote-layouts',
-              userId,
-              {
-                entityId: id,
-                entityType: 'PRICING_LAYOUT',
-                customerName,
-              },
-            );
-            console.log('[TaskService] Uploaded quote implementMeasure file:', fileRecord.id);
-            uploadedLayoutIds.push(fileRecord.id);
-          }
-
-          // Merge client-sent existing ids with the newly uploaded ones (order preserved,
-          // de-duplicated), capped at 2 implementMeasure files.
-          const existingImplementMeasureIds: string[] = Array.isArray(
-            (data as any).quote.layoutFileIds,
-          )
-            ? (data as any).quote.layoutFileIds
-            : [];
-          (data as any).quote.layoutFileIds = [
-            ...new Set([...existingImplementMeasureIds, ...uploadedLayoutIds]),
-          ].slice(0, 2);
-        }
-
         // Extract service orders from data to handle them explicitly
         // This prevents Prisma from doing a silent nested create without events/changelogs
         const serviceOrdersData = (data as any).serviceOrders;
@@ -3221,13 +2859,6 @@ export class TaskService {
             bonificationOrder: getBonificationStatusOrder((data as any).bonification),
           }),
         };
-
-        // CRITICAL: Check for layout data BEFORE deleting fields
-        // This flag determines if file processing block should run
-        const hasLayoutData =
-          !!(updateData as any).layoutIds ||
-          !!(updateData as any).fileIds ||
-          !!(updateData as any).layoutStatuses;
 
         // Remove service orders from updateData to prevent Prisma nested create
         // We'll handle them explicitly below (serviceOrdersData was already extracted at line 1393)
@@ -3246,13 +2877,6 @@ export class TaskService {
         // The repository only handles deletions (via notIn), preserving existing airbrushings and their layouts
         const airbrushingsData = (updateData as any).airbrushings;
 
-        // CRITICAL FIX: Remove layout-related fields from updateData
-        // These will be handled explicitly in the file processing section below (around line 1665)
-        delete (updateData as any).layoutIds;
-        delete (updateData as any).layoutStatuses;
-        delete (updateData as any).newLayoutStatuses;
-        delete (updateData as any).fileIds; // Legacy field name for layoutIds
-
         // NÃO HÁ MAIS RESPONSÁVEL A SINCRONIZAR. O pagador do orçamento tinha
         // um `responsibleId` eleito, e este bloco existia para persegui-lo:
         // lia o principal ANTES do update, o principal DEPOIS, e reescrevia as
@@ -3270,17 +2894,6 @@ export class TaskService {
             include: {
               ...include,
               customer: true, // Always include customer for file path organization
-              layouts: {
-                include: {
-                  file: {
-                    select: {
-                      id: true,
-                      filename: true,
-                      thumbnailUrl: true,
-                    },
-                  },
-                },
-              }, // Include for changelog tracking with file info
               baseFiles: true, // Include for changelog tracking
               logoPaints: true, // Include for changelog tracking
               observation: { include: { files: true } }, // Include for changelog tracking
@@ -4204,7 +3817,6 @@ export class TaskService {
             include: {
               ...include,
               customer: true,
-              layouts: true,
               observation: { include: { files: true } },
               implement: true,
               serviceOrders:
@@ -4282,7 +3894,6 @@ export class TaskService {
                       include: {
                         ...include,
                         customer: true,
-                        layouts: true,
                         observation: { include: { files: true } },
                         implement: true,
                         serviceOrders: true,
@@ -4352,7 +3963,6 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  layouts: true,
                   observation: { include: { files: true } },
                   implement: true,
                   serviceOrders: true,
@@ -4407,7 +4017,6 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  layouts: true,
                   observation: { include: { files: true } },
                   implement: true,
                   serviceOrders: true,
@@ -4495,7 +4104,6 @@ export class TaskService {
                 include: {
                   ...include,
                   customer: true,
-                  layouts: true,
                   observation: { include: { files: true } },
                   implement: true,
                   serviceOrders: true,
@@ -4576,7 +4184,6 @@ export class TaskService {
                     include: {
                       ...include,
                       customer: true,
-                      layouts: true,
                       observation: { include: { files: true } },
                       implement: true,
                       serviceOrders: true,
@@ -4911,7 +4518,6 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                layouts: true,
                 observation: { include: { files: true } },
                 implement: true,
                 serviceOrders: true,
@@ -4982,7 +4588,6 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                layouts: true,
                 observation: { include: { files: true } },
                 implement: true,
                 serviceOrders: true,
@@ -5218,47 +4823,34 @@ export class TaskService {
               // Handle layouts (File IDs -> Layout entity IDs)
               // CRITICAL: This must be handled here to preserve layouts when no file uploads occur
               if (airbrushingData.layoutIds !== undefined) {
-                if (airbrushingData.layoutIds.length > 0) {
-                  // Convert File IDs to Layout entity IDs
-                  const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-                    airbrushingData.layoutIds,
-                    null, // taskId - null for airbrushing layouts
-                    airbrushingData.id, // airbrushingId
-                    undefined, // layoutStatuses
-                    userPrivilege,
-                    tx,
-                  );
-                  updatePayload.layouts = {
-                    set: layoutEntityIds.map((aid: string) => ({ id: aid })),
-                  };
-                  this.logger.log(
-                    `[Task Update] Setting ${layoutEntityIds.length} layouts for airbrushing ${airbrushingData.id}`,
+                // A arte da aerografia é da AEROGRAFIA: uma linha de `Layout` por
+                // (aerografia, arquivo). Tirar uma arte é APAGAR a linha dela — o
+                // arquivo fica. "Desconectar" deixaria a linha sem dono, e o CHECK
+                // "Layout_one_owner_check" (M3) recusa.
+                const keep = await this.airbrushingLayoutIds(
+                  airbrushingData.layoutIds,
+                  airbrushingData.id,
+                  tx,
+                );
+                const removed = await tx.layout.deleteMany({
+                  where: { airbrushingId: airbrushingData.id, id: { notIn: keep } },
+                });
+                if (keep.length === 0 && removed.count > 0) {
+                  // Clearing IS legitimate here (the task form renders the layout
+                  // uploader), but this path writes raw Prisma, bypassing
+                  // AirbrushingService.reconcileFileRelations — so nothing else would
+                  // record the loss. ERROR so a wipe caused by a stale/unhydrated
+                  // client snapshot is greppable after the fact.
+                  this.logger.error(
+                    `[Task Update] DETACHING FILES from airbrushing ${airbrushingData.id}: ` +
+                      `layoutIds=${removed.count}→0. This is only correct if the user actually removed ` +
+                      `those layouts; if it fired on a save that never touched them, the client sent ` +
+                      `a stale/unhydrated snapshot (see mapFieldValueToItem in multi-airbrushing-selector).`,
                   );
                 } else {
-                  // Clearing IS legitimate here (unlike receipts/invoices above): the task
-                  // form renders the layout uploader, so removing the last layout is real
-                  // intent. But this path writes raw Prisma, bypassing both
-                  // AirbrushingService.reconcileFileRelations and the repository's
-                  // _allowRelationClear guard — so nothing else would record the loss.
-                  // Count what is actually detached and log it at ERROR, mirroring the
-                  // "DETACHING FILES" alarm in reconcileFileRelations, so a wipe caused by a
-                  // stale/unhydrated client snapshot is greppable after the fact.
-                  const attached = await tx.layout.count({
-                    where: { airbrushingId: airbrushingData.id },
-                  });
-                  updatePayload.layouts = { set: [] };
-                  if (attached > 0) {
-                    this.logger.error(
-                      `[Task Update] DETACHING FILES from airbrushing ${airbrushingData.id}: ` +
-                        `layoutIds=${attached}→0. This is only correct if the user actually removed ` +
-                        `those layouts; if it fired on a save that never touched them, the client sent ` +
-                        `a stale/unhydrated snapshot (see mapFieldValueToItem in multi-airbrushing-selector).`,
-                    );
-                  } else {
-                    this.logger.log(
-                      `[Task Update] Clearing layouts for airbrushing ${airbrushingData.id} (none attached)`,
-                    );
-                  }
+                  this.logger.log(
+                    `[Task Update] Airbrushing ${airbrushingData.id}: ${keep.length} layout(s), ${removed.count} removed`,
+                  );
                 }
               }
 
@@ -5478,7 +5070,6 @@ export class TaskService {
             include: {
               ...include,
               customer: true,
-              layouts: true,
               observation: { include: { files: true } },
               implement: true,
               serviceOrders: true,
@@ -5493,15 +5084,7 @@ export class TaskService {
 
         // Process and save files WITHIN the transaction
         // This ensures files are only created if the task update succeeds
-        // CRITICAL: Also process if layoutStatuses is provided (even without file uploads)
-        // hasLayoutData was already computed at line 1393 BEFORE deleting fields
-        if (files || hasLayoutData) {
-          // Ensure files is defined (set to empty object if undefined)
-          // This is needed when hasLayoutData is true but no files were uploaded
-          if (!files) {
-            files = {} as any;
-          }
-
+        if (files) {
           const fileUpdates: any = {};
           const customerName =
             updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
@@ -5690,184 +5273,6 @@ export class TaskService {
             fileUpdates.bankSlips = { set: bankSlipIds.map(id => ({ id })) };
             this.logger.log(
               `[Task Update] Setting bankSlips to ${bankSlipIds.length} files (${data.bankSlipIds?.length || 0} existing + ${files.bankSlips?.length || 0} new)`,
-            );
-          }
-
-          // Layout files - CRITICAL FIX for Layout entity
-          // Frontend sends layoutIds as File IDs, we need to convert to Layout entity IDs
-          // Process if new files are being uploaded OR if layoutIds/fileIds is explicitly provided (for deletions)
-          let fileIdsFromRequest = (data as any).layoutIds || (data as any).fileIds;
-          const layoutStatuses = (data as any).layoutStatuses; // Status map: File ID → status (for existing files)
-          const newLayoutStatuses = (data as any).newLayoutStatuses; // Status array for new files (matches files array order)
-
-          this.logger.log(`[Task Update] 🎨 ARTWORK DEBUG - Received data:`);
-          this.logger.log(`  - layoutIds in request: ${JSON.stringify((data as any).layoutIds)}`);
-          this.logger.log(`  - fileIds in request: ${JSON.stringify((data as any).fileIds)}`);
-          this.logger.log(`  - fileIdsFromRequest (final): ${JSON.stringify(fileIdsFromRequest)}`);
-          this.logger.log(`  - layoutStatuses: ${JSON.stringify(layoutStatuses)}`);
-          this.logger.log(`  - newLayoutStatuses: ${JSON.stringify(newLayoutStatuses)}`);
-          this.logger.log(`  - files.layouts: ${files.layouts?.length || 0} files`);
-
-          // SAFEGUARD: Only restore layouts if layoutStatuses was provided but layoutIds was completely missing (undefined).
-          // If layoutIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
-          // The frontend now cleans up layoutStatuses when files are removed, so this safeguard
-          // should only trigger in edge cases where frontend sends status changes without file IDs.
-          const hasLayoutStatusChanges = layoutStatuses && Object.keys(layoutStatuses).length > 0;
-          const layoutIdsWasNotSent = fileIdsFromRequest === undefined;
-          const layoutIdsIsEmptyArray =
-            Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
-
-          // Only restore if layoutIds was completely missing (undefined), NOT if it was explicitly sent as empty array
-          if (hasLayoutStatusChanges && layoutIdsWasNotSent) {
-            this.logger.warn(
-              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: layoutStatuses provided (${Object.keys(layoutStatuses).length} statuses) but layoutIds was NOT sent (undefined). Fetching current layouts to prevent data loss.`,
-            );
-            const currentTask = await tx.task.findUnique({
-              where: { id },
-              include: { layouts: { select: { fileId: true, id: true } } },
-            });
-            if (currentTask && currentTask.layouts && currentTask.layouts.length > 0) {
-              // Initialize array since it was undefined
-              fileIdsFromRequest = [];
-              // Restore File IDs from current layouts
-              const currentFileIds = currentTask.layouts.map(a => a.fileId);
-              fileIdsFromRequest.push(...currentFileIds);
-              this.logger.log(
-                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} layout File IDs: [${fileIdsFromRequest.join(', ')}]`,
-              );
-            } else {
-              this.logger.warn(
-                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current layouts, cannot restore.`,
-              );
-            }
-          } else if (layoutIdsIsEmptyArray) {
-            // Empty array was explicitly sent - this is intentional removal, log and allow it
-            this.logger.log(
-              `[Task Update] 📋 layoutIds is empty array (intentional removal). hasLayoutStatusChanges: ${hasLayoutStatusChanges}, layoutStatuses entries: ${Object.keys(layoutStatuses || {}).length}`,
-            );
-          }
-
-          if ((files?.layouts && files.layouts.length > 0) || fileIdsFromRequest !== undefined) {
-            // Start with empty array for Layout entity IDs
-            const layoutEntityIds: string[] = [];
-
-            // Fetch user for event context (if layoutStatuses are being processed)
-            let layoutEventUser: any = null;
-            if (layoutStatuses && Object.keys(layoutStatuses).length > 0 && userId) {
-              layoutEventUser = await tx.user.findUnique({
-                where: { id: userId },
-                select: { id: true, name: true, email: true },
-              });
-            }
-
-            // Step 1: Convert existing File IDs to Layout entity IDs (with status updates if provided)
-            if (fileIdsFromRequest && fileIdsFromRequest.length > 0) {
-              this.logger.log(
-                `[Task Update] Converting ${fileIdsFromRequest.length} File IDs to Layout entity IDs: [${fileIdsFromRequest.join(', ')}]`,
-              );
-              const existingLayoutIds = await this.convertFileIdsToLayoutIds(
-                fileIdsFromRequest,
-                id,
-                null,
-                layoutStatuses,
-                userPrivilege,
-                tx,
-                // Pass event context for layout status change notifications
-                layoutEventUser ? { user: layoutEventUser, task: existingTask } : undefined,
-              );
-              layoutEntityIds.push(...existingLayoutIds);
-              this.logger.log(
-                `[Task Update] Converted to ${existingLayoutIds.length} Layout entity IDs`,
-              );
-            }
-
-            // Step 2: Upload new layout files and create Layout entities for them
-            if (files?.layouts && files.layouts.length > 0) {
-              this.logger.log(`[Task Update] Uploading ${files.layouts.length} new layout files`);
-              for (let i = 0; i < files.layouts.length; i++) {
-                const layoutFile = files.layouts[i];
-                // First, create the File entity
-                const fileRecord = await this.fileService.createFromUploadWithTransaction(
-                  tx,
-                  layoutFile,
-                  'tasksLayouts',
-                  userId,
-                  {
-                    entityId: id,
-                    entityType: 'TASK',
-                    customerName,
-                  },
-                );
-                this.logger.log(`[Task Update] Created new layout File with ID: ${fileRecord.id}`);
-
-                // Determine status for new upload
-                // Use newLayoutStatuses array (by index) if provided, otherwise try layoutStatuses map, otherwise DRAFT
-                let newFileStatus: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT';
-                if (newLayoutStatuses && Array.isArray(newLayoutStatuses) && newLayoutStatuses[i]) {
-                  newFileStatus = newLayoutStatuses[i];
-                  this.logger.log(
-                    `[Task Update] Using status from newLayoutStatuses[${i}]: ${newFileStatus}`,
-                  );
-                } else if (layoutStatuses?.[fileRecord.id]) {
-                  newFileStatus = layoutStatuses[fileRecord.id];
-                  this.logger.log(
-                    `[Task Update] Using status from layoutStatuses map: ${newFileStatus}`,
-                  );
-                } else {
-                  this.logger.log(`[Task Update] Using default status: DRAFT`);
-                }
-
-                // Then, create the Layout entity for this File
-                const layoutEntityId = await this.createLayoutForFile(
-                  fileRecord,
-                  id,
-                  null,
-                  newFileStatus,
-                  tx,
-                );
-                layoutEntityIds.push(layoutEntityId);
-                this.logger.log(
-                  `[Task Update] Created Layout entity with ID: ${layoutEntityId} and status: ${newFileStatus}`,
-                );
-              }
-            }
-
-            // Step 3: Merge with existing layouts if only new files were uploaded (no explicit layoutIds sent)
-            // This prevents replacing all existing layouts when the frontend only sends new file uploads
-            if (layoutIdsWasNotSent && layoutEntityIds.length > 0) {
-              const currentTaskForMerge = await tx.task.findUnique({
-                where: { id },
-                include: { layouts: { select: { id: true } } },
-              });
-              if (currentTaskForMerge?.layouts?.length) {
-                const currentLayoutIds = currentTaskForMerge.layouts.map(a => a.id);
-                const mergedIds = [...new Set([...currentLayoutIds, ...layoutEntityIds])];
-                this.logger.log(
-                  `[Task Update] 🔄 MERGE: layoutIds was not sent, merging ${currentLayoutIds.length} existing layouts with ${layoutEntityIds.length} new uploads (total: ${mergedIds.length})`,
-                );
-                layoutEntityIds.length = 0;
-                layoutEntityIds.push(...mergedIds);
-              }
-            }
-
-            // Step 4: Set the Layout entities on the Task
-            this.logger.log(
-              `[Task Update] Final Layout entity IDs array (${layoutEntityIds.length} total): [${layoutEntityIds.join(', ')}]`,
-            );
-
-            // CRITICAL WARNING: Empty array will remove all layouts!
-            if (layoutEntityIds.length === 0 && fileIdsFromRequest !== undefined) {
-              this.logger.warn(
-                `[Task Update] ⚠️ WARNING: About to set layouts to EMPTY ARRAY! This will disconnect all layouts from the task. ` +
-                  `fileIdsFromRequest=${fileIdsFromRequest?.length || 0}, ` +
-                  `layoutStatuses=${layoutStatuses ? Object.keys(layoutStatuses).length : 0}, ` +
-                  `hasLayoutStatusChanges=${hasLayoutStatusChanges}`,
-              );
-            }
-
-            fileUpdates.layouts = { set: layoutEntityIds.map(id => ({ id })) };
-            this.logger.log(
-              `[Task Update] Setting layouts to ${layoutEntityIds.length} Layout entities (${fileIdsFromRequest?.length || 0} existing + ${files.layouts?.length || 0} new)`,
             );
           }
 
@@ -6153,15 +5558,9 @@ export class TaskService {
                   console.log(
                     `[TaskService.update] Converting ${existingFileIds.length} File IDs to Layout entity IDs for airbrushing ${airbrushing.id}`,
                   );
-                  const existingLayoutIds = await this.convertFileIdsToLayoutIds(
-                    existingFileIds,
-                    null,
-                    airbrushing.id,
-                    undefined, // No layout statuses for airbrushing in this context
-                    userPrivilege,
-                    tx,
+                  layoutEntityIds.push(
+                    ...(await this.airbrushingLayoutIds(existingFileIds, airbrushing.id, tx)),
                   );
-                  layoutEntityIds.push(...existingLayoutIds);
                 }
 
                 // Step 2: Upload new layout files and create Layout entities
@@ -6178,27 +5577,20 @@ export class TaskService {
                       customerName,
                     },
                   );
-                  // Create Layout entity
-                  const layoutEntityId = await this.createLayoutForFile(
-                    fileRecord,
-                    null,
-                    airbrushing.id,
-                    'DRAFT', // Default status for airbrushing uploads
-                    tx,
+                  // A linha de arte da aerografia (rascunho)
+                  layoutEntityIds.push(
+                    ...(await this.airbrushingLayoutIds([fileRecord.id], airbrushing.id, tx)),
                   );
-                  layoutEntityIds.push(layoutEntityId);
                 }
 
-                // Update the airbrushing with Layout entity IDs
+                // As artes que ficam são estas; as demais linhas da aerografia saem
+                // (apagar a linha tira a arte; o arquivo fica — ver `airbrushingLayoutIds`).
                 if (layoutEntityIds.length > 0) {
-                  await tx.airbrushing.update({
-                    where: { id: airbrushing.id },
-                    data: {
-                      layouts: { set: layoutEntityIds.map(id => ({ id })) },
-                    },
+                  await tx.layout.deleteMany({
+                    where: { airbrushingId: airbrushing.id, id: { notIn: layoutEntityIds } },
                   });
                   console.log(
-                    `[TaskService.update] Set ${layoutEntityIds.length} Layout entities for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
+                    `[TaskService.update] Kept ${layoutEntityIds.length} Layout entities for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
                   );
                 }
               } else {
@@ -6252,17 +5644,6 @@ export class TaskService {
               include: {
                 ...include,
                 customer: true,
-                layouts: {
-                  include: {
-                    file: {
-                      select: {
-                        id: true,
-                        filename: true,
-                        thumbnailUrl: true,
-                      },
-                    },
-                  },
-                },
                 baseFiles: true,
                 logoPaints: true,
                 observation: { include: { files: true } },
@@ -6355,7 +5736,6 @@ export class TaskService {
               where: { id: existingTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
-                layoutFiles: { select: { id: true } },
                 customerConfigs: {
                   include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
                 },
@@ -6373,7 +5753,6 @@ export class TaskService {
                 customGuaranteeText: oldQuote.customGuaranteeText,
                 customForecastDays: oldQuote.customForecastDays,
                 simultaneousTasks: oldQuote.simultaneousTasks,
-                layoutFileIds: ((oldQuote as any).layoutFiles || []).map((f: any) => f.id),
                 services: oldQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
@@ -6399,7 +5778,6 @@ export class TaskService {
               where: { id: updatedTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
-                layoutFiles: { select: { id: true } },
                 customerConfigs: {
                   include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } },
                 },
@@ -6417,7 +5795,6 @@ export class TaskService {
                 customGuaranteeText: newQuote.customGuaranteeText,
                 customForecastDays: newQuote.customForecastDays,
                 simultaneousTasks: newQuote.simultaneousTasks,
-                layoutFileIds: ((newQuote as any).layoutFiles || []).map((f: any) => f.id),
                 services: newQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
@@ -6635,7 +6012,6 @@ export class TaskService {
                 // Store field changes in database
                 for (const change of fieldChanges) {
                   const isFileArray = [
-                    'layouts',
                     'baseFiles',
                     'budgets',
                     'invoices',
@@ -6709,71 +6085,8 @@ export class TaskService {
         // Previously this created a "serviceOrders" field changelog when services were removed,
         // but that was redundant and caused confusing "Nenhuma/Nenhuma" entries.
 
-        // Track layouts array changes
-        // CRITICAL: Only check if the request layoutIds are DIFFERENT from existing ones
-        // The frontend may send layoutIds even when not modifying them, so we need to compare
-        const requestedLayoutIds = (data as any).layoutIds || (data as any).fileIds;
-
-        if (requestedLayoutIds !== undefined) {
-          const oldLayouts = existingTask.layouts || [];
-
-          // Normalize existing layout IDs to strings and sort
-          const oldLayoutIds = oldLayouts.map((f: any) => String(f.id)).sort();
-
-          // Normalize requested IDs to strings and sort
-          const requestedIds = requestedLayoutIds.map((id: any) => String(id)).sort();
-
-          // Compare requested IDs with existing IDs - only proceed if different
-          const layoutIdsInRequestAreDifferent =
-            oldLayoutIds.length !== requestedIds.length ||
-            !oldLayoutIds.every((id, index) => id === requestedIds[index]);
-
-          // Only check DB state if the request indicates a change
-          if (layoutIdsInRequestAreDifferent) {
-            const newLayouts = updatedTask?.layouts || [];
-            const newLayoutIds = newLayouts.map((f: any) => String(f.id)).sort();
-
-            const addedLayouts = newLayouts.filter(
-              (f: any) => !oldLayoutIds.includes(String(f.id)),
-            );
-            const removedLayouts = oldLayouts.filter(
-              (f: any) => !newLayoutIds.includes(String(f.id)),
-            );
-
-            // Only log if there are actual additions or removals
-            if (addedLayouts.length > 0 || removedLayouts.length > 0) {
-              const changeDescription = [];
-              if (addedLayouts.length > 0) {
-                changeDescription.push(
-                  addedLayouts.length === 1
-                    ? '1 arte adicionada'
-                    : `${addedLayouts.length} artes adicionadas`,
-                );
-              }
-              if (removedLayouts.length > 0) {
-                changeDescription.push(
-                  removedLayouts.length === 1
-                    ? '1 arte removida'
-                    : `${removedLayouts.length} artes removidas`,
-                );
-              }
-
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'layouts',
-                oldValue: oldLayouts.length > 0 ? oldLayouts : null,
-                newValue: newLayouts.length > 0 ? newLayouts : null,
-                reason: changeDescription.join(', '),
-                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-            }
-          }
-        }
+        // A arte saiu da tarefa (R2): o histórico dela é do implemento
+        // (`ImplementLayoutService`), não um campo `layouts` da tarefa.
 
         // Track baseFiles array changes
         // CRITICAL: Only check if the request baseFileIds are DIFFERENT from existing ones
@@ -7213,7 +6526,6 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.implementVinPlate || []),
         ];
@@ -7257,7 +6569,6 @@ export class TaskService {
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
       bankSlips?: Express.Multer.File[];
-      layouts?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
       /** Foto da plaqueta de identificação (VIN) — imagem única, gravada no implemento. */
@@ -7289,16 +6600,11 @@ export class TaskService {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         this.logger.log('[batchUpdate] Inside transaction');
 
-        // Look up the acting user's sector privilege for field-level access
-        // control and layout status permission checks.
+        // Look up the acting user's sector privilege for field-level access control.
         // NOTE: the batch endpoint admits 8 privileges (task.controller.ts),
         // so the privilege MUST be resolved and enforced here. Least-privilege:
         // if the user or their sector cannot be resolved, the batch is denied —
         // never assume ADMIN.
-        // Acting user (id/name/email) for artwork.approved/reproved event context — so the
-        // batch layout-status path emits the SAME notifications as the single-update path.
-        let layoutEventUser: { id: string; name: string | null; email: string | null } | null =
-          null;
         if (!userId) {
           throw new ForbiddenException(
             'Usuário não identificado. Não é possível validar as permissões da operação em lote.',
@@ -7314,7 +6620,6 @@ export class TaskService {
             'Não foi possível determinar o setor do usuário. Operação em lote negada.',
           );
         }
-        layoutEventUser = { id: actingUser!.id, name: actingUser!.name, email: actingUser!.email };
         this.logger.log(`[batchUpdate] User ${userId} privilege: ${userPrivilege}`);
 
         // Prepare updates with change tracking and validation
@@ -7343,17 +6648,6 @@ export class TaskService {
               ...include,
               // a série (trilha e aviso) é do implemento: sempre carregado aqui
               implement: (include as any)?.implement ?? { select: { serialNumber: true } },
-              layouts: {
-                include: {
-                  file: {
-                    select: {
-                      id: true,
-                      filename: true,
-                      thumbnailUrl: true,
-                    },
-                  },
-                },
-              },
               budgets: true,
               invoices: true,
               receipts: true,
@@ -7368,7 +6662,6 @@ export class TaskService {
             // Store existing state for changelog comparison after update
             existingTaskStates.set(update.id, {
               ...existingTask,
-              layouts: existingTask.layouts ? [...existingTask.layouts] : [],
               budgets: existingTask.budgets ? [...existingTask.budgets] : [],
               invoices: existingTask.invoices ? [...existingTask.invoices] : [],
               receipts: existingTask.receipts ? [...existingTask.receipts] : [],
@@ -7593,9 +6886,6 @@ export class TaskService {
         if (files && data.tasks.length > 0) {
           this.logger.log('[batchUpdate] Processing file uploads for batch operation');
           this.logger.log(`[batchUpdate] Files object keys: ${Object.keys(files).join(', ')}`);
-          this.logger.log(
-            `[batchUpdate] Has layouts: ${!!files.layouts}, Count: ${files.layouts?.length || 0}`,
-          );
 
           // Get customer name from first task for file metadata
           const firstTask = await this.tasksRepository.findByIdWithTransaction(
@@ -7687,70 +6977,7 @@ export class TaskService {
             }
           }
 
-          // Upload layouts and create Layout entities
-          if (files.layouts && files.layouts.length > 0) {
-            this.logger.log(`[batchUpdate] Uploading ${files.layouts.length} layout files`);
-            uploadedFileIds.layouts = [];
-            const uploadedLayoutFileIds: string[] = [];
-
-            // Step 1: Upload files and get File IDs
-            for (const layoutFile of files.layouts) {
-              const layoutRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                layoutFile,
-                'tasksLayouts',
-                userId,
-                {
-                  entityId: data.tasks[0].id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              uploadedLayoutFileIds.push(layoutRecord.id);
-            }
-
-            // Step 2: Convert File IDs to Layout entity IDs
-            // This creates Layout entities that wrap the uploaded Files
-            this.logger.log(
-              `[batchUpdate] Converting ${uploadedLayoutFileIds.length} File IDs to Layout entity IDs`,
-            );
-            // The uploaded `layouts` files are shared across every task in the batch, so the chosen
-            // per-file statuses are identical on each task entry — read them from the first task and
-            // map array-by-index (upload order) onto the freshly created File IDs. Mirrors the single
-            // update path (which honours newLayoutStatuses[i]); without this new batch uploads always
-            // fell back to DRAFT regardless of what the user picked.
-            const newLayoutStatuses = (
-              data.tasks[0]?.data as {
-                newLayoutStatuses?: Array<'DRAFT' | 'APPROVED' | 'REPROVED'>;
-              }
-            )?.newLayoutStatuses;
-            const layoutStatusMap: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined =
-              Array.isArray(newLayoutStatuses)
-                ? uploadedLayoutFileIds.reduce(
-                    (acc, fileId, i) => {
-                      if (newLayoutStatuses[i]) acc[fileId] = newLayoutStatuses[i];
-                      return acc;
-                    },
-                    {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
-                  )
-                : undefined;
-            const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-              uploadedLayoutFileIds,
-              null, // taskId - null since these layouts will be connected to multiple tasks
-              null, // airbrushingId
-              layoutStatusMap, // per-file statuses (upload order) chosen in "Adicionar Layouts"
-              userPrivilege,
-              tx,
-            );
-
-            // Store Layout entity IDs (not File IDs) for merging
-            uploadedFileIds.layouts = layoutEntityIds;
-            this.logger.log(
-              `[batchUpdate] Created ${layoutEntityIds.length} Layout entities for uploaded files`,
-            );
-          }
-
-          // Upload base files (shared across all tasks, like layouts)
+          // Upload base files (shared across all tasks)
           if (files.baseFiles && files.baseFiles.length > 0) {
             this.logger.log(`[batchUpdate] Uploading ${files.baseFiles.length} base files`);
             uploadedFileIds.baseFiles = [];
@@ -7870,204 +7097,6 @@ export class TaskService {
           }
         }
 
-        // Extract layoutStatuses from each update before processing
-        // layoutStatuses is a map of File ID -> status ('DRAFT' | 'APPROVED' | 'REPROVED')
-        // IMPORTANT: This must run OUTSIDE the if(files) block so status-only updates work
-        const perUpdateLayoutStatuses = new Map<
-          string,
-          Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
-        >();
-        for (const update of updatesWithChangeTracking) {
-          const layoutStatuses = (update.data as any).layoutStatuses;
-          if (layoutStatuses) {
-            perUpdateLayoutStatuses.set(update.id, layoutStatuses);
-            delete (update.data as any).layoutStatuses;
-          }
-        }
-
-        // Convert layoutIds from File IDs to Layout entity IDs for ALL tasks
-        // DEFENSIVE: Handle both File IDs and Layout entity IDs (in case frontend sends wrong type)
-        this.logger.log('[batchUpdate] Converting layoutIds from File IDs to Layout entity IDs');
-        for (const update of updatesWithChangeTracking) {
-          const layoutStatuses = perUpdateLayoutStatuses.get(update.id);
-
-          if (
-            update.data.layoutIds &&
-            Array.isArray(update.data.layoutIds) &&
-            update.data.layoutIds.length > 0
-          ) {
-            this.logger.log(
-              `[batchUpdate] Task ${update.id}: Processing ${update.data.layoutIds.length} layout IDs: ${JSON.stringify(update.data.layoutIds)}`,
-            );
-
-            // DEFENSIVE CHECK: Determine if these are File IDs or Layout entity IDs
-            // Try to find them as Layout entities first
-            const existingLayouts = await tx.layout.findMany({
-              where: {
-                id: { in: update.data.layoutIds },
-              },
-              select: { id: true, fileId: true },
-            });
-
-            this.logger.log(
-              `[batchUpdate] Task ${update.id}: Checked ${update.data.layoutIds.length} IDs as Layout entities, found ${existingLayouts.length}`,
-            );
-
-            if (existingLayouts.length === update.data.layoutIds.length) {
-              // All IDs were found as Layout entities - frontend sent Layout entity IDs directly
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: ✅ All ${existingLayouts.length} IDs are valid Layout entity IDs (no conversion needed)`,
-              );
-              // Keep layoutIds as-is, but still apply layoutStatuses if present
-              // layoutStatuses keys are File IDs, so use existingLayouts to map fileId -> status
-              if (layoutStatuses && Object.keys(layoutStatuses).length > 0) {
-                const fileIds = existingLayouts.map(a => a.fileId);
-                this.logger.log(
-                  `[batchUpdate] Task ${update.id}: Applying layoutStatuses to ${fileIds.length} existing layouts (File IDs: ${JSON.stringify(fileIds)})`,
-                );
-                await this.convertFileIdsToLayoutIds(
-                  fileIds,
-                  null,
-                  null,
-                  layoutStatuses,
-                  userPrivilege,
-                  tx,
-                  // Event context so artwork.approved/reproved fire on batch status changes
-                  layoutEventUser
-                    ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
-                    : undefined,
-                );
-              }
-            } else if (existingLayouts.length > 0) {
-              // PARTIAL MATCH - some are Layout IDs, some might be File IDs
-              this.logger.warn(
-                `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingLayouts.length}/${update.data.layoutIds.length} as Layout entities`,
-              );
-              const foundIds = existingLayouts.map(a => a.id);
-              const missingIds = update.data.layoutIds.filter(id => !foundIds.includes(id));
-              this.logger.warn(
-                `[batchUpdate] Task ${update.id}: Missing Layout entity IDs: ${JSON.stringify(missingIds)}`,
-              );
-
-              // Try to convert missing IDs as File IDs
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: Attempting to convert ${missingIds.length} missing IDs as File IDs`,
-              );
-              const convertedIds = await this.convertFileIdsToLayoutIds(
-                missingIds,
-                null,
-                null,
-                layoutStatuses,
-                userPrivilege,
-                tx,
-                // Event context so artwork.approved/reproved fire on batch status changes
-                layoutEventUser
-                  ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
-                  : undefined,
-              );
-
-              // Combine found Layout IDs with newly converted ones
-              update.data.layoutIds = [...foundIds, ...convertedIds];
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.layoutIds.length} total`,
-              );
-            } else {
-              // Not all IDs were found as Layout entities - they must be File IDs
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Layout entity IDs (found ${existingLayouts.length} existing, converting ${update.data.layoutIds.length})`,
-              );
-
-              try {
-                const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-                  update.data.layoutIds,
-                  null, // taskId - null since these are shared layouts
-                  null, // airbrushingId
-                  layoutStatuses, // layoutStatuses from frontend
-                  userPrivilege,
-                  tx,
-                  // Event context so artwork.approved/reproved fire on batch status changes
-                  layoutEventUser
-                    ? { user: layoutEventUser, task: existingTaskStates.get(update.id) }
-                    : undefined,
-                );
-
-                if (!layoutEntityIds || layoutEntityIds.length === 0) {
-                  this.logger.error(
-                    `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.layoutIds)}`,
-                  );
-                  // Keep original IDs as fallback (might be Layout entity IDs that we missed)
-                } else {
-                  update.data.layoutIds = layoutEntityIds;
-                  this.logger.log(
-                    `[batchUpdate] Task ${update.id}: Successfully converted to ${layoutEntityIds.length} Layout entity IDs: ${JSON.stringify(layoutEntityIds)}`,
-                  );
-                }
-              } catch (conversionError) {
-                this.logger.error(
-                  `[batchUpdate] Task ${update.id}: Conversion failed: ${conversionError.message}`,
-                );
-                this.logger.error(
-                  `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.layoutIds)}`,
-                );
-                // Try to verify if these IDs exist as Files
-                const files = await tx.file.findMany({
-                  where: { id: { in: update.data.layoutIds } },
-                  select: { id: true },
-                });
-                this.logger.error(
-                  `[batchUpdate] Task ${update.id}: Found ${files.length} matching File records`,
-                );
-                throw new Error(
-                  `Failed to convert layout IDs for task ${update.id}: ${conversionError.message}. ` +
-                    `IDs provided: ${update.data.layoutIds.join(', ')}. ` +
-                    `These might be invalid File IDs or Layout entity IDs that don't exist.`,
-                );
-              }
-            }
-          }
-        }
-
-        // Handle status-only updates (layoutStatuses present but no layoutIds changes)
-        // This applies status changes to existing layouts without changing which layouts are connected
-        for (const update of updatesWithChangeTracking) {
-          const layoutStatuses = perUpdateLayoutStatuses.get(update.id);
-          if (layoutStatuses && !update.data.layoutIds) {
-            const existingTask = existingTaskStates.get(update.id);
-            // mapDatabaseEntityToEntity flattens layouts: a.id=FileID, no a.fileId
-            const currentFileIds =
-              existingTask?.layouts?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
-            this.logger.log(
-              `[batchUpdate] Task ${update.id}: Status-only update path - layoutStatuses=${JSON.stringify(layoutStatuses)}, currentFileIds=${JSON.stringify(currentFileIds)}, userPrivilege=${userPrivilege}`,
-            );
-            if (currentFileIds.length > 0) {
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: Applying status-only updates to ${currentFileIds.length} existing layouts (canApprove=${this.canApproveLayouts(userPrivilege)})`,
-              );
-              const updatedLayoutIds = await this.convertFileIdsToLayoutIds(
-                currentFileIds,
-                null,
-                null,
-                layoutStatuses,
-                userPrivilege,
-                tx,
-                // Event context so artwork.approved/reproved fire on batch status changes
-                layoutEventUser ? { user: layoutEventUser, task: existingTask } : undefined,
-              );
-              this.logger.log(
-                `[batchUpdate] Task ${update.id}: Status-only update completed, ${updatedLayoutIds.length} layouts processed`,
-              );
-            } else {
-              this.logger.warn(
-                `[batchUpdate] Task ${update.id}: No existing layouts found for status-only update`,
-              );
-            }
-          } else if (layoutStatuses && update.data.layoutIds) {
-            this.logger.log(
-              `[batchUpdate] Task ${update.id}: Skipping status-only path because layoutIds is set (${(update.data.layoutIds as string[]).length} IDs) - statuses applied during conversion`,
-            );
-          }
-        }
-
         // Add uploaded files to all tasks in the batch (only when files were uploaded)
         if (files && data.tasks.length > 0) {
           // We need to merge with existing files to avoid replacing them
@@ -8089,7 +7118,6 @@ export class TaskService {
                 invoices: true,
                 receipts: true,
                 bankSlips: true,
-                layouts: true,
                 baseFiles: true,
                 logoPaints: true,
                 cuts: true,
@@ -8146,41 +7174,7 @@ export class TaskService {
               );
             }
 
-            if (uploadedFileIds.layouts && uploadedFileIds.layouts.length > 0) {
-              // Only merge uploaded layout File IDs if layoutIds was NOT explicitly provided in the request
-              // If layoutIds is present, it means user wants to SET specific layouts (copy-from-task, bulk operations)
-              // If layoutIds is missing, it means user wants to ADD to existing layouts
-              const hasExplicitLayoutIds = update.data.layoutIds !== undefined;
-
-              if (!hasExplicitLayoutIds) {
-                // ADD mode: Merge uploaded layout entities with current layout entities
-                // IMPORTANT: Both arrays must use Layout ENTITY IDs (not File IDs)
-                // uploadedFileIds.layouts already contains Layout entity IDs (from convertFileIdsToLayoutIds)
-                // mapDatabaseEntityToEntity flattens layouts: a.id=FileID, a.layoutId=EntityID
-                const currentLayoutEntityIds =
-                  currentTask.layouts?.map((a: any) => a.layoutId || a.id) || [];
-                const mergedLayoutIds = [
-                  ...new Set([...currentLayoutEntityIds, ...uploadedFileIds.layouts]),
-                ];
-                update.data.layoutIds = mergedLayoutIds;
-                this.logger.log(
-                  `[batchUpdate] Adding ${uploadedFileIds.layouts.length} layouts to task ${update.id} (merged with ${currentLayoutEntityIds.length} existing, total: ${mergedLayoutIds.length} Layout entity IDs)`,
-                );
-              } else {
-                // SET/REPLACE mode: layoutIds was explicitly provided, so just add uploaded files to it
-                // The existing update.data.layoutIds contains the explicit list the user wants
-                const currentLayoutIds = Array.isArray(update.data.layoutIds)
-                  ? update.data.layoutIds
-                  : [];
-                const mergedIds = [...new Set([...currentLayoutIds, ...uploadedFileIds.layouts])];
-                update.data.layoutIds = mergedIds;
-                this.logger.log(
-                  `[batchUpdate] Layout IDs explicitly provided (${currentLayoutIds.length}), adding ${uploadedFileIds.layouts.length} uploaded files (total: ${mergedIds.length})`,
-                );
-              }
-            }
-
-            // Merge uploaded base files with each task (same SET/ADD pattern as layouts)
+            // Merge uploaded base files with each task (SET/ADD pattern)
             if (uploadedFileIds.baseFiles && uploadedFileIds.baseFiles.length > 0) {
               const hasExplicitBaseFileIds = update.data.baseFileIds !== undefined;
 
@@ -8210,19 +7204,6 @@ export class TaskService {
             }
 
             // Process removals
-            // Remove layouts
-            if (update.data.removeLayoutIds && update.data.removeLayoutIds.length > 0) {
-              const currentLayoutIds = currentTask.layouts?.map(f => f.id) || [];
-              const filteredLayoutIds = currentLayoutIds.filter(
-                id => !update.data.removeLayoutIds.includes(id),
-              );
-              update.data.layoutIds = filteredLayoutIds;
-              delete update.data.removeLayoutIds;
-              this.logger.log(
-                `[batchUpdate] Removing ${update.data.removeLayoutIds.length} layouts from task ${update.id}`,
-              );
-            }
-
             // Remove budgets
             if (update.data.removeBudgetIds && update.data.removeBudgetIds.length > 0) {
               const currentBudgetIds = currentTask.budgets?.map(f => f.id) || [];
@@ -8393,42 +7374,6 @@ export class TaskService {
             delete (update.data as any).cuts;
             this.logger.log(
               `[batchUpdate] Added ${cutsToAdd.length} cut group(s) to task ${update.id} (json path)`,
-            );
-          }
-        }
-
-        // FINAL VALIDATION: Verify all layout IDs exist before attempting Prisma update
-        this.logger.log('[batchUpdate] Final validation: Verifying all layout IDs exist');
-        for (const update of updatesWithChangeTracking) {
-          if (
-            update.data.layoutIds &&
-            Array.isArray(update.data.layoutIds) &&
-            update.data.layoutIds.length > 0
-          ) {
-            const finalCheck = await tx.layout.findMany({
-              where: {
-                id: { in: update.data.layoutIds },
-              },
-              select: { id: true },
-            });
-
-            if (finalCheck.length !== update.data.layoutIds.length) {
-              const foundIds = finalCheck.map(a => a.id);
-              const missingIds = update.data.layoutIds.filter(id => !foundIds.includes(id));
-              this.logger.error(
-                `[batchUpdate] ❌ VALIDATION FAILED for task ${update.id}: ` +
-                  `Expected ${update.data.layoutIds.length} layout entities, found ${finalCheck.length}. ` +
-                  `Missing IDs: ${JSON.stringify(missingIds)}`,
-              );
-
-              throw new Error(
-                `Cannot update task ${update.id}: ${missingIds.length} layout ID(s) don't exist in database. ` +
-                  `Missing: ${missingIds.join(', ')}. These IDs were either deleted or never existed.`,
-              );
-            }
-
-            this.logger.log(
-              `[batchUpdate] ✅ Task ${update.id}: All ${update.data.layoutIds.length} layout IDs validated successfully`,
             );
           }
         }
@@ -8604,17 +7549,6 @@ export class TaskService {
           const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
             include: {
               implement: { select: { serialNumber: true } },
-              layouts: {
-                include: {
-                  file: {
-                    select: {
-                      id: true,
-                      filename: true,
-                      thumbnailUrl: true,
-                    },
-                  },
-                },
-              },
               baseFiles: true,
               budgets: true,
               invoices: true,
@@ -8628,58 +7562,6 @@ export class TaskService {
 
           // Track individual field changes for batch update
           if (existingTask && updateData && updatedTask) {
-            // Track layouts changes
-            const layoutIdsForChangelog =
-              (updateData as any).layoutIds || (updateData as any).fileIds;
-            if (layoutIdsForChangelog !== undefined) {
-              const oldLayouts = existingTask.layouts || [];
-              const newLayouts = updatedTask.layouts || [];
-
-              // Normalize IDs to strings and sort for consistent comparison
-              const oldLayoutIds = oldLayouts.map((f: any) => String(f.id)).sort();
-              const newLayoutIds = newLayouts.map((f: any) => String(f.id)).sort();
-
-              // Check if arrays are actually different
-              const idsChanged =
-                oldLayoutIds.length !== newLayoutIds.length ||
-                !oldLayoutIds.every((id, index) => id === newLayoutIds[index]);
-
-              if (idsChanged) {
-                const addedLayouts = newLayouts.filter(
-                  (f: any) => !oldLayoutIds.includes(String(f.id)),
-                );
-                const removedLayouts = oldLayouts.filter(
-                  (f: any) => !newLayoutIds.includes(String(f.id)),
-                );
-
-                if (addedLayouts.length > 0 || removedLayouts.length > 0) {
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK,
-                    entityId: task.id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'layouts',
-                    oldValue: oldLayouts.length > 0 ? oldLayouts : null,
-                    newValue: newLayouts.length > 0 ? newLayouts : null,
-                    reason: `Campo artes atualizado`,
-                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                    triggeredById: task.id,
-                    userId: userId || '',
-                    transaction: tx,
-                  });
-
-                  // Store for event emission
-                  fieldChangesForEvents.push({
-                    taskId: task.id,
-                    task: updatedTask,
-                    field: 'layouts',
-                    oldValue: oldLayouts,
-                    newValue: newLayouts,
-                    isFileArray: true,
-                  });
-                }
-              }
-            }
-
             // Track baseFiles changes
             if (updateData.baseFileIds !== undefined) {
               const oldBaseFiles = existingTask.baseFiles || [];
@@ -9407,7 +8289,6 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.bankSlips || []),
-          ...(files.layouts || []),
           ...(files.cutFiles || []),
           ...(files.baseFiles || []),
         ];
@@ -9907,24 +8788,7 @@ export class TaskService {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
       }
 
-      // Filter layouts based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
-      // Others can only see APPROVED layouts
-      if (task.layouts && userRole) {
-        const canSeeAllLayouts = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'PRODUCTION_MANAGER',
-          'ADMIN',
-        ].includes(userRole);
-
-        if (!canSeeAllLayouts) {
-          task.layouts = task.layouts.filter(
-            layout => layout.status === 'APPROVED' || layout.status === null,
-          );
-        }
-      }
+      filterImplementArtForRole(task, userRole);
 
       // Debug logging for logo paints
       this.logger.log(`[Task findById] Task ${task.id} (${task.name}):`);
@@ -10007,32 +8871,7 @@ export class TaskService {
 
       const result = await this.tasksRepository.findMany(params);
 
-      // Filter layouts based on user role for each task
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all layouts
-      // Others can only see APPROVED layouts
-      if (userRole) {
-        const canSeeAllLayouts = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'PRODUCTION_MANAGER',
-          'ADMIN',
-        ].includes(userRole);
-
-        if (!canSeeAllLayouts) {
-          result.data = result.data.map(task => {
-            if (task.layouts) {
-              return {
-                ...task,
-                layouts: task.layouts.filter(
-                  layout => layout.status === 'APPROVED' || layout.status === null,
-                ),
-              };
-            }
-            return task;
-          });
-        }
-      }
+      for (const task of result.data) filterImplementArtForRole(task, userRole);
 
       return {
         success: true,
@@ -10093,11 +8932,13 @@ export class TaskService {
         bankSlips: true,
         reimbursements: true,
         invoiceReimbursements: true,
-        layouts: { include: { file: true } },
-        // Airbrushing files live under Clientes/{cliente}/Aerografias/ and are NOT
-        // reachable via task.layouts (an airbrushing Layout has airbrushingId set and
-        // is not connected to the TaskLayouts M2M), so they must be collected
-        // explicitly or they stay behind in the OLD customer's folder.
+        // A arte, o projeto do implemento e a plaqueta moram no IMPLEMENTO (R2, R6).
+        implement: {
+          include: { layouts: { include: { file: true } }, projectFiles: true, vinPlate: true },
+        },
+        // Airbrushing files live under Clientes/{cliente}/Aerografias/ (an airbrushing
+        // Layout has airbrushingId set), so they must be collected explicitly or they
+        // stay behind in the OLD customer's folder.
         airbrushings: {
           include: {
             layouts: { include: { file: true } },
@@ -10124,12 +8965,12 @@ export class TaskService {
       ...(task.invoiceReimbursements || []),
     ];
 
-    // Add layout files
-    for (const layout of task.layouts || []) {
-      if ((layout as any).file) {
-        allFiles.push((layout as any).file);
-      }
+    // A arte, o projeto do implemento e a plaqueta (o implemento é da tarefa)
+    for (const layout of task.implement?.layouts || []) {
+      if (layout.file) allFiles.push(layout.file);
     }
+    allFiles.push(...(task.implement?.projectFiles || []));
+    if (task.implement?.vinPlate) allFiles.push(task.implement.vinPlate);
 
     // Add airbrushing files (layouts + receipts + invoices)
     for (const airbrushing of (task as any).airbrushings || []) {
@@ -10206,9 +9047,11 @@ export class TaskService {
         bankSlips: true,
         reimbursements: true,
         invoiceReimbursements: true,
-        layouts: { include: { file: true } },
-        // See migrateTaskFilesOnCustomerChange — airbrushing files are not reachable
-        // through task.layouts and must be collected explicitly.
+        implement: {
+          include: { layouts: { include: { file: true } }, projectFiles: true, vinPlate: true },
+        },
+        // See migrateTaskFilesOnCustomerChange — airbrushing files must be collected
+        // explicitly.
         airbrushings: {
           include: {
             layouts: { include: { file: true } },
@@ -10256,11 +9099,12 @@ export class TaskService {
       ...(task.invoiceReimbursements || []),
     ];
 
-    for (const layout of task.layouts || []) {
-      if ((layout as any).file) {
-        allFiles.push((layout as any).file);
-      }
+    // A arte, o projeto do implemento e a plaqueta (o implemento é da tarefa)
+    for (const layout of task.implement?.layouts || []) {
+      if (layout.file) allFiles.push(layout.file);
     }
+    allFiles.push(...(task.implement?.projectFiles || []));
+    if (task.implement?.vinPlate) allFiles.push(task.implement.vinPlate);
 
     for (const airbrushing of (task as any).airbrushings || []) {
       for (const layout of airbrushing.layouts || []) {
@@ -11117,10 +9961,16 @@ export class TaskService {
         paintIds: 'logoPaints',
         reimbursementIds: 'reimbursements',
         reimbursementInvoiceIds: 'invoiceReimbursements',
-        layoutIds: 'layouts',
       };
+      // A arte saiu da tarefa (R2): o histórico antigo de `layouts`/`layoutIds` não
+      // tem mais relação a que voltar. Recusar com a frase — e não um 500 do Prisma.
+      if (fieldToRevert === 'layouts' || fieldToRevert === 'layoutIds') {
+        throw new BadRequestException(
+          'Não é possível reverter a arte por aqui: a arte agora é do implemento. ' +
+            'Envie ou substitua a arte no implemento do veículo.',
+        );
+      }
       const fileRelationFields = [
-        'layouts',
         'budgets',
         'invoices',
         'invoiceReimbursements',
@@ -11332,25 +10182,8 @@ export class TaskService {
 
               this.logger.log(`[Rollback] Recreated Budget ${recreatedQuote.id}`);
 
-              // Restore implementMeasure files by CLONING any that another quote now owns —
-              // a raw `connect` of the snapshot ids would STEAL them from their
-              // live owner (the FK lives on File.quoteLayoutId).
-              if (Array.isArray(quoteData.layoutFileIds) && quoteData.layoutFileIds.length > 0) {
-                const resolvedImplementMeasureIds =
-                  await this.fileService.resolveLayoutFileIdsForQuote(
-                    tx,
-                    quoteIdToRestore,
-                    quoteData.layoutFileIds,
-                  );
-                await tx.budget.update({
-                  where: { id: quoteIdToRestore },
-                  data: {
-                    layoutFiles: {
-                      set: resolvedImplementMeasureIds.map((fid: string) => ({ id: fid })),
-                    },
-                  },
-                });
-              }
+              // `layoutFileIds` de snapshot antigo é IGNORADO: a arte não é mais do
+              // orçamento (R1) — ela ficou em cada implemento, que não saiu daqui.
 
               // Recreate services if available (preserve per-service invoice target)
               if (quoteData.services && Array.isArray(quoteData.services)) {
@@ -11397,19 +10230,6 @@ export class TaskService {
           where: { id: changeLog.entityId },
           data: { quoteId: quoteIdToRestore },
         });
-
-        // A cobertura de LAYOUT não acompanha a tarefa: ela perde a do orçamento
-        // de onde saiu e não herda cobertura nenhuma no que a recebe — num
-        // orçamento por veículo, fica descoberta até alguém atribuir.
-        for (const q of new Set([quoteAntesDoRollback, quoteIdToRestore])) {
-          if (q) await pruneQuoteLayoutCoverage(tx, q);
-        }
-
-        // Task↔quote link restored: re-materialize the quote's layout files as
-        // APPROVED task layouts.
-        if (quoteIdToRestore) {
-          await syncTaskLayoutsFromQuote(tx, quoteIdToRestore, userId);
-        }
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
           tx,
@@ -12131,179 +10951,6 @@ export class TaskService {
   // =====================
 
   /**
-   * Bulk add layouts to multiple tasks
-   */
-  async bulkAddLayouts(
-    taskIds: string[],
-    layoutIds: string[],
-    userId: string,
-    include?: TaskInclude,
-  ): Promise<{
-    success: number;
-    failed: number;
-    total: number;
-    errors: Array<{ taskId: string; error: string }>;
-  }> {
-    this.logger.log(
-      `[bulkAddLayouts] Adding ${layoutIds.length} layouts to ${taskIds.length} tasks`,
-    );
-
-    const errors: Array<{ taskId: string; error: string }> = [];
-    let successCount = 0;
-
-    // Store field changes for event emission after transaction
-    const fieldChangesForEvents: Array<{
-      taskId: string;
-      task: any;
-      oldValue: any[];
-      newValue: any[];
-    }> = [];
-
-    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Verify all tasks exist and user has permission
-      const tasks = await tx.task.findMany({
-        where: { id: { in: taskIds } },
-        select: { id: true, name: true },
-      });
-
-      if (tasks.length !== taskIds.length) {
-        const foundIds = tasks.map(t => t.id);
-        const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
-      }
-
-      // Verify all layout files exist
-      const layoutFiles = await tx.file.findMany({
-        where: { id: { in: layoutIds } },
-        select: { id: true },
-      });
-
-      if (layoutFiles.length !== layoutIds.length) {
-        const foundIds = layoutFiles.map(a => a.id);
-        const missingIds = layoutIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Artes não encontradas: ${missingIds.join(', ')}`);
-      }
-
-      // Resolve acting user for layout event context (consistency with single/batch paths).
-      // NOTE: layoutStatuses is undefined here (all default to DRAFT), so no status-change
-      // events fire — but we pass the context for parity with the other call sites.
-      const layoutEventUser = userId
-        ? await tx.user.findUnique({
-            where: { id: userId },
-            select: { id: true, name: true, email: true },
-          })
-        : null;
-
-      // Convert File IDs to Layout entity IDs (creates Layout records if needed)
-      const layoutEntityIds = await this.convertFileIdsToLayoutIds(
-        layoutIds, // File IDs from request
-        null, // taskId not needed for bulk operation
-        null, // airbrushingId
-        undefined, // layoutStatuses (all will default to DRAFT)
-        undefined, // userRole
-        tx, // transaction
-        // Event context so artwork.approved/reproved fire if a status change ever occurs here
-        layoutEventUser ? { user: layoutEventUser, task: null } : undefined,
-      );
-
-      // Add layouts to each task
-      for (const task of tasks) {
-        try {
-          // Get current layouts for this task
-          const currentTask = await tx.task.findUnique({
-            where: { id: task.id },
-            include: { layouts: { select: { id: true, fileId: true } } },
-          });
-
-          // Get current layout entity IDs
-          const currentLayoutIds = currentTask?.layouts?.map(a => a.id) || [];
-          // Get current file IDs (for changelog)
-          const currentFileIds = currentTask?.layouts?.map(a => a.fileId) || [];
-
-          // Merge current Layout entity IDs with new ones (avoid duplicates)
-          const mergedLayoutIds = [...new Set([...currentLayoutIds, ...layoutEntityIds])];
-
-          // Update task with merged Layout entity IDs
-          await tx.task.update({
-            where: { id: task.id },
-            data: {
-              layouts: {
-                set: mergedLayoutIds.map(id => ({ id })),
-              },
-            },
-          });
-
-          // Merge File IDs for changelog (File IDs are what the UI expects)
-          const mergedFileIds = [...new Set([...currentFileIds, ...layoutIds])];
-
-          // Log the change (use File IDs for changelog, not Layout entity IDs)
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.TASK,
-            entityId: task.id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'layouts',
-            oldValue: currentFileIds,
-            newValue: mergedFileIds,
-            reason: `Campo artes atualizado via operação em lote`,
-            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-            triggeredById: task.id,
-            userId: userId || '',
-            transaction: tx,
-          });
-
-          // Store for event emission (use File IDs)
-          fieldChangesForEvents.push({
-            taskId: task.id,
-            task: currentTask,
-            oldValue: currentFileIds,
-            newValue: mergedFileIds,
-          });
-
-          successCount++;
-        } catch (error) {
-          this.logger.error(`[bulkAddLayouts] Error updating task ${task.id}:`, error);
-          errors.push({
-            taskId: task.id,
-            error: error instanceof Error ? error.message : 'Erro desconhecido',
-          });
-        }
-      }
-    });
-
-    // After transaction: Emit field change events for notifications
-    if (fieldChangesForEvents.length > 0) {
-      this.logger.log(
-        `[bulkAddLayouts] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
-      );
-
-      for (const change of fieldChangesForEvents) {
-        try {
-          this.eventEmitter.emit('task.field.changed', {
-            task: change.task,
-            field: 'layouts',
-            oldValue: change.oldValue,
-            newValue: change.newValue,
-            changedBy: userId,
-            isFileArray: true,
-          });
-        } catch (eventError) {
-          this.logger.error(
-            `[bulkAddLayouts] Error emitting event for task ${change.taskId}:`,
-            eventError,
-          );
-        }
-      }
-    }
-
-    return {
-      success: successCount,
-      failed: errors.length,
-      total: taskIds.length,
-      errors,
-    };
-  }
-
-  /**
    * Bulk add documents to multiple tasks
    */
   async bulkAddDocuments(
@@ -12771,162 +11418,6 @@ export class TaskService {
     };
   }
 
-  /**
-   * Bulk upload files to multiple tasks
-   * Uploads files once and adds them to all selected tasks
-   */
-  async bulkUploadFiles(
-    taskIds: string[],
-    fileType: 'budgets' | 'invoices' | 'receipts' | 'bankSlips' | 'layouts',
-    files: Express.Multer.File[],
-    userId: string,
-    include?: TaskInclude,
-  ): Promise<{
-    success: number;
-    failed: number;
-    total: number;
-    errors: Array<{ taskId: string; error: string }>;
-  }> {
-    this.logger.log(
-      `[bulkUploadFiles] Uploading ${files.length} ${fileType} to ${taskIds.length} tasks`,
-    );
-
-    const errors: Array<{ taskId: string; error: string }> = [];
-    let successCount = 0;
-
-    // Map file type to Prisma relation name
-    const relationMap = {
-      budgets: 'budgets',
-      invoices: 'invoices',
-      receipts: 'receipts',
-      bankSlips: 'bankSlips',
-      layouts: 'layouts',
-    };
-    const relationName = relationMap[fileType];
-
-    // Map file type to file service category
-    const categoryMap = {
-      budgets: 'taskBudgets',
-      invoices: 'taskInvoices',
-      receipts: 'taskReceipts',
-      bankSlips: 'taskBankSlips',
-      layouts: 'tasksLayouts',
-    };
-    const category = categoryMap[fileType];
-
-    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // Verify all tasks exist
-      const tasks = await tx.task.findMany({
-        where: { id: { in: taskIds } },
-        include: { customer: true },
-      });
-
-      if (tasks.length !== taskIds.length) {
-        const foundIds = tasks.map(t => t.id);
-        const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
-      }
-
-      // Upload all files once
-      this.logger.log(`[bulkUploadFiles] Uploading ${files.length} files`);
-      const uploadedFileIds: string[] = [];
-      const customerName = tasks[0]?.customer?.fantasyName;
-
-      for (const file of files) {
-        const fileRecord = await this.fileService.createFromUploadWithTransaction(
-          tx,
-          file,
-          category as any,
-          userId,
-          {
-            entityId: tasks[0].id, // Use first task for reference
-            entityType: 'TASK',
-            customerName,
-          },
-        );
-        uploadedFileIds.push(fileRecord.id);
-      }
-
-      this.logger.log(
-        `[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`,
-      );
-
-      // The Task.layouts relation points to Layout rows (1:1 with a File via
-      // Layout.fileId @unique), NOT to File rows — so for layouts each uploaded
-      // File must be wrapped in an Layout and we connect those ids. `set`-ting
-      // raw File ids never matched an Layout, so bulk layout upload silently
-      // did nothing. Budgets/invoices/receipts/bankSlips ARE File[] relations and
-      // connect by file id directly.
-      let relationItemIds: string[] = uploadedFileIds;
-      if (fileType === 'layouts') {
-        relationItemIds = [];
-        for (const fid of uploadedFileIds) {
-          relationItemIds.push(
-            await this.createLayoutForFile({ id: fid }, null, null, 'APPROVED', tx),
-          );
-        }
-      }
-
-      // Add uploaded files to each task
-      for (const task of tasks) {
-        try {
-          // Get current files for this task
-          const currentTask = await tx.task.findUnique({
-            where: { id: task.id },
-            include: { [relationName]: { select: { id: true } } },
-          });
-
-          // Merge current relation IDs with the new ones (avoid duplicates).
-          const currentFileIds = (currentTask as any)?.[relationName]?.map((f: any) => f.id) || [];
-          const mergedFileIds = [...new Set([...currentFileIds, ...relationItemIds])];
-
-          // Update task with merged file IDs
-          await tx.task.update({
-            where: { id: task.id },
-            data: {
-              [relationName]: {
-                set: mergedFileIds.map(id => ({ id })),
-              },
-            },
-          });
-
-          // Log the change
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.TASK,
-            entityId: task.id,
-            action: CHANGE_ACTION.UPDATE,
-            field: relationName,
-            oldValue: JSON.stringify(currentFileIds),
-            newValue: JSON.stringify(mergedFileIds),
-            reason:
-              files.length === 1
-                ? `1 arquivo de ${fileType} adicionado em lote`
-                : `${files.length} arquivos de ${fileType} adicionados em lote`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-            triggeredById: task.id,
-            userId: userId || '',
-            transaction: tx,
-          });
-
-          successCount++;
-        } catch (error) {
-          this.logger.error(`[bulkUploadFiles] Error updating task ${task.id}:`, error);
-          errors.push({
-            taskId: task.id,
-            error: error instanceof Error ? error.message : 'Erro desconhecido',
-          });
-        }
-      }
-    });
-
-    return {
-      success: successCount,
-      failed: errors.length,
-      total: taskIds.length,
-      errors,
-    };
-  }
-
   // NOTE: getTargetUsersForNotification() was REMOVED because the legacy
   // TaskNotificationService notification path was deprecated. All notifications
   // now go through the event-based system with configuration-based targeting.
@@ -13044,16 +11535,7 @@ export class TaskService {
     });
   }
 
-  private async duplicateBudget(
-    sourceQuoteId: string,
-    tx: PrismaTransaction,
-    /**
-     * O VEÍCULO de origem da cópia. Num orçamento com layout por veículo, a
-     * cópia (que é de um implemento só) leva só as artes DESTE veículo — levar
-     * todas daria ao destino a pintura dos outros implementos como layout aprovado.
-     */
-    sourceTaskId?: string | null,
-  ): Promise<string> {
+  private async duplicateBudget(sourceQuoteId: string, tx: PrismaTransaction): Promise<string> {
     const sourceQuote = await tx.budget.findUnique({
       where: { id: sourceQuoteId },
       include: {
@@ -13071,11 +11553,6 @@ export class TaskService {
           // back in non-deterministic heap order. Without this the copy is scrambled.
           orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
         },
-        layoutFiles: {
-          orderBy: { createdAt: 'asc' },
-          select: { id: true, quoteLayoutTasks: { select: { taskId: true } } },
-        },
-        tasks: { select: { id: true, createdAt: true } },
         customerConfigs: {
           select: {
             customerId: true,
@@ -13110,22 +11587,8 @@ export class TaskService {
     // and the bare MAX+1 read raced itself into P2002).
     const nextBudgetNumber = await allocateBudgetNumber(tx);
 
-    // Clone the source quote's implementMeasure files so the new quote owns INDEPENDENT
-    // copies — connecting the source ids would steal them (FK lives on File).
-    // Em `PER_VEHICLE`, só as artes do veículo de origem (ver `sourceTaskId`); a
-    // cópia nasce `SHARED`, porque tem um veículo só e as artes dela são dele.
-    const coberturaDaOrigem = layoutFileCoverage(sourceQuote as any);
-    const artesDaOrigem = ((sourceQuote as any).layoutFiles ?? []).filter(
-      (f: { id: string }) =>
-        (sourceQuote as any).layoutScope !== 'PER_VEHICLE' ||
-        !sourceTaskId ||
-        (coberturaDaOrigem.get(f.id) ?? []).includes(sourceTaskId),
-    );
-    const clonedImplementMeasureIds: string[] = [];
-    for (const f of artesDaOrigem) {
-      clonedImplementMeasureIds.push(await this.fileService.cloneFileForQuoteLayout(tx, f.id));
-    }
-
+    // A ARTE NÃO VEM NA CÓPIA DO ORÇAMENTO: ela é do implemento (R1/R2). Quem
+    // copia a arte entre veículos é o token `implementLayouts` da cópia de tarefa.
     const newQuote = await tx.budget.create({
       data: {
         budgetNumber: nextBudgetNumber,
@@ -13152,13 +11615,6 @@ export class TaskService {
         customGuaranteeText: sourceQuote.customGuaranteeText,
         simultaneousTasks: sourceQuote.simultaneousTasks,
         customForecastDays: sourceQuote.customForecastDays,
-        ...(clonedImplementMeasureIds.length
-          ? {
-              layoutFiles: {
-                connect: clonedImplementMeasureIds.map(id => ({ id })),
-              },
-            }
-          : {}),
         services: {
           // Re-assign clean sequential positions from the (now correctly ordered)
           // source list so the copy has unique, stable positions — guarding against
@@ -13328,22 +11784,19 @@ export class TaskService {
                 rearDoorBarCount: true,
                 rearDoorHatchCount: true,
                 projectFiles: { select: { id: true, filename: true, thumbnailUrl: true } },
-              },
-            },
-            observation: true,
-            layouts: {
-              select: {
-                id: true,
-                fileId: true,
-                file: {
+                // A ARTE do implemento de origem (a que vale: nem reprovada, nem substituída)
+                layouts: {
+                  where: { status: { in: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'] } },
+                  orderBy: { createdAt: 'asc' },
                   select: {
                     id: true,
-                    filename: true,
-                    thumbnailUrl: true,
+                    fileId: true,
+                    file: { select: { id: true, filename: true, thumbnailUrl: true } },
                   },
                 },
               },
             },
+            observation: true,
             budgets: { select: { id: true } },
             invoices: { select: { id: true } },
             receipts: { select: { id: true } },
@@ -13461,13 +11914,13 @@ export class TaskService {
                 rearDoorBarCount: true,
                 rearDoorHatchCount: true,
                 projectFiles: { select: { id: true } },
+                layouts: { select: { id: true, fileId: true } },
               },
             },
             observation: true,
             // fantasyName drives the Clientes/{cliente}/ storage folder for any file
             // cloned into the destination task (e.g. airbrushing layouts below).
             customer: { select: { id: true, fantasyName: true } },
-            layouts: { select: { id: true } },
             baseFiles: { select: { id: true } },
             projectFiles: { select: { id: true } },
             logoPaints: { select: { id: true } },
@@ -13534,7 +11987,7 @@ export class TaskService {
               }
             : null,
           paintId: destinationTask.paintId,
-          layoutIds: destinationTask.layouts?.map(a => a.id) || [],
+          implementLayouts: destinationTask.implement?.layouts?.map(a => a.fileId) || [],
           baseFileIds: destinationTask.baseFiles?.map(f => f.id) || [],
           projectFileIds: destinationTask.projectFiles?.map(f => f.id) || [],
           logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
@@ -13705,11 +12158,7 @@ export class TaskService {
                   orphanedOldQuoteId = destinationTask.quote.id;
                 }
                 // Create an independent copy of the quote (never share quote across tasks)
-                const newQuoteId = await this.duplicateBudget(
-                  sourceTask.quoteId,
-                  tx,
-                  sourceTask.id,
-                );
+                const newQuoteId = await this.duplicateBudget(sourceTask.quoteId, tx);
                 updateData.quoteId = newQuoteId;
                 copiedFields.push(field);
                 // Store quote info for changelog display
@@ -13731,16 +12180,39 @@ export class TaskService {
               break;
 
             // ===== SHARED FILE IDS =====
-            case 'layoutIds':
-              if (hasData(sourceTask.layouts)) {
-                const layoutIds = sourceTask.layouts.map(a => a.id);
-                updateData.layouts = {
-                  set: layoutIds.map(id => ({ id })),
-                };
+            // ===== A ARTE (do implemento de origem para o de destino) =====
+            // Linhas NOVAS, em RASCUNHO: a aprovação é do cliente DESTE veículo, e
+            // copiar o status faria uma arte aprovada para outro implemento valer
+            // aqui sem ninguém ter aprovado. O arquivo é o mesmo (a unicidade é
+            // (implemento, arquivo)); o que o destino já tem não se repete.
+            case 'implementLayouts':
+              if (hasData(sourceTask.implement?.layouts)) {
+                const destinationImplement = await tx.implement.findUnique({
+                  where: { taskId: destinationTaskId },
+                  select: { id: true, layouts: { select: { fileId: true } } },
+                });
+                if (!destinationImplement) {
+                  throw new InternalServerErrorException(
+                    'Tarefa de destino sem implemento: toda tarefa tem exatamente um implemento.',
+                  );
+                }
+                const alreadyThere = new Set(destinationImplement.layouts.map(l => l.fileId));
+                const toCopy = sourceTask.implement.layouts.filter(
+                  l => !alreadyThere.has(l.fileId),
+                );
+                for (const l of toCopy) {
+                  await tx.layout.create({
+                    data: {
+                      fileId: l.fileId,
+                      implementId: destinationImplement.id,
+                      status: 'DRAFT',
+                      createdById: userId,
+                    },
+                  });
+                }
                 copiedFields.push(field);
                 // Store file info for changelog display
-                details.layoutIds = sourceTask.layouts.map(a => ({
-                  id: a.id,
+                details.implementLayouts = toCopy.map(a => ({
                   fileId: a.fileId,
                   filename: a.file?.filename,
                   thumbnailUrl: a.file?.thumbnailUrl,
@@ -13850,30 +12322,14 @@ export class TaskService {
                 // Create new airbrushing records with PENDING status
                 const newAirbrushings = await Promise.all(
                   sourceTask.airbrushings.map(async airbrushing => {
-                    // Layout is 1:1 with its File (Layout.fileId @unique) and
-                    // belongs to a SINGLE airbrushing (singular airbrushingId FK).
-                    // `connect`-ing the source's layouts would STEAL them from the
-                    // source airbrushing — clone the underlying file + create a NEW
-                    // Layout per copied airbrushing. (receipts/invoices are File[]
-                    // M2M, so sharing them via connect is safe.)
-                    const clonedLayouts = airbrushing.layouts?.length
-                      ? await Promise.all(
-                          (airbrushing.layouts as any[]).map(async a => ({
-                            file: {
-                              connect: {
-                                id: await this.fileService.cloneFile(
-                                  tx,
-                                  a.fileId,
-                                  'airbrushingLayouts',
-                                  userId,
-                                  destinationTask.customer?.fantasyName,
-                                ),
-                              },
-                            },
-                            status: a.status,
-                          })),
-                        )
-                      : [];
+                    // Uma linha de arte tem UM dono (M3): `connect` roubaria a linha
+                    // da aerografia de origem. A cópia ganha linhas NOVAS sobre o
+                    // MESMO arquivo — a unicidade é (dono, arquivo), e o arquivo
+                    // compartilhado fica protegido pela referência de cada dono.
+                    const copiedLayouts = ((airbrushing.layouts as any[]) ?? []).map(a => ({
+                      file: { connect: { id: a.fileId as string } },
+                      status: a.status,
+                    }));
 
                     return await tx.airbrushing.create({
                       data: {
@@ -13895,14 +12351,14 @@ export class TaskService {
                         quotationOpenedAt: airbrushing.painterId ? null : new Date(),
                         startDate: null,
                         finishDate: null,
-                        // Shared files (M2M) can be connected; layouts are cloned.
+                        // Shared files (M2M) can be connected; layouts are new rows.
                         receipts: airbrushing.receipts?.length
                           ? { connect: airbrushing.receipts.map(r => ({ id: r.id })) }
                           : undefined,
                         invoices: airbrushing.invoices?.length
                           ? { connect: airbrushing.invoices.map(i => ({ id: i.id })) }
                           : undefined,
-                        layouts: clonedLayouts.length ? { create: clonedLayouts } : undefined,
+                        layouts: copiedLayouts.length ? { create: copiedLayouts } : undefined,
                       },
                     });
                   }),
@@ -14199,9 +12655,6 @@ export class TaskService {
             await syncImplementSpotWithCleared(tx, destinationTaskId, updateData.cleared);
           }
 
-          // A copied quote brings its own (cloned) layout files but no task
-          // Layout rows — materialize them as APPROVED task layouts now that the
-          // destination task↔quote link is set.
           if (updateData.quoteId) {
             // ── A COBERTURA E OS TOTAIS DOS DOIS LADOS ──────────────────────────
             //
@@ -14221,19 +12674,14 @@ export class TaskService {
             // implemento que não é mais dele.
             await resliceQuoteCoverage(tx, updateData.quoteId as string);
             await this.recalcQuoteTotals(tx, updateData.quoteId as string);
-            // A cobertura de LAYOUT que o destino trazia era das artes do
-            // orçamento antigo dele — não vale no novo.
-            await pruneQuoteLayoutCoverage(tx, updateData.quoteId as string);
             if (orphanedOldQuoteId && orphanedOldQuoteId !== updateData.quoteId) {
               const aindaExiste = await tx.budget.count({ where: { id: orphanedOldQuoteId } });
               if (aindaExiste > 0) {
                 await resliceQuoteCoverage(tx, orphanedOldQuoteId);
                 await this.recalcQuoteTotals(tx, orphanedOldQuoteId);
-                await pruneQuoteLayoutCoverage(tx, orphanedOldQuoteId);
               }
             }
 
-            await syncTaskLayoutsFromQuote(tx, updateData.quoteId as string, userId);
             // The PRODUCTION service orders are derived from the quote's services (by matching
             // description) — regenerate them to match the copied quote, since the old quote's SOs
             // are now orphaned and the new services have none. (The "SO didn't update" fix.)
@@ -14464,7 +12912,9 @@ export class TaskService {
                 oldValue: change.oldValue,
                 newValue: change.newValue,
                 changedBy: userId,
-                isFileArray: ['layoutIds', 'baseFileIds', 'logoPaintIds'].includes(change.field),
+                isFileArray: ['implementLayouts', 'baseFileIds', 'logoPaintIds'].includes(
+                  change.field,
+                ),
               });
 
               this.logger.debug(

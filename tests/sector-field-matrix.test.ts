@@ -94,17 +94,14 @@ const CORPOS: Corpo[] = [
       implement: { plate: 'ABC1D23', spot: 'B1_F1_V1', category: 'TRUCK', type: 'DRY_CARGO' },
       responsibleIds: [U(20)],
       checkinFileIds: [U(21)],
-      layoutIds: [U(22)],
     },
   },
   {
     setor: SECTOR_PRIVILEGES.DESIGNER,
     modo: 'update',
-    origem: 'web task-edit-form (aba Arte) + app layout_attach_sheet.dart',
+    // A arte saiu da tarefa (R2): o designer a envia por /implements/:id/layouts.
+    origem: 'web task-edit-form (aba Arte: tintas e arquivos base)',
     corpo: {
-      layoutIds: [U(30), U(31)],
-      layoutStatuses: { [U(30)]: 'APPROVED', [U(31)]: 'DRAFT' },
-      removeLayoutIds: [U(32)],
       paintId: U(33),
       paintIds: [U(34)],
       baseFileIds: [U(35)],
@@ -130,7 +127,6 @@ const CORPOS: Corpo[] = [
         type: 'DRY_CARGO',
       },
       responsibleIds: [U(41)],
-      layoutIds: [U(42)],
       paintId: U(43),
       serviceOrders: [
         { description: 'Aprovar com o Cliente', type: 'COMMERCIAL', status: 'PENDING' },
@@ -145,14 +141,13 @@ const CORPOS: Corpo[] = [
     setor: SECTOR_PRIVILEGES.FINANCIAL,
     modo: 'update',
     origem:
-      'web billing/details/[id].tsx (documentos, nº do pedido) — layout/base/implemento em passthrough',
+      'web billing/details/[id].tsx (documentos, nº do pedido) — base/implemento em passthrough',
     corpo: {
       customerOrderNumber: 'PC-9',
       budgetIds: [U(50)],
       invoiceIds: [U(51)],
       receiptIds: [U(52)],
       bankSlipIds: [U(53)],
-      layoutIds: [U(54)],
       baseFileIds: [U(55)],
       implement: { plate: 'ABC1D23' },
     },
@@ -171,7 +166,6 @@ const CORPOS: Corpo[] = [
       ],
       checkinFileIds: [U(62)],
       implement: { spot: 'B1_F1_V2' },
-      removeLayoutIds: [U(63)],
       expectedUpdatedAt: AGORA,
     },
   },
@@ -190,7 +184,6 @@ const CORPOS: Corpo[] = [
       serviceOrders: [
         { description: 'Aprovar com o Cliente', type: 'COMMERCIAL', status: 'PENDING' },
       ],
-      layoutIds: [U(72)],
     },
   },
   {

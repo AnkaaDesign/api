@@ -60,11 +60,7 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
-import {
-  isPerVehicleLayout,
-  layoutFileCoverage,
-  layoutGateFailure,
-} from '@utils/quote-layout-coverage';
+import { artworkGateFailure, quoteArtworkOf } from '@utils/quote-artwork';
 import { EMPLOYED_USER_WHERE } from '@utils/contract';
 import { snapshotVehicles } from './quote-snapshot.service';
 import { QuoteAssemblerService, AssemblerSigner } from '../document/quote-assembler.service';
@@ -600,15 +596,6 @@ export class SignatureEnvelopeService {
         id: true,
         expiresAt: true,
         commercialUserId: true,
-        // O portão de layout passou a valer na EMISSÃO (ver `createEnvelope`).
-        // O preflight existe justamente para dizer isso ANTES do clique: sem
-        // esta linha o operador escolheria canal, marcaria recortes, confirmaria
-        // e só então tomaria o 400.
-        //
-        // POR VEÍCULO: com `layoutScope`, a cobertura de cada arte — o portão
-        // pergunta se TODO veículo tem o seu, e nomeia o que falta.
-        layoutScope: true,
-        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
         // Os PAGADORES, pelo mesmo motivo do layout: `createEnvelope` recusa dois
         // (o documento congelado descreveria um só) e o preflight existe para
         // dizer isso ANTES do clique. Sem esta linha o operador escolhia canal,
@@ -626,7 +613,19 @@ export class SignatureEnvelopeService {
               select: { id: true, name: true, phone: true, email: true, roles: true },
               orderBy: { createdAt: 'asc' },
             },
-            implement: { select: { serialNumber: true, plate: true, chassisNumber: true } },
+            status: true,
+            // O portão da ARTE vale na EMISSÃO (DD2): todo veículo com arte
+            // aprovada no implemento. O preflight diz isso ANTES do clique — sem
+            // esta linha o operador escolheria canal, marcaria recortes,
+            // confirmaria e só então tomaria o 400.
+            implement: {
+              select: {
+                serialNumber: true,
+                plate: true,
+                chassisNumber: true,
+                layouts: { where: { status: 'APPROVED' }, select: { fileId: true, status: true } },
+              },
+            },
           },
         },
       },
@@ -672,17 +671,11 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const layoutGatePreflight = layoutGateFailure(quote as any);
-    if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
+    const artGatePreflight = artworkGateFailure(quote as any);
+    if (artGatePreflight) {
       blockers.push(
-        `${layoutGatePreflight.message} Atribua um layout a cada veículo antes de enviar o ` +
-          'orçamento para assinatura — sem ele o orçamento não poderá ser aprovado depois que o ' +
-          'cliente assinar.',
-      );
-    } else if (layoutGatePreflight) {
-      blockers.push(
-        'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
-          'Sem ele o orçamento não poderá ser aprovado depois que o cliente assinar.',
+        `${artGatePreflight.message} O documento leva a arte aprovada de cada veículo: ` +
+          'aprove a arte antes de enviar o orçamento para assinatura.',
       );
     }
 
@@ -1116,59 +1109,44 @@ export class SignatureEnvelopeService {
       );
     }
 
-    // ── O LAYOUT APROVADO É CONDIÇÃO PARA EMITIR, NÃO PARA APROVAR ───────────
+    // ── A ARTE APROVADA É CONDIÇÃO PARA EMITIR ───────────────────────────────
     //
-    // O portão de layout mora em `BudgetService.budgetApprove`, que é
-    // chamado DEPOIS de tudo: cliente assinou, Ankaa contra-assinou, PAdES
-    // aplicado, dossiê congelado. Ele estoura dentro do `try/catch`
-    // best-effort de `finalize`, que só loga — e o orçamento fica PENDING com um
-    // contrato assinado e selado em cima dele. `retryFinalize` recusa ("já tem o
-    // documento final emitido") e nenhuma outra rota reexecutava o gancho.
+    // O portão ficava em `BudgetService.budgetApprove`, chamado DEPOIS de tudo:
+    // cliente assinou, Ankaa contra-assinou, PAdES aplicado, dossiê congelado. Ele
+    // estourava dentro do `try/catch` best-effort de `finalize`, que só loga — e o
+    // orçamento ficava PENDING com um contrato selado em cima dele (o nº 591: três
+    // envelopes concluídos e ZERO layouts). Aqui corrigir ainda é barato: nada foi
+    // congelado e ninguém assinou. Com a arte no implemento (R2), aprovar o VALOR
+    // não exige arte (§2A.5); a exigência mora só aqui, na emissão (DD2).
     //
-    // Medido: o orçamento nº 591 tem três envelopes concluídos e selados, o
-    // orçamento em PENDING e ZERO layouts. Ninguém conseguiu aprová-lo, e a
-    // tentativa de contornar foi justamente reemitir — três vezes.
-    //
-    // O portão passa para cá porque é AQUI que corrigir ainda é barato: nada foi
-    // congelado, ninguém assinou, e o operador está na tela em que escolhe o
-    // layout. Depois do selo, o mesmo "não" custa um contrato.
-    //
-    // ⚠️ `budgetApprove` CONTINUA com o portão dele. São dois pontos porque há
-    // dois caminhos até a aprovação (a coleta e a aprovação manual do comercial),
-    // e o layout pode ser desvinculado entre a emissão e a conclusão.
-    //
-    // POR VEÍCULO: num orçamento `PER_VEHICLE` a pergunta é se TODO veículo tem
-    // o seu layout — o documento é o contrato dos N implementos, e um implemento sem
-    // arte chegaria à aprovação pelo mesmo beco sem saída do nº 591. Em `SHARED`,
-    // a pergunta e a frase de sempre.
+    // A ARTE (DD2): o documento leva a arte APROVADA de cada implemento, então
+    // todo veículo (não cancelado) tem de ter a sua — nomeado quando falta. Um
+    // implemento sem arte chegaria ao documento como um contrato sem pintura.
     const gate = await this.prisma.budget.findUnique({
       where: { id: args.quoteId },
       select: {
-        layoutScope: true,
-        layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             createdAt: true,
-            implement: { select: { serialNumber: true, plate: true } },
+            status: true,
+            implement: {
+              select: {
+                serialNumber: true,
+                plate: true,
+                layouts: { where: { status: 'APPROVED' }, select: { fileId: true, status: true } },
+              },
+            },
           },
         },
       },
     });
-    const layoutGate = layoutGateFailure(gate as any);
-    if (layoutGate?.scope === 'PER_VEHICLE') {
+    const artGate = artworkGateFailure(gate as any);
+    if (artGate) {
       throw new BadRequestException(
-        `${layoutGate.message} Atribua um layout a cada veículo antes de enviar o orçamento ` +
-          'para assinatura. Sem ele o orçamento não pode ser aprovado depois que o cliente ' +
-          'assinar, e a coleta ficaria concluída com o orçamento parado.',
-      );
-    }
-    if (layoutGate) {
-      throw new BadRequestException(
-        'Selecione um layout aprovado antes de enviar o orçamento para assinatura. ' +
-          'Sem ele o orçamento não pode ser aprovado depois que o cliente assinar, e a coleta ' +
-          'ficaria concluída com o orçamento parado.',
+        `${artGate.message} O documento leva a arte aprovada de cada veículo: aprove a arte ` +
+          'antes de enviar o orçamento para assinatura.',
       );
     }
 
@@ -2565,40 +2543,51 @@ export class SignatureEnvelopeService {
 
     // ── AS ARTES, E DE QUAL VEÍCULO É CADA UMA ──────────────────────────────
     //
-    // `SHARED`: as artes na ordem de sempre, SEM legenda — o HTML sai byte a
-    // byte igual ao de antes (envelopes antigos são reconferidos contra ele).
+    // A arte é a APROVADA dos implementos (`quoteArtworkOf`, §2A.9) — a mesma que
+    // o snapshot congela.
     //
-    // `PER_VEHICLE`: cada arte com a legenda dos veículos dela ("Veículo 39088",
-    // "Veículos 39088, 39089"), na ordem do PRIMEIRO veículo que ela cobre —
-    // a mesma ordem da tabela de identificação, para o cliente ler o documento de
-    // cima para baixo sem ir e voltar. Sem isto o PDF mostrava duas pinturas sem
-    // dizer de qual implemento era cada uma, e quem assinava aprovava as duas para
-    // os dois.
+    // Arte igual em todos os veículos: as artes na ordem de sempre (a de criação
+    // do arquivo, como o antigo `layoutFiles`), SEM legenda.
+    //
+    // Arte por veículo (`PER_VEHICLE` ou veículos com artes diferentes): cada arte
+    // com a legenda dos veículos dela ("Veículo 39088", "Veículos 39088, 39089"),
+    // na ordem do PRIMEIRO veículo que ela cobre — a mesma ordem da tabela de
+    // identificação, para o cliente ler o documento de cima para baixo sem ir e
+    // voltar. Sem isto o PDF mostrava duas pinturas sem dizer de qual implemento
+    // era cada uma, e quem assinava aprovava as duas para os dois.
     //
     // A legenda viaja PAREADA com a imagem até o filtro das que não resolveram:
     // filtrar só as imagens desalinharia as legendas dali em diante.
-    const perVehicleLayout = isPerVehicleLayout(quote as any);
-    const artCoverage = layoutFileCoverage(quote as any);
+    const artwork = quoteArtworkOf<any>({
+      layoutScope: quote.layoutScope,
+      tasks: vehicleTasks as any,
+    });
+    const perVehicleLayout = artwork.coverage !== null;
     const vehicleIndex = new Map(vehicleTasks.map((t, i) => [t.id, i] as const));
     const firstCovered = (fileId: string): number =>
       Math.min(
         Number.POSITIVE_INFINITY,
-        ...(artCoverage.get(fileId) ?? []).map(
+        ...(artwork.tasksByFile.get(fileId) ?? []).map(
           id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
         ),
       );
+    const byCreation = [...artwork.files].sort(
+      (a, b) =>
+        new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime() ||
+        String(a.id).localeCompare(String(b.id)),
+    );
     const orderedLayoutFiles = perVehicleLayout
-      ? quote.layoutFiles
+      ? byCreation
           .map((f, position) => ({ f, position, first: firstCovered(f.id) }))
           .sort((a, b) => a.first - b.first || a.position - b.position)
           .map(x => x.f)
-      : quote.layoutFiles;
+      : byCreation;
     const layoutPairs = orderedLayoutFiles
       .map(f => ({
         src: this.renderer.resolveLayoutImageDataUri(f),
         caption: perVehicleLayout
           ? coverageSummary(
-              { tasks: (artCoverage.get(f.id) ?? []).map(taskId => ({ taskId })) } as any,
+              { tasks: (artwork.tasksByFile.get(f.id) ?? []).map(taskId => ({ taskId })) } as any,
               vehicleTasks.length,
               vehicleTasks as any,
             )
