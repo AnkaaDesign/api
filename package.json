@@ -136,6 +136,8 @@
     "test:billing-status": "tsx tests/billing-status.test.ts",
     "test:budget-state-machine": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/budget-state-machine.test.ts",
     "test:emission-gate": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/emission-gate.test.ts",
+    "test:portal-arte": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/portal-arte.test.ts",
+    "test:portal-emissao": "tsx tests/portal-emissao.test.ts",
     "test:offline-signature": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/offline-signature.test.ts",
     "test:billing-lens": "tsx tests/billing-lens.test.ts",
     "test:invoice-payment-state": "tsx tests/invoice-payment-state.test.ts",

@@ -33,6 +33,8 @@
 //    `scope.invoiceScopeWhere`. NUNCA `Installment.customerConfigId`, que é
 //    opcional e fica órfão na reversão.
 
+import { emissionOf } from '../../../utils/emission-gate';
+import { portalEmissionOf } from './portal-emission';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, EnvelopeStatus, EnvelopeSignerStatus } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -1261,7 +1263,19 @@ export class PortalReadService {
     if (!row) throw new NotFoundException('Orçamento não encontrado.');
 
     const [data] = await this.assembleBudgets([row], principal, sections, capabilities);
-    return { success: true, message: 'Orçamento carregado com sucesso.', data };
+
+    // "PARA EMITIR FALTA…" (integração do par [P14 ∥ P13b]): o portão de emissão
+    // do P14, dito em língua de cliente (`portal-emission.ts`). Só no DETALHE —
+    // na lista custaria uma consulta por orçamento, e a faixa mora nesta tela.
+    const emission = portalEmissionOf(await emissionOf(this.prisma, id), {
+      status: (row as any).status,
+      signatureStatus: (row as any).signatureStatus,
+    });
+    return {
+      success: true,
+      message: 'Orçamento carregado com sucesso.',
+      data: { ...data, emission },
+    };
   }
 
   /**

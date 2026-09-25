@@ -145,9 +145,13 @@ async function main(): Promise<void> {
         .map(i => `[${i.fatia}] ${i.nome}: ${String(i.achado)} (esperado ${String(i.esperado)})`)
         .join('; '),
     );
+    // Com a R-B inteira promovida E aplicada neste banco (o `ankaa_implemento`
+    // depois da integração do par [P14 ∥ P13b]) não há fatia pendente e nada a
+    // conferir aqui — o ensaio que vale é o do banco que ainda não as tem
+    // (`ankaa_implemento_base`, o clone de produção no P30).
     check(
       'G25 da R-B: todo objeto das fatias aplicadas existe',
-      rel.g25.length > 0 && rel.g25.every(o => o.existe),
+      pendentes.length === 0 || (rel.g25.length > 0 && rel.g25.every(o => o.existe)),
     );
     check(
       'G11-dados rodou e ninguém parou de casar',

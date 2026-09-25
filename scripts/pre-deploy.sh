@@ -83,6 +83,10 @@ PASSOS=(
   "portão de emissão e eixo da assinatura (G27, G28, G29, G34, X1, X9)|1|npm run -s test:emission-gate"
   "assinado fora do sistema (DD11: nota, anexo, E1/E3, trilha, invalidação)|1|npm run -s test:offline-signature"
   "G35 nº do pedido de compra nas duas cerimônias (DD12) + cerimônias|0|npm run -s test:portal-assinatura-compras"
+  # ── P13b: o cliente aprova a arte do implemento; o orçamento visto pelo portal ──
+  "portal-arte (APPROVE_ARTWORK, 404 fora do escopo, motivo, lote, 409, O.S./liberação, ator RESPONSIBLE, G17 lado API, leitura)|1|npm run -s test:portal-arte"
+  # ── integração [P14 ∥ P13b]: "Para emitir falta…" no portal ──
+  "emissão no portal (o portão do P14 em língua de cliente)|0|npm run -s test:portal-emissao"
   # ── P10: migrações da R-B escritas e ensaiadas (prisma/staged/r-b/) ──
   "ensaio da R-B (fatias pendentes em transação revertida; invariantes, G25, G11-dados)|1|npm run -s test:rehearse-r-b"
   "G36 informativo (distância schema.prisma × esquema-alvo da R-B)|0|bash scripts/check-schema-target.sh"

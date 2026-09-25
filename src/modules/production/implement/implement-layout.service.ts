@@ -77,6 +77,16 @@ const APPROVE_WITH_CUSTOMER_WHERE = {
   ],
 };
 
+interface DecisionInput {
+  layoutId: string;
+  implementId: string;
+  from: LAYOUT_STATUS[];
+  to: LAYOUT_STATUS.APPROVED | LAYOUT_STATUS.REPROVED;
+  source: LAYOUT_APPROVAL_SOURCE;
+  actor: LayoutActor;
+  note: string | null;
+}
+
 @Injectable()
 export class ImplementLayoutService {
   private readonly logger = new Logger(ImplementLayoutService.name);
@@ -424,109 +434,154 @@ export class ImplementLayoutService {
 
   // ─── o núcleo da decisão ─────────────────────────────────────────────────
 
-  private async decide(input: {
-    layoutId: string;
-    implementId: string;
-    from: LAYOUT_STATUS[];
-    to: LAYOUT_STATUS.APPROVED | LAYOUT_STATUS.REPROVED;
-    source: LAYOUT_APPROVAL_SOURCE;
-    actor: LayoutActor;
-    note: string | null;
-  }) {
+  private async decide(input: DecisionInput) {
+    const prepared = await this.prepareDecision(input);
+    const decided = await this.prisma.$transaction((tx: PrismaTransaction) =>
+      this.decideInTx(tx, input, prepared),
+    );
+    await this.afterDecision(decided, input.to, input.actor, input.note);
+    return decided;
+  }
+
+  /**
+   * O LOTE DO PORTAL, ATÔMICO (P13b; fechado na integração do par [P14 ∥ P13b]).
+   *
+   * Cada decisão numa transação só com as outras: se uma delas já foi decidida
+   * por outra pessoa entre a conferência do portal e a gravação, o 409 dela
+   * DESFAZ o lote inteiro — nenhuma fica aprovada pela metade. As consequências
+   * (O.S., liberação, aviso, reavaliação da assinatura) vêm depois do commit,
+   * uma por arte, como na decisão avulsa.
+   */
+  async approveManyFromPortal(
+    layoutIds: readonly string[],
+    responsible: { id: string; name: string | null },
+  ) {
+    const inputs: DecisionInput[] = [];
+    for (const layoutId of layoutIds) {
+      const layout = await this.prisma.layout.findUnique({
+        where: { id: layoutId },
+        select: { implementId: true },
+      });
+      if (!layout?.implementId) throw new NotFoundException('Arte não encontrada.');
+      inputs.push({
+        layoutId,
+        implementId: layout.implementId,
+        from: [LAYOUT_STATUS.PENDING_APPROVAL],
+        to: LAYOUT_STATUS.APPROVED,
+        source: LAYOUT_APPROVAL_SOURCE.PORTAL,
+        actor: { kind: 'RESPONSIBLE', id: responsible.id, name: responsible.name },
+        note: null,
+      });
+    }
+    const prepared = await Promise.all(inputs.map(i => this.prepareDecision(i)));
+    const decided = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const out = [];
+      for (let i = 0; i < inputs.length; i++) out.push(await this.decideInTx(tx, inputs[i], prepared[i]));
+      return out;
+    });
+    for (const d of decided) await this.afterDecision(d, LAYOUT_STATUS.APPROVED, inputs[0].actor, null);
+    return decided;
+  }
+
+  /** O que se lê ANTES da transação: a linha e o hash dos bytes da arte. */
+  private async prepareDecision(input: DecisionInput) {
+    const current = await this.prisma.layout.findUniqueOrThrow({
+      where: { id: input.layoutId },
+      include: { file: { select: { path: true } } },
+    });
+    const fileSha256 = await this.sha256Of(current.file?.path, input.layoutId);
+    return { current, fileSha256, now: new Date() };
+  }
+
+  /** O núcleo da decisão, DENTRO de uma transação (avulsa ou do lote). */
+  private async decideInTx(
+    tx: PrismaTransaction,
+    input: DecisionInput,
+    prepared: { current: any; fileSha256: string | null; now: Date },
+  ) {
     const { layoutId, implementId, to, source, actor, note } = input;
     const byUser = actor.kind === 'USER' ? actor.id : null;
     const byResponsible = actor.kind === 'RESPONSIBLE' ? actor.id : null;
-    const current = await this.prisma.layout.findUniqueOrThrow({
-      where: { id: layoutId },
-      include: { file: { select: { path: true } } },
+    const { current, fileSha256, now } = prepared;
+    // A corrida (G17): só muda se ainda está num dos estados de origem.
+    const moved = await tx.layout.updateMany({
+      where: { id: layoutId, implementId, status: { in: input.from } },
+      data: {
+        status: to,
+        decidedAt: now,
+        decisionNote: note,
+        fileSha256,
+        decidedByUserId: byUser,
+        decidedByResponsibleId: byResponsible,
+        // `approvalSource` é de quem APROVOU (e do portal, na reprovação com motivo).
+        approvalSource:
+          to === LAYOUT_STATUS.APPROVED || source === LAYOUT_APPROVAL_SOURCE.PORTAL
+            ? source
+            : null,
+      },
     });
-    const fileSha256 = await this.sha256Of(current.file?.path, layoutId);
-    const now = new Date();
-
-    const decided = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-      // A corrida (G17): só muda se ainda está num dos estados de origem.
-      const moved = await tx.layout.updateMany({
-        where: { id: layoutId, implementId, status: { in: input.from } },
-        data: {
-          status: to,
-          decidedAt: now,
-          decisionNote: note,
-          fileSha256,
-          decidedByUserId: byUser,
-          decidedByResponsibleId: byResponsible,
-          // `approvalSource` é de quem APROVOU (e do portal, na reprovação com motivo).
-          approvalSource:
-            to === LAYOUT_STATUS.APPROVED || source === LAYOUT_APPROVAL_SOURCE.PORTAL
-              ? source
-              : null,
-        },
-      });
-      if (moved.count === 0) {
-        const now2 = await tx.layout.findUnique({
-          where: { id: layoutId },
-          select: { status: true },
-        });
-        throw new ConflictException(
-          `Esta arte já foi decidida (está "${now2?.status ?? '—'}"): recarregue para ver a decisão.`,
-        );
-      }
-      await tx.layoutDecision.create({
-        data: {
-          layoutId,
-          toStatus: to,
-          source,
-          userId: byUser,
-          responsibleId: byResponsible,
-          note,
-          fileSha256,
-        },
-      });
-
-      // Versão nova aprovada: a anterior sai de cena (D-21).
-      if (to === LAYOUT_STATUS.APPROVED && current.supersedesId) {
-        const superseded = await tx.layout.updateMany({
-          where: { id: current.supersedesId, status: { not: LAYOUT_STATUS.SUPERSEDED } },
-          data: { status: LAYOUT_STATUS.SUPERSEDED },
-        });
-        if (superseded.count > 0) {
-          await tx.layoutDecision.create({
-            data: {
-              layoutId: current.supersedesId,
-              toStatus: LAYOUT_STATUS.SUPERSEDED,
-              source: LAYOUT_APPROVAL_SOURCE.INTERNAL,
-              userId: byUser,
-              responsibleId: byResponsible,
-              note: `Substituída pela versão ${current.version}.`,
-            },
-          });
-        }
-      }
-
-      await this.logImplementArt(
-        tx,
-        implementId,
-        byUser,
-        CHANGE_ACTION.UPDATE,
-        { layoutId, status: current.status },
-        { layoutId, status: to, source, note },
-        to === LAYOUT_STATUS.APPROVED
-          ? source === LAYOUT_APPROVAL_SOURCE.PORTAL
-            ? `Arte aprovada pelo cliente no portal (${actor.name ?? 'contato'})`
-            : `Arte aprovada em nome do cliente: ${note}`
-          : source === LAYOUT_APPROVAL_SOURCE.PORTAL
-            ? `Arte reprovada pelo cliente no portal: ${note}`
-            : `Arte reprovada: ${note}`,
-        byUser ? CHANGE_TRIGGERED_BY.USER_ACTION : CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-      );
-
-      return tx.layout.findUniqueOrThrow({
+    if (moved.count === 0) {
+      const now2 = await tx.layout.findUnique({
         where: { id: layoutId },
-        include: LAYOUT_RESPONSE_INCLUDE,
+        select: { status: true },
       });
+      throw new ConflictException(
+        `Esta arte já foi decidida (está "${now2?.status ?? '—'}"): recarregue para ver a decisão.`,
+      );
+    }
+    await tx.layoutDecision.create({
+      data: {
+        layoutId,
+        toStatus: to,
+        source,
+        userId: byUser,
+        responsibleId: byResponsible,
+        note,
+        fileSha256,
+      },
     });
 
-    await this.afterDecision(decided, to, actor, note);
-    return decided;
+    // Versão nova aprovada: a anterior sai de cena (D-21).
+    if (to === LAYOUT_STATUS.APPROVED && current.supersedesId) {
+      const superseded = await tx.layout.updateMany({
+        where: { id: current.supersedesId, status: { not: LAYOUT_STATUS.SUPERSEDED } },
+        data: { status: LAYOUT_STATUS.SUPERSEDED },
+      });
+      if (superseded.count > 0) {
+        await tx.layoutDecision.create({
+          data: {
+            layoutId: current.supersedesId,
+            toStatus: LAYOUT_STATUS.SUPERSEDED,
+            source: LAYOUT_APPROVAL_SOURCE.INTERNAL,
+            userId: byUser,
+            responsibleId: byResponsible,
+            note: `Substituída pela versão ${current.version}.`,
+          },
+        });
+      }
+    }
+
+    await this.logImplementArt(
+      tx,
+      implementId,
+      byUser,
+      CHANGE_ACTION.UPDATE,
+      { layoutId, status: current.status },
+      { layoutId, status: to, source, note },
+      to === LAYOUT_STATUS.APPROVED
+        ? source === LAYOUT_APPROVAL_SOURCE.PORTAL
+          ? `Arte aprovada pelo cliente no portal (${actor.name ?? 'contato'})`
+          : `Arte aprovada em nome do cliente: ${note}`
+        : source === LAYOUT_APPROVAL_SOURCE.PORTAL
+          ? `Arte reprovada pelo cliente no portal: ${note}`
+          : `Arte reprovada: ${note}`,
+      byUser ? CHANGE_TRIGGERED_BY.USER_ACTION : CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+    );
+
+    return tx.layout.findUniqueOrThrow({
+      where: { id: layoutId },
+      include: LAYOUT_RESPONSE_INCLUDE,
+    });
   }
 
   /** As consequências — nenhuma delas desfaz a decisão, que já está gravada. */

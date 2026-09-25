@@ -26,27 +26,25 @@ Precisa de rota/menu? **Relate no seu retorno** a entrada exata que falta.
 
 ## 1. A MÁQUINA DE ESTADOS
 
+O Modelo C (P14, PLANO §2A): `Budget.status` é o eixo do **valor**; a assinatura é o
+eixo `Budget.signatureStatus`. `PRE_APPROVED` saiu (M3o-b).
+
 ```
-1 REQUESTED           Requisição              roxo      (purple)
-2 EXPIRED             Aguardando Reanálise    laranja   (orange)
-3 PRE_APPROVED        Pré-aprovado            índigo    (indigo)
-4 SIGNED              Assinado                verde     (completed)
-5 IN_NEGOTIATION      Em Negociação           verde-água(teal)
-6 PENDING             Aguardando Assinatura   âmbar     (pending)
-7 APPROVED            Aprovado                azul      (processing)
-8 CANCELLED           Cancelado               vermelho  (cancelled)
+1 REQUESTED           Requisição                         roxo
+2 EXPIRED             Aguardando Reanálise               laranja
+3 PENDING             Pendente                           âmbar
+4 IN_NEGOTIATION      Aguardando aprovação do cliente    verde-água
+5 APPROVED            Aprovado (valor aprovado)          azul
+5 SIGNED              Assinado (legado, nunca escrito)   verde
+6 CANCELLED           Cancelado                          vermelho
 ```
 
-Transições (já implementadas nos dois lados):
+As transições moram em `api/src/modules/production/budget/budget-transitions.ts` e
+saem no contrato gerado (`contracts/enums.json` → `orcamento.transicoesManuais` e
+`orcamento.transicoesDoSistema`). As do portal são de SISTEMA:
 ```
-REQUESTED    → IN_NEGOTIATION, PENDING, CANCELLED
-IN_NEGOTIATION → PRE_APPROVED, REQUESTED, CANCELLED
-PRE_APPROVED → PENDING, IN_NEGOTIATION, CANCELLED
-PENDING      → APPROVED, IN_NEGOTIATION, CANCELLED
-SIGNED       → APPROVED, PENDING, CANCELLED
-EXPIRED      → PENDING, REQUESTED, CANCELLED
-APPROVED     → PENDING, CANCELLED
-CANCELLED    → ∅
+IN_NEGOTIATION → APPROVED   (o cliente aprova o valor — APPROVE_VALUE)
+IN_NEGOTIATION → PENDING    (o cliente recusa, com motivo — a Ankaa refaz)
 ```
 ⚠️ `SIGNED` e `EXPIRED` continuam **não sendo destino de ninguém** — só a cerimônia
 de assinatura os escreve, via `update(_internal=true)`.
@@ -159,8 +157,8 @@ não acrescente `@UseGuards`. Papel: `@ResponsibleRoles(...)` ou
 | GET | `/cliente/me/orcamentos` | — | lista escopada, paginada |
 | GET | `/cliente/me/orcamentos/:id` | — | detalhe **recortado por seção** |
 | POST | `/cliente/me/orcamentos` | `REQUEST_BUDGET` | cria a requisição (§5) |
-| PUT | `/cliente/me/orcamentos/:id/aprovar-valor` | `APPROVE_VALUE` | `{ nota? }` → `PRE_APPROVED` |
-| PUT | `/cliente/me/orcamentos/:id/recusar` | `APPROVE_VALUE` | `{ motivo }` → `REQUESTED` |
+| PUT | `/cliente/me/orcamentos/:id/aprovar-valor` | `APPROVE_VALUE` | `{ nota? }` → `APPROVED` + `BudgetValueApproval{PORTAL}` (P14) |
+| PUT | `/cliente/me/orcamentos/:id/recusar` | `APPROVE_VALUE` | `{ motivo }` → `PENDING` (P14) |
 | GET | `/cliente/me/veiculos` | — | frota escopada · `?semPedido=true\|false` (tri-estado) · `?orderBy=` |
 | GET | `/cliente/me/veiculos/:taskId` | — | veículo + andamento |
 | PATCH | `/cliente/me/veiculos/:taskId/identificacao` | `WRITE_VEHICLE_IDENTITY` | série/placa/chassi/plaqueta/pedido/categoria/tipo/previsão/medidas (4 faces)/porta traseira — com a trava de produção (§4.1) |
@@ -171,8 +169,8 @@ não acrescente `@UseGuards`. Papel: `@ResponsibleRoles(...)` ou
 | PUT | `/cliente/me/artes/aprovar` | `APPROVE_ARTWORK` | `{ layoutIds[] }` (1–100, sem repetição) → `{ approved, artworks[] }` — o lote, §4.2 |
 | GET | `/cliente/me/pedidos` | — | pedidos de compra do cliente · `?searchingFor=` (nº, ou série/nome/placa de veículo coberto) |
 | POST | `/cliente/me/pedidos` | `WRITE_PURCHASE_ORDER` | `{ number, issuedAt?, taskIds[] }` |
-| GET | `/cliente/me/assinaturas` | — | envelopes pendentes · inclui `envelope.budgetId`, `veiculos[]` e **`pedidoDeCompra{exigido,pendente,mensagem}`** — o VEREDITO do portão do Compras, decidido no servidor |
-| POST | `/cliente/me/assinaturas/:signerId/assinar` | — | assina por sessão (§7) |
+| GET | `/cliente/me/assinaturas` | — | envelopes pendentes · inclui `envelope.budgetId`, `veiculos[]` e **`orderNumber: { required, maxLength, vehicles[{ taskId, label, value, hasNumber }] } \| null`** — a exigência do nº do pedido de compra (DD12), decidida no servidor; `null` = o contato não tem Compras |
+| POST | `/cliente/me/assinaturas/:signerId/assinar` | — | assina por sessão (§7) · `orderNumbers: [{ taskId, value }]` para quem tem Compras; faltando → **400** "Informe o nº do pedido de compra para assinar." |
 | GET | `/cliente/me/cobrancas` | seção `PAYMENT` | parcelas, boletos, NFS-e — aceita `?budgetId=` |
 | GET | `/cliente/me/assinaturas/:signerId/documento.pdf` | — | o PDF do **recorte deste signatário**, `no-store` |
 | GET | `/cliente/me/clientes` | `REQUEST_BUDGET` | clientes que este contato pode apontar (escopado) |
@@ -187,7 +185,7 @@ Envelope de resposta idêntico ao resto da API (`{ success, message, data, meta 
 por limite: se ela busca a frota inteira para decidir algo, é porque o dado que ela
 precisa não está no payload que ela já tem — o lugar de consertar é o `select` do
 servidor. Foi assim que a tela de Assinaturas passou a buscar 500 veículos para
-recalcular no navegador um veredito (`pedidoDeCompra`) que o servidor já entregava.
+recalcular no navegador um veredito (hoje `orderNumber`) que o servidor já entregava.
 
 ⛔ **O CLIENTE TIPADO NÃO É PROPOSTA — ele ESPELHA o servidor.** `web/src/api-client/portal.ts`
 tem de casar campo a campo com os `select` de `portal-read.service.ts` e irmãos. Deriva ali
@@ -455,7 +453,7 @@ waitingOnMe.artworks: {                     // NOVO — "Arte esperando a sua ap
   total,                                    // VEÍCULOS com arte pendente no escopo COMERCIAL
   vehicles: [{ taskId, name, serialNumber, plate, pendingLayoutIds, sentAt, budget }],   // até 10
 }
-budgets.byStatus                            // sem a chave PRE_APPROVED (sai na M3o-b; até lá é contado em APPROVED)
+budgets.byStatus                            // sem a chave PRE_APPROVED (saiu com a M3o-b)
 ```
 
 - **Estado da arte de um veículo** (os contadores, §7.7): alguma
@@ -485,12 +483,13 @@ contatos ATIVOS da tarefa que **podem aprovar**: papel com `APPROVE_ARTWORK`
 escopo comercial do veículo (`commercialTaskLink`). O contato vai em
 `Notification.responsibleId`, nunca em `userId`.
 
-⚠️ **Fica para a integração do par** (P14 ∥ P13b): o `emission { ready,
-blockers[] }` do orçamento no portal ("Para emitir o documento falta…", em
-linguagem de cliente) liga `emissionOf` do P14 em `portal-read.service.ts`; e o
-trecho do P14 (aprovar valor → `APPROVED` com `BudgetValueApproval{PORTAL}`,
-recusa → `PENDING`, o `orderNumber` da cerimônia) entra nas linhas das rotas
-`aprovar-valor`/`recusar` e no §7.
+**"PARA EMITIR FALTA…"** (integração do par P14 ∥ P13b): `GET /cliente/me/orcamentos/:id`
+traz `emission: { ready, missing: string[], label } | null` — o portão de emissão do
+P14 (`emissionOf`) traduzido por CÓDIGO em frases de cliente
+(`api/src/modules/people/portal/portal-emission.ts`): "a aprovação do valor", "a arte
+aprovada de cada veículo", "a Ankaa concluir a preparação do documento". `null` quando
+já há documento (`AWAITING_*`, `SIGNED`, `SIGNED_OFFLINE`) ou quando a bola é da Ankaa
+(`REQUESTED`, `PENDING`). Só no detalhe.
 
 ⚠️ **O web do portal (P23) acompanha**: `api-client/portal.ts` (tipos
 `PortalArtwork`, `artworks`, `artwork`, `valueApproval`, `signatureStatus*`,
@@ -627,15 +626,20 @@ os dois documentos, a recusa por nome, o pagador, e o
 `responsibles: { connect }` que faz a requisição — e o cliente dela — seguirem
 visíveis para quem a abriu.
 
-## 6. A PRÉ-APROVAÇÃO
+## 6. A APROVAÇÃO DO VALOR (D-35, Modelo C)
 
-`PUT …/aprovar-valor` → grava `BudgetRequest.preApprovedAt/preApprovedByResponsibleId/
-decisionNote` e move `IN_NEGOTIATION → PRE_APPROVED`.
-`PUT …/recusar` → grava `refusedAt/refusedByResponsibleId/decisionNote` e move
-`IN_NEGOTIATION → REQUESTED`.
-CHECK do banco: pré-aprovado **e** recusado ao mesmo tempo é recusado pelo banco.
-Notifica o comercial (`Notification.userId`) — e a decisão contrária notifica o
-requisitante (`Notification.responsibleId`, novo).
+`PUT …/aprovar-valor` → move `IN_NEGOTIATION → APPROVED` e grava a
+`BudgetValueApproval{PORTAL}` (o contato em `responsibleId`, nunca em FK de `User`) na
+mesma transação do status; `APPROVED` é "valor aprovado" e **não** libera a cobrança
+sozinho (DD7: a cobrança espera o eixo `signatureStatus`). Se o orçamento tem requisição,
+carimba também `BudgetRequest.preApprovedAt/preApprovedByResponsibleId/decisionNote`
+(a tela e o changelog o leem); orçamento nascido por dentro **não** ganha requisição
+fabricada.
+`PUT …/recusar` → move `IN_NEGOTIATION → PENDING` (a Ankaa refaz) com o motivo na
+trilha, e carimba `refusedAt/refusedByResponsibleId/decisionNote` quando há requisição.
+CHECK do banco: aprovado **e** recusado ao mesmo tempo é recusado pelo banco (cada
+gravação apaga a decisão oposta).
+Notifica o comercial (`Notification.userId`), dizendo o que ainda falta para emitir.
 
 ## 7. ASSINATURA POR SESSÃO
 

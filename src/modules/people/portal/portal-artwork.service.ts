@@ -189,36 +189,17 @@ export class PortalArtworkService {
    * decidida derruba com 409; e nada foi gravado. É o que a tela promete: o
    * botão diz "N veículos", não "os que der".
    *
-   * ⚠️ O QUE NÃO É ATÔMICO, e por quê. Cada aprovação é uma transação do
-   * `ImplementLayoutService` (a decisão e a trilha dela), seguida dos efeitos
-   * (O.S., liberação, assinatura) — e aquele serviço é do P12, que o P13b usa e
-   * não edita. Se, ENTRE a conferência e a escrita, outra pessoa decidir uma das
-   * artes (a corrida do G17), aquela responde 409 dentro do serviço e as que já
-   * foram aprovadas ficam aprovadas: uma aprovação legítima não se desfaz (D-21).
-   * A resposta diz exatamente quantas passaram. Um `approveManyFromPortal` numa
-   * transação só, no serviço do P12, fecharia essa janela — registrado na nota.
+   * ⛔ E TUDO OU NADA NA ESCRITA (integração do par [P14 ∥ P13b]):
+   * `ImplementLayoutService.approveManyFromPortal` grava as N decisões numa
+   * transação só. Se, entre a conferência e a escrita, outra pessoa decidir uma
+   * das artes (a corrida do G17), o 409 dela desfaz o lote inteiro — nenhuma
+   * fica aprovada pela metade, e a resposta é a mesma do caso conferido.
    */
   async approveMany(principal: ResponsiblePrincipal, layoutIds: string[]) {
     await this.decidable(principal, layoutIds, null);
     const actor = this.actor(principal);
-    const done: string[] = [];
-    for (const layoutId of layoutIds) {
-      try {
-        await this.layouts.approveFromPortal(layoutId, actor);
-        done.push(layoutId);
-      } catch (error) {
-        if (!done.length) throw error;
-        const status = error instanceof HttpException ? error.getStatus() : 500;
-        this.logger.warn(
-          `Lote do portal (${principal.id}): ${done.length} de ${layoutIds.length} aprovadas antes de ` +
-            `${layoutId} falhar (${status}): ${(error as Error)?.message ?? error}`,
-        );
-        throw new ConflictException(
-          `${done.length} de ${layoutIds.length} artes foram aprovadas; as demais já tinham ` +
-            'sido decididas por outra pessoa enquanto você aprovava. Recarregue para ver.',
-        );
-      }
-    }
+    await this.layouts.approveManyFromPortal(layoutIds, actor);
+    const done = [...layoutIds];
     this.logger.log(
       `${done.length} arte(s) aprovada(s) em lote no portal por ${principal.id} (sessão ${principal.sessionId}).`,
     );

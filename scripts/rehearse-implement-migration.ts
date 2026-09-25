@@ -8,7 +8,7 @@
  *   2. Abre UMA transação, mede o "antes" (contagens e a arte/série que cada coleta
  *      RUNNING/COMPLETED congelou), aplica as fatias pendentes em ordem de carimbo e, depois de
  *      cada uma, roda as invariantes DELA (§4.6) e confere os objetos de banco dela (G25 da R-B,
- *      `prisma/staged/r-b/objetos-pos-push.r-b.sql`).
+ *      `prisma/sql/objetos-r-b.sql`).
  *   3. Imprime as contagens do §4.4 (achado × referência do clone e de produção), a triagem
  *      (`_Mig0924_Triage`: LEGACY_APPROVED_UNSIGNED, LEGACY_COMPLETED_NOT_APPROVED,
  *      QUOTE_ART_APPROVED_BY_LIVE_ENVELOPE, GALLERY_SUPERSEDED_BY_QUOTE, GALLERY_APPROVED_VS_QUOTE_PENDING…)
@@ -64,10 +64,15 @@ interface PgClient {
 const { Client } = require('pg') as { Client: new (cfg: { connectionString: string }) => PgClient };
 
 const ROOT = join(__dirname, '..');
+// A R-B foi TODA promovida na integração do par [P14 ∥ P13b] (G36 = 0): as fatias
+// moram em `prisma/migrations/`, o esquema-alvo É o `schema.prisma` e os objetos
+// de banco de cada fatia (G25 da R-B) foram para `prisma/sql/objetos-r-b.sql`. O
+// ensaio continua valendo para o P30: ele aplica, num banco que ainda não as
+// tem (produção, o clone), as fatias que faltam — agora lidas das migrations.
 const STAGED = join(ROOT, 'prisma/staged/r-b');
 const MIGRATIONS = join(ROOT, 'prisma/migrations');
-const ALVO = join(STAGED, 'schema.alvo.prisma');
-const OBJETOS_RB = join(STAGED, 'objetos-pos-push.r-b.sql');
+const ALVO = join(ROOT, 'prisma/schema.prisma');
+const OBJETOS_RB = join(ROOT, 'prisma/sql/objetos-r-b.sql');
 const M0 = '20260930100000_arte_estados_e_tipos';
 
 export type FatiaId = 'M1' | 'M1s' | 'Mnom' | 'M5s' | 'M2' | 'M3' | 'M3o-a' | 'M3o-b';
