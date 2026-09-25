@@ -39,7 +39,10 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { hasSection, type QuoteSection } from '@modules/common/signature/quote-sections';
 import { LIVE_INVOICE_WHERE } from '@/utils/billing-invoice';
 import {
+  BUDGET_SIGNATURE_STATUS,
+  BUDGET_SIGNATURE_STATUS_LABELS,
   ENTITY_TYPE,
+  LAYOUT_STATUS,
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
   TASK_QUOTE_STATUS,
@@ -47,7 +50,11 @@ import {
 } from '@constants';
 import type { ResponsiblePrincipal } from '../responsible-auth/responsible-auth.guard';
 import { PortalScopeService } from './portal-scope.service';
-import { PortalProjectionService, toPortalPlainNumbers } from './portal-projection.service';
+import {
+  PortalProjectionService,
+  artworkApprovalEvidence,
+  toPortalPlainNumbers,
+} from './portal-projection.service';
 import { PORTAL_CAPABILITY, capabilitiesForRoles } from './portal-capabilities';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -106,10 +113,24 @@ const PORTAL_BUDGET_ORDER: Prisma.BudgetOrderByWithRelationInput[] = [
 // escolher qual mostrar. `PortalProjectionService` a copia para
 // `PortalVehicleView.status` — este serviço a RETIRA e põe o marco no lugar.
 
-/** A escada, NA ORDEM. O índice É a ordem. */
+/**
+ * A escada, NA ORDEM. O índice É a ordem.
+ *
+ * ⚠️ "ARTE APROVADA" É UM DEGRAU LATERAL (P13b, PLANO §6.3). O valor e a arte são
+ * etapas INDEPENDENTES e vêm em qualquer ordem (§7.6: "o valor aprovado espera
+ * semanas pela arte", e a arte pode chegar antes do valor); o veículo também
+ * chega antes ou depois da arte. Se o degrau entrasse na MONOTONIA da espinha,
+ * "Veículo recebido" arrastaria "Arte aprovada" para atingido com a arte ainda
+ * pendente — uma mentira na tela de quem vai aprovar a arte. Por isso ele só é
+ * atingido pela PRÓPRIA prova (`artworkApprovalEvidence`, monotônica por D-21)
+ * ou quando a espinha chega a "Em produção" (o portão da liberação exige a arte
+ * aprovada, DD3; no legado, ela foi aprovada fora do sistema — o marco fica sem
+ * data). E ele não arrasta nada da espinha para trás. Ver `projectTimeline`.
+ */
 export const PORTAL_MILESTONES = [
   { key: 'ORCAMENTO_ENVIADO', label: 'Orçamento enviado' },
   { key: 'ORCAMENTO_APROVADO', label: 'Orçamento aprovado' },
+  { key: 'ARTE_APROVADA', label: 'Arte aprovada' },
   { key: 'VEICULO_RECEBIDO', label: 'Veículo recebido' },
   { key: 'EM_PRODUCAO', label: 'Em produção' },
   { key: 'CONCLUIDO', label: 'Concluído' },
@@ -121,6 +142,10 @@ const MILESTONE_INDEX = PORTAL_MILESTONES.reduce<Record<string, number>>((acc, m
   acc[m.key] = i;
   return acc;
 }, {});
+
+/** O degrau lateral (ver `PORTAL_MILESTONES`) e o degrau da espinha que o arrasta. */
+const ARTWORK_MILESTONE = MILESTONE_INDEX.ARTE_APROVADA;
+const PRODUCTION_MILESTONE = MILESTONE_INDEX.EM_PRODUCAO;
 
 export interface PortalTimelineEntry {
   key: PortalMilestoneKey;
@@ -165,6 +190,90 @@ const MEASURE_SELECT = {
     select: { width: true, isDoor: true, doorHeight: true, position: true },
   },
 } as const;
+
+/**
+ * A ARTE DO IMPLEMENTO como o portal a lê (P13b, PLANO §6.3/§7.4) — o `select`
+ * ENUMERADO de `Layout`, e a única forma de uma coluna de arte chegar ao
+ * projetor.
+ *
+ * ⛔ SELECT EXPLÍCITO DESCARTA CHAVE NOVA CALADO (ESTADO §6): `version`,
+ * `sentAt`, `decidedAt`, `approvalSource`, `decisionNote`, o contato que decidiu
+ * e a última decisão estão aqui um por um, e o que não estiver não existe para o
+ * projetor — sem erro nenhum.
+ *
+ * ⛔ E NADA DE `decidedByUser`/`decidedByUserId`: o nome do funcionário da Ankaa
+ * não sai do portal (o projetor escreve "Ankaa"). Não selecionar é o que
+ * garante que ele não sai nem por engano.
+ *
+ * `decisions` é só a ÚLTIMA que decidiu (APPROVED/REPROVED): o envio é gesto
+ * interno e não é "decidida por".
+ */
+export const PORTAL_ARTWORK_LAYOUT_SELECT = {
+  id: true,
+  status: true,
+  fileId: true,
+  version: true,
+  sentAt: true,
+  decidedAt: true,
+  approvalSource: true,
+  decisionNote: true,
+  createdAt: true,
+  file: { select: FILE_SELECT },
+  decidedByResponsible: { select: { name: true } },
+  decisions: {
+    where: { toStatus: { in: [LAYOUT_STATUS.APPROVED, LAYOUT_STATUS.REPROVED] as any[] } },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: {
+      toStatus: true,
+      source: true,
+      createdAt: true,
+      note: true,
+      responsible: { select: { name: true } },
+    },
+  },
+} as const;
+
+/**
+ * As linhas de arte que o `select` do portal traz: as três que o cliente vê e
+ * as `SUPERSEDED`, que só PROVAM o marco "Arte aprovada" (uma aprovação que a
+ * versão nova substituiu) e são descartadas pelo projetor. `DRAFT` nunca sai do
+ * banco.
+ */
+export const PORTAL_ARTWORK_LAYOUT_WHERE: Prisma.LayoutWhereInput = {
+  status: {
+    in: [
+      LAYOUT_STATUS.PENDING_APPROVAL,
+      LAYOUT_STATUS.APPROVED,
+      LAYOUT_STATUS.REPROVED,
+      LAYOUT_STATUS.SUPERSEDED,
+    ] as any[],
+  },
+};
+
+/** A ordem das artes: por versão, depois pela chegada. */
+export const PORTAL_ARTWORK_LAYOUT_ORDER: Prisma.LayoutOrderByWithRelationInput[] = [
+  { version: 'asc' },
+  { createdAt: 'asc' },
+];
+
+/**
+ * O pagador DESTA empresa no faturamento do veículo — só para
+ * `commercialTaskLink` decidir `canDecide` (caminho (a) do escopo comercial). O
+ * `where` por `customerId` é o mesmo recorte de `payerScopeSelect`: nunca a
+ * lista de pagadores inteira.
+ */
+export function portalCommercialLinkSelect(companyId: string) {
+  return {
+    select: {
+      billing: {
+        select: {
+          customerConfigs: { where: { customerId: companyId }, select: { customerId: true } },
+        },
+      },
+    },
+  };
+}
 
 /**
  * ⛔ FILTRO DE TIPO NO SERVIDOR. Nenhuma O.S. `COMMERCIAL` chega ao cliente:
@@ -305,6 +414,26 @@ const VEHICLE_ORDER_TIEBREAK: Prisma.TaskOrderByWithRelationInput[] = [
   { createdAt: 'desc' },
   { id: 'asc' },
 ];
+
+/**
+ * O EIXO diz "há um documento da coleta" — ver `signatureFacts`. `SIGNED_OFFLINE`
+ * fica de fora de propósito (assinado fora do sistema, DD11: não há coleta a
+ * abrir), e `WAIVED` também (legado sem coleta).
+ */
+const EMITTED_SIGNATURE_STATUSES = new Set<string>([
+  BUDGET_SIGNATURE_STATUS.AWAITING_CUSTOMER,
+  BUDGET_SIGNATURE_STATUS.AWAITING_ANKAA,
+  BUDGET_SIGNATURE_STATUS.SIGNED,
+]);
+
+/** `signature` do orçamento no portal: o eixo, o rótulo e as duas perguntas da tela. */
+export interface PortalSignatureFact {
+  status: string | null;
+  /** O rótulo do eixo, inclusive "Assinada fora do sistema" (DD11). */
+  label: string | null;
+  emitted: boolean;
+  awaitingMe: boolean;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -562,21 +691,24 @@ export class PortalReadService {
     quoteHistory: readonly string[],
     /** Ver `quoteApprovalDates`. `null` = o changelog não guarda a transição. */
     quoteApprovedAt: Date | null,
+    /** Ver `artworkApprovalEvidence`: o degrau lateral "Arte aprovada". */
+    artwork: { reached: boolean; at: Date | null } = { reached: false, at: null },
   ): {
     milestone: PortalMilestoneKey;
     milestoneLabel: string;
     cancelled: boolean;
     timeline: PortalTimelineEntry[];
   } {
-    const at: (Date | null)[] = [null, null, null, null, null];
-    const evidence: boolean[] = [false, false, false, false, false];
+    const at: (Date | null)[] = PORTAL_MILESTONES.map(() => null);
+    const evidence: boolean[] = PORTAL_MILESTONES.map(() => false);
+    const I = MILESTONE_INDEX;
 
-    // 0 — Orçamento enviado. Sempre atingido: o veículo só é visível ao cliente
+    // Orçamento enviado. Sempre atingido: o veículo só é visível ao cliente
     //     porque existe um contrato (ou, sem orçamento, porque a tarefa existe).
-    at[0] = quote?.createdAt ?? task.createdAt ?? null;
-    evidence[0] = true;
+    at[I.ORCAMENTO_ENVIADO] = quote?.createdAt ?? task.createdAt ?? null;
+    evidence[I.ORCAMENTO_ENVIADO] = true;
 
-    // 1 — Orçamento aprovado.
+    // Orçamento aprovado.
     //
     // ⚠️ `APPROVED` é REVERSÍVEL: `APPROVED → PENDING` é transição legal (o
     //    cliente desiste antes de haver cobrança). Ler só o estado vivo faria o
@@ -598,59 +730,79 @@ export class PortalReadService {
       quoteHistory.includes(TASK_QUOTE_STATUS.APPROVED) ||
       quoteHistory.includes(TASK_QUOTE_STATUS.SIGNED)
     ) {
-      evidence[1] = true;
+      evidence[I.ORCAMENTO_APROVADO] = true;
       // ⚠️ A DATA VEM DO CHANGELOG, e pode faltar: orçamento aprovado antes de
       // o changelog existir chega aqui sem carimbo. `null` num marco atingido é
       // exatamente o caso que a tela já sabe dizer ("data não registrada") — e
       // é mais honesto do que carimbar `updatedAt`, que muda a cada toque.
-      at[1] = quoteApprovedAt;
+      at[I.ORCAMENTO_APROVADO] = quoteApprovedAt;
     }
 
-    // 2 — Veículo recebido.
+    // ↳ Arte aprovada — o degrau LATERAL. Só a prova dele; o arrasto pela
+    //   espinha é aplicado lá embaixo, depois da monotonia.
+    if (artwork.reached) {
+      evidence[ARTWORK_MILESTONE] = true;
+      at[ARTWORK_MILESTONE] = artwork.at;
+    }
+
+    // Veículo recebido.
     if (task.entryDate) {
-      at[2] = task.entryDate;
-      evidence[2] = true;
+      at[I.VEICULO_RECEBIDO] = task.entryDate;
+      evidence[I.VEICULO_RECEBIDO] = true;
     }
 
-    // 3 — Em produção. Quatro provas independentes; basta uma sobreviver.
+    // Em produção. Quatro provas independentes; basta uma sobreviver.
     const earliestSoStart = serviceOrders
       .map(so => so?.startedAt ?? null)
       .filter((d): d is Date => !!d)
       .sort((a, b) => a.getTime() - b.getTime())[0];
     if (task.startedAt || earliestSoStart) {
-      at[3] = task.startedAt ?? earliestSoStart ?? null;
-      evidence[3] = true;
+      at[I.EM_PRODUCAO] = task.startedAt ?? earliestSoStart ?? null;
+      evidence[I.EM_PRODUCAO] = true;
     }
     if (
       task.status === TASK_STATUS.IN_PRODUCTION ||
       serviceOrders.some(so => so?.finishedAt || so?.status === SERVICE_ORDER_STATUS.COMPLETED) ||
       history.includes(TASK_STATUS.IN_PRODUCTION)
     ) {
-      evidence[3] = true;
+      evidence[I.EM_PRODUCAO] = true;
     }
 
-    // 4 — Concluído.
+    // Concluído.
     if (task.finishedAt) {
-      at[4] = task.finishedAt;
-      evidence[4] = true;
+      at[I.CONCLUIDO] = task.finishedAt;
+      evidence[I.CONCLUIDO] = true;
     }
     if (task.status === TASK_STATUS.COMPLETED || history.includes(TASK_STATUS.COMPLETED)) {
-      evidence[4] = true;
+      evidence[I.CONCLUIDO] = true;
     }
 
-    // A MONOTONIA, numa linha: o maior índice com evidência arrasta todos os
-    // anteriores. É isto — e não a ordem das checagens acima — que faz
-    // "Concluído" nunca virar "Em Preparação".
-    let reached = 0;
-    for (let i = 0; i < evidence.length; i++) if (evidence[i]) reached = i;
+    // A MONOTONIA, numa linha: o maior índice DA ESPINHA com evidência arrasta
+    // todos os anteriores da espinha. É isto — e não a ordem das checagens
+    // acima — que faz "Concluído" nunca virar "Em Preparação". O degrau lateral
+    // fica fora da conta nos dois sentidos (ver `PORTAL_MILESTONES`).
+    let spine = 0;
+    for (let i = 0; i < evidence.length; i++) {
+      if (i !== ARTWORK_MILESTONE && evidence[i]) spine = i;
+    }
+    const reachedAt = (i: number): boolean =>
+      i === ARTWORK_MILESTONE
+        ? evidence[i] || spine >= PRODUCTION_MILESTONE
+        : i <= spine;
 
     const timeline: PortalTimelineEntry[] = PORTAL_MILESTONES.map((m, i) => ({
       key: m.key,
       label: m.label,
       order: i,
-      reached: i <= reached,
-      reachedAt: i <= reached ? at[i] : null,
+      reached: reachedAt(i),
+      reachedAt: reachedAt(i) ? at[i] : null,
     }));
+
+    // O marco atual é o degrau mais alto atingido. Com a arte aprovada antes do
+    // valor, é "Arte aprovada" com "Orçamento aprovado" ainda por vir — a verdade,
+    // e as duas provas são monotônicas, então o marco também é.
+    let reached = 0;
+    for (let i = 0; i < timeline.length; i++) if (timeline[i].reached) reached = i;
 
     return {
       milestone: PORTAL_MILESTONES[reached].key,
@@ -730,6 +882,7 @@ export class PortalReadService {
       taskHistory.get(raw?.id) ?? [],
       (quote?.id && quoteHistory.get(quote.id)) || [],
       (quote?.id && quoteApprovals.get(quote.id)) || null,
+      artworkApprovalEvidence(raw?.implement?.layouts),
     );
 
     const progress = rest.progress
@@ -771,6 +924,7 @@ export class PortalReadService {
     const taskWhere = this.scope.taskScopeWhere(principal);
     const podeTrack = this.canSeeProgress(sections);
     const podeAprovarValor = capabilities.includes(PORTAL_CAPABILITY.APPROVE_VALUE);
+    const podeAprovarArte = capabilities.includes(PORTAL_CAPABILITY.APPROVE_ARTWORK);
     const verPreco = hasSection(sections, 'PRICING');
 
     const agrupado = await this.prisma.budget.groupBy({
@@ -781,11 +935,25 @@ export class PortalReadService {
 
     // Toda chave presente, zerada. Contador ausente vira `undefined` na tela e
     // "—" onde deveria estar "0".
+    //
+    // ⚠️ DERIVADO DO ENUM, MENOS `PRE_APPROVED` (D-26/D-35): o estado nunca foi a
+    // produção e sai do tipo na M3o-b (P14), quando `Object.values` já o perde
+    // sozinho e o filtro abaixo vira no-op. Até lá, uma linha que ainda esteja
+    // nele é "valor aprovado" (a M3o-b a leva para `APPROVED`) e é contada lá —
+    // a soma continua batendo com `total`. O filtro é por STRING de propósito:
+    // compila igual antes e depois de o membro sumir do enum.
+    const ESTADO_QUE_SAI = 'PRE_APPROVED';
     const byStatus: Record<string, number> = {};
-    for (const value of Object.values(TASK_QUOTE_STATUS)) byStatus[value as string] = 0;
+    for (const value of Object.values(TASK_QUOTE_STATUS) as string[]) {
+      if (value !== ESTADO_QUE_SAI) byStatus[value] = 0;
+    }
     let total = 0;
     for (const linha of agrupado) {
-      byStatus[linha.status as string] = linha._count._all;
+      const chave =
+        (linha.status as string) === ESTADO_QUE_SAI
+          ? TASK_QUOTE_STATUS.APPROVED
+          : (linha.status as string);
+      byStatus[chave] = (byStatus[chave] ?? 0) + linha._count._all;
       total += linha._count._all;
     }
 
@@ -850,6 +1018,52 @@ export class PortalReadService {
         },
       }),
     ]);
+
+    // ARTES AGUARDANDO VOCÊ (P13b, §7.5 "Início"): os VEÍCULOS com arte
+    // `PENDING_APPROVAL` que ESTE contato pode decidir — capacidade
+    // `APPROVE_ARTWORK` e escopo COMERCIAL (o mesmo `where` das rotas de
+    // decisão: pagador ∨ dono, sem o caminho pessoal). Contar pelo escopo de
+    // LEITURA prometeria uma decisão que a rota recusaria com 404.
+    //
+    // Por VEÍCULO e não por arte: "faltam 3 caminhões" é a frase; um caminhão
+    // com duas artes pendentes é um caminhão esperando.
+    const artesWhere: Prisma.TaskWhereInput = {
+      AND: [
+        this.scope.commercialTaskScopeWhere(principal),
+        { status: { not: TASK_STATUS.CANCELLED as any } },
+        {
+          implement: {
+            is: { layouts: { some: { status: LAYOUT_STATUS.PENDING_APPROVAL as any } } },
+          },
+        },
+      ],
+    };
+    const [artworkTotal, artworkRows] = podeAprovarArte
+      ? await Promise.all([
+          this.prisma.task.count({ where: artesWhere }),
+          this.prisma.task.findMany({
+            where: artesWhere,
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: 10,
+            select: {
+              id: true,
+              name: true,
+              implement: {
+                select: {
+                  serialNumber: true,
+                  plate: true,
+                  layouts: {
+                    where: { status: LAYOUT_STATUS.PENDING_APPROVAL as any },
+                    orderBy: [{ sentAt: 'asc' }, { createdAt: 'asc' }],
+                    select: { id: true, sentAt: true },
+                  },
+                },
+              },
+              quote: { select: { id: true, budgetNumber: true } },
+            },
+          }),
+        ])
+      : [0, [] as any[]];
 
     // Em produção AGORA. É contador de presente, não marco da escada: não há
     // monotonia a preservar em "quantos estão na fábrica hoje".
@@ -919,6 +1133,20 @@ export class PortalReadService {
               subtotal: verPreco ? b.subtotal : null,
               total: verPreco ? b.total : null,
               customer: b.tasks?.[0]?.customer ?? null,
+            })),
+          },
+          artworks: {
+            available: podeAprovarArte,
+            total: artworkTotal,
+            vehicles: artworkRows.map((t: any) => ({
+              taskId: t.id,
+              name: t.name,
+              serialNumber: t.implement?.serialNumber ?? null,
+              plate: t.implement?.plate ?? null,
+              pendingLayoutIds: (t.implement?.layouts ?? []).map((l: any) => l.id),
+              /** A mais antiga ainda sem resposta: é o "há quanto tempo" da tela. */
+              sentAt: t.implement?.layouts?.[0]?.sentAt ?? null,
+              budget: t.quote ? { id: t.quote.id, budgetNumber: t.quote.budgetNumber } : null,
             })),
           },
           signatures: {
@@ -1066,6 +1294,23 @@ export class PortalReadService {
       expiresAt: true,
       vehicleCount: true,
       billingSplit: true,
+      // O EIXO DA ASSINATURA (§2A.4) e a APROVAÇÃO DO VALOR vigente (§2A.6), no
+      // cabeçalho. ⚠️ Enumerados aqui um por um: é este `select` que decide o
+      // que o projetor recebe, e chave que não entra aqui some calada.
+      signatureStatus: true,
+      valueApprovals: {
+        where: { revokedAt: null },
+        orderBy: { decidedAt: 'desc' as const },
+        take: 1,
+        select: {
+          source: true,
+          decidedAt: true,
+          note: true,
+          // O total aprovado é PRICING: nem sai do banco para quem não vê preço.
+          ...(verPreco ? { total: true } : {}),
+          responsible: { select: { name: true } },
+        },
+      },
       request: {
         select: {
           briefing: true,
@@ -1090,7 +1335,7 @@ export class PortalReadService {
         // porque `VEHICLE` libera exatamente esses campos.
         where: this.scope.taskScopeWhere(principal),
         orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
-        select: this.taskSelect(sections, { detail: opts.detail }),
+        select: this.taskSelect(sections, { detail: opts.detail, companyId }),
       },
     };
 
@@ -1213,23 +1458,45 @@ export class PortalReadService {
     return select;
   }
 
-  private taskSelect(sections: readonly QuoteSection[], opts: { detail: boolean }): any {
+  private taskSelect(
+    sections: readonly QuoteSection[],
+    opts: { detail: boolean; companyId: string },
+  ): any {
     const select: any = { ...TASK_BASE_SELECT };
 
     if (hasSection(sections, 'LAYOUT')) {
       select.generalPainting = { select: PAINT_SELECT };
       select.logoPaints = { select: PAINT_SELECT };
       select.baseFiles = { select: FILE_SELECT };
-      // A ARTE é do implemento (R2). Só a APROVADA: uma arte em revisão é
-      // conversa interna, e mandá-la ao cliente é pedir aprovação do que ainda
-      // não foi proposto (as pendentes de aprovação entram com o P13b).
+      // A ARTE é do implemento (R2): a PENDENTE (para o cliente decidir), a
+      // APROVADA e a REPROVADA, com a última decisão (P13b, §6.3). `DRAFT` é
+      // conversa interna e nem sai do banco; `SUPERSEDED` sai só como prova do
+      // marco "Arte aprovada" e o projetor a descarta.
       select.implement = {
         select: {
           ...TASK_BASE_SELECT.implement.select,
           layouts: {
-            where: { status: 'APPROVED' as const },
-            orderBy: { createdAt: 'asc' as const },
-            select: { id: true, status: true, fileId: true, file: { select: FILE_SELECT } },
+            where: PORTAL_ARTWORK_LAYOUT_WHERE,
+            orderBy: PORTAL_ARTWORK_LAYOUT_ORDER,
+            select: PORTAL_ARTWORK_LAYOUT_SELECT,
+          },
+        },
+      };
+      // O caminho (a) do escopo comercial, para `canDecide` (ver
+      // `portalCommercialLinkSelect`). O (b) é `customerId`, já no base.
+      select.billingEntry = portalCommercialLinkSelect(opts.companyId);
+    } else if (this.canSeeProgress(sections)) {
+      // SEM a seção LAYOUT, mas acompanhando: o marco "Arte aprovada" precisa da
+      // PROVA — só o estado e a data da aprovação, nenhum arquivo. O fato "a arte
+      // foi aprovada" é andamento; a arte em si continua fora do recorte.
+      select.implement = {
+        select: {
+          ...TASK_BASE_SELECT.implement.select,
+          layouts: {
+            where: {
+              status: { in: [LAYOUT_STATUS.APPROVED, LAYOUT_STATUS.SUPERSEDED] as any[] },
+            },
+            select: { status: true, decidedAt: true },
           },
         },
       };
@@ -1293,7 +1560,7 @@ export class PortalReadService {
         ];
 
     const assinatura = await this.signatureFacts(
-      rows.map(b => b.id),
+      rows.map(b => ({ id: b.id, signatureStatus: b.signatureStatus ?? null })),
       principal.id,
     );
 
@@ -1345,79 +1612,97 @@ export class PortalReadService {
           : undefined,
         milestone,
         milestoneLabel: milestone ? PORTAL_MILESTONES[MILESTONE_INDEX[milestone]].label : null,
-        signature: assinatura.get(row.id) ?? { emitted: false, awaitingMe: false },
+        signature: assinatura.get(row.id) ?? this.signatureFactOf(row.signatureStatus ?? null, false),
         vehicles,
       };
     });
   }
 
   /**
-   * A VERDADE SOBRE A ASSINATURA, orçamento a orçamento.
+   * A VERDADE SOBRE A ASSINATURA, orçamento a orçamento — LIDA DO EIXO.
    *
    * ⛔ POR QUE ISTO PRECISOU EXISTIR. A coluna "Esperando" da lista derivava só
-   * do ESTADO: `PENDING` ⇒ "Com você". A dedução parecia segura — o estado diz
-   * de quem é a vez — e estava errada de duas maneiras ao mesmo tempo:
+   * do ESTADO do orçamento: `PENDING` ⇒ "Com você". A dedução estava errada de
+   * duas maneiras ao mesmo tempo:
    *
    *   1. "Aguardando a assinatura dos responsáveis" não quer dizer ESTE
    *      responsável. Quem já assinou continuava lendo "Com você".
-   *   2. E, pior, um orçamento pode estar em `PENDING` sem que a coleta tenha
-   *      sido emitida. No acervo do dono são **18 de 18** assim: `PENDING`,
-   *      nenhum envelope. O portal anunciava dezoito documentos esperando por
-   *      ele e a tela de Assinaturas — que olha a realidade — dizia, corretamente,
-   *      "Nada para assinar". Duas telas do mesmo produto se contradizendo, e a
-   *      que mentia era a mais visível.
+   *   2. E um orçamento podia estar em `PENDING` sem que a coleta tivesse sido
+   *      emitida — no acervo do dono eram **18 de 18** assim. No Modelo C
+   *      (DD2) isso deixou de ser anomalia e virou a regra: `PENDING` é
+   *      "Pendente" (a Ankaa montando), e a assinatura mora no EIXO próprio.
+   *
+   * `emitted` vem do EIXO (`Budget.signatureStatus`, §2A.4), e não mais de uma
+   * reconstrução a partir dos envelopes (P13b; era do P14 no §6.3): emitido é
+   * "existe um documento da coleta que o cliente pode abrir" — a coleta em
+   * andamento (`AWAITING_CUSTOMER`/`AWAITING_ANKAA`) ou concluída (`SIGNED`).
+   * `SIGNED_OFFLINE` NÃO é emitido: o documento foi assinado FORA do sistema
+   * (DD11) e não há coleta a abrir; `WAIVED` é legado sem coleta; os terminais
+   * de fracasso não são documento que se assine.
+   *
+   * `awaitingMe` continua sendo pergunta de PESSOA, e só o envelope a responde:
+   * um signatário DESTE contato ainda pendente num envelope `RUNNING`. A
+   * consulta só olha os orçamentos cujo eixo diz `AWAITING_CUSTOMER` — o eixo
+   * é quem diz se há coleta esperando o cliente; o envelope, quem ela espera.
    *
    * Uma consulta em lote, não uma por linha: a lista traz até 100 orçamentos.
    */
   private async signatureFacts(
-    budgetIds: string[],
+    budgets: Array<{ id: string; signatureStatus: string | null }>,
     responsibleId: string,
-  ): Promise<Map<string, { emitted: boolean; awaitingMe: boolean }>> {
-    const mapa = new Map<string, { emitted: boolean; awaitingMe: boolean }>();
-    if (!budgetIds.length) return mapa;
+  ): Promise<Map<string, PortalSignatureFact>> {
+    const mapa = new Map<string, PortalSignatureFact>();
+    if (!budgets.length) return mapa;
 
-    const envelopes = await this.prisma.signatureEnvelope.findMany({
-      where: {
-        quoteId: { in: budgetIds },
-        // EMITIDO é o que importa para a primeira pergunta, e um envelope
-        // concluído também foi emitido. Os terminais de fracasso (REFUSED,
-        // CANCELLED, INVALIDATED, SUPERSEDED, EXPIRED) ficam de fora: eles não
-        // são um documento que o cliente possa abrir e assinar.
-        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-      },
-      select: {
-        quoteId: true,
-        status: true,
-        signers: {
-          where: {
-            responsibleId,
-            // A MESMA lista de `minhasAssinaturas` — se as duas divergirem, a
-            // lista volta a prometer o que a tela de Assinaturas não entrega.
-            status: {
-              in: [
-                EnvelopeSignerStatus.PENDING,
-                EnvelopeSignerStatus.VIEWED,
-                EnvelopeSignerStatus.AUTHENTICATED,
-              ],
+    const aguardandoCliente = budgets
+      .filter(b => b.signatureStatus === BUDGET_SIGNATURE_STATUS.AWAITING_CUSTOMER)
+      .map(b => b.id);
+
+    const minhas = new Set<string>();
+    if (aguardandoCliente.length) {
+      const envelopes = await this.prisma.signatureEnvelope.findMany({
+        where: {
+          quoteId: { in: aguardandoCliente },
+          // Só envelope RUNNING pede ato: `assertSignable` recusa qualquer outro,
+          // e oferecer o botão para um COMPLETED seria oferecer o que o servidor
+          // nega no clique.
+          status: EnvelopeStatus.RUNNING,
+          signers: {
+            some: {
+              responsibleId,
+              // A MESMA lista de `minhasAssinaturas` — se as duas divergirem, a
+              // lista volta a prometer o que a tela de Assinaturas não entrega.
+              status: {
+                in: [
+                  EnvelopeSignerStatus.PENDING,
+                  EnvelopeSignerStatus.VIEWED,
+                  EnvelopeSignerStatus.AUTHENTICATED,
+                ],
+              },
             },
           },
-          select: { id: true },
         },
-      },
-    });
-
-    for (const env of envelopes) {
-      const antes = mapa.get(env.quoteId) ?? { emitted: false, awaitingMe: false };
-      mapa.set(env.quoteId, {
-        emitted: true,
-        // Só envelope RUNNING pede ato: `assertSignable` recusa qualquer outro,
-        // e oferecer o botão para um COMPLETED seria oferecer o que o servidor
-        // nega no clique.
-        awaitingMe:
-          antes.awaitingMe || (env.status === EnvelopeStatus.RUNNING && env.signers.length > 0),
+        select: { quoteId: true },
       });
+      for (const env of envelopes) minhas.add(env.quoteId);
+    }
+
+    for (const b of budgets) {
+      mapa.set(b.id, this.signatureFactOf(b.signatureStatus, minhas.has(b.id)));
     }
     return mapa;
+  }
+
+  /** O fato da assinatura de UM orçamento, a partir do eixo — ver `signatureFacts`. */
+  private signatureFactOf(status: string | null, awaitingMe: boolean): PortalSignatureFact {
+    return {
+      status,
+      label: status
+        ? (BUDGET_SIGNATURE_STATUS_LABELS as Record<string, string>)[status] ?? null
+        : null,
+      emitted: EMITTED_SIGNATURE_STATUSES.has(status ?? ''),
+      awaitingMe: status === BUDGET_SIGNATURE_STATUS.AWAITING_CUSTOMER && awaitingMe,
+    };
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -1474,7 +1759,10 @@ export class PortalReadService {
         skip,
         take,
         select: {
-          ...this.taskSelect(sections, { detail: false }),
+          ...this.taskSelect(sections, {
+            detail: false,
+            companyId: this.scope.assertScoped(principal).companyId,
+          }),
           quote: {
             select: {
               id: true,
@@ -1510,7 +1798,10 @@ export class PortalReadService {
     const row = await this.prisma.task.findFirst({
       where: { AND: [{ id: taskId }, this.scope.taskScopeWhere(principal)] },
       select: {
-        ...this.taskSelect(sections, { detail: true }),
+        ...this.taskSelect(sections, {
+          detail: true,
+          companyId: this.scope.assertScoped(principal).companyId,
+        }),
         quote: {
           select: {
             id: true,
@@ -1561,9 +1852,12 @@ export class PortalReadService {
           new Map<string, Date>(),
         ];
 
+    // De quem é a resposta — só para `artworks[].canDecide` (capacidade ∧ escopo
+    // comercial). Ver `PortalProjectionService.projectTask`.
+    const { companyId } = this.scope.assertScoped(principal);
     return rows.map(row => ({
       ...this.overlayVehicle(
-        this.projection.projectTask(row, principal.roles),
+        this.projection.projectTask(row, principal.roles, { customerId: companyId }),
         row,
         row.quote
           ? { id: row.quote.id, createdAt: row.quote.createdAt ?? null, status: row.quote.status ?? null }

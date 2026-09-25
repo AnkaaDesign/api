@@ -80,21 +80,27 @@ export enum PORTAL_CAPABILITY {
   WRITE_PURCHASE_ORDER   = 'WRITE_PURCHASE_ORDER',
   WRITE_VEHICLE_IDENTITY = 'WRITE_VEHICLE_IDENTITY',
   TRACK                  = 'TRACK',
+  APPROVE_ARTWORK        = 'APPROVE_ARTWORK',   // P13b (D-09, DD5)
 }
 ```
-| papel | REQUEST | APPROVE_VALUE | PURCHASE_ORDER | VEHICLE_IDENTITY | TRACK |
-|---|:-:|:-:|:-:|:-:|:-:|
-| COMMERCIAL | ✅ | ✅ | — | ✅ | ✅ |
-| SELLER | ✅ | ✅ | — | ✅ | ✅ |
-| REPRESENTATIVE | ✅ | ✅ | — | ✅ | ✅ |
-| COORDINATOR | ✅ | ✅ | — | ✅ | ✅ |
-| PURCHASING | — | — | ✅ | ✅ | ✅ |
-| MARKETING | ✅ | — | — | — | ✅ |
-| FINANCIAL | — | — | ✅ | — | — |
-| FLEET_MANAGER | — | — | — | ✅ | ✅ |
-| DRIVER | — | — | — | — | ✅ |
+| papel | REQUEST | APPROVE_VALUE | PURCHASE_ORDER | VEHICLE_IDENTITY | TRACK | APPROVE_ARTWORK |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| COMMERCIAL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SELLER | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| REPRESENTATIVE | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| COORDINATOR | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| PURCHASING | — | — | ✅ | ✅ | ✅ | **—** (DD5) |
+| MARKETING | ✅ | — | ✅ | — | ✅ | ✅ |
+| FINANCIAL | — | — | ✅ | — | — | — |
+| FLEET_MANAGER | — | — | ✅ | ✅ | ✅ | — |
+| DRIVER | — | — | ✅ | — | ✅ | — |
 
 União, nunca interseção — mesma semântica de `sectionsForRoles`.
+`WRITE_PURCHASE_ORDER` é de todos os papéis (decisão do dono, 20/09); o portão
+é o da cerimônia (§7, DD12). `APPROVE_ARTWORK` implica as seções `VEHICLE` e
+`LAYOUT` (`SECTION_IMPLIED_BY_CAPABILITY`) — no-op nos cinco papéis de hoje. A
+fonte é `ROLE_CAPABILITIES` em `portal-capabilities.ts`; `tests/portal-recorte`
+confere as 54 células e `tests/portal-arte` a linha da arte.
 
 ## 3. O ESCOPO — `PortalScopeService` (API-1)
 
@@ -159,6 +165,10 @@ não acrescente `@UseGuards`. Papel: `@ResponsibleRoles(...)` ou
 | GET | `/cliente/me/veiculos/:taskId` | — | veículo + andamento |
 | PATCH | `/cliente/me/veiculos/:taskId/identificacao` | `WRITE_VEHICLE_IDENTITY` | série/placa/chassi/plaqueta/pedido/categoria/tipo/previsão/medidas (4 faces)/porta traseira — com a trava de produção (§4.1) |
 | POST | `/cliente/me/veiculos/:taskId/projeto` | `WRITE_VEHICLE_IDENTITY` | anexa o **projeto do implemento** (multipart `implementProject`, PDF ou imagem) — §4.1 |
+| GET | `/cliente/me/artes` | seção `LAYOUT` | artes dos veículos que o contato vê, com `canDecide` · `?status=PENDING_APPROVAL[,APPROVED,REPROVED]&page=&take=` — §4.2 |
+| PUT | `/cliente/me/veiculos/:taskId/artes/:layoutId/aprovar` | `APPROVE_ARTWORK` | sem corpo → a arte `APPROVED` (projetada) — §4.2 |
+| PUT | `/cliente/me/veiculos/:taskId/artes/:layoutId/reprovar` | `APPROVE_ARTWORK` | `{ motivo }` (obrigatório, ≥ 3) → `REPROVED` — §4.2 |
+| PUT | `/cliente/me/artes/aprovar` | `APPROVE_ARTWORK` | `{ layoutIds[] }` (1–100, sem repetição) → `{ approved, artworks[] }` — o lote, §4.2 |
 | GET | `/cliente/me/pedidos` | — | pedidos de compra do cliente · `?searchingFor=` (nº, ou série/nome/placa de veículo coberto) |
 | POST | `/cliente/me/pedidos` | `WRITE_PURCHASE_ORDER` | `{ number, issuedAt?, taskIds[] }` |
 | GET | `/cliente/me/assinaturas` | — | envelopes pendentes · inclui `envelope.budgetId`, `veiculos[]` e **`pedidoDeCompra{exigido,pendente,mensagem}`** — o VEREDITO do portão do Compras, decidido no servidor |
@@ -358,6 +368,135 @@ sumir). As três recusas têm tratamentos distintos: **409** é painel fixo no t
 do card (não-dismissível, com o texto do servidor e o que fazer a seguir),
 **400** vai para baixo do campo culpado via `conflicts[]` (`portalErrorConflicts`
 em `api-client/portal.ts`), **403** diz que os mapas de capacidade divergiram.
+
+### 4.2 ✅ P13b (25/09) — o cliente aprova a arte, e o orçamento visto pelo portal
+
+PLANO §5.1, §6.3, §7.1–§7.7 (rework Implemento). Rotas em
+`portal-artwork.{controller,service,module}.ts` + `schemas/portal-artwork.ts`;
+leitura em `portal-read.service.ts` e `portal-projection.service.ts`. A máquina
+da arte é do `ImplementLayoutService` (P12): o portal chama
+`approveFromPortal`/`reproveFromPortal` com o ator `RESPONSIBLE` — o contato vai
+em `decidedByResponsibleId`/`LayoutDecision.responsibleId`, **nunca** numa
+coluna de `User`. Teste: `test:portal-arte` (HTTP de verdade);
+`test:portal-recorte` (as colunas novas × 9 papéis); `test:portal-cliente:boot`
+(as quatro rotas existem).
+
+**AS DECISÕES** — `PUT …/veiculos/:taskId/artes/:layoutId/aprovar`,
+`…/reprovar { motivo }` e o lote `PUT /cliente/me/artes/aprovar { layoutIds[] }`:
+
+| resposta | quando |
+|---|---|
+| **200** | `{ data: PortalArtwork }` (o lote: `{ data: { approved, artworks: PortalArtwork[] } }`) |
+| **400** | reprovar sem `motivo` (ausente, em branco, < 3 caracteres, ou a chave errada — o corpo é `.strict()`); lote vazio, com id repetido ou com mais de 100; id que não é UUID |
+| **403** | o contato não tem `APPROVE_ARTWORK` (o COMPRAS vê a arte e não a decide) |
+| **404** | a arte não existe, está fora do escopo **comercial** (pagador ∨ dono, sem o caminho pessoal (c)), não é do veículo da URL, ou nunca foi ao cliente (rascunho) — **nunca 403** |
+| **409** | "Esta arte já foi decidida (está …)": aprovada, reprovada ou substituída; ou o veículo foi cancelado |
+
+- ⛔ **Escopo COMERCIAL** (`commercialTaskScopeWhere`), o mesmo da identidade do
+  veículo: a Furgões **pagadora** aprova a arte do caminhão da RKO; um contato
+  de outra empresa preso ao veículo por cadastro **vê** a arte (leitura é
+  `taskScopeWhere`) e leva 404 ao decidir.
+- ⛔ **O lote é tudo-ou-nada na CONFERÊNCIA**: as N artes são provadas antes da
+  primeira escrita — uma fora do escopo ⇒ 404, uma já decidida ⇒ 409, e **nada**
+  é gravado. ⚠️ A escrita é uma decisão por arte (cada uma na transação do
+  serviço do P12); se outra pessoa decidir uma delas ENTRE a conferência e a
+  escrita (a corrida do G17), as que já passaram ficam aprovadas e a resposta é
+  409 "N de M artes foram aprovadas; …". Uma aprovação legítima não se desfaz
+  (D-21).
+- A aprovação fecha as O.S. "Aprovar com o Cliente" e as de ARTE em
+  `WAITING_APPROVE`, libera a tarefa se a arte era a última peça (DD3) e
+  reavalia a assinatura do orçamento (D-31) — tudo pelo serviço do P12. A
+  reprovação devolve essas O.S. a `IN_PROGRESS`.
+
+**`PortalArtwork`** — a arte como o cliente a lê (§7.4):
+
+```ts
+{
+  id, fileId, file: PortalFile | null,
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REPROVED',   // DRAFT e SUPERSEDED nunca saem
+  statusLabel,                                            // "Aguardando aprovação do cliente" | "Aprovada" | "Reprovada"
+  version, sentAt, decidedAt,
+  source: 'PORTAL' | 'ON_BEHALF' | 'INTERNAL' | 'MIGRATED_*' | null,   sourceLabel,
+  decidedBy: { name } | null,   // o contato pelo nome; a Ankaa como "Ankaa" — NUNCA o nome do funcionário
+  note,                         // o motivo do cliente ou a nota "em nome do cliente"; a nota INTERNA não sai
+  canDecide,                    // PENDING ∧ APPROVE_ARTWORK ∧ escopo comercial ∧ veículo vivo
+}
+```
+
+`REPROVED` só aparece se a arte foi **enviada** (`sentAt`): a reprovação interna
+de um rascunho nunca foi ao cliente. A lista `GET /cliente/me/artes` devolve
+`PortalArtwork & { vehicle: { taskId, name, serialNumber, plate }, budget: { id, budgetNumber } | null }`,
+a pendente mais antiga primeiro.
+
+**A LEITURA — o que cresceu** (contrato só cresce: nada que o web lê sumiu):
+
+```ts
+// GET /cliente/me/veiculos/:taskId e vehicles[] do orçamento — seção LAYOUT
+artworks?: PortalArtwork[]            // NOVO. `layout.artworks` (só os arquivos APROVADOS) continua igual
+progress.timeline[]: + { key: 'ARTE_APROVADA', label: 'Arte aprovada', order: 2 }   // e os seguintes sobem 1
+
+// GET /cliente/me/orcamentos[/:id] — cabeçalho, sem seção
+signatureStatus, signatureStatusLabel       // o eixo §2A.4, inclusive "Assinada fora do sistema" (DD11)
+valueApproval: {                            // a BudgetValueApproval vigente, ou null
+  decidedAt, source, sourceLabel, decidedBy: { name } | null, note,
+  total: number | null,                     // só com PRICING
+} | null
+signature: { status, label, emitted, awaitingMe }   // + status/label; `emitted` LIDO DO EIXO
+// seção LAYOUT
+artwork?: {
+  total, approved, awaitingCustomer, awaitingMe, atAnkaa,   // por VEÍCULO vivo (o cancelado não conta)
+  groups: [{ fileId, file, vehicles: [{ taskId, layoutId, status, statusLabel, version, canDecide }],
+             pendingLayoutIds }],           // "Aprovar para os N veículos" = PUT /cliente/me/artes/aprovar { layoutIds: pendingLayoutIds }
+}
+
+// GET /cliente/me/resumo
+waitingOnMe.artworks: {                     // NOVO — "Arte esperando a sua aprovação"
+  available,                                // tem APPROVE_ARTWORK
+  total,                                    // VEÍCULOS com arte pendente no escopo COMERCIAL
+  vehicles: [{ taskId, name, serialNumber, plate, pendingLayoutIds, sentAt, budget }],   // até 10
+}
+budgets.byStatus                            // sem a chave PRE_APPROVED (sai na M3o-b; até lá é contado em APPROVED)
+```
+
+- **Estado da arte de um veículo** (os contadores, §7.7): alguma
+  `PENDING_APPROVAL` ⇒ aguardando o cliente (mesmo com uma versão anterior
+  aprovada); senão alguma `APPROVED` ⇒ aprovado (o critério do portão da
+  emissão); senão ⇒ com a Ankaa (sem arte, só rascunho, só reprovada).
+  `awaitingMe` ⊆ `awaitingCustomer`: os que ESTE contato pode decidir.
+- ⚠️ **"Arte aprovada" é um degrau LATERAL da escada.** O valor, a arte e a
+  chegada do veículo vêm em qualquer ordem (§7.6); por isso o degrau só é
+  atingido pela PRÓPRIA prova (alguma arte `APPROVED`/`SUPERSEDED`, com a data
+  da primeira aprovação — monotônica por D-21) ou quando a espinha chega a "Em
+  produção" (o portão da liberação exige a arte; no legado, sem data). Ele não
+  arrasta nem é arrastado pelos outros degraus: "Veículo recebido" com a arte
+  pendente mostra "Arte aprovada" **não** atingido. `milestone` é o degrau mais
+  alto atingido.
+- `signature.emitted` = eixo em `AWAITING_CUSTOMER`, `AWAITING_ANKAA` ou
+  `SIGNED` (há um documento da coleta para abrir). `SIGNED_OFFLINE` e `WAIVED`
+  não são "emitidos" (não há coleta); `awaitingMe` só com o eixo em
+  `AWAITING_CUSTOMER` e um signatário DESTE contato pendente no envelope `RUNNING`.
+- ⛔ Todas as chaves novas estão no `select` ENUMERADO
+  (`PORTAL_ARTWORK_LAYOUT_SELECT`, `budgetSelect`): chave que não entra lá some
+  calada. `decidedByUser` nem é selecionado.
+
+**O AVISO** — `layout.portal_pending_approval` (e o lembrete diário) vai aos
+contatos ATIVOS da tarefa que **podem aprovar**: papel com `APPROVE_ARTWORK`
+(`ARTWORK_APPROVER_ROLES`, derivado de `ROLE_CAPABILITIES`) **e** empresa no
+escopo comercial do veículo (`commercialTaskLink`). O contato vai em
+`Notification.responsibleId`, nunca em `userId`.
+
+⚠️ **Fica para a integração do par** (P14 ∥ P13b): o `emission { ready,
+blockers[] }` do orçamento no portal ("Para emitir o documento falta…", em
+linguagem de cliente) liga `emissionOf` do P14 em `portal-read.service.ts`; e o
+trecho do P14 (aprovar valor → `APPROVED` com `BudgetValueApproval{PORTAL}`,
+recusa → `PENDING`, o `orderNumber` da cerimônia) entra nas linhas das rotas
+`aprovar-valor`/`recusar` e no §7.
+
+⚠️ **O web do portal (P23) acompanha**: `api-client/portal.ts` (tipos
+`PortalArtwork`, `artworks`, `artwork`, `valueApproval`, `signatureStatus*`,
+`signature.status/label`, `waitingOnMe.artworks`, a chave `ARTE_APROVADA` em
+`PortalMilestoneKey`), o card **Arte** do veículo, o `OrcamentoLayoutCard` com o
+lote e o grupo do Início.
 
 ## 5. A REQUISIÇÃO — `POST /cliente/me/orcamentos`
 

@@ -31,11 +31,17 @@ import {
 /**
  * As ações do portal do cliente.
  *
- * Cinco, e não mais: cada valor aqui é um portão que alguém precisa manter. O
- * que não é uma AÇÃO com consequência no banco (abrir requisição, decidir,
- * escrever identidade de veículo, escrever pedido de compra) ou uma superfície
- * inteira de leitura (acompanhar) não vira capacidade — vira seção, e seção já
- * tem dono.
+ * Seis, e não mais: cada valor aqui é um portão que alguém precisa manter. O
+ * que não é uma AÇÃO com consequência no banco (abrir requisição, decidir o
+ * valor, decidir a arte, escrever identidade de veículo, escrever pedido de
+ * compra) ou uma superfície inteira de leitura (acompanhar) não vira capacidade
+ * — vira seção, e seção já tem dono.
+ *
+ * ⚠️ `APPROVE_ARTWORK` É A SEXTA, e não um apelido de `APPROVE_VALUE` (D-09,
+ * DD5): os dois atos têm donos diferentes. O MARKETING aprova a arte — é o dono
+ * natural dela — e não vê o preço; o COMPRAS vê tudo e não decide nenhum dos
+ * dois. Uma capacidade só para os dois atos daria o preço ao marketing ou a arte
+ * ao compras.
  *
  * `SIGN` NÃO está aqui, e a ausência é decisão, não esquecimento: quem assina o
  * quê é decidido na EMISSÃO do envelope, contato a contato, por
@@ -56,6 +62,13 @@ export enum PORTAL_CAPABILITY {
   WRITE_VEHICLE_IDENTITY = 'WRITE_VEHICLE_IDENTITY',
   /** Acompanhar o andamento da produção. */
   TRACK = 'TRACK',
+  /**
+   * Aprovar ou reprovar (com motivo) a arte do implemento enviada pela Ankaa
+   * (PLANO §7.1, D-09). Escopo COMERCIAL (`commercialTaskScopeWhere`: pagador ∨
+   * dono), o mesmo da identidade do veículo: a Furgões pagadora aprova a arte do
+   * caminhão da RKO.
+   */
+  APPROVE_ARTWORK = 'APPROVE_ARTWORK',
 }
 
 export const PORTAL_CAPABILITIES: readonly PORTAL_CAPABILITY[] = [
@@ -64,6 +77,7 @@ export const PORTAL_CAPABILITIES: readonly PORTAL_CAPABILITY[] = [
   PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
   PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
   PORTAL_CAPABILITY.TRACK,
+  PORTAL_CAPABILITY.APPROVE_ARTWORK,
 ];
 
 /** Rótulo em português, para a mensagem de recusa e para a tela. */
@@ -73,6 +87,7 @@ export const PORTAL_CAPABILITY_LABELS: Record<PORTAL_CAPABILITY, string> = {
   [PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER]: 'informar o pedido de compra',
   [PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY]: 'informar série, placa e chassi',
   [PORTAL_CAPABILITY.TRACK]: 'acompanhar a produção',
+  [PORTAL_CAPABILITY.APPROVE_ARTWORK]: 'aprovar arte',
 };
 
 /**
@@ -92,9 +107,16 @@ export const PORTAL_CAPABILITY_LABELS: Record<PORTAL_CAPABILITY, string> = {
  *    contato cujo ÚNICO papel é COMPRAS só assina com número de pedido
  *    informado — regra que mora na cerimônia de assinatura, não aqui.
  *
- *  · MARKETING pede e acompanha, e nada mais. Pedir é o caso real (a arte chega
- *    por ele); decidir preço não é assunto dele, e a seção `PRICING` nem sequer
- *    está no recorte dele.
+ *  · MARKETING pede, acompanha e APROVA A ARTE. Pedir é o caso real (a arte
+ *    chega por ele) e aprovar a arte é o ato de que ele é o dono natural (D-09,
+ *    DD5); decidir preço não é assunto dele, e a seção `PRICING` nem sequer está
+ *    no recorte dele.
+ *
+ *  · APROVAR A ARTE é de COMERCIAL, VENDEDOR, REPRESENTANTE, COORDENADOR e
+ *    MARKETING (D-09). COMPRAS NÃO (DD5): ele vê a arte, assina o documento
+ *    inteiro e informa o pedido, mas escolher a cara do caminhão não é ato de
+ *    quem emite o pedido — e dar-lhe a decisão faria dele um aprovador por
+ *    acidente de cadastro, que é o papel mais comum nos contatos importados.
  *
  *  · FINANCEIRO escreve pedido de compra e SÓ ISSO. Não acompanha produção — o
  *    que ele acompanha é dinheiro, e dinheiro é a seção `PAYMENT`, que ele já
@@ -124,12 +146,15 @@ export const PORTAL_CAPABILITY_LABELS: Record<PORTAL_CAPABILITY, string> = {
  * mão é quem estiver com o e-mail do ERP aberto, e um orçamento inteiro
  * esperava uma pessoa específica digitar cinco dígitos.
  *
- * ⛔ O PORTÃO NÃO MUDOU, e é ele que preserva a exigência original: quem tem
- * Compras como ÚNICA função continua sem assinar enquanto faltar o número
- * (`purchase-order-gate.ts`). A regra sempre foi sobre o ATO DE APROVAR, não
- * sobre quem pode digitar — e separar as duas coisas é o que a torna
- * cumprível: agora o vendedor preenche e o Compras assina, em vez de os dois
- * se esperarem.
+ * ⛔ O PORTÃO CONTINUA NA CERIMÔNIA, e é ele que preserva a exigência original
+ * — hoje na forma da DD12: quem TEM o papel Compras (sozinho ou acumulado)
+ * informa, na própria cerimônia de assinatura, o nº do pedido de cada veículo
+ * que ainda não o tem, e sem ele a assinatura é recusada com 400
+ * (`orderNumberRequirement`, em `common/signature/order-number-gate.ts`, o
+ * mesmo predicado no portal e no link público). A regra sempre foi sobre o ATO
+ * DE ASSINAR, não sobre quem pode digitar — e separar as duas coisas é o que a
+ * torna cumprível: o vendedor preenche antes, ou o Compras preenche na hora, em
+ * vez de os dois se esperarem.
  */
 export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
   [RESPONSIBLE_ROLE.COMMERCIAL]: [
@@ -138,6 +163,7 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.TRACK,
+    PORTAL_CAPABILITY.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.SELLER]: [
     PORTAL_CAPABILITY.REQUEST_BUDGET,
@@ -145,6 +171,7 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.TRACK,
+    PORTAL_CAPABILITY.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.REPRESENTATIVE]: [
     PORTAL_CAPABILITY.REQUEST_BUDGET,
@@ -152,6 +179,7 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.TRACK,
+    PORTAL_CAPABILITY.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.COORDINATOR]: [
     PORTAL_CAPABILITY.REQUEST_BUDGET,
@@ -159,7 +187,9 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.TRACK,
+    PORTAL_CAPABILITY.APPROVE_ARTWORK,
   ],
+  // ⛔ SEM `APPROVE_ARTWORK` (DD5). Ver o cabeçalho desta tabela.
   [RESPONSIBLE_ROLE.PURCHASING]: [
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
@@ -169,6 +199,7 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.REQUEST_BUDGET,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
     PORTAL_CAPABILITY.TRACK,
+    PORTAL_CAPABILITY.APPROVE_ARTWORK,
   ],
   [RESPONSIBLE_ROLE.FINANCIAL]: [PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER],
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [
@@ -322,6 +353,11 @@ export const SECTION_IMPLIED_BY_CAPABILITY: Record<PORTAL_CAPABILITY, readonly s
   // Acompanhar é `DELIVERY` (prazo, previsão, etapas) sobre um veículo que se
   // possa nomear.
   [PORTAL_CAPABILITY.TRACK]: ['VEHICLE', 'DELIVERY'],
+  // Não se aprova uma arte que não se pode ver, nem sem saber de que veículo ela
+  // é. Hoje é no-op para os cinco papéis que a têm (o MARKETING já recebe
+  // `LAYOUT` pelo papel e `VEHICLE` é injetada); a linha existe para que um
+  // papel novo que ganhe a capacidade não nasça aprovando às cegas.
+  [PORTAL_CAPABILITY.APPROVE_ARTWORK]: ['VEHICLE', 'LAYOUT'],
 };
 
 /**

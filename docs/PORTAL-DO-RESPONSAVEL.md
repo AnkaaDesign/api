@@ -130,9 +130,17 @@ um segundo mapa, pequeno e explícito:
 | `WRITE_VEHICLE_IDENTITY` — série/placa/chassi/plaqueta | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ | — |
 | `SIGN` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅² | ✅² | — | — |
 | `TRACK` — acompanhar O.S. | ✅ | ✅ | ✅ | ✅ | ✅ | ✅² | — | ✅ | ✅ |
+| `APPROVE_ARTWORK` — aprovar/reprovar a arte do implemento (P13b) | ✅ | ✅ | ✅ | ✅ | **—** | ✅ | — | — | — |
 
 ¹ Marketing abre requisição mas **não vê preço** — a seção `PRICING` não está no papel dele.
 ² Derivada: assina/acompanha **o seu recorte**, não o documento inteiro.
+
+⚠️ Esta tabela é a PROPOSTA de 17/09 e ficou como registro. A tabela VIGENTE é
+a de `PORTAL-CONTRATO.md` §2.1 (transcrita em `ROLE_CAPABILITIES`): `SIGN` não
+virou capacidade, `WRITE_PURCHASE_ORDER` passou a ser de todos os papéis
+(decisão do dono, 20/09) e `APPROVE_ARTWORK` entrou no rework Implemento (D-09,
+DD5) — o MARKETING, dono natural da arte, aprova; o COMPRAS vê e **não**
+aprova.
 
 Duas escolhas que valem defesa:
 
@@ -604,6 +612,28 @@ assinada e ficam fora da guarda do documento congelado. O contrato exato
 bloco contra o banco numa transação desfeita), `test:portal-requisicao`,
 `test:portal-cliente:boot`, e2e-portal 01.
 
+### P13b (25/09, rework Implemento) — o cliente aprova a arte, e o orçamento visto pelo portal
+
+A arte agora é do **implemento** e quem a aprova é o cliente, no portal:
+capacidade `APPROVE_ARTWORK` (COMERCIAL, VENDEDOR, REPRESENTANTE, COORDENADOR e
+MARKETING; **não** COMPRAS), escopo **comercial** (a Furgões pagadora aprova a
+arte do caminhão da RKO). Quatro rotas — a lista `GET /cliente/me/artes`,
+aprovar, reprovar com motivo obrigatório e o lote "Aprovar para os N veículos"
+—, com 404 fora do escopo (nunca 403), 409 "Esta arte já foi decidida" e o lote
+tudo-ou-nada na conferência. A decisão passa pela máquina do P12
+(`ImplementLayoutService`), que fecha a O.S. "Aprovar com o Cliente", libera a
+tarefa quando a arte era a última peça e reavalia a assinatura; o contato é
+gravado como contato, nunca como usuário. A leitura ganhou as artes por
+veículo (pendentes com `canDecide`, aprovadas com quem e quando, reprovadas com
+o motivo), a arte do orçamento pelos implementos agrupada por arquivo, a
+aprovação do valor, o eixo da assinatura com rótulo ("Assinada fora do
+sistema"), o marco lateral "Arte aprovada" e, no Início, "Arte esperando a sua
+aprovação". O aviso ao contato segue a capacidade e o escopo. O contrato exato
+está em `PORTAL-CONTRATO.md` §4.2. Testes: `test:portal-arte` (HTTP de
+verdade), `test:portal-recorte`, `test:portal-cliente:boot`. Demonstração:
+`pnpm demo:portal` cria um orçamento com valor para aprovar e a arte pendente
+em dois veículos.
+
 ### Os quatro defeitos vivos consertados de passagem
 
 1. ⛔ **`GET /billings/:id` estava quebrada em produção** — `billing.service.ts:167` pedia
@@ -637,6 +667,7 @@ Logo, esta branch carrega a própria régua, no estilo que o portal já usa
 
 - `test:portal-escopo` — o `where` dos três caminhos (§3), sem banco;
 - `test:portal-recorte` — projeção × `sectionsForRoles`, tabela-verdade dos 9 papéis, sem banco;
+- `test:portal-arte` — a aprovação da arte pelo portal, por HTTP, contra o banco (P13b);
 - `test:budget-status-requisicao` — transições novas e as 5 armadilhas de §4.3, sem banco;
 - espelho em `web/src/constants/routes.customer.test.ts` para cada rota nova (§6.1).
 
