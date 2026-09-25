@@ -1,16 +1,12 @@
 {
   "descricao": "Os `fileContext` que os clientes mandam no upload (G10). SEMENTE do P01, de `rg fileContext` em web/src e mobile-flutter/lib em 23/09. Desde a revisão da Fase A (R-B-12) o G10 também VARRE web/src e mobile-flutter/lib: todo `fileContext` literal que um cliente manda tem de estar aqui, e todo contexto aqui tem de existir em `folderMapping` (files-storage.service.ts), senão o arquivo cai numa pasta genérica pela MIME — foi assim que 32 layouts aprovados viraram 'órfãos' em 07/06.",
   "contextos": {
-    "tasksLayouts": [
-      "web",
-      "flutter (layout_attach_sheet.dart)"
+    "implementLayouts": [
+      "api (a arte do implemento, R2; web a partir do P21, app a partir do P24 — até lá eles mandam `tasksLayouts`, ver CONTEXTOS_VELHOS_ATE_A_FASE_C no G10)"
     ],
     "taskBaseFiles": [
       "web",
       "flutter"
-    ],
-    "quote-layouts": [
-      "web"
     ],
     "implementVinPlate": [
       "web",

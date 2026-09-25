@@ -3190,10 +3190,6 @@
           "maxCount": 10
         },
         {
-          "nome": "layouts",
-          "maxCount": 10
-        },
-        {
           "nome": "baseFiles",
           "maxCount": 30
         },
@@ -3361,10 +3357,6 @@
           "maxCount": 10
         },
         {
-          "nome": "layouts",
-          "maxCount": 10
-        },
-        {
           "nome": "baseFiles",
           "maxCount": 30
         },
@@ -3407,17 +3399,6 @@
       ]
     },
     {
-      "rota": "POST /tasks/bulk/upload-files",
-      "arquivo": "src/modules/production/task/task.controller.ts",
-      "interceptor": "FilesInterceptor",
-      "campos": [
-        {
-          "nome": "files",
-          "maxCount": 30
-        }
-      ]
-    },
-    {
       "rota": "PUT /tasks/:id",
       "arquivo": "src/modules/production/task/task.controller.ts",
       "interceptor": "FileFieldsInterceptor",
@@ -3436,10 +3417,6 @@
         },
         {
           "nome": "bankSlips",
-          "maxCount": 10
-        },
-        {
-          "nome": "layouts",
           "maxCount": 10
         },
         {
@@ -3477,10 +3454,6 @@
         {
           "nome": "implementVinPlate",
           "maxCount": 1
-        },
-        {
-          "nome": "quoteLayoutFile",
-          "maxCount": 2
         },
         {
           "nome": "airbrushings[0].receipts",
@@ -3666,7 +3639,7 @@
     }
   ],
   "fileContexts": [
-    "tasksLayouts",
+    "implementLayouts",
     "taskBudgets",
     "taskInvoices",
     "taskReceipts",
@@ -3710,7 +3683,6 @@
     "warning",
     "implementMeasurePhotos",
     "implementVinPlate",
-    "quote-layouts",
     "plotterEspovo",
     "plotterAdesivo",
     "thumbnails",
