@@ -12,7 +12,7 @@
 // AS CINCO ARMADILHAS DO CONTRATO §5 — E A SEXTA, QUE O DONO ACHOU NA TELA
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// 1. PRODUTO CARTESIANO × UNICIDADE GLOBAL. `Task.serialNumber` e `Implement.plate`
+// 1. PRODUTO CARTESIANO × UNICIDADE GLOBAL. `Implement.serialNumber` e `.plate`
 //    são `@unique` GLOBAIS. `garantirUnicidade()` recusa ANTES de escrever, com
 //    400 nomeando a série/placa culpada — nunca deixando o Prisma responder
 //    "Unique constraint failed on the fields: (`serialNumber`)", que não diz ao
@@ -110,9 +110,12 @@ import { reconcileQuoteCustomerConfigs } from '@utils/budget-customer-config-syn
 import { generateBaseFileName } from '@utils/task';
 import { formatCNPJ, formatCPF } from '@utils';
 import {
+  LADOS_DO_PORTAL,
   colisoesNoPayload,
   descreverColisao,
   medidaParaPrisma,
+  portaParaPrisma,
+  type LadoDoPortal,
   type PortalColisao,
   type PortalRequisicaoFormData,
 } from '@/schemas/portal-request';
@@ -128,8 +131,11 @@ export interface PortalRequisicaoVeiculoCriado {
   serialNumber: string | null;
   plate: string | null;
   chassisNumber: string | null;
-  /** Ids das `ImplementMeasure` criadas, já em METROS no banco. */
-  measureIds: { esquerda: string | null; direita: string | null; traseira: string | null };
+  /**
+   * Ids das `ImplementMeasure` criadas, já em METROS no banco — uma chave por
+   * face, com a chave de borda (`esquerda`, `direita`, `traseira`, `frente`).
+   */
+  measureIds: Record<LadoDoPortal, string | null>;
 }
 
 /** Qual documento casou com um cadastro existente. */
@@ -209,12 +215,12 @@ export interface PortalRequisicaoCriada {
  */
 const DIAS_DE_VALIDADE_PROVISORIA = 30;
 
-/** Os lados da medida no portal e a face de cada um (a coluna é do escritor único). */
-const LADOS = [
-  { chave: 'esquerda', face: 'left' },
-  { chave: 'direita', face: 'right' },
-  { chave: 'traseira', face: 'back' },
-] as const;
+/**
+ * Os lados da medida no portal e a face de cada um (a coluna é do escritor
+ * único) — as QUATRO faces, da lista única da borda. A frente entrou no P13a:
+ * antes ela não tinha como nascer pelo portal.
+ */
+const LADOS = LADOS_DO_PORTAL;
 
 @Injectable()
 export class PortalRequestService {
@@ -891,10 +897,9 @@ export class PortalRequestService {
         responsibles: { connect: { id: contexto.responsibleId } },
         // ⚠️ `implement.plate`, NUNCA `plate` no topo (armadilha 4).
         //
-        // DD1 (W4): TODA tarefa nasce com implemento, e a SÉRIE mora nele
-        // (`Task.serialNumber` é espelho somente leitura, preenchido pelo
-        // gatilho). `spot: null` explícito: o veículo ainda não chegou — o
-        // default antigo o punha "no pátio".
+        // DD1/DD14 (W4): TODA tarefa nasce com implemento, e a SÉRIE mora SÓ
+        // nele (a tarefa não tem mais a coluna). `spot: null` explícito: o
+        // veículo ainda não chegou — o default antigo o punha "no pátio".
         implement: {
           create: {
             // ⚠️ TEXTO. Ver a armadilha 2 no cabeçalho.
@@ -905,7 +910,11 @@ export class PortalRequestService {
             // O que o cliente informou na porta. Ausente = ausente: o comercial
             // pergunta, e o próprio cliente pode completar depois no portal.
             category: veiculo.category ?? null,
-            type: veiculo.implementType ?? null,
+            type: veiculo.type ?? null,
+            // A PORTA TRASEIRA (DD4): as palavras da borda viram o enum aqui,
+            // por `portaParaPrisma` — a mesma tradução da identificação. Chave
+            // ausente fica fora do `create` e nasce nula.
+            ...portaParaPrisma(veiculo.portaTraseira),
           },
         },
       },
@@ -913,15 +922,13 @@ export class PortalRequestService {
     });
 
     const implementId = task.implement?.id ?? null;
-    const measureIds: PortalRequisicaoVeiculoCriado['measureIds'] = {
-      esquerda: null,
-      direita: null,
-      traseira: null,
-    };
+    const measureIds = Object.fromEntries(
+      LADOS.map(lado => [lado.chave, null]),
+    ) as PortalRequisicaoVeiculoCriado['measureIds'];
 
     if (implementId && veiculo.medidas) {
       for (const lado of LADOS) {
-        const entrada = (veiculo.medidas as any)?.[lado.chave];
+        const entrada = veiculo.medidas[lado.chave];
         if (!entrada) continue;
 
         // ⚠️ AQUI, E SÓ AQUI, CENTÍMETROS VIRAM METROS (armadilha 3).

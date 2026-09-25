@@ -99,6 +99,7 @@ import type {
   QuoteSnapshot,
   QuoteSnapshotVehicle,
 } from '@modules/common/signature/services/quote-snapshot.service';
+import { IMPLEMENT_FACE_LABELS, type ImplementFace } from '../../../constants/implement-faces';
 
 /**
  * Os quatro campos que o documento imprime e que este pacote escreve.
@@ -130,8 +131,17 @@ export const VEHICLE_IDENTITY_FIELDS = [
   // fechar na placa e no chassi. Com isso, o comportamento é o mesmo e de
   // graça: em branco na folha → preenchimento tardio, permitido; impresso e
   // diferente → 409, com a frase que nomeia o campo.
+  //
+  // ⚠️ `type` é o nome da COLUNA (`Implement.type`, NOMENCLATURA §1). No
+  // snapshot SELADO a chave continua `implementType` (v1–v4: mudar uma letra do
+  // JSON muda o hash) — a tradução é de `frozenIdentityOf`, e só dela. Os
+  // VALORES não mudaram, então a comparação continua de valor cru, sem tabela.
   'category',
-  'implementType',
+  'type',
+  // ⛔ A FRENTE E A PORTA TRASEIRA NÃO ENTRAM (P13a, PLANO §7.3). A folha
+  // assinada não imprime medida nem porta, e o snapshot não as guarda: não há o
+  // que contradizer, e um 409 aqui seria recusa sem documento por trás. O que
+  // as protege depois da produção é a TRAVA DE PRODUÇÃO, mais abaixo.
 ] as const;
 
 export type VehicleIdentityField = (typeof VEHICLE_IDENTITY_FIELDS)[number];
@@ -143,7 +153,7 @@ export const VEHICLE_IDENTITY_LABELS: Record<VehicleIdentityField, string> = {
   chassisNumber: 'chassi',
   orderNumber: 'número do pedido de compra',
   category: 'categoria do veículo',
-  implementType: 'tipo de implemento',
+  type: 'tipo de implemento',
 };
 
 /** O que o documento CONGELADO diz sobre um veículo. */
@@ -154,7 +164,7 @@ export interface FrozenVehicleIdentity {
   orderNumber: string | null;
   /** Valores de enum, crus — a comparação é de IGUALDADE, não de rótulo. */
   category: string | null;
-  implementType: string | null;
+  type: string | null;
 }
 
 /**
@@ -237,9 +247,10 @@ export function frozenIdentityOf(
     chassisNumber: v.chassisNumber ?? null,
     orderNumber: v.orderNumber ?? null,
     // ⚠️ Já vinham no snapshot desde sempre (o documento os imprime); o que
-    // faltava era alguém compará-los.
+    // faltava era alguém compará-los. A chave SELADA é `implementType`; aqui
+    // ela vira o nome da coluna.
     category: v.category ?? null,
-    implementType: v.implementType ?? null,
+    type: v.implementType ?? null,
   };
 }
 
@@ -332,5 +343,126 @@ export function vehicleIdentityConflictMessage(
     `${situacao}, e ele imprime ${lista}. ` +
     'Alterar um dado que já consta do documento invalidaria as assinaturas já ' +
     `colhidas. ${quem}`
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⛔ A TRAVA DE PRODUÇÃO — medida, porta e série param de mudar pelo portal
+// ─────────────────────────────────────────────────────────────────────────────
+// DD5 ("o responsável não edita medida depois de `IN_PRODUCTION`") e a pergunta
+// 15 do plano (a série também). Com a tarefa em produção a oficina já corta o
+// adesivo, dobra a chapa e pinta pela medida que está no cadastro; uma face
+// trocada pelo cliente nessa hora não corrige nada — produz um implemento
+// diferente do que está sendo feito, e ninguém do lado de dentro é avisado.
+// A série sai na nota e no boleto: trocá-la com o veículo na linha é trocar o
+// que o documento fiscal vai dizer.
+//
+// Então a rota RECUSA (409) e diz com quem falar, como na guarda do documento
+// congelado — a correção continua possível, pelo lado de dentro, que tem a
+// produção na frente.
+//
+// ⚠️ SÓ O QUE DE FATO MUDA É TRAVADO. Reenviar o formulário com a medida que já
+// está gravada não é mudança, e um 409 sobre nada ensinaria o contato a não
+// salvar mais nada. Placa, chassi, plaqueta, categoria, tipo, pedido e a
+// previsão seguem as regras de antes (placa e chassi chegam depois, com o
+// veículo já na linha — é para isso que a lacuna do documento existe).
+//
+// ⚠️ `CANCELLED` NÃO trava: o veículo cancelado não está sendo produzido, e a
+// frase "já está em produção" seria falsa. A trava é sobre a oficina, não
+// sobre a ordem dos estados.
+
+/** Os estados da tarefa em que medida, porta e série não mudam mais pelo portal. */
+export const STATUS_QUE_TRAVAM_O_IMPLEMENTO = ['IN_PRODUCTION', 'COMPLETED'] as const;
+
+export function emProducao(status: string | null | undefined): boolean {
+  return (STATUS_QUE_TRAVAM_O_IMPLEMENTO as readonly string[]).includes(status ?? '');
+}
+
+/** O começo fixo da frase — a tela pode procurá-lo; o resto nomeia os campos. */
+export const TRAVA_DE_PRODUCAO_MENSAGEM =
+  'O veículo já está em produção: fale com a Ankaa para corrigir';
+
+/** Uma mudança pedida que a trava julga. `chave` é a do CORPO (`frente`, …). */
+export type MudancaTravavel =
+  | { campo: 'medida'; face: ImplementFace; chave: string }
+  | { campo: 'portaTraseira' }
+  | { campo: 'serialNumber' };
+
+export interface TravaDeProducao {
+  message: string;
+  /** Os caminhos no corpo do `PATCH` (`medidas.frente`, `portaTraseira`, `serialNumber`). */
+  fields: string[];
+}
+
+function rotuloDaMudanca(m: MudancaTravavel): string {
+  if (m.campo === 'medida') return `a medida (${IMPLEMENT_FACE_LABELS[m.face]})`;
+  if (m.campo === 'portaTraseira') return 'a porta traseira';
+  return 'o número de série';
+}
+
+/**
+ * O VEREDICTO: `null` = pode escrever; senão a frase e os campos culpados.
+ *
+ * Recebe as mudanças JÁ REDUZIDAS ao que difere do gravado — ver a nota no
+ * cabeçalho desta seção.
+ */
+export function travaDeProducao(
+  status: string | null | undefined,
+  mudancas: readonly MudancaTravavel[],
+): TravaDeProducao | null {
+  if (!emProducao(status) || mudancas.length === 0) return null;
+  const rotulos = mudancas.map(rotuloDaMudanca);
+  const lista =
+    rotulos.length > 1
+      ? `${rotulos.slice(0, -1).join(', ')} e ${rotulos[rotulos.length - 1]}`
+      : rotulos[0];
+  return {
+    message: `${TRAVA_DE_PRODUCAO_MENSAGEM} ${lista}.`,
+    fields: mudancas.map(m => (m.campo === 'medida' ? `medidas.${m.chave}` : m.campo)),
+  };
+}
+
+/** Uma face como o banco a guarda ou como o portal a pede — já em METROS. */
+export interface MedidaComparavel {
+  height: number;
+  sections: ReadonlyArray<{
+    width: number;
+    isDoor: boolean;
+    doorHeight: number | null;
+    position: number | null;
+  }>;
+}
+
+/** Um décimo de milímetro, a mesma resolução de `centimetrosParaMetros`. */
+const TOLERANCIA_EM_METROS = 1e-5;
+
+const perto = (a: number | null | undefined, b: number | null | undefined) =>
+  a == null || b == null ? a == null && b == null : Math.abs(a - b) < TOLERANCIA_EM_METROS;
+
+/**
+ * A face pedida é a que já está gravada?
+ *
+ * Compara altura e seções NA ORDEM (pela posição), com tolerância de 0,1 mm —
+ * o banco guarda `Float`, e uma linha escrita por outro editor pode ter o ruído
+ * binário que a borda do portal arredonda. A altura da porta só conta na seção
+ * que É porta: seção sem porta com `doorHeight` gravado (editor interno) não
+ * transforma o reenvio do mesmo desenho numa mudança.
+ */
+export function mesmaMedida(
+  gravada: MedidaComparavel | null | undefined,
+  pedida: MedidaComparavel | null | undefined,
+): boolean {
+  if (!gravada || !pedida) return !gravada && !pedida;
+  if (!perto(gravada.height, pedida.height)) return false;
+  const ordem = (s: { position: number | null }, t: { position: number | null }) =>
+    (s.position ?? 0) - (t.position ?? 0);
+  const a = [...gravada.sections].sort(ordem);
+  const b = [...pedida.sections].sort(ordem);
+  if (a.length !== b.length) return false;
+  return a.every(
+    (s, i) =>
+      perto(s.width, b[i].width) &&
+      Boolean(s.isDoor) === Boolean(b[i].isDoor) &&
+      (!s.isDoor || perto(s.doorHeight, b[i].doorHeight)),
   );
 }

@@ -59,7 +59,7 @@ a TELA. Não crie um segundo mapa de seções.
 
 | seção | libera no portal |
 |---|---|
-| `VEHICLE` | série, placa, chassi, plaqueta, medidas, categoria |
+| `VEHICLE` | série, placa, chassi, plaqueta, pedido; e o bloco `implement`: tipo, categoria, medidas (4 faces), porta traseira, projeto do implemento |
 | `LAYOUT` | artes, logomarca, arquivos-base, cores de pintura |
 | `SERVICES` | lista de serviços |
 | `PRICING` | preço unitário, subtotal, total, desconto |
@@ -157,7 +157,8 @@ não acrescente `@UseGuards`. Papel: `@ResponsibleRoles(...)` ou
 | PUT | `/cliente/me/orcamentos/:id/recusar` | `PRE_APPROVE` | `{ motivo }` → `REQUESTED` |
 | GET | `/cliente/me/veiculos` | — | frota escopada · `?semPedido=true\|false` (tri-estado) · `?orderBy=` |
 | GET | `/cliente/me/veiculos/:taskId` | — | veículo + andamento |
-| PATCH | `/cliente/me/veiculos/:taskId/identificacao` | `WRITE_VEHICLE_IDENTITY` | série/placa/chassi/plaqueta |
+| PATCH | `/cliente/me/veiculos/:taskId/identificacao` | `WRITE_VEHICLE_IDENTITY` | série/placa/chassi/plaqueta/pedido/categoria/tipo/previsão/medidas (4 faces)/porta traseira — com a trava de produção (§4.1) |
+| POST | `/cliente/me/veiculos/:taskId/projeto` | `WRITE_VEHICLE_IDENTITY` | anexa o **projeto do implemento** (multipart `implementProject`, PDF ou imagem) — §4.1 |
 | GET | `/cliente/me/pedidos` | — | pedidos de compra do cliente · `?searchingFor=` (nº, ou série/nome/placa de veículo coberto) |
 | POST | `/cliente/me/pedidos` | `WRITE_PURCHASE_ORDER` | `{ number, issuedAt?, taskIds[] }` |
 | GET | `/cliente/me/assinaturas` | — | envelopes pendentes · inclui `envelope.budgetId`, `veiculos[]` e **`pedidoDeCompra{exigido,pendente,mensagem}`** — o VEREDITO do portão do Compras, decidido no servidor |
@@ -205,10 +206,13 @@ se não tiver salvo" do dono dava 403. `POST /cliente/me/tintas` reusa
 
 ✅ **FEITA (20/09)**: `PATCH /cliente/me/veiculos/:taskId/identificacao` —
 `portal-identity.{controller,service,module}.ts` + `portal-vehicle-identity.ts`
-(a regra pura) + `schemas/portal-vehicle-identity.ts` (a borda). Corpo
-`{ serialNumber?, plate?, chassisNumber?, purchaseOrderNumber?, vinPlateFileId? }`,
-multipart com `payload` + `truckVinPlate` (máx. 1, `image/*`). Teste:
-`test:portal-identificacao`; a rota está fixada em `test:portal-cliente:boot`.
+(a regra pura) + `schemas/portal-vehicle-identity.ts` (a borda). Corpo (hoje,
+`.strict()`) `{ serialNumber?, plate?, chassisNumber?, purchaseOrderNumber?,
+vinPlateFileId?, category?, type?, forecastDate?, medidas?, portaTraseira? }` —
+as três últimas e o nome `type` desde o P13a (§4.1). Multipart com `payload` +
+`implementVinPlate` (máx. 1, `image/*`; DD13: o nome antigo `truckVinPlate` não
+existe mais). Teste: `test:portal-identificacao`; a rota está fixada em
+`test:portal-cliente:boot`.
 
 As cinco decisões que valem registro:
 
@@ -227,10 +231,110 @@ As cinco decisões que valem registro:
    `WRITE_PURCHASE_ORDER`. O gestor de frota escreve placa e chassi e **não** o
    pedido. A escrita é delegada ao `PurchaseOrderService` (escrita DUPLA);
    **apagar** o número pelo portal é recusado com 400.
-4. `Truck` é criado quando não existe (1:1 nullable), e placa/chassi/plaqueta
-   são escritos em `tx.truck` — **nunca** `plate` no topo de `Task`.
+4. Toda tarefa tem exatamente um implemento (DD1): placa, chassi, plaqueta,
+   categoria, tipo, **série** (DD14), medidas e porta são escritos em
+   `tx.implement` — **nunca** `plate` no topo de `Task`. Tarefa sem implemento
+   é 500 nomeado, não um implemento criado aqui.
 5. A resposta é a releitura por `PortalReadService.getVehicle`, com o recorte
    por seção aplicado.
+
+### 4.1 ✅ P13a (25/09) — frente, porta traseira, projeto do implemento e a trava de produção
+
+PLANO §7.3/§7.4 (rework Implemento). Tudo em `portal-identity.*`,
+`portal-request.*`, `schemas/portal-{request,vehicle-identity}.ts` e
+`portal-vehicle-identity.ts`.
+
+**A RESPOSTA MUDOU no P11b** (leitura, `GET …/veiculos/:taskId` e a releitura
+que o `PATCH` devolve): `identity` perdeu `category`, `implementType` e
+`measures`; eles vivem no bloco **`implement`**, na mesma seção `VEHICLE`:
+
+```ts
+identity?:  { serialNumber, plate, chassisNumber, vinPlate, customerOrderNumber, purchaseOrder, customer }
+implement?: {
+  id, type, category,
+  measures: { left, right, back, front },          // METROS; chave `back`, nunca `rear`
+  rearDoor: { leaves: 'BIPARTITE' | 'TRIPARTITE' | null, barCount, hatchCount } | null,
+  projectFiles: PortalFile[],
+}
+```
+
+⚠️ A LEITURA fala o enum do banco (`rearDoor.leaves: BIPARTITE`); a ESCRITA
+fala português (`portaTraseira.abertura: BIPARTIDA`). A tradução é
+`ABERTURA_DA_PORTA`/`portaParaPrisma` (`schemas/portal-request.ts`), e só ela.
+
+**A ESCRITA** (identificação e requisição, a mesma borda):
+
+```ts
+medidas?: {                              // CENTÍMETROS; .strict()
+  esquerda?, direita?, traseira?, frente?: { height, sections[] } | null,
+} | null;
+portaTraseira?: {                        // .strict(); faixas = CHECKs do banco
+  abertura?: 'BIPARTIDA' | 'TRIPARTIDA' | null;
+  varoes?: 2 | 3 | 4 | null;             // NO TOTAL
+  portinholas?: 0..6 | null;
+} | null;
+type?: ImplementType | null;             // era `implementType` — DD13: o nome antigo é 400
+```
+
+- Ausente = não mexa; `null` = apague — em cada nível (`medidas: null` apaga as
+  quatro faces; `portaTraseira: null` apaga as três colunas; `portaTraseira:
+  { varoes: 3 }` muda SÓ os varões). `medidas: {}` e `portaTraseira: {}` não
+  pedem nada: sozinhos são 400 "Informe ao menos um campo".
+- `medidas`, `portaTraseira` e (na requisição) cada `veiculos[]` são
+  `.strict()`: lado ou chave com nome errado (`frontal`, `folhas`,
+  `implementType`) é **400 nomeando a chave**, não um 200/201 sem o dado.
+- Porta fora da faixa → **400** com a frase da faixa (a mesma da tarefa e do
+  `PUT /implements/:id`).
+- ⛔ **Frente e porta NÃO entram na guarda do documento congelado** (a folha
+  assinada não imprime medida nem porta): nunca dão o 409 da coleta. A guarda
+  compara `type` pelo valor cru, lendo a chave selada `implementType` do
+  snapshot.
+- Face ou porta reenviada IGUAL ao gravado é no-op (sem escrita, sem trilha);
+  apagar uma face deixa trilha `IMPLEMENT/<coluna>`; a porta deixa
+  `IMPLEMENT/rearDoor*`. `userId: null` e o contato em `metadata`, sempre.
+- A requisição: o implemento nasce com a série, `spot: null`, `type`,
+  categoria, as faces enviadas e a porta; o recibo traz
+  `vehicles[].measureIds: { esquerda, direita, traseira, frente }`.
+
+**⛔ A TRAVA DE PRODUÇÃO (DD5, pergunta 15).** Com a tarefa em `IN_PRODUCTION`
+ou `COMPLETED`, o `PATCH` que **muda** medida (qualquer face), porta traseira
+ou série é recusado **inteiro**, antes da guarda do documento e de qualquer
+escrita:
+
+```ts
+409 {
+  statusCode: 409, error: 'Conflict',
+  message: 'O veículo já está em produção: fale com a Ankaa para corrigir a medida (Frente), a porta traseira e o número de série.',
+  fields: ['medidas.frente', 'portaTraseira', 'serialNumber'],   // os caminhos do corpo
+}
+```
+
+Reenviar o que já está gravado passa (medida comparada em metros, com 0,1 mm
+de tolerância). Placa, chassi, plaqueta, categoria, tipo, pedido e previsão
+seguem as regras de antes. `CANCELLED` **não** trava (o veículo não está sendo
+produzido). A regra é pura: `travaDeProducao` em `portal-vehicle-identity.ts`.
+
+**O PROJETO DO IMPLEMENTO** — `POST /cliente/me/veiculos/:taskId/projeto`:
+
+- multipart, campo **`implementProject`**, até 10 arquivos, cada um
+  `application/pdf` ou `image/*` (outro tipo → 400; nenhum arquivo → 400);
+- `WRITE_VEHICLE_IDENTITY`, escopo **comercial** (pagador ∨ dono) com a
+  conferência dupla; fora dele **404**, nunca 403;
+- **acrescenta** a `Implement.projectFiles` (contexto `implementProjectFiles`,
+  pasta Projetos; `File` sem `createdById`); tirar um projeto é do lado de
+  dentro (`PUT /implements/:id/project-files`);
+- trilha `IMPLEMENT/projectFiles` (lista antes × depois), como o caminho interno;
+- **sem** trava de produção;
+- **201** com a releitura do `GET` (o projeto aparece em `implement.projectFiles`).
+
+⚠️ O projeto, como todo arquivo hoje, é **público por UUID** (bloqueador §9 de
+`PORTAL-DO-RESPONSAVEL.md`).
+
+⚠️ **O web do portal (P23) acompanha** tudo isto: `api-client/portal.ts`
+(`PortalVehicleIdentityInput` com `type`, `medidas`, `portaTraseira`; o
+`implementType` de hoje passa a ser 400), `veiculo-identidade-card`,
+`step-veiculos`/`solicitacao-schema` (a requisição manda `veiculos[].type`) e o
+tratamento do 409 da trava (painel com a frase + `fields[]`).
 
 ✅ **LACUNA FECHADA (20/09)**: `POST /cliente/me/pedidos` escreve o MESMO
 `Task.customerOrderNumber` e **não tinha** a guarda do item 2 — um contato com
@@ -277,11 +381,14 @@ em `api-client/portal.ts`), **403** diz que os mapas de capacidade divergiram.
   logoName?: string;             // BudgetRequest.logoName
   paintId?: string;              // Task.paintId (tinta geral)
   novaTinta?: { name; hex; finish; paintTypeId };  // POST /paints antes
-  veiculos: Array<{
-    serialNumber?: string;       // ⚠️ TEXTO, não número
+  veiculos: Array<{               // ⚠️ .strict() desde o P13a (chave errada = 400 nomeado)
+    serialNumber?: string;       // ⚠️ TEXTO, não número — mora em Implement.serialNumber (DD14)
     plate?: string;              // PLATE_REGEX, 7 chars
     chassisNumber?: string;      // 17 chars, sem I/O/Q
-    medidas?: { esquerda?, direita?, traseira? };  // ⚠️ CENTÍMETROS na borda
+    category?: ImplementCategory;
+    type?: ImplementType;        // ⚠️ `type`, não `implementType` (DD13)
+    medidas?: { esquerda?, direita?, traseira?, frente? };  // ⚠️ CENTÍMETROS na borda
+    portaTraseira?: { abertura?: 'BIPARTIDA'|'TRIPARTIDA', varoes?: 2|3|4, portinholas?: 0..6 };
   }>;
   // arquivos-base vão por multipart, campo `baseFiles` (máx 30)
 }
@@ -295,7 +402,7 @@ Nasce `Budget{ status: REQUESTED, statusOrder: 1, subtotal: 0, total: 0 }`, **se
 `BudgetItem`**, com N `Task` (uma por veículo) e **um** `BudgetPayer`.
 
 ### ⛔ As armadilhas obrigatórias
-1. **Produto cartesiano viola as unicidades.** `Task.serialNumber` e `Truck.plate`
+1. **Produto cartesiano viola as unicidades.** `Implement.serialNumber` e `Implement.plate`
    são `@unique` GLOBAIS. N placas × 1 série → N tasks com a mesma série → 400.
    Cada veículo da requisição é um par (série, placa) **explícito**, nunca um
    produto. Faixa de série ("1001 a 1005") expande no CLIENTE para 5 linhas
@@ -305,7 +412,7 @@ Nasce `Budget{ status: REQUESTED, statusOrder: 1, subtotal: 0, total: 0 }`, **se
    por veículo, não o de faixa.
 3. **Medidas: banco em METROS, formulário em CENTÍMETROS** (÷100 na borda).
 4. **`taskUpdateSchema` NÃO é `.strict()`** — chave fora do lugar some em
-   silêncio. `truck.plate`, nunca `plate` no topo.
+   silêncio. `implement.plate`, nunca `plate` no topo.
 5. **O caminho de faixa de série DESCARTA os arquivos enviados**
    (`task.service.ts:1879-1936` declara `files` e nunca usa). Não o reuse.
 
@@ -448,7 +555,7 @@ que não depende de comparar texto livre.
 "Aplicar Desconto", "Contraproposta", "Tratar Reclamação". Filtre por TIPO no
 servidor.
 ⛔ **NUNCA** exponha: `totalActiveTimeSeconds`, `assignedTo`/`startedById`/
-`completedById`, `PAUSED`/`pausedAt`, `Truck.spot`, bonificação, `Observation`,
+`completedById`, `PAUSED`/`pausedAt`, `Implement.spot`, bonificação, `Observation`,
 `Task.details`, `Cut.reason`, `Airbrushing.price`/`painterId`, `Task.term`.
 ⚠️ Carimbos de produção são APAGADOS (O.S.→PENDING zera datas; cancelar toda O.S.
 de produção zera `Task.startedAt`; `COMPLETED→PREPARATION` é legal). A linha do

@@ -100,7 +100,7 @@ Essas sete seções descrevem, sem nenhuma adaptação, o que uma tela de portal
 
 | seção | o que libera na TELA |
 |---|---|
-| `VEHICLE` | série, placa, chassi, plaqueta, medidas, categoria |
+| `VEHICLE` | série, placa, chassi, plaqueta, pedido; tipo, categoria, medidas (4 faces), porta traseira e projeto do implemento (bloco `implement`, P11b/P13a) |
 | `LAYOUT` | artes, logomarca, arquivos-base, cores de pintura |
 | `SERVICES` | a lista de serviços contratados |
 | `PRICING` | preço unitário, subtotal, total, desconto |
@@ -413,9 +413,11 @@ O formulário que o dono descreveu, mapeado campo a campo no que já existe:
 | nome da logomarca | `BudgetRequest.logoName` | |
 | para quem irá faturar | `BudgetPayer.customerId` | é o rótulo "Faturar Para" que a UI já usa |
 | arquivos-base (imagens) | `Task.baseFiles` | `FileFieldsInterceptor`, 30 arquivos |
-| medidas do implemento | `ImplementMeasure` (esq./dir./traseira) | ⚠️ banco em **metros**, formulário em **centímetros** |
-| série (múltiplas), placa, chassi | `Task.serialNumber`, `Truck.plate`, `Truck.chassisNumber` | ⚠️ §5.4 |
-| plaqueta | `Truck.vinPlateId → File` | é **imagem**, não texto, desde `20260727150000` |
+| medidas do implemento | `ImplementMeasure` (esq./dir./traseira/**frente**) | ⚠️ banco em **metros**, formulário em **centímetros**; a frente desde o P13a |
+| porta traseira | `Implement.rearDoorLeaves/BarCount/HatchCount` | P13a: `portaTraseira: { abertura: BIPARTIDA\|TRIPARTIDA, varoes: 2\|3\|4, portinholas: 0..6 }` |
+| tipo e categoria | `Implement.type`, `Implement.category` | corpo `type` (não `implementType`, DD13) |
+| série (múltiplas), placa, chassi | `Implement.serialNumber`, `Implement.plate`, `Implement.chassisNumber` | ⚠️ §5.4; a série mora só no implemento (DD14) |
+| plaqueta | `Implement.vinPlateId → File` | é **imagem**, não texto, desde `20260727150000` |
 | cor de pintura geral | `Task.paintId` (`generalPainting`) | `Budget` **não tem** campo de tinta |
 | criar tinta nova | `POST /paints` | mínimo: `{name, hex, finish, paintTypeId}` |
 
@@ -560,6 +562,10 @@ PDF a terceiro por **token de capability** + `no-store` + `@Throttle(20/min)`:
 `Authorization` primeiro **apaga todas as imagens do sistema** — `<img src>` não passa pelo
 interceptor do axios.
 
+⚠️ Desde o P13a o próprio cliente ANEXA o **projeto do implemento** (`POST
+/cliente/me/veiculos/:taskId/projeto`), e o projeto da Furgões passa a ficar tão
+público por UUID quanto a plaqueta (PLANO do Implemento, §7.3).
+
 **Este item não é opcional para um portal que mostra plaqueta, arte e boleto.** Mas é
 pré-existente: o portal não o cria, e a fatia dele que a feature precisa (2, para responsável) é
 pequena.
@@ -584,6 +590,19 @@ pequena.
 | **WEB-4** | frota e acompanhamento | destravou `DataTable` no portal (`useOptionalAuth`) |
 | **WEB-5** | assinaturas, cobranças, pedidos | portão do Compras resolvível **na própria tela** |
 | **WEB-6** | o lado ANKAA dos estados novos | 6 defeitos que o fluxo novo teria causado |
+
+### P13a (25/09, rework Implemento) — o que o cliente escreve sobre o implemento
+
+A identificação e a requisição passaram a gravar a **frente** (4ª face) e a
+**porta traseira**; o cliente anexa o **projeto do implemento**; e, com a
+tarefa em produção (`IN_PRODUCTION`/`COMPLETED`), medida, porta e série não
+mudam mais pelo portal — 409 "O veículo já está em produção: fale com a Ankaa
+para corrigir …" (DD5, pergunta 15). Frente e porta não são impressas na folha
+assinada e ficam fora da guarda do documento congelado. O contrato exato
+(corpos, 409, rota do projeto, a resposta com o bloco `implement`) está em
+`PORTAL-CONTRATO.md` §4.1. Testes: `test:portal-identificacao` (inclusive um
+bloco contra o banco numa transação desfeita), `test:portal-requisicao`,
+`test:portal-cliente:boot`, e2e-portal 01.
 
 ### Os quatro defeitos vivos consertados de passagem
 

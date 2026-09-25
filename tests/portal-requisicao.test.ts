@@ -40,6 +40,9 @@ import { PortalScopeService } from '../src/modules/people/portal/portal-scope.se
 import {
   ALTURA_MAXIMA_CM,
   CENTIMETROS_POR_METRO,
+  LADO_DA_FACE,
+  LADOS_DO_PORTAL,
+  portaParaPrisma,
   LARGURA_MAXIMA_CM,
   MAXIMO_BASE_FILES,
   MAXIMO_VEICULOS,
@@ -349,15 +352,20 @@ console.log('\n4. MEDIDAS: CENTÍMETRO NA BORDA, METRO NO BANCO');
   });
   check('mais de 10 seções é recusado (o mesmo teto do schema interno)', !demaisSecoes.success);
 
-  const tresLados = portalVeiculoSchema.safeParse({
+  const quatroLados = portalVeiculoSchema.safeParse({
     serialNumber: '1001',
     medidas: {
       esquerda: { height: 250, sections: [{ width: 800 }] },
       direita: { height: 250, sections: [{ width: 800 }] },
       traseira: { height: 250, sections: [{ width: 250 }] },
+      frente: { height: 250, sections: [{ width: 250 }] },
     },
   });
-  check('os TRÊS lados (esquerda/direita/traseira) são aceitos', tresLados.success, motivos(tresLados));
+  check(
+    'os QUATRO lados (esquerda/direita/traseira/frente) são aceitos',
+    quatroLados.success,
+    motivos(quatroLados),
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1481,7 +1489,183 @@ async function vinculoDoRequisitante() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ⚠️ OS BLOCOS 12 E 13 SÃO ASSÍNCRONOS — eles EXERCITAM o serviço com um
+// 14. AS QUATRO FACES E A PORTA TRASEIRA (P13a) — o veículo nasce inteiro
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A frente e a porta existem no banco e na LEITURA do portal desde o P11b; até
+// aqui a requisição não tinha como mandá-las, e o implemento nascia com três
+// faces e porta nenhuma. Aqui o serviço é exercitado DE VERDADE (`criarVeiculo`
+// + o escritor único de medida) sobre uma transação de mentira que registra o
+// que seria gravado — o mesmo recurso dos blocos 12 e 13. A prova contra o
+// BANCO do mesmo `criarVeiculo` está em `test:portal-identificacao`
+// (`contraOBanco`), que roda numa transação desfeita.
+async function quatroFacesEPorta() {
+  console.log('\n14. AS QUATRO FACES E A PORTA TRASEIRA — o implemento nasce com série, `spot: null`, frente e porta');
+
+  const CM = {
+    esquerda: { height: 240, sections: [{ width: 620 }, { width: 180, isDoor: true, doorHeight: 210 }] },
+    direita: { height: 240, sections: [{ width: 615 }, { width: 185 }] },
+    traseira: { height: 245, sections: [{ width: 248 }] },
+    frente: { height: 250, sections: [{ width: 246 }] },
+  };
+
+  // ── A BORDA ───────────────────────────────────────────────────────────────
+  check(
+    'LADO_DA_FACE cobre as quatro faces da API, com a frente',
+    LADOS_DO_PORTAL.length === 4 && LADO_DA_FACE.front === 'frente' && LADO_DA_FACE.back === 'traseira',
+    JSON.stringify(LADOS_DO_PORTAL),
+  );
+  const inteiro = portalVeiculoSchema.safeParse({
+    serialNumber: '1001',
+    category: 'TRUCK',
+    type: 'DRY_CARGO',
+    medidas: CM,
+    portaTraseira: { abertura: 'TRIPARTIDA', varoes: 4, portinholas: 6 },
+  });
+  check('as QUATRO faces + a porta + `type` são aceitos', inteiro.success, motivos(inteiro));
+
+  const nomeVelho = portalVeiculoSchema.safeParse({ serialNumber: '1001', implementType: 'DRY_CARGO' });
+  check(
+    '⛔ `implementType` (o nome antigo) é RECUSADO e nomeado — DD13; antes sumiria levando o tipo junto',
+    !nomeVelho.success && /implementType/.test(JSON.stringify(nomeVelho.error.issues)),
+    JSON.stringify(nomeVelho.success ? nomeVelho.data : nomeVelho.error.issues),
+  );
+  const ladoErrado = portalVeiculoSchema.safeParse({ serialNumber: '1001', medidas: { frontal: CM.frente } });
+  check(
+    '⛔ lado com o nome errado (`frontal`) é RECUSADO e nomeado',
+    !ladoErrado.success && /frontal/.test(JSON.stringify(ladoErrado.error.issues)),
+  );
+  for (const [rotulo, porta] of [
+    ['varões 5', { varoes: 5 }],
+    ['portinholas 7', { portinholas: 7 }],
+    ['abertura QUADRIPARTIDA', { abertura: 'QUADRIPARTIDA' }],
+    ['chave desconhecida', { folhas: 'BIPARTIDA' }],
+  ] as Array<[string, Record<string, unknown>]>) {
+    const r = portalVeiculoSchema.safeParse({ serialNumber: '1001', portaTraseira: porta });
+    check(`porta traseira fora da faixa na requisição — ${rotulo} → recusada`, !r.success);
+  }
+  check(
+    'a abertura vira o enum do banco (TRIPARTIDA → TRIPARTITE)',
+    portaParaPrisma({ abertura: 'TRIPARTIDA', varoes: 4, portinholas: 6 }).rearDoorLeaves === 'TRIPARTITE',
+  );
+
+  // ── O SERVIÇO, com a transação de mentira ─────────────────────────────────
+  let criacao: any = null;
+  const medidas: Array<{ id: string; data: any }> = [];
+  const apontamentos: Record<string, string | null> = {};
+  const tx: any = {
+    task: {
+      create: async ({ data }: any) => {
+        criacao = data;
+        return {
+          id: 'task-14',
+          implement: { id: 'impl-14', serialNumber: data.implement?.create?.serialNumber ?? null },
+        };
+      },
+    },
+    implement: {
+      // O escritor lê a coluna da face antes de gravar: o implemento acabou de
+      // nascer, então toda face está vazia.
+      findUnique: async ({ select }: any) => ({
+        id: 'impl-14',
+        ...Object.fromEntries(Object.keys(select ?? {}).filter(k => k !== 'id').map(k => [k, null])),
+      }),
+      update: async ({ data }: any) => {
+        Object.assign(apontamentos, data);
+        return {};
+      },
+    },
+    implementMeasure: {
+      create: async ({ data }: any) => {
+        const id = `medida-${medidas.length + 1}`;
+        medidas.push({ id, data });
+        return { id, height: data.height, sections: data.sections?.create ?? [] };
+      },
+    },
+  };
+
+  const servico: any = new (PortalRequestService as any)(null, null, null, null, null, null);
+  const criado = await servico.criarVeiculo(tx, {
+    indice: 0,
+    veiculo: portalVeiculoSchema.parse({
+      serialNumber: 'abc-1001',
+      category: 'TRUCK',
+      type: 'DRY_CARGO',
+      medidas: CM,
+      portaTraseira: { abertura: 'TRIPARTIDA', varoes: 4, portinholas: 6 },
+    }),
+    budgetId: UUID(6),
+    customerId: UUID(7),
+    customerName: 'RKO Transportes',
+    paintId: null,
+    responsibleId: UUID(9),
+  });
+
+  const nascido = criacao?.implement?.create ?? {};
+  check(
+    'o implemento nasce com a SÉRIE (maiúscula da borda) e `spot: null` explícito',
+    nascido.serialNumber === 'ABC-1001' && 'spot' in nascido && nascido.spot === null,
+    JSON.stringify(nascido),
+  );
+  check('e com `type` e categoria', nascido.type === 'DRY_CARGO' && nascido.category === 'TRUCK');
+  check(
+    'e com a PORTA TRASEIRA já no enum do banco (TRIPARTITE, 4, 6)',
+    nascido.rearDoorLeaves === 'TRIPARTITE' && nascido.rearDoorBarCount === 4 && nascido.rearDoorHatchCount === 6,
+    JSON.stringify(nascido),
+  );
+  check(
+    'a série NÃO vai no topo da tarefa (DD14: a tarefa não tem a coluna)',
+    !('serialNumber' in (criacao ?? {})),
+  );
+  check(
+    'as QUATRO faces passam pelo escritor único (uma linha de medida por face)',
+    medidas.length === 4,
+    `${medidas.length} medida(s)`,
+  );
+  check(
+    'e a FRENTE aponta a sua linha (`frontSideMeasureId`)',
+    ['leftSideMeasureId', 'rightSideMeasureId', 'backSideMeasureId', 'frontSideMeasureId'].every(
+      coluna => typeof apontamentos[coluna] === 'string',
+    ),
+    JSON.stringify(apontamentos),
+  );
+  const frente = medidas.find(m => m.id === apontamentos.frontSideMeasureId)?.data;
+  check(
+    'a frente vai em METROS (250 cm → 2,5 m; 246 cm → 2,46 m)',
+    frente?.height === 2.5 && frente?.sections?.create?.[0]?.width === 2.46,
+    JSON.stringify(frente),
+  );
+  check(
+    'o recibo traz o id da medida das quatro faces, com a chave de borda',
+    JSON.stringify(Object.keys(criado?.measureIds ?? {})) ===
+      JSON.stringify(['esquerda', 'direita', 'traseira', 'frente']) &&
+      criado.measureIds.frente === apontamentos.frontSideMeasureId,
+    JSON.stringify(criado?.measureIds),
+  );
+
+  // Sem porta nem medida: nada de porta inventada.
+  criacao = null;
+  await servico.criarVeiculo(
+    { ...tx, task: { create: async ({ data }: any) => ((criacao = data), { id: 't', implement: { id: 'i', serialNumber: null } }) } },
+    {
+      indice: 0,
+      veiculo: portalVeiculoSchema.parse({ serialNumber: '1002' }),
+      budgetId: UUID(6),
+      customerId: UUID(7),
+      customerName: 'RKO Transportes',
+      paintId: null,
+      responsibleId: UUID(9),
+    },
+  );
+  check(
+    'veículo sem porta nasce SEM as colunas da porta no `create` (nulas pelo banco, não inventadas)',
+    criacao && !('rearDoorLeaves' in criacao.implement.create) && !('rearDoorBarCount' in criacao.implement.create),
+    JSON.stringify(criacao?.implement?.create),
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚠️ OS BLOCOS 12, 13 E 14 SÃO ASSÍNCRONOS — eles EXERCITAM o serviço com um
 // `prisma` de mentira, em vez de inspecionar a fonte. O resumo tem de esperá-los:
 // um `process.exit` síncrono aqui embaixo encerraria o processo antes de a
 // primeira asserção deles rodar, e o teste passaria sem ter testado nada.
@@ -1489,6 +1673,7 @@ async function vinculoDoRequisitante() {
 void (async () => {
   await reaproveitamentoDoCadastro();
   await vinculoDoRequisitante();
+  await quatroFacesEPorta();
 
   console.log(
     failures === 0

@@ -17,7 +17,7 @@
 //      (`taskCreateSchema.serialNumberFrom/To`, `z.number().int().positive()`,
 //      `schemas/task.ts:2617-2630`) e não sabe dizer `ABC-123456`. Aqui cada
 //      veículo traz a sua série como string — que é o que o banco sempre
-//      guardou (`Task.serialNumber String?`).
+//      guardou (hoje `Implement.serialNumber String?`, DD14).
 //
 //   3. MEDIDAS EM CENTÍMETROS. O banco guarda METROS
 //      (`ImplementMeasure.height`, `ImplementMeasureSection.width`, ambos
@@ -25,7 +25,7 @@
 //      centímetros, e a conversão é UMA, aqui na borda — ver
 //      `centimetrosParaMetros`.
 //
-//   4. PAR (SÉRIE, PLACA) EXPLÍCITO. `Task.serialNumber` e `Implement.plate` são
+//   4. PAR (SÉRIE, PLACA) EXPLÍCITO. `Implement.serialNumber` e `Implement.plate` são
 //      `@unique` GLOBAIS. O formulário interno emite o PRODUTO CARTESIANO de
 //      placas × séries, que viola as duas unicidades por construção. Aqui
 //      `veiculos[]` é uma lista de tuplas — N placas com a mesma série é
@@ -33,13 +33,23 @@
 //
 // ⚠️ Nada em zod é `.strict()` neste repositório, e chave fora do lugar some em
 // SILÊNCIO. Por isso os nomes daqui são os nomes que o serviço lê, e o teste
-// `tests/portal-requisicao.test.ts` fixa cada um deles.
+// `tests/portal-requisicao.test.ts` fixa cada um deles. As peças do VEÍCULO
+// (`veiculos[]`, `medidas`, `portaTraseira`) são `.strict()` desde o P13a: ali uma
+// chave errada custava um veículo criado sem o dado, e o topo da requisição
+// continua como era.
 
 import { z } from 'zod';
 import { cleanCNPJ, cleanCPF, isValidCNPJ, isValidCPF } from '@utils';
-import { PAINT_FINISH } from '@constants';
+import { PAINT_FINISH, REAR_DOOR_LEAVES } from '@constants';
 import { ImplementType, ImplementCategory } from '@prisma/client';
-import { chassisNumberSchema, hexColorSchema, plateSchema } from './common';
+import { IMPLEMENT_FACES, type ImplementFace } from '../constants/implement-faces';
+import {
+  chassisNumberSchema,
+  hexColorSchema,
+  plateSchema,
+  rearDoorBarCountSchema,
+  rearDoorHatchCountSchema,
+} from './common';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // A CONVERSÃO — centímetros na borda, metros no banco
@@ -390,11 +400,149 @@ export const portalMedidaLadoSchema = z
     },
   );
 
-export const portalMedidasSchema = z.object({
-  esquerda: portalMedidaLadoSchema.nullable().optional(),
-  direita: portalMedidaLadoSchema.nullable().optional(),
-  traseira: portalMedidaLadoSchema.nullable().optional(),
-});
+/**
+ * A CHAVE DE BORDA DE CADA FACE — o português do formulário, a lista única do
+ * portal.
+ *
+ * O banco e o resto da API falam `left/right/back/front`
+ * (`constants/implement-faces.ts`); o formulário do portal fala
+ * `esquerda/direita/traseira/frente`. Este mapa é a ÚNICA tradução entre os
+ * dois: a identificação e a requisição percorrem `LADOS_DO_PORTAL`, e o
+ * `satisfies` faz uma quinta face quebrar o `tsc` aqui em vez de sumir em
+ * silêncio num dos dois serviços (a frente já foi esquecida assim uma vez: a
+ * leitura a mostrava e nenhuma escrita a gravava).
+ */
+export const LADO_DA_FACE = {
+  left: 'esquerda',
+  right: 'direita',
+  back: 'traseira',
+  front: 'frente',
+} as const satisfies Record<ImplementFace, string>;
+
+export type LadoDoPortal = (typeof LADO_DA_FACE)[ImplementFace];
+
+/** As faces na ordem da API, cada uma com a sua chave de borda. */
+export const LADOS_DO_PORTAL: ReadonlyArray<{ face: ImplementFace; chave: LadoDoPortal }> =
+  IMPLEMENT_FACES.map(face => ({ face, chave: LADO_DA_FACE[face] }));
+
+/**
+ * AS QUATRO FACES, em centímetros.
+ *
+ * ⛔ `.strict()`, e por um motivo concreto: um lado com a chave errada
+ * (`frontal`, `rear`) sumiria em silêncio, o corpo chegaria como `medidas: {}`
+ * e a rota responderia 200 sem gravar nada — o defeito que a identificação já
+ * teve com categoria e implemento. Estrito, a resposta NOMEIA a chave.
+ */
+export const portalMedidasSchema = z
+  .object({
+    esquerda: portalMedidaLadoSchema.nullable().optional(),
+    direita: portalMedidaLadoSchema.nullable().optional(),
+    traseira: portalMedidaLadoSchema.nullable().optional(),
+    /** A FRENTE (P11b/P13a): mesma forma dos outros lados; foto só pelo sistema interno. */
+    frente: portalMedidaLadoSchema.nullable().optional(),
+  })
+  .strict();
+
+export type PortalMedidasFormData = z.infer<typeof portalMedidasSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A PORTA TRASEIRA — as palavras do cliente na borda, o enum no banco
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A ABERTURA como o cliente a diz, e o valor que o banco guarda.
+ *
+ * ⚠️ A borda do portal fala português (`BIPARTIDA`/`TRIPARTIDA`) como o resto
+ * do corpo (`medidas.esquerda`, `portaTraseira.varoes`); a coluna é o enum
+ * `REAR_DOOR_LEAVES` (`BIPARTITE`/`TRIPARTITE`), que é também o que a LEITURA
+ * do portal devolve em `implement.rearDoor.leaves`. A tradução é esta tabela,
+ * e só ela.
+ */
+export const ABERTURA_DA_PORTA = {
+  BIPARTIDA: REAR_DOOR_LEAVES.BIPARTITE,
+  TRIPARTIDA: REAR_DOOR_LEAVES.TRIPARTITE,
+} as const satisfies Record<string, REAR_DOOR_LEAVES>;
+
+export type AberturaDaPorta = keyof typeof ABERTURA_DA_PORTA;
+
+const ABERTURAS = Object.keys(ABERTURA_DA_PORTA) as [AberturaDaPorta, ...AberturaDaPorta[]];
+
+/** `''`/`'null'` viram `null` (apagar); número em texto (FormData) vira número. */
+const inteiroDaPorta = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(valor => {
+    if (typeof valor !== 'string') return valor;
+    const texto = valor.trim();
+    if (texto === '' || texto === 'null') return null;
+    const numero = Number(texto);
+    return Number.isNaN(numero) ? valor : numero;
+  }, schema.nullable().optional());
+
+/**
+ * `portaTraseira: { abertura, varoes, portinholas }` (DD4).
+ *
+ * As FAIXAS são as mesmas da tarefa e do `PUT /implements/:id` — os schemas de
+ * `schemas/common.ts`, reusados, que repetem os CHECKs do banco: varões 2, 3 ou
+ * 4 NO TOTAL, portinholas de 0 a 6. Sem regra cruzada: bipartida/tripartida é
+ * preset, não amarra os varões.
+ *
+ * Cada chave segue a regra de `PATCH` do portal: ausente = não mexa, `null` =
+ * apague. `.strict()` pelo mesmo motivo das medidas — `folhas` no lugar de
+ * `abertura` seria um 200 que não grava.
+ */
+export const portalPortaTraseiraSchema = z
+  .object({
+    abertura: z.preprocess(
+      valor => {
+        if (typeof valor !== 'string') return valor;
+        const texto = valor.trim().toUpperCase();
+        return texto === '' || texto === 'NULL' ? null : texto;
+      },
+      z
+        .enum(ABERTURAS, {
+          errorMap: () => ({ message: 'Porta traseira: abertura BIPARTIDA ou TRIPARTIDA.' }),
+        })
+        .nullable()
+        .optional(),
+    ),
+    varoes: inteiroDaPorta(rearDoorBarCountSchema),
+    portinholas: inteiroDaPorta(rearDoorHatchCountSchema),
+  })
+  .strict();
+
+export type PortalPortaTraseiraFormData = z.infer<typeof portalPortaTraseiraSchema>;
+
+/** As três colunas da porta no implemento. Chave AUSENTE = não mexa. */
+export interface PortaTraseiraPrisma {
+  rearDoorLeaves?: REAR_DOOR_LEAVES | null;
+  rearDoorBarCount?: number | null;
+  rearDoorHatchCount?: number | null;
+}
+
+/**
+ * A porta do corpo → as colunas do implemento.
+ *
+ * `null` no objeto inteiro apaga as três; `undefined` não mexe em nada; dentro
+ * do objeto, cada chave ausente fica AUSENTE da saída (e não `null`), para que
+ * o `PATCH` de só os varões não apague a abertura.
+ *
+ * Aqui, e não no serviço, para que o teste prove a tradução sem banco — o mesmo
+ * motivo de `medidaParaPrisma`.
+ */
+export function portaParaPrisma(
+  porta: PortalPortaTraseiraFormData | null | undefined,
+): PortaTraseiraPrisma {
+  if (porta === undefined) return {};
+  if (porta === null) {
+    return { rearDoorLeaves: null, rearDoorBarCount: null, rearDoorHatchCount: null };
+  }
+  const saida: PortaTraseiraPrisma = {};
+  if (porta.abertura !== undefined) {
+    saida.rearDoorLeaves = porta.abertura === null ? null : ABERTURA_DA_PORTA[porta.abertura];
+  }
+  if (porta.varoes !== undefined) saida.rearDoorBarCount = porta.varoes;
+  if (porta.portinholas !== undefined) saida.rearDoorHatchCount = porta.portinholas;
+  return saida;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // O VEÍCULO — o par (série, placa) EXPLÍCITO
@@ -422,30 +570,42 @@ export const portalSerialSchema = z.preprocess(
     .refine(valor => !valor || SERIAL_REGEX.test(valor), { message: SERIAL_INVALIDO_MENSAGEM }),
 );
 
-export const portalVeiculoSchema = z.object({
-  /** ⚠️ TEXTO — `ABC-123456` é uma série válida. */
-  serialNumber: portalSerialSchema,
-  /** `plateSchema` (schemas/common.ts) — limpa, valida antiga e Mercosul. */
-  plate: plateSchema,
-  /** `chassisNumberSchema` — 17 caracteres, sem I/O/Q. */
-  chassisNumber: chassisNumberSchema,
-  /**
-   * CATEGORIA E IMPLEMENTO — na PORTA, e não só depois.
-   *
-   * ⚠️ São dado do cliente, e ele os conhece no momento em que pede o
-   * orçamento: pedi-los aqui evita a ida e volta de "qual é o implemento?" que
-   * o comercial fazia por telefone antes de precificar — pintura de baú
-   * frigorífico não custa o mesmo que a de um sider.
-   *
-   * Opcionais de propósito: quem não souber deixa em branco, e o campo continua
-   * corrigível no portal (`PATCH …/identificacao`) até a assinatura congelar a
-   * folha.
-   */
-  category: z.nativeEnum(ImplementCategory).nullable().optional(),
-  implementType: z.nativeEnum(ImplementType).nullable().optional(),
-  /** ⚠️ EM CENTÍMETROS. O serviço divide por 100 antes de gravar. */
-  medidas: portalMedidasSchema.nullable().optional(),
-});
+export const portalVeiculoSchema = z
+  .object({
+    /** ⚠️ TEXTO — `ABC-123456` é uma série válida. Mora no IMPLEMENTO (DD1/DD14). */
+    serialNumber: portalSerialSchema,
+    /** `plateSchema` (schemas/common.ts) — limpa, valida antiga e Mercosul. */
+    plate: plateSchema,
+    /** `chassisNumberSchema` — 17 caracteres, sem I/O/Q. */
+    chassisNumber: chassisNumberSchema,
+    /**
+     * CATEGORIA E TIPO DO IMPLEMENTO — na PORTA, e não só depois.
+     *
+     * ⚠️ São dado do cliente, e ele os conhece no momento em que pede o
+     * orçamento: pedi-los aqui evita a ida e volta de "qual é o implemento?" que
+     * o comercial fazia por telefone antes de precificar — pintura de baú
+     * frigorífico não custa o mesmo que a de um sider.
+     *
+     * Opcionais de propósito: quem não souber deixa em branco, e o campo continua
+     * corrigível no portal (`PATCH …/identificacao`) até a assinatura congelar a
+     * folha.
+     *
+     * ⚠️ `type`, o nome da coluna (`Implement.type`, NOMENCLATURA §1). O nome
+     * antigo `implementType` NÃO é aceito (DD13: sem valor antigo, nem para
+     * compatibilidade) — e, com o `.strict()` abaixo, ele é RECUSADO com o nome
+     * da chave em vez de sumir em silêncio levando o tipo escolhido junto.
+     */
+    category: z.nativeEnum(ImplementCategory).nullable().optional(),
+    type: z.nativeEnum(ImplementType).nullable().optional(),
+    /** ⚠️ EM CENTÍMETROS, as quatro faces. O serviço divide por 100 antes de gravar. */
+    medidas: portalMedidasSchema.nullable().optional(),
+    /** A porta traseira (DD4) — palavras na borda, enum no banco (`portaParaPrisma`). */
+    portaTraseira: portalPortaTraseiraSchema.nullable().optional(),
+  })
+  // Chave desconhecida num veículo é recusada e nomeada. Sem isto, `implementType`
+  // (o nome antigo) ou `medida` (sem o s) viravam um veículo criado SEM o dado,
+  // com 201 na cara do cliente.
+  .strict();
 
 export const MAXIMO_VEICULOS = 100;
 export const MAXIMO_BASE_FILES = 30;

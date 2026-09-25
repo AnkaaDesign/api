@@ -2,7 +2,8 @@
 //
 // `PATCH /cliente/me/veiculos/:taskId/identificacao` — a ÚLTIMA rota do §4 do
 // contrato, e a que o `web` já chamava recebendo 404
-// (`web/src/api-client/portal.ts` → `updateVehicleIdentity`).
+// (`web/src/api-client/portal.ts` → `updateVehicleIdentity`) — e, desde o P13a,
+// `POST /cliente/me/veiculos/:taskId/projeto`, o projeto do implemento.
 //
 // Controller SEPARADO de `portal-read.controller.ts` pelo mesmo motivo que
 // `portal-decision.controller.ts`: aquele LÊ e este ESCREVE, e a diferença
@@ -28,9 +29,12 @@
 import {
   Body,
   Controller,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
@@ -50,6 +54,12 @@ import { PortalIdentityService } from './portal-identity.service';
 
 /** A plaqueta é UMA foto. Mais de uma não é "mais informação": é ambiguidade. */
 export const MAXIMO_PLAQUETAS = 1;
+
+/**
+ * O projeto do implemento: o PDF da fábrica e, às vezes, as fotos das pranchas.
+ * Dez por envio basta para isso e barra o upload de uma pasta inteira por engano.
+ */
+export const MAXIMO_PROJETOS = 10;
 
 @Controller('cliente/me')
 @ResponsibleOnly()
@@ -85,11 +95,17 @@ export class PortalIdentityController {
    * consulta que devolve `null` e vira o 404 de "não é seu" — que diria a coisa
    * errada sobre um id que nunca poderia existir.
    *
+   * MEDIDAS E PORTA (P13a) — `medidas.{esquerda,direita,traseira,frente}` em
+   * CENTÍMETROS e `portaTraseira: { abertura: BIPARTIDA|TRIPARTIDA, varoes:
+   * 2|3|4, portinholas: 0..6 }`. Nenhuma das duas é impressa no documento
+   * assinado, então nenhuma dá o 409 da coleta; as duas (e a série) dão o 409
+   * da TRAVA DE PRODUÇÃO.
+   *
    * RESPOSTAS
    *   · 200 — o veículo RELIDO pelo `GET`, já recortado por seção.
-   *   · 400 — corpo vazio, chave desconhecida, valor inválido, OU colisão de
-   *           unicidade (`{ message, errors[], conflicts[] }`, o mesmo contrato
-   *           de erro da requisição).
+   *   · 400 — corpo vazio, chave desconhecida, valor inválido (porta fora da
+   *           faixa inclusive), OU colisão de unicidade (`{ message, errors[],
+   *           conflicts[] }`, o mesmo contrato de erro da requisição).
    *   · 403 — `purchaseOrderNumber` enviado por quem não tem
    *           `WRITE_PURCHASE_ORDER` (o gestor de frota escreve placa e chassi,
    *           e não o pedido de compra).
@@ -99,6 +115,11 @@ export class PortalIdentityController {
    *   · 409 — ⛔ o orçamento está em coleta de assinaturas (ou já assinado) e o
    *           documento congelado IMPRIME o valor que se quer trocar. Preencher
    *           o que estava em branco passa; sobrescrever, não.
+   *   · 409 — ⛔ a TRAVA DE PRODUÇÃO: a tarefa está em `IN_PRODUCTION` ou
+   *           `COMPLETED` e o corpo MUDA medida, porta traseira ou série.
+   *           `{ message: "O veículo já está em produção: fale com a Ankaa para
+   *           corrigir …", fields: ['medidas.frente', 'portaTraseira', …] }`.
+   *           Reenviar o valor que já está gravado passa.
    */
   @Patch('veiculos/:taskId/identificacao')
   @PortalCapability(PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY)
@@ -117,6 +138,38 @@ export class PortalIdentityController {
   ) {
     return this.identity.atualizarIdentificacao(principal, taskId, dados, {
       implementVinPlate: arquivos?.implementVinPlate,
+    });
+  }
+
+  /**
+   * ANEXA O PROJETO DO IMPLEMENTO (o desenho do furgão) — `Implement.projectFiles`.
+   *
+   * CORPO — `multipart/form-data`, campo `implementProject`, até
+   * `MAXIMO_PROJETOS` arquivos, cada um PDF ou imagem. Não há campo de texto:
+   * o ato é o arquivo. O mesmo portão da identificação
+   * (`WRITE_VEHICLE_IDENTITY`, PLANO §7.3/DD5) e o mesmo escopo COMERCIAL.
+   *
+   * ACRESCENTA à lista (não substitui): tirar um projeto é do lado de dentro.
+   *
+   * RESPOSTAS
+   *   · 201 — o veículo RELIDO pelo `GET` (o projeto aparece em
+   *           `implement.projectFiles`).
+   *   · 400 — nenhum arquivo, ou arquivo que não é PDF nem imagem.
+   *   · 404 — veículo inexistente OU fora do escopo comercial. Nunca 403.
+   */
+  @Post('veiculos/:taskId/projeto')
+  @HttpCode(HttpStatus.CREATED)
+  @PortalCapability(PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY)
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'implementProject', maxCount: MAXIMO_PROJETOS }], multerConfig),
+  )
+  async enviarProjeto(
+    @CurrentResponsible() principal: ResponsiblePrincipal,
+    @Param('taskId', new ParseUUIDPipe()) taskId: string,
+    @UploadedFiles() arquivos?: Record<string, Express.Multer.File[]>,
+  ) {
+    return this.identity.enviarProjeto(principal, taskId, {
+      implementProject: arquivos?.implementProject,
     });
   }
 }

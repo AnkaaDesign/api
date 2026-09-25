@@ -53,7 +53,12 @@
 
 import { z } from 'zod';
 import { chassisNumberSchema, plateSchema } from './common';
-import { desempacotarPayload, portalMedidasSchema, portalSerialSchema } from './portal-request';
+import {
+  desempacotarPayload,
+  portalMedidasSchema,
+  portalPortaTraseiraSchema,
+  portalSerialSchema,
+} from './portal-request';
 import { ImplementType, ImplementCategory } from '@prisma/client';
 
 /** O mesmo teto de `Task.customerOrderNumber` (`String?`, máx. 100 no schema). */
@@ -158,7 +163,7 @@ export const portalIdentificacaoCorpoSchema = z
      * legível". Quem mandar texto aqui recebe "uuid inválido", que é honesto.
      */
     /**
-     * A CATEGORIA E O IMPLEMENTO — dado do cliente, e enum.
+     * A CATEGORIA E O TIPO DO IMPLEMENTO — dado do cliente, e enum.
      *
      * ⚠️ `''` e `'null'` viram `null`, como nos demais: o contato que LIMPA a
      * escolha está dizendo "não sei", e isso é uma resposta legítima — o
@@ -169,11 +174,15 @@ export const portalIdentificacaoCorpoSchema = z
      * estouraria no Prisma como erro de servidor, que é a forma mais cara de
      * dizer "esse valor não existe".
      *
+     * ⚠️ `type`, o nome da coluna (`Implement.type`). O nome antigo
+     * `implementType` é RECUSADO pelo `.strict()` (DD13: nenhum valor antigo,
+     * nem para compatibilidade).
+     *
      * ⛔ Os dois passam pela MESMA guarda de documento congelado da placa
      * (`VEHICLE_IDENTITY_FIELDS`), porque a folha assinada os imprime.
      */
     category: enumOpcional(ImplementCategory, 'Categoria do veículo'),
-    implementType: enumOpcional(ImplementType, 'Tipo de implemento'),
+    type: enumOpcional(ImplementType, 'Tipo de implemento'),
 
     /**
      * A PREVISÃO DE LIBERAÇÃO — quando o CLIENTE entrega o veículo à Ankaa.
@@ -199,7 +208,8 @@ export const portalIdentificacaoCorpoSchema = z
     ),
 
     /**
-     * AS MEDIDAS DO IMPLEMENTO — em CENTÍMETROS, como na requisição.
+     * AS MEDIDAS DO IMPLEMENTO — em CENTÍMETROS, como na requisição, nas QUATRO
+     * faces (`esquerda`, `direita`, `traseira`, `frente`).
      *
      * ⛔ O cliente DESENHA o implemento no assistente de requisição e, até
      * aqui, não tinha como corrigi-lo depois: o portal mostrava três tabelas de
@@ -214,9 +224,25 @@ export const portalIdentificacaoCorpoSchema = z
      * ⚠️ E NÃO ENTRA NA GUARDA DO DOCUMENTO CONGELADO: ao contrário de placa,
      * chassi, categoria e implemento, a medida NÃO é impressa na folha
      * assinada nem guardada no snapshot (conferido em `quote-snapshot.service`
-     * e `quote-html.builder`). Não há o que contradizer.
+     * e `quote-html.builder`). Não há o que contradizer — a frente inclusive.
+     *
+     * ⛔ MAS ENTRA NA TRAVA DE PRODUÇÃO (DD5): com a tarefa em `IN_PRODUCTION`
+     * ou concluída, mudar uma face é 409 — a produção já corta e pinta por ela.
+     *
+     * `null` no objeto inteiro apaga as quatro faces; `null` num lado apaga só
+     * aquele lado; lado ausente não é tocado.
      */
     medidas: portalMedidasSchema.nullable().optional(),
+
+    /**
+     * A PORTA TRASEIRA — `{ abertura: BIPARTIDA | TRIPARTIDA, varoes: 2|3|4,
+     * portinholas: 0..6 }` (DD4), traduzida para as colunas por `portaParaPrisma`.
+     *
+     * Fora da guarda do documento congelado pelo mesmo motivo da medida (a
+     * folha não a imprime); dentro da trava de produção, também como a medida.
+     * `null` apaga as três colunas; dentro do objeto, chave ausente não mexe.
+     */
+    portaTraseira: portalPortaTraseiraSchema.nullable().optional(),
 
     vinPlateFileId: z.preprocess(
       valor => {
@@ -245,18 +271,40 @@ export const portalIdentificacaoSchema = z.preprocess(
 
 export type PortalIdentificacaoFormData = z.infer<typeof portalIdentificacaoSchema>;
 
-/** As chaves de corpo que, presentes, significam uma escrita. */
+/**
+ * As chaves de corpo que, presentes, significam uma escrita.
+ *
+ * ⛔ TODA chave nova do corpo entra aqui E na conta `mexeNoImplemento` do
+ * serviço. Esquecer uma das duas é o "200 que não grava": a rota aceita, a
+ * checagem de corpo vazio passa ou recusa pelo motivo errado, e a escrita pula
+ * o bloco do implemento em silêncio. `test:portal-identificacao` confere que as
+ * duas listas cobrem o schema inteiro.
+ */
 export const CAMPOS_DE_IDENTIFICACAO = [
   'forecastDate',
   'medidas',
+  'portaTraseira',
   'serialNumber',
   'plate',
   'chassisNumber',
   'purchaseOrderNumber',
   'category',
-  'implementType',
+  'type',
   'vinPlateFileId',
 ] as const;
+
+/**
+ * Um objeto aninhado (`medidas`, `portaTraseira`) só é escrita se tiver ao
+ * menos uma chave PRESENTE. `medidas: {}` não pede nada — tratá-lo como
+ * mudança era outro caminho para o 200 que não grava.
+ */
+function pedeAlgo(valor: unknown): boolean {
+  if (valor === undefined) return false;
+  // Só o objeto LITERAL é olhado por dentro: `forecastDate` chega como `Date`,
+  // que também é `object` e não tem chave própria nenhuma.
+  if (valor === null || Object.getPrototypeOf(valor) !== Object.prototype) return true;
+  return Object.values(valor as Record<string, unknown>).some(v => v !== undefined);
+}
 
 /**
  * HÁ ALGO PARA MUDAR? (a regra 3 do cabeçalho, com o arquivo incluído)
@@ -280,10 +328,9 @@ export function temAlgoParaMudar(
 ): boolean {
   if (opcoes?.temPlaqueta) return true;
   if (!corpo) return false;
-  return CAMPOS_DE_IDENTIFICACAO.some(
-    campo => (corpo as Record<string, unknown>)[campo] !== undefined,
-  );
+  return CAMPOS_DE_IDENTIFICACAO.some(campo => pedeAlgo((corpo as Record<string, unknown>)[campo]));
 }
 
 export const NADA_PARA_MUDAR_MENSAGEM =
-  'Informe ao menos um campo para alterar (série, placa, chassi, plaqueta ou pedido de compra).';
+  'Informe ao menos um campo para alterar (série, placa, chassi, plaqueta, pedido de compra, ' +
+  'categoria, tipo, medidas, porta traseira ou previsão de liberação).';

@@ -76,6 +76,7 @@
 
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -100,17 +101,95 @@ import { PortalReadService } from './portal-read.service';
 import { commercialTaskLink, PortalScopeService } from './portal-scope.service';
 import { hasCapability, PORTAL_CAPABILITY } from './portal-capabilities';
 import { assertIdentidadeNaoContradizDocumento } from './portal-frozen-document';
-import { medidaParaPrisma } from '@/schemas/portal-request';
-import { FACE_FK, setFace } from '@modules/production/implement-measure/implement-measure-writer';
+import {
+  LADOS_DO_PORTAL,
+  medidaParaPrisma,
+  portaParaPrisma,
+  type LadoDoPortal,
+  type PortaTraseiraPrisma,
+} from '@/schemas/portal-request';
+import {
+  FACE_FK,
+  FACE_REL,
+  setFace,
+  type FaceFk,
+  type FaceRel,
+  type ImplementFace,
+  type MeasureInput,
+} from '@modules/production/implement-measure/implement-measure-writer';
+import { IMPLEMENT_REAR_DOOR_FIELDS } from '@/constants/implement-faces';
 import {
   VEHICLE_IDENTITY_FIELDS,
+  mesmaMedida,
+  travaDeProducao,
   type DesiredVehicleIdentity,
+  type MudancaTravavel,
 } from './portal-vehicle-identity';
 
 /** O que o multipart entrega. Só a plaqueta importa nesta rota. */
 export interface PortalIdentificacaoArquivos {
   implementVinPlate?: Express.Multer.File[];
 }
+
+/** O multipart de `POST …/projeto`: o campo `implementProject`. */
+export interface PortalProjetoArquivos {
+  implementProject?: Express.Multer.File[];
+}
+
+export const PROJETO_AUSENTE_MENSAGEM =
+  'Envie o projeto do implemento (PDF ou imagem) no campo `implementProject`.';
+
+/**
+ * O PROJETO DO IMPLEMENTO É PDF OU IMAGEM.
+ *
+ * `multerConfig` aceita a lista inteira do sistema (EPS, planilha, vídeo…),
+ * porque é o mesmo config de dez rotas. O projeto do furgão chega como o PDF
+ * da fábrica ou a foto dele; um `.xlsx` aqui não teria miniatura nem leitura na
+ * produção, e o erro só apareceria lá.
+ */
+export function ehArquivoDeProjeto(mimetype: string | null | undefined): boolean {
+  const tipo = String(mimetype ?? '').toLowerCase();
+  return tipo === 'application/pdf' || tipo.startsWith('image/');
+}
+
+/** O mínimo para enviar o projeto: o escopo comercial e a lista atual. */
+const projetoSelectFor = (customerId: string) =>
+  ({
+    id: true,
+    customerId: true,
+    customer: { select: { fantasyName: true } },
+    implement: { select: { id: true, projectFiles: { select: { id: true } } } },
+    billingEntry: {
+      select: {
+        billing: {
+          select: { customerConfigs: { where: { customerId }, select: { customerId: true } } },
+        },
+      },
+    },
+  }) as const;
+
+/** O desenho gravado de uma face — o bastante para saber se o pedido o MUDA. */
+const MEDIDA_GRAVADA = {
+  select: {
+    height: true,
+    sections: {
+      select: { width: true, isDoor: true, doorHeight: true, position: true },
+      orderBy: { position: 'asc' },
+    },
+  },
+} as const;
+
+/**
+ * As quatro faces, com o desenho. O `satisfies` amarra a lista ao escritor: uma
+ * quinta face em `FACE_REL` quebra o `tsc` aqui, em vez de a trava de produção
+ * e a comparação de no-op ficarem cegas para ela.
+ */
+const FACES_GRAVADAS = {
+  leftSideMeasure: MEDIDA_GRAVADA,
+  rightSideMeasure: MEDIDA_GRAVADA,
+  backSideMeasure: MEDIDA_GRAVADA,
+  frontSideMeasure: MEDIDA_GRAVADA,
+} as const satisfies Record<FaceRel, typeof MEDIDA_GRAVADA>;
 
 /**
  * O VEÍCULO, com a prova do laço comercial junto.
@@ -125,6 +204,9 @@ const taskSelectFor = (customerId: string) =>
   ({
     id: true,
     name: true,
+    // A TRAVA DE PRODUÇÃO lê o estado da tarefa (DD5): sem ele, a trava nunca
+    // morderia — e não daria erro nenhum.
+    status: true,
     quoteId: true,
     customerId: true,
     customerOrderNumber: true,
@@ -136,7 +218,6 @@ const taskSelectFor = (customerId: string) =>
       select: {
         serialNumber: true,
         id: true,
-        
         plate: true,
         chassisNumber: true,
         category: true,
@@ -144,6 +225,11 @@ const taskSelectFor = (customerId: string) =>
         leftSideMeasureId: true,
         rightSideMeasureId: true,
         backSideMeasureId: true,
+        frontSideMeasureId: true,
+        ...FACES_GRAVADAS,
+        rearDoorLeaves: true,
+        rearDoorBarCount: true,
+        rearDoorHatchCount: true,
         vinPlateId: true,
       },
     },
@@ -156,12 +242,43 @@ const taskSelectFor = (customerId: string) =>
     },
   }) as const;
 
-/** Os lados da medida no portal, a face de cada um e a coluna dela no implemento. */
-const LADOS_DA_MEDIDA = [
-  { chave: 'esquerda', face: 'left', coluna: FACE_FK.left },
-  { chave: 'direita', face: 'right', coluna: FACE_FK.right },
-  { chave: 'traseira', face: 'back', coluna: FACE_FK.back },
-] as const;
+type TaskDaIdentidade = Prisma.TaskGetPayload<{ select: ReturnType<typeof taskSelectFor> }>;
+
+/**
+ * Os lados da medida no portal, a face de cada um e a coluna dela no implemento
+ * — as QUATRO faces, derivadas da lista única da borda (`LADOS_DO_PORTAL`). A
+ * frente entrou aqui no P13a; antes a leitura a mostrava e esta escrita não.
+ */
+const LADOS_DA_MEDIDA = LADOS_DO_PORTAL.map(({ face, chave }) => ({
+  chave,
+  face,
+  coluna: FACE_FK[face],
+  relacao: FACE_REL[face],
+}));
+
+/** Uma face que o pedido de fato muda (a que não muda nem chega aqui). */
+interface FaceAEscrever {
+  face: ImplementFace;
+  chave: LadoDoPortal;
+  coluna: FaceFk;
+  atualId: string | null;
+  /** Em METROS; `null` = apagar a face. */
+  desejada: MeasureInput | null;
+}
+
+/**
+ * O QUE O PEDIDO MUDA NO IMPLEMENTO, já reduzido ao que difere do gravado.
+ *
+ * Calculado UMA vez, antes de qualquer escrita, e usado duas: pela trava de
+ * produção (que só julga o que muda) e pela escrita (que não regrava face
+ * igual nem enche a trilha de "atualizada" sobre nada).
+ */
+interface PlanoDoImplemento {
+  faces: FaceAEscrever[];
+  /** Só as colunas da porta que mudam. */
+  porta: PortaTraseiraPrisma;
+  serieMuda: boolean;
+}
 
 @Injectable()
 export class PortalIdentityService {
@@ -260,7 +377,25 @@ export class PortalIdentityService {
       }
     }
 
-    // ── 4. ⛔ A COLETA DE ASSINATURAS ────────────────────────────────────────
+    // ── 4. ⛔ A TRAVA DE PRODUÇÃO (DD5, pergunta 15) ──────────────────────────
+    //
+    // Com a tarefa em produção (ou concluída), medida, porta traseira e série
+    // não mudam mais pelo portal: a oficina já trabalha pelo que está gravado.
+    // ANTES da guarda do documento e de qualquer escrita, e sobre o que DE FATO
+    // muda — reenviar o que já está gravado passa. A regra, pura, mora em
+    // `portal-vehicle-identity.ts`.
+    const plano = this.planejarImplemento(task, dados);
+    const trava = travaDeProducao(task.status, this.mudancasTravaveis(plano));
+    if (trava) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: trava.message,
+        fields: trava.fields,
+      });
+    }
+
+    // ── 5. ⛔ A COLETA DE ASSINATURAS ────────────────────────────────────────
     //
     // ⚠️ SÓ O QUE DE FATO MUDA É JULGADO. Um campo cujo valor pedido é o que já
     // está gravado é NO-OP: não escreve nada, não pode contradizer documento
@@ -275,10 +410,10 @@ export class PortalIdentityService {
     const desejado = this.apenasOQueMuda(task, dados, pedido);
     await this.assertNaoContradizDocumento(task.quoteId, taskId, desejado);
 
-    // ── 5. AS UNICIDADES GLOBAIS ─────────────────────────────────────────────
+    // ── 6. AS UNICIDADES GLOBAIS ─────────────────────────────────────────────
     await this.garantirUnicidade(taskId, dados);
 
-    // ── 6. O PEDIDO DE COMPRA, PELO SERVIÇO QUE FAZ A ESCRITA DUPLA ──────────
+    // ── 7. O PEDIDO DE COMPRA, PELO SERVIÇO QUE FAZ A ESCRITA DUPLA ──────────
     //
     // ANTES da transação de identidade, e de propósito: `upsertAndLink` é
     // IDEMPOTENTE (`upsert` no par único + pular quando os dois lados já dizem o
@@ -295,15 +430,15 @@ export class PortalIdentityService {
       });
     }
 
-    // ── 7. A ESCRITA DA IDENTIDADE ───────────────────────────────────────────
-    await this.gravar(task, dados, plaqueta, responsibleId);
+    // ── 8. A ESCRITA DA IDENTIDADE ───────────────────────────────────────────
+    await this.gravar(task, dados, plaqueta, responsibleId, plano);
 
     this.logger.log(
       `Identificação do veículo ${taskId} atualizada pelo portal ` +
         `(contato ${responsibleId}, empresa ${companyId})`,
     );
 
-    // ── 8. A RESPOSTA É A MESMA DO `GET` ─────────────────────────────────────
+    // ── 9. A RESPOSTA É A MESMA DO `GET` ─────────────────────────────────────
     //
     // Releitura por `PortalReadService.getVehicle`, e não um objeto montado
     // aqui: é ele que aplica o RECORTE POR SEÇÃO e a projeção monotônica do
@@ -312,6 +447,116 @@ export class PortalIdentityService {
     // `PATCH`, os campos que o `GET` esconde dele.
     const fresco = await this.read.getVehicle(principal, taskId);
     return { ...fresco, message: 'Identificação do veículo atualizada com sucesso.' };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // O PROJETO DO IMPLEMENTO — `POST /cliente/me/veiculos/:taskId/projeto`
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * O cliente (a Furgões, o dono do baú) ANEXA o projeto do implemento.
+   *
+   * É o "projeto do implemento" do dono (R6): o desenho do furgão, que chega da
+   * fábrica e que até aqui vinha por WhatsApp e era largado em arquivos-base.
+   * NÃO é o projeto da TAREFA (o PDF cotado de colagem, `Task.projectFiles`),
+   * que o cliente não vê (D-22).
+   *
+   * As MESMAS regras da identificação, e pelos mesmos motivos: escopo COMERCIAL
+   * (pagador ∨ dono, sem o caminho pessoal), 404 fora dele — nunca 403 —, a
+   * conferência dupla por `commercialTaskLink`, o arquivo nascendo na MESMA
+   * transação do vínculo, `userId` indefinido no `File` e `null` na trilha.
+   *
+   * ⚠️ ACRESCENTA, não substitui: o portal não tem como tirar um projeto (o
+   * `PUT /implements/:id/project-files` interno, que recebe a lista inteira, é
+   * quem tira). Um envio que trocasse a lista apagaria o projeto que o comercial
+   * anexou do lado de dentro.
+   *
+   * ⚠️ SEM trava de produção: a trava é sobre medida, porta e série (DD5). O
+   * projeto pode chegar com o veículo na linha, e é bom que chegue.
+   */
+  async enviarProjeto(
+    principal: ResponsiblePrincipal,
+    taskId: string,
+    arquivos?: PortalProjetoArquivos,
+  ) {
+    const { companyId, responsibleId } = this.scope.assertScoped(principal);
+
+    const enviados = arquivos?.implementProject ?? [];
+    if (!enviados.length) throw new BadRequestException(PROJETO_AUSENTE_MENSAGEM);
+    const recusado = enviados.find(arquivo => !ehArquivoDeProjeto(arquivo.mimetype));
+    if (recusado) {
+      throw new BadRequestException(
+        `O projeto do implemento precisa ser PDF ou imagem ("${recusado.originalname}" não é).`,
+      );
+    }
+
+    const task = await this.prisma.task.findFirst({
+      where: { AND: [{ id: taskId }, this.scope.commercialTaskScopeWhere(principal)] },
+      select: projetoSelectFor(companyId),
+    });
+    // ⛔ 404, NUNCA 403 — pelo mesmo motivo da identificação.
+    if (!task) throw new NotFoundException('Veículo não encontrado.');
+    if (commercialTaskLink(task, companyId) === null) {
+      throw new NotFoundException('Veículo não encontrado.');
+    }
+
+    const implementId = task.implement?.id ?? null;
+    if (!implementId) {
+      throw new InternalServerErrorException(
+        'Tarefa sem implemento: toda tarefa tem exatamente um implemento.',
+      );
+    }
+
+    await this.prisma.$transaction(async tx => {
+      const novos: string[] = [];
+      for (const arquivo of enviados) {
+        // O MESMO contexto do caminho interno (`ImplementService.setProjectFiles`):
+        // `implementProjectFiles` → pasta Projetos, com a referência que protege
+        // o arquivo de ser apagado em uso (G10).
+        const registro = await this.files.createFromUploadWithTransaction(
+          tx,
+          arquivo,
+          'implementProjectFiles',
+          // ⛔ `File.createdById` é FK de `User`: um id de contato ali é o defeito
+          // que este portal inteiro existe para não cometer.
+          undefined,
+          {
+            entityId: implementId,
+            entityType: 'IMPLEMENT',
+            customerName: task.customer?.fantasyName ?? undefined,
+          },
+        );
+        novos.push(registro.id);
+      }
+
+      await tx.implement.update({
+        where: { id: implementId },
+        data: { projectFiles: { connect: novos.map(id => ({ id })) } },
+      });
+
+      // A trilha na MESMA forma do caminho interno (`IMPLEMENT/projectFiles`,
+      // lista antes × lista depois), para o histórico mostrar os dois iguais.
+      const antes = (task.implement?.projectFiles ?? []).map(f => f.id).sort();
+      const depois = [...new Set([...antes, ...novos])].sort();
+      await this.auditar(tx, {
+        entityType: ENTITY_TYPE.IMPLEMENT,
+        entityId: implementId,
+        field: 'projectFiles',
+        oldValue: antes,
+        newValue: depois,
+        responsibleId,
+        reason: 'Projeto do implemento enviado pelo cliente no portal',
+      });
+    });
+
+    this.logger.log(
+      `Projeto do implemento do veículo ${taskId} enviado pelo portal ` +
+        `(${enviados.length} arquivo(s), contato ${responsibleId}, empresa ${companyId})`,
+    );
+
+    // A resposta é a do `GET`, recortada por seção — como na identificação.
+    const fresco = await this.read.getVehicle(principal, taskId);
+    return { ...fresco, message: 'Projeto do implemento enviado com sucesso.' };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -344,7 +589,7 @@ export class PortalIdentityService {
       chassisNumber: task.implement?.chassisNumber ?? null,
       orderNumber: task.customerOrderNumber ?? null,
       category: task.implement?.category ?? null,
-      implementType: task.implement?.type ?? null,
+      type: task.implement?.type ?? null,
     };
     const pedidos: DesiredVehicleIdentity = {
       serialNumber: dados?.serialNumber,
@@ -352,7 +597,7 @@ export class PortalIdentityService {
       chassisNumber: dados?.chassisNumber,
       orderNumber: pedido,
       category: dados?.category,
-      implementType: dados?.implementType,
+      type: dados?.type,
     };
 
     const out: DesiredVehicleIdentity = {};
@@ -386,6 +631,74 @@ export class PortalIdentityService {
     desejado: DesiredVehicleIdentity,
   ): Promise<void> {
     await assertIdentidadeNaoContradizDocumento(this.prisma, quoteId, taskId, desejado);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // O QUE MUDA NO IMPLEMENTO — medida, porta e série (a trava e a escrita)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * As faces, a porta e a série que o pedido DE FATO muda.
+   *
+   * ⚠️ `medidas: null` apaga as QUATRO faces (regra 1 da borda: `null` é
+   * "apague"); um lado `null` apaga só aquele; lado ausente não entra. Apagar a
+   * face que já está vazia, ou mandar o desenho que já está gravado, não é
+   * mudança — nem para a trava, nem para a escrita.
+   */
+  private planejarImplemento(
+    task: TaskDaIdentidade,
+    dados: PortalIdentificacaoFormData,
+  ): PlanoDoImplemento {
+    const implemento = task.implement ?? null;
+    const medidas = dados?.medidas;
+
+    const faces: FaceAEscrever[] = [];
+    if (medidas !== undefined) {
+      for (const lado of LADOS_DA_MEDIDA) {
+        const entrada = medidas === null ? null : medidas[lado.chave];
+        if (entrada === undefined) continue;
+
+        const atualId = (implemento?.[lado.coluna] as string | null | undefined) ?? null;
+        if (entrada === null) {
+          if (atualId) {
+            faces.push({ face: lado.face, chave: lado.chave, coluna: lado.coluna, atualId, desejada: null });
+          }
+          continue;
+        }
+
+        // ⚠️ CENTÍMETROS ENTRAM, METROS SÃO GRAVADOS — a MESMA função da
+        // requisição; a comparação com o gravado já é em metros.
+        const desejada = medidaParaPrisma(entrada);
+        if (mesmaMedida(implemento?.[lado.relacao] ?? null, desejada)) continue;
+        faces.push({ face: lado.face, chave: lado.chave, coluna: lado.coluna, atualId, desejada });
+      }
+    }
+
+    const porta: PortaTraseiraPrisma = {};
+    const pedidaDaPorta = portaParaPrisma(dados?.portaTraseira);
+    for (const coluna of IMPLEMENT_REAR_DOOR_FIELDS) {
+      const valor = pedidaDaPorta[coluna];
+      if (valor === undefined) continue;
+      if ((valor ?? null) === (implemento?.[coluna] ?? null)) continue;
+      (porta as Record<string, unknown>)[coluna] = valor;
+    }
+
+    const serie = dados?.serialNumber;
+    const serieMuda = serie !== undefined && (serie ?? null) !== (implemento?.serialNumber ?? null);
+
+    return { faces, porta, serieMuda };
+  }
+
+  /** O plano na língua da trava de produção. */
+  private mudancasTravaveis(plano: PlanoDoImplemento): MudancaTravavel[] {
+    const mudancas: MudancaTravavel[] = plano.faces.map(f => ({
+      campo: 'medida' as const,
+      face: f.face,
+      chave: f.chave,
+    }));
+    if (Object.keys(plano.porta).length) mudancas.push({ campo: 'portaTraseira' });
+    if (plano.serieMuda) mudancas.push({ campo: 'serialNumber' });
+    return mudancas;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -458,11 +771,17 @@ export class PortalIdentityService {
   // A ESCRITA
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /**
+   * ⚠️ `plano` vem da rota (o MESMO que a trava julgou). O padrão existe para
+   * quem chama a escrita direto — os testes do escritor de medida (G15) e da
+   * série (G19) —, e calcula o plano do mesmo jeito: nunca uma segunda regra.
+   */
   private async gravar(
-    task: Prisma.TaskGetPayload<{ select: ReturnType<typeof taskSelectFor> }>,
+    task: TaskDaIdentidade,
     dados: PortalIdentificacaoFormData,
     plaqueta: Express.Multer.File | null,
     responsibleId: string,
+    plano: PlanoDoImplemento = this.planejarImplemento(task, dados),
   ): Promise<void> {
     const serie = dados?.serialNumber;
     const placa = dados?.plate;
@@ -471,9 +790,10 @@ export class PortalIdentityService {
     // Categoria e tipo moram no MESMO implemento da placa e do chassi, e
     // seguem o mesmo par de regras: `undefined` é "não mexa", `null` é "apague".
     const categoria = dados?.category;
-    const implemento = dados?.implementType;
+    const implemento = dados?.type;
     const previsao = dados?.forecastDate;
     const medidas = dados?.medidas;
+    const portaTraseira = dados?.portaTraseira;
 
     // Algo do IMPLEMENTO (além da série) chegou? Se não, o bloco abaixo é pulado.
     //
@@ -487,11 +807,14 @@ export class PortalIdentityService {
       chassi !== undefined ||
       categoria !== undefined ||
       implemento !== undefined ||
-      // ⚠️ A MEDIDA TAMBÉM É DO IMPLEMENTO: as três colunas de `ImplementMeasure`
-      // penduram no implemento, e sem passar por aqui o id do implemento fica nulo e o
+      // ⚠️ A MEDIDA TAMBÉM É DO IMPLEMENTO: as quatro colunas de `ImplementMeasure`
+      // (a frente inclusive) penduram no implemento, e sem passar por aqui o
       // bloco das medidas é pulado — 200 sem gravar, o mesmo defeito que
       // categoria e implemento tiveram antes de entrarem nesta conta.
       medidas !== undefined ||
+      // ⚠️ E A PORTA TRASEIRA, pelo mesmo motivo (P13a): chave nova do corpo
+      // que não entra aqui é um "salvo com sucesso" que não salvou.
+      portaTraseira !== undefined ||
       plaquetaId !== undefined ||
       Boolean(plaqueta);
 
@@ -564,6 +887,9 @@ export class PortalIdentityService {
         category: task.implement?.category ?? null,
         type: task.implement?.type ?? null,
         vinPlateId: task.implement?.vinPlateId ?? null,
+        rearDoorLeaves: task.implement?.rearDoorLeaves ?? null,
+        rearDoorBarCount: task.implement?.rearDoorBarCount ?? null,
+        rearDoorHatchCount: task.implement?.rearDoorHatchCount ?? null,
       };
 
       {
@@ -583,6 +909,9 @@ export class PortalIdentityService {
         if (plaquetaId !== undefined && (plaquetaId ?? null) !== anterior.vinPlateId) {
           mudancas.vinPlate = plaquetaId ? { connect: { id: plaquetaId } } : { disconnect: true };
         }
+        // A PORTA TRASEIRA: só as colunas que o plano achou diferentes. As faixas
+        // já passaram pelo zod (e o CHECK do banco é a rede de quem escreve por fora).
+        Object.assign(mudancas, plano.porta);
 
         if (Object.keys(mudancas).length) {
           await tx.implement.update({ where: { id: implementId }, data: mudancas });
@@ -593,6 +922,9 @@ export class PortalIdentityService {
             ['category', anterior.category, categoria],
             ['type', anterior.type, implemento],
             ['vinPlateId', anterior.vinPlateId, plaquetaId],
+            ['rearDoorLeaves', anterior.rearDoorLeaves, plano.porta.rearDoorLeaves],
+            ['rearDoorBarCount', anterior.rearDoorBarCount, plano.porta.rearDoorBarCount],
+            ['rearDoorHatchCount', anterior.rearDoorHatchCount, plano.porta.rearDoorHatchCount],
           ] as const) {
             if (depois === undefined || (depois ?? null) === antes) continue;
             await this.auditar(tx, {
@@ -621,34 +953,27 @@ export class PortalIdentityService {
       // ⚠️ SUBSTITUI a medida do lado, não acumula: a face tem UMA medida
       // corrente. Existindo linha, ela é atualizada e as seções são refeitas —
       // manter as antigas somaria vãos que o desenho não tem.
-      if (medidas && implementId) {
-        for (const lado of LADOS_DA_MEDIDA) {
-          const entrada = (medidas as Record<string, unknown>)?.[lado.chave];
-          if (entrada === undefined) continue;
+      //
+      // ⚠️ SÓ AS FACES QUE O PLANO ACHOU DIFERENTES: o desenho reenviado igual
+      // não é regravado nem vira linha de trilha sobre nada.
+      for (const lado of plano.faces) {
+        // Pelo escritor único: `null` explícito apaga a face (a linha só sai se
+        // mais ninguém a usa — antes, `.delete().catch()` dentro da transação
+        // abortava tudo quando a linha era de outro implemento); editar mexe na
+        // linha só se ela é deste lado, senão ganha uma cópia — corrigir o
+        // próprio furgão não pode mudar o de outro cliente.
+        await setFace(tx, implementId, lado.face, lado.desejada);
 
-          const atualId = (task.implement as Record<string, any> | null | undefined)?.[lado.coluna] ?? null;
-
-          // Pelo escritor único: `null` explícito apaga a face (a linha só sai se
-          // mais ninguém a usa — antes, `.delete().catch()` dentro da transação
-          // abortava tudo quando a linha era de outro implemento); editar mexe na
-          // linha só se ela é deste lado, senão ganha uma cópia — corrigir o
-          // próprio furgão não pode mudar o de outro cliente.
-          if (entrada === null) {
-            if (atualId) await setFace(tx, implementId, lado.face, null);
-            continue;
-          }
-
-          await setFace(tx, implementId, lado.face, medidaParaPrisma(entrada as never));
-
-          await this.auditar(tx, {
-            entityType: ENTITY_TYPE.IMPLEMENT,
-            entityId: implementId,
-            field: lado.coluna,
-            oldValue: atualId,
-            newValue: 'atualizada pelo cliente no portal',
-            responsibleId,
-          });
-        }
+        await this.auditar(tx, {
+          entityType: ENTITY_TYPE.IMPLEMENT,
+          entityId: implementId,
+          field: lado.coluna,
+          oldValue: lado.atualId,
+          // Apagar também deixa trilha — antes, a face sumia sem linha nenhuma.
+          newValue: lado.desejada ? 'atualizada pelo cliente no portal' : null,
+          responsibleId,
+          ...(lado.desejada ? {} : { reason: 'Medida removida pelo cliente no portal' }),
+        });
       }
 
       // ── A PLAQUETA, quando veio como ARQUIVO ──────────────────────────────
