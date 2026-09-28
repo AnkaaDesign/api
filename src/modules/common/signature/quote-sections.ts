@@ -124,20 +124,25 @@ export const FULL_SECTIONS: readonly QuoteSection[] = QUOTE_SECTIONS;
  *    inverso: colher a assinatura de quem provavelmente não tem poderes, o que
  *    é justamente a disputa que a declaração de representação existe para
  *    enfrentar.
+ *  · PCP, EXPEDIÇÃO e LOGÍSTICA seguem o mesmo raciocínio: acompanham a
+ *    produção e a saída do veículo, não obrigam a empresa. Começam sem seção.
  */
 export const ROLE_DEFAULT_SECTIONS: Record<RESPONSIBLE_ROLE, readonly QuoteSection[]> = {
-  [RESPONSIBLE_ROLE.COMMERCIAL]: FULL_SECTIONS,
-  [RESPONSIBLE_ROLE.SELLER]: FULL_SECTIONS,
-  [RESPONSIBLE_ROLE.REPRESENTATIVE]: FULL_SECTIONS,
-  [RESPONSIBLE_ROLE.COORDINATOR]: FULL_SECTIONS,
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [],
   [RESPONSIBLE_ROLE.PURCHASING]: FULL_SECTIONS,
+  [RESPONSIBLE_ROLE.COORDINATOR]: FULL_SECTIONS,
+  [RESPONSIBLE_ROLE.REPRESENTATIVE]: FULL_SECTIONS,
+  [RESPONSIBLE_ROLE.SELLER]: FULL_SECTIONS,
   // Sem `VEHICLE` nas declarações abaixo de propósito: quem a acrescenta é
   // `withAlwaysSections`, num lugar só. Declará-la aqui criaria uma segunda
   // fonte de verdade sobre o que é obrigatório, e as duas divergiriam.
   [RESPONSIBLE_ROLE.FINANCIAL]: ['SERVICES', 'PRICING', 'DELIVERY', 'PAYMENT', 'GUARANTEE'],
   [RESPONSIBLE_ROLE.MARKETING]: ['LAYOUT'],
+  [RESPONSIBLE_ROLE.SHIPPING]: [],
+  [RESPONSIBLE_ROLE.LOGISTICS]: [],
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [],
   [RESPONSIBLE_ROLE.DRIVER]: [],
+  [RESPONSIBLE_ROLE.COMMERCIAL]: FULL_SECTIONS,
 };
 
 /**

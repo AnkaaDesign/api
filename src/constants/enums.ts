@@ -2735,40 +2735,53 @@ export enum BONIFICATION_STATUS {
 /**
  * Funções que um contato do cliente exerce.
  *
- * A ORDEM É A DO ENUM DO BANCO e é significativa duas vezes: `responsibleRolesSchema`
- * ordena por ela para manter estável o diff do changelog, e ela agrupa as funções
- * pela FATIA do orçamento que cada uma recebe na assinatura eletrônica — primeiro
- * as que recebem tudo, depois as que recebem um recorte, por último as que por
- * padrão não assinam. Ver `signature/quote-sections.ts`.
+ * A ORDEM É A DO ENUM DO BANCO e é a ORDEM DE EXIBIÇÃO definida pela empresa em
+ * 2026-09-28 (PCP, Compras, Coordenador, …, Comercial). Ela é significativa: é a
+ * ordem das opções nos formulários e filtros, e `responsibleRolesSchema` ordena
+ * as funções gravadas por ela para manter estável o diff do changelog. Mudá-la
+ * exige recriar o tipo no banco e regravar os arrays — ver a migração
+ * `20260928120000_responsible_role_pcp_shipping_logistics`.
+ *
+ * Qual FATIA do orçamento cada função recebe na assinatura eletrônica NÃO depende
+ * mais desta ordem: está em `signature/quote-sections.ts`.
  *
  * `OWNER` foi removida em 2026-09-01: ela nomeava uma pessoa, não uma área de
  * interesse, e por isso não respondia à única pergunta que a função passou a ter
  * de responder — que parte do documento aquele contato deve ver. Os contatos que
  * a tinham receberam COMMERCIAL + MARKETING + FINANCIAL + FLEET_MANAGER, cuja
  * união é o documento inteiro.
+ *
+ * PRODUCTION_PLANNING (PCP), SHIPPING (Expedição) e LOGISTICS (Logística)
+ * entraram em 2026-09-28.
  */
 export enum RESPONSIBLE_ROLE {
-  COMMERCIAL = 'COMMERCIAL',
-  SELLER = 'SELLER',
-  REPRESENTATIVE = 'REPRESENTATIVE',
-  COORDINATOR = 'COORDINATOR',
+  PRODUCTION_PLANNING = 'PRODUCTION_PLANNING',
   PURCHASING = 'PURCHASING',
-  MARKETING = 'MARKETING',
+  COORDINATOR = 'COORDINATOR',
+  REPRESENTATIVE = 'REPRESENTATIVE',
+  SELLER = 'SELLER',
   FINANCIAL = 'FINANCIAL',
+  MARKETING = 'MARKETING',
+  SHIPPING = 'SHIPPING',
+  LOGISTICS = 'LOGISTICS',
   FLEET_MANAGER = 'FLEET_MANAGER',
   DRIVER = 'DRIVER',
+  COMMERCIAL = 'COMMERCIAL',
 }
 
 export const RESPONSIBLE_ROLE_LABELS = {
-  [RESPONSIBLE_ROLE.COMMERCIAL]: 'Comercial',
-  [RESPONSIBLE_ROLE.SELLER]: 'Vendedor',
-  [RESPONSIBLE_ROLE.REPRESENTATIVE]: 'Representante',
-  [RESPONSIBLE_ROLE.COORDINATOR]: 'Coordenador',
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: 'PCP',
   [RESPONSIBLE_ROLE.PURCHASING]: 'Compras',
-  [RESPONSIBLE_ROLE.MARKETING]: 'Marketing',
+  [RESPONSIBLE_ROLE.COORDINATOR]: 'Coordenador',
+  [RESPONSIBLE_ROLE.REPRESENTATIVE]: 'Representante',
+  [RESPONSIBLE_ROLE.SELLER]: 'Vendedor',
   [RESPONSIBLE_ROLE.FINANCIAL]: 'Financeiro',
+  [RESPONSIBLE_ROLE.MARKETING]: 'Marketing',
+  [RESPONSIBLE_ROLE.SHIPPING]: 'Expedição',
+  [RESPONSIBLE_ROLE.LOGISTICS]: 'Logística',
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: 'Gestor de Frota',
   [RESPONSIBLE_ROLE.DRIVER]: 'Motorista',
+  [RESPONSIBLE_ROLE.COMMERCIAL]: 'Comercial',
 };
 
 /**
@@ -2781,8 +2794,11 @@ export const RESPONSIBLE_ROLE_LABELS = {
  * conduz a negociação, e é uma das quatro que os ex-proprietários receberam na
  * migração — então o contato que era principal continua sendo.
  *
- * FLEET_MANAGER e DRIVER ficam por último de propósito: são as funções que, por
- * padrão, sequer assinam.
+ * PCP, EXPEDIÇÃO, LOGÍSTICA, FLEET_MANAGER e DRIVER ficam por último de
+ * propósito: são as funções que, por padrão, sequer assinam.
+ *
+ * Esta é uma ordem de PRIORIDADE, não de exibição — COMMERCIAL continua primeiro
+ * aqui mesmo sendo o último na lista de funções.
  */
 export const RESPONSIBLE_ROLE_PRIMARY_PRIORITY: readonly RESPONSIBLE_ROLE[] = [
   RESPONSIBLE_ROLE.COMMERCIAL,
@@ -2792,6 +2808,9 @@ export const RESPONSIBLE_ROLE_PRIMARY_PRIORITY: readonly RESPONSIBLE_ROLE[] = [
   RESPONSIBLE_ROLE.SELLER,
   RESPONSIBLE_ROLE.FINANCIAL,
   RESPONSIBLE_ROLE.MARKETING,
+  RESPONSIBLE_ROLE.PRODUCTION_PLANNING,
+  RESPONSIBLE_ROLE.SHIPPING,
+  RESPONSIBLE_ROLE.LOGISTICS,
   RESPONSIBLE_ROLE.FLEET_MANAGER,
   RESPONSIBLE_ROLE.DRIVER,
 ];
