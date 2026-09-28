@@ -18,7 +18,16 @@ interface FormattedZodError {
 
 @Injectable()
 export class ZodValidationPipe implements PipeTransform {
-  constructor(private readonly schema: ZodSchema) {}
+  /**
+   * `coerceFormData: false` desliga o `fixArrays` (strings → número/booleano/
+   * null pelo NOME do campo). Ele existe para FormData; num corpo JSON ele
+   * corrompe texto que só tem dígitos — `orderNumbers[].value: "89920"` virava
+   * número e a assinatura de Compras morria em 400 (e "00123" viraria 123).
+   */
+  constructor(
+    private readonly schema: ZodSchema,
+    private readonly options: { coerceFormData?: boolean } = {},
+  ) {}
 
   transform(value: unknown, metadata: ArgumentMetadata): unknown {
     try {
@@ -35,7 +44,7 @@ export class ZodValidationPipe implements PipeTransform {
 
       // For body parameters, fix arrays before validation
       if (metadata.type === 'body') {
-        const fixedValue = this.fixArrays(value);
+        const fixedValue = this.options.coerceFormData === false ? value : this.fixArrays(value);
         return this.schema.parse(fixedValue);
       }
 

@@ -86,6 +86,7 @@ import {
 import { budgetPdfFilename } from '../document/document-filename';
 import {
   orderNumberVehicles,
+  inheritedOrderNumber,
   resolveOrderNumberSubmission,
   signerRequiresOrderNumber,
   ORDER_NUMBER_MAX_LENGTH,
@@ -3410,14 +3411,23 @@ export class SignatureEnvelopeService {
   private orderNumberGateOf(signer: {
     responsible?: { roles?: string[] | null } | null;
     envelope: { quote: { tasks?: Array<Record<string, any>> | null } };
-  }): { required: boolean; maxLength: number; vehicles: OrderNumberVehicle[] } | null {
+  }): {
+    required: boolean;
+    maxLength: number;
+    inherited: string | null;
+    vehicles: OrderNumberVehicle[];
+  } | null {
     if (!signerRequiresOrderNumber(signer.responsible?.roles)) return null;
     const vehicles = orderNumberVehicles(
       sortQuoteTasks((signer.envelope.quote.tasks ?? []) as any[]) as any[],
     );
+    // Faltando número mas havendo um único já registrado, os que faltam o
+    // herdam na assinatura — nada a digitar (`inheritedOrderNumber`).
+    const inherited = inheritedOrderNumber(vehicles);
     return {
-      required: vehicles.some(v => !v.value),
+      required: vehicles.some(v => !v.value) && !inherited,
       maxLength: ORDER_NUMBER_MAX_LENGTH,
+      inherited,
       vehicles,
     };
   }
@@ -3436,7 +3446,7 @@ export class SignatureEnvelopeService {
     signer: { id: string; declaredName: string };
     budgetNumber: number | null;
     vehicles: readonly OrderNumberVehicle[];
-    toWrite: ReadonlyArray<{ taskId: string; value: string }>;
+    toWrite: ReadonlyArray<{ taskId: string; value: string; inherited: boolean }>;
     ctx: RequestContext;
   }): Promise<Array<{ taskId: string; label: string; value: string }>> {
     if (!args.toWrite.length) return [];
@@ -3468,13 +3478,16 @@ export class SignatureEnvelopeService {
             oldValue: Prisma.JsonNull,
             newValue: row.value,
             reason:
-              `Nº do pedido informado por ${args.signer.declaredName} (Compras) ao assinar ` +
+              (row.inherited
+                ? `Nº do pedido já registrado nos demais veículos replicado ao assinar ${args.signer.declaredName} (Compras) `
+                : `Nº do pedido informado por ${args.signer.declaredName} (Compras) ao assinar `) +
               `o orçamento${args.budgetNumber != null ? ` nº ${args.budgetNumber}` : ''}`,
             triggeredBy: 'SYSTEM',
             triggeredById: args.signer.id,
             userId: null,
             metadata: {
               source: 'SIGNATURE_CEREMONY',
+              inherited: row.inherited,
               envelopeId: args.envelopeId,
               signerId: args.signer.id,
               ipAddress: args.ctx.ipAddress ?? null,
@@ -7684,10 +7697,12 @@ export class SignatureEnvelopeService {
         // O estado do ORÇAMENTO, para o painel poder dizer que uma coleta
         // concluída e selada não virou aprovação. Ver `aprovacaoPendente`.
         status: true,
+        budgetNumber: true,
         tasks: {
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
+            name: true,
             createdAt: true,
             serialNumber: true,
             customerOrderNumber: true,
@@ -7696,6 +7711,31 @@ export class SignatureEnvelopeService {
         },
       },
     });
+
+    // "Orçamento nº 448 - Marquespan 5,20 - Rafael Capobianco": o que o
+    // operador reconhece. O rótulo do recorte ("Documento completo") repetia
+    // igual em toda linha e não distinguia nada; só entra quando é parcial.
+    const vehicleNames = [...new Set((vehicle?.tasks ?? []).map(t => t.name?.trim()).filter(Boolean))];
+    const vehicleName =
+      vehicleNames.length === 1
+        ? vehicleNames[0]
+        : (vehicle?.tasks?.length ?? 0) > 1
+          ? `${vehicle!.tasks.length} veículos`
+          : null;
+    const documentTitle = (
+      d: { isFull: boolean; sections?: unknown },
+      customerSigners: ReadonlyArray<{ declaredName: string }>,
+    ) =>
+      [
+        vehicle?.budgetNumber != null ? `Orçamento nº ${vehicle.budgetNumber}` : 'Orçamento',
+        vehicleName,
+        customerSigners.map(s => s.declaredName).join(', ') || null,
+        d.isFull || isFullSections(this.sectionsOf(d as never))
+          ? null
+          : describeSections(this.sectionsOf(d as never)),
+      ]
+        .filter(Boolean)
+        .join(' - ');
 
     const envelopes = await this.prisma.signatureEnvelope.findMany({
       where: { quoteId },
@@ -7900,7 +7940,14 @@ export class SignatureEnvelopeService {
         finalSha256: d.finalSha256,
         padesLevel: d.padesLevel,
         sealedAt: d.sealedAt,
-        signers: env.signers.filter(s => s.documentId === d.id).map(s => s.declaredName),
+        title: documentTitle(d, env.signers.filter(s => s.documentId === d.id && s.orderGroup !== 1)),
+        // A Ankaa contra-assina TODOS os recortes, mas o signatário interno é
+        // amarrado (`documentId`) a um só — sem isto o painel mostrava o
+        // diretor em um documento e não nos outros.
+        signers: [
+          ...env.signers.filter(s => s.documentId === d.id && s.orderGroup !== 1),
+          ...env.signers.filter(s => s.orderGroup === 1),
+        ].map(s => s.declaredName),
       })),
       signers: env.signers.map(s => ({
         id: s.id,

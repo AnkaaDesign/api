@@ -127,9 +127,21 @@ export function orderNumberVehicles(tasks: readonly OrderNumberTask[]): OrderNum
   }));
 }
 
+/**
+ * O pedido é UM SÓ para o orçamento inteiro: o cliente emite um pedido de
+ * compra para o lote, não um por caminhão. Quando os veículos que já têm número
+ * concordam num único valor, é esse o pedido — os que faltam o herdam e o
+ * signatário não digita nada. Números divergentes já registrados (legado) não
+ * dão herança: aí quem assina informa o pedido dos que faltam.
+ */
+export function inheritedOrderNumber(vehicles: readonly OrderNumberVehicle[]): string | null {
+  const registered = new Set(vehicles.map(v => v.value).filter((v): v is string => !!v));
+  return registered.size === 1 ? [...registered][0] : null;
+}
+
 export interface OrderNumberResolution {
-  /** Veículos sem número em que o signatário informou um válido. */
-  toWrite: Array<{ taskId: string; value: string }>;
+  /** Veículos sem número e o número que entra neles. */
+  toWrite: Array<{ taskId: string; value: string; inherited: boolean }>;
   /** Mensagem de recusa; `null` quando a assinatura pode seguir. */
   problem: string | null;
 }
@@ -138,20 +150,26 @@ export interface OrderNumberResolution {
  * Confronta o que o signatário mandou com o que falta.
  *
  * Chamado ANTES de verificar o código: uma recusa aqui não pode queimar o
- * desafio de uso único, senão quem esqueceu um campo esperaria o cooldown para
+ * desafio de uso único, senão quem esqueceu o campo esperaria o cooldown para
  * receber outro código.
  *
- * Número mandado para veículo que JÁ tem número é ignorado, não recusado: a
- * tela pode ter sido aberta antes de a Ankaa registrar o pedido, e o
- * signatário não fez nada errado. Veículo que não é deste orçamento é
- * recusado — aí sim a entrada não faz sentido.
+ * · Há número registrado e único → os que faltam o herdam; o que foi digitado
+ *   é ignorado (a tela nem mostra o campo nesse caso).
+ * · Não há → vale o número informado, que tem de ser o MESMO para todos os
+ *   veículos que faltam (a web manda o mesmo valor em cada linha; página
+ *   antiga com campos por veículo que chegue com valores diferentes é recusada).
+ *
+ * Número mandado para veículo que JÁ tem número é ignorado, não recusado.
+ * Veículo que não é deste orçamento é recusado.
  */
 export function resolveOrderNumberSubmission(
   vehicles: readonly OrderNumberVehicle[],
   submitted: ReadonlyArray<{ taskId?: string; value?: string }> | null | undefined,
 ): OrderNumberResolution {
-  const byTask = new Map<string, string>();
   const known = new Set(vehicles.map(v => v.taskId));
+  const missing = vehicles.filter(v => !v.value);
+  const missingIds = new Set(missing.map(v => v.taskId));
+  const typed = new Set<string>();
   for (const row of submitted ?? []) {
     if (!row?.taskId) continue;
     if (!known.has(row.taskId)) {
@@ -160,28 +178,36 @@ export function resolveOrderNumberSubmission(
         problem: 'Veículo do pedido não pertence a este orçamento. Recarregue a página.',
       };
     }
-    byTask.set(row.taskId, normalizeOrderNumber(row.value));
+    const value = normalizeOrderNumber(row.value);
+    if (value && missingIds.has(row.taskId)) typed.add(value);
   }
 
-  const toWrite: Array<{ taskId: string; value: string }> = [];
-  const multi = vehicles.length > 1;
-  for (const v of vehicles) {
-    if (v.value) continue;
-    const typed = byTask.get(v.taskId) ?? '';
-    const problem = orderNumberProblem(typed);
-    if (problem) {
-      return {
-        toWrite: [],
-        problem: typed
-          ? multi
-            ? `${v.label}: ${problem}`
-            : problem
-          : multi
-            ? `Informe o nº do pedido de compra de cada veículo para assinar (falta: ${v.label}).`
-            : 'Informe o nº do pedido de compra para assinar.',
-      };
-    }
-    toWrite.push({ taskId: v.taskId, value: typed });
+  if (!missing.length) return { toWrite: [], problem: null };
+
+  const inherited = inheritedOrderNumber(vehicles);
+  if (inherited) {
+    return {
+      toWrite: missing.map(v => ({ taskId: v.taskId, value: inherited, inherited: true })),
+      problem: null,
+    };
   }
-  return { toWrite, problem: null };
+
+  if (typed.size > 1) {
+    return {
+      toWrite: [],
+      problem: 'O nº do pedido de compra é o mesmo para todos os veículos. Informe um único número.',
+    };
+  }
+  const value = typed.size ? [...typed][0] : '';
+  const problem = orderNumberProblem(value);
+  if (problem) {
+    return {
+      toWrite: [],
+      problem: value ? problem : 'Informe o nº do pedido de compra para assinar.',
+    };
+  }
+  return {
+    toWrite: missing.map(v => ({ taskId: v.taskId, value, inherited: false })),
+    problem: null,
+  };
 }
