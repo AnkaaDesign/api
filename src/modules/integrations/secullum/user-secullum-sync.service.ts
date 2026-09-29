@@ -7,6 +7,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
@@ -400,6 +401,75 @@ export class UserSecullumSyncService implements OnModuleInit {
       );
       return { status: 'error', reason: message };
     }
+  }
+
+  /**
+   * Rede de segurança diária: Função e Departamento no Secullum têm de espelhar
+   * o cargo e o setor do Ankaa.
+   *
+   * Cada escritor de cargo/setor avisa o bridge (update do colaborador,
+   * promoção, efetivação, mesclagem, endpoints de vínculo), mas durante meses
+   * vários NÃO avisavam — em 28/09/2026 havia 6 de 20 ativos divergentes: três
+   * promoções de 12/08, uma de 07/2025, uma efetivação de 31/07 (ainda "Letrista
+   * Trainee" no ponto) e setores trocados em 01/2026. Ninguém percebe pela tela,
+   * então um escritor novo que esqueça o aviso repetiria isso em silêncio. Esta
+   * varredura compara e reenvia pelo MESMO caminho do "Editar Colaborador"
+   * (`onUserUpdated`), que em falha já notifica o RH (`secullum.sync.failed`).
+   *
+   * Dias úteis, 08:05 SP: a falha vira notificação ao RH, e notificação só sai
+   * em horário comercial (seg–sex, 08–18h).
+   */
+  @Cron('5 8 * * 1-5', { timeZone: 'America/Sao_Paulo' })
+  async reconcileFuncaoDepartamento(): Promise<{
+    checked: number;
+    divergent: number;
+    fixed: number;
+    failed: number;
+  }> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        secullumEmployeeId: { not: null },
+        secullumSyncEnabled: true,
+        currentContract: { status: { not: 'TERMINATED' } },
+      } as any,
+      include: { position: true, sector: true },
+    });
+
+    let divergent = 0;
+    let fixed = 0;
+    let failed = 0;
+    for (const user of users) {
+      try {
+        const current = await this.cadastros.getFuncionarioFull(user.secullumEmployeeId!);
+        const wantFuncao = user.position?.secullumFuncaoId ?? null;
+        const wantDepto = user.sector?.secullumDepartamentoId ?? null;
+        // Sem mapeamento no Ankaa o bridge mantém o valor do Secullum — não é
+        // divergência que ele saiba resolver.
+        const funcaoOk = wantFuncao == null || current.FuncaoId === wantFuncao;
+        const deptoOk = wantDepto == null || current.DepartamentoId === wantDepto;
+        if (funcaoOk && deptoOk) continue;
+
+        divergent++;
+        this.logger.warn(
+          `[secullum-reconcile] ${user.name}: Função ${current.FuncaoId}→${wantFuncao}, ` +
+            `Departamento ${current.DepartamentoId}→${wantDepto} — reenviando`,
+        );
+        const result = await this.onUserUpdated({ userId: user.id, dismissalJustHappened: false });
+        if (result.status === 'synced') fixed++;
+        else failed++;
+      } catch (err) {
+        failed++;
+        this.logger.error(
+          `[secullum-reconcile] falha ao conferir ${user.name}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[secullum-reconcile] ${users.length} conferido(s), ${divergent} divergente(s), ` +
+        `${fixed} corrigido(s), ${failed} falha(s)`,
+    );
+    return { checked: users.length, divergent, fixed, failed };
   }
 
   /**

@@ -3,14 +3,26 @@
 // Position changes made through user create/update flow into this table via the
 // hooks in user.service.ts; the promote flow here writes User.positionId with
 // Prisma directly (inside one transaction) to avoid circular module deps.
+//
+// O promote precisa fazer TUDO o que `UserService.update` faz numa troca de
+// cargo — vínculo, Secullum, bonificação —, porque é o botão que o RH usa para
+// promover. Ver o comentário em `promote`.
 
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
+import { SECULLUM_USER_UPDATED_EVENT } from '@modules/integrations/secullum/user-secullum-sync.service';
+import {
+  BONUS_ELIGIBILITY_CHANGED_EVENT,
+  type BonusEligibilityChangedPayload,
+} from '../../../constants/events';
+import { syncOpenContractPosition } from '../employment-contract/contract-position-sync';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -71,6 +83,12 @@ export class UserPositionHistoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
+    /**
+     * Barramento global (EventEmitterModule, @Global) — o mesmo em que o
+     * `UserService` publica. Por evento, e não injetando o serviço do Secullum
+     * ou o `BonusService`, pelo mesmo motivo de ciclo de DI de lá.
+     */
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -160,7 +178,19 @@ export class UserPositionHistoryService {
    *
    * Em UMA transação: atualiza User.positionId, fecha o registro de histórico
    * aberto (endedAt = agora) e adiciona o novo registro; registra changelog do
-   * USER (campo positionId) e do USER_POSITION_HISTORY (CREATE).
+   * USER (campo positionId) e do USER_POSITION_HISTORY (CREATE) e leva o cargo
+   * ao vínculo aberto (EmploymentContract.positionId).
+   *
+   * O vínculo é obrigatório, não cosmético: `syncUserCurrentContract` espelha
+   * o cargo do VÍNCULO no User a cada mexida no vínculo, então promover só o
+   * User deixava uma reversão silenciosa armada — a próxima troca de fase,
+   * rescisão ou readmissão devolvia a pessoa ao cargo antigo. As promoções de
+   * 12/08/2026 ficaram assim (4 pessoas com vínculo no cargo anterior).
+   *
+   * Depois do commit, os mesmos efeitos colaterais de `UserService.update` numa
+   * troca de cargo: sincroniza a Função no Secullum e avisa a bonificação
+   * (o cargo é insumo do bônus; sem o evento o cache SWR do período servia o
+   * valor do cargo antigo por até 30 min).
    */
   async promote(
     data: UserPositionHistoryPromoteFormData,
@@ -198,6 +228,15 @@ export class UserPositionHistoryService {
         await tx.user.update({
           where: { id: user.id },
           data: { positionId: data.toPositionId },
+        });
+
+        // E do vínculo aberto — na mesma transação, senão a próxima
+        // sincronização do vínculo desfaz a promoção (ver doc do método).
+        await syncOpenContractPosition(tx, this.changeLogService, {
+          userId: user.id,
+          positionId: data.toPositionId,
+          reason: `${reasonLabel}: ${user.position?.name || 'Sem cargo'} → ${newPosition.name}`,
+          changedById: changedById || null,
         });
 
         // Fechar o registro de histórico aberto
@@ -250,6 +289,30 @@ export class UserPositionHistoryService {
 
         return created;
       });
+
+      // Efeitos colaterais SÓ depois do commit: dentro da transação o listener
+      // leria o cargo antigo. Nenhum deles pode derrubar a promoção já gravada.
+      try {
+        // Função no Secullum (o bridge se auto-limita: sem sync habilitado ou
+        // sem vínculo com o Secullum ele só devolve 'skipped').
+        this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
+          userId: data.userId,
+          dismissalJustHappened: false,
+        });
+      } catch (err) {
+        this.logger.error(`Failed to emit ${SECULLUM_USER_UPDATED_EVENT} after promote:`, err);
+      }
+      try {
+        // Mesmo motivo de `UserService.update`: cargo muda o salário-base do
+        // bônus e pode tirar/pôr a pessoa no divisor (cargo bonificável). O
+        // listener invalida o cache do período corrente.
+        this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+          userId: data.userId,
+          reason: 'POSITION_CHANGED',
+        } satisfies BonusEligibilityChangedPayload);
+      } catch (err) {
+        this.logger.error(`Failed to emit ${BONUS_ELIGIBILITY_CHANGED_EVENT} after promote:`, err);
+      }
 
       const messageByReason: Record<string, string> = {
         [POSITION_CHANGE_REASON.PROMOTION]: 'Colaborador promovido com sucesso.',

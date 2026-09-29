@@ -58,6 +58,62 @@ export function isCurrentPeriod(year: number, month: number, referenceDate?: Dat
   return year === current.year && month === current.month;
 }
 
+// =====================
+// Corte do período (aberto × fechado)
+// =====================
+
+/**
+ * O INSTANTE em que o período de bonificação deixa de estar em apuração:
+ * dia 5 do mês seguinte, 00:00 em São Paulo.
+ *
+ * A regra de negócio: o ciclo termina no dia 25, mas do 26 até o fim do dia 4
+ * o RH ainda está apurando (nível de desempenho, cargo, justificativas no
+ * Secullum). A partir de 00:00 do dia 5 — dia do pagamento — o período está
+ * FECHADO e a linha `Bonus` gravada é a verdade. O cron de finalização roda à
+ * 01:00 do dia 5, portanto sempre DEPOIS do corte, e grava o estado do corte.
+ *
+ * Existia um segundo corte implícito: `isCurrentPeriod` usa `getDate()` do
+ * servidor (UTC) e considerava o período "corrente" durante todo o dia 5 UTC —
+ * até 21:00 de SP. Tudo que o RH mudava no dia 5 depois da 01:00 aparecia na
+ * tela (overlay vivo) e nunca chegava à linha `Bonus` nem à folha. Esta função
+ * é a definição ÚNICA para as decisões "o vivo vence a linha salva?", "o cron
+ * precisa recalcular?" e "o listener pode regravar?".
+ *
+ * Fuso fixo em -03:00 (03:00Z): o Brasil não tem horário de verão desde 2019.
+ * Se voltar a ter, isto passa a errar por uma hora em novembro–fevereiro.
+ */
+export function getBonusPeriodCutoff(year: number, month: number): Date {
+  // `Date.UTC` com mês 0-indexado = `month` aponta para o mês SEGUINTE; mês 12
+  // vira janeiro do ano seguinte sozinho.
+  return new Date(Date.UTC(year, month, 5, 3, 0, 0, 0));
+}
+
+/**
+ * Período em apuração: já começou (dia 26) e o corte do dia 5 ainda não chegou.
+ * Entre o 26 e o 4 existem DOIS períodos abertos — o que fechou no dia 25 (em
+ * apuração) e o que acabou de começar.
+ */
+export function isBonusPeriodOpen(year: number, month: number, now: Date = new Date()): boolean {
+  return now >= getBonusPeriodStart(year, month) && now < getBonusPeriodCutoff(year, month);
+}
+
+/**
+ * Primeiro período sob a regra do corte do dia 5 na ELEGIBILIDADE (estado de
+ * cargo/nível/bonificabilidade no instante do corte, e não no dia 25).
+ *
+ * Períodos anteriores foram pagos sob a regra antiga e continuam sendo
+ * reconstruídos exatamente como foram — reclassificar história paga mudaria o
+ * divisor de meses já quitados. Ver `bonus-eligibility.service.ts`.
+ */
+export const BONUS_CUTOFF_RULE_FROM = { year: 2026, month: 9 } as const;
+
+export function usesBonusCutoffRule(year: number, month: number): boolean {
+  return (
+    year > BONUS_CUTOFF_RULE_FROM.year ||
+    (year === BONUS_CUTOFF_RULE_FROM.year && month >= BONUS_CUTOFF_RULE_FROM.month)
+  );
+}
+
 /**
  * Check if a filter includes the current period.
  * This is used to determine if live calculation should be performed.

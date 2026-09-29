@@ -260,8 +260,10 @@ export class BonusController {
   // =====================
 
   /**
-   * Simulate bonus calculations for a hypothetical set of users. Pure
-   * salary-based logistic algorithm — no Secullum, no discounts, no extras.
+   * Simulate bonus calculations for a hypothetical set of users. Modelo v5:
+   * B1 na janela de cada pessoa, × absenceFactor, e os lançamentos do período
+   * (assiduidade, suspensas, faltas) sobre a base simulada — ver
+   * `BonusService.simulate`. `eligibilityWeight` é só exibição.
    * Both the web and mobile simulators POST here on every input change so the
    * algorithm lives in exactly one place (this server).
    */
