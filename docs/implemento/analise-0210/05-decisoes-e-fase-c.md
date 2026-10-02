@@ -106,3 +106,36 @@ Cada pacote termina com typecheck/analyze limpo, commits pequenos por intenção
 - `git add <caminhos>` explícitos; nunca `-A`, `stash`, `reset --hard`, `checkout --` ou push.
 - Nenhum erro ou aviso fica para depois (corrigir antes de seguir).
 - API local blindada; testes que gravam no banco podem rodar, mas nada sai da máquina.
+
+## Resultado M1 (02/10)
+
+**api** (`wt/truck-implemento`):
+- `a46d89e4` — o `--dart` do contrato traz status do orçamento (com ordem, grafo manual e do sistema), assinatura,
+  aprovação do valor, estados/origens da arte, porta traseira, funções do responsável e faces; caminho padrão
+  corrigido para `../mobile_migration`. JSON não mudou (web intocada).
+- `dc8aca51` — **P31, o 426**: `MIN_MOBILE_APP_VERSION` (vazio = desligado; documentado no `.env.example`). Barra o
+  app Flutter abaixo da mínima e o app SEM cabeçalho de versão (o 1.4.3+26 instalado, identificado pelo UA `Dart/`);
+  web (`X-Client`), navegadores, AnkaaAero (cabo, sem OTA), webhooks e scripts passam; `/install/*` e `/version`
+  ficam abertos. `test:app-version-gate` (puro + ponta a ponta Nest), tsc e régua de tipos limpos.
+
+**app** (`wt/implemento`): `3a09e45` contrato · `d8bc8b1` arte fora da tarefa (detalhe/edição leem
+`implement.layouts`; criar/editar/ação de linha sem arte no corpo; seção "Arte do Implemento" só leitura) ·
+`08332e7` arte fora do orçamento (include por implemento; "ARTE POR VEÍCULO" no detalhe; wizard sem Layout
+Referência, sem seletor de layout aprovado e sem payload de arte; painel/presets/garagem pela arte do implemento) ·
+`9a6bca2` Modelo C (rótulos/ordem/grafo do contrato; lista com REQUESTED e IN_NEGOTIATION; "Aprovar Valor" com nota
+pelo ato; reprovar/enviar/retirar pelos atos; financeiro sem os atos comerciais; `signatureStatus` e `billable` no
+modelo) · `ef3fb23` AnkaaAero (arte pelo implemento) · `8f4e6a2` versão **1.4.4+27** · `227ec47` teste do include.
+`flutter analyze lib test` limpo; `flutter test` 1045/1045.
+
+**Conferido contra a API local:** os includes antigos (`layouts`, `layoutFiles`) NÃO davam 400 — a API os descartava
+calada (o detalhe abria com a arte vazia); o 400 era nos CORPOS (`layoutIds`, `layoutFileIds`). `where.layouts` também
+respondia 200.
+
+**Fica para o M2/M3 (e para a api):**
+- os ATOS da arte (subir, enviar, aprovar em nome, reprovar, nova versão, lote) — hoje a seção é só leitura e diz
+  "pelo sistema web por enquanto"; na criação com N veículos, "uma imagem para todos" (decisão 5) entra com eles;
+- selo/eixo da assinatura na tela, checklist de emissão (`emission.blockers`), trava de "Aprovar Faturamento" sem
+  `billable` (o botão ainda aparece; a API recusa com 400 e o interceptor mostra);
+- **api:** `NOT_YET_INVOICED` (`attention.service.ts:305`) ainda conta `status SIGNED` e não conta `IN_NEGOTIATION`;
+  o app espelha o servidor e por isso não mudou `_notYetInvoiced` — corrigir os dois juntos;
+- `GET /budgets/task/:taskId` (include fixo) não traz `implement.layouts`; quem precisar da arte usa `GET /budgets/:id`.
