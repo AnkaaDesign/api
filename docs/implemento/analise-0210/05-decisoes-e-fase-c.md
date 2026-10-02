@@ -340,3 +340,27 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   (Playwright contra a API local blindada, orçamento nº 993 — requisição do portal, 5 veículos): os cinco passos abrem sem
   erro de execução nem 4xx/5xx; o formulário abre e continua LIMPO depois de visitar os cinco passos e abrir os cinco
   cartões; a criação anda em linha e segura no passo Veículos sem identificação. Não salvei um orçamento pela tela.
+
+## Resultado M4 (02/10, app `d5a0030` · `6a4c29d` · `16d7ffb` · `3adbeb1`)
+
+- **Cotador:** `PanelSide.frente` para o `FRENTE` do motor (antes caía no lado neutro), com o rótulo de cada face.
+- **Medidas com a Frente e a porta traseira:** o editor passa a Motorista → Sapo → Traseira → **Frente** → Revisão. A
+  Frente tem foto, como a Traseira (`IMPLEMENT_FACES_WITH_PHOTO`); o passo Traseira ganha **PORTA TRASEIRA** (abertura
+  do contrato, varões 2–4, portinholas 0–6, nas faixas do zod). Grava pelo `PUT /tasks/:id { implement }` com
+  `frontSideMeasure` e `rearDoor*` (a porta manda as três chaves; `null` = não informado). A lógica pura foi para
+  `implement_measure_payload.dart`, com teste do corpo contra o `taskImplementUpdateSchema`; uma face salva só com
+  foto deixa de perder a foto. Leitura (detalhe da tarefa, passo Veículos do orçamento): quatro faces em duas linhas,
+  foto da frente e a porta traseira; include único `kImplementFaceMeasuresInclude`. O histórico rotula Frente e a porta.
+- **Projeto do implemento × projeto da tarefa:** "PROJETO DA TAREFA" (`Task.projectFiles`) e "PROJETO DO IMPLEMENTO"
+  (`Implement.projectFiles`) no detalhe, este com "Adicionar projeto" e remover por arquivo (`PUT
+  /implements/:id/project-files`, `fileIds` em JSON + multipart `implementProjectFiles`) para
+  `IMPLEMENT_PROJECT_ROLES`. Quem vê segue o web (todos menos almoxarifado e financeiro) e também exclui o
+  aerografista (ficha de trabalho sem documentos): a produção passa a ver o PDF cotado (PLANO V3).
+- **Faces com foto no check-in/out:** nada a mudar — as guias do check-in são por descrição da O.S. (e estão
+  desligadas); `IMPLEMENT_FACES_WITH_PHOTO` é das medidas, tratado acima. Os avisos `task.field.implement.rearDoor*`
+  chegam com título/texto da api e o app os mostra genericamente.
+- **Testes novos:** `implement_measure_payload_test` (14), `implement_project_test` (4), `budget_detail_parse_test` (5:
+  lista viva do contrato, `valueApproval` e `emission`), include do detalhe com `frontSideMeasure`/`projectFiles` e
+  visibilidade dos projetos. `flutter analyze lib test` limpo; `flutter test` **1110/1110**. Não abri as telas num aparelho.
+- **Para a api (não feito):** exportar `IMPLEMENT_FACE_LABELS` no `--dart` (o app mantém os rótulos das faces em
+  `ImplementFace`, conferidos por teste só nos nomes).
