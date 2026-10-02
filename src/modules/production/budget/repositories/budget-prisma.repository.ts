@@ -522,6 +522,34 @@ export class BudgetPrismaRepository
                 chassisNumber: true,
                 category: true,
                 type: true,
+                // A ARTE de cada veículo (todas as versões e estados): a tela de
+                // Orçamento mostra o estado da arte por veículo e age sobre ela
+                // pelas rotas do implemento — a mesma forma do detalhe.
+                layouts: {
+                  orderBy: { createdAt: 'asc' },
+                  select: {
+                    id: true,
+                    fileId: true,
+                    status: true,
+                    version: true,
+                    supersedesId: true,
+                    sentAt: true,
+                    decidedAt: true,
+                    approvalSource: true,
+                    decisionNote: true,
+                    createdAt: true,
+                    file: {
+                      select: {
+                        id: true,
+                        filename: true,
+                        originalName: true,
+                        mimetype: true,
+                        size: true,
+                        thumbnailUrl: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },

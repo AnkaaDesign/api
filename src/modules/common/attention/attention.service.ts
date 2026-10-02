@@ -303,15 +303,24 @@ const QUOTE_AUDIENCE = [SectorPrivileges.COMMERCIAL, SectorPrivileges.FINANCIAL]
  * post-invoice status through, so quotes whose nota was issued and paid months ago kept matching.
  */
 const NOT_YET_INVOICED: Prisma.BudgetWhereInput = {
-  // SIGNED entra: o cliente assinou, a nota vem a seguir, e é exatamente a
-  // janela em que faltar o número do pedido ainda trava alguma coisa.
+  // MODELO C (P14): o eixo do VALOR é Pendente → Aguardando aprovação do cliente
+  // (IN_NEGOTIATION) → Aprovado, e a assinatura mora em `signatureStatus`.
+  // IN_NEGOTIATION entra: o valor está com o cliente e é a janela em que ele
+  // ainda pode mandar o que falta. SIGNED saiu: deixou de ser escrito em
+  // `BudgetStatus` (a M3o-b o converteu em APPROVED + assinatura "Falta a
+  // Ankaa"); o "assinou e a nota vem a seguir" é APPROVED com a assinatura
+  // concluída, e continua dentro. REQUESTED fica de fora: a requisição ainda não
+  // tem preço, nem pagador decidido.
+  //
+  // ⚠️ O app espelha esta regra (`_notYetInvoiced`) e a web também
+  // (`notYetInvoiced()` em lib/attention/rules.ts) — mudar os três juntos.
   //
   // EXPIRED fica de FORA. Ali o que segura a nota é o PREÇO, que voltou para a
   // mesa do comercial — cobrar o número do pedido de compra de um orçamento que
   // vai ser reformulado é pedir um dado que talvez nem se use. Ele volta a esta
   // lista sozinho quando a reformulação o devolve a PENDING.
   status: {
-    in: [BudgetStatus.PENDING, BudgetStatus.SIGNED, BudgetStatus.APPROVED],
+    in: [BudgetStatus.PENDING, BudgetStatus.IN_NEGOTIATION, BudgetStatus.APPROVED],
   },
   // ⚠️ E A JANELA SÓ FECHA PELO FATURAMENTO. Sem esta condição ela é INFINITA:
   // `APPROVED` é o ÚLTIMO estado do ORÇAMENTO e ele fica ali para sempre —
