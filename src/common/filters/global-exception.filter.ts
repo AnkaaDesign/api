@@ -2,6 +2,7 @@ import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus } from
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
+import { isAxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { ErrorLoggerService } from './error-logger.service';
 import { AuthenticatedRequest, HttpExceptionResponse } from '../../types/express.types';
@@ -290,6 +291,28 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       errorResponse.message = 'Erro interno do banco de dados. Por favor, tente novamente.';
       errorResponse.error = 'DATABASE_INTERNAL_ERROR';
+    } else if (isAxiosError(exception)) {
+      // Falha de um serviço EXTERNO (Elotech, Sicredi, Secullum…) que a rota
+      // deixou subir sem tratar. Não é erro nosso: 502 quando o outro lado
+      // recusou ou respondeu erro, 504 quando não respondeu a tempo — e o host,
+      // para quem lê a tela saber de quem esperar.
+      const timedOut = exception.code === 'ECONNABORTED' || exception.code === 'ETIMEDOUT';
+      let host = 'serviço externo';
+      try {
+        host = new URL(exception.config?.url ?? '', exception.config?.baseURL).host || host;
+      } catch {
+        // URL relativa sem baseURL: fica o rótulo genérico.
+      }
+      status = timedOut ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY;
+      errorResponse.message = timedOut
+        ? `O serviço externo (${host}) não respondeu a tempo. Tente novamente em instantes.`
+        : `O serviço externo (${host}) está indisponível ou recusou a operação. Tente novamente em instantes.`;
+      errorResponse.error = timedOut ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_ERROR';
+      errorResponse.details = {
+        upstreamHost: host,
+        upstreamStatus: exception.response?.status ?? null,
+        code: exception.code ?? null,
+      };
     } else if (exception instanceof Error) {
       // Check for specific error types
       if (exception.name === 'TimeoutError' || exception.message.includes('timeout')) {

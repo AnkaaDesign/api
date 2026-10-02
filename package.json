@@ -154,6 +154,7 @@
     "test:portal-decisao": "tsx tests/portal-decisao.test.ts",
     "test:portal-requisicao": "tsx tests/portal-requisicao.test.ts",
     "test:orcamento-sem-os-negociacao": "tsx tests/orcamento-sem-os-negociacao.test.ts",
+    "test:upstream-error-filter": "tsx -r tsconfig-paths/register tests/upstream-error-filter.test.ts",
     "test:portal-identificacao": "tsx -r tsconfig-paths/register tests/portal-identificacao.test.ts",
     "test:portal-e2e": "bash tests/e2e-portal/run.sh",
     "test:paint-purchase": "tsx tests/paint-purchase.test.ts",
