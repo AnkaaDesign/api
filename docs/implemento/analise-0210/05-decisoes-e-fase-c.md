@@ -364,3 +364,33 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   visibilidade dos projetos. `flutter analyze lib test` limpo; `flutter test` **1110/1110**. Não abri as telas num aparelho.
 - **Para a api (não feito):** exportar `IMPLEMENT_FACE_LABELS` no `--dart` (o app mantém os rótulos das faces em
   `ImplementFace`, conferidos por teste só nos nomes).
+
+## Resultado W4 (02/10, web `73852dcf` · `82b9c7c3` · `9ee2262d` · `11138f0e`; api `2f440d16`; app `89ec34c`)
+
+- **Faturamento = Veículos → Faturamento → Resumo** (decisão 6, a forma do app no M3). O passo por fatura
+  ("Cliente 1..N" / "Fatura 1..N") saiu: o passo Faturamento é o MESMO `BudgetWizardStepBilling` do Orçamento, no
+  recorte desta cobrança (`scopeIdx` = `visibleConfigIdx` da página). Cartões de pagador (`BudgetPayerCard`) com o
+  combobox de cliente e a proteção do cadastro, "+ Adicionar pagador", "Quem paga cada serviço" (por clientes
+  DISTINTOS) e o junto/separado/lotes com o aviso de coleta rodando. Cada cartão diz de quais veículos é a fatura e o
+  total DELA (`coverage`). O pagador acrescentado aqui (sem `id`) entra no recorte da página. Duplicidade medida
+  dentro da cobrança; os serviços de um cliente só são soltos quando ele deixa de pagar qualquer fatura
+  (`customerStillPays`, testado). Saíram `BillingStepInfo`, `BillingStepCustomer` (gêmeo do cartão) e
+  `BillingStepBudgetInfo` (já sem passo): −1.454 linhas.
+- **O Salvar do faturamento grava no cadastro só o que mudou** (`customerUpdatePatch`, uma vez por cliente) — antes
+  regravava os quinze campos de todo pagador, CNPJ incluído, uma vez por fatura.
+- **Faixa dos 4 andamentos** no topo, com a Cobrança em foco e sem "para emitir, falta…" (valor, arte e assinatura
+  levam ao Orçamento; a cobrança, ao Resumo). Lê `GET /budgets/task/:taskId` (status, `signatureStatus`, `billable`,
+  `emission`). **Navegação livre**; o Salvar em todo passo, confere a tela inteira e abre o cartão do pagador com
+  problema (o Aprovar também).
+- **Item 5:** `IMPLEMENT_FACE_LABELS` no contrato (`enums.json` `faces.rotulos` e `kContractImplementFaceLabels` no
+  `labels.dart`); no app, `ImplementFace.label` e `PanelSide.label` leem do contrato (teste face a face).
+- **Verificação:** web `tsc -p tsconfig.app.json` sem erro nos arquivos do W4; vitest `src/utils src/components/financial
+  src/lib/attention` 260/260; api `tsc` limpo; app `flutter analyze lib test` limpo e os testes tocados verdes.
+  **Na tela** (Playwright contra a API blindada, `scratchpad/w4-check.mjs`): cobrança de 5 veículos juntos
+  (`8ff08b9e…`), de 2 clientes (`1500d769…`) e aprovada (`3bc5137a…`) — os três passos abrem sem 4xx/5xx da tela, o
+  Faturamento mostra 1/2/1 cartões, e deixar a página NÃO pede para descartar (formulário limpo). Não aprovei nem
+  emiti nada.
+- **Achados fora do W4:** (1) `GET /nfse/:n` responde **500** quando a Elotech não responde (aqui pela blindagem) —
+  falha de terceiro deveria ser 502/503; (2) o `tsc` acusa 2 erros em arquivos do portal em andamento no W5
+  (`solicitacao-schema.ts:692`, `pages/cliente/veiculos/[taskId].tsx:301`) e o teste G18 (`implement-faces.test.ts`)
+  falha em `api-client/portal.ts:439` (`PortalImplementFace` escrito à mão, commit `a3a5977e`).
