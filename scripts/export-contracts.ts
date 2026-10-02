@@ -41,7 +41,7 @@
  *                                                       repositórios irmãos que existirem
  *   Com --check, as cópias pedidas (--out, --dart ou --irmaos) são conferidas também.
  *   npx tsx scripts/export-contracts.ts --dart <file>   também gera o .dart do app
- *                                                       (../mobile-flutter/lib/generated/contracts/labels.dart)
+ *                                                       (../mobile_migration/lib/generated/contracts/labels.dart)
  */
 import { IMPLEMENT_FACES, IMPLEMENT_FACES_WITH_PHOTO } from '../src/constants/implement-faces';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
@@ -68,7 +68,7 @@ export const WEB_COPY_DIR = join(ROOT, '..', 'web', 'src', 'generated', 'contrac
 export const APP_COPY_FILE = join(
   ROOT,
   '..',
-  'mobile-flutter',
+  'mobile_migration',
   'lib',
   'generated',
   'contracts',
@@ -380,6 +380,26 @@ export const serialize = (value: unknown): string => `${JSON.stringify(value, nu
 /** Mapas de TELA que o app consome do contrato (além dos perfis). */
 const DART_SCREEN_MAPS: Array<{ map: string; dartName: string }> = [
   { map: 'TASK_STATUS_LABELS', dartName: 'kContractTaskStatusLabels' },
+  { map: 'TASK_QUOTE_STATUS_LABELS', dartName: 'kContractBudgetStatusLabels' },
+  { map: 'BUDGET_SIGNATURE_STATUS_LABELS', dartName: 'kContractBudgetSignatureStatusLabels' },
+  { map: 'BUDGET_VALUE_APPROVAL_SOURCE_LABELS', dartName: 'kContractBudgetValueApprovalSourceLabels' },
+  { map: 'LAYOUT_STATUS_LABELS', dartName: 'kContractLayoutStatusLabels' },
+  { map: 'LAYOUT_APPROVAL_SOURCE_LABELS', dartName: 'kContractLayoutApprovalSourceLabels' },
+  { map: 'REAR_DOOR_LEAVES_LABELS', dartName: 'kContractRearDoorLeavesLabels' },
+];
+
+/** Enums cujos VALORES o app consome do contrato, na ordem da API. */
+const DART_VALUE_LISTS: Array<{ enumName: string; dartName: string }> = [
+  { enumName: 'IMPLEMENT_CATEGORY', dartName: 'kContractImplementCategoryValues' },
+  { enumName: 'IMPLEMENT_TYPE', dartName: 'kContractImplementTypeValues' },
+  { enumName: 'TASK_STATUS', dartName: 'kContractTaskStatusValues' },
+  { enumName: 'TASK_QUOTE_STATUS', dartName: 'kContractBudgetStatusValues' },
+  { enumName: 'BUDGET_SIGNATURE_STATUS', dartName: 'kContractBudgetSignatureStatusValues' },
+  { enumName: 'BUDGET_VALUE_APPROVAL_SOURCE', dartName: 'kContractBudgetValueApprovalSourceValues' },
+  { enumName: 'LAYOUT_STATUS', dartName: 'kContractLayoutStatusValues' },
+  { enumName: 'LAYOUT_APPROVAL_SOURCE', dartName: 'kContractLayoutApprovalSourceValues' },
+  { enumName: 'REAR_DOOR_LEAVES', dartName: 'kContractRearDoorLeavesValues' },
+  { enumName: 'RESPONSIBLE_ROLE', dartName: 'kContractResponsibleRoleValues' },
 ];
 
 const PROFILE_DART_SUFFIX: Record<string, string> = {
@@ -402,6 +422,20 @@ function dartMap(name: string, map: StringMap, doc: string): string {
   return `/// ${doc}\nconst Map<String, String> ${name} = {\n${body}\n};\n`;
 }
 
+function dartIntMap(name: string, map: Record<string, number>, doc: string): string {
+  const body = Object.entries(map)
+    .map(([k, v]) => `  ${dartString(k)}: ${v},`)
+    .join('\n');
+  return `/// ${doc}\nconst Map<String, int> ${name} = {\n${body}\n};\n`;
+}
+
+function dartListMap(name: string, map: Record<string, string[]>, doc: string): string {
+  const body = Object.entries(map)
+    .map(([k, v]) => `  ${dartString(k)}: [${v.map(dartString).join(', ')}],`)
+    .join('\n');
+  return `/// ${doc}\nconst Map<String, List<String>> ${name} = {\n${body}\n};\n`;
+}
+
 function dartList(name: string, values: string[], doc: string): string {
   const body = values.map(v => `  ${dartString(v)},`).join('\n');
   return `/// ${doc}\nconst List<String> ${name} = [\n${body}\n];\n`;
@@ -414,16 +448,16 @@ export function buildDart(contracts: Contracts): string {
     '// GERADO por api/scripts/export-contracts.ts --dart — NÃO EDITE À MÃO.',
     '// Fonte: api/src/constants/document-labels.ts (perfis por documento, D-18)',
     '// e api/src/constants/enum-labels.ts. Regerar a partir do repositório da api:',
-    '//   npx tsx scripts/export-contracts.ts --dart ../mobile-flutter/lib/generated/contracts/labels.dart',
+    '//   npx tsx scripts/export-contracts.ts --dart ../mobile_migration/lib/generated/contracts/labels.dart',
     '//',
     '// É .dart e não asset de propósito: asset novo não viaja em patch OTA.',
     '// ignore_for_file: lines_longer_than_80_chars',
     'library;',
     '',
-    dartList('kContractImplementCategoryValues', enums.IMPLEMENT_CATEGORY, 'Os valores de `IMPLEMENT_CATEGORY`, na ordem da API.'),
-    dartList('kContractImplementTypeValues', enums.IMPLEMENT_TYPE, 'Os valores de `IMPLEMENT_TYPE`, na ordem da API.'),
-    dartList('kContractTaskStatusValues', enums.TASK_STATUS, 'Os valores de `TASK_STATUS`, na ordem da API.'),
   ];
+  for (const { enumName, dartName } of DART_VALUE_LISTS) {
+    chunks.push(dartList(dartName, enums[enumName], `Os valores de \`${enumName}\`, na ordem da API.`));
+  }
   for (const [kind, prefix] of [
     ['IMPLEMENT_CATEGORY', 'kContractImplementCategoryLabels'],
     ['IMPLEMENT_TYPE', 'kContractImplementTypeLabels'],
@@ -441,6 +475,46 @@ export function buildDart(contracts: Contracts): string {
   for (const { map, dartName } of DART_SCREEN_MAPS) {
     chunks.push(dartMap(dartName, labels.tela[map].labels, `\`${map}\` (tela).`));
   }
+  // As funções do responsável: o rótulo mora em `enums.ts`, não em `enum-labels.ts`.
+  chunks.push(
+    dartMap(
+      'kContractResponsibleRoleLabels',
+      { ...(ENUMS.RESPONSIBLE_ROLE_LABELS as StringMap) },
+      '`RESPONSIBLE_ROLE_LABELS` (tela), na ordem de exibição da empresa.',
+    ),
+  );
+  const budget = (contracts.enums as any).orcamento as {
+    transicoesManuais: Record<string, string[]>;
+    transicoesDoSistema: Record<string, string[]>;
+    ordem: Record<string, number>;
+  };
+  chunks.push(
+    dartIntMap(
+      'kContractBudgetStatusOrder',
+      budget.ordem,
+      'A ordem do orçamento por status (`TASK_QUOTE_STATUS_ORDER`): a fila da lista.',
+    ),
+    dartListMap(
+      'kContractBudgetManualTransitions',
+      budget.transicoesManuais,
+      'As transições que `PUT /budgets/:id/status` aceita (derivadas do validador real). '
+        + 'Aprovar o valor NÃO passa por aqui: é o ato `PUT /budgets/:id/value-approval`.',
+    ),
+    dartListMap(
+      'kContractBudgetSystemTransitions',
+      budget.transicoesDoSistema,
+      'As arestas que só um EVENTO move (portal, auto-revert, coleta): nunca viram botão.',
+    ),
+  );
+  const faces = (contracts.enums as any).faces as { todas: string[]; comFoto: string[] };
+  chunks.push(
+    dartList('kContractImplementFaces', faces.todas, 'As faces do implemento, na ordem da API (`IMPLEMENT_FACES`).'),
+    dartList(
+      'kContractImplementFacesWithPhoto',
+      faces.comFoto,
+      'As faces que têm foto de referência (`IMPLEMENT_FACES_WITH_PHOTO`).',
+    ),
+  );
   return `${chunks.join('\n')}`;
 }
 
