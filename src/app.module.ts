@@ -54,6 +54,7 @@ import { ObservationModule } from './modules/production/task-observation/observa
 import { ImplementMeasureModule } from './modules/production/implement-measure/implement-measure.module';
 import { LayoutDimensionsModule } from './modules/production/layout-dimensions/layout-dimensions.module';
 import { TruckModule } from './modules/production/truck/truck.module';
+import { TaskLabelModule } from './modules/production/task-label/task-label.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
 import { PersonalModule } from './modules/people/personal/personal.module';
@@ -189,6 +190,7 @@ import { PrinterLogModule } from './modules/printer-log/printer-log.module';
     WasteCertificateModule,
     PaintingAnalysisModule,
     PrinterLogModule,
+    TaskLabelModule,
   ],
   controllers: [AppController],
   providers: [
