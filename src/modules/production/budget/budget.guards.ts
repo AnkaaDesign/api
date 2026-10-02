@@ -220,34 +220,55 @@ export const QUOTE_SAFE_AFTER_BILLING_FIELDS = new Set<string>([
 
 /**
  * Role-gates an EXPLICIT quote status change made through a generic update
- * (PUT /budgets/:id or a nested quote write through the task endpoints),
- * mirroring the roles of the dedicated transition endpoints
- * (budget.controller.ts):
- * - APPROVED           → ADMIN, COMMERCIAL  (PUT /:id/budget-approve)
- * - todos os demais    → ADMIN, FINANCIAL, COMMERCIAL (PUT /:id/status)
+ * (PUT /budgets/:id, PUT /budgets/:id/status or a nested quote write through
+ * the task endpoints), mirroring the roles of the dedicated ACT endpoints
+ * (budget.controller.ts). The act is the door; the generic routes follow the
+ * SAME rule (Modelo C, análise 02/10):
+ * - APPROVED                         → ADMIN, COMMERCIAL  (PUT /:id/value-approval)
+ * - IN_NEGOTIATION                   → ADMIN, COMMERCIAL  (PUT /:id/send-to-customer)
+ * - PENDING vindo de IN_NEGOTIATION  → ADMIN, COMMERCIAL  (PUT /:id/withdraw-from-customer)
+ * - PENDING vindo de APPROVED        → ADMIN, COMMERCIAL  (DELETE /:id/value-approval)
+ * - todos os demais                  → ADMIN, FINANCIAL, COMMERCIAL
+ *
+ * Os quatro primeiros são ATOS COMERCIAIS sobre o valor: o FINANCIAL não envia
+ * proposta, não a recolhe, não aprova nem revoga valor. Antes, `PUT /status`
+ * deixava o FINANCIAL fazer pela porta genérica o que o ato lhe recusava.
+ *
+ * `from` é o status ATUAL: sem ele (chamador que não o conhece) só o alvo decide.
  *
  * ⚠️ `BILLING_APPROVED` NÃO está nesta lista porque não é mais status de
  * orçamento: aprovar cobrança virou `PUT /billings/:id/approve` e mora em
- * `Billing.approvedAt`. Enumerá-lo aqui descrevia uma máquina de estados que o
- * zod já não aceita.
+ * `Billing.approvedAt`.
  *
  * Unknown/missing actor privilege = deny (least privilege).
  */
 export function validateQuoteStatusChangeRole(
   targetStatus: TASK_QUOTE_STATUS,
   actorPrivilege?: SECTOR_PRIVILEGES | string,
+  from?: TASK_QUOTE_STATUS | string | null,
 ): void {
-  const commercialStages: TASK_QUOTE_STATUS[] = [
-    TASK_QUOTE_STATUS.APPROVED,
-  ];
-
-  const allowed: string[] = commercialStages.includes(targetStatus)
-    ? [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL]
-    : [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL];
-
-  if (!actorPrivilege || !allowed.includes(actorPrivilege)) {
+  if (!isQuoteStatusChangeAllowed(targetStatus, actorPrivilege, from)) {
     throw new ForbiddenException(
       'Seu setor não tem permissão para alterar o status do orçamento para este estágio.',
     );
   }
+}
+
+/** A regra de `validateQuoteStatusChangeRole`, sem lançar (para teste e para a tela). */
+export function isQuoteStatusChangeAllowed(
+  targetStatus: TASK_QUOTE_STATUS,
+  actorPrivilege?: SECTOR_PRIVILEGES | string,
+  from?: TASK_QUOTE_STATUS | string | null,
+): boolean {
+  const commercialAct =
+    targetStatus === TASK_QUOTE_STATUS.APPROVED ||
+    targetStatus === TASK_QUOTE_STATUS.IN_NEGOTIATION ||
+    (targetStatus === TASK_QUOTE_STATUS.PENDING &&
+      (from === TASK_QUOTE_STATUS.APPROVED || from === TASK_QUOTE_STATUS.IN_NEGOTIATION));
+
+  const allowed: string[] = commercialAct
+    ? [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL]
+    : [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL];
+
+  return !!actorPrivilege && allowed.includes(actorPrivilege);
 }

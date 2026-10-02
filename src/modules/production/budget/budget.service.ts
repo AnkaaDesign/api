@@ -1238,7 +1238,11 @@ export class BudgetService {
         data.status !== undefined &&
         data.status !== currentStatus
       ) {
-        validateQuoteStatusChangeRole(data.status as TASK_QUOTE_STATUS, actorPrivilege);
+        validateQuoteStatusChangeRole(
+          data.status as TASK_QUOTE_STATUS,
+          actorPrivilege,
+          currentStatus,
+        );
         // APROVAR O VALOR É UM ATO, NÃO UM CAMPO (D-27, X7): tem origem, autor e
         // nota obrigatória em nome do cliente. Pela gravação genérica chegava-se a
         // APPROVED sem nada disso — era o seletor da tela reaprovando um segundo
@@ -2856,13 +2860,15 @@ export class BudgetService {
     reason?: string,
     actorPrivilege?: string,
   ): Promise<BudgetUpdateResponse> {
-    validateQuoteStatusChangeRole(status, actorPrivilege);
     const existing = await this.prisma.budget.findUnique({
       where: { id },
       select: { status: true },
     });
     if (!existing) throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     const from = existing.status as TASK_QUOTE_STATUS;
+    // O papel é julgado com o status ATUAL: voltar a PENDING de APPROVED ou de
+    // IN_NEGOTIATION é ato comercial (revogar/recolher), não uma troca qualquer.
+    validateQuoteStatusChangeRole(status, actorPrivilege, from);
 
     if (status === TASK_QUOTE_STATUS.APPROVED) {
       // "Aprovar valor em nome do cliente": a nota é o `reason`.

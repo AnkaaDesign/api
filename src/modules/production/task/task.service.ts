@@ -866,7 +866,11 @@ export class TaskService {
     // Explicit status changes mirror the per-stage roles of the dedicated
     // /budgets status endpoints.
     if (quoteData.status !== undefined && quoteData.status !== currentStatus) {
-      validateQuoteStatusChangeRole(quoteData.status as TASK_QUOTE_STATUS, userPrivilege);
+      validateQuoteStatusChangeRole(
+        quoteData.status as TASK_QUOTE_STATUS,
+        userPrivilege,
+        currentStatus,
+      );
     }
 
     // Auto-revert approved → PENDING when values change, unless the client
