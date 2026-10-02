@@ -31,6 +31,40 @@ Banco: `ankaa_implemento` (clone do `ankaa_dev` com todas as migrations da branc
    `PORTAL_ROLE_CAPABILITIES`/`PORTAL_ROLE_SECTIONS`, tipados como `Record<RESPONSIBLE_ROLE, …>`).
 3. **Web e app juntos**, no máximo dois agentes por vez, um por repo.
 
+## Decisões do dono — 2ª rodada (02/10, 08h)
+
+Substituem a ordem do assistente da decisão 1 (a faixa dos 4 eixos e "ato ≠ formulário" continuam).
+
+4. **Assistente do orçamento: ① Tarefa → ② Veículos → ③ Serviços → ④ Faturamento → ⑤ Resumo.**
+   - ① **Tarefa:** logomarca, Razão Social (cliente dono do veículo), detalhes, prazo de entrega, validade da
+     proposta, período de garantia, tarefas simultâneas, responsáveis, tintas, arquivos base, **layout** (na
+     criação com N veículos: UMA imagem que vale para todos), aerografia.
+   - ② **Veículos:** um cartão por veículo — série, placa, chassi, nº do pedido, previsão, categoria, tipo,
+     medidas do implemento no desenho estilizado do formulário da tarefa, e a **arte do veículo** (herdada da
+     imagem comum; editável veículo a veículo).
+   - ③ **Serviços:** como hoje.
+   - ④ **Faturamento:** os pagadores. Cada um escolhido num **combobox de cliente** (no lugar do CNPJ digitado
+     livre), que aceita **criar** cliente; botão **"+ Adicionar"** abaixo do último faturamento. Os dados do
+     cliente (documento, situação, IE/IM, nomes, endereço) e os de faturamento/pagamento (Gerar NF, Gerar Boleto,
+     condição, total) ficam no mesmo bloco. ⛔ **Proteção:** os campos pertencem SEMPRE ao cliente selecionado —
+     trocar o cliente recarrega tudo do cadastro dele (nada do anterior sobra), a edição grava no id
+     selecionado e diz "isto altera o cadastro de X", e criar nunca sobrescreve um cadastro existente (CNPJ já
+     cadastrado → seleciona o existente).
+   - ⑤ **Resumo:** revisão, checklist "Para emitir falta…", atos e assinatura.
+5. **Arte: várias por orçamento.** Quem carrega a arte é a tarefa/implemento (modelo da API); o orçamento só a
+   usa no documento. Na criação com vários veículos, sobe-se uma imagem para todos e depois ajusta-se veículo a
+   veículo. ⛔ **O documento assinado tem de dizer qual arte é de qual veículo** (série/placa junto de cada
+   imagem; artes iguais agrupadas "Veículos 39088, 39089") para ninguém pintar o layout de um no outro.
+6. **Faturamento (página) repensado** no mesmo espírito do assistente.
+7. **Portal do responsável totalmente responsivo**, e **o celular não é mais mandado para `/install`** ao navegar
+   (feito na web: `5c725a73`; `/install` continua, por link).
+
+### Pacotes ajustados
+- **A1 (api) — o documento com a arte por veículo** (decisão 5) e o que o assistente novo precisar da API
+  (aplicar a imagem comum a todos na criação; cliente criado/atualizado pelo faturamento com a proteção da
+  decisão 4).
+- **W3/M3** passam a ser a decisão 4. **W4** inclui a decisão 6. **W5** inclui a decisão 7 (responsivo).
+
 ## Pacotes
 
 ### Web
