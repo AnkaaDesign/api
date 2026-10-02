@@ -61,7 +61,10 @@ function qrMarkup(taskId: string): string {
   const n = qr.modules.size;
   const m = QR_SIZE / n;
   const c = (n - 1) / 2;
-  const hole = 3;
+  // 11 × 11 modules cleared for the star: ~3 of each block's 13 correctable codewords (version 8-H,
+  // 6 blocks), leaving ~10 a block for dirt and wear on a truck body. Read clean by jsQR and ZXing
+  // from 120 to 200 dpi with blur and JPEG; a bigger hole shows more star but eats that margin.
+  const hole = 5;
   const inHole = (x: number, y: number) => {
     const dx = Math.abs(x - c);
     const dy = Math.abs(y - c);

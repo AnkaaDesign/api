@@ -78,20 +78,25 @@ function caption(slot: LabelSlot, text: string): string {
 }
 
 /**
- * Orientation mark for a fresh sheet, in the left margin beside the first row: the sheet goes back
- * into the printer with this mark leading (on top), so the next print lands on the free slots.
+ * Orientation mark for a fresh sheet: a small grey "▲ TOPO" in BOTH top corners, on the leading edge
+ * — the L3250 feeds from the rear tray and prints the first raster line on the edge that goes in
+ * first, so the top of this page IS the edge that enters the printer. The sheet goes back in with
+ * the mark leading, and the next print lands on the free slots. It sits right at the 3 mm printable
+ * limit, far from the cards, and in grey, so the ScanNCut's Direct Cut doesn't take it for a shape.
  */
 export function orientationMarkSvg(): string {
-  const cx = LABEL_SLOTS[0].x / 2;
-  const top = LABEL_SLOTS[0].y;
+  const edge = 3.5; // just inside the printer's 3 mm unprintable border
+  const size = 2.6; // triangle width and the text cap height
   const f = (v: number) => v.toFixed(2);
+  const triangle = (x: number) =>
+    `<path d="M${f(x + size / 2)} ${f(edge)}L${f(x + size)} ${f(edge + size)}H${f(x)}Z" fill="#9CA3AF"/>`;
+  const label = (x: number, anchor: 'start' | 'end') =>
+    `<text x="${f(x)}" y="${f(edge + size)}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="3.4" fill="#9CA3AF" text-anchor="${anchor}">TOPO</text>`;
   return (
-    `<path d="M${f(cx)} ${f(top)}L${f(cx + 4)} ${f(top + 7)}H${f(cx - 4)}Z" fill="#111111"/>` +
-    `<g font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" fill="#111111" text-anchor="middle">` +
-    `<text x="${f(cx)}" y="${f(top + 11.5)}" font-size="3.2">TOPO</text>` +
-    `<text x="${f(cx)}" y="${f(top + 15)}" font-size="2.4">entra</text>` +
-    `<text x="${f(cx)}" y="${f(top + 18)}" font-size="2.4">primeiro</text>` +
-    `</g>`
+    triangle(edge) +
+    label(edge + size + 1, 'start') +
+    triangle(SHEET_WIDTH - edge - size) +
+    label(SHEET_WIDTH - edge - size - 1, 'end')
   );
 }
 
