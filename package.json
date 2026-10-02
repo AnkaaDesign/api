@@ -155,6 +155,7 @@
     "test:portal-requisicao": "tsx tests/portal-requisicao.test.ts",
     "test:orcamento-sem-os-negociacao": "tsx tests/orcamento-sem-os-negociacao.test.ts",
     "test:customer-document-digits": "tsx -r tsconfig-paths/register tests/customer-document-digits.test.ts",
+    "test:budget-generic-update-acts": "tsx -r tsconfig-paths/register tests/budget-generic-update-acts.test.ts",
     "test:upstream-error-filter": "tsx -r tsconfig-paths/register tests/upstream-error-filter.test.ts",
     "test:portal-identificacao": "tsx -r tsconfig-paths/register tests/portal-identificacao.test.ts",
     "test:portal-e2e": "bash tests/e2e-portal/run.sh",

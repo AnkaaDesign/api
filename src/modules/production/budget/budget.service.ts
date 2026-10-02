@@ -138,7 +138,11 @@ import {
 } from '@utils/billing-teardown';
 import { reconcileBillingsForQuote } from '@utils/budget-customer-config-sync';
 import { quoteArtworkOf } from '@utils/quote-artwork';
-import { isManualBudgetTransition, isSystemBudgetTransition } from './budget-transitions';
+import {
+  genericUpdateStatusActMessage,
+  isManualBudgetTransition,
+  isSystemBudgetTransition,
+} from './budget-transitions';
 import { emissionOf, type Emission } from '../../../utils/emission-gate';
 import {
   currentValueApproval,
@@ -1252,17 +1256,17 @@ export class BudgetService {
           actorPrivilege,
           currentStatus,
         );
-        // APROVAR O VALOR É UM ATO, NÃO UM CAMPO (D-27, X7): tem origem, autor e
-        // nota obrigatória em nome do cliente. Pela gravação genérica chegava-se a
-        // APPROVED sem nada disso — era o seletor da tela reaprovando um segundo
-        // depois do auto-revert (nº 984). Fixar o APPROVED atual continua valendo
-        // (é "manter", e foi filtrado acima como no-op).
-        if (data.status === TASK_QUOTE_STATUS.APPROVED) {
-          throw new BadRequestException(
-            'Aprovar o valor é um ato com nota: use "Aprovar valor em nome do cliente" ' +
-              '(PUT /budgets/:id/value-approval).',
-          );
-        }
+        // ATO NÃO É CAMPO (D-27, X7): aprovar (nota), enviar ao cliente (≥1
+        // serviço com valor), retirar e reprovar (motivo) têm a sua checagem.
+        // Pela gravação genérica chegava-se a APPROVED sem nota (o seletor da
+        // tela reaprovando depois do auto-revert, nº 984) e a IN_NEGOTIATION/
+        // PENDING sem o resto. Fixar o status atual continua valendo (é
+        // "manter", e foi filtrado acima como no-op).
+        const actMessage = genericUpdateStatusActMessage(
+          currentStatus,
+          data.status as TASK_QUOTE_STATUS,
+        );
+        if (actMessage) throw new BadRequestException(actMessage);
         // I41: also enforce the status-machine allowlist on the generic update()
         // path — not just the dedicated /status endpoint. Without this, a manual
         // PUT with a status body could jump the machine (e.g. PENDING → DUE).

@@ -78,3 +78,38 @@ export function isManualBudgetTransition(from: TASK_QUOTE_STATUS, to: TASK_QUOTE
 export function isSystemBudgetTransition(from: TASK_QUOTE_STATUS, to: TASK_QUOTE_STATUS): boolean {
   return (BUDGET_SYSTEM_TRANSITIONS[from] ?? []).includes(to);
 }
+
+/**
+ * As arestas que são ATO e não campo: pela gravação genérica (`PUT /budgets/:id`
+ * com `status` no corpo) elas pulariam a checagem do ato — enviar sem serviço com
+ * valor, reprovar sem motivo, aprovar sem nota. Devolve a frase do 400 que manda
+ * usar o ato, ou `null` quando a mudança pode seguir pela gravação genérica.
+ *
+ * Fixar o status ATUAL (`from === to`) não é mudança e passa: é o que o
+ * faturamento faz para o auto-revert não derrubar a aprovação.
+ */
+export function genericUpdateStatusActMessage(
+  from: TASK_QUOTE_STATUS,
+  to: TASK_QUOTE_STATUS,
+): string | null {
+  if (from === to) return null;
+  if (to === S.APPROVED) {
+    return (
+      'Aprovar o valor é um ato com nota: use "Aprovar valor em nome do cliente" ' +
+      '(PUT /budgets/:id/value-approval).'
+    );
+  }
+  if (to === S.IN_NEGOTIATION) {
+    return 'Enviar ao cliente é um ato: use "Enviar ao cliente" (PUT /budgets/:id/send-to-customer).';
+  }
+  if (from === S.IN_NEGOTIATION && to === S.PENDING) {
+    return 'Retirar do cliente é um ato: use "Retirar do cliente" (PUT /budgets/:id/withdraw-from-customer).';
+  }
+  if (from === S.APPROVED && to === S.PENDING) {
+    return (
+      'Reprovar o valor é um ato com motivo: use "Reprovar valor" ' +
+      '(DELETE /budgets/:id/value-approval).'
+    );
+  }
+  return null;
+}
