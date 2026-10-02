@@ -40,6 +40,7 @@ import {
   budgetGetManySchema,
   budgetQuerySchema,
   budgetMergeSchema,
+  budgetExtendValiditySchema,
   customerConfigOrderNumberSchema,
   budgetValueApprovalSchema,
   budgetValueRevokeSchema,
@@ -53,6 +54,7 @@ import type {
   BudgetUpdateFormData,
   BudgetGetManyFormData,
   BudgetMergeFormData,
+  BudgetExtendValidityFormData,
   CustomerConfigOrderNumberFormData,
 } from '@schemas/budget';
 
@@ -173,6 +175,28 @@ export class BudgetController {
     @User('role') userPrivilege: string,
   ) {
     return this.budgetService.update(id, data, userId, false, userPrivilege);
+  }
+
+  /**
+   * PUT /budgets/:id/validity — ESTENDER a validade da proposta.
+   *
+   * `{ days }` conta a partir de HOJE. Passa pelo `update` normal (histórico,
+   * propagação do prazo à cerimônia de assinatura em andamento, e permitido com
+   * faturamento aprovado — `expiresAt` está na lista segura). Um orçamento em
+   * "Aguardando Reanálise" (EXPIRED) volta a Pendente: estender é o comercial
+   * dizendo que o valor continua de pé.
+   *
+   * Access: FINANCIAL, COMMERCIAL, ADMIN — os mesmos que já editam a validade
+   * pelo `PUT /budgets/:id`.
+   */
+  @Put(':id/validity')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async extendValidity(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(budgetExtendValiditySchema)) body: BudgetExtendValidityFormData,
+    @UserId() userId: string,
+  ) {
+    return this.budgetService.extendValidity(id, body.days, userId);
   }
 
   /**
@@ -497,7 +521,9 @@ export class BudgetController {
   async previewMerge(
     @Body(new ZodValidationPipe(budgetMergeSchema)) body: BudgetMergeFormData,
   ) {
-    return this.budgetService.previewMergeQuotes(body.taskIds);
+    return this.budgetService.previewMergeQuotes(body.taskIds, {
+      validityDays: body.validityDays ?? null,
+    });
   }
 
   /** POST /budgets/merge — executa. Julga de novo por dentro. */
@@ -510,6 +536,7 @@ export class BudgetController {
   ) {
     return this.budgetService.mergeQuotes(body.taskIds, userId, {
       billingSplit: body.billingSplit ?? null,
+      validityDays: body.validityDays ?? null,
     });
   }
 

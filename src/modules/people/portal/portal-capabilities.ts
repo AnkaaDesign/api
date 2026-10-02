@@ -208,6 +208,18 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
     PORTAL_CAPABILITY.TRACK,
   ],
   [RESPONSIBLE_ROLE.DRIVER]: [PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER, PORTAL_CAPABILITY.TRACK],
+  // PCP, Expedição e Logística (main de 28/09) acompanham a produção e a saída
+  // do veículo; não obrigam a empresa — não pedem orçamento, não aprovam valor
+  // nem arte. O PCP confere a identidade do veículo que entra na produção, como
+  // o Gestor de Frota; Expedição e Logística acompanham, como o Motorista.
+  // ⚠️ PROVISÓRIO até o dono confirmar (análise 02/10, S2).
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [
+    PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
+    PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
+    PORTAL_CAPABILITY.TRACK,
+  ],
+  [RESPONSIBLE_ROLE.SHIPPING]: [PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER, PORTAL_CAPABILITY.TRACK],
+  [RESPONSIBLE_ROLE.LOGISTICS]: [PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER, PORTAL_CAPABILITY.TRACK],
 };
 
 /**

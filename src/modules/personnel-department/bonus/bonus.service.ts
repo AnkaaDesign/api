@@ -50,6 +50,7 @@ import {
   filterIncludesCurrentPeriod,
   getBonusPeriodStart,
   getBonusPeriodEnd,
+  isBonusPeriodOpen,
 } from '../../../utils/bonus';
 
 // =====================
@@ -109,6 +110,17 @@ interface LiveBonusData {
   absenceDiscountPercentage?: number;
   absenceDiscountValue?: number;
   secullumAnalysis?: SecullumBonusAnalysis;
+  /**
+   * Tem ponto eletrônico (`secullumEmployeeId`) e ficou SEM análise — falha do
+   * fetch desta pessoa (depois das novas tentativas), nenhuma batida
+   * retornada, ou Secullum inteiro fora. O líquido desta linha então NÃO tem
+   * desconto de falta nem assiduidade: a tela deve avisar, e a gravação
+   * recusa (ver `calculateAndSaveBonusesLocked`). Quem não tem vínculo no
+   * ponto fica `false` — está legitimamente sem análise.
+   */
+  secullumAnalysisFailed?: boolean;
+  /** Motivo de `secullumAnalysisFailed`, para a tela e para a recusa do save. */
+  secullumFailureReason?: string | null;
   // Mirrors secullumAnalysis.atestadoForgiven at the top level for clients that
   // don't surface the full analysis object.
   atestadoForgiven?: boolean;
@@ -177,6 +189,12 @@ interface LiveBonusCalculationResult {
   secullumAvailable: boolean;
   /** Human-readable reason when secullumAvailable is false. */
   secullumSyncError?: string | null;
+  /**
+   * Pessoas com ponto eletrônico que ficaram sem análise nesta apuração (ver
+   * `LiveBonusData.secullumAnalysisFailed`). Com o serviço de pé, uma lista
+   * não vazia também impede a gravação.
+   */
+  secullumFailedUsers?: Array<{ userId: string; userName: string; reason: string }>;
   /**
    * Cobertura de afastamento médico pôde ser medida. Falso ⇒ todo mundo saiu
    * com `absenceFactor = 1` por indisponibilidade, não por estar disponível.
@@ -796,8 +814,11 @@ export class BonusService {
   async overlayLivePeriodNumbers(savedBonus: any): Promise<any> {
     if (!savedBonus || savedBonus.payrollId != null) return savedBonus;
 
-    const current = getCurrentPeriod();
-    if (savedBonus.year !== current.year || savedBonus.month !== current.month) {
+    // "Aberto" é o corte do dia 5, 00:00 de SP (`isBonusPeriodOpen`) — o MESMO
+    // instante em que o cron passa a gravar o fechamento. Com o "período
+    // corrente" do dia 5 UTC, uma mudança feita no dia 5 depois da 01:00
+    // aparecia aqui no vivo e nunca chegava à linha nem à folha.
+    if (!isBonusPeriodOpen(Number(savedBonus.year), Number(savedBonus.month))) {
       return savedBonus;
     }
 
@@ -897,6 +918,10 @@ export class BonusService {
       performanceLevel: live.performanceLevel,
       terminatedAt: live.terminatedAt,
       currentlyEmployed: live.currentlyEmployed,
+      // As linhas do Secullum gravadas foram descartadas acima; sem análise
+      // viva, a tela precisa saber que o líquido está sem falta/assiduidade.
+      secullumAnalysisFailed: live.secullumAnalysisFailed ?? false,
+      secullumFailureReason: live.secullumFailureReason ?? null,
     };
   }
 
@@ -1189,8 +1214,13 @@ export class BonusService {
 
       // Salary-based logistic algorithm — needs salary range + this user's salary.
       const calcContext = await this.bonusCalculationContextService.load();
+      // SÓ o cargo do período — sem cair para o cargo de hoje. O motor do
+      // período (`computeLiveBonusesForPeriod`, que é o que se grava) resolve o
+      // salário com `position` do período e nada mais; o fallback daqui fazia
+      // esta tela mostrar valor para quem, no período, não tinha cargo
+      // bonificável e por isso saía com R$ 0,00 na lista e na folha.
       const userSalary = this.bonusCalculationContextService.resolveSalary(calcContext, {
-        position: periodPosition ?? user.position,
+        position: periodPosition,
       });
       // Inject the period reajuste so single-user live values stay consistent
       // with the full-period live calc and with HR's applied adjustment.
@@ -1228,11 +1258,19 @@ export class BonusService {
       // FIX: clamp BEFORE rounding once. Rounding both operands separately
       // and then subtracting can erase sub-cent differences that should
       // produce a discount of one or two cents.
-      // PRORRATEIO: mesma fração que esta pessoa ocupa no divisor.
-      const detailWeight = userEligibility.weight;
-      const baseBonusProrated = roundCurrency(baseBonusValue * detailWeight);
+      //
+      // SÓ `absenceFactor` multiplica o valor — NÃO o peso inteiro.
+      //
+      // Aqui multiplicava por `userEligibility.weight` (temporal × afastamento),
+      // resíduo da v4. Na v5 o eixo temporal já está no numerador: o B1 desta
+      // pessoa é medido só nas tarefas da janela dela. Multiplicar de novo
+      // pelos dias aplicava o tempo DUAS vezes — o José Moreira (peso 0,77)
+      // via no detalhe ~77% do que a lista e a folha mostravam. Mesma conta,
+      // linha a linha, de `computeLiveBonusesForPeriod`, que é o que se grava.
+      const detailAvailability = userEligibility.absenceFactor;
+      const baseBonusProrated = roundCurrency(baseBonusValue * detailAvailability);
       const netBonusValue = roundCurrency(
-        Math.min(baseBonusValue, calculatedNetBonus) * detailWeight,
+        Math.min(baseBonusValue, calculatedNetBonus) * detailAvailability,
       );
       const suspendedTasksDiscount = roundCurrency(
         Math.max(0, baseBonusProrated - netBonusValue),
@@ -1250,13 +1288,13 @@ export class BonusService {
       // instead of silently showing the user a too-favorable bonus. NULL when
       // integration succeeded.
       let secullumSyncError: string | null = null;
+      // Sem vínculo no ponto eletrônico não há o que analisar — ver o mesmo
+      // filtro em `computeLiveBonusesForPeriod`. Lista vazia é no-op no
+      // `analyzeAllUsers` (não conta como indisponibilidade).
+      const singleUserSecullumId = (user as { secullumEmployeeId?: number | null })
+        .secullumEmployeeId;
 
       try {
-        // Sem vínculo no ponto eletrônico não há o que analisar — ver o mesmo
-        // filtro em `computeLiveBonusesForPeriod`. Lista vazia é no-op no
-        // `analyzeAllUsers` (não conta como indisponibilidade).
-        const singleUserSecullumId = (user as { secullumEmployeeId?: number | null })
-          .secullumEmployeeId;
         const secullumResult = await this.secullumBonusIntegrationService.analyzeAllUsers(
           year,
           month,
@@ -1284,7 +1322,9 @@ export class BonusService {
           );
         } else if (secullumResult.metadata.failedUsers.includes(userId)) {
           // Service is up but THIS user errored — also worth surfacing.
-          secullumSyncError = 'Falha ao analisar dados Secullum para este usuário.';
+          secullumSyncError =
+            secullumResult.metadata.failureReasons?.[userId] ??
+            'Falha ao analisar dados Secullum para este usuário.';
         }
 
         if (secullumAnalysis) {
@@ -1301,6 +1341,15 @@ export class BonusService {
           'Secullum bonus integration failed for single user, continuing without it:',
           error?.stack || error?.message || error,
         );
+      }
+
+      // Tem ponto eletrônico e ficou sem análise ⇒ o líquido abaixo NÃO tem os
+      // descontos de falta nem a assiduidade — não é "sem falta". Mesma regra
+      // do motor do período (`secullumAnalysisFailed`), para a tela avisar em
+      // vez de exibir líquido = base como se fosse definitivo.
+      const secullumAnalysisFailed = singleUserSecullumId != null && !secullumAnalysis;
+      if (secullumAnalysisFailed && !secullumSyncError) {
+        secullumSyncError = 'Nenhuma apuração de ponto retornada pelo Secullum para este usuário.';
       }
 
       // ========================================================================
@@ -1443,7 +1492,8 @@ export class BonusService {
         periodAverageTasks: averageTasksPerUser,
         periodRawAverageTasks: rawAverageTasksPerUser,
         effectedAt: userEligibility.effectedInPeriod ? userEligibility.eligibleFrom : null,
-        eligibilityWeight: detailWeight,
+        // Exibição e divisor apenas — desde a v5 não multiplica o valor.
+        eligibilityWeight: userEligibility.weight,
         temporalWeight: userEligibility.temporalWeight,
         absenceFactor: userEligibility.absenceFactor,
         absentDays: userEligibility.absentDays,
@@ -1491,6 +1541,7 @@ export class BonusService {
         // bonus may be missing absence-based discounts. Always present in the
         // response shape (null on success) so consumers can branch reliably.
         secullumSyncError,
+        secullumAnalysisFailed,
         secullumAnalysis,
       };
 
@@ -3135,6 +3186,8 @@ export class BonusService {
       // the failure mode the audit identified as over-paying employees.
       let secullumAvailable = true;
       let secullumSyncError: string | null = null;
+      // userId → motivo, para quem tem ponto e falhou na análise individual.
+      let secullumFailureReasons: Record<string, string> = {};
       try {
         // SÓ quem tem vínculo no ponto eletrônico.
         //
@@ -3171,6 +3224,7 @@ export class BonusService {
             `Secullum analysis: ${secullumResult.metadata.failedUsers.length} of ${secullumResult.metadata.totalUsers} users failed (service still considered up).`,
           );
         }
+        secullumFailureReasons = secullumResult.metadata.failureReasons ?? {};
 
         const secullumAnalysisMap = secullumResult.perUser;
 
@@ -3288,6 +3342,33 @@ export class BonusService {
         );
       }
 
+      // QUEM TEM PONTO E FICOU SEM ANÁLISE É MARCADO, NÃO ZERADO EM SILÊNCIO.
+      //
+      // Sem análise, a linha acima sai com líquido = base − suspensas: sem
+      // desconto de falta e sem assiduidade. Para quem NÃO tem vínculo no ponto
+      // isso é o correto. Para quem tem, é "não sei" — e só a marca impede que
+      // a tela mostre esse número como definitivo e que o save o grave.
+      const secullumIdByUser = new Map(allBonifiableUsers.map(u => [u.id, u.secullumEmployeeId]));
+      const secullumFailedUsers: Array<{ userId: string; userName: string; reason: string }> = [];
+      for (const bonus of bonuses) {
+        const hasSecullum = secullumIdByUser.get(bonus.userId) != null;
+        const failed = hasSecullum && !bonus.secullumAnalysis;
+        bonus.secullumAnalysisFailed = failed;
+        bonus.secullumFailureReason = failed
+          ? (secullumFailureReasons[bonus.userId] ??
+            (secullumAvailable
+              ? 'nenhuma batida retornada pelo Secullum no período'
+              : (secullumSyncError ?? 'Integração Secullum indisponível.')))
+          : null;
+        if (failed) {
+          secullumFailedUsers.push({
+            userId: bonus.userId,
+            userName: bonus.userName,
+            reason: bonus.secullumFailureReason as string,
+          });
+        }
+      }
+
       return {
         year,
         month,
@@ -3304,6 +3385,7 @@ export class BonusService {
         isLive: true,
         secullumAvailable,
         secullumSyncError,
+        secullumFailedUsers,
         absenceDataAvailable: eligibility.absenceDataAvailable,
         absenceError: eligibility.absenceError ?? null,
         fullyAbsent: eligibility.fullyAbsent,
@@ -3377,7 +3459,13 @@ export class BonusService {
       const includesCurrentPeriod = filterIncludesCurrentPeriod(filterYear, filterMonthValues);
 
       // If not querying current period, just return saved data directly from repository
-      if (!includesCurrentPeriod) {
+      //
+      // O "período corrente" (regra do dia 5 UTC) só escolhe QUAL mês a tela
+      // mostra. Se o vivo vence a linha salva é decisão do corte
+      // (`isBonusPeriodOpen`, dia 5 00:00 de SP): no dia 5 o corrente ainda é o
+      // mês que acabou de fechar, e mesclar o vivo nele mostraria números que o
+      // cron da 01:00 não gravou — a linha salva é a verdade a partir do corte.
+      if (!includesCurrentPeriod || !isBonusPeriodOpen(currentPeriod.year, currentPeriod.month)) {
         return this.findManyWithWhere(filters);
       }
 
@@ -3540,8 +3628,19 @@ export class BonusService {
             }
           }
 
-          // If live Secullum analysis is available, replace/add Secullum-based items
-          if (liveBonus?.secullumAnalysis) {
+          // Linhas do Secullum: a linha VIVA manda, inclusive quando ela veio
+          // SEM análise.
+          //
+          // Antes a troca só acontecia com análise viva presente; sem ela, a
+          // lista mantinha a "Assiduidade" e as faltas GRAVADAS por cima da base
+          // VIVA — extra calculado sobre a base antiga somado a uma base nova —
+          // enquanto o overlay do detalhe (`overlayLivePeriodNumbers`) já as
+          // descartava. Mesma pessoa, dois líquidos. Agora as duas telas fazem
+          // o mesmo: descartam o que é derivado da base velha e, se a pessoa tem
+          // ponto e ficou sem análise, marcam `secullumAnalysisFailed` para a UI
+          // avisar em vez de misturar número velho. Linha já presa a folha
+          // (`isPaidRow`) sem análise viva continua como foi gravada.
+          if (liveBonus?.secullumAnalysis || (!isPaidRow && liveBonus)) {
             // Remove any existing Secullum-generated items from saved data
             mergedExtras = mergedExtras.filter(
               (e: any) =>
@@ -3556,7 +3655,7 @@ export class BonusService {
 
             const liveBonusId = savedBonus.id;
 
-            // Add live Secullum extras
+            // Add live Secullum extras (só existem com análise viva)
             if (liveBonus.bonusExtraValue && liveBonus.bonusExtraValue > 0) {
               mergedExtras.push({
                 id: `live-extra-ponto-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
@@ -3570,7 +3669,9 @@ export class BonusService {
 
             // Add live Secullum discounts via the shared builder (identical to
             // the live detail view and the persisted save).
-            for (const line of buildAbsenceDiscountLines(liveBonus.secullumAnalysis)) {
+            for (const line of liveBonus.secullumAnalysis
+              ? buildAbsenceDiscountLines(liveBonus.secullumAnalysis)
+              : []) {
               mergedDiscounts.push({
                 id: `live-discount-${line.kind}-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
                 bonusId: liveBonusId,
@@ -3655,6 +3756,8 @@ export class BonusService {
                   performanceLevel: liveBonus.performanceLevel,
                   terminatedAt: liveBonus.terminatedAt,
                   currentlyEmployed: liveBonus.currentlyEmployed,
+                  secullumAnalysisFailed: liveBonus.secullumAnalysisFailed ?? false,
+                  secullumFailureReason: liveBonus.secullumFailureReason ?? null,
                 }
               : {};
 
@@ -3756,6 +3859,9 @@ export class BonusService {
             terminatedAt: liveBonus.terminatedAt,
             currentlyEmployed: liveBonus.currentlyEmployed,
             hasSecullumId: liveBonus.hasSecullumId,
+            // Tem ponto e ficou sem análise: líquido sem falta/assiduidade.
+            secullumAnalysisFailed: liveBonus.secullumAnalysisFailed ?? false,
+            secullumFailureReason: liveBonus.secullumFailureReason ?? null,
 
             // Timestamps (same structure as saved bonus)
             createdAt: now,
@@ -3994,6 +4100,27 @@ export class BonusService {
     }
   }
 
+  /**
+   * Quem NÃO pode ser gravado por falta de apuração de ponto: tem vínculo no
+   * Secullum, ficou sem análise e tem valor em jogo (base > 0). Separado para
+   * ser testável sem subir o Nest (ver tests/bonus-secullum-failed-users.test.ts).
+   */
+  private findBlockingSecullumFailures(
+    bonuses: Array<
+      Pick<LiveBonusData, 'userId' | 'userName' | 'baseBonus' | 'secullumAnalysisFailed'> & {
+        secullumFailureReason?: string | null;
+      }
+    >,
+  ): Array<{ userId: string; userName: string; reason: string }> {
+    return bonuses
+      .filter(b => b.secullumAnalysisFailed === true && Number(b.baseBonus) > 0)
+      .map(b => ({
+        userId: b.userId,
+        userName: b.userName,
+        reason: b.secullumFailureReason || 'sem análise de ponto',
+      }));
+  }
+
   private async calculateAndSaveBonusesLocked(
     year: string,
     month: string,
@@ -4032,6 +4159,42 @@ export class BonusService {
         );
         throw new ServiceUnavailableException(
           `Integração Secullum indisponível — não é possível calcular descontos. Tente novamente em alguns minutos. (${reason})`,
+        );
+      }
+
+      // MESMO GUARD, POR PESSOA.
+      //
+      // O guard acima só dispara quando o Secullum inteiro cai. Uma falha de UMA
+      // pessoa (a /Batidas ou o /Calculos dela, depois das novas tentativas do
+      // `analyzeAllUsers`) deixava o serviço "de pé" e a pessoa era gravada sem
+      // desconto de falta e sem assiduidade — o mesmo sobrepagamento, só que
+      // silencioso. Em 09/2026 o Welington Ferreira (10h50 sem justificativa ⇒
+      // 100% ⇒ líquido 0) sairia gravado com R$ 177,98.
+      //
+      // Recusa o período INTEIRO, não só a pessoa. Gravar os outros e pular ela
+      // parece mais gentil, mas quebra a completude do cron: se ela já tinha
+      // linha gravada depois do dia 25 (um "Calcular" manual do DP), no dia
+      // seguinte o conjunto estaria completo e sem linha velha, o Step 1 seria
+      // pulado e a folha sairia com a linha antiga dela. Recusando tudo, o
+      // estado gravado fica exatamente como estava, o cron notifica a falha
+      // (com o nome e o motivo, via mensagem da exceção) e tenta de novo no dia
+      // seguinte — o mesmo contrato do Secullum fora do ar.
+      //
+      // Só bloqueia quem tem dinheiro em jogo: base 0 (afastamento integral,
+      // performanceLevel 0) dá líquido 0 com ou sem análise — o extra é
+      // percentual da base e os descontos param em 0.
+      const blockingFailures = this.findBlockingSecullumFailures(liveData.bonuses);
+      if (blockingFailures.length > 0) {
+        const who = blockingFailures
+          .map(f => `${f.userName} (${f.reason})`)
+          .join('; ');
+        this.logger.error(
+          `Refusing to save bonuses for ${monthNum}/${yearNum}: sem apuração de ponto para ${who}`,
+        );
+        throw new ServiceUnavailableException(
+          `Apuração de ponto do Secullum falhou para ${blockingFailures.length} pessoa(s) — ` +
+            `sem ela os descontos de falta e a assiduidade sairiam zerados. Nada foi gravado; ` +
+            `tente novamente em alguns minutos. Pessoas: ${who}`,
         );
       }
 
@@ -4664,12 +4827,34 @@ export class BonusService {
    * Simulate bonuses for an arbitrary set of users. Used by the web + mobile
    * bonus simulators — neither does any client-side math; both POST here.
    *
-   * IMPORTANT: this calculates ONLY the base bonus from the salary-based
-   * logistic algorithm. It deliberately does NOT include assiduidade extras
-   * (Secullum integration) or discounts — those are saved-bonus concepts that
-   * don't apply to a "what-if" simulator.
+   * MODELO v5 — o simulador espelha a conta viva (`computeLiveBonusesForPeriod`)
+   * pessoa a pessoa:
+   *
+   *   • B1 é DA PESSOA, medido na janela dela (`BonusWindowStatsService`) — não
+   *     o B1 único do período. Os números da janela vêm da própria conta viva
+   *     (`calculateLiveBonuses`, SWR com cache), não de uma reimplementação.
+   *   • valor = curva(B1) × `absenceFactor` e NADA MAIS. O eixo temporal
+   *     (admissão/desligamento) já está no numerador da janela; multiplicar por
+   *     `eligibilityWeight` de novo — o que a v4 fazia aqui — aplicava o tempo
+   *     duas vezes. Welington Ferreira em 09/2026 (19 de 22 dias): a v4 dava
+   *     curva(4,51) × 0,8636; a folha paga curva(4,00).
+   *   • bruto = curva(B1 com suspensa valendo 1); líquido antes dos lançamentos
+   *     = min(bruto, curva(B1 com suspensa valendo 0)). A diferença é a linha
+   *     "Tarefas Suspensas" — descontada UMA vez, aqui, e não somada de novo à
+   *     linha viva do período (que foi calculada sobre a base VIVA e trocaria
+   *     de valor assim que o operador mexesse no cargo).
+   *   • por cima: extras (assiduidade %) e descontos em cascata (atestado %, sem
+   *     justificativa %), os mesmos lançamentos que a tela de Bônus mostra.
+   *
+   * Sem "e se" (média enviada = média viva do período) cada pessoa sai igual à
+   * conta viva ao centavo. Ver `resolveSimulatedB1` para o "e se".
    */
   async simulate(input: {
+    /**
+     * B1 DO PERÍODO que o operador está simulando — tarefas PONDERADAS
+     * (suspensa = 0) ÷ divisor do período. É o número do campo "Média" da tela
+     * e o que o app manda. Igual à média viva ⇒ sem "e se".
+     */
     averageTasksPerUser: number;
     users: Array<{
       id?: string;
@@ -4680,12 +4865,10 @@ export class BonusService {
       salary?: number;
       performanceLevel: number;
       /**
-       * Quanto do período a pessoa conta, de 0 a 1 (admissão, desligamento,
-       * afastamento). É o MESMO peso que entra no divisor da média. O simulador
-       * mandava o valor de período inteiro e prorrateava no cliente; agora o
-       * peso vem junto, porque sem ele não há como aplicar desconto de VALOR
-       * fixo sobre a base certa — 50% de um bônus prorrateado é uma coisa, R$ 80
-       * sobre ele é outra.
+       * Peso do período (temporal × afastamento) que o cliente conhece. Desde a
+       * v5 é SÓ exibição: o valor não é multiplicado por ele (ver acima). O
+       * servidor devolve o peso da conta viva quando a pessoa está nela; este
+       * aqui só vale para quem não está.
        */
       eligibilityWeight?: number;
     }>;
@@ -4704,7 +4887,7 @@ export class BonusService {
      * (summed BONUS reajustes) is injected so the simulation matches the real,
      * saved bonus to the cent. This is the single place that guarantees
      * every simulator (web + mobile) applies the same adjustment — no client
-     * can forget it.
+     * can forget it. Também é o período cujas JANELAS e lançamentos valem.
      */
     year?: number;
     month?: number;
@@ -4753,18 +4936,68 @@ export class BonusService {
     // simulator (web + mobile) match the real bonus to the cent.
     const roundedAverageTasksPerUser = roundAverage(input.averageTasksPerUser);
 
-    const userResults = this.bonusCalculationService.calculateMany(
-      usersWithSalaries,
-      roundedAverageTasksPerUser,
-      salaryRange,
-      effectiveConfig,
+    /**
+     * A CONTA VIVA DO PERÍODO — de onde saem a janela, o `absenceFactor` e os
+     * lançamentos de cada pessoa. Sem período (curva pura) ou com a conta viva
+     * fora do ar, a simulação cai no B1 do período para todos: é a resposta
+     * da v4 sem o prorrateio, e o log diz por quê.
+     */
+    let live: LiveBonusCalculationResult | null = null;
+    if (input.year && input.month) {
+      try {
+        live = await this.calculateLiveBonuses(input.year, input.month);
+      } catch (error) {
+        this.logger.warn(
+          `Simulação sem a conta viva de ${input.month}/${input.year} (B1 do período para todos): ${(error as Error)?.message}`,
+        );
+      }
+    }
+    const liveByUserId = new Map<string, LiveBonusData>(
+      (live?.bonuses ?? []).map(b => [b.userId, b]),
     );
+    const resolveB1 = this.resolveSimulatedB1(input.averageTasksPerUser, live);
+
+    const userResults = usersWithSalaries.map(u => {
+      const lb = u.id ? liveByUserId.get(u.id) : undefined;
+      const b1 = resolveB1(lb);
+      // Mesma sequência de `computeLiveBonusesForPeriod`: bruto com a média
+      // crua, líquido com a ponderada, `min` ANTES de arredondar, e só então o
+      // fator de afastamento — arredondado uma vez em cada lado.
+      const calculation = this.bonusCalculationService.calculate({
+        salary: u.salary,
+        performanceLevel: u.performanceLevel,
+        averageTasksPerUser: b1.raw,
+        salaryRange,
+        config: effectiveConfig,
+      });
+      const weightedValue = this.bonusCalculationService.calculateBonus({
+        salary: u.salary,
+        performanceLevel: u.performanceLevel,
+        averageTasksPerUser: b1.weighted,
+        salaryRange,
+        config: effectiveConfig,
+      });
+      const absenceFactor = lb?.absenceFactor ?? 1;
+      const grossBonus = roundCurrency(calculation.bonus * absenceFactor);
+      const netBeforeModifiers = roundCurrency(
+        Math.min(calculation.bonus, weightedValue) * absenceFactor,
+      );
+      return {
+        ...u,
+        calculation,
+        b1,
+        absenceFactor,
+        eligibilityWeight: lb?.eligibilityWeight ?? u.eligibilityWeight ?? 1,
+        grossBonus,
+        suspendedTasksDiscount: roundCurrency(Math.max(0, grossBonus - netBeforeModifiers)),
+      };
+    });
 
     let totalBonus = 0;
     let eligibleCount = 0;
     for (const r of userResults) {
-      totalBonus += r.calculation.bonus;
-      if (r.calculation.bonus > 0) eligibleCount++;
+      totalBonus += r.grossBonus;
+      if (r.grossBonus > 0) eligibleCount++;
     }
 
     /**
@@ -4779,11 +5012,12 @@ export class BonusService {
      * (`applyModifiersToBase`) — as três telas divergirem em centavos é bug de
      * confiança. Quem não tem bônus gravado no período não tem lançamento: o
      * líquido é o próprio bruto.
+     *
+     * "Tarefas Suspensas" é a EXCEÇÃO: sai do ledger (gravado ou vivo) e entra
+     * a linha recalculada acima sobre a base simulada. A linha viva é um VALOR
+     * fixo medido na base viva; somá-la à simulação — que já recebia a média
+     * sem as suspensas — descontava a mesma suspensão duas vezes.
      */
-    const weightById = new Map<string, number>();
-    for (const u of input.users) {
-      if (u.id) weightById.set(u.id, u.eligibilityWeight ?? 1);
-    }
     const ledgerByUserId = new Map<string, { extras: any[]; discounts: any[] }>();
     const simulatedUserIds = input.users.map(u => u.id).filter((id): id is string => !!id);
     if (input.year && input.month && simulatedUserIds.length > 0) {
@@ -4810,50 +5044,53 @@ export class BonusService {
        *
        * A ordem é a mesma que `calculateLiveBonusForUser` usa: o gravado manda
        * quando existe (foi ele que a folha pagou), o vivo entra para quem
-       * ainda não tem. `calculateLiveBonuses` é SWR com cache de período — a
-       * mesma chamada que a lista de bônus já faz o tempo todo.
+       * ainda não tem. A conta viva é a mesma já carregada acima para as
+       * janelas; se ela falhou, o líquido é o bruto menos as suspensas.
        */
-      const missing = simulatedUserIds.filter(id => !ledgerByUserId.has(id));
-      if (missing.length > 0) {
-        try {
-          const live = await this.calculateLiveBonuses(input.year, input.month);
-          const wanted = new Set(missing);
-          for (const lb of live.bonuses) {
-            if (!wanted.has(lb.userId)) continue;
-            // As linhas do período aberto são SINTETIZADAS (ponto, tarefas
-            // suspensas, faltas) — o `bonusExtras`/`bonusDiscounts` da linha
-            // viva vem vazio, porque não há registro no banco para relacionar.
-            const lines = this.buildLiveModifierLines(lb, `live-${lb.userId}`, lb.userId);
-            const extras = [...(lb.bonusExtras ?? []), ...lines.extras];
-            const discounts = [...(lb.bonusDiscounts ?? []), ...lines.discounts];
-            if (extras.length || discounts.length) {
-              ledgerByUserId.set(lb.userId, { extras, discounts });
-            }
+      if (live) {
+        for (const id of simulatedUserIds) {
+          if (ledgerByUserId.has(id)) continue;
+          const lb = liveByUserId.get(id);
+          if (!lb) continue;
+          // As linhas do período aberto são SINTETIZADAS (ponto, tarefas
+          // suspensas, faltas) — o `bonusExtras`/`bonusDiscounts` da linha
+          // viva vem vazio, porque não há registro no banco para relacionar.
+          const lines = this.buildLiveModifierLines(lb, `live-${lb.userId}`, lb.userId);
+          const extras = [...(lb.bonusExtras ?? []), ...lines.extras];
+          const discounts = [...(lb.bonusDiscounts ?? []), ...lines.discounts];
+          if (extras.length || discounts.length) {
+            ledgerByUserId.set(lb.userId, { extras, discounts });
           }
-        } catch (error) {
-          // Simulação não pode morrer por causa do Secullum: sem a conta viva
-          // o líquido vira o bruto, que é o que ela mostrava antes.
-          this.logger.warn(
-            `Simulação sem lançamentos do período vivo ${input.month}/${input.year}: ${(error as Error)?.message}`,
-          );
         }
       }
     }
 
-    const settlementOf = (userId: string | undefined, fullPeriodBonus: number) => {
-      const weight = userId ? (weightById.get(userId) ?? 1) : 1;
-      const grossBonus = roundCurrency(fullPeriodBonus * weight);
-      const ledger = userId ? ledgerByUserId.get(userId) : undefined;
-      const netBonus = ledger
-        ? this.applyModifiersToBase(grossBonus, ledger.extras, ledger.discounts, {
-            preferPercentage: true,
-          })
-        : grossBonus;
+    const settlementOf = (r: (typeof userResults)[number]) => {
+      const ledger = r.id ? ledgerByUserId.get(r.id) : undefined;
+      const discounts = (ledger?.discounts ?? []).filter(
+        (d: any) => d.reference !== 'Tarefas Suspensas',
+      );
+      if (r.suspendedTasksDiscount > 0) {
+        // Ordem 1 — a mesma que a conta viva e o save usam para esta linha.
+        discounts.push({
+          id: `sim-discount-suspended-${r.id ?? ''}`,
+          reference: 'Tarefas Suspensas',
+          value: r.suspendedTasksDiscount,
+          percentage: null,
+          calculationOrder: 1,
+        });
+      }
+      const extras = ledger?.extras ?? [];
+      const netBonus = this.applyModifiersToBase(r.grossBonus, extras, discounts, {
+        preferPercentage: true,
+      });
       return {
-        eligibilityWeight: weight,
-        grossBonus,
+        eligibilityWeight: r.eligibilityWeight,
+        absenceFactor: r.absenceFactor,
+        grossBonus: r.grossBonus,
+        suspendedTasksDiscount: r.suspendedTasksDiscount,
         netBonus,
-        adjustments: roundCurrency(netBonus - grossBonus),
+        adjustments: roundCurrency(netBonus - r.grossBonus),
       };
     };
 
@@ -4878,24 +5115,25 @@ export class BonusService {
       }
     }
 
-    // Use the first user's breakdown for shared period-level fields
-    // (anchor and config don't depend on the user).
-    const firstBreakdown = userResults[0]?.calculation;
+    // Campos de período (config e âncora do B1 da EQUIPE). A âncora depende só
+    // de B1 e da config, não do salário — mas desde a v5 cada pessoa tem o seu
+    // B1, então a âncora da primeira linha deixou de ser "a do período".
+    const periodBreakdown = this.bonusCalculationService.calculate({
+      salary: salaryRange.min,
+      performanceLevel: 1,
+      averageTasksPerUser: roundedAverageTasksPerUser,
+      salaryRange,
+      config: effectiveConfig,
+    });
+
+    const settled = userResults.map(r => ({ r, s: settlementOf(r) }));
 
     return {
       averageTasksPerUser: input.averageTasksPerUser,
       salaryRange,
-      config:
-        firstBreakdown?.config ??
-        this.bonusCalculationService.calculate({
-          salary: salaryRange.min,
-          performanceLevel: 1,
-          averageTasksPerUser: input.averageTasksPerUser,
-          salaryRange,
-          config: effectiveConfig,
-        }).config,
-      anchor: firstBreakdown?.anchor ?? 0,
-      users: userResults.map(r => ({
+      config: periodBreakdown.config,
+      anchor: periodBreakdown.anchor,
+      users: settled.map(({ r, s }) => ({
         id: r.id,
         name: r.name,
         positionName: r.positionName,
@@ -4903,22 +5141,106 @@ export class BonusService {
         sectorName: r.sectorName,
         salary: r.salary,
         performanceLevel: r.performanceLevel,
-        bonus: r.calculation.bonus,
+        // `bonus` = bruto da pessoa (curva do B1 dela × afastamento) — o mesmo
+        // número que a conta viva chama de `baseBonus`. O app lê este campo.
+        bonus: r.grossBonus,
         baseBonus: r.calculation.baseBonus,
-        // Bruto prorrateado, líquido e a diferença entre os dois — o que a folha
-        // realmente pagaria com este cargo e este nível.
-        ...settlementOf(r.id, r.calculation.bonus),
+        // Bruto, líquido e a diferença entre os dois — o que a folha realmente
+        // pagaria com este cargo e este nível.
+        ...s,
+        // O B1 que alimentou a curva desta pessoa, e de onde ele veio.
+        averageTasksPerUser: r.b1.weighted,
+        rawAverageTasksPerUser: r.b1.raw,
+        b1Source: r.b1.source,
         ratio: r.calculation.ratio,
         x: r.calculation.x,
         anchor: r.calculation.anchor,
         performanceMultiplier: r.calculation.performanceMultiplier,
       })),
       totals: {
-        totalBonus: Math.round(totalBonus * 100) / 100,
+        totalBonus: roundCurrency(totalBonus),
+        totalNetBonus: roundCurrency(settled.reduce((sum, { s }) => sum + s.netBonus, 0)),
         userCount: input.users.length,
         eligibleCount,
       },
       b1Curve,
+    };
+  }
+
+  /**
+   * O B1 DE CADA PESSOA NA SIMULAÇÃO — bruto (suspensa = 1) e ponderado
+   * (suspensa = 0).
+   *
+   * SEM "E SE" (a média enviada, arredondada, é a média viva do período): o B1
+   * é exatamente o da janela que a conta viva usou. É isso que garante o
+   * simulador igual à tela de Bônus ao centavo — o app manda a média já
+   * arredondada a 2 casas, então a comparação é feita arredondada.
+   *
+   * COM "E SE": o operador mudou a quantidade de tarefas do PERÍODO. As tarefas
+   * boas da janela de cada pessoa escalam na mesma proporção
+   * (`simuladas ÷ vivas`), e as SUSPENSAS ficam como estão — são fatos do
+   * período que o "e se" não apaga. Quem trabalhou 19 de 22 dias continua vendo
+   * as tarefas da janela dele, só que mais ou menos.
+   *
+   * PERÍODO SEM NENHUMA TAREFA PONDERADA (a proporção não existe): a quantidade
+   * simulada é distribuída uniformemente pelos dias úteis — a janela recebe
+   * `simuladas × diasDaJanela ÷ diasDoPeríodo`. Para quem tem a janela inteira
+   * isso dá `simuladas ÷ divisor do período`, a média de sempre; para quem tem
+   * janela parcial é a hipótese mais neutra possível (não há distribuição real
+   * para copiar).
+   *
+   * FORA DA JANELA (sem id, nível 0 no período ou fora da elegibilidade): usa o
+   * B1 do período. É o "e se" de alguém que não esteve no período — a conta
+   * viva daria 0, o que não responde a pergunta de quem simula.
+   */
+  private resolveSimulatedB1(
+    averageTasksPerUser: number,
+    live: LiveBonusCalculationResult | null,
+  ): (lb: LiveBonusData | undefined) => {
+    weighted: number;
+    raw: number;
+    source: 'window' | 'period';
+  } {
+    const roundedAverage = roundAverage(averageTasksPerUser);
+    const periodDivisor = live?.totalEligibleUsersForAverage ?? 0;
+    const liveWeightedTotal = live?.totalWeightedTasks ?? 0;
+    const suspendedPerPerson =
+      live && periodDivisor > 0
+        ? Math.max(0, live.totalRawTaskCount - live.totalWeightedTasks) / periodDivisor
+        : 0;
+    const isLiveQuantity = !!live && roundedAverage === live.averageTasksPerEmployee;
+    const simulatedWeightedTotal = averageTasksPerUser * periodDivisor;
+    const periodBusinessDays = live?.periodBusinessDays ?? 0;
+
+    const periodB1 = {
+      weighted: roundedAverage,
+      raw: isLiveQuantity
+        ? (live as LiveBonusCalculationResult).rawAverageTasksPerEmployee
+        : roundAverage(averageTasksPerUser + suspendedPerPerson),
+      source: 'period' as const,
+    };
+
+    return lb => {
+      if (!lb || !(lb.windowDivisor > 0)) return periodB1;
+      if (isLiveQuantity) {
+        return {
+          weighted: lb.averageTasksPerEmployee,
+          raw: lb.rawAverageTasksPerEmployee,
+          source: 'window',
+        };
+      }
+      const suspendedWindow = Math.max(0, lb.windowRawTasks - lb.windowWeightedTasks);
+      const weightedWindow =
+        liveWeightedTotal > 0
+          ? lb.windowWeightedTasks * (simulatedWeightedTotal / liveWeightedTotal)
+          : periodBusinessDays > 0
+            ? (simulatedWeightedTotal * lb.windowBusinessDays) / periodBusinessDays
+            : 0;
+      return {
+        weighted: roundAverage(weightedWindow / lb.windowDivisor),
+        raw: roundAverage((weightedWindow + suspendedWindow) / lb.windowDivisor),
+        source: 'window',
+      };
     };
   }
 

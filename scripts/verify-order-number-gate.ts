@@ -6,6 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import {
+  inheritedOrderNumber,
   normalizeOrderNumber,
   orderNumberProblem,
   orderNumberVehicles,
@@ -93,29 +94,58 @@ check('vazio com número válido é gravado (normalizado)', () => {
   const vehicles = orderNumberVehicles([{ id: A, customerOrderNumber: null }]);
   const r = resolveOrderNumberSubmission(vehicles, [{ taskId: A, value: '  4500  77 ' }]);
   assert.equal(r.problem, null);
-  assert.deepEqual(r.toWrite, [{ taskId: A, value: '4500 77' }]);
+  assert.deepEqual(r.toWrite, [{ taskId: A, value: '4500 77', inherited: false }]);
 });
 
-check('vários veículos: falta um → recusa nomeando o veículo; nada é gravado', () => {
-  const vehicles = orderNumberVehicles([
-    { id: A, implement: { serialNumber: '10' }, customerOrderNumber: null },
-    { id: B, implement: { serialNumber: '11' }, customerOrderNumber: null },
-  ]);
-  const r = resolveOrderNumberSubmission(vehicles, [{ taskId: A, value: '4500' }]);
-  assert.match(r.problem ?? '', /Série 11/);
-  assert.deepEqual(r.toWrite, []);
-});
-
-check('vários veículos: valor inválido → recusa com o rótulo', () => {
+check('vários veículos sem número: um só pedido vale para todos', () => {
   const vehicles = orderNumberVehicles([
     { id: A, implement: { serialNumber: '10' }, customerOrderNumber: null },
     { id: B, implement: { serialNumber: '11' }, customerOrderNumber: null },
   ]);
   const r = resolveOrderNumberSubmission(vehicles, [
     { taskId: A, value: '4500' },
+    { taskId: B, value: '4500' },
+  ]);
+  assert.equal(r.problem, null);
+  assert.deepEqual(r.toWrite, [
+    { taskId: A, value: '4500', inherited: false },
+    { taskId: B, value: '4500', inherited: false },
+  ]);
+});
+
+check('vários veículos: número em uma linha só basta (é o mesmo pedido)', () => {
+  const vehicles = orderNumberVehicles([
+    { id: A, customerOrderNumber: null },
+    { id: B, customerOrderNumber: null },
+  ]);
+  const r = resolveOrderNumberSubmission(vehicles, [{ taskId: A, value: '4500' }]);
+  assert.equal(r.problem, null);
+  assert.deepEqual(r.toWrite.map(x => x.value), ['4500', '4500']);
+});
+
+check('vários veículos: números diferentes são recusados; nada é gravado', () => {
+  const vehicles = orderNumberVehicles([
+    { id: A, customerOrderNumber: null },
+    { id: B, customerOrderNumber: null },
+  ]);
+  const r = resolveOrderNumberSubmission(vehicles, [
+    { taskId: A, value: '4500' },
+    { taskId: B, value: '4501' },
+  ]);
+  assert.match(r.problem ?? '', /mesmo para todos/);
+  assert.deepEqual(r.toWrite, []);
+});
+
+check('valor inválido é recusado', () => {
+  const vehicles = orderNumberVehicles([
+    { id: A, customerOrderNumber: null },
+    { id: B, customerOrderNumber: null },
+  ]);
+  const r = resolveOrderNumberSubmission(vehicles, [
+    { taskId: A, value: '<x>' },
     { taskId: B, value: '<x>' },
   ]);
-  assert.match(r.problem ?? '', /^Série 11: /);
+  assert.match(r.problem ?? '', /só pode ter/);
 });
 
 check('veículo de outro orçamento é recusado', () => {
@@ -128,17 +158,50 @@ check('veículo de outro orçamento é recusado', () => {
   assert.deepEqual(r.toWrite, []);
 });
 
-check('mistura: um já tem, outro recebe', () => {
+check('já registrado num veículo: os que faltam HERDAM, sem digitar nada', () => {
   const vehicles = orderNumberVehicles([
-    { id: A, customerOrderNumber: '4500' },
+    { id: A, customerOrderNumber: '89920' },
     { id: B, customerOrderNumber: '' },
+    { id: C, customerOrderNumber: null },
   ]);
-  const r = resolveOrderNumberSubmission(vehicles, [
-    { taskId: A, value: '4500' },
-    { taskId: B, value: '4501' },
-  ]);
+  const r = resolveOrderNumberSubmission(vehicles, []);
   assert.equal(r.problem, null);
-  assert.deepEqual(r.toWrite, [{ taskId: B, value: '4501' }]);
+  assert.deepEqual(r.toWrite, [
+    { taskId: B, value: '89920', inherited: true },
+    { taskId: C, value: '89920', inherited: true },
+  ]);
+  // Digitado diferente é ignorado: o pedido é um só e já está registrado.
+  const r2 = resolveOrderNumberSubmission(vehicles, [{ taskId: B, value: '1' }]);
+  assert.deepEqual(r2.toWrite.map(x => x.value), ['89920', '89920']);
+});
+
+check('registrados divergentes (legado) não dão herança: pede o número', () => {
+  const vehicles = orderNumberVehicles([
+    { id: A, customerOrderNumber: '1' },
+    { id: B, customerOrderNumber: '2' },
+    { id: C, customerOrderNumber: null },
+  ]);
+  assert.equal(inheritedOrderNumber(vehicles), null);
+  const r = resolveOrderNumberSubmission(vehicles, []);
+  assert.match(r.problem ?? '', /Informe o nº do pedido/);
+});
+
+check('pedido do portal (purchaseOrderId) conta como pedido e não é sobrescrito (DD12)', () => {
+  const vehicles = orderNumberVehicles([{ id: A, purchaseOrderId: 'po-1', customerOrderNumber: null }]);
+  const r = resolveOrderNumberSubmission(vehicles, [{ taskId: A, value: '9999' }]);
+  assert.equal(r.problem, null);
+  assert.deepEqual(r.toWrite, []);
+});
+
+check('herança a partir do nº do pedido do portal (DD12.1)', () => {
+  const vehicles = orderNumberVehicles([
+    { id: A, purchaseOrderId: 'po-1', purchaseOrder: { number: '4500' } },
+    { id: B, customerOrderNumber: null },
+  ]);
+  assert.equal(inheritedOrderNumber(vehicles), '4500');
+  const r = resolveOrderNumberSubmission(vehicles, []);
+  assert.equal(r.problem, null);
+  assert.deepEqual(r.toWrite, [{ taskId: B, value: '4500', inherited: true }]);
 });
 
 console.log(`\n${passed} verificações passaram.`);

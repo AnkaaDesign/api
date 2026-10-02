@@ -59,7 +59,7 @@ idioma, quantidade e ordem das variáveis. O TEXTO mora na Meta.
 | `orcamento_para_assinar` | convite e reenvio | 3 variáveis | URL com `{{1}}` = token |
 | `orcamento_codigo` | OTP (AUTHENTICATION) | 1 variável | copiar código |
 | `orcamento_assinatura_cancelada` | documento mudou | 2 variáveis | — |
-| `orcamento_aguardando_assinatura` | lembrete diário (09:00) | 3 variáveis | URL com `{{1}}` = token |
+| `orcamento_aguardando_assinatura` | lembrete diário (08:00) — v2 `_v2` submetida 25/09 | 3 variáveis | URL com `{{1}}` = token |
 | `orcamento_vencido` | validade encerrada | 2 variáveis | **telefone do comercial (estático)** |
 | `orcamento_recusado` | cliente recusou assinar | 3 variáveis | — |
 

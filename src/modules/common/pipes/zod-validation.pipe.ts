@@ -36,6 +36,13 @@ export interface ZodValidationPipeOptions {
   bareRelationArgsIgnored?: boolean;
   /** G1: ver `EnforceQueryShapeOptions.reportOnly` (conta, não recusa nem traduz). */
   reportOnly?: boolean;
+  /**
+   * `coerceFormData: false` desliga o `fixArrays` (strings → número/booleano/
+   * null pelo NOME do campo). Ele existe para FormData; num corpo JSON ele
+   * corrompe texto que só tem dígitos — `orderNumbers[].value: "89920"` virava
+   * número e a assinatura de Compras morria em 400 (e "00123" viraria 123).
+   */
+  coerceFormData?: boolean;
 }
 
 @Injectable()
@@ -74,7 +81,7 @@ export class ZodValidationPipe implements PipeTransform {
 
       // For body parameters, fix arrays before validation
       if (metadata.type === 'body') {
-        const fixedValue = this.fixArrays(value);
+        const fixedValue = this.options.coerceFormData === false ? value : this.fixArrays(value);
         return this.schema.parse(fixedValue);
       }
 

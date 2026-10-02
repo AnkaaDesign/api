@@ -131,7 +131,15 @@ console.log('\nG35 — O ESCOPO e o "TEM NÚMERO"');
     !req([comFkSoh]).required,
     'DD12: tem número = customerOrderNumber não vazio ∨ purchaseOrderId',
   );
-  check('TODOS os veículos, não "algum": 1 de 2 sem número → exige', req([comPedido, semPedido]).required);
+  check(
+    'dois veículos sem número → exige',
+    req([semPedido, { id: 't6', customerOrderNumber: null }]).required,
+  );
+  check(
+    'um pedido por orçamento (DD12.1): 1 com e 1 sem número → não exige, o que falta HERDA',
+    !req([comPedido, semPedido]).required &&
+      req([comPedido, semPedido]).inherited === comPedido.customerOrderNumber,
+  );
   check('número em branco não conta', req([{ id: 't4', customerOrderNumber: '   ' }]).required);
   check('string vazia não conta', req([{ id: 't5', customerOrderNumber: '' }]).required);
   check(

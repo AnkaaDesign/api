@@ -6,6 +6,39 @@ import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationDispatchService } from '../notification/notification-dispatch.service';
 import { BonusEligibilityService } from '../../personnel-department/bonus/bonus-eligibility.service';
+import { getBonusPeriodCutoff } from '../../../utils/bonus';
+
+/**
+ * O que a finalização deve fazer com um período, dado o que já está gravado.
+ *
+ * Função pura (sem Nest, sem banco) para que a regra seja testável — ver
+ * `tests/bonus-period-cutoff.test.ts`.
+ *
+ *   • `done`             — linhas completas e folha gerada: nada a fazer;
+ *   • `payroll-only`     — linhas completas e frescas, falta só a folha;
+ *   • `calculate`        — recalcula as linhas e, dando certo, gera a folha;
+ *   • `blocked-payroll`  — a folha JÁ existe mas as linhas não batem (faltando,
+ *                          sobrando ou gravadas antes do corte). Recalcular
+ *                          agora faria `Bonus` divergir da `Payroll`, que já
+ *                          leu `netBonus`. Decisão humana, nunca rotina.
+ */
+export type BonusFinalizationAction = 'done' | 'payroll-only' | 'calculate' | 'blocked-payroll';
+
+export function decideBonusFinalization(input: {
+  expectedCount: number;
+  missingCount: number;
+  strayCount: number;
+  staleCount: number;
+  payrollCount: number;
+}): BonusFinalizationAction {
+  const bonusesComplete =
+    input.expectedCount > 0 &&
+    input.missingCount === 0 &&
+    input.strayCount === 0 &&
+    input.staleCount === 0;
+  if (input.payrollCount > 0) return bonusesComplete ? 'done' : 'blocked-payroll';
+  return bonusesComplete ? 'payroll-only' : 'calculate';
+}
 
 @Injectable()
 export class BonusCronService {
@@ -96,21 +129,43 @@ export class BonusCronService {
       // completas e o cron pularia o Step 1, congelando o bônus de TODA a folha
       // no valor que existia no dia da demissão.
       //
-      // A trava é temporal: alguma linha gravada ANTES do fim do período obriga
-      // pelo menos um recálculo depois do fechamento.
-      const staleRows = savedBonuses.filter(r => r.updatedAt < expectedEligibility.periodEnd);
+      // A trava é temporal: alguma linha gravada ANTES do CORTE obriga pelo
+      // menos um recálculo depois dele.
+      //
+      // O corte é o dia 5, 00:00 de SP (`getBonusPeriodCutoff`) — NÃO o dia 25.
+      // Com o dia 25, uma linha gravada entre o 26 e o 4 (recálculo manual,
+      // listener de demissão/efetivação) passava por definitiva, o cron pulava
+      // o Step 1 e a folha saía do valor daquele instante. Foi o que aconteceu
+      // em 08/2026: linhas de 27/08 20:33, nível do Paulo Henrique mudado de 1
+      // para 3 em 31/08, e a folha de 05/09 pagou o nível 1.
+      const cutoff = getBonusPeriodCutoff(periodYear, periodMonth);
+      if (now < cutoff) {
+        // O cron roda à 01:00 do dia 5 em SP, depois do corte. Chegar aqui antes
+        // dele é relógio/fuso errado — gravar agora congelaria um período que o
+        // RH ainda está apurando.
+        this.logger.error(
+          `[FINALIZATION] Período ${year}/${month} ainda em apuração até ${cutoff.toISOString()} — ` +
+            `nada gravado.`,
+        );
+        return;
+      }
+      const staleRows = savedBonuses.filter(r => r.updatedAt < cutoff);
 
-      const bonusesComplete =
-        expectedUserCount > 0 &&
-        missingUserIds.length === 0 &&
-        strayUserIds.length === 0 &&
-        staleRows.length === 0;
+      const action = decideBonusFinalization({
+        expectedCount: expectedUserCount,
+        missingCount: missingUserIds.length,
+        strayCount: strayUserIds.length,
+        staleCount: staleRows.length,
+        payrollCount: savedPayrollCount,
+      });
 
       if (staleRows.length > 0) {
         this.logger.warn(
           `[FINALIZATION] Período ${year}/${month}: ${staleRows.length} linha(s) Bonus ` +
-            `calculada(s) antes do fechamento (${expectedEligibility.periodEnd.toISOString().slice(0, 10)}) — ` +
-            `recalculando com os números definitivos.`,
+            `gravada(s) antes do corte (${cutoff.toISOString()}) — ` +
+            (action === 'blocked-payroll'
+              ? 'mas a folha já existe (ver abaixo).'
+              : 'recalculando com os números definitivos.'),
         );
       }
 
@@ -132,7 +187,7 @@ export class BonusCronService {
         );
       }
 
-      if (bonusesComplete && savedPayrollCount > 0) {
+      if (action === 'done') {
         this.logger.log(
           `[FINALIZATION] Period ${year}/${month} already complete` +
             ` (${savedBonusCount}/${expectedUserCount} bonuses, ${savedPayrollCount} payrolls). Nothing to do.`,
@@ -140,8 +195,24 @@ export class BonusCronService {
         return;
       }
 
-      // Step 1 — bonuses (skip only if all expected users already have records)
-      if (bonusesComplete) {
+      // A FOLHA JÁ EXISTE e as linhas não batem. Antes, o cron recalculava o
+      // Step 1 e pulava o Step 2 ("folha já gerada") — deixando `Bonus` com um
+      // valor e `Payroll` (que copiou `netBonus`) com outro. Reescrever bônus
+      // com folha pronta é decisão humana: reporta e para.
+      if (action === 'blocked-payroll') {
+        const detail =
+          `Folha de ${month}/${year} já gerada (${savedPayrollCount}), mas as linhas de bônus ` +
+          `não batem com o período: ${missingUserIds.length} faltando, ${strayUserIds.length} ` +
+          `sobrando, ${staleRows.length} gravada(s) antes do corte. NADA foi recalculado ` +
+          `automaticamente para não divergir da folha. Se for para corrigir, o RH decide e roda: ` +
+          `pnpm bonus:recalc-period ${periodYear} ${periodMonth} (e regenera a folha).`;
+        this.logger.error(`[FINALIZATION] ${detail}`);
+        await this.notifyFinalization('failed', year, month, { stage: 'Bônus', detail });
+        return;
+      }
+
+      // Step 1 — bonuses (skip only if all expected users already have fresh records)
+      if (action === 'payroll-only') {
         this.logger.log(
           `[FINALIZATION] Step 1 already done (${savedBonusCount}/${expectedUserCount} bonuses). Skipping.`,
         );

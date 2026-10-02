@@ -1,6 +1,6 @@
 {
-  "geradaEm": "2026-09-25",
-  "total": 122,
+  "geradaEm": "2026-10-02",
+  "total": 121,
   "assinaturas": {
     "scripts/check-users.ts|TS2353|Object literal may only specify known properties, and 'dismissedAt' does not exist in type 'UserWhereInput'.": 1,
     "scripts/create-test-production-user.ts|TS2339|Property 'effectedAt' does not exist on type '{ id: string; createdAt: Date; updatedAt: Date; name: string; email: string; avatarId: string; currentContractId: string; currentContractType: ContractType; currentContractStatus: ContractStatus; ... 42 more ...; pisNormalized: string; }'.": 1,
@@ -16,7 +16,6 @@
     "scripts/seed-production-test-user.ts|TS2353|Object literal may only specify known properties, and 'isActive' does not exist in type '(Without<UserUpdateInput, UserUncheckedUpdateInput> & UserUncheckedUpdateInput) | (Without<...> & UserUpdateInput)'.": 1,
     "scripts/sim-forecast.ts|TS2339|Property 'xyz' does not exist on type '{ prices: { itemId: string; id: string; createdAt: Date; updatedAt: Date; positionId: string; value: number; effectiveDate: Date; current: boolean; }[]; } & { quantity: number; id: string; ... 43 more ...; uniCodeNormalized: string; }'.": 1,
     "scripts/sim-year.ts|TS2339|Property 'xyz' does not exist on type '{ supplier: { id: string; createdAt: Date; updatedAt: Date; email: string; address: string; addressNumber: string; addressComplement: string; neighborhood: string; city: string; state: string; ... 18 more ...; pix: string; }; prices: { ...; }[]; } & { ...; }'.": 3,
-    "scripts/submit-signature-whatsapp-template.ts|TS2345|Argument of type '{ refusedByName: string; budgetNumber: string; reason: string; }' is not assignable to parameter of type '{ refusedByName: string; budgetNumber: string | number; reason: string; quoteTaskId: string; }'. Property 'quoteTaskId' is missing in type '{ refusedByName: string; budgetNumber: string; reason: string; }' but required in type '{ refusedByName: string; budgetNumber: string | number; reason: string; quoteTaskId: string; }'.": 1,
     "scripts/test-late-slots.ts|TS2339|Property 'stampPlainFooter' does not exist on type 'QuoteAssemblerService'.": 1,
     "scripts/test-late-slots.ts|TS2345|Argument of type '{ subtotal: number; total: number; budgetNumber: number; issuedAt: Date; expiresAt: Date; corporateName: string; customerDocumentFormatted: string; contactName: string; serialNumber: string; ... 17 more ...; verificationUrl: string; }' is not assignable to parameter of type 'RenderInput'. Type '{ subtotal: number; total: number; budgetNumber: number; issuedAt: Date; expiresAt: Date; corporateName: string; customerDocumentFormatted: string; contactName: string; serialNumber: string; ... 17 more ...; verificationUrl: string; }' is missing the following properties from type 'RenderInput': billing, vehicles": 1,
     "scripts/test-nfe-manifestacao.ts|TS2304|Cannot find name 'HTMLInputElement'.": 1,

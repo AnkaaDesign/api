@@ -111,7 +111,7 @@ equal('MARKETING recebe a arte E a identificação do veículo', sectionsForRole
   'VEHICLE',
   'LAYOUT',
 ]);
-for (const role of ['FLEET_MANAGER', 'DRIVER']) {
+for (const role of ['PRODUCTION_PLANNING', 'SHIPPING', 'LOGISTICS', 'FLEET_MANAGER', 'DRIVER']) {
   equal(`${role} não assina por padrão`, sectionsForRoles([role]), []);
 }
 // O vazio é preservado vazio — injetar a obrigatória num recorte que não assina

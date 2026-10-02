@@ -542,7 +542,7 @@ export class PublicSignatureController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async sign(
     @Param('token') token: string,
-    @Body(new ZodValidationPipe(signatureSignSchema)) body: SignatureSignFormData,
+    @Body(new ZodValidationPipe(signatureSignSchema, { coerceFormData: false })) body: SignatureSignFormData,
     @Req() req: Request,
   ) {
     const data = await this.envelopes.signWithOtp({

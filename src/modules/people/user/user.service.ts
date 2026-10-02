@@ -73,6 +73,10 @@ import {
 import { POSITION_CHANGE_REASON_LABELS } from '../../../constants/enum-labels';
 import { CONTRACT_STATUS_ORDER } from '../../../constants/sortOrders';
 import { EmploymentContractService } from '@modules/personnel-department/employment-contract/employment-contract.service';
+import {
+  logContractPositionChange,
+  syncOpenContractPosition,
+} from '@modules/personnel-department/employment-contract/contract-position-sync';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
 import {
   canTransitionContractStatus,
@@ -2288,6 +2292,32 @@ export class UserService {
               changedById: userId || null,
               note: 'Cargo definido durante mesclagem de usuários',
             });
+
+            // ChangeLog USER/positionId: é o eixo que a bonificação rebobina
+            // para saber o cargo de um período fechado; sem ele a troca feita
+            // pela mesclagem não existiria para o cálculo.
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.USER,
+              entityId: data.targetUserId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'positionId',
+              oldValue: targetUser.positionId ?? null,
+              newValue: updateData.positionId ?? null,
+              reason: 'Cargo definido durante mesclagem de usuários',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: data.targetUserId,
+              userId: userId || null,
+              transaction: tx,
+            });
+
+            // Vínculo aberto junto, senão a próxima sincronização do vínculo
+            // (`syncUserCurrentContract`) desfaz o cargo escolhido na mesclagem.
+            await syncOpenContractPosition(tx, this.changeLogService, {
+              userId: data.targetUserId,
+              positionId: updateData.positionId ?? null,
+              reason: 'Cargo definido durante mesclagem de usuários',
+              changedById: userId || null,
+            });
           }
         }
 
@@ -2316,6 +2346,23 @@ export class UserService {
 
       // Commit: os arquivos ficaram onde o banco diz.
       rollbackFolderMove = null;
+
+      // A mesclagem pode trocar cargo/setor do destino. Sem estes avisos a
+      // Função/Departamento no Secullum e o bônus em cache ficavam no valor
+      // anterior — mesma lacuna que a promoção tinha. O bridge se auto-limita
+      // (sem sync habilitado ou sem vínculo Secullum devolve 'skipped').
+      try {
+        this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
+          userId: data.targetUserId,
+          dismissalJustHappened: false,
+        });
+        this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+          userId: data.targetUserId,
+          reason: 'POSITION_CHANGED',
+        } satisfies BonusEligibilityChangedPayload);
+      } catch (err) {
+        this.logger.error('Falha ao avisar Secullum/bonificação após mesclagem:', err);
+      }
 
       const { password, ...userWithoutPassword } = mergedUser;
       return {
@@ -2531,8 +2578,15 @@ export class UserService {
           ],
         },
         include: {
-          user: { select: { id: true, name: true, positionId: true, performanceLevel: true } },
-          position: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              positionId: true,
+              performanceLevel: true,
+              position: true,
+            },
+          },
         },
       });
 
@@ -2542,13 +2596,20 @@ export class UserService {
 
       // Transition contracts from exp2 to effected
       for (const contract of contractsEndingExp2) {
+        // Cargo do USER, não do vínculo. O User é a fonte da verdade do cargo
+        // (é o que a bonificação e as telas leem), e o vínculo já ficou para
+        // trás antes: `UserPositionHistoryService.promote` não o atualizava
+        // (promoções de 12/08/2026). Calcular o "próximo da hierarquia" a partir
+        // de um vínculo desatualizado promoveria a partir do cargo ANTIGO — e,
+        // se o antigo +1 estiver abaixo do atual, rebaixaria a pessoa.
         const user = {
           id: contract.userId,
           name: contract.user?.name,
-          position: (contract as any).position,
-          positionId: contract.positionId,
+          position: contract.user?.position ?? null,
+          positionId: contract.user?.positionId ?? null,
           performanceLevel: contract.user?.performanceLevel,
         };
+        let promotedOnEffectivation = false;
         // Efetivação is now a modality change (EXPERIENCE_PERIOD_* → INDETERMINATE),
         // not a status transition; status stays ACTIVE. No status-machine guard needed.
         try {
@@ -2596,9 +2657,28 @@ export class UserService {
                 contractType: CONTRACT_TYPE.INDETERMINATE,
                 // Stamp effectedAt only if not already set (idempotent re-runs).
                 ...(contract.effectedAt ? {} : { effectedAt: effectivationDate }),
-                ...(shouldPromote && { positionId: nextPosition!.id }),
+                // Sempre grava o cargo no vínculo — promovido ou não. Logo
+                // abaixo `syncUserCurrentContract` espelha o cargo do VÍNCULO
+                // no User; com vínculo desatualizado e sem promoção, isso
+                // devolveria a pessoa ao cargo antigo.
+                positionId: shouldPromote ? nextPosition!.id : user.positionId,
               },
             });
+
+            if ((contract.positionId ?? null) !== (shouldPromote ? nextPosition!.id : user.positionId)) {
+              await logContractPositionChange(tx, this.changeLogService, {
+                userId: user.id,
+                contractId: contract.id,
+                contractSequence: contract.sequence,
+                previousPositionId: contract.positionId ?? null,
+                positionId: shouldPromote ? nextPosition!.id : user.positionId,
+                reason: shouldPromote
+                  ? 'Promoção automática na efetivação'
+                  : 'Cargo do vínculo alinhado ao do colaborador na efetivação',
+                changedById: userId ?? null,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              });
+            }
 
             // Histórico de fases: encerra a fase de experiência e abre a fase
             // efetivada (INDETERMINATE).
@@ -2693,6 +2773,8 @@ export class UserService {
                 transaction: tx,
               });
 
+              promotedOnEffectivation = true;
+
               this.logger.log(
                 `User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED and promoted from ${user.position!.name} (hierarchy ${user.position!.hierarchy}) to ${nextPosition!.name} (hierarchy ${nextPosition!.hierarchy})`,
               );
@@ -2726,6 +2808,23 @@ export class UserService {
               `Failed to emit ${BONUS_ELIGIBILITY_CHANGED_EVENT} after effectivation:`,
               err,
             );
+          }
+
+          // A promoção automática troca a Função no Secullum como qualquer
+          // outra troca de cargo (`update` faz o mesmo). Pós-commit, e o
+          // bridge se auto-limita a quem tem sincronização habilitada.
+          if (promotedOnEffectivation) {
+            try {
+              this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
+                userId: user.id,
+                dismissalJustHappened: false,
+              });
+            } catch (err) {
+              this.logger.error(
+                `Failed to emit ${SECULLUM_USER_UPDATED_EVENT} after effectivation:`,
+                err,
+              );
+            }
           }
         } catch (error: any) {
           this.logger.error(`Failed to transition user ${user.id} from EXP2 to EFFECTED:`, error);

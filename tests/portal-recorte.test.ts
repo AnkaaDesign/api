@@ -153,6 +153,12 @@ const SECOES_ESPERADAS: Record<RESPONSIBLE_ROLE, QuoteSection[]> = {
   // contrato", mais abaixo.
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [],
   [RESPONSIBLE_ROLE.DRIVER]: [],
+  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.SHIPPING]: [],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.LOGISTICS]: [],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -191,6 +197,12 @@ const SECOES_PORTAL_ESPERADAS: Record<RESPONSIBLE_ROLE, QuoteSection[]> = {
   // Só acompanha: vê de que caminhão se fala e em que pé está. Nada de dinheiro,
   // nada de arte.
   [RESPONSIBLE_ROLE.DRIVER]: ['VEHICLE', 'DELIVERY'],
+  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: ['VEHICLE', 'DELIVERY'],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.SHIPPING]: ['VEHICLE', 'DELIVERY'],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.LOGISTICS]: ['VEHICLE', 'DELIVERY'],
 };
 
 console.log('\nTABELA-VERDADE — 9 papéis × 7 seções');
@@ -205,7 +217,7 @@ console.log('\nTABELA-VERDADE — 9 papéis × 7 seções');
     );
   }
 
-  // E a mesma tabela, célula a célula: 63 respostas SIM/NÃO.
+  // E a mesma tabela, célula a célula: 84 respostas SIM/NÃO.
   let celulas = 0;
   let certas = 0;
   for (const papel of ALL_ROLES) {
@@ -216,7 +228,7 @@ console.log('\nTABELA-VERDADE — 9 papéis × 7 seções');
     }
   }
   check(`as ${celulas} células da tabela conferem`, certas === celulas, `${certas}/${celulas}`);
-  check('são mesmo 9 papéis × 7 seções', celulas === 63, `${celulas}`);
+  check('são mesmo 12 papéis × 7 seções', celulas === 84, `${celulas}`);
 }
 
 console.log('\nUNIÃO, NUNCA INTERSEÇÃO');
@@ -308,6 +320,16 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     C.TRACK,
   ],
   [RESPONSIBLE_ROLE.DRIVER]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
+  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [
+    TODOS_ESCREVEM_PEDIDO,
+    C.WRITE_VEHICLE_IDENTITY,
+    C.TRACK,
+  ],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.SHIPPING]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
+  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  [RESPONSIBLE_ROLE.LOGISTICS]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
 };
 
 console.log('\nTABELA-VERDADE — 9 papéis × 6 capacidades');
@@ -327,7 +349,7 @@ console.log('\nTABELA-VERDADE — 9 papéis × 6 capacidades');
     }
   }
   check(`as ${celulas} células conferem`, certas === celulas, `${certas}/${celulas}`);
-  check('são mesmo 9 papéis × 6 capacidades', celulas === 54, `${celulas}`);
+  check('são mesmo 12 papéis × 6 capacidades', celulas === 72, `${celulas}`);
 
   // As quatro linhas que valem defesa própria, citadas do contrato.
   check(
@@ -336,14 +358,18 @@ console.log('\nTABELA-VERDADE — 9 papéis × 6 capacidades');
     rolesWithAnyCapability([C.WRITE_PURCHASE_ORDER]).join(' '),
   );
   check(
-    'só os quatro papéis comerciais pré-aprovam',
-    JSON.stringify(rolesWithAnyCapability([C.APPROVE_VALUE])) ===
-      JSON.stringify([
-        RESPONSIBLE_ROLE.COMMERCIAL,
-        RESPONSIBLE_ROLE.SELLER,
-        RESPONSIBLE_ROLE.REPRESENTATIVE,
-        RESPONSIBLE_ROLE.COORDINATOR,
-      ]),
+    'só os quatro papéis comerciais aprovam o valor',
+    // Como CONJUNTO: a ordem segue o enum, que a main reordenou (28/09) para a
+    // ordem de exibição da empresa.
+    JSON.stringify([...rolesWithAnyCapability([C.APPROVE_VALUE])].sort()) ===
+      JSON.stringify(
+        [
+          RESPONSIBLE_ROLE.COMMERCIAL,
+          RESPONSIBLE_ROLE.SELLER,
+          RESPONSIBLE_ROLE.REPRESENTATIVE,
+          RESPONSIBLE_ROLE.COORDINATOR,
+        ].sort(),
+      ),
   );
   // D-09/DD5: quem aprova a ARTE — a tabela do PLANO §7.2, transcrita.
   check(

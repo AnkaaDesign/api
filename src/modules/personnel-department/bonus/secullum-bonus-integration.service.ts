@@ -68,7 +68,8 @@ export interface SecullumBonusAnalysis {
  *   - Service-wide failure (auth/network/total outage) — `secullumAvailable=false`,
  *     callers must NOT silently zero discounts.
  *   - Per-user failure (one user errored, but the API is up) — `secullumAvailable=true`
- *     with `failedUsers` populated. Callers may continue.
+ *     with `failedUsers` populated. Reads may continue (flagging the person);
+ *     the save path must NOT persist that person with zero discounts.
  *
  * The audit identified that swallowing a service-wide failure as "no discount"
  * over-pays employees on payroll. This shape forces callers to handle the
@@ -79,6 +80,12 @@ export interface AnalyzeAllUsersResult {
   metadata: {
     secullumAvailable: boolean;
     failedUsers: string[];
+    /**
+     * Motivo da falha de cada pessoa em `failedUsers` (userId → mensagem), para
+     * que quem recusa a gravação consiga dizer QUEM e POR QUÊ — "1 falha" numa
+     * notificação às 01:00 não diz ao DP o que conferir.
+     */
+    failureReasons?: Record<string, string>;
     totalUsers: number;
     error?: string;
   };
@@ -109,6 +116,15 @@ export class SecullumBonusIntegrationService {
   // breaker for 60s — subsequent analyzeAllUsers() calls short-circuit without
   // hitting Secullum. Self-contained per-instance; resets on app restart.
   private breaker = { failures: 0, openUntil: 0 };
+
+  /**
+   * Espera antes de cada nova tentativa das pessoas que falharam na análise
+   * individual (ver `analyzeAllUsers`). Curto de propósito: a leitura das telas
+   * também passa por aqui, e duas rodadas extras (≈ 6 s no pior caso) cobrem a
+   * oscilação que se vê na prática sem segurar a requisição por minutos.
+   * `static` e mutável só para o teste zerar a espera.
+   */
+  static USER_RETRY_DELAYS_MS: number[] = [1_500, 4_000];
 
   constructor(
     private readonly secullumService: SecullumService,
@@ -173,8 +189,10 @@ export class SecullumBonusIntegrationService {
    * Returns a structured result so callers can distinguish:
    *   - Service-wide failure (auth/network/total outage) → `secullumAvailable=false`,
    *     `perUser` empty. Callers MUST refuse to persist payroll-affecting data.
-   *   - Per-user failure → `secullumAvailable=true`, user listed in `failedUsers`.
-   *     Callers may continue (that user simply has no Secullum-based discount).
+   *   - Per-user failure (after the bounded retry) → `secullumAvailable=true`,
+   *     user listed in `failedUsers` with the reason in `failureReasons`. Reads
+   *     may continue but must FLAG that person (no analysis ≠ no discount);
+   *     the save path must refuse to persist them.
    */
   async analyzeAllUsers(
     year: number,
@@ -253,7 +271,20 @@ export class SecullumBonusIntegrationService {
     // so we can detect an atraso on the first punch (> scheduled + 5 min).
     const expectedEntry1ByEmployee = await this.getExpectedEntry1Map(employeesData, users);
 
-    for (const user of users) {
+    // FALHA DE UMA PESSOA NÃO É "SEM DESCONTO" — é "não sei".
+    //
+    // Quem cai aqui fica sem `secullumAnalysis`, e todo consumidor lê ausência
+    // de análise como zero de desconto e zero de assiduidade. Para a leitura
+    // isso é só uma tela otimista; para a GRAVAÇÃO é dinheiro: em 09/2026 o
+    // Welington Ferreira tinha 10h50 de falta sem justificativa (100% de
+    // desconto, líquido 0) e uma falha pontual no fetch dele às 01:00 do dia 5
+    // o gravaria com a base cheia. Por isso: (1) tenta de novo, algumas vezes,
+    // só quem falhou — a /Batidas e o /Calculos oscilam por pessoa, e o retry
+    // HTTP do `SecullumService` não cobre timeout de 30 s nem corpo inválido;
+    // (2) quem continuar falhando sai em `failedUsers` COM o motivo, para o
+    // chamador que grava recusar em vez de inventar zeros.
+    const failureReasons: Record<string, string> = {};
+    const analyzeOne = async (user: (typeof users)[number]): Promise<boolean> => {
       try {
         const analysis = await this.analyzeUser(
           user,
@@ -266,12 +297,39 @@ export class SecullumBonusIntegrationService {
         if (analysis) {
           results.set(user.id, analysis);
         }
+        delete failureReasons[user.id];
+        return true;
       } catch (error) {
-        failedUsers.push(user.id);
-        this.logger.warn(
-          `Failed to analyze Secullum data for user ${user.name} (${user.id}): ${error?.message || error}`,
-        );
+        failureReasons[user.id] = String(error?.message || error);
+        return false;
       }
+    };
+
+    const retryDelays = SecullumBonusIntegrationService.USER_RETRY_DELAYS_MS;
+    let pending = users;
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      if (attempt > 0) {
+        const waitMs = retryDelays[attempt - 1];
+        this.logger.warn(
+          `Secullum: ${pending.length} pessoa(s) falharam na análise — nova tentativa ` +
+            `${attempt}/${retryDelays.length} em ${waitMs} ms ` +
+            `(${pending.map(u => u.name).join(', ')}).`,
+        );
+        if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+      }
+      const stillFailing: typeof users = [];
+      for (const user of pending) {
+        if (!(await analyzeOne(user))) stillFailing.push(user);
+      }
+      pending = stillFailing;
+      if (pending.length === 0) break;
+    }
+
+    for (const user of pending) {
+      failedUsers.push(user.id);
+      this.logger.warn(
+        `Failed to analyze Secullum data for user ${user.name} (${user.id}) after retries: ${failureReasons[user.id]}`,
+      );
     }
 
     // Service-wide signal: if every user errored, treat as unavailable so callers
@@ -283,7 +341,7 @@ export class SecullumBonusIntegrationService {
       this.recordBreakerFailure();
       return {
         perUser: results,
-        metadata: { secullumAvailable: false, failedUsers, totalUsers, error },
+        metadata: { secullumAvailable: false, failedUsers, failureReasons, totalUsers, error },
       };
     }
 
@@ -291,7 +349,7 @@ export class SecullumBonusIntegrationService {
     this.logger.log(`Secullum analysis completed: ${results.size}/${users.length} users analyzed`);
     return {
       perUser: results,
-      metadata: { secullumAvailable: true, failedUsers, totalUsers },
+      metadata: { secullumAvailable: true, failedUsers, failureReasons, totalUsers },
     };
   }
 
@@ -486,10 +544,13 @@ export class SecullumBonusIntegrationService {
         endDate,
       );
     } catch (error) {
+      // Lança em vez de devolver `null`: `null` aqui fazia a pessoa sumir do
+      // resultado SEM entrar em `failedUsers` — indistinguível de "não tem
+      // ponto" — e ser gravada sem desconto de falta e sem assiduidade.
       this.logger.warn(
         `Batidas API failed for ${user.name} (secullumId=${secullumEmployeeId}): ${error?.message || error}`,
       );
-      return null;
+      throw new Error(`Batidas indisponível: ${error?.message || error}`);
     }
 
     if (entries.length === 0) {
@@ -506,8 +567,15 @@ export class SecullumBonusIntegrationService {
         endDate,
       );
     } catch (error) {
+      // Sem o /Calculos a análise sai degradada, não "sem falta": as horas sem
+      // justificativa passam a vir só da contagem local (que não enxerga
+      // atraso nem saída antecipada) e o atestado de dia inteiro — que vem
+      // com /Batidas vazia — desaparece. É falha desta pessoa, e é tratada
+      // como tal (nova tentativa; se persistir, `failedUsers`). O fallback de
+      // contagem manual abaixo continua para o caso de o /Calculos RESPONDER
+      // sem corpo, que não é erro de transporte.
       this.logger.warn(`Calculos API failed for ${user.name}: ${error?.message || error}`);
-      // Continue — we'll fall back to manual counting if Calculos unavailable
+      throw new Error(`Calculos indisponível: ${error?.message || error}`);
     }
 
     // Parse Faltas and Atrasos from Calculos endpoint — plus per-day maps so we

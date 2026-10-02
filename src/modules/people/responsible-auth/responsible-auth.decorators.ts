@@ -58,8 +58,9 @@ export const ResponsibleOnly = () => SetMetadata(RESPONSIBLE_ROUTE_KEY, true);
  *   COMMERCIAL, SELLER, REPRESENTATIVE, COORDINATOR, PURCHASING → documento inteiro
  *   FINANCIAL   → tudo menos LAYOUT (vê preço, prazo, pagamento, garantia)
  *   MARKETING   → só LAYOUT (vê a arte, NÃO vê preço)
- *   FLEET_MANAGER, DRIVER → não assinam por padrão: contato operacional do
- *                           veículo, não quem obriga a empresa
+ *   PRODUCTION_PLANNING, SHIPPING, LOGISTICS, FLEET_MANAGER, DRIVER
+ *               → não assinam por padrão: contato operacional da produção e do
+ *                 veículo, não quem obriga a empresa
  *
  * Um portal que contrarie essa tabela mostraria na tela o que o PDF assinado
  * pela mesma pessoa esconde.

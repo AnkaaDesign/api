@@ -480,8 +480,8 @@ console.log('\nO PORTAO DA ROTA — `WRITE_VEHICLE_IDENTITY`, e so ele');
   // A tabela e' `Record<RESPONSIBLE_ROLE, …>`: papel novo sem decisao e' erro de
   // compilacao. Aqui so se guarda que ninguem a esvaziou.
   check(
-    'a tabela cobre os 9 papeis',
-    Object.keys(ROLE_CAPABILITIES).length === 9,
+    'a tabela cobre os 12 papeis',
+    Object.keys(ROLE_CAPABILITIES).length === 12,
     String(Object.keys(ROLE_CAPABILITIES).length),
   );
 

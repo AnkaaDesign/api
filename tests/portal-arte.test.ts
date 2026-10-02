@@ -127,13 +127,16 @@ async function main() {
     FINANCIAL: false,
     FLEET_MANAGER: false,
     DRIVER: false,
+    PRODUCTION_PLANNING: false,
+    SHIPPING: false,
+    LOGISTICS: false,
   };
   const papeis = Object.values(RESPONSIBLE_ROLE) as string[];
-  check('são os 9 papéis do enum', papeis.length === 9 && papeis.every(p => p in APROVA_ARTE));
+  check('são os 12 papéis do enum', papeis.length === 12 && papeis.every(p => p in APROVA_ARTE));
   const erradas = papeis.filter(
     p => hasCapability([p], PORTAL_CAPABILITY.APPROVE_ARTWORK) !== APROVA_ARTE[p],
   );
-  check('as 9 linhas conferem (COMPRAS não aprova arte)', erradas.length === 0, erradas.join(','));
+  check('as 12 linhas conferem (COMPRAS não aprova arte)', erradas.length === 0, erradas.join(','));
   const aprovadores = rolesWithAnyCapability([PORTAL_CAPABILITY.APPROVE_ARTWORK]);
   check(
     'o aviso ao contato usa a MESMA lista (derivada da capacidade, não escrita à mão)',

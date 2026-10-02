@@ -19,7 +19,6 @@ import {
 import { PersonalService } from './personal.service';
 import { BonusService } from '@modules/personnel-department/bonus/bonus.service';
 import { BonusEligibilityService } from '@modules/personnel-department/bonus/bonus-eligibility.service';
-import { roundCurrency } from '../../../utils/currency-precision.util';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -182,8 +181,12 @@ export class PersonalBonusController {
   async simulateMyBonus(@Body() data: BonusSimulateFormData, @UserId() userId?: string) {
     const result = await this.bonusService.simulate({
       averageTasksPerUser: data.averageTasksPerUser!,
+      // O id é SEMPRE o de quem pergunta, venha o que vier no corpo. É por ele
+      // que `simulate()` acha a janela, o afastamento e os lançamentos da
+      // pessoa — aceitar o id do corpo daria a qualquer colaborador a janela e
+      // os descontos de outro. O app já manda o próprio id; nada muda para ele.
       users: (data.users ?? []).map(u => ({
-        id: u.id,
+        id: userId,
         name: u.name,
         positionName: u.positionName,
         positionId: u.positionId,
@@ -206,52 +209,17 @@ export class PersonalBonusController {
         : undefined,
     });
 
-    // PRORRATEIO — `simulate()` devolve o valor de PERÍODO INTEIRO.
+    // SEM PRORRATEIO AQUI — desde a v5 quem acerta o valor é o `simulate()`.
     //
-    // Ele só recebe cargo, nível e B1; não tem como saber que quem está olhando
-    // entrou no dia 14 ou foi desligado no dia 17. O cálculo vivo prorrateia
-    // (`proratedBase = base × weight`), o simulador não — e o app mostra as duas
-    // telas a dois toques de distância. Sem isto, em 08/2026 o simulador dizia
-    // R$ 598 para quem recebe R$ 27 (peso 0,0455) e R$ 29 para quem recebe
-    // R$ 9,32 (peso 0,3182, pessoa ATIVA admitida no meio do período).
-    //
-    // Corrigido no SERVIDOR de propósito: o app lê `data.users[0].bonus` e
-    // arrumar isso no cliente exigiria uma release de loja para chegar a quem
-    // já está com a tela na mão.
-    const simulated = result as {
-      users?: Array<{ id?: string; bonus: number; baseBonus: number }>;
-      totals?: { totalBonus?: number };
-    };
-    if (userId && data.year && data.month && Array.isArray(simulated.users)) {
-      try {
-        const eligibility = await this.bonusEligibilityService.resolvePeriodEligibility(
-          data.year,
-          data.month,
-        );
-        const weight = eligibility.byUserId.get(userId)?.weight;
-        if (typeof weight === 'number' && weight < 1) {
-          for (const u of simulated.users) {
-            if (u.id !== userId) continue;
-            u.bonus = roundCurrency(u.bonus * weight);
-            u.baseBonus = roundCurrency(u.baseBonus * weight);
-            (u as Record<string, unknown>).eligibilityWeight = weight;
-          }
-          // O total precisa acompanhar, senão a resposta se contradiz.
-          if (simulated.totals) {
-            simulated.totals.totalBonus = roundCurrency(
-              simulated.users.reduce((sum, u) => sum + (u.bonus || 0), 0),
-            );
-          }
-        }
-      } catch (error) {
-        // Prorrateio é enfeite do valor, não o valor: falha aqui não pode
-        // derrubar a simulação inteira. Sai o valor de período inteiro, como
-        // antes, e o erro fica no log.
-        this.logger.warn(
-          `[My Bonus Simulate] Falha ao prorratear para ${userId}: ${(error as Error)?.message}`,
-        );
-      }
-    }
+    // Até a v4 esta rota multiplicava o valor de período inteiro pelo `weight`
+    // da pessoa (temporal × afastamento), porque o simulador não sabia quem
+    // estava olhando. Agora ele sabe (o id acima) e faz a conta da folha: B1 na
+    // janela da pessoa e só o `absenceFactor` multiplicando. Multiplicar pelo
+    // `weight` de novo aplicaria o tempo duas vezes — a mesma pessoa veria no
+    // app um valor e na tela de Bônus outro. O app lê `data.users[0].bonus`,
+    // que é o bruto da pessoa (= `baseBonus` da conta viva); corrigido no
+    // SERVIDOR para chegar a quem já está com a tela na mão, sem release.
+    const simulated = result as Record<string, unknown>;
 
     // A tabela salarial NÃO sai por aqui.
     //

@@ -124,7 +124,7 @@ export class PortalSignatureController {
   @ResponsibleOnly()
   async assinar(
     @Param('signerId', ParseUUIDPipe) signerId: string,
-    @Body(new ZodValidationPipe(portalSignSchema)) body: PortalSignFormData,
+    @Body(new ZodValidationPipe(portalSignSchema, { coerceFormData: false })) body: PortalSignFormData,
     @CurrentResponsible() responsible: ResponsiblePrincipal,
     @Req() req: Request,
   ) {

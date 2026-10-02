@@ -51,7 +51,11 @@ import {
   businessPeriodStart,
   businessPeriodEnd,
 } from '../../../utils/business-period';
-import { isCurrentPeriod } from '../../../utils/bonus';
+import {
+  getBonusPeriodCutoff,
+  isCurrentPeriod,
+  usesBonusCutoffRule,
+} from '../../../utils/bonus';
 
 // ============================================================
 // Tipos
@@ -296,7 +300,22 @@ export class BonusEligibilityService {
     // ajustados. `isCurrentPeriod` é a mesma regra do dia 5 que
     // `getCurrentPeriod` já usa no resto do módulo — a elegibilidade não
     // diverge mais dela.
-    const periodIsClosed = periodEnd < new Date() && !isCurrentPeriod(year, month);
+    //
+    // A PARTIR DE 09/2026 o corte é um INSTANTE, não um dia de calendário UTC:
+    // `getBonusPeriodCutoff` (dia 5, 00:00 de SP). Antes, o período fechado era
+    // rebobinado até o dia 25, enquanto o cron gravava no dia 5 com o estado de
+    // "agora" — uma nova tentativa no dia 6 calculava com um estado DIFERENTE
+    // do que o dia 5 teria usado. Agora a referência é `min(agora, corte)`:
+    // aberto → agora (o RH ainda está apurando); fechado → o corte, qualquer
+    // que seja o dia em que o cálculo rode (cron do 5, retry do 6..10, recálculo
+    // manual). Períodos anteriores seguem a regra antiga, byte a byte: foram
+    // pagos por ela e não se reclassifica história paga.
+    const now = new Date();
+    const cutoffRule = usesBonusCutoffRule(year, month);
+    const cutoff = getBonusPeriodCutoff(year, month);
+    const periodIsClosed = cutoffRule
+      ? now >= cutoff
+      : periodEnd < now && !isCurrentPeriod(year, month);
 
     // Cargo, performance e bonificabilidade valem como estavam no FECHAMENTO do
     // período — não como estão hoje. Sem isto, uma promoção posterior mudaria
@@ -309,7 +328,9 @@ export class BonusEligibilityService {
     // (caso Paulo Henrique, folha 66: 1 → 3 em 31/08 não entrava em 08/2026).
     // Enquanto o período é o corrente o corte é AGORA — que é o que já
     // acontecia de fato no meio do ciclo, quando `periodEnd` ainda era futuro.
-    const historical = await this.buildHistoricalState(periodIsClosed ? periodEnd : new Date());
+    const historical = await this.buildHistoricalState(
+      cutoffRule ? (periodIsClosed ? cutoff : now) : periodIsClosed ? periodEnd : now,
+    );
     const positionNameById = new Map(
       (await this.prisma.position.findMany({ select: { id: true, name: true } })).map(p => [
         p.id,
@@ -339,7 +360,24 @@ export class BonusEligibilityService {
       (
         await this.prisma.bonus.findMany({
           // Período aberto: só as linhas já liquidadas pela demissão.
-          where: periodIsClosed ? { year, month } : { year, month, terminatedAt: { not: null } },
+          //
+          // Período fechado sob a regra do corte (>= 09/2026): só vale como
+          // snapshot a linha gravada DEPOIS do corte — essa é a gravação de
+          // fechamento. Uma linha gravada antes dele (listener, recálculo
+          // manual entre o 26 e o 4) é projeção de um período ainda em
+          // apuração; se ela vencesse aqui, o cron do dia 5 releria o nível
+          // velho dela e o gravaria de volta — exatamente o caso Paulo
+          // Henrique de 08/2026 (linha de 27/08 com nível 1, nível 3 em 31/08).
+          // A exceção da demissão (`terminatedAt`) continua valendo sempre.
+          where: !periodIsClosed
+            ? { year, month, terminatedAt: { not: null } }
+            : cutoffRule
+              ? {
+                  year,
+                  month,
+                  OR: [{ updatedAt: { gte: cutoff } }, { terminatedAt: { not: null } }],
+                }
+              : { year, month },
           select: { userId: true, performanceLevel: true },
         })
       ).map(b => [b.userId, b.performanceLevel]),

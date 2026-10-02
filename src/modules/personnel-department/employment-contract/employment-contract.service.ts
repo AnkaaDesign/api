@@ -4,12 +4,19 @@
 
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { SECULLUM_USER_UPDATED_EVENT } from '@modules/integrations/secullum/user-secullum-sync.service';
+import {
+  BONUS_ELIGIBILITY_CHANGED_EVENT,
+  type BonusEligibilityChangedPayload,
+} from '../../../constants/events';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
@@ -23,7 +30,9 @@ import {
   CONTRACT_TYPE,
   EMPLOYEE_TYPE,
   ENTITY_TYPE,
+  POSITION_CHANGE_REASON,
 } from '../../../constants';
+import { logContractPositionChange } from './contract-position-sync';
 import { CONTRACT_STATUS_ORDER } from '../../../constants/sortOrders';
 import {
   canTransitionContractStatus,
@@ -61,7 +70,83 @@ export class EmploymentContractService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  // =====================
+  // Espelho no colaborador → Secullum e bonificação (depois do commit)
+  // =====================
+
+  /**
+   * Toda escrita de vínculo passa por `syncUserCurrentContract`, que ESPELHA
+   * cargo, setor e situação do vínculo atual no `User`. Quando esse espelho
+   * muda o cargo/setor da pessoa, o resto do sistema precisa saber — e pelos
+   * endpoints de vínculo ninguém avisava: a Função/Departamento no Secullum
+   * ficava no valor velho (Alex, Fábio e Wellington Modenuti estavam com o setor
+   * de janeiro/2026 lá até 28/09/2026) e o bônus seguia com o cargo antigo em
+   * cache. Os caminhos de `UserService`/promoção já avisam por conta própria;
+   * este cobre os endpoints do próprio vínculo.
+   *
+   * Tira a foto ANTES, roda a escrita (a transação inteira) e só então compara:
+   * emitir dentro da transação faria o listener ler o estado antigo.
+   */
+  private async withUserMirrorEvents<T>(userIds: string[], write: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(userIds.filter(Boolean))];
+    const snapshot = async () =>
+      new Map(
+        (
+          await this.prisma.user.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, positionId: true, sectorId: true, currentContractStatus: true },
+          })
+        ).map(u => [u.id, u]),
+      );
+    const before = ids.length > 0 ? await snapshot() : new Map();
+    const result = await write();
+    if (ids.length === 0) return result;
+
+    try {
+      const after = await snapshot();
+      for (const id of ids) {
+        const b = before.get(id);
+        const a = after.get(id);
+        if (!a) continue;
+        const positionChanged = (b?.positionId ?? null) !== (a.positionId ?? null);
+        const sectorChanged = (b?.sectorId ?? null) !== (a.sectorId ?? null);
+        const statusChanged =
+          (b?.currentContractStatus ?? null) !== (a.currentContractStatus ?? null);
+        if (!positionChanged && !sectorChanged && !statusChanged) continue;
+
+        // O bridge se auto-limita (sem sync habilitado ou sem vínculo com o
+        // Secullum devolve 'skipped') e nunca lança.
+        this.eventEmitter.emit(SECULLUM_USER_UPDATED_EVENT, {
+          userId: id,
+          dismissalJustHappened:
+            statusChanged && a.currentContractStatus === CONTRACT_STATUS.TERMINATED,
+        });
+        if (positionChanged) {
+          // Cargo muda o salário-base do bônus e pode tirar/pôr a pessoa no
+          // divisor; o listener invalida o cache do período aberto.
+          this.eventEmitter.emit(BONUS_ELIGIBILITY_CHANGED_EVENT, {
+            userId: id,
+            reason: 'POSITION_CHANGED',
+          } satisfies BonusEligibilityChangedPayload);
+        }
+      }
+    } catch (err) {
+      // A escrita do vínculo já foi confirmada; aviso perdido não a desfaz.
+      this.logger.error('Falha ao avisar Secullum/bonificação após escrita de vínculo:', err);
+    }
+    return result;
+  }
+
+  private async contractOwnerId(contractId: string): Promise<string | null> {
+    const c = await this.prisma.employmentContract.findUnique({
+      where: { id: contractId },
+      select: { userId: true },
+    });
+    return c?.userId ?? null;
+  }
 
   // =====================
   // Sync invariant (write path)
@@ -122,6 +207,18 @@ export class EmploymentContractService {
       return;
     }
 
+    // Cargo ANTES do espelho: este método é um escritor de User.positionId, e
+    // era o único que escrevia sem deixar rastro. Quando o vínculo diverge do
+    // User, o espelho troca o cargo da pessoa — e sem ChangeLog `positionId`
+    // a bonificação (que rebobina exatamente esse campo para saber o cargo de
+    // um período fechado) e o histórico de cargo nunca ficavam sabendo. Foi o
+    // que armou a reversão silenciosa das promoções de 12/08/2026: vínculo no
+    // cargo antigo + qualquer sincronização = pessoa de volta ao cargo antigo.
+    const userBefore = await tx.user.findUnique({
+      where: { id: userId },
+      select: { positionId: true },
+    });
+
     await tx.user.update({
       where: { id: userId },
       data: {
@@ -135,6 +232,40 @@ export class EmploymentContractService {
         payrollNumber: current.payrollNumber,
       },
     });
+
+    const positionBefore = userBefore?.positionId ?? null;
+    const positionAfter = current.positionId ?? null;
+    if (userBefore && positionBefore !== positionAfter) {
+      const now = new Date();
+      await tx.userPositionHistory.updateMany({
+        where: { userId, endedAt: null },
+        data: { endedAt: now },
+      });
+      await tx.userPositionHistory.create({
+        data: {
+          userId,
+          positionId: positionAfter,
+          previousPositionId: positionBefore,
+          reason: POSITION_CHANGE_REASON.ADJUSTMENT as any,
+          startedAt: now,
+          note: `Cargo espelhado do vínculo (sequência ${current.sequence})`,
+          changedById: options?.userId ?? null,
+        },
+      });
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.USER,
+        entityId: userId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'positionId',
+        oldValue: positionBefore,
+        newValue: positionAfter,
+        reason: `Cargo atualizado a partir do vínculo (sequência ${current.sequence})`,
+        triggeredBy: options?.userId ? CHANGE_TRIGGERED_BY.USER_ACTION : CHANGE_TRIGGERED_BY.SYSTEM,
+        triggeredById: userId,
+        userId: options?.userId ?? null,
+        transaction: tx,
+      });
+    }
   }
 
   // =====================
@@ -523,8 +654,10 @@ export class EmploymentContractService {
   ): Promise<EmploymentContractCreateResponse> {
     try {
       const { userId: ownerId, ...rest } = data;
-      const created = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
-        this.createContractForUserWithTransaction(tx, ownerId, rest, { userId, include }),
+      const created = await this.withUserMirrorEvents([ownerId], () =>
+        this.prisma.$transaction(async (tx: PrismaTransaction) =>
+          this.createContractForUserWithTransaction(tx, ownerId, rest, { userId, include }),
+        ),
       );
 
       return {
@@ -650,13 +783,21 @@ export class EmploymentContractService {
       entityId: existing.userId,
       oldEntity: existing,
       newEntity: updated,
+      // `positionId` NÃO entra aqui: logado sob USER/positionId, o `oldValue`
+      // seria o cargo do VÍNCULO — que, com vínculo desatualizado, é o cargo
+      // anterior à promoção — e `BonusEligibilityService.buildHistoricalState`
+      // rebobina justamente USER/positionId para fixar o cargo de um período
+      // fechado. Aconteceu de fato: a edição de 09/09/2026 de um promovido em
+      // 12/08 gravou USER/positionId "Junior I → Junior II" um mês depois da
+      // promoção. O cargo do vínculo vai no campo próprio logo abaixo; a troca
+      // do cargo do User é logada por quem a faz (UserService.update ou o
+      // espelho em `syncUserCurrentContract`).
       fieldsToTrack: [
         'employeeType',
         'contractType',
         'status',
         'payrollNumber',
         'matricula',
-        'positionId',
         'sectorId',
         'admissionDate',
         'effectedAt',
@@ -668,6 +809,18 @@ export class EmploymentContractService {
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       transaction: tx,
     });
+
+    if ((existing.positionId ?? null) !== (updated.positionId ?? null)) {
+      await logContractPositionChange(tx, this.changeLogService, {
+        userId: existing.userId,
+        contractId: id,
+        contractSequence: existing.sequence,
+        previousPositionId: existing.positionId ?? null,
+        positionId: updated.positionId ?? null,
+        reason: `Cargo do vínculo (sequência ${existing.sequence}) atualizado`,
+        changedById: userId || null,
+      });
+    }
 
     // Histórico de fases: quando a MODALIDADE muda de fato (inclui a efetivação
     // manual EXPERIENCE_* → INDETERMINATE), encerra a fase aberta e abre a
@@ -760,8 +913,11 @@ export class EmploymentContractService {
     userId?: string,
   ): Promise<EmploymentContractUpdateResponse> {
     try {
-      const updated = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
-        this.updateWithTransaction(tx, id, data, include, userId),
+      const ownerId = await this.contractOwnerId(id);
+      const updated = await this.withUserMirrorEvents(ownerId ? [ownerId] : [], () =>
+        this.prisma.$transaction(async (tx: PrismaTransaction) =>
+          this.updateWithTransaction(tx, id, data, include, userId),
+        ),
       );
 
       return {
@@ -784,7 +940,9 @@ export class EmploymentContractService {
 
   async delete(id: string, userId?: string): Promise<EmploymentContractDeleteResponse> {
     try {
-      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const ownerId = await this.contractOwnerId(id);
+      await this.withUserMirrorEvents(ownerId ? [ownerId] : [], () =>
+        this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const contract = await tx.employmentContract.findUnique({ where: { id } });
         if (!contract) {
           throw new NotFoundException('Vínculo não encontrado.');
@@ -806,7 +964,8 @@ export class EmploymentContractService {
 
         // Recalcula o vínculo atual do colaborador.
         await this.syncUserCurrentContract(tx, contract.userId, { userId });
-      });
+        }),
+      );
 
       return { success: true, message: 'Vínculo excluído com sucesso.' };
     } catch (error: any) {
@@ -833,8 +992,10 @@ export class EmploymentContractService {
     for (const [index, contractData] of data.employmentContracts.entries()) {
       try {
         const { userId: ownerId, ...rest } = contractData;
-        const created = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
-          this.createContractForUserWithTransaction(tx, ownerId, rest, { userId, include }),
+        const created = await this.withUserMirrorEvents([ownerId], () =>
+          this.prisma.$transaction(async (tx: PrismaTransaction) =>
+            this.createContractForUserWithTransaction(tx, ownerId, rest, { userId, include }),
+          ),
         );
         success.push(created);
       } catch (error: any) {
@@ -875,8 +1036,11 @@ export class EmploymentContractService {
 
     for (const [index, update] of data.employmentContracts.entries()) {
       try {
-        const updated = await this.prisma.$transaction(async (tx: PrismaTransaction) =>
-          this.updateWithTransaction(tx, update.id, update.data, include, userId),
+        const ownerId = await this.contractOwnerId(update.id);
+        const updated = await this.withUserMirrorEvents(ownerId ? [ownerId] : [], () =>
+          this.prisma.$transaction(async (tx: PrismaTransaction) =>
+            this.updateWithTransaction(tx, update.id, update.data, include, userId),
+          ),
         );
         success.push(updated);
       } catch (error: any) {

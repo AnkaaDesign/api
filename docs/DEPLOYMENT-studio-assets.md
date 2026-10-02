@@ -183,6 +183,15 @@ O que a árvore servida contém é exatamente o `STUDIO_ASSETS` de
 servido na raiz do site pelo próprio web — não tem nada que fazer sob um mount
 `immutable` da API.
 
+> **O SEXTO diretório, `site/`, é legítimo e fica FORA deste laço.** Desde
+> 2026-09-30 a árvore guarda também os vídeos do topo do site público
+> (`site/film/<data do render>/`: o estúdio e a entrega, AV1 + H.264), que NÃO
+> vêm do `web/public/`: saem de `ankaa/apps/site/tools/film/` e o site aponta
+> para a pasta em `ankaa/apps/site/src/content/film.ts`. A receita de publicar
+> está no `README.md` de lá ("Publicar um render novo"): pasta nova por render,
+> nunca sobrescrever, nunca `--delete`. Não o trate como sobra numa limpeza —
+> apagá-lo tira o filme do site em produção (ele cai nos quadros parados).
+
 > Uma versão anterior deste passo mandava `rsync web/public/ → v1/`, a árvore
 > toda. Em 2026-08-12 isso despejou os onze itens acima dentro de
 > `/srv/files/Estudio3D/v1/` — inofensivo (ninguém os pede por ali), mas eram

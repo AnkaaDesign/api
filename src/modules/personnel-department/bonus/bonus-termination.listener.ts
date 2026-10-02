@@ -45,8 +45,8 @@ import {
   type UserContractTerminatedPayload,
   type BonusEligibilityChangedPayload,
 } from '../../../constants/events';
-import { businessPeriodStart, businessPeriodEnd } from '../../../utils/business-period';
-import { getCurrentPeriod } from '../../../utils/bonus';
+import { businessPeriodStart } from '../../../utils/business-period';
+import { getCurrentPeriod, isBonusPeriodOpen } from '../../../utils/bonus';
 
 /**
  * Quantos períodos varrer para trás a partir do desligamento.
@@ -56,6 +56,21 @@ import { getCurrentPeriod } from '../../../utils/bonus';
  * recalcular história paga, que é justamente o que não se quer mexer.
  */
 const MAX_LOOKBACK = 3;
+
+/**
+ * O período que este listener trata como CORRENTE (o que ele reconcilia).
+ *
+ * `getCurrentPeriod` vira o mês pelo dia 5 UTC — ou seja, durante o dia 5 (até
+ * 21:00 de SP) ainda devolve o mês que FECHOU à 00:00 do dia 5. Regravar esse
+ * período depois do corte é exatamente o que um listener não pode fazer: a
+ * linha salva já é a verdade e o cron da 01:00 a gravou (ou vai gravar). Então,
+ * passado o corte, o corrente é o período seguinte — o único ainda aberto.
+ */
+function listenerCurrentPeriod(now: Date = new Date()): { year: number; month: number } {
+  const cur = getCurrentPeriod(now);
+  if (isBonusPeriodOpen(cur.year, cur.month, now)) return cur;
+  return cur.month === 12 ? { year: cur.year + 1, month: 1 } : { year: cur.year, month: cur.month + 1 };
+}
 
 /**
  * Uma falha de fechamento, classificada pelo que se deve FAZER com ela.
@@ -185,7 +200,7 @@ export class BonusTerminationListener implements OnModuleInit {
         }
       }
 
-      const current = getCurrentPeriod();
+      const current = listenerCurrentPeriod();
       await this.bonusService.invalidateLiveBonusesCache(current.year, current.month);
 
       if (failures.length > 0) {
@@ -238,7 +253,7 @@ export class BonusTerminationListener implements OnModuleInit {
     rewritten: Set<string>,
     notifyUserIds: string[] = [],
   ): void {
-    const { year, month } = getCurrentPeriod();
+    const { year, month } = listenerCurrentPeriod();
     const key = `${year}-${month}`;
 
     // Acumula ANTES do curto-circuito: se o período já foi regravado agora, o
@@ -337,7 +352,7 @@ export class BonusTerminationListener implements OnModuleInit {
             failures.map(f => f.message).join('; '),
         );
 
-        const current = getCurrentPeriod();
+        const current = listenerCurrentPeriod();
         const { deferred, terminal } = partitionFailures(
           failures,
           `${current.year}-${current.month}`,
@@ -435,9 +450,35 @@ export class BonusTerminationListener implements OnModuleInit {
       return null;
     }
 
-    const periodIsOpen = businessPeriodEnd(year, month) >= new Date();
+    // ABERTO = antes do corte do dia 5, 00:00 de SP (`isBonusPeriodOpen`) — a
+    // mesma definição do cron e das telas. Antes era "antes do dia 25": entre o
+    // 26 e o 4 o período já contava como fechado aqui, embora o RH ainda o
+    // estivesse apurando e o cron só fosse gravá-lo no dia 5.
+    const periodIsOpen = isBonusPeriodOpen(year, month);
     if (!periodIsOpen) {
       const alreadySaved = await this.prisma.bonus.count({ where: { userId, year, month } });
+      if (alreadySaved === 0) {
+        // Período FECHADO e sem linha desta pessoa: o listener NÃO grava. Depois
+        // do corte quem grava é o cron (dias 5 a 10, com o estado do corte) ou
+        // o RH (`pnpm bonus:recalc-period`). Gravar daqui recalcularia o
+        // PERÍODO INTEIRO com os dados de agora e as linhas sairiam "frescas"
+        // (depois do corte) — o cron as aceitaria sem recalcular.
+        const periodRows = await this.prisma.bonus.count({ where: { year, month } });
+        if (periodRows === 0) {
+          this.logger.log(
+            `[bonificação] ${label}: período fechado ainda sem linhas — o cron de finalização ` +
+              `(dias 5 a 10) grava com o estado do corte.`,
+          );
+        } else {
+          const msg =
+            `${label}: período FECHADO sem linha de bônus para esta pessoa (peso ` +
+            `${(entry?.weight ?? 0).toFixed(4)}). NÃO foi gravado automaticamente depois do corte. ` +
+            `Se for para corrigir: pnpm bonus:recalc-period ${year} ${month}`;
+          this.logger.error(`[bonificação] ${msg}`);
+          failures.push({ message: msg, retryable: false, period: `${year}-${month}` });
+        }
+        return null;
+      }
       if (alreadySaved > 0) {
         // PERÍODO FECHADO COM LINHA GRAVADA NÃO É REGRAVADO POR ROTINA — nem
         // quando a premissa dela (a data de desligamento) acabou de mudar.
@@ -538,9 +579,17 @@ export class BonusTerminationListener implements OnModuleInit {
     rewritten: Set<string>,
     failures: SettleFailure[],
   ): Promise<void> {
-    const { year, month } = getCurrentPeriod();
+    const { year, month } = listenerCurrentPeriod();
     const label = `${String(month).padStart(2, '0')}/${year}`;
     if (rewritten.has(`${year}-${month}`)) return;
+
+    // Cinto e suspensório: `listenerCurrentPeriod` já devolve um período aberto,
+    // mas a regravação abaixo é cara e irreversível — depois do corte (dia 5,
+    // 00:00 de SP) nenhum listener reescreve o período.
+    if (!isBonusPeriodOpen(year, month)) {
+      await this.bonusService.invalidateLiveBonusesCache(year, month);
+      return;
+    }
 
     try {
       // SEMPRE invalida o cache, antes de qualquer decisão.

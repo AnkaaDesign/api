@@ -3877,11 +3877,15 @@ model Responsible {
   @@map("Representative")
 }
 
-/// A ordem de declaracao E significativa: `responsibleRolesSchema` ordena por
-/// ela para que o diff do changelog fique estavel, e ela agrupa as funcoes por
-/// FATIA DO DOCUMENTO que cada uma recebe na assinatura eletronica
-/// (ver `signature/quote-sections.ts`): primeiro as que recebem tudo, depois as
-/// que recebem um recorte, por ultimo as que por padrao nao assinam.
+/// A ordem de declaracao E significativa: e a ORDEM DE EXIBICAO definida pela
+/// empresa em 2026-09-28 (PCP primeiro, Comercial por ultimo), e
+/// `responsibleRolesSchema` ordena as funcoes gravadas por ela para que o diff
+/// do changelog fique estavel. O Prisma NAO gera migracao para reordenar enum:
+/// mudar a ordem aqui exige recriar o tipo a mao, como em
+/// `20260928120000_responsible_role_pcp_shipping_logistics`.
+///
+/// Qual fatia do orcamento cada funcao recebe na assinatura eletronica nao
+/// depende desta ordem: esta em `signature/quote-sections.ts`.
 ///
 /// OWNER foi REMOVIDA. Ela nomeava uma pessoa, nao uma area de interesse, e por
 /// isso nao dizia nada sobre qual recorte do orcamento aquele contato deve ver —
@@ -3889,15 +3893,18 @@ model Responsible {
 /// receberam COMMERCIAL + MARKETING + FINANCIAL + FLEET_MANAGER na migracao, cuja
 /// uniao devolve o documento inteiro.
 enum ResponsibleRole {
-  COMMERCIAL
-  SELLER
-  REPRESENTATIVE
-  COORDINATOR
+  PRODUCTION_PLANNING
   PURCHASING
-  MARKETING
+  COORDINATOR
+  REPRESENTATIVE
+  SELLER
   FINANCIAL
+  MARKETING
+  SHIPPING
+  LOGISTICS
   FLEET_MANAGER
   DRIVER
+  COMMERCIAL
 
   @@map("RepresentativeRole")
 }

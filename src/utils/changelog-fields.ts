@@ -168,6 +168,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     phone: 'Telefone',
     position: 'Cargo',
     positionId: 'Cargo',
+    // Cargo do VÍNCULO — ver CONTRACT_POSITION_CHANGELOG_FIELD.
+    contractPositionId: 'Cargo do Vínculo',
     performanceLevel: 'Nível de Desempenho',
     sector: 'Setor',
     sectorId: 'Setor',

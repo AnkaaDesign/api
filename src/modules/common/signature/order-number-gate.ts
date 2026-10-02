@@ -3,8 +3,9 @@
  *
  * A REGRA
  *   Quem assina pelo setor de compras do cliente (`Responsible.roles` contém
- *   `PURCHASING`) só assina se cada veículo do orçamento tiver o nº do pedido
- *   — o que já estava na tarefa, ou o que ele informa na própria cerimônia.
+ *   `PURCHASING`) só assina se o orçamento tiver o nº do pedido — o que já
+ *   estava nas tarefas (um pedido único registrado vale para todas), ou o que
+ *   ele informa na própria cerimônia, o mesmo para todos os veículos.
  *   O pedido é o documento de compras do cliente: é ele que a nota e o boleto
  *   precisam citar para o contas a pagar do outro lado aceitar a cobrança, e
  *   quem emite o pedido é justamente esta pessoa. Pedir o número no ato em que
@@ -87,6 +88,8 @@ export interface OrderNumberTask {
   customerOrderNumber?: string | null;
   /** O pedido de compra registrado pelo portal (`POST /cliente/me/pedidos`). */
   purchaseOrderId?: string | null;
+  /** O nº do pedido do portal, quando a tarefa aponta para um (para a herança). */
+  purchaseOrder?: { number?: string | null } | null;
   implement?: { serialNumber?: string | null; plate?: string | null } | null;
 }
 
@@ -136,29 +139,49 @@ export function orderNumberVehicles(tasks: readonly OrderNumberTask[]): OrderNum
   return orderNumberScope(tasks).map((t, index) => ({
     taskId: t.id,
     label: orderNumberVehicleLabel(t, index),
-    value: normalizeOrderNumber(t.customerOrderNumber) || null,
+    // O número VISÍVEL do veículo: o digitado, senão o do pedido do portal.
+    value:
+      normalizeOrderNumber(t.customerOrderNumber) ||
+      normalizeOrderNumber(t.purchaseOrder?.number) ||
+      null,
     hasNumber: taskHasOrderNumber(t),
   }));
 }
 
-/** O que as DUAS cerimônias devolvem na leitura (DD12). */
+/**
+ * O pedido é UM SÓ para o orçamento inteiro: o cliente emite um pedido de
+ * compra para o lote, não um por caminhão. Quando os veículos que já têm número
+ * concordam num único valor, é esse o pedido — os que faltam o herdam e o
+ * signatário não digita nada. Números divergentes já registrados (legado) não
+ * dão herança: aí quem assina informa o pedido dos que faltam.
+ */
+export function inheritedOrderNumber(vehicles: readonly OrderNumberVehicle[]): string | null {
+  const registered = new Set(vehicles.map(v => v.value).filter((v): v is string => !!v));
+  return registered.size === 1 ? [...registered][0] : null;
+}
+
+/** O que as DUAS cerimônias devolvem na leitura (DD12.1). */
 export interface OrderNumberRequirement {
-  /** Falta número em algum veículo do escopo — a assinatura pede os números. */
+  /**
+   * Algum veículo do escopo está sem pedido E não há um pedido único registrado
+   * para ele herdar — a assinatura pede o número.
+   */
   required: boolean;
   maxLength: number;
+  /** O pedido único que os veículos sem número herdam; `null` se não há ou se divergem. */
+  inherited: string | null;
   vehicles: OrderNumberVehicle[];
 }
 
 /**
- * O PREDICADO ÚNICO DO PEDIDO DE COMPRA (DD12) — a página pública (OTP) e a
+ * O PREDICADO ÚNICO DO PEDIDO DE COMPRA (DD12.1) — a página pública (OTP) e a
  * sessão do portal perguntam aqui, e só aqui.
  *
- *   · SUJEITO: quem TEM `PURCHASING` entre as funções (mesmo acumulando outras)
- *     — a regra da `main`. O portão da branch (`purchase-order-gate.ts`, só quem
- *     era SÓ Compras, com 403) saiu: o beco sem saída que ele tapava some quando
- *     o próprio ato de assinar aceita o número.
+ *   · SUJEITO: quem TEM `PURCHASING` entre as funções (mesmo acumulando outras).
  *   · ESCOPO: as tarefas vivas do orçamento (`orderNumberScope`).
- *   · TEM NÚMERO: `customerOrderNumber` não vazio ∨ `purchaseOrderId`.
+ *   · TEM PEDIDO: `customerOrderNumber` não vazio ∨ `purchaseOrderId`.
+ *   · UM PEDIDO POR ORÇAMENTO: havendo um único número registrado, quem falta
+ *     o herda e nada é pedido (`inheritedOrderNumber`).
  *
  * `null` quando o signatário não está sujeito. As tarefas chegam na ordem do
  * documento (`sortQuoteTasks`).
@@ -169,19 +192,21 @@ export function orderNumberRequirement(args: {
 }): OrderNumberRequirement | null {
   if (!signerRequiresOrderNumber(args.roles)) return null;
   const vehicles = orderNumberVehicles(args.tasks);
+  const inherited = inheritedOrderNumber(vehicles);
   return {
-    required: vehicles.some(v => !v.hasNumber),
+    required: vehicles.some(v => !v.hasNumber) && !inherited,
     maxLength: ORDER_NUMBER_MAX_LENGTH,
+    inherited,
     vehicles,
   };
 }
 
-/** A frase do 400 quando falta o número (a mesma da `main`). */
+/** A frase do 400 quando falta o número. */
 export const ORDER_NUMBER_REQUIRED_MESSAGE = 'Informe o nº do pedido de compra para assinar.';
 
 export interface OrderNumberResolution {
-  /** Veículos sem número em que o signatário informou um válido. */
-  toWrite: Array<{ taskId: string; value: string }>;
+  /** Veículos sem número e o número que entra neles. */
+  toWrite: Array<{ taskId: string; value: string; inherited: boolean }>;
   /** Mensagem de recusa; `null` quando a assinatura pode seguir. */
   problem: string | null;
 }
@@ -190,20 +215,26 @@ export interface OrderNumberResolution {
  * Confronta o que o signatário mandou com o que falta.
  *
  * Chamado ANTES de verificar o código: uma recusa aqui não pode queimar o
- * desafio de uso único, senão quem esqueceu um campo esperaria o cooldown para
+ * desafio de uso único, senão quem esqueceu o campo esperaria o cooldown para
  * receber outro código.
  *
- * Número mandado para veículo que JÁ tem número é ignorado, não recusado: a
- * tela pode ter sido aberta antes de a Ankaa registrar o pedido, e o
- * signatário não fez nada errado. Veículo que não é deste orçamento é
- * recusado — aí sim a entrada não faz sentido.
+ * · Há número registrado e único → os que faltam o herdam; o que foi digitado
+ *   é ignorado (a tela nem mostra o campo nesse caso).
+ * · Não há → vale o número informado, que tem de ser o MESMO para todos os
+ *   veículos que faltam (a web manda o mesmo valor em cada linha; página
+ *   antiga com campos por veículo que chegue com valores diferentes é recusada).
+ *
+ * Número mandado para veículo que JÁ tem número é ignorado, não recusado.
+ * Veículo que não é deste orçamento é recusado.
  */
 export function resolveOrderNumberSubmission(
   vehicles: readonly OrderNumberVehicle[],
   submitted: ReadonlyArray<{ taskId?: string; value?: string }> | null | undefined,
 ): OrderNumberResolution {
-  const byTask = new Map<string, string>();
   const known = new Set(vehicles.map(v => v.taskId));
+  const missing = vehicles.filter(v => !v.hasNumber);
+  const missingIds = new Set(missing.map(v => v.taskId));
+  const typed = new Set<string>();
   for (const row of submitted ?? []) {
     if (!row?.taskId) continue;
     if (!known.has(row.taskId)) {
@@ -212,28 +243,36 @@ export function resolveOrderNumberSubmission(
         problem: 'Veículo do pedido não pertence a este orçamento. Recarregue a página.',
       };
     }
-    byTask.set(row.taskId, normalizeOrderNumber(row.value));
+    const value = normalizeOrderNumber(row.value);
+    if (value && missingIds.has(row.taskId)) typed.add(value);
   }
 
-  const toWrite: Array<{ taskId: string; value: string }> = [];
-  const multi = vehicles.length > 1;
-  for (const v of vehicles) {
-    if (v.hasNumber) continue;
-    const typed = byTask.get(v.taskId) ?? '';
-    const problem = orderNumberProblem(typed);
-    if (problem) {
-      return {
-        toWrite: [],
-        problem: typed
-          ? multi
-            ? `${v.label}: ${problem}`
-            : problem
-          : multi
-            ? `Informe o nº do pedido de compra de cada veículo para assinar (falta: ${v.label}).`
-            : ORDER_NUMBER_REQUIRED_MESSAGE,
-      };
-    }
-    toWrite.push({ taskId: v.taskId, value: typed });
+  if (!missing.length) return { toWrite: [], problem: null };
+
+  const inherited = inheritedOrderNumber(vehicles);
+  if (inherited) {
+    return {
+      toWrite: missing.map(v => ({ taskId: v.taskId, value: inherited, inherited: true })),
+      problem: null,
+    };
   }
-  return { toWrite, problem: null };
+
+  if (typed.size > 1) {
+    return {
+      toWrite: [],
+      problem: 'O nº do pedido de compra é o mesmo para todos os veículos. Informe um único número.',
+    };
+  }
+  const value = typed.size ? [...typed][0] : '';
+  const problem = orderNumberProblem(value);
+  if (problem) {
+    return {
+      toWrite: [],
+      problem: value ? problem : ORDER_NUMBER_REQUIRED_MESSAGE,
+    };
+  }
+  return {
+    toWrite: missing.map(v => ({ taskId: v.taskId, value, inherited: false })),
+    problem: null,
+  };
 }
