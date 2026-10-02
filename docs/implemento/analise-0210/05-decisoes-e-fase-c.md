@@ -278,3 +278,31 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   trava da assinatura, atenção). Não abri as telas num aparelho.
 - **Fica para o M3:** o assistente Tarefa → Veículos → Serviços → Faturamento → Resumo (com a faixa dos eixos no
   topo e a imagem comum na criação: subir no 1º veículo e `bulk {budgetId, fileId}` depois de o orçamento existir).
+
+## Resultado M3 (02/10, app `5568967` · `8e43053` · `6818964` · `1cf087d` · `3a3458d`)
+
+- **Ordem nova (decisão 4):** ① Tarefa → ② Veículos → ③ Serviços → ④ Faturamento → ⑤ Resumo na criação e na
+  edição (`budget_wizard_logic.dart` diz a ordem; a cobrança fica Veículos → Faturamento → Resumo).
+- **Um arquivo por passo:** `budget_form_screen.dart` (6.271 → ~3.000 linhas: estado, carga e gravação) e
+  `budget_step_{task,vehicles,services,billing,review}.dart` como `part`/extensões do mesmo State — o estado
+  continua num lugar só, nenhum campo mudou de dono.
+- **① Tarefa:** logomarca, razão social, detalhes; prazo de entrega (dias, documento), validade, garantia,
+  tarefas simultâneas; responsáveis, tintas, arquivos base, layout, aerografia. Criação: UMA imagem para todos
+  (sobe no 1º implemento e `bulk {budgetId, fileId}` logo depois do `batch-with-quote`, que agora pede
+  `include.implement`). ⚠️ Com N veículos, detalhes/tinta/arte/aerografia são de cada um (decisão de 23/09) e
+  ficam no cartão do veículo — a Tarefa diz isso.
+- **② Veículos:** categoria e tipo comuns no topo; um cartão por veículo (o aberto expande, os outros são
+  cabeçalhos tocáveis) com série, placa, chassi, plaqueta, nº do pedido (regra DD12.1 escrita no campo),
+  previsão, "Prazo da Tarefa" (a data; o "Prazo de Entrega" em dias é o do documento — um rótulo por dado),
+  medidas no desenho do detalhe da tarefa (editar abre a tela de medidas e relê só o implemento) e a arte.
+- **④ Faturamento:** uma lista de pagadores com seletor de cliente que aceita criar e "+ Adicionar pagador".
+  Trocar o cliente recomeça do cadastro do novo (nada sobra; serviços da linha passam ao novo); "Editar aqui
+  altera o cadastro de X"; cliente repetido recusado; 409 `existingCustomerId` → seleciona o existente na
+  criação e, na gravação do cadastro, avisa em qual pagador o documento não foi gravado (antes era engolido).
+- **⑤ Resumo:** abre com ANDAMENTO (4 eixos + "Para emitir falta…"), aprovação do valor (revogar) e "Assinado
+  fora do sistema" — os componentes do M2.
+- **Navegação:** livre na edição (`WizardScaffold.freeNavigation`; o Salvar confere todos os passos), linear na
+  criação; validação por passo pela lógica pura.
+- **Verificação:** `flutter analyze lib test` limpo; `flutter test` 1086/1086 (+14 de `budget_wizard_logic_test`).
+  Não abri as telas num aparelho.
+- **API:** nada pendente para o M3.
