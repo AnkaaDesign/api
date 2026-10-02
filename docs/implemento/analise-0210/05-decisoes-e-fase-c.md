@@ -177,3 +177,43 @@ respondia 200.
 - **Achados na API (não corrigidos):** `PUT /budgets/:id/status` com `IN_NEGOTIATION` passa pela checagem de
   papel genérica (o FINANCEIRO pode), enquanto `PUT …/send-to-customer` é só ADMIN/COMERCIAL — duas portas, dois
   papéis; `BudgetRequest.preApproved*` e `budget.portal_pre_approved` mantêm o nome antigo.
+
+## Resultado A1 (02/10, api)
+
+Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `4906a948`. tsc e régua de tipos limpos
+(src 0; tests+scripts 121 = base); contrato sem mudança (JSON e Dart "igual").
+
+1. **Documento com a arte por veículo (decisão 5)** — já estava no envelope; virou função pura testada:
+   `quoteArtworkPlates(artwork, vehicleTasks)` (`src/utils/quote-artwork.ts`). Artes DIFERENTES: uma imagem por
+   arquivo, legenda dos veículos que ela cobre (iguais AGRUPADAS: "Veículos 39089, 39090"), na ordem da tabela de
+   identificação. Arte IGUAL em todos: uma imagem, SEM legenda (byte a byte o documento de antes; não há o que
+   confundir). Veículo sem arte aprovada não chega ao documento: a emissão recusa antes (E2, "Falta a arte aprovada
+   do veículo 39089."). O snapshot congela a cobertura (`layoutCoverage`): trocar a arte de veículo depois de
+   assinado é mudança MATERIAL. Teste: `test:quote-artwork` (59).
+2. **"Uma imagem para todos" — rota atômica:** `POST /implements/layouts/bulk` com **`{ budgetId, fileId }`** (no
+   lugar de `{ implementIds, fileId }`; um dos dois, nunca os dois → 400). Aplica o arquivo a TODOS os veículos não
+   cancelados do orçamento numa transação, como RASCUNHO, pulando quem já o tem; resposta `{ created, alreadyThere,
+   total }`. Fluxo da criação: (a) sobe a imagem no 1º veículo `POST /implements/:id/layouts` (multipart `files`) →
+   pega `data[0].fileId`; (b) `POST /implements/layouts/bulk { budgetId, fileId }`. Depois, cada veículo segue
+   sozinho (`send`, `approve-on-behalf`, `reprove`, `new-version`, `DELETE`). Papéis: os de edição de arte.
+   **W2/M2:** trocar o "sobe no primeiro e replica" pela chamada (b). Teste: `test:implement-layout` (43).
+3. **Cliente pelo faturamento (decisão 4 ④):** criar com CNPJ/CPF já cadastrado, ou atualizar um cliente com o
+   documento de OUTRO, agora é **409** com `details.existingCustomerId` (antes 400 sem id, e o 409 virava 500). A
+   tela do combobox: no 409, SELECIONAR `existingCustomerId` em vez de criar/gravar. Documento guardado só com
+   dígitos (a máscara furava a unicidade). O filtro global passou a entregar em `details` os campos estruturados
+   das exceções (também o `fields` da trava de produção do portal, que ele jogava fora). Teste:
+   `test:customer-document-conflict` (8).
+4. **Atenção "ainda não faturado"** = PENDING ∨ IN_NEGOTIATION ∨ APPROVED (SIGNED sai; IN_NEGOTIATION entra).
+   ⚠️ **App (`_notYetInvoiced`) e web (`notYetInvoiced()` em `lib/attention/rules.ts`) espelham — o M2/W2 mudam
+   igual.** `GET /budgets/task/:taskId` traz `tasks[].implement.layouts` (id, fileId, status, version,
+   supersedesId, sentAt, decidedAt, approvalSource, decisionNote, createdAt, file{…thumbnailUrl}).
+5. **O ato é a porta (achado do W1):** `PUT /budgets/:id/status` (e o update genérico/aninhado) agora julga o papel
+   com o status ATUAL: IN_NEGOTIATION, APPROVED e o PENDING vindo de APPROVED/IN_NEGOTIATION são só ADMIN/COMMERCIAL,
+   como os atos. FINANCIAL continua cancelando e reabrindo o vencido. `isQuoteStatusChangeAllowed(to, setor, from)`
+   expõe a regra (a tela pode usá-la para esconder o botão). Teste: `test:budget-state-machine` (53).
+6. **`preApproved*` → `valueApproved*` (achado do W1):** `BudgetRequest.valueApprovedAt`,
+   `valueApprovedByResponsibleId`, relação `valueApprovedBy` (migration `20261002120000_requisicao_valor_aprovado`,
+   aplicada no `ankaa_implemento`); aviso `budget.portal_value_approved`. Nunca foi à produção (a `main` não tem a
+   tabela). ⚠️ **Web:** `types/budget-request.ts`, `budget-request-card.tsx`, `orcamento-proposta-card.tsx`,
+   `api-client/portal.ts`, `pages/cliente/orcamentos/[id].tsx` leem `preApprovedAt/preApprovedBy` — trocar por
+   `valueApprovedAt/valueApprovedBy` (inclusive o include `request.include.valueApprovedBy`). App: nenhum uso.
