@@ -66,6 +66,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         if (this.isDevelopment && responseObj.message && Array.isArray(responseObj.message)) {
           errorResponse.details = responseObj.message;
         }
+
+        // Campos ESTRUTURADOS que o serviço pôs na exceção (ex.: o 409 de
+        // documento já cadastrado traz `existingCustomerId`; a trava de produção
+        // do portal traz `fields`) chegam ao cliente em `details` — sem isto o
+        // filtro os jogava fora e a tela não tinha como agir sobre eles.
+        if (errorResponse.details === undefined) {
+          const extra = Object.fromEntries(
+            Object.entries(responseObj as unknown as Record<string, unknown>).filter(
+              ([key]) => !['statusCode', 'message', 'error'].includes(key),
+            ),
+          );
+          if (Object.keys(extra).length > 0) errorResponse.details = extra;
+        }
       }
     } else if (exception instanceof ZodError) {
       status = HttpStatus.BAD_REQUEST;

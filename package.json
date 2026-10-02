@@ -113,6 +113,7 @@
     "test:dossier-paginacao": "tsx tests/dossier-paginacao.test.ts",
     "test:multitask-quote": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/multitask-quote-e2e.test.ts",
     "test:artwork-gate": "tsx tests/artwork-gate.test.ts",
+    "test:customer-document-conflict": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/customer-document-conflict.test.ts",
     "test:implement-layout": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-layout.test.ts",
     "test:quote-artwork": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/quote-artwork.test.ts",
     "test:implement-measure-writer": "BACKUP_PATH=${BACKUP_PATH:-./.tmp/backup} ts-node -r tsconfig-paths/register --transpile-only tests/implement-measure-writer.test.ts",

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
@@ -41,6 +42,34 @@ import type {
   CustomerMergeFormData,
 } from '../../../schemas/customer';
 import { isValidCNPJ, isValidCPF, isValidPhone } from '../../../utils';
+
+/**
+ * DOCUMENTO JÁ CADASTRADO → 409 com o id do dono (decisão 4 de 02/10).
+ *
+ * O combobox de cliente do faturamento aceita CRIAR. Quem digita um CNPJ que já
+ * existe não pode nem criar um segundo cadastro nem — num update — gravar o
+ * documento de um cliente no cadastro de outro (o caso de trocar o cliente
+ * selecionado com o formulário ainda cheio dos dados do anterior). O 409 traz
+ * `existingCustomerId` para a tela SELECIONAR o existente em vez de errar.
+ */
+function documentConflict(
+  kind: 'CNPJ' | 'CPF',
+  existing: { id: string; fantasyName?: string | null },
+) {
+  return new ConflictException({
+    statusCode: 409,
+    message: `${kind} já está cadastrado${existing.fantasyName ? ` (${existing.fantasyName})` : ''}.`,
+    error: 'Conflict',
+    existingCustomerId: existing.id,
+  });
+}
+
+/** CNPJ/CPF guardados só com dígitos: a unicidade compara texto, e máscara furaria a regra. */
+function digitsOnly(value: string | null | undefined): string | null | undefined {
+  if (value === null || value === undefined) return value;
+  const digits = value.replace(/\D/g, '');
+  return digits === '' ? null : digits;
+}
 
 @Injectable()
 export class CustomerService {
@@ -86,6 +115,9 @@ export class CustomerService {
     tx?: PrismaTransaction,
   ): Promise<void> {
     const transaction = tx || this.prisma;
+    // Documento só com dígitos ANTES de validar e gravar (o objeto é o que se grava).
+    if ('cnpj' in data) data.cnpj = digitsOnly(data.cnpj) as any;
+    if ('cpf' in data) data.cpf = digitsOnly(data.cpf) as any;
     // Validar fantasyName (obrigatório e único)
     if (data.fantasyName) {
       const existingFantasyName = await transaction.customer.findFirst({
@@ -109,7 +141,7 @@ export class CustomerService {
       // Verificar unicidade usando o repository method
       const existingCpf = await this.customerRepository.findByCpf(data.cpf, tx);
       if (existingCpf && existingCpf.id !== existingId) {
-        throw new BadRequestException('CPF já está cadastrado.');
+        throw documentConflict('CPF', existingCpf);
       }
     }
 
@@ -123,7 +155,7 @@ export class CustomerService {
       // Verificar unicidade usando o repository method
       const existingCnpj = await this.customerRepository.findByCnpj(data.cnpj, tx);
       if (existingCnpj && existingCnpj.id !== existingId) {
-        throw new BadRequestException('CNPJ já está cadastrado.');
+        throw documentConflict('CNPJ', existingCnpj);
       }
     }
 
@@ -313,7 +345,11 @@ export class CustomerService {
       }
 
       this.logger.error('Erro ao criar cliente:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar cliente. Por favor, tente novamente.');
@@ -349,7 +385,7 @@ export class CustomerService {
           }
           const existingCnpj = await this.customerRepository.findByCnpj(data.cnpj, tx);
           if (existingCnpj) {
-            throw new BadRequestException('CNPJ já está cadastrado.');
+            throw documentConflict('CNPJ', existingCnpj);
           }
         }
 
@@ -427,7 +463,11 @@ export class CustomerService {
       };
     } catch (error: unknown) {
       this.logger.error('Erro ao criar cliente rápido:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar cliente. Por favor, tente novamente.');
@@ -567,7 +607,11 @@ export class CustomerService {
       }
 
       this.logger.error('Erro ao atualizar cliente:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
@@ -743,44 +787,39 @@ export class CustomerService {
       for (let index = 0; index < data.customers.length; index++) {
         const { id, data: updateData } = data.customers[index];
         try {
-          const updatedCustomer = await this.prisma.$transaction(
-            async (tx: PrismaTransaction) => {
-              // Buscar cliente existente
-              const existingCustomer = await this.customerRepository.findByIdWithTransaction(
-                tx,
-                id,
-              );
-              if (!existingCustomer) {
-                throw new NotFoundException('Cliente não encontrado.');
-              }
+          const updatedCustomer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            // Buscar cliente existente
+            const existingCustomer = await this.customerRepository.findByIdWithTransaction(tx, id);
+            if (!existingCustomer) {
+              throw new NotFoundException('Cliente não encontrado.');
+            }
 
-              // Validar cliente completo
-              await this.validateCustomer(updateData, id, tx);
+            // Validar cliente completo
+            await this.validateCustomer(updateData, id, tx);
 
-              // Atualizar o cliente
-              const customer = await this.customerRepository.updateWithTransaction(
-                tx,
-                id,
-                updateData,
-                { include },
-              );
+            // Atualizar o cliente
+            const customer = await this.customerRepository.updateWithTransaction(
+              tx,
+              id,
+              updateData,
+              { include },
+            );
 
-              // Registrar no changelog com rastreamento por campo
-              await trackAndLogFieldChanges({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.CUSTOMER,
-                entityId: id,
-                oldEntity: existingCustomer,
-                newEntity: customer,
-                fieldsToTrack: this.TRACKED_FIELDS,
-                userId: userId || null,
-                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                transaction: tx,
-              });
+            // Registrar no changelog com rastreamento por campo
+            await trackAndLogFieldChanges({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.CUSTOMER,
+              entityId: id,
+              oldEntity: existingCustomer,
+              newEntity: customer,
+              fieldsToTrack: this.TRACKED_FIELDS,
+              userId: userId || null,
+              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+              transaction: tx,
+            });
 
-              return customer;
-            },
-          );
+            return customer;
+          });
 
           successfulUpdates.push(updatedCustomer);
         } catch (error: unknown) {
@@ -1053,7 +1092,11 @@ export class CustomerService {
       }
 
       this.logger.error('Erro ao mesclar clientes:', error);
-      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
         throw error;
       }
       throw new InternalServerErrorException(
