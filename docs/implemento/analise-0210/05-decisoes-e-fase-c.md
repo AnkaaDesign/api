@@ -421,3 +421,25 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   pode parar no meio; um `PUT /cliente/me/artes/reprovar` atômico fecharia isso; (2) o resumo não diz se falta o nº
   do pedido (só a tela de Assinaturas sabe). **Para o web interno (P21):** a lista de faces do web ainda tem 3
   (`constants/implement-faces`); o portal lê a frente por fora dela.
+
+## Resultado pontas soltas (02/10)
+
+As três que o W5 deixou anotadas.
+
+1. **Reprovar a arte em LOTE no portal, atômico** — `PUT /cliente/me/artes/reprovar` `{ layoutIds[], motivo }`
+   (api `8dbb8b5f`): mesmas regras do lote de aprovação — as N artes conferidas antes (escopo comercial e
+   `PENDING_APPROVAL` de cada uma, falha fechado com 404/409), gravadas numa transação só, motivo obrigatório
+   (≥ 3) para todas, trilha/changelog/aviso iguais aos da reprovação avulsa. `approveManyFromPortal` e
+   `reproveManyFromPortal` dividem o núcleo `decideManyFromPortal`. `test:portal-arte` 76/76 (5 verificações
+   novas). Web (`f8f1c899`): o "Reprovar" do grupo em `orcamento-arte-card.tsx` usa o lote.
+2. **O Início do portal avisa o nº do pedido** — o resumo (`GET /cliente/me/resumo`) traz em cada envelope
+   `orderNumber: { required, inherited } | null` pelo MESMO `orderNumberRequirement` da cerimônia (api
+   `68b15eff`, teste em `portal-assinatura-compras`). Web (`f8f1c899`): o envelope no Início mostra "Falta o nº
+   do pedido" (ou o pedido herdado).
+3. **A frente nas faces da web (P21)** — `IMPLEMENT_FACES` com as 4 do contrato; o G18 confere lista, fotos e
+   rótulos contra `enums.json` (web `431874f4`). Editor de medidas, criar/editar tarefa, lote, visualizador do
+   detalhe (SVG combinado e zip com fotos de traseira e frente) e `PanelSide` do cotador com FRENTE.
+   **Defeito corrigido:** a edição da tarefa mandava qualquer face fora das laterais para `backSideMeasure` — a
+   frente cairia na traseira. O portal mantém a frente como campo próprio e desenha `LADOS_DESENHADOS`.
+
+tsc api e web 0 erro; vitest tocados 111/111.
