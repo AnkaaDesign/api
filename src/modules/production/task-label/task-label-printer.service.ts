@@ -14,6 +14,7 @@ import { promisify } from 'util';
 import { chromium } from 'playwright';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { IppClient, IppError, type IppOutValue } from './ipp-client';
+import { TaskLabelSheetStore } from './task-label-sheet.store';
 import {
   LABEL_SLOTS,
   taskLabelCaption,
@@ -142,8 +143,13 @@ export class TaskLabelPrinterService {
   private readonly client = new IppClient({ printerUri: PRINTER_URI, timeoutMs: 15_000 });
   /** one sheet at a time: two people printing at once would race for the same paper */
   private busy = false;
+  /** slots each accepted job claimed, so a job the printer aborts gives them back */
+  private readonly jobSlots = new Map<number, { sheetId: string; slots: number[] }>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sheet: TaskLabelSheetStore,
+  ) {}
 
   async getStatus(): Promise<LabelPrinterStatus> {
     try {
@@ -206,6 +212,16 @@ export class TaskLabelPrinterService {
         );
       }
 
+      // claim the slots on the shared sheet BEFORE printing, so a second user can't pick them meanwhile
+      const { state: sheet, isFreshSheet } = await this.sheet.claim(
+        labels.map(l => l.slot),
+        taken =>
+          new ConflictException(
+            `O${taken.length > 1 ? 's espaços' : ' espaço'} ${taken.map(s => s + 1).join(', ')} já ${taken.length > 1 ? 'foram impressos' : 'foi impresso'} nesta folha. Atualize e escolha outros.`,
+          ),
+      );
+      const claimed = labels.map(l => l.slot);
+
       const placed: PlacedLabel[] = labels.map(l => {
         const t = byId.get(l.taskId)!;
         return {
@@ -215,23 +231,34 @@ export class TaskLabelPrinterService {
         };
       });
 
-      const raster = await this.renderRaster(placed);
-      const res = await this.client.printJob(
-        raster,
-        {
-          'job-name': { tag: 'name', value: `Etiquetas (${placed.length})` },
-          'document-format': { tag: 'mimeMediaType', value: 'image/pwg-raster' },
-          // refuse instead of silently printing on plain paper / draft if a setting is dropped
-          'ipp-attribute-fidelity': { tag: 'boolean', value: true },
-        },
-        PRINT_SETTINGS,
-      );
-      const jobId = Number(res.job['job-id']?.[0]);
+      let jobId: number;
+      try {
+        // the first print on a fresh sheet carries the "TOPO" mark: the sheet always goes back in that way
+        const raster = await this.renderRaster(placed, isFreshSheet);
+        const res = await this.client.printJob(
+          raster,
+          {
+            'job-name': { tag: 'name', value: `Etiquetas (${placed.length})` },
+            'document-format': { tag: 'mimeMediaType', value: 'image/pwg-raster' },
+            // refuse instead of silently printing on plain paper / draft if a setting is dropped
+            'ipp-attribute-fidelity': { tag: 'boolean', value: true },
+          },
+          PRINT_SETTINGS,
+        );
+        jobId = Number(res.job['job-id']?.[0]);
+      } catch (e) {
+        // nothing reached the paper: the slots are free again
+        await this.sheet.release(claimed, sheet.sheetId);
+        throw e;
+      }
       if (!Number.isFinite(jobId))
         throw new ServiceUnavailableException(
           'A impressora aceitou a folha mas não devolveu o número do trabalho.',
         );
-      this.logger.log(`label sheet sent: job ${jobId}, ${placed.length} labels`);
+      this.jobSlots.set(jobId, { sheetId: sheet.sheetId, slots: claimed });
+      this.logger.log(
+        `label sheet sent: job ${jobId}, ${placed.length} labels${isFreshSheet ? ' (new sheet)' : ''}`,
+      );
       return { jobId };
     } catch (e) {
       if (e instanceof IppError) {
@@ -259,6 +286,15 @@ export class TaskLabelPrinterService {
       if (state === 'canceled') messages.push('O trabalho foi cancelado na impressora.');
       if (state === 'aborted' && !messages.length)
         messages.push('A impressora interrompeu o trabalho.');
+      if (done) {
+        const claimed = this.jobSlots.get(jobId);
+        this.jobSlots.delete(jobId);
+        // canceled/aborted before printing: hand the slots back to the shared sheet
+        if (claimed && state !== 'completed') {
+          await this.sheet.release(claimed.slots, claimed.sheetId);
+          messages.push('Os espaços voltaram a ficar livres.');
+        }
+      }
       return { jobId, state, done, success: state === 'completed', messages };
     } catch (e) {
       if (e instanceof IppError && e.statusCode === 0x0406) {
@@ -272,10 +308,12 @@ export class TaskLabelPrinterService {
   }
 
   /** Sheet → A4 PDF (Chromium) → PWG raster (Ghostscript), in a private temp dir. */
-  private async renderRaster(labels: PlacedLabel[]): Promise<Buffer> {
+  private async renderRaster(labels: PlacedLabel[], orientationMark = false): Promise<Buffer> {
     const logo = await fs.readFile(resolve(process.cwd(), 'assets', 'logo.png'));
     const html = taskLabelSheetHtml(
-      taskLabelSheetSvg(labels, `data:image/png;base64,${logo.toString('base64')}`),
+      taskLabelSheetSvg(labels, `data:image/png;base64,${logo.toString('base64')}`, {
+        orientationMark,
+      }),
     );
 
     const dir = await fs.mkdtemp(join(tmpdir(), 'task-labels-'));

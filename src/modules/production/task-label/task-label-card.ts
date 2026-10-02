@@ -10,9 +10,8 @@ import * as QRCode from 'qrcode';
 export const LABEL_WIDTH = 70;
 export const LABEL_HEIGHT = 30;
 const CORNER = 3;
-const STRIPE = 1.2; // legacy bottom stripe: gone, but its height still shapes the layout
 const QR_SIZE = 23.5;
-const QR_Y = (LABEL_HEIGHT - STRIPE - QR_SIZE) / 2;
+const QR_Y = (LABEL_HEIGHT - QR_SIZE) / 2; // same margin above and below the QR (and left of it)
 const QR_X = QR_Y;
 
 const INK = '#111111';
@@ -39,7 +38,7 @@ const LOGO_H = (LOGO_W * 379) / 875; // logo.png is 875 × 379
 const LOGO_Y = QR_Y - (2 * LOGO_W) / 875; // first opaque row of the png is the star tip (y = 2px)
 const SITE_BASE = QR_Y + QR_SIZE;
 const TEL_BASE = SITE_BASE - 4.1;
-const TEXT_SIZE = 2.583;
+const TEXT_SIZE = 2.5;
 const ICON_SIZE = TEXT_SIZE * 1.12;
 const TEXT_X = RIGHT_X0 + ICON_SIZE + 0.8;
 

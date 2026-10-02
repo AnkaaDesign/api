@@ -21,3 +21,18 @@ export const taskLabelPrintSchema = z.object({
 });
 
 export type TaskLabelPrintFormData = z.infer<typeof taskLabelPrintSchema>;
+
+export const taskLabelReleaseSchema = z.object({
+  slots: z
+    .array(
+      z
+        .number()
+        .int()
+        .min(0)
+        .max(LABEL_SLOTS.length - 1),
+    )
+    .min(1)
+    .max(LABEL_SLOTS.length),
+});
+
+export type TaskLabelReleaseFormData = z.infer<typeof taskLabelReleaseSchema>;

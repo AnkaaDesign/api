@@ -77,8 +77,33 @@ function caption(slot: LabelSlot, text: string): string {
   return `<text x="${slot.x}" y="${slot.y - CAPTION_BASELINE}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="${CAPTION_SIZE}" fill="#374151">${escapeXml(text)}</text>`;
 }
 
-/** Full A4 sheet as an SVG string (mm units). Empty slots stay blank — the paper may already be used there. */
-export function taskLabelSheetSvg(labels: PlacedLabel[], logoHref: string): string {
+/**
+ * Orientation mark for a fresh sheet, in the left margin beside the first row: the sheet goes back
+ * into the printer with this mark leading (on top), so the next print lands on the free slots.
+ */
+export function orientationMarkSvg(): string {
+  const cx = LABEL_SLOTS[0].x / 2;
+  const top = LABEL_SLOTS[0].y;
+  const f = (v: number) => v.toFixed(2);
+  return (
+    `<path d="M${f(cx)} ${f(top)}L${f(cx + 4)} ${f(top + 7)}H${f(cx - 4)}Z" fill="#111111"/>` +
+    `<g font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" fill="#111111" text-anchor="middle">` +
+    `<text x="${f(cx)}" y="${f(top + 11.5)}" font-size="3.2">TOPO</text>` +
+    `<text x="${f(cx)}" y="${f(top + 15)}" font-size="2.4">entra</text>` +
+    `<text x="${f(cx)}" y="${f(top + 18)}" font-size="2.4">primeiro</text>` +
+    `</g>`
+  );
+}
+
+/**
+ * Full A4 sheet as an SVG string (mm units). Empty slots stay blank — the paper may already be used
+ * there. `orientationMark` is set on the first print of a fresh sheet.
+ */
+export function taskLabelSheetSvg(
+  labels: PlacedLabel[],
+  logoHref: string,
+  options: { orientationMark?: boolean } = {},
+): string {
   const body = labels
     .map(({ slot, taskId, caption: text }) => {
       const s = LABEL_SLOTS[slot];
@@ -90,7 +115,8 @@ export function taskLabelSheetSvg(labels: PlacedLabel[], logoHref: string): stri
       );
     })
     .join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SHEET_WIDTH}mm" height="${SHEET_HEIGHT}mm" viewBox="0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}">${body}</svg>`;
+  const mark = options.orientationMark ? orientationMarkSvg() : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SHEET_WIDTH}mm" height="${SHEET_HEIGHT}mm" viewBox="0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}">${mark}${body}</svg>`;
 }
 
 /** Standalone A4 page around the sheet — exactly one page (the overflow guard stops a rounding spill). */
