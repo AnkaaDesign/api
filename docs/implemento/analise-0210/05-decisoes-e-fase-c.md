@@ -462,3 +462,41 @@ vitest `src/utils` + `src/components/financial` 190/190.
   "sem pedido".
 
 Commits web: `f851f314`, `728452c4`, `e24038fe`.
+
+## Resultado correções da revisão (api/app)
+
+Achados da revisão final de 02/10 que caem na api e no app, cada um com teste.
+
+1. **ALTA — 426 x imagens e sonda.** api `0a7d55b1`: `UPGRADE_PATHS` abre `/ping`, `/files/serve/:id`,
+   `/files/thumbnail/:id` e `/files/:id/download` para qualquer versão (listas e metadados de arquivo continuam
+   barrados). App `32c8c23`: a sonda `/ping` ganha o `AppVersionInterceptor`; `AppNetworkImage` e `UiAvatar`
+   mandam `appIdentityHeaders` (a última identidade lida). Pode-se preencher `MIN_MOBILE_APP_VERSION` sem
+   apagar fotos do app 1.4.4+27.
+2. **App grava só o que mudou no cliente** (`7c08698`): `BudgetCustomerData.toUpdatePatch(original)` contra o
+   `_customerCache`; o cache reflete o gravado.
+3. **CNPJ/CPF só com dígitos** (`c8006267`): `quickCreate` grava dígitos; `findByCnpj`/`findByCpf` acham as
+   duas formas (`documentLookupForms`); migration `20261002130000_documento_do_cliente_so_digitos` (aplicada
+   no `ankaa_implemento`) normaliza o legado e manda colisão para `_Mig0924_Triage`
+   (`CUSTOMER_DOCUMENT_COLLISION`) sem tocar nos dois cadastros. **Medido no clone de 21/09: 0 CNPJ e 0 CPF com
+   máscara (111 CNPJ, 4 CPF), 0 colisões** — produção precisa ser medida no dia (a migration é segura de
+   qualquer forma). Teste `test:customer-document-digits` (roda a migration numa transação desfeita).
+4. **Gravação genérica ≠ porta dos atos** (`050b7837`): `PUT /budgets/:id` com `status` recusa (400 nomeado)
+   `→APPROVED`, `→IN_NEGOTIATION`, `IN_NEGOTIATION→PENDING` e `APPROVED→PENDING`, mandando ao ato; fixar o status
+   atual continua valendo. ⚠️ Web: o faturamento que fixar um status VELHO (diferente do atual) recebe 400 —
+   fixe só o atual, relido antes de salvar. Teste `test:budget-generic-update-acts`.
+5. **502/504 sem host interno** (`4f8be9a0`): `details.upstream` é um rótulo (Elotech, Sicredi, Secullum,
+   Meta, Google/Firebase, BrasilAPI, ReceitaWS, ViaCEP, senão "O serviço externo"); host real só no log.
+   (A chave `details.upstreamHost` saiu.)
+6. **Lote de reprovação do portal** (`2f512dee`): "Nenhuma foi reprovada" (verbo do lote). portal-arte 77/77.
+7. **Cancelado no documento — conferido, sem mudança:** veículo cancelado SEM arte não entra na uniformidade nem
+   ganha legenda; COM arte continua no documento (o assinado não muda) — é o desenho, coberto em
+   `tests/quote-artwork.test.ts:139-153`.
+8. **Nº do pedido do portal nas tarefas do orçamento** (`54e7b577`, pedido da web): `GET /budgets/task/:taskId`
+   traz em cada tarefa `purchaseOrderId` e `purchaseOrder: { number } | null`; `GET /budgets/:id` aceita
+   `include: { tasks: { include: { purchaseOrder: { select: { number: true } } } } }` (só essa forma).
+   A web espelha `orderNumberRequirement`: tem pedido = `customerOrderNumber` ∨ `purchaseOrderId`; valor visível
+   = `customerOrderNumber` senão `purchaseOrder.number`; herança só com UM valor visível; canceladas fora do
+   escopo (salvo se todas).
+
+Verificação: api `typecheck:full` 0 erro em src (121 = base) e os 6 testes tocados verdes; query-contract
+215/215; app `flutter analyze lib test` limpo e `flutter test` 1116/1116.
