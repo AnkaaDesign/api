@@ -443,3 +443,22 @@ As três que o W5 deixou anotadas.
    frente cairia na traseira. O portal mantém a frente como campo próprio e desenha `LADOS_DESENHADOS`.
 
 tsc api e web 0 erro; vitest tocados 111/111.
+
+## Resultado correções da revisão (web)
+
+Achados da revisão final de 02/10 que caem na web, todos com teste; `tsc -p tsconfig.app.json` 0 erro,
+vitest `src/utils` + `src/components/financial` 190/190.
+- **409 do documento**: `existingCustomerIdFromError` lê `originalError.response` (o formato real que o
+  interceptor do axiosClient rejeita) — o combobox agora seleciona o dono do documento. O toast vermelho do
+  interceptor continua aparecendo antes do aviso azul (o interceptor não honra `suppressToast` em erro).
+- **Faturamento veículo a veículo**: o Salvar junta as cópias do cadastro de todas as faturas do mesmo cliente
+  (`mergedCustomerPatch`, a visível primeiro) e avisa quando duas divergem; antes só a 1ª cópia contava.
+- **Status no Faturamento**: fixado só quando o estado RELIDO é `APPROVED`.
+- **Consulta de CNPJ em voo**: descartada se o cliente do pagador ou o documento mudaram (`isCnpjLookupStillCurrent`).
+- **Impressão**: a raiz a 100% vale só em `screen`.
+- **Faixa do nº do pedido**: espelha `orderNumberRequirement` (pedido do portal conta, cancelados fora).
+  ⚠️ O `include` de tarefa da API não aceita `purchaseOrder`, então a herança a partir do nº do pedido do
+  portal só aparece quando a consulta o trouxer; sem ele, o veículo com `purchaseOrderId` já não conta como
+  "sem pedido".
+
+Commits web: `f851f314`, `728452c4`, `e24038fe`.
