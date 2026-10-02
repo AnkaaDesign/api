@@ -244,6 +244,7 @@ export const budgetOrderBySchema = z
         expiresAt: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
+        signatureStatus: orderByDirectionSchema.optional(),
         // A FILA. Coluna gerada pelo banco: o instante de criação em segundos,
         // negado para APPROVED e CANCELLED. Ordenar por `statusOrder` e depois
         // por ela, ambas `asc`, dá pendente mais ANTIGO primeiro e aprovado mais
@@ -266,6 +267,7 @@ export const budgetOrderBySchema = z
           expiresAt: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
+          signatureStatus: orderByDirectionSchema.optional(),
           // Ver o ramo de objeto acima. `subtotal` e `vehicleCount` faltavam
           // SÓ aqui — e a lista manda ORDENAÇÃO EM ARRAY, então era este ramo
           // que os apagava.
@@ -345,6 +347,20 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
             in: z.array(budgetStatusSchema).optional(),
             notIn: z.array(budgetStatusSchema).optional(),
             not: budgetStatusSchema.optional(),
+          }),
+        ])
+        .optional(),
+      // O EIXO DA ASSINATURA (Modelo C): a lista tem a coluna "Assinatura" e o
+      // filtro por ela. O `where` é `.strict()`, então sem a chave aqui o filtro
+      // derrubava a lista inteira com 400.
+      signatureStatus: z
+        .union([
+          budgetSignatureStatusSchema,
+          z.object({
+            equals: budgetSignatureStatusSchema.optional(),
+            in: z.array(budgetSignatureStatusSchema).optional(),
+            notIn: z.array(budgetSignatureStatusSchema).optional(),
+            not: budgetSignatureStatusSchema.optional(),
           }),
         ])
         .optional(),

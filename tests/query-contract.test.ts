@@ -598,6 +598,29 @@ function partePipe(): void {
     `${status} ${mensagem}`,
   );
 
+  // O EIXO DA ASSINATURA na lista de orçamentos (coluna "Assinatura"): o `where`
+  // do orçamento é estrito, e sem a chave o filtro derrubava a lista com 400.
+  const budgetPipe = new ZodQueryValidationPipe(budgetSchemas.budgetGetManySchema, { queryModel: 'Budget' });
+  let assinatura: any = null;
+  let erroAssinatura = '';
+  try {
+    assinatura = budgetPipe.transform(
+      {
+        where: JSON.stringify({ signatureStatus: { in: ['AWAITING_CUSTOMER', 'SIGNED'] } }),
+        orderBy: JSON.stringify([{ signatureStatus: 'asc' }, { queueRank: 'asc' }]),
+      },
+      meta,
+    ) as any;
+  } catch (e) {
+    erroAssinatura = String(((e as any).getResponse?.() as any)?.message ?? e);
+  }
+  check(
+    'Budget: filtro e ordenação por signatureStatus atravessam o pipe',
+    JSON.stringify(assinatura?.where?.signatureStatus?.in) === JSON.stringify(['AWAITING_CUSTOMER', 'SIGNED']) &&
+      assinatura?.orderBy?.[0]?.signatureStatus === 'asc',
+    erroAssinatura || JSON.stringify(assinatura?.where),
+  );
+
   // As traduções que o repositório de tarefa faz antes do Prisma não viram 400
   // (F3/R-B-13): a porta das rotas é a de TASK_QUERY_SHAPE.
   const rota = new ZodQueryValidationPipe(taskSchemas.taskQuerySchema, TASK_QUERY_SHAPE);
