@@ -11,8 +11,9 @@ import { LABEL_HEIGHT, LABEL_WIDTH, taskLabelCardMarkup } from './task-label-car
 //   rows, and borderless mode would rescale the page and break the millimetres the ScanNCut cuts by.
 // - Width has 60 mm to spare, spread EVENLY: the same 10 mm left of the first column, between the
 //   columns and right of the last.
-// The caption (task name + serial/plate) runs down the 10 mm gap LEFT of each card, centred on the
-// card's height, in the light guide grey, and falls away with the scrap after the cut.
+// The caption (task name + serial/plate) runs down the 10 mm gap RIGHT of each card — which, read
+// the way the turned card reads, is ABOVE it — centred on the card's height, in the light guide grey,
+// and falls away with the scrap after the cut. (The last column's caption sits in the right margin.)
 // Each card carries a 0.2 mm black ring just OUTSIDE its edge: the scanner traces the ring, and
 // its inner contour is exactly the card edge, so the cut leaves no black on the card.
 //
@@ -73,7 +74,7 @@ export const LABEL_SLOTS: readonly LabelSlot[] = buildSlots();
 export interface PlacedLabel {
   slot: number;
   taskId: string;
-  /** Printed in the gap left of the card, outside the cut: e.g. "TJB Transporte · 38887". */
+  /** Printed in the gap beside the card (above it, as the card reads), outside the cut: e.g. "TJB Transporte · 38887". */
   caption: string;
 }
 
@@ -94,9 +95,9 @@ function cutRing(slot: LabelSlot): string {
   return `<rect x="${slot.x - o}" y="${slot.y - o}" width="${SLOT_WIDTH + CUT_RING}" height="${SLOT_HEIGHT + CUT_RING}" rx="${3 + o}" fill="none" stroke="#000" stroke-width="${CUT_RING}"/>`;
 }
 
-/** Where a slot's caption is centred: in the middle of the gap left of the card, at mid-height. */
+/** Where a slot's caption is centred: in the middle of the gap right of the card (above it, as the card reads), at mid-height. */
 export function captionAnchor(slot: LabelSlot): { x: number; y: number } {
-  return { x: slot.x - COLUMN_GAP / 2, y: slot.y + SLOT_HEIGHT / 2 };
+  return { x: slot.x + SLOT_WIDTH + COLUMN_GAP / 2, y: slot.y + SLOT_HEIGHT / 2 };
 }
 
 function caption(slot: LabelSlot, text: string): string {
