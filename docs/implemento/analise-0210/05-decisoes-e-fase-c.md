@@ -394,3 +394,30 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   falha de terceiro deveria ser 502/503; (2) o `tsc` acusa 2 erros em arquivos do portal em andamento no W5
   (`solicitacao-schema.ts:692`, `pages/cliente/veiculos/[taskId].tsx:301`) e o teste G18 (`implement-faces.test.ts`)
   falha em `api-client/portal.ts:439` (`PortalImplementFace` escrito à mão, commit `a3a5977e`).
+
+## Resultado W5 (02/10, web `faaf0ba2` · `a3a5977e` · `dde1ab60` · `fa382e46` · `8b83f9ba`)
+
+- **Portal no modelo novo (P23).** Tipo, categoria e medidas saem de `vehicle.implement` (a API parou de mandá-los em
+  `identity`; as telas desenhavam o veículo sem eles, calado). ⛔ A chave do tipo na escrita é `type`, não
+  `implementType`: com o corpo `.strict()`, **toda requisição e toda correção no detalhe do veículo com o tipo
+  escolhido voltavam 400**. Frente (altura × largura) e porta traseira (abertura, varões 2–4, portinholas 0–6) na
+  requisição, na revisão e no detalhe do veículo. Cartão da **arte do implemento** (aprovar; reprovar com motivo ≥ 3)
+  e do **projeto do implemento** (PDF ou foto). No orçamento: faixa **"Para emitir o documento falta…"**
+  (`emission.label`), **"Arte dos veículos"** agrupada por arquivo com a legenda de QUAL veículo leva cada arte e
+  "Aprovar para os N veículos" (lote atômico), **aprovação do valor** por `valueApproval` (quem/como/valor/nota) e o
+  eixo da assinatura na Proposta. Início com **"Artes para aprovar"**. Assinatura pela sessão com o **nº do pedido
+  único (DD12.1)**: `orderNumber` + `orderNumbers[]` no ato, o mesmo `OrderNumberFields` da página pública (sai o
+  `pedidoDeCompra`/403 antigo e o `PedidoCompraField`). `PreAprovacaoActions` → `AprovacaoValorActions`.
+- **Responsivo** (Playwright a 360/390/768/1280 em todas as telas do portal, na assinatura OTP e em `/v`; nenhuma
+  rolagem horizontal, nenhum 4xx/5xx). Barra fixa embaixo no celular (4 seções + "Mais" com tema e Sair); listas em
+  cartões (`PortalMobileList`, com as MESMAS colunas da tabela); diálogos em tela cheia abaixo de `sm`
+  (`PORTAL_SHEET_ON_MOBILE`); alvo de toque de 44 px em `pointer: coarse` (`.portal-toque`, em `PX` para escapar do
+  pxtorem); campo editável abre com UM toque no celular. ⚠️ **Raiz a 100% abaixo de 768 px para o app inteiro**: a
+  90% o `text-base` dava 14,4 px e o iOS dava zoom ao focar qualquer campo. Screenshots em
+  `scratchpad/w5-shots/final/` (`*-390.png`).
+- **Verificação:** `tsc -p tsconfig.app.json` 0 erro (incluídos os 2 que o W4 viu, de um estado intermediário);
+  vitest `src/constants` (G18) + portal 109/109 (7 novos de frente/porta/resumo da arte, 4 novos da requisição).
+- **Para a API:** (1) não há lote de **reprovação** de arte — o "Reprovar" do grupo reprova veículo a veículo e
+  pode parar no meio; um `PUT /cliente/me/artes/reprovar` atômico fecharia isso; (2) o resumo não diz se falta o nº
+  do pedido (só a tela de Assinaturas sabe). **Para o web interno (P21):** a lista de faces do web ainda tem 3
+  (`constants/implement-faces`); o portal lê a frente por fora dela.
