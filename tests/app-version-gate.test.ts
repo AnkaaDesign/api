@@ -91,6 +91,18 @@ function parteA(): void {
   check('/install/apk fica aberto', verdict({ 'User-Agent': DART_UA }, '/install/apk?x=1').allow);
   check('/version fica aberto', verdict({ 'User-Agent': DART_UA }, '/version').allow);
   check('/installments NÃO é /install', !verdict({ 'User-Agent': DART_UA }, '/installments').allow);
+  // A sonda de conectividade e os BYTES de arquivo ficam abertos: o app pede
+  // imagem por fora do Dio (sem X-App-Version), e o `/ping` usa um Dio próprio.
+  check('/ping fica aberto (sonda de rede do app)', verdict({ 'User-Agent': DART_UA }, '/ping').allow);
+  check('/files/serve/:id fica aberto (imagens)', verdict({ 'User-Agent': DART_UA }, '/files/serve/abc-123').allow);
+  check(
+    '/files/thumbnail/:id?size= fica aberto (miniaturas)',
+    verdict({ 'User-Agent': DART_UA }, '/files/thumbnail/abc-123?size=small').allow,
+  );
+  check('/files/:id/download fica aberto', verdict({ 'User-Agent': DART_UA }, '/files/abc-123/download').allow);
+  check('/files (lista) continua barrado', !verdict({ 'User-Agent': DART_UA }, '/files').allow);
+  check('/files/:id (metadados) continua barrado', !verdict({ 'User-Agent': DART_UA }, '/files/abc-123').allow);
+  check('/pingado NÃO é /ping', !verdict({ 'User-Agent': DART_UA }, '/pingado').allow);
 
   check('isFlutterAppRequest: plataforma manda (android)', isFlutterAppRequest({ 'x-app-platform': 'android' }));
   check('isFlutterAppRequest: Dart sem plataforma', isFlutterAppRequest({ 'user-agent': DART_UA }));

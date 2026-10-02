@@ -23,8 +23,9 @@
  *     plugar o cabo. A build nova dele é instalada ANTES do deploy (PLANO §6.7);
  *   · webhooks e scripts (Meta, Sicredi, curl, node): não são o app.
  *
- * O QUE CONTINUA ABERTO para o app barrado: `/install/*` e `/version` — é por
- * eles que a tela "Atualize o app" descobre a versão nova e baixa o instalador.
+ * O QUE CONTINUA ABERTO para o app barrado: `/install/*` e `/version` (é por
+ * eles que a tela "Atualize o app" descobre a versão nova e baixa o
+ * instalador), `/ping` e os bytes de arquivo — ver `UPGRADE_PATHS`.
  *
  * Desligado quando `MIN_MOBILE_APP_VERSION` está vazio: o portão só liga no
  * deploy da release, quando a build nova já está publicada.
@@ -38,8 +39,26 @@ import { uaFamily } from './census-shape';
 /** Os sistemas que o app Flutter manda em `X-App-Platform`. */
 const FLUTTER_PLATFORMS = new Set(['android', 'ios']);
 
-/** Prefixos que ficam abertos para o app barrado: é por eles que ele se atualiza. */
-const UPGRADE_PATHS = [/^\/install(\/|$|\?)/, /^\/version(\/|$|\?)/];
+/**
+ * Caminhos que ficam abertos para QUALQUER versão do app:
+ *   · `/install/*` e `/version` — é por eles que o app barrado se atualiza;
+ *   · `/ping` — a sonda de conectividade (`BaseUrlManager._probe`) usa um Dio
+ *     próprio; barrá-la faria o app concluir "servidor inalcançável" e nunca
+ *     trocar para o endereço da rede local;
+ *   · os BYTES de arquivo (`/files/serve/:id`, `/files/thumbnail/:id`,
+ *     `/files/:id/download`) — imagens são pedidas pelo `CachedNetworkImage`/
+ *     `Image.network`, fora do Dio, e uma recusa ali apaga fotos e avatares
+ *     sem passar pela tela "Atualize o app". Ler bytes não grava nada nem
+ *     depende de contrato: não há o que o portão proteger nessas rotas.
+ */
+const UPGRADE_PATHS = [
+  /^\/install(\/|$|\?)/,
+  /^\/version(\/|$|\?)/,
+  /^\/ping(\/|$|\?)/,
+  /^\/files\/serve\/[^/?]+(\?|$)/,
+  /^\/files\/thumbnail\/[^/?]+(\?|$)/,
+  /^\/files\/[^/?]+\/download(\?|$)/,
+];
 
 /**
  * Uma interface só (e não união discriminada): sem `strictNullChecks` o tsc do
