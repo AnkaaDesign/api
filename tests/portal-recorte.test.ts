@@ -153,11 +153,11 @@ const SECOES_ESPERADAS: Record<RESPONSIBLE_ROLE, QuoteSection[]> = {
   // contrato", mais abaixo.
   [RESPONSIBLE_ROLE.FLEET_MANAGER]: [],
   [RESPONSIBLE_ROLE.DRIVER]: [],
-  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como FLEET_MANAGER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.SHIPPING]: [],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.LOGISTICS]: [],
 };
 
@@ -197,11 +197,11 @@ const SECOES_PORTAL_ESPERADAS: Record<RESPONSIBLE_ROLE, QuoteSection[]> = {
   // Só acompanha: vê de que caminhão se fala e em que pé está. Nada de dinheiro,
   // nada de arte.
   [RESPONSIBLE_ROLE.DRIVER]: ['VEHICLE', 'DELIVERY'],
-  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como FLEET_MANAGER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: ['VEHICLE', 'DELIVERY'],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.SHIPPING]: ['VEHICLE', 'DELIVERY'],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.LOGISTICS]: ['VEHICLE', 'DELIVERY'],
 };
 
@@ -320,15 +320,15 @@ const CAPS_ESPERADAS: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = {
     C.TRACK,
   ],
   [RESPONSIBLE_ROLE.DRIVER]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
-  // Como FLEET_MANAGER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como FLEET_MANAGER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [
     TODOS_ESCREVEM_PEDIDO,
     C.WRITE_VEHICLE_IDENTITY,
     C.TRACK,
   ],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.SHIPPING]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
-  // Como DRIVER (funções da main de 28/09; provisório até o dono confirmar).
+  // Como DRIVER (funções da main de 28/09; decisão do dono em 02/10).
   [RESPONSIBLE_ROLE.LOGISTICS]: [TODOS_ESCREVEM_PEDIDO, C.TRACK],
 };
 

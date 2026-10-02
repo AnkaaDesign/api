@@ -212,7 +212,7 @@ export const ROLE_CAPABILITIES: Record<RESPONSIBLE_ROLE, PORTAL_CAPABILITY[]> = 
   // do veículo; não obrigam a empresa — não pedem orçamento, não aprovam valor
   // nem arte. O PCP confere a identidade do veículo que entra na produção, como
   // o Gestor de Frota; Expedição e Logística acompanham, como o Motorista.
-  // ⚠️ PROVISÓRIO até o dono confirmar (análise 02/10, S2).
+  // Decisão do dono em 02/10/2026.
   [RESPONSIBLE_ROLE.PRODUCTION_PLANNING]: [
     PORTAL_CAPABILITY.WRITE_VEHICLE_IDENTITY,
     PORTAL_CAPABILITY.WRITE_PURCHASE_ORDER,
