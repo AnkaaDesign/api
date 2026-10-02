@@ -252,6 +252,32 @@ export class ImplementLayoutService {
     return { id: layoutId };
   }
 
+  /**
+   * "UMA IMAGEM PARA TODOS" (decisão 5 de 02/10): a mesma arte para todos os
+   * veículos VIVOS do orçamento — o caso da criação com N veículos. Resolve os
+   * implementos pelo orçamento e cai no `bulk` (mesma transação, mesmo
+   * changelog, implemento que já tem o arquivo é contado e pulado). Depois cada
+   * veículo segue sozinho pelas rotas do implemento.
+   */
+  async bulkForBudget(budgetId: string, fileId: string, userId: string) {
+    const budget = await this.prisma.budget.findUnique({
+      where: { id: budgetId },
+      select: {
+        id: true,
+        tasks: { select: { status: true, implement: { select: { id: true } } } },
+      },
+    });
+    if (!budget) throw new NotFoundException('Orçamento não encontrado.');
+    const implementIds = budget.tasks
+      .filter(t => t.status !== 'CANCELLED')
+      .map(t => t.implement?.id)
+      .filter((id): id is string => !!id);
+    if (implementIds.length === 0) {
+      throw new BadRequestException('O orçamento não tem veículo vivo para receber a arte.');
+    }
+    return this.bulk(implementIds, fileId, userId);
+  }
+
   /** A mesma arte (arquivo já no sistema) para N implementos: uma linha RASCUNHO por implemento. */
   async bulk(implementIds: string[], fileId: string, userId: string) {
     const ids = [...new Set(implementIds)];

@@ -24,14 +24,28 @@ export type ImplementLayoutApproveOnBehalfFormData = z.infer<
 export const implementLayoutReproveSchema = z.object({ note: decisionNoteSchema }).strict();
 export type ImplementLayoutReproveFormData = z.infer<typeof implementLayoutReproveSchema>;
 
-/** A mesma arte (um arquivo já no sistema) para N implementos, numa transação. */
+/**
+ * A mesma arte (um arquivo já no sistema) para N implementos, numa transação.
+ *
+ * Os implementos vêm por UM de dois caminhos:
+ *  · `implementIds` — a lista explícita;
+ *  · `budgetId` — todos os veículos vivos do orçamento (decisão 5 de 02/10: na
+ *    criação com N veículos sobe-se UMA imagem que vale para todos; depois cada
+ *    veículo é editado sozinho pelas rotas `/implements/:id/layouts/*`).
+ */
 export const implementLayoutBulkSchema = z
   .object({
     implementIds: z
       .array(z.string().uuid('Implemento inválido'))
       .min(1, 'Escolha ao menos um implemento.')
-      .max(200, 'No máximo 200 implementos por vez.'),
+      .max(200, 'No máximo 200 implementos por vez.')
+      .optional(),
+    budgetId: z.string().uuid('Orçamento inválido').optional(),
     fileId: z.string().uuid('Arquivo inválido'),
   })
-  .strict();
+  .strict()
+  .refine(d => (d.implementIds ? 1 : 0) + (d.budgetId ? 1 : 0) === 1, {
+    message: 'Informe os implementos OU o orçamento (um dos dois).',
+    path: ['implementIds'],
+  });
 export type ImplementLayoutBulkFormData = z.infer<typeof implementLayoutBulkSchema>;

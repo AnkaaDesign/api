@@ -23,6 +23,7 @@
 process.env.TZ = 'America/Sao_Paulo';
 
 import { createHash, randomUUID } from 'crypto';
+import { implementLayoutBulkSchema } from '../src/schemas/implement-layout';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -396,6 +397,45 @@ async function main() {
     const [draft3] = await prisma.layout.findMany({ where: { implementId: imp3 } });
     await art.remove(imp3, draft3.id, admin.id);
     check('rascunho se apaga', (await prisma.layout.count({ where: { implementId: imp3 } })) === 0);
+
+    // ═════════════════════════════════════════════════════════════════════
+    console.log('\nUma imagem para todos: o lote pelo orçamento (decisão 5 de 02/10)');
+    // ═════════════════════════════════════════════════════════════════════
+    {
+      const parse = (body: unknown) => implementLayoutBulkSchema.safeParse(body).success;
+      check('lote por lista OU por orçamento — os dois juntos ⇒ 400', !parse({ implementIds: [imp3], budgetId: randomUUID(), fileId: fileD }));
+      check('lote sem lista e sem orçamento ⇒ 400', !parse({ fileId: fileD }));
+      check('lote pelo orçamento ⇒ válido', parse({ budgetId: randomUUID(), fileId: fileD }));
+      const ta = await mkTask('3a');
+      const tb = await mkTask('3b');
+      const tc = await mkTask('3c');
+      await prisma.task.update({ where: { id: tc.id }, data: { status: 'CANCELLED' } });
+      const lot = await prisma.budget.create({
+        data: {
+          budgetNumber: 910000 + Number(SUFFIX.slice(-4)),
+          subtotal: 100,
+          total: 100,
+          expiresAt: new Date(Date.now() + 30 * 86400000),
+          status: 'PENDING',
+          tasks: { connect: [{ id: ta.id }, { id: tb.id }, { id: tc.id }] },
+        },
+      });
+      quoteIds.push(lot.id);
+      const r = await art.bulkForBudget(lot.id, fileD, admin.id);
+      const has = async (implementId: string) =>
+        (await prisma.layout.count({ where: { implementId, fileId: fileD } })) === 1;
+      check(
+        'a mesma arte nos veículos VIVOS do orçamento, rascunho, numa chamada',
+        r.created === 2 && (await has(ta.implement!.id)) && (await has(tb.implement!.id)),
+        JSON.stringify(r),
+      );
+      check('veículo cancelado não recebe a arte', !(await has(tc.implement!.id)));
+      const again = await art.bulkForBudget(lot.id, fileD, admin.id);
+      check('repetir não duplica (pula quem já tem)', again.created === 0 && again.alreadyThere === 2, JSON.stringify(again));
+      err = await rejects(art.bulkForBudget(randomUUID(), fileD, admin.id), 404);
+      check('orçamento inexistente ⇒ 404', err === null, err ?? '');
+      await prisma.layout.deleteMany({ where: { implementId: { in: [ta.implement!.id, tb.implement!.id] } } });
+    }
 
     // ═════════════════════════════════════════════════════════════════════
     console.log('\nO legado segue livre (primeira O.S. de ARTE antes da R-B)');

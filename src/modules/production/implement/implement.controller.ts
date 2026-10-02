@@ -153,7 +153,11 @@ export class ImplementController {
 
   // ─── A ARTE: rota estática ANTES das rotas com `:id` ─────────────────────
 
-  /** A mesma arte (arquivo já no sistema) para N implementos, numa transação. */
+  /**
+   * A mesma arte (arquivo já no sistema) para N implementos, numa transação —
+   * por lista (`implementIds`) ou para todos os veículos vivos de um orçamento
+   * (`budgetId`).
+   */
   @Post('layouts/bulk')
   @Roles(...IMPLEMENT_ART_EDIT_ROLES)
   @HttpCode(HttpStatus.OK)
@@ -164,7 +168,9 @@ export class ImplementController {
     return {
       success: true,
       message: 'Arte adicionada aos implementos (rascunho)',
-      data: await this.implementLayoutService.bulk(data.implementIds, data.fileId, userId),
+      data: data.budgetId
+        ? await this.implementLayoutService.bulkForBudget(data.budgetId, data.fileId, userId)
+        : await this.implementLayoutService.bulk(data.implementIds ?? [], data.fileId, userId),
     };
   }
 
