@@ -1,4 +1,4 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
@@ -22,9 +22,32 @@ interface ErrorResponse {
   details?: any;
 }
 
+/**
+ * O nome que o CHAMADOR vê para um serviço externo. Só hosts conhecidos ganham
+ * nome; o resto é "O serviço externo" — o host real fica no log.
+ */
+const UPSTREAM_LABELS: ReadonlyArray<[RegExp, string]> = [
+  [/(^|\.)elotech\.com\.br$/i, 'A prefeitura (Elotech, NFS-e)'],
+  [/(^|\.)nfse\.gov\.br$/i, 'O emissor nacional de NFS-e'],
+  [/(^|\.)sicredi\.com\.br$/i, 'O Sicredi'],
+  [/(^|\.)secullum\.com\.br$/i, 'O ponto (Secullum)'],
+  [/(^|\.)(facebook|whatsapp)\.(com|net)$/i, 'O WhatsApp (Meta)'],
+  [/(^|\.)(googleapis|firebaseio)\.com$/i, 'O Google/Firebase'],
+  [/(^|\.)brasilapi\.com\.br$/i, 'A consulta de CNPJ (BrasilAPI)'],
+  [/(^|\.)receitaws\.com\.br$/i, 'A consulta de CNPJ (ReceitaWS)'],
+  [/(^|\.)viacep\.com\.br$/i, 'A consulta de CEP (ViaCEP)'],
+];
+
+export function upstreamLabel(host: string | null | undefined): string {
+  const h = (host ?? '').replace(/:\d+$/, '');
+  for (const [re, label] of UPSTREAM_LABELS) if (re.test(h)) return label;
+  return 'O serviço externo';
+}
+
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly errorLogger = new ErrorLoggerService();
+  private readonly logger = new Logger('UpstreamError');
   private readonly isDevelopment = process.env.NODE_ENV === 'development';
 
   catch(exception: unknown, host: ArgumentsHost) {
@@ -294,25 +317,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (isAxiosError(exception)) {
       // Falha de um serviço EXTERNO (Elotech, Sicredi, Secullum…) que a rota
       // deixou subir sem tratar. Não é erro nosso: 502 quando o outro lado
-      // recusou ou respondeu erro, 504 quando não respondeu a tempo — e o host,
-      // para quem lê a tela saber de quem esperar.
+      // recusou ou respondeu erro, 504 quando não respondeu a tempo. A resposta
+      // diz QUEM por um rótulo (`upstreamLabel`); o host real — que pode ser um
+      // IP da rede interna — vai só para o log, nunca para o chamador (o portal
+      // e as páginas públicas também passam por aqui).
       const timedOut = exception.code === 'ECONNABORTED' || exception.code === 'ETIMEDOUT';
-      let host = 'serviço externo';
+      let host = '';
       try {
-        host = new URL(exception.config?.url ?? '', exception.config?.baseURL).host || host;
+        host = new URL(exception.config?.url ?? '', exception.config?.baseURL).host;
       } catch {
-        // URL relativa sem baseURL: fica o rótulo genérico.
+        // URL relativa sem baseURL: sem host.
       }
+      const label = upstreamLabel(host);
       status = timedOut ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY;
       errorResponse.message = timedOut
-        ? `O serviço externo (${host}) não respondeu a tempo. Tente novamente em instantes.`
-        : `O serviço externo (${host}) está indisponível ou recusou a operação. Tente novamente em instantes.`;
+        ? `${label} não respondeu a tempo. Tente novamente em instantes.`
+        : `${label} está indisponível ou recusou a operação. Tente novamente em instantes.`;
       errorResponse.error = timedOut ? 'UPSTREAM_TIMEOUT' : 'UPSTREAM_ERROR';
       errorResponse.details = {
-        upstreamHost: host,
+        upstream: label,
         upstreamStatus: exception.response?.status ?? null,
         code: exception.code ?? null,
       };
+      this.logger.warn(`[upstream] ${request.method} ${request.url} → ${host || '(sem host)'} ${exception.code ?? ''}`);
     } else if (exception instanceof Error) {
       // Check for specific error types
       if (exception.name === 'TimeoutError' || exception.message.includes('timeout')) {
