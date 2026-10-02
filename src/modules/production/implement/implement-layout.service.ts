@@ -482,6 +482,29 @@ export class ImplementLayoutService {
     layoutIds: readonly string[],
     responsible: { id: string; name: string | null },
   ) {
+    return this.decideManyFromPortal(layoutIds, LAYOUT_STATUS.APPROVED, null, responsible);
+  }
+
+  /**
+   * O lote da REPROVAÇÃO pelo portal — o mesmo tudo-ou-nada da aprovação, com o
+   * motivo obrigatório da reprovação avulsa valendo para todas as artes.
+   */
+  async reproveManyFromPortal(
+    layoutIds: readonly string[],
+    reason: string,
+    responsible: { id: string; name: string | null },
+  ) {
+    const note = (reason ?? '').trim();
+    if (note.length < 3) throw new BadRequestException('Diga o motivo da reprovação.');
+    return this.decideManyFromPortal(layoutIds, LAYOUT_STATUS.REPROVED, note, responsible);
+  }
+
+  private async decideManyFromPortal(
+    layoutIds: readonly string[],
+    to: typeof LAYOUT_STATUS.APPROVED | typeof LAYOUT_STATUS.REPROVED,
+    note: string | null,
+    responsible: { id: string; name: string | null },
+  ) {
     const inputs: DecisionInput[] = [];
     for (const layoutId of layoutIds) {
       const layout = await this.prisma.layout.findUnique({
@@ -493,10 +516,10 @@ export class ImplementLayoutService {
         layoutId,
         implementId: layout.implementId,
         from: [LAYOUT_STATUS.PENDING_APPROVAL],
-        to: LAYOUT_STATUS.APPROVED,
+        to,
         source: LAYOUT_APPROVAL_SOURCE.PORTAL,
         actor: { kind: 'RESPONSIBLE', id: responsible.id, name: responsible.name },
-        note: null,
+        note,
       });
     }
     const prepared = await Promise.all(inputs.map(i => this.prepareDecision(i)));
@@ -505,7 +528,7 @@ export class ImplementLayoutService {
       for (let i = 0; i < inputs.length; i++) out.push(await this.decideInTx(tx, inputs[i], prepared[i]));
       return out;
     });
-    for (const d of decided) await this.afterDecision(d, LAYOUT_STATUS.APPROVED, inputs[0].actor, null);
+    for (const d of decided) await this.afterDecision(d, to, inputs[0].actor, note);
     return decided;
   }
 

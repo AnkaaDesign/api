@@ -7,6 +7,7 @@
 //   PUT /cliente/me/veiculos/:taskId/artes/:layoutId/aprovar            APPROVE_ARTWORK
 //   PUT /cliente/me/veiculos/:taskId/artes/:layoutId/reprovar {motivo}  APPROVE_ARTWORK
 //   PUT /cliente/me/artes/aprovar { layoutIds[] }     (lote)            APPROVE_ARTWORK
+//   PUT /cliente/me/artes/reprovar { layoutIds[], motivo } (lote)     APPROVE_ARTWORK
 //
 // Controller SEPARADO de `portal-read.controller.ts` pelo mesmo motivo de
 // `portal-decision.controller.ts`: este ESCREVE, e a escrita tem portão de
@@ -27,9 +28,11 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query } from '@nestjs
 import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
 import {
   portalArtworkBatchApproveSchema,
+  portalArtworkBatchReproveSchema,
   portalArtworkListQuerySchema,
   portalArtworkReproveSchema,
   type PortalArtworkBatchApproveBody,
+  type PortalArtworkBatchReproveBody,
   type PortalArtworkListQuery,
   type PortalArtworkReproveBody,
 } from '../../../schemas/portal-artwork';
@@ -72,6 +75,20 @@ export class PortalArtworkController {
     body: PortalArtworkBatchApproveBody,
   ) {
     return this.artworks.approveMany(principal, body.layoutIds);
+  }
+
+  /**
+   * `PUT /cliente/me/artes/reprovar` · `{ layoutIds: [...], motivo }` — o lote
+   * "Reprovar para os N veículos", tudo ou nada, motivo obrigatório.
+   */
+  @Put('artes/reprovar')
+  @PortalCapability(PORTAL_CAPABILITY.APPROVE_ARTWORK)
+  async reproveMany(
+    @CurrentResponsible() principal: ResponsiblePrincipal,
+    @Body(new ZodValidationPipe(portalArtworkBatchReproveSchema))
+    body: PortalArtworkBatchReproveBody,
+  ) {
+    return this.artworks.reproveMany(principal, body.layoutIds, body.motivo);
   }
 
   /** `PUT /cliente/me/veiculos/:taskId/artes/:layoutId/aprovar` — sem corpo. */

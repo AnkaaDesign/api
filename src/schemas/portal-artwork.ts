@@ -62,6 +62,31 @@ export const portalArtworkBatchApproveSchema = z
 export type PortalArtworkBatchApproveBody = z.infer<typeof portalArtworkBatchApproveSchema>;
 
 /**
+ * O LOTE DA REPROVAÇÃO — "Reprovar esta arte para os N veículos".
+ *
+ * Mesmas regras do lote de aprovação (teto, ids únicos), mais o motivo
+ * obrigatório da reprovação avulsa: o motivo vale para TODAS as artes do lote,
+ * que são a mesma arte vista em N veículos.
+ */
+export const portalArtworkBatchReproveSchema = z
+  .object({
+    layoutIds: z
+      .array(z.string().uuid('Arte inválida.'), {
+        required_error: 'Informe as artes a reprovar.',
+      })
+      .min(1, 'Informe ao menos uma arte a reprovar.')
+      .max(100, 'Reprove no máximo 100 artes de uma vez.')
+      .refine(ids => new Set(ids).size === ids.length, 'A mesma arte veio duas vezes no lote.'),
+    motivo: z
+      .string({ required_error: PORTAL_ARTWORK_REPROVE_MESSAGE })
+      .trim()
+      .min(3, PORTAL_ARTWORK_REPROVE_MESSAGE)
+      .max(2000, 'O motivo pode ter até 2000 caracteres.'),
+  })
+  .strict();
+export type PortalArtworkBatchReproveBody = z.infer<typeof portalArtworkBatchReproveSchema>;
+
+/**
  * `GET /cliente/me/artes?status=PENDING_APPROVAL[,APPROVED…]&page=&take=`
  *
  * `status` aceita a lista separada por vírgula ou repetida (`?status=A&status=B`),

@@ -144,9 +144,9 @@ async function main() {
     `${[...ARTWORK_APPROVER_ROLES].join(',')} × ${aprovadores.join(',')}`,
   );
   const proto = PortalArtworkController.prototype;
-  const rotasDeDecisao = ['approve', 'reprove', 'approveMany'];
+  const rotasDeDecisao = ['approve', 'reprove', 'approveMany', 'reproveMany'];
   check(
-    'as 3 rotas de decisão exigem APPROVE_ARTWORK',
+    'as 4 rotas de decisão exigem APPROVE_ARTWORK',
     rotasDeDecisao.every(
       h =>
         JSON.stringify(Reflect.getMetadata(PORTAL_CAPABILITY_KEY, proto[h])) ===
@@ -811,6 +811,63 @@ async function main() {
       r.json?.data?.waitingOnMe?.artworks?.total === 0,
       JSON.stringify(r.json?.data?.waitingOnMe?.artworks?.total),
     );
+
+    // ═════════════════════════════════════════════════════════════════════
+    console.log('\nO LOTE DA REPROVAÇÃO — "Reprovar para os 2 veículos", tudo ou nada');
+    // ═════════════════════════════════════════════════════════════════════
+    // Dois veículos novos com a MESMA arte enviada ao cliente — depois das
+    // contagens acima, para não mexer nelas.
+    const t7 = await mkTask('7', [marketing.id]);
+    const t8 = await mkTask('8', [marketing.id]);
+    const [l7] = await art.upload(t7.implement!.id, [upload('W')], admin.id);
+    await art.bulk([t8.implement!.id], l7.fileId, admin.id);
+    const l8 = await prisma.layout.findFirstOrThrow({ where: { implementId: t8.implement!.id } });
+    await art.send(t7.implement!.id, l7.id, admin.id);
+    await art.send(t8.implement!.id, l8.id, admin.id);
+    const loteReprovar = (ids: string[], token: string, motivo?: string) =>
+      http('PUT', '/cliente/me/artes/reprovar', token, {
+        layoutIds: ids,
+        ...(motivo === undefined ? {} : { motivo }),
+      });
+    r = await loteReprovar([l7.id, l8.id], marketing.token);
+    check(
+      'sem motivo ⇒ 400 e NADA gravado',
+      r.status === 400 && (await aindaPendentes([l7.id, l8.id])),
+      `${r.status}`,
+    );
+    r = await loteReprovar([l7.id, l8.id], vendedorPagador.token, 'Não gostei da cor.');
+    check(
+      'quem não vê os veículos ⇒ 404 e NADA gravado (falha fechado)',
+      r.status === 404 && (await aindaPendentes([l7.id, l8.id])),
+      `${r.status}`,
+    );
+    r = await loteReprovar([l7.id, l1.id], marketing.token, 'Não gostei da cor.');
+    check(
+      'uma já decidida no lote ⇒ recusa, e a outra NÃO é reprovada',
+      r.status >= 400 && (await aindaPendentes([l7.id])),
+      `${r.status} ${msg(r)}`,
+    );
+    r = await loteReprovar([l7.id, l8.id], marketing.token, 'A cor do logo não é a nossa.');
+    check(
+      '200, as duas REPROVED com o mesmo motivo, cada uma com a sua decisão do contato',
+      r.status === 200 &&
+        r.json?.data?.reproved === 2 &&
+        (await prisma.layout.count({
+          where: {
+            id: { in: [l7.id, l8.id] },
+            status: 'REPROVED',
+            decisionNote: 'A cor do logo não é a nossa.',
+            decidedByResponsibleId: marketing.id,
+            decidedByUserId: null,
+          },
+        })) === 2 &&
+        (await prisma.layoutDecision.count({
+          where: { layoutId: { in: [l7.id, l8.id] }, toStatus: 'REPROVED', responsibleId: marketing.id },
+        })) === 2,
+      `${r.status} ${msg(r)}`,
+    );
+    r = await loteReprovar([l7.id, l8.id], marketing.token, 'De novo.');
+    check('reprovar o lote de novo ⇒ 409', r.status === 409, `${r.status}`);
   } finally {
     try {
       await prisma.notification.deleteMany({ where: { responsibleId: { in: responsibleIds } } });

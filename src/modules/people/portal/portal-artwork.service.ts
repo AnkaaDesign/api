@@ -212,6 +212,31 @@ export class PortalArtworkService {
     };
   }
 
+  /**
+   * `PUT /cliente/me/artes/reprovar` · `{ layoutIds[], motivo }` — "Reprovar
+   * para os N veículos". O mesmo tudo-ou-nada do lote de aprovação: as N artes
+   * são conferidas antes (escopo e `PENDING_APPROVAL` de cada uma) e gravadas
+   * numa transação só — antes, a tela reprovava veículo a veículo e podia parar
+   * no meio, deixando metade reprovada e metade aguardando.
+   */
+  async reproveMany(principal: ResponsiblePrincipal, layoutIds: string[], motivo: string) {
+    await this.decidable(principal, layoutIds, null);
+    await this.layouts.reproveManyFromPortal(layoutIds, motivo, this.actor(principal));
+    const done = [...layoutIds];
+    this.logger.log(
+      `${done.length} arte(s) reprovada(s) em lote no portal por ${principal.id} (sessão ${principal.sessionId}).`,
+    );
+    const data = await this.reload(principal, done);
+    return {
+      success: true,
+      message:
+        done.length === 1
+          ? 'Arte reprovada. A Ankaa vai preparar uma nova versão.'
+          : `Arte reprovada para os ${done.length} veículos. A Ankaa vai preparar uma nova versão.`,
+      data: { reproved: done.length, artworks: data },
+    };
+  }
+
   // ═════════════════════════════════════════════════════════════════════════
   // APOIO
   // ═════════════════════════════════════════════════════════════════════════
