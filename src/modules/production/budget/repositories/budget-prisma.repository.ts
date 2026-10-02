@@ -510,6 +510,10 @@ export class BudgetPrismaRepository
             // Orçamento abriria o campo em branco e o gravaria por cima do que o
             // cliente já tinha informado.
             customerOrderNumber: true,
+            // E o pedido do PORTAL (DD12.1): a faixa do nº do pedido herda dele
+            // como a cerimônia herda (`orderNumberRequirement`). Só o número.
+            purchaseOrderId: true,
+            purchaseOrder: { select: { number: true } },
             // Categoria e implemento junto: a relação de veículos do Resumo tem
             // as MESMAS colunas do documento e da página pública, e sem estes
             // dois campos ela sairia com duas colunas a menos que o PDF que o

@@ -132,6 +132,13 @@ const quoteTasksIncludeSchema = z
             .optional(),
           airbrushing: z.boolean().optional(),
           quote: z.boolean().optional(),
+          // O pedido de compra do PORTAL — só o número (DD12.1: a herança do nº
+          // do pedido considera o pedido do portal, como a cerimônia). Outra
+          // forma (`true`, outro campo) é recusada pelo zod.
+          purchaseOrder: z
+            .object({ select: z.object({ number: z.literal(true) }).strict() })
+            .strict()
+            .optional(),
         })
         .optional(),
     }),

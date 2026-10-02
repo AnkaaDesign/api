@@ -621,6 +621,40 @@ function partePipe(): void {
     erroAssinatura || JSON.stringify(assinatura?.where),
   );
 
+  // O PEDIDO DO PORTAL nas tarefas do orçamento (DD12.1): a faixa do nº do
+  // pedido herda dele, como a cerimônia. Só o número atravessa; outra forma não.
+  const budgetById = new ZodQueryValidationPipe(budgetSchemas.budgetQuerySchema, { queryModel: 'Budget' });
+  const pedidoInclude = {
+    tasks: { include: { purchaseOrder: { select: { number: true } } } },
+  };
+  let pedido: any = null;
+  let erroPedido = '';
+  try {
+    pedido = budgetById.transform({ include: JSON.stringify(pedidoInclude) }, meta) as any;
+  } catch (e) {
+    erroPedido = String(((e as any).getResponse?.() as any)?.message ?? e);
+  }
+  check(
+    'Budget: tasks.include.purchaseOrder.select.number atravessa o pipe',
+    pedido?.include?.tasks?.include?.purchaseOrder?.select?.number === true,
+    erroPedido || JSON.stringify(pedido?.include),
+  );
+  let pedidoLargo: any = null;
+  let erroLargo = '';
+  try {
+    pedidoLargo = budgetById.transform(
+      { include: JSON.stringify({ tasks: { include: { purchaseOrder: true } } }) },
+      meta,
+    ) as any;
+  } catch (e) {
+    erroLargo = String(((e as any).getResponse?.() as any)?.message ?? e);
+  }
+  check(
+    'Budget: purchaseOrder inteiro (true) NÃO atravessa — só o número',
+    !!erroLargo || pedidoLargo?.include?.tasks?.include?.purchaseOrder === undefined,
+    erroLargo || JSON.stringify(pedidoLargo?.include),
+  );
+
   // As traduções que o repositório de tarefa faz antes do Prisma não viram 400
   // (F3/R-B-13): a porta das rotas é a de TASK_QUERY_SHAPE.
   const rota = new ZodQueryValidationPipe(taskSchemas.taskQuerySchema, TASK_QUERY_SHAPE);
