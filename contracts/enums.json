@@ -1933,26 +1933,32 @@
       "OTHER"
     ],
     "RESPONSIBLE_ROLE": [
-      "COMMERCIAL",
-      "SELLER",
-      "REPRESENTATIVE",
-      "COORDINATOR",
+      "PRODUCTION_PLANNING",
       "PURCHASING",
-      "MARKETING",
+      "COORDINATOR",
+      "REPRESENTATIVE",
+      "SELLER",
       "FINANCIAL",
+      "MARKETING",
+      "SHIPPING",
+      "LOGISTICS",
       "FLEET_MANAGER",
-      "DRIVER"
+      "DRIVER",
+      "COMMERCIAL"
     ],
     "RESPONSIBLE_ROLE_LABELS": [
-      "Comercial",
-      "Vendedor",
-      "Representante",
-      "Coordenador",
+      "PCP",
       "Compras",
-      "Marketing",
+      "Coordenador",
+      "Representante",
+      "Vendedor",
       "Financeiro",
+      "Marketing",
+      "Expedição",
+      "Logística",
       "Gestor de Frota",
-      "Motorista"
+      "Motorista",
+      "Comercial"
     ],
     "RISK_LEVEL": [
       "LOW",
