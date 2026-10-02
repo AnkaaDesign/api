@@ -365,6 +365,8 @@ export class CustomerService {
     include?: CustomerInclude,
     userId?: string,
   ): Promise<CustomerCreateResponse> {
+    // Só dígitos, como no `validateCustomer`: a unicidade compara texto.
+    if ('cnpj' in data) data = { ...data, cnpj: digitsOnly(data.cnpj) as any };
     try {
       const customer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Check if fantasy name already exists

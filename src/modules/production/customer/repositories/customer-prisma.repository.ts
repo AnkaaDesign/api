@@ -21,6 +21,24 @@ import {
   DatabaseQueryOptions,
 } from '../../../../common/types/database.types';
 
+/**
+ * As formas em que um documento pode estar gravado: só dígitos (a forma
+ * canônica desde 02/10, `20261002130000_documento_do_cliente_so_digitos`) e a
+ * máscara do legado — um cadastro que a migration deixou na triagem por
+ * colisão ainda tem de ser ACHADO, senão o duplicado nasceria sem 409.
+ */
+export function documentLookupForms(value: string, kind: 'cnpj' | 'cpf'): string[] {
+  const digits = (value ?? '').replace(/\D/g, '');
+  const forms = new Set<string>([value, digits].filter(Boolean));
+  if (kind === 'cnpj' && digits.length === 14) {
+    forms.add(digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
+  }
+  if (kind === 'cpf' && digits.length === 11) {
+    forms.add(digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'));
+  }
+  return [...forms];
+}
+
 @Injectable()
 export class CustomerPrismaRepository
   extends BaseStringPrismaRepository<
@@ -380,7 +398,7 @@ export class CustomerPrismaRepository
     const transaction = tx || this.prisma;
     try {
       const result = await transaction.customer.findFirst({
-        where: { cpf },
+        where: { cpf: { in: documentLookupForms(cpf, 'cpf') } },
         include: this.getDefaultInclude(),
       });
 
@@ -395,7 +413,7 @@ export class CustomerPrismaRepository
     const transaction = tx || this.prisma;
     try {
       const result = await transaction.customer.findFirst({
-        where: { cnpj },
+        where: { cnpj: { in: documentLookupForms(cnpj, 'cnpj') } },
         include: this.getDefaultInclude(),
       });
 
