@@ -308,9 +308,18 @@ export class BudgetService {
         };
       }
 
+      // Os MESMOS dois eixos do detalhe por id (`findUnique`): a tela do
+      // orçamento é aberta por TAREFA e lia o orçamento duas vezes — por tarefa
+      // para o formulário e por id só para "para emitir falta…" e "quem aprovou
+      // o valor". Uma leitura basta quando esta traz os dois.
+      const [valueApproval, emission] = await Promise.all([
+        currentValueApproval(this.prisma as any, quote.id),
+        emissionOf(this.prisma, quote.id),
+      ]);
+
       return {
         success: true,
-        data: quote,
+        data: { ...quote, valueApproval, emission } as any,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
