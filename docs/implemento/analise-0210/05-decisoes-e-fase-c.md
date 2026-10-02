@@ -306,3 +306,37 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
 - **Verificação:** `flutter analyze lib test` limpo; `flutter test` 1086/1086 (+14 de `budget_wizard_logic_test`).
   Não abri as telas num aparelho.
 - **API:** nada pendente para o M3.
+
+## Resultado W3 (02/10, web `7ca7c764` · `412ba543` · `50d68fb1` · `26e3f1f6` · `c84ad1a8` · `2791d70f`; api `9af8c187` · `279f36a1`)
+
+- **Assistente na ordem do dono (decisão 4)**, nas DUAS telas, com um conjunto de componentes por passo
+  (`components/financial/budget/wizard/`) e a lógica pura em `utils/budget-wizard.ts` (passos, o que cada um exige,
+  campo → passo, salto pelo marcador): ① Tarefa (logomarca, Razão Social, detalhes, prazos da proposta, responsáveis,
+  tintas, arquivos base, layout, aerografia) → ② Veículos (cartão por veículo: série, placa, chassi, pedido,
+  plaqueta, previsão, prazo e o `ImplementArtPanel`; categoria, tipo e medidas no desenho estilizado, comuns) →
+  ③ Serviços → ④ Faturamento → ⑤ Resumo. Seções abertas. Criação linear; detalhe livre, e o Salvar confere os cinco
+  passos e abre o primeiro com problema. Saíram `budget-step-task`/`budget-step-info`; o "Cliente N" virou
+  `budget-payer-card`.
+- **Faturamento (decisão 4 ④):** uma lista de pagadores, `PayerCustomerCombobox` (busca por nome/fantasia/documento,
+  cria; o 409 `existingCustomerId` do A1 seleciona o dono), "+ Adicionar pagador", divisão junto/separado/lotes no topo
+  e "Quem paga cada serviço" com 2+ pagadores. Proteção em `utils/budget-payers.ts` (testada): trocar o cliente refaz a
+  cópia do cadastro e leva os serviços; o cartão avisa "isto altera o cadastro de X: campos"; o Salvar grava só o que
+  mudou (`customerUpdatePatch`); documento só em cadastro sem documento; o mesmo cliente não entra duas vezes.
+- **Layout na criação:** "uma imagem para todos" — depois do `batch-with-quote`, sobe no 1º implemento e o lote atômico
+  `{ budgetId, fileId }` aplica a todos (não bloqueia). **Medidas:** `ImplementMeasuresEditor` + `utils/implement-measures.ts`
+  (extraídos do formulário de tarefa); na criação vão no implemento de cada veículo, no detalhe no da tarefa aberta (a API
+  replica aos irmãos). **Pedido (DD12.1):** `utils/budget-order-number.ts` + faixa no passo Veículos ("Pedido do orçamento:
+  4500 — os 2 sem número herdam"; divergência em âmbar).
+- **Faixa dos 4 eixos na criação: NÃO.** Valor/arte/assinatura/cobrança são estados do orçamento, que ainda não existe;
+  uma faixa de "rascunho" mostraria quatro "pendente" vazios. O Resumo da criação diz que o acompanhamento começa ao salvar.
+- **Itens 6–7 (api + web):** `signatureStatus` no `where` e nos dois ramos do `orderBy` do orçamento (G1 com a prova pelo
+  pipe), filtro "Assinatura" e ordenação na lista da web; `GET /budgets/task/:taskId` traz `emission` e `valueApproval` e o
+  detalhe lê uma vez só. **Item 5:** `baseline-browser-mapping`/`caniuse-lite` em dia no lockfile; o aviso sumiu.
+- **Defeito achado e corrigido:** o `MultiAirbrushingSelector` sujava o formulário ao montar (o veículo abria "alterado" e
+  sair da tela pedia confirmação); escondido enquanto morava em acordeão fechado. O detalhe também só monta os passos
+  depois da primeira carga.
+- **Verificação:** `tsc -p tsconfig.app.json` 0 erro; vitest 184/184 nas pastas tocadas (novos: `budget-wizard`,
+  `budget-payers`, `budget-order-number`, `implement-measures`); api `tsc` limpo e `query-contract` 51/51. **Na tela**
+  (Playwright contra a API local blindada, orçamento nº 993 — requisição do portal, 5 veículos): os cinco passos abrem sem
+  erro de execução nem 4xx/5xx; o formulário abre e continua LIMPO depois de visitar os cinco passos e abrir os cinco
+  cartões; a criação anda em linha e segura no passo Veículos sem identificação. Não salvei um orçamento pela tela.
