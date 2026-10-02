@@ -8,18 +8,25 @@ import { LABEL_HEIGHT, LABEL_WIDTH, taskLabelCardMarkup } from './task-label-car
 // Columns are spread evenly — the same space left of the first card, between them and right of
 // the second (~23.3 mm). Rows are 6 mm apart: each card's caption (task name + serial/plate) is
 // printed in that gap, just above the card, and falls away with the scrap after the cut.
-// Each card carries a 0.5 mm black ring just OUTSIDE its edge: the scanner traces the ring, and
+// Each card carries a 0.2 mm black ring just OUTSIDE its edge: the scanner traces the ring, and
 // its inner contour is exactly the card edge, so the cut leaves no black on the card.
+//
+// FEED ORIENTATION (checked on paper, 02/10/2026): the L3250 takes the sheet standing in the rear
+// tray, printable side facing the front, and prints the page's FIRST raster line on the edge that
+// goes in first — the bottom edge as the sheet stands. Sent as drawn, the sheet came out upside down
+// relative to how it sits in the tray. So the page is turned 180° before printing (`feedRotated`):
+// looking at the sheet in the tray, everything reads upright, the preview matches it, and "▲ TOPO"
+// marks the edge that stays UP in the tray.
 
 export const SHEET_WIDTH = 210;
 export const SHEET_HEIGHT = 297;
 export const ROW_GAP = 6;
-export const CUT_RING = 0.5;
+export const CUT_RING = 0.2;
 const COLUMNS = 2;
 const ROWS = 8;
 
 export const CAPTION_SIZE = 3;
-// above the card edge: descenders clear the cut ring (~0.6 mm) and caps clear the card above (~1.4 mm)
+// above the card edge: descenders clear the cut ring (~0.8 mm) and caps clear the card above (~1.6 mm)
 export const CAPTION_BASELINE = 1.9;
 const CAPTION_MAX_CHARS = 46; // ~65 mm of Manrope 700 at 3 mm (≈1.4 mm a character)
 
@@ -78,36 +85,42 @@ function caption(slot: LabelSlot, text: string): string {
 }
 
 /**
- * Orientation mark for a fresh sheet: a small grey "▲ TOPO" in BOTH top corners, on the leading edge
- * — the L3250 feeds from the rear tray and prints the first raster line on the edge that goes in
- * first, so the top of this page IS the edge that enters the printer. The sheet goes back in with
- * the mark leading, and the next print lands on the free slots. It sits right at the 3 mm printable
- * limit, far from the cards, and in grey, so the ScanNCut's Direct Cut doesn't take it for a shape.
+ * Orientation mark for a fresh sheet: a small grey "▲ TOPO" in BOTH top corners — the edge that stays
+ * UP when the sheet stands in the printer's rear tray (see FEED ORIENTATION above). The sheet goes
+ * back in the same way and the next print lands on the free slots. It sits right at the 3 mm
+ * printable limit, far from the cards, and in grey, so the ScanNCut's Direct Cut doesn't take it
+ * for a shape.
  */
 export function orientationMarkSvg(): string {
   const edge = 3.5; // just inside the printer's 3 mm unprintable border
-  const size = 2.6; // triangle width and the text cap height
+  const fontSize = 3.4;
+  const capHeight = fontSize * 0.71; // Manrope/Helvetica capitals: the triangle is exactly as tall
+  const baseline = edge + capHeight;
+  const width = capHeight * 1.15;
+  const gap = 1;
   const f = (v: number) => v.toFixed(2);
+  // the triangle sits on the text's baseline and reaches its cap height, so "▲ TOPO" reads as one line
   const triangle = (x: number) =>
-    `<path d="M${f(x + size / 2)} ${f(edge)}L${f(x + size)} ${f(edge + size)}H${f(x)}Z" fill="#9CA3AF"/>`;
+    `<path d="M${f(x + width / 2)} ${f(baseline - capHeight)}L${f(x + width)} ${f(baseline)}H${f(x)}Z" fill="#9CA3AF"/>`;
   const label = (x: number, anchor: 'start' | 'end') =>
-    `<text x="${f(x)}" y="${f(edge + size)}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="3.4" fill="#9CA3AF" text-anchor="${anchor}">TOPO</text>`;
+    `<text x="${f(x)}" y="${f(baseline)}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="${fontSize}" fill="#9CA3AF" text-anchor="${anchor}">TOPO</text>`;
   return (
     triangle(edge) +
-    label(edge + size + 1, 'start') +
-    triangle(SHEET_WIDTH - edge - size) +
-    label(SHEET_WIDTH - edge - size - 1, 'end')
+    label(edge + width + gap, 'start') +
+    triangle(SHEET_WIDTH - edge - width) +
+    label(SHEET_WIDTH - edge - width - gap, 'end')
   );
 }
 
 /**
  * Full A4 sheet as an SVG string (mm units). Empty slots stay blank — the paper may already be used
- * there. `orientationMark` is set on the first print of a fresh sheet.
+ * there. `orientationMark` is set on the first print of a fresh sheet; `feedRotated` turns the page
+ * 180° for the printer (see FEED ORIENTATION above) — only the copy sent to the printer uses it.
  */
 export function taskLabelSheetSvg(
   labels: PlacedLabel[],
   logoHref: string,
-  options: { orientationMark?: boolean } = {},
+  options: { orientationMark?: boolean; feedRotated?: boolean } = {},
 ): string {
   const body = labels
     .map(({ slot, taskId, caption: text }) => {
@@ -121,7 +134,10 @@ export function taskLabelSheetSvg(
     })
     .join('');
   const mark = options.orientationMark ? orientationMarkSvg() : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SHEET_WIDTH}mm" height="${SHEET_HEIGHT}mm" viewBox="0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}">${mark}${body}</svg>`;
+  const turn = options.feedRotated
+    ? ` transform="rotate(180 ${SHEET_WIDTH / 2} ${SHEET_HEIGHT / 2})"`
+    : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SHEET_WIDTH}mm" height="${SHEET_HEIGHT}mm" viewBox="0 0 ${SHEET_WIDTH} ${SHEET_HEIGHT}"><g${turn}>${mark}${body}</g></svg>`;
 }
 
 /** Standalone A4 page around the sheet — exactly one page (the overflow guard stops a rounding spill). */

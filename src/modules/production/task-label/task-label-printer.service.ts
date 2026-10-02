@@ -313,6 +313,7 @@ export class TaskLabelPrinterService {
     const html = taskLabelSheetHtml(
       taskLabelSheetSvg(labels, `data:image/png;base64,${logo.toString('base64')}`, {
         orientationMark,
+        feedRotated: true, // the printer prints the page head-first: turn it so it lands as it stands in the tray
       }),
     );
 
