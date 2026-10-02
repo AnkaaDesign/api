@@ -847,6 +847,11 @@ async function main() {
       r.status >= 400 && (await aindaPendentes([l7.id])),
       `${r.status} ${msg(r)}`,
     );
+    check(
+      'e a frase diz "Nenhuma foi reprovada" (não "aprovada": o verbo é do lote)',
+      /Nenhuma foi reprovada/.test(msg(r)) && !/aprovada/.test(msg(r).replace('reprovada', '')),
+      msg(r),
+    );
     r = await loteReprovar([l7.id, l8.id], marketing.token, 'A cor do logo não é a nossa.');
     check(
       '200, as duas REPROVED com o mesmo motivo, cada uma com a sua decisão do contato',

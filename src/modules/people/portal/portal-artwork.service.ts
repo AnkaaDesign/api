@@ -155,7 +155,7 @@ export class PortalArtworkService {
 
   /** `PUT /cliente/me/veiculos/:taskId/artes/:layoutId/aprovar` */
   async approve(principal: ResponsiblePrincipal, taskId: string, layoutId: string) {
-    await this.decidable(principal, [layoutId], taskId);
+    await this.decidable(principal, [layoutId], taskId, 'APPROVE');
     await this.layouts.approveFromPortal(layoutId, this.actor(principal));
     this.logger.log(
       `Arte ${layoutId} (veículo ${taskId}) aprovada no portal por ${principal.id} (sessão ${principal.sessionId}).`,
@@ -166,7 +166,7 @@ export class PortalArtworkService {
 
   /** `PUT /cliente/me/veiculos/:taskId/artes/:layoutId/reprovar` · `{ motivo }` */
   async reprove(principal: ResponsiblePrincipal, taskId: string, layoutId: string, motivo: string) {
-    await this.decidable(principal, [layoutId], taskId);
+    await this.decidable(principal, [layoutId], taskId, 'REPROVE');
     await this.layouts.reproveFromPortal(layoutId, motivo, this.actor(principal));
     this.logger.log(
       `Arte ${layoutId} (veículo ${taskId}) reprovada no portal por ${principal.id} (sessão ${principal.sessionId}).`,
@@ -196,7 +196,7 @@ export class PortalArtworkService {
    * fica aprovada pela metade, e a resposta é a mesma do caso conferido.
    */
   async approveMany(principal: ResponsiblePrincipal, layoutIds: string[]) {
-    await this.decidable(principal, layoutIds, null);
+    await this.decidable(principal, layoutIds, null, 'APPROVE');
     const actor = this.actor(principal);
     await this.layouts.approveManyFromPortal(layoutIds, actor);
     const done = [...layoutIds];
@@ -220,7 +220,7 @@ export class PortalArtworkService {
    * no meio, deixando metade reprovada e metade aguardando.
    */
   async reproveMany(principal: ResponsiblePrincipal, layoutIds: string[], motivo: string) {
-    await this.decidable(principal, layoutIds, null);
+    await this.decidable(principal, layoutIds, null, 'REPROVE');
     await this.layouts.reproveManyFromPortal(layoutIds, motivo, this.actor(principal));
     const done = [...layoutIds];
     this.logger.log(
@@ -259,7 +259,11 @@ export class PortalArtworkService {
     principal: ResponsiblePrincipal,
     layoutIds: string[],
     taskId: string | null,
+    /** O ato do lote — é ele que a frase de "nenhuma foi …" diz que não aconteceu. */
+    act: 'APPROVE' | 'REPROVE',
   ): Promise<void> {
+    const done = act === 'APPROVE' ? 'aprovada' : 'reprovada';
+    const verb = act === 'APPROVE' ? 'aprovar' : 'reprovar';
     const taskWhere: Prisma.TaskWhereInput = taskId
       ? { AND: [{ id: taskId }, this.scope.commercialTaskScopeWhere(principal)] }
       : this.scope.commercialTaskScopeWhere(principal);
@@ -280,14 +284,14 @@ export class PortalArtworkService {
       throw new NotFoundException(
         layoutIds.length === 1
           ? 'Arte não encontrada.'
-          : 'Uma ou mais artes do lote não foram encontradas. Nenhuma foi aprovada.',
+          : `Uma ou mais artes do lote não foram encontradas. Nenhuma foi ${done}.`,
       );
     }
     if (rows.some(r => r.implement?.task?.status === TASK_STATUS.CANCELLED)) {
       throw new ConflictException(
         layoutIds.length === 1
-          ? 'Este veículo foi cancelado: não há arte a aprovar.'
-          : 'Um dos veículos do lote foi cancelado. Nenhuma arte foi aprovada.',
+          ? `Este veículo foi cancelado: não há arte a ${verb}.`
+          : `Um dos veículos do lote foi cancelado. Nenhuma arte foi ${done}.`,
       );
     }
     const decided = rows.find(r => r.status !== LAYOUT_STATUS.PENDING_APPROVAL);
@@ -297,7 +301,7 @@ export class PortalArtworkService {
       throw new ConflictException(
         layoutIds.length === 1
           ? `Esta arte já foi decidida (está "${label}"). Recarregue para ver a decisão.`
-          : `Esta arte já foi decidida (uma do lote está "${label}"). Nenhuma foi aprovada; ` +
+          : `Esta arte já foi decidida (uma do lote está "${label}"). Nenhuma foi ${done}; ` +
               'recarregue para ver.',
       );
     }
