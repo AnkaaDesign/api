@@ -217,3 +217,34 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
    tabela). ⚠️ **Web:** `types/budget-request.ts`, `budget-request-card.tsx`, `orcamento-proposta-card.tsx`,
    `api-client/portal.ts`, `pages/cliente/orcamentos/[id].tsx` leem `preApprovedAt/preApprovedBy` — trocar por
    `valueApprovedAt/valueApprovedBy` (inclusive o include `request.include.valueApprovedBy`). App: nenhum uso.
+
+## Resultado W2 (02/10, web `b39b2209` · `123add4c` · `f750c0c7` · `260b8c86` · `f3b476b9` · `c7e1fed7` · `eab855af` · `3e5d61dc`)
+
+- **Arte do implemento:** `ImplementArtPanel` (`components/production/implement-art/`) — versões e estado, subir,
+  enviar ao cliente, aprovar em nome (nota), reprovar (motivo), versão nova, excluir rascunho; atos valem na hora
+  (`hooks/production/use-implement-art.ts`), botões pelos papéis da API (`utils/permissions/implement-art-permissions.ts`).
+  `VehiclesArtSection`: um painel por veículo + "Uma imagem para todos", que passa por UMA função
+  (`applyArtToImplements`) e usa o lote ATÔMICO `{ budgetId, fileId }` do A1. Substitui os quadros só-leitura do W1 no
+  passo 1 do orçamento, na edição da tarefa e no faturamento; no detalhe da tarefa, quem age sobre a arte vê o painel.
+- **Projeto do implemento × da tarefa:** `ImplementProjectFilesPanel` (PUT `/implements/:id/project-files`, na hora) na
+  edição da tarefa; o detalhe mostra "Projeto da tarefa" e "Projeto do implemento" separados.
+- **Faixa dos 4 eixos** (`BudgetAxesStrip`, lógica pura em `utils/budget-axes.ts` com teste): estado + próximo passo de
+  valor · arte k de N · assinatura (9 estados do contrato) · cobrança, e "Para emitir, falta…" de `emission.blockers`
+  com o botão que leva ao lugar de resolver. Montada no topo do DETALHE do orçamento (o detalhe passou a ler também
+  `GET /budgets/:id`, que traz `emission`/`valueApproval`); na criação não há orçamento ainda — o W3 decide.
+- **Cartão "Aprovação do valor"** (quem/quando/origem/nota; "Reprovar valor" saiu dos atos e mora aqui) e
+  **"Assinado fora do sistema"** (prova + nota + data, só quando a API aceita).
+- **Faturamento:** linha "Assinatura do orçamento" no resumo (não no cabeçalho — decisão de 17/09) e "Aprovar
+  Faturamento" desabilitado com o motivo enquanto o orçamento não é cobrável; o handler recusa pela porta de trás.
+- **Atenção `task-quote.ready-to-emit`** (gêmeo de `budget.ready-to-emit`, só COMERCIAL), com a flag derivada
+  `allVehiclesArtApproved` (indefinida sem a arte na consulta → cala). A lista de orçamentos traz `implement.layouts`.
+- **A1 consumido:** `valueApproved*`; "ainda não faturado" = PENDING ∨ IN_NEGOTIATION ∨ APPROVED;
+  `isQuoteStatusChangeAllowed` espelhado (Financeiro não vê enviar/retirar/aprovar/reprovar valor).
+- **Listas:** coluna "Assinatura" nos orçamentos (em "Colunas", como toda coluna nova); "ARTES" e a exportação de
+  tarefas contam a arte APROVADA do implemento.
+- **Verificação:** `tsc -p tsconfig.app.json` 0 erro; vitest 416/416 nas pastas tocadas (novos: `budget-axes`,
+  `quote-permissions`, `quote-attention`, regra pronto-para-emitir). Não abri as telas no navegador.
+- **Pendências da API (não editei):** `budgetWhereSchema` é strict e não aceita `signatureStatus` (sem filtro/ordem
+  por assinatura na lista); `GET /budgets/task/:taskId` não traz `emission`/`valueApproval` (o detalhe faz a segunda
+  leitura por id). **Aviso conhecido:** `baseline-browser-mapping` velho (transitivo de `@vitejs/plugin-react` →
+  `browserslist`, também na main) — pede atualizar o lockfile.
