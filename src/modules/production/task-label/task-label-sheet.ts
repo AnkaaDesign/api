@@ -4,10 +4,15 @@ import { LABEL_HEIGHT, LABEL_WIDTH, taskLabelCardMarkup } from './task-label-car
 // Mirror of web/src/components/production/task/labels/task-label-sheet.ts — the web draws the
 // preview, this side draws what actually reaches the printer. Keep both layouts identical.
 //
-// Layout: 2 columns × 8 rows of lying cards = 16 slots (8 trucks, one label per side).
-// Columns are spread evenly — the same space left of the first card, between them and right of
-// the second (~23.3 mm). Rows are 6 mm apart: each card's caption (task name + serial/plate) is
-// printed in that gap, just above the card, and falls away with the scrap after the cut.
+// Layout: 5 columns × 4 rows of STANDING cards = 20 slots (10 trucks, one label per side). Each
+// 70 × 30 card is turned 90° clockwise (QR on top), so a slot is 30 wide × 70 tall.
+// - Height is the tight side: 4 × 70 + 3 × 3.5 = 290.5 mm leaves 3.25 mm top and bottom — just
+//   inside the printer's 3 mm unprintable border. A bigger row gap would clip the first and last
+//   rows, and borderless mode would rescale the page and break the millimetres the ScanNCut cuts by.
+// - Width has 60 mm to spare, spread EVENLY: the same 10 mm left of the first column, between the
+//   columns and right of the last.
+// The caption (task name + serial/plate) runs down the 10 mm gap LEFT of each card, centred on the
+// card's height, in the light guide grey, and falls away with the scrap after the cut.
 // Each card carries a 0.2 mm black ring just OUTSIDE its edge: the scanner traces the ring, and
 // its inner contour is exactly the card edge, so the cut leaves no black on the card.
 //
@@ -20,20 +25,22 @@ import { LABEL_HEIGHT, LABEL_WIDTH, taskLabelCardMarkup } from './task-label-car
 
 export const SHEET_WIDTH = 210;
 export const SHEET_HEIGHT = 297;
-export const ROW_GAP = 6;
+/** Between rows: as much as the page height allows. */
+export const ROW_GAP = 3.5;
 export const CUT_RING = 0.2;
-const COLUMNS = 2;
-const ROWS = 8;
+const COLUMNS = 5;
+const ROWS = 4;
+/** A standing card: the 70 × 30 card turned 90° clockwise. */
+export const SLOT_WIDTH = LABEL_HEIGHT;
+export const SLOT_HEIGHT = LABEL_WIDTH;
 
 // Ink for everything printed OUTSIDE the cards (caption + "TOPO"): a light grey that still reads up
 // close but stays under the contrast the ScanNCut's Direct Cut traces, so it never offers them as
 // shapes to cut — only the black rings are picked up.
 export const GUIDE_INK = '#BCC1C8';
 
-export const CAPTION_SIZE = 3;
-// above the card edge: descenders clear the cut ring (~0.8 mm) and caps clear the card above (~1.6 mm)
-export const CAPTION_BASELINE = 1.9;
-const CAPTION_MAX_CHARS = 46; // ~65 mm of Manrope 700 at 3 mm (≈1.4 mm a character)
+export const CAPTION_SIZE = 2.6;
+const CAPTION_MAX_CHARS = 48; // ~58 mm of Manrope 700 at 2.6 mm (≈1.2 mm a character): within the card height
 
 export interface LabelSlot {
   index: number;
@@ -42,17 +49,19 @@ export interface LabelSlot {
   y: number;
 }
 
+/** Between columns, and the side margins: the spare width split evenly. */
+export const COLUMN_GAP = (SHEET_WIDTH - COLUMNS * SLOT_WIDTH) / (COLUMNS + 1);
+
 function buildSlots(): LabelSlot[] {
-  const columnGap = (SHEET_WIDTH - COLUMNS * LABEL_WIDTH) / (COLUMNS + 1);
-  const blockH = ROWS * LABEL_HEIGHT + (ROWS - 1) * ROW_GAP;
+  const blockH = ROWS * SLOT_HEIGHT + (ROWS - 1) * ROW_GAP;
   const top = (SHEET_HEIGHT - blockH) / 2;
   const slots: LabelSlot[] = [];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLUMNS; c++) {
       slots.push({
         index: slots.length,
-        x: columnGap + c * (LABEL_WIDTH + columnGap),
-        y: top + r * (LABEL_HEIGHT + ROW_GAP),
+        x: COLUMN_GAP + c * (SLOT_WIDTH + COLUMN_GAP),
+        y: top + r * (SLOT_HEIGHT + ROW_GAP),
       });
     }
   }
@@ -64,7 +73,7 @@ export const LABEL_SLOTS: readonly LabelSlot[] = buildSlots();
 export interface PlacedLabel {
   slot: number;
   taskId: string;
-  /** Printed above the card, outside the cut: e.g. "TJB Transporte · 38887". */
+  /** Printed in the gap left of the card, outside the cut: e.g. "TJB Transporte · 38887". */
   caption: string;
 }
 
@@ -82,39 +91,37 @@ const escapeXml = (s: string) =>
 
 function cutRing(slot: LabelSlot): string {
   const o = CUT_RING / 2;
-  return `<rect x="${slot.x - o}" y="${slot.y - o}" width="${LABEL_WIDTH + CUT_RING}" height="${LABEL_HEIGHT + CUT_RING}" rx="${3 + o}" fill="none" stroke="#000" stroke-width="${CUT_RING}"/>`;
+  return `<rect x="${slot.x - o}" y="${slot.y - o}" width="${SLOT_WIDTH + CUT_RING}" height="${SLOT_HEIGHT + CUT_RING}" rx="${3 + o}" fill="none" stroke="#000" stroke-width="${CUT_RING}"/>`;
+}
+
+/** Where a slot's caption is centred: in the middle of the gap left of the card, at mid-height. */
+export function captionAnchor(slot: LabelSlot): { x: number; y: number } {
+  return { x: slot.x - COLUMN_GAP / 2, y: slot.y + SLOT_HEIGHT / 2 };
 }
 
 function caption(slot: LabelSlot, text: string): string {
-  return `<text x="${slot.x}" y="${slot.y - CAPTION_BASELINE}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="${CAPTION_SIZE}" fill="${GUIDE_INK}">${escapeXml(text)}</text>`;
+  const { x, y } = captionAnchor(slot);
+  // runs DOWN the gap (the turned card's own reading direction), centred both ways
+  return `<text transform="translate(${x} ${y}) rotate(90)" text-anchor="middle" dominant-baseline="central" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="${CAPTION_SIZE}" fill="${GUIDE_INK}">${escapeXml(text)}</text>`;
 }
 
 /**
- * Orientation mark for a fresh sheet: a small grey "▲ TOPO" in BOTH top corners — the edge that stays
- * UP when the sheet stands in the printer's rear tray (see FEED ORIENTATION above). The sheet goes
- * back in the same way and the next print lands on the free slots. It sits right at the 3 mm
- * printable limit, far from the cards, and in grey, so the ScanNCut's Direct Cut doesn't take it
- * for a shape.
+ * Orientation mark for a fresh sheet: a small grey arrowhead in each side margin, level with the
+ * first row and pointing UP — the edge that stays up when the sheet stands in the printer's rear
+ * tray (see FEED ORIENTATION above). The sheet goes back in the same way and the next print lands on
+ * the free slots. Grey, small and clear of the captions (those sit at mid-height), so the ScanNCut's
+ * Direct Cut doesn't take it for a shape.
  */
 export function orientationMarkSvg(): string {
-  const edge = 3.5; // just inside the printer's 3 mm unprintable border
-  const fontSize = 3.4;
-  const capHeight = fontSize * 0.71; // Manrope/Helvetica capitals: the triangle is exactly as tall
-  const baseline = edge + capHeight;
-  const width = capHeight * 1.15;
-  const gap = 1;
+  const first = LABEL_SLOTS[0];
+  const margin = first.x; // the side margin's width
+  // small enough to stay inside the 3 mm unprintable border of a 10 mm margin
+  const width = 3;
+  const height = 2.6;
   const f = (v: number) => v.toFixed(2);
-  // the triangle sits on the text's baseline and reaches its cap height, so "▲ TOPO" reads as one line
-  const triangle = (x: number) =>
-    `<path d="M${f(x + width / 2)} ${f(baseline - capHeight)}L${f(x + width)} ${f(baseline)}H${f(x)}Z" fill="${GUIDE_INK}"/>`;
-  const label = (x: number, anchor: 'start' | 'end') =>
-    `<text x="${f(x)}" y="${f(baseline)}" font-family="Manrope, Helvetica, Arial, sans-serif" font-weight="700" font-size="${fontSize}" fill="${GUIDE_INK}" text-anchor="${anchor}">TOPO</text>`;
-  return (
-    triangle(edge) +
-    label(edge + width + gap, 'start') +
-    triangle(SHEET_WIDTH - edge - width) +
-    label(SHEET_WIDTH - edge - width - gap, 'end')
-  );
+  const arrow = (cx: number) =>
+    `<path d="M${f(cx)} ${f(first.y)}L${f(cx + width / 2)} ${f(first.y + height)}H${f(cx - width / 2)}Z" fill="${GUIDE_INK}"/>`;
+  return arrow(margin / 2) + arrow(SHEET_WIDTH - margin / 2);
 }
 
 /**
@@ -132,7 +139,8 @@ export function taskLabelSheetSvg(
       const s = LABEL_SLOTS[slot];
       if (!s) return '';
       return (
-        `<g transform="translate(${s.x} ${s.y})">${taskLabelCardMarkup(taskId, logoHref, `s${s.index}`)}</g>` +
+        // turned 90° clockwise about the slot: the card's top edge becomes its right side, QR on top
+        `<g transform="translate(${s.x + SLOT_WIDTH} ${s.y}) rotate(90)">${taskLabelCardMarkup(taskId, logoHref, `s${s.index}`)}</g>` +
         cutRing(s) +
         caption(s, text)
       );
