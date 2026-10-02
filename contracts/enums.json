@@ -2520,7 +2520,13 @@
     "comFoto": [
       "back",
       "front"
-    ]
+    ],
+    "rotulos": {
+      "left": "Motorista",
+      "right": "Sapo",
+      "back": "Traseira",
+      "front": "Frente"
+    }
   },
   "notificacoes": [
     "airbrushing.assigned",

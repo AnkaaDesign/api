@@ -43,7 +43,7 @@
  *   npx tsx scripts/export-contracts.ts --dart <file>   também gera o .dart do app
  *                                                       (../mobile_migration/lib/generated/contracts/labels.dart)
  */
-import { IMPLEMENT_FACES, IMPLEMENT_FACES_WITH_PHOTO } from '../src/constants/implement-faces';
+import { IMPLEMENT_FACES, IMPLEMENT_FACE_LABELS, IMPLEMENT_FACES_WITH_PHOTO } from '../src/constants/implement-faces';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { dirname, join, relative } from 'path';
 import * as ts from 'typescript';
@@ -365,6 +365,8 @@ export function buildContracts(): Contracts {
       faces: {
         todas: [...IMPLEMENT_FACES],
         comFoto: [...IMPLEMENT_FACES_WITH_PHOTO],
+        // O nome de cada face para gente — o app deixa de escrevê-los à mão.
+        rotulos: { ...IMPLEMENT_FACE_LABELS },
       },
       notificacoes: collectNotificationKeys(),
       multipart: collectMultipart(),
@@ -506,13 +508,22 @@ export function buildDart(contracts: Contracts): string {
       'As arestas que só um EVENTO move (portal, auto-revert, coleta): nunca viram botão.',
     ),
   );
-  const faces = (contracts.enums as any).faces as { todas: string[]; comFoto: string[] };
+  const faces = (contracts.enums as any).faces as {
+    todas: string[];
+    comFoto: string[];
+    rotulos: StringMap;
+  };
   chunks.push(
     dartList('kContractImplementFaces', faces.todas, 'As faces do implemento, na ordem da API (`IMPLEMENT_FACES`).'),
     dartList(
       'kContractImplementFacesWithPhoto',
       faces.comFoto,
       'As faces que têm foto de referência (`IMPLEMENT_FACES_WITH_PHOTO`).',
+    ),
+    dartMap(
+      'kContractImplementFaceLabels',
+      faces.rotulos,
+      'O nome de cada face do implemento para gente (`IMPLEMENT_FACE_LABELS`): left = Motorista, right = Sapo.',
     ),
   );
   return `${chunks.join('\n')}`;
