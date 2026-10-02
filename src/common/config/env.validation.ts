@@ -126,6 +126,14 @@ export const envSchema = z.object({
     .transform(val => val !== 'false')
     .default('true'),
 
+  // P31: a versão mínima do app Flutter (`1.4.4+27`). Abaixo dela — ou app sem
+  // cabeçalho de versão — a API responde 426 (`app-version-gate.ts`). Vazia =
+  // portão desligado; o web e o AnkaaAero nunca são barrados.
+  MIN_MOBILE_APP_VERSION: z
+    .string()
+    .regex(/^(\d{1,4}\.\d{1,4}\.\d{1,4}(\+\d{1,9})?)?$/, 'MIN_MOBILE_APP_VERSION: use o formato 1.4.4+27')
+    .optional(),
+
   // WhatsApp Cloud API — canal OFICIAL, voltado ao cliente (orçamento + OTP).
   // Todas opcionais: sem elas a API sobe normalmente, o Baileys segue atendendo
   // o tráfego interno e o webhook recusa o que não puder verificar.

@@ -5,7 +5,7 @@
  * `package_info`) e `X-App-Patch` (o patch do Shorebird). O censo (G3) põe
  * `req.appVersion` no pedido para que quem conta por versão (o contador do
  * alias do P11a, o G1) não tenha de refazer o parse. Aqui NÃO há portão: o 426
- * para versão velha ou pedido sem cabeçalho é do P31 (R-C).
+ * para versão velha ou pedido sem cabeçalho mora em `app-version-gate.ts` (P31).
  *
  * O cabeçalho vem do cliente: qualquer coisa fora do formato vira `null`, nunca
  * exceção, e nada do texto cru sai daqui sem ter passado pelo formato.

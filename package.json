@@ -103,6 +103,7 @@
     "test:portal-recorte": "tsx -r tsconfig-paths/register tests/portal-recorte.test.ts",
     "test:portal-cliente:db": "tsx -r tsconfig-paths/register tests/portal-cliente-auth-db.test.ts",
     "test:census": "ts-node -r tsconfig-paths/register --transpile-only tests/census-shape.test.ts",
+    "test:app-version-gate": "ts-node -r tsconfig-paths/register --transpile-only tests/app-version-gate.test.ts",
     "test:rehearse-r-b": "tsx tests/implement-migration-rehearsal.test.ts",
     "db:rehearse-r-b": "tsx scripts/rehearse-implement-migration.ts",
     "db:rehearse-r-b:deriva": "tsx scripts/rehearse-implement-migration.ts --deriva",

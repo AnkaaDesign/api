@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { MoneyRedactionInterceptor } from './modules/common/interceptors/money-redaction.interceptor';
 import { CensusMiddleware } from './modules/common/census/census.middleware';
+import { AppVersionGateMiddleware } from './modules/common/census/app-version-gate.middleware';
 import { getRedisConfig } from './common/config/redis.config';
 import { SchedulerGuardService } from './common/services/scheduler-guard.service';
 
@@ -244,5 +245,7 @@ export class AppModule implements NestModule {
     consumer.apply(SecurityValidationMiddleware, SecurityMiddleware).forRoutes('*');
     // G3/G13: censo das formas de consulta e corpo por rota + `req.appVersion` (só leitura)
     consumer.apply(CensusMiddleware).forRoutes('*');
+    // P31: 426 ao app Flutter abaixo de MIN_MOBILE_APP_VERSION (depois do censo, que lê a versão)
+    consumer.apply(AppVersionGateMiddleware).forRoutes('*');
   }
 }
