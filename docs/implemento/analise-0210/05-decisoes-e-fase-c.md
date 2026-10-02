@@ -248,3 +248,33 @@ Commits: `9d83b470` · `49e3cc3b` · `6e325936` · `696d99d7` · `d8ebb9e1` · `
   por assinatura na lista); `GET /budgets/task/:taskId` não traz `emission`/`valueApproval` (o detalhe faz a segunda
   leitura por id). **Aviso conhecido:** `baseline-browser-mapping` velho (transitivo de `@vitejs/plugin-react` →
   `browserslist`, também na main) — pede atualizar o lockfile.
+
+## Resultado M2 (02/10, app `ed0e09c` · `6d216a0` · `818bb26` · `ca25dca` · `1d4dc53` · `0caf3bd`)
+
+- **Arte do implemento com os atos** (`implement_art.dart` + `ImplementArtEntry`): versões com estado e decisão,
+  subir (câmera/galeria/arquivo, multipart direto na rota — `pickLocalFiles`, sem `/files/upload`), enviar ao
+  cliente, aprovar em nome (nota ≥ 3), reprovar (motivo), nova versão, apagar rascunho e **"Aplicar a todos os
+  veículos"** pela rota atômica do A1 (`POST /implements/layouts/bulk {budgetId, fileId}`). Os atos possíveis vêm
+  de `implementArtActs` (espelho dos portões do `ImplementLayoutService`; papéis `canEditImplementArt` =
+  ADMIN/COMERCIAL/DESIGNER, `canDecideImplementArt` = ADMIN/COMERCIAL). Ligado no detalhe do orçamento (recarrega
+  pelo `DetailReloadScope`), no formulário do orçamento (busca as versões ao trocar de veículo), na edição da
+  tarefa e na ação "Arte do Implemento" da agenda (que passa a aparecer para o designer). Os stubs "pelo sistema
+  web por enquanto" saíram.
+- **Quatro eixos** (`budget_axes.dart`, lógica pura): Valor · Arte k de N (veículos vivos com arte APROVADA) ·
+  Assinatura (`signatureStatus`) · Cobrança (`billable`, "Aprovada em parte" no faturamento fatiado), cada um com
+  a próxima ação; `billingLockReason`; `emissionBlockerAction`. `Budget` lê `emission` e `valueApproval`; o veículo
+  traz `implementId`.
+- **Detalhe do orçamento/faturamento** (mesmo config, layout `financial-quote-detail-v3`): seção ANDAMENTO no
+  topo (faixa 2×2 + "Para emitir falta"), APROVAÇÃO DO VALOR (como/por quem/quando/nota + "Reprovar valor"), e no
+  menu ⋮ "Enviar ao cliente", "Retirar do cliente" e "Assinado fora do sistema" (anexo + nota,
+  `POST /budgets/:id/offline-signature`, visível com valor aprovado e assinatura em NOT_ISSUED/REFUSED/EXPIRED/
+  INVALIDATED). Enviar/retirar/reprovar o valor só ADMIN/COMERCIAL (o "Reprovar Valor" usava a audiência do
+  faturamento e dava 403 ao financeiro).
+- **Cobrança travada com o motivo:** a folha de "Aprovar Faturamento" mostra "Cobrança bloqueada" e desabilita o
+  botão enquanto não `billable` (antes: 400 depois de confirmar).
+- **Atenção:** `_notYetInvoiced` = PENDING ∨ IN_NEGOTIATION ∨ APPROVED (espelho do A1).
+- **AnkaaAero:** nada a mudar (não lê orçamento, atenção nem os atos novos).
+- **Verificação:** `flutter analyze lib test` sem problemas; `flutter test` 1072/1072 (+27: atos da arte, eixos,
+  trava da assinatura, atenção). Não abri as telas num aparelho.
+- **Fica para o M3:** o assistente Tarefa → Veículos → Serviços → Faturamento → Resumo (com a faixa dos eixos no
+  topo e a imagem comum na criação: subir no 1º veículo e `bulk {budgetId, fileId}` depois de o orçamento existir).
