@@ -34,6 +34,7 @@
 //    opcional e fica órfão na reversão.
 
 import { emissionOf } from '../../../utils/emission-gate';
+import { orderNumberRequirement } from '@modules/common/signature/order-number-gate';
 import { portalEmissionOf } from './portal-emission';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, EnvelopeStatus, EnvelopeSignerStatus } from '@prisma/client';
@@ -1013,7 +1014,28 @@ export class PortalReadService {
           envelope: {
             select: {
               deadlineAt: true,
-              quote: { select: { id: true, budgetNumber: true, status: true } },
+              quote: {
+                select: {
+                  id: true,
+                  budgetNumber: true,
+                  status: true,
+                  // O que o predicado do nº do pedido (DD12.1) lê — para o
+                  // Início dizer "falta o nº do pedido" ANTES de o contato de
+                  // Compras abrir a assinatura e levar o 400.
+                  tasks: {
+                    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                    select: {
+                      id: true,
+                      name: true,
+                      status: true,
+                      customerOrderNumber: true,
+                      purchaseOrderId: true,
+                      purchaseOrder: { select: { number: true } },
+                      implement: { select: { serialNumber: true, plate: true } },
+                    },
+                  },
+                },
+              },
             },
           },
           document: { select: { sections: true } },
@@ -1168,6 +1190,19 @@ export class PortalReadService {
                     status: s.envelope.quote.status,
                   }
                 : null,
+              /**
+               * O nº do pedido de compra (DD12.1), pelo MESMO predicado da
+               * cerimônia: `null` quando este contato não está sujeito (não tem
+               * Compras); `required` quando a assinatura vai pedir o número;
+               * `inherited` quando o pedido único já registrado vale para todos.
+               */
+              orderNumber: (() => {
+                const req = orderNumberRequirement({
+                  roles: principal.roles,
+                  tasks: s.envelope?.quote?.tasks ?? [],
+                });
+                return req ? { required: req.required, inherited: req.inherited } : null;
+              })(),
             })),
           },
           inProduction: {

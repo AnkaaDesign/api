@@ -878,5 +878,39 @@ console.log('\nA PARCELA PAGA PELA METADE EXISTE');
   );
 }
 
+// =============================================================================
+console.log('\nO INÍCIO DO PORTAL avisa o nº do pedido antes da assinatura (DD12.1)');
+// =============================================================================
+{
+  const readSrc = readFileSync(
+    join(__dirname, '..', 'src', 'modules/people/portal/portal-read.service.ts'),
+    'utf8',
+  );
+  const resumo = readSrc.slice(readSrc.indexOf('async resumo('));
+  check(
+    'o resumo pergunta ao MESMO predicado da cerimônia, com as funções do contato',
+    /orderNumber:\s*\(\(\) => \{\s*const req = orderNumberRequirement\(\{\s*roles: principal\.roles/.test(resumo),
+  );
+  check(
+    'e lê das tarefas o que o predicado precisa (número, pedido do portal e o nº dele)',
+    /customerOrderNumber: true,\s*purchaseOrderId: true,\s*purchaseOrder: \{ select: \{ number: true \} \}/.test(resumo),
+  );
+  const noResumo = (roles: ResponsibleRole[], tasks: any[]) => {
+    const req = orderNumberRequirement({ roles, tasks });
+    return req ? { required: req.required, inherited: req.inherited } : null;
+  };
+  const r1 = noResumo([ResponsibleRole.PURCHASING], [{ id: 'a', customerOrderNumber: null }]);
+  check('Compras, sem número ⇒ o Início diz "falta o nº do pedido"', r1?.required === true && r1.inherited === null);
+  const r2 = noResumo(
+    [ResponsibleRole.PURCHASING],
+    [
+      { id: 'a', customerOrderNumber: '4500' },
+      { id: 'b', customerOrderNumber: null },
+    ],
+  );
+  check('Compras, com o pedido único registrado ⇒ não falta, e diz qual herda', r2?.required === false && r2.inherited === '4500');
+  check('quem não tem Compras ⇒ nada a avisar (null)', noResumo([ResponsibleRole.MARKETING], [{ id: 'a' }]) === null);
+}
+
 console.log(`\n${failures === 0 ? '✓ TODAS as verificações passaram' : `✗ ${failures} falha(s)`}\n`);
 process.exit(failures === 0 ? 0 : 1);
