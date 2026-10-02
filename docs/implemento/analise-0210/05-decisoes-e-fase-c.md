@@ -139,3 +139,41 @@ respondia 200.
 - **api:** `NOT_YET_INVOICED` (`attention.service.ts:305`) ainda conta `status SIGNED` e não conta `IN_NEGOTIATION`;
   o app espelha o servidor e por isso não mudou `_notYetInvoiced` — corrigir os dois juntos;
 - `GET /budgets/task/:taskId` (include fixo) não traz `implement.layouts`; quem precisar da arte usa `GET /budgets/:id`.
+
+## Resultado W1 (02/10, web `ade4dcaa` · `4e793e49` · `4df8901e`)
+
+- **Contrato como fonte:** `src/constants/budget-contract.ts` lê `orcamento.{status,ordem,transicoesManuais}` e os
+  rótulos de valor, assinatura, origem da aprovação e arte; `budget-contract.test.ts` amarra os enums do web
+  (`TASK_QUOTE_STATUS`, `BUDGET_SIGNATURE_STATUS`, `BUDGET_VALUE_APPROVAL_SOURCE`, `LAYOUT_STATUS`,
+  `LAYOUT_APPROVAL_SOURCE`, `RESPONSIBLE_ROLE`) ao contrato. Sai `PRE_APPROVED`; um mapa de rótulo só (o badge
+  pega o do contrato: `PENDING` = "Pendente", `IN_NEGOTIATION` = "Aguardando aprovação do cliente").
+- **Lista de orçamentos** volta (o `where.status.in` vem do contrato, sem o legado `SIGNED`).
+- **Orçamento × Faturamento:** `isBudgetBillingPhase(quote)` = `billable` (valor aprovado E assinatura
+  resolvida); o aprovado sem assinatura abre o Orçamento.
+- **Atos do valor** (`BudgetStateActions` e o seletor do detalhe da tarefa): enviar/retirar do cliente, aprovar
+  em nome com nota, reprovar com motivo — chamam a rota na hora; com alterações não salvas ficam desabilitados.
+  O combobox de status e o diálogo "Rejeitar" do Resumo saíram; o Salvar não replica mais saltos de status
+  (só EXPIRED→PENDING ao renovar a validade). api-client/hooks de todos os atos, de `/implements/:id/layouts/*`,
+  `bulk` e `project-files`; tipos de `emission`, `valueApproval`, `billable`, `signatureStatus`, `artwork`.
+- **Arte fora da tarefa/orçamento/faturamento:** saem `layoutIds/layoutStatuses/newLayoutStatuses`,
+  `layoutFileIds`, includes `layouts`/`layoutFiles`, `where.layouts`, contexto `tasksLayouts`/`quote-layouts`,
+  `set-quote-layout-modal`, `ApprovedLayoutPicker`, `BudgetVehicleLayoutsField`, `quote-layout-coverage`. No lugar:
+  `ImplementArtSummary` (só leitura, POR VEÍCULO, com o estado e a aprovada) no passo 1 do orçamento, na edição
+  da tarefa e no faturamento; o painel/garagem/detalhe leem `implement.layouts`. **Na criação de tarefa e na
+  "Arte em lote"** a imagem entra como RASCUNHO no implemento de cada tarefa (`attachArtToTasks`: sobe no
+  primeiro e replica com `/implements/layouts/bulk`) — a "uma imagem para todos" da decisão 5, pelo cliente.
+  "Adicionar Layout Aprovados" virou "Adicionar arte" (o mesmo modal). Cópia de tarefa: `implementLayouts`,
+  `rearDoor`, `implementProjectFiles`. Páginas públicas leem `artwork`, com a legenda do veículo quando difere.
+- **Portal:** "Aprovar o valor" no lugar de "Pré-aprovar"; `waiting-on` pelo modelo novo (a vez em `APPROVED`
+  depende da assinatura); `PORTAL_ROLE_*` tipados com as 12 funções, `APPROVE_ARTWORK`, e `WRITE_PURCHASE_ORDER`
+  implicando só `VEHICLE` (espelho da API).
+- **D-34:** web não manda mais `status` na criação de orçamento (o servidor ignorava com WARN).
+- **Verificação:** `tsc -p tsconfig.app.json` 0 erro (4076 arquivos); vitest das pastas tocadas 269/269.
+- **Fica para W2/W3:** o `ImplementArtPanel` (enviar, aprovar em nome, reprovar, versão nova, por veículo, com
+  "aplicar a todos"); o cartão "Aprovação do valor" e o checklist `emission.blockers`; "Assinado fora do
+  sistema" (api-client pronto); a trava de "Aprovar cobrança" com o motivo; coluna/filtro de assinatura nas
+  listas; a coluna "ARTES" da lista de tarefas e a exportação leem `implement.layouts`, que essas listas ainda não
+  incluem (mostram 0); o portal P23 (arte por veículo, `orderNumbers[]`, `implement` × `identity`).
+- **Achados na API (não corrigidos):** `PUT /budgets/:id/status` com `IN_NEGOTIATION` passa pela checagem de
+  papel genérica (o FINANCEIRO pode), enquanto `PUT …/send-to-customer` é só ADMIN/COMERCIAL — duas portas, dois
+  papéis; `BudgetRequest.preApproved*` e `budget.portal_pre_approved` mantêm o nome antigo.
