@@ -28,7 +28,17 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { DossierAssemblerService } from '../dossier/dossier-assembler.service';
 import { join, resolve as resolvePath, dirname, basename } from 'path';
-import { EnvelopeSignerStatus, EnvelopeStatus, Prisma, SignatureAuthMethod } from '@prisma/client';
+import {
+  EnvelopeKind,
+  EnvelopeSignerStatus,
+  EnvelopeStatus,
+  Prisma,
+  SignatureAuthMethod,
+} from '@prisma/client';
+import {
+  isQuoteMoneyLocked,
+  QUOTE_MONEY_LOCK_INCLUDE,
+} from '@modules/production/budget/budget.guards';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { COMPANY, receivingAccountFor } from '@/config/company';
 import {
@@ -378,6 +388,104 @@ function dedupeResponsibles<T extends { id: string }>(rows: readonly T[]): T[] {
   return out;
 }
 
+/**
+ * Os contatos que falam por UM cliente num documento recortado para ele.
+ *
+ * Com dois ou mais pagadores, só quem tem `Responsible.companyId` igual ao
+ * cliente do recorte — e a lista pode sair VAZIA: sem contato daquele cliente,
+ * o documento fica sem linha de assinatura do cliente e sem "À fulano", em vez
+ * de pôr o contato do outro pagador assinando pela empresa errada.
+ *
+ * Com um pagador só (ou sem recorte), a lista entra inteira: o recorte é o
+ * próprio documento, e contato sem empresa cadastrada continua assinando.
+ */
+function contactsForSegment<T extends { companyId?: string | null }>(
+  contacts: readonly T[],
+  configs: readonly { customerId: string }[],
+  segment: { customerId: string } | null,
+): T[] {
+  const payers = new Set(configs.map(c => c.customerId));
+  if (!segment || payers.size < 2) return [...contacts];
+  return contacts.filter(r => r.companyId === segment.customerId);
+}
+
+/**
+ * A EMPRESA QUE O DOCUMENTO IDENTIFICA: a quem a proposta é feita, cujo
+ * cadastro sai no quadro do tomador e cujo nome vai sob a linha do cliente.
+ *
+ * 1. No recorte, o cliente do recorte.
+ * 2. Com UM pagador só, esse pagador — não o cliente da tarefa. É o mesmo
+ *    critério do dinheiro (`config = segment ?? firstConfig`), e divergir dele
+ *    fazia o documento misturar duas empresas: no nº 0486 (tarefa da ELM,
+ *    faturada inteira para a Ibiporã) o PDF sem `?cliente=` saía "proposta para
+ *    a ELM", com o CNPJ da ELM no quadro do tomador e o total e a cláusula da
+ *    Ibiporã logo abaixo — enquanto a página pública, que já usava o pagador,
+ *    mostrava a Ibiporã.
+ * 3. Com vários pagadores e sem recorte (o documento completo), o cliente da
+ *    tarefa, como sempre.
+ */
+function documentCustomerOf<C>(
+  quote: { customerConfigs: readonly { customerId: string; customer?: C | null }[]; tasks?: any },
+  segment: { customer?: C | null } | null,
+): C | null {
+  if (segment) return segment.customer ?? null;
+  const payers = new Set(quote.customerConfigs.map(c => c.customerId));
+  if (payers.size === 1) return quote.customerConfigs[0]?.customer ?? null;
+  return ((primaryTask(quote as any) as any)?.customer as C | undefined) ?? null;
+}
+
+/**
+ * Em que pé está cada responsável da tarefa em relação ao contrato assinado.
+ *
+ *  · SIGNED     — assinou, na coleta principal ou numa complementar CONCLUÍDA;
+ *  · PENDING    — está numa complementar em andamento;
+ *  · MISSING    — entrou na tarefa depois, assina por padrão e ninguém pediu a
+ *                 assinatura dele ainda (ou pediram e não veio) — é a pendência;
+ *  · EXCLUDED   — o operador o tirou da coleta principal de propósito;
+ *  · NOT_SIGNER — pela função cadastrada não assina (gestor de frota, motorista).
+ *
+ * Só MISSING conta como falta. EXCLUDED e NOT_SIGNER podem ser incluídos numa
+ * complementar se o operador quiser, mas não são cobrados de ninguém.
+ */
+export type SupplementResponsibleState =
+  | 'SIGNED'
+  | 'PENDING'
+  | 'MISSING'
+  | 'EXCLUDED'
+  | 'NOT_SIGNER';
+
+export interface SupplementCoverage {
+  /** A coleta principal CONCLUÍDA que as complementares completam. */
+  baseEnvelopeId: string;
+  baseVersion: number;
+  responsibles: Array<{
+    id: string;
+    name: string;
+    roles: string[];
+    rolesLabel: string;
+    phoneMasked: string;
+    emailMasked: string;
+    hasPhone: boolean;
+    hasEmail: boolean;
+    state: SupplementResponsibleState;
+    /** Onde a assinatura dele está, quando está. */
+    signedIn: 'PRIMARY' | 'SUPPLEMENT' | null;
+    signedAt: Date | null;
+    /** O recorte padrão das funções dele — o que o modal pré-marca. */
+    sections: QuoteSection[];
+    sectionsLabel: string;
+    /** A última complementar que pediu a assinatura dele e terminou sem ela. */
+    lastAttempt: { status: EnvelopeStatus; at: Date } | null;
+  }>;
+  /** Quantos estão em MISSING — a pendência que a tela anuncia. */
+  missing: number;
+  /** Quem ainda PODE ser incluído (MISSING, EXCLUDED ou NOT_SIGNER). */
+  candidates: number;
+  /** Impedem a emissão — a tela mostra o motivo no lugar do botão. */
+  blockers: string[];
+  canIssue: boolean;
+}
+
 @Injectable()
 export class SignatureEnvelopeService {
   private readonly logger = new Logger(SignatureEnvelopeService.name);
@@ -498,7 +606,14 @@ export class SignatureEnvelopeService {
    *
    * NÃO CONGELA NADA e não tem efeito colateral: é um GET.
    */
-  async getDeliveryPreflight(quoteId: string): Promise<{
+  async getDeliveryPreflight(
+    quoteId: string,
+    /**
+     * Preflight da COLETA COMPLEMENTAR: os destinatários são só quem ainda pode
+     * ser incluído no contrato, e os bloqueios são os de `getSupplementCoverage`.
+     */
+    supplement = false,
+  ): Promise<{
     mode: SignatureDeliveryMode;
     channels: SignatureDeliveryChannel[];
     defaultChannel: SignatureDeliveryChannel;
@@ -521,6 +636,10 @@ export class SignatureEnvelopeService {
        */
       sections: QuoteSection[];
       sectionsLabel: string;
+      /** Só na complementar: em que pé ele está em relação ao contrato. */
+      state?: SupplementResponsibleState;
+      /** Só na complementar: a última tentativa que terminou sem a assinatura dele. */
+      lastAttempt?: { status: EnvelopeStatus; at: Date } | null;
     }>;
     /** Todas as seções recortáveis, com rótulo — a tela desenha as caixas daqui. */
     sectionCatalog: Array<{ key: QuoteSection; label: string; description: string }>;
@@ -623,13 +742,33 @@ export class SignatureEnvelopeService {
     // Os MESMOS dois estados que `createEnvelope` recusa — viva e concluída. Um
     // preflight que diz "pode" e um POST que responde 400 é pior que não ter
     // preflight nenhum.
-    const previousLive = await this.prisma.signatureEnvelope.findFirst({
-      where: {
-        quoteId,
-        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-      },
-      select: { id: true, status: true, version: true },
-    });
+    // Na complementar, quem responde "pode emitir?" é a cobertura — a mesma
+    // função que a emissão consulta. Os bloqueios da emissão normal abaixo
+    // (coleta concluída, pagadores, layout, validade) já estão nela.
+    const coverage = supplement ? await this.getSupplementCoverage(quoteId) : null;
+    if (supplement) {
+      if (!coverage) {
+        blockers.push('Este orçamento não tem coleta de assinaturas concluída para complementar.');
+      } else {
+        blockers.push(...coverage.blockers);
+        if (coverage.candidates === 0) {
+          blockers.push('Todos os responsáveis da tarefa já assinaram ou estão sendo chamados.');
+        }
+      }
+    }
+    // Os bloqueios abaixo são da emissão NORMAL; a complementar já os tem na
+    // cobertura, e repeti-los só duplicaria a frase na tela.
+    const normal = !supplement;
+
+    const previousLive = supplement
+      ? null
+      : await this.prisma.signatureEnvelope.findFirst({
+          where: {
+            quoteId,
+            status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+          },
+          select: { id: true, status: true, version: true },
+        });
     if (previousLive?.status === EnvelopeStatus.RUNNING) {
       blockers.push(
         'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
@@ -638,7 +777,8 @@ export class SignatureEnvelopeService {
     } else if (previousLive) {
       blockers.push(
         `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${previousLive.version}). ` +
-          'Reemitir criaria um segundo contrato selado para o mesmo número.',
+          'Reemitir criaria um segundo contrato selado para o mesmo número. Para colher a ' +
+          'assinatura de um responsável acrescentado depois, use a assinatura complementar.',
       );
     }
 
@@ -647,7 +787,7 @@ export class SignatureEnvelopeService {
     const pagadoresPreflight = new Set(
       (quote.customerConfigs ?? []).map((c: { customerId: string }) => c.customerId),
     );
-    if (pagadoresPreflight.size > 1) {
+    if (normal && pagadoresPreflight.size > 1) {
       blockers.push(
         `Este orçamento fatura para ${pagadoresPreflight.size} clientes, e a cerimônia de ` +
           'assinatura ainda não recorta o documento por pagador — todos assinariam um instrumento ' +
@@ -657,7 +797,9 @@ export class SignatureEnvelopeService {
     }
 
     const layoutGatePreflight = layoutGateFailure(quote as any);
-    if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
+    if (!normal) {
+      // (já na cobertura)
+    } else if (layoutGatePreflight?.scope === 'PER_VEHICLE') {
       blockers.push(
         `${layoutGatePreflight.message} Atribua um layout a cada veículo antes de enviar o ` +
           'orçamento para assinatura — sem ele o orçamento não poderá ser aprovado depois que o ' +
@@ -670,7 +812,7 @@ export class SignatureEnvelopeService {
       );
     }
 
-    if (quote.expiresAt.getTime() <= Date.now()) {
+    if (normal && quote.expiresAt.getTime() <= Date.now()) {
       blockers.push(
         `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. ` +
           'Atualize a data de validade antes de enviar para assinatura.',
@@ -690,7 +832,7 @@ export class SignatureEnvelopeService {
         seenResponsibleIds.add(r.id);
         return true;
       });
-    if (responsibles.length === 0) {
+    if (normal && responsibles.length === 0) {
       blockers.push(
         'Selecione ao menos um responsável na tarefa antes de enviar o orçamento para assinatura.',
       );
@@ -727,28 +869,39 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const recipients = responsibles.map(r => {
-      const sections = sectionsForRoles(r.roles);
-      return {
-        id: r.id,
-        name: r.name,
-        phoneMasked: maskPhone(r.phone),
-        emailMasked: maskEmail(r.email),
-        hasPhone: onlyDigits(r.phone).length >= 10,
-        hasEmail: !!r.email?.includes('@'),
-        roles: (r.roles ?? []) as string[],
-        rolesLabel: formatResponsibleRoles(r.roles),
-        sections,
-        sectionsLabel: sections.length ? describeSections(sections) : 'Não assina',
-      };
-    });
+    // Na complementar, só quem ainda pode entrar no contrato — quem já assinou
+    // ou está sendo chamado fica fora do modal.
+    const coverageById = new Map((coverage?.responsibles ?? []).map(r => [r.id, r] as const));
+    const recipients = responsibles
+      .filter(r => {
+        if (normal) return true;
+        const st = coverageById.get(r.id)?.state;
+        return st === 'MISSING' || st === 'EXCLUDED' || st === 'NOT_SIGNER';
+      })
+      .map(r => {
+        const sections = sectionsForRoles(r.roles);
+        const cov = coverageById.get(r.id);
+        return {
+          ...(normal ? {} : { state: cov?.state, lastAttempt: cov?.lastAttempt ?? null }),
+          id: r.id,
+          name: r.name,
+          phoneMasked: maskPhone(r.phone),
+          emailMasked: maskEmail(r.email),
+          hasPhone: onlyDigits(r.phone).length >= 10,
+          hasEmail: !!r.email?.includes('@'),
+          roles: (r.roles ?? []) as string[],
+          rolesLabel: formatResponsibleRoles(r.roles),
+          sections,
+          sectionsLabel: sections.length ? describeSections(sections) : 'Não assina',
+        };
+      });
 
     // Ninguém com campo de interesse = ninguém a quem enviar. É bloqueio, e não
     // aviso, porque a emissão recusaria de qualquer forma — e descobrir isso
     // depois de confirmar é o defeito que este preflight inteiro existe para
     // corrigir. O operador ainda pode desfazer marcando seções à mão, e a
     // mensagem diz isso.
-    if (responsibles.length > 0 && recipients.every(r => r.sections.length === 0)) {
+    if (normal && responsibles.length > 0 && recipients.every(r => r.sections.length === 0)) {
       blockers.push(
         'Nenhum responsável desta tarefa assina por padrão (gestor de frota e motorista não ' +
           'assinam). Marque as seções que cada um deve receber, ou acrescente um responsável ' +
@@ -930,6 +1083,328 @@ export class SignatureEnvelopeService {
    * Recusa-se a congelar quando o render sinaliza transbordo da página de
    * assinaturas: seria assinar um documento com uma linha de assinatura clipada.
    */
+  /**
+   * A COLETA COMPLEMENTAR FOI EMITIDA — o orçamento volta para pendente.
+   *
+   * Pedido do dono (02/10/2026): se falta assinatura, o orçamento está
+   * pendente, mesmo que o contrato principal esteja assinado e selado. O
+   * ouvinte é do orçamento, como os demais ganchos: só ele sabe o que "voltar
+   * para pendente" implica (Em Negociação, trilha, notificações).
+   */
+  private onSupplementIssued:
+    | ((
+        quoteId: string,
+        envelopeId: string,
+        signerNames: string[],
+        actorUserId: string,
+      ) => Promise<void>)
+    | null = null;
+  setOnSupplementIssued(
+    cb: (
+      quoteId: string,
+      envelopeId: string,
+      signerNames: string[],
+      actorUserId: string,
+    ) => Promise<void>,
+  ): void {
+    this.onSupplementIssued = cb;
+  }
+
+  /**
+   * A COLETA COMPLEMENTAR TERMINOU SEM A ASSINATURA — venceu ou foi recusada.
+   *
+   * ⚠️ NÃO é o mesmo que a coleta principal vencer ou ser recusada. Lá a
+   * PROPOSTA morreu e o valor volta para reanálise (`EXPIRED`), com aviso ao
+   * cliente. Aqui o contrato segue assinado por quem assinou; o que falta é uma
+   * assinatura a mais. O orçamento continua PENDENTE (decisão do dono) e quem
+   * precisa saber é o comercial — o cliente não recebe aviso de "proposta
+   * vencida" sobre um contrato que está em vigor.
+   */
+  private onSupplementEnded:
+    | ((
+        quoteId: string,
+        envelopeId: string,
+        outcome: 'EXPIRED' | 'REFUSED',
+        reason: string | null,
+      ) => Promise<void>)
+    | null = null;
+  setOnSupplementEnded(
+    cb: (
+      quoteId: string,
+      envelopeId: string,
+      outcome: 'EXPIRED' | 'REFUSED',
+      reason: string | null,
+    ) => Promise<void>,
+  ): void {
+    this.onSupplementEnded = cb;
+  }
+
+  /** Dispara o gancho de fim da complementar. Público para a varredura de vencimento. */
+  async notifySupplementEnded(
+    quoteId: string,
+    envelopeId: string,
+    outcome: 'EXPIRED' | 'REFUSED',
+    reason: string | null = null,
+  ): Promise<void> {
+    if (!this.onSupplementEnded) {
+      this.logger.warn(
+        `Coleta complementar ${envelopeId} terminou (${outcome}), mas nenhum ouvinte está registrado.`,
+      );
+      return;
+    }
+    await this.onSupplementEnded(quoteId, envelopeId, outcome, reason);
+  }
+
+  // ===========================================================================
+  // COLETA COMPLEMENTAR
+  // ===========================================================================
+
+  /**
+   * QUEM DA TAREFA JÁ ASSINOU O CONTRATO, E QUEM FALTA.
+   *
+   * O caso que abriu isto (02/10/2026): o orçamento tem um responsável, ele
+   * assina, a Ankaa contra-assina, o orçamento é aprovado. Depois entra um
+   * segundo responsável na tarefa. Acrescentar não derruba nada — e não deve
+   * (ver `tolerateSettledRoster`) —, mas também não havia como ele assinar:
+   * `createEnvelope` recusa emitir sobre coleta concluída. A tela mostrava um
+   * documento e dois responsáveis, sem dizer que faltava alguém.
+   *
+   * É a resposta ÚNICA para três lugares: o painel (a faixa "falta a
+   * assinatura de fulano"), o modal de envio (quem pode ser incluído) e a
+   * emissão (que recusa o que esta resposta recusa). Duas regras para a mesma
+   * pergunta divergiriam na primeira edição.
+   *
+   * Nulo quando não há coleta principal CONCLUÍDA — aí não há o que complementar
+   * e o caminho é a emissão normal.
+   */
+  async getSupplementCoverage(quoteId: string): Promise<SupplementCoverage | null> {
+    const base = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId, kind: EnvelopeKind.PRIMARY, status: EnvelopeStatus.COMPLETED },
+      orderBy: { version: 'desc' },
+      select: {
+        id: true,
+        version: true,
+        finalFileId: true,
+        quoteSnapshot: true,
+        quoteTermsSha256: true,
+        signers: { select: { responsibleId: true, status: true, signedAt: true } },
+      },
+    });
+    if (!base) return null;
+
+    const [supplements, created, runningCount, quote] = await Promise.all([
+      this.prisma.signatureEnvelope.findMany({
+        where: { baseEnvelopeId: base.id },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          status: true,
+          updatedAt: true,
+          signers: { select: { responsibleId: true, status: true, signedAt: true } },
+        },
+      }),
+      this.prisma.signatureAuditEvent.findFirst({
+        where: { envelopeId: base.id, eventType: 'ENVELOPE_CREATED' },
+        select: { payload: true },
+      }),
+      this.prisma.signatureEnvelope.count({
+        where: { quoteId, status: EnvelopeStatus.RUNNING },
+      }),
+      this.prisma.budget.findUnique({
+        where: { id: quoteId },
+        select: {
+          status: true,
+          expiresAt: true,
+          layoutScope: true,
+          layoutFiles: { select: { id: true, quoteLayoutTasks: { select: { taskId: true } } } },
+          customerConfigs: { select: { customerId: true } },
+          ...QUOTE_MONEY_LOCK_INCLUDE,
+          tasks: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: {
+              id: true,
+              createdAt: true,
+              serialNumber: true,
+              truck: { select: { plate: true } },
+              responsibles: {
+                select: { id: true, name: true, phone: true, email: true, roles: true },
+                orderBy: { createdAt: 'asc' },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    if (!quote) return null;
+
+    // Quem o operador TIROU da coleta principal. As coletas emitidas a partir
+    // de 02/10/2026 gravam o id; as anteriores só o nome — daí o recuo.
+    const excluded = ((created?.payload as { excluded?: unknown } | null)?.excluded ??
+      []) as Array<{
+      responsibleId?: string;
+      name?: string;
+    }>;
+    const excludedIds = new Set(excluded.map(e => e?.responsibleId).filter(Boolean) as string[]);
+    const excludedNames = new Set(
+      excluded
+        .filter(e => !e?.responsibleId && e?.name)
+        .map(e => String(e.name).trim().toLowerCase()),
+    );
+
+    const responsibles = dedupeResponsibles(
+      sortQuoteTasks(quote.tasks ?? []).flatMap(t => t.responsibles ?? []),
+    );
+
+    const rows = responsibles.map(r => {
+      const sections = sectionsForRoles(r.roles);
+      const inBase = base.signers.find(
+        s => s.responsibleId === r.id && s.status === EnvelopeSignerStatus.SIGNED,
+      );
+      // Só complementar CONCLUÍDA conta como assinatura: numa que morreu antes
+      // do selo (vencida, recusada por outro, cancelada) o ato dele não virou
+      // documento selado nenhum.
+      const inSupplement = supplements
+        .filter(sp => sp.status === EnvelopeStatus.COMPLETED)
+        .flatMap(sp => sp.signers)
+        .find(s => s.responsibleId === r.id && s.status === EnvelopeSignerStatus.SIGNED);
+      const running = supplements.find(
+        sp =>
+          sp.status === EnvelopeStatus.RUNNING && sp.signers.some(s => s.responsibleId === r.id),
+      );
+      const lastFailed = [...supplements]
+        .reverse()
+        .find(
+          sp =>
+            sp.status !== EnvelopeStatus.RUNNING &&
+            sp.status !== EnvelopeStatus.COMPLETED &&
+            sp.signers.some(s => s.responsibleId === r.id),
+        );
+
+      let state: SupplementResponsibleState;
+      if (inBase || inSupplement) state = 'SIGNED';
+      else if (running) state = 'PENDING';
+      else if (excludedIds.has(r.id) || excludedNames.has(r.name.trim().toLowerCase()))
+        state = 'EXCLUDED';
+      else if (sections.length === 0) state = 'NOT_SIGNER';
+      else state = 'MISSING';
+
+      return {
+        id: r.id,
+        name: r.name,
+        roles: (r.roles ?? []) as string[],
+        rolesLabel: formatResponsibleRoles(r.roles),
+        phoneMasked: maskPhone(r.phone),
+        emailMasked: maskEmail(r.email),
+        hasPhone: onlyDigits(r.phone).length >= 10,
+        hasEmail: !!r.email?.includes('@'),
+        state,
+        signedIn: inBase ? ('PRIMARY' as const) : inSupplement ? ('SUPPLEMENT' as const) : null,
+        signedAt: inBase?.signedAt ?? inSupplement?.signedAt ?? null,
+        sections,
+        sectionsLabel: sections.length ? describeSections(sections) : 'Não assina',
+        lastAttempt: lastFailed ? { status: lastFailed.status, at: lastFailed.updatedAt } : null,
+      };
+    });
+
+    const missing = rows.filter(r => r.state === 'MISSING').length;
+    const candidates = rows.filter(
+      r => r.state === 'MISSING' || r.state === 'EXCLUDED' || r.state === 'NOT_SIGNER',
+    ).length;
+
+    // ── O QUE IMPEDE PEDIR A ASSINATURA COMPLEMENTAR ─────────────────────────
+    const blockers: string[] = [];
+    if (!base.finalFileId) {
+      blockers.push(
+        'A coleta concluída ainda não terminou de ser selada. Aguarde a emissão do documento ' +
+          'final antes de pedir outra assinatura.',
+      );
+    }
+    if (runningCount > 0) {
+      blockers.push(
+        'Já existe uma coleta de assinaturas em andamento para este orçamento. Aguarde a ' +
+          'conclusão ou cancele-a antes de pedir outra assinatura.',
+      );
+    }
+    // Decisão do dono (02/10/2026): depois do faturamento, não. Com nota e
+    // boleto emitidos o orçamento não pode voltar a pendente — e é isso que a
+    // complementar faz.
+    if (isQuoteMoneyLocked((quote as any).billings)) {
+      blockers.push(
+        'O faturamento deste orçamento já foi aprovado. Com nota fiscal e boleto emitidos, o ' +
+          'orçamento não pode voltar a pendente para colher outra assinatura.',
+      );
+    }
+    if (quote.status !== 'APPROVED' && quote.status !== 'PENDING' && quote.status !== 'SIGNED') {
+      blockers.push(
+        quote.status === 'CANCELLED'
+          ? 'O orçamento está cancelado.'
+          : 'O orçamento está aguardando reanálise do valor.',
+      );
+    }
+    const pagadores = new Set((quote.customerConfigs ?? []).map(c => c.customerId));
+    if (pagadores.size > 1) {
+      blockers.push(
+        `Este orçamento fatura para ${pagadores.size} clientes, e a cerimônia de assinatura ainda ` +
+          'não recorta o documento por pagador.',
+      );
+    }
+    if (layoutGateFailure(quote as any)) {
+      blockers.push(
+        'O orçamento está sem o layout aprovado. Selecione o layout antes de pedir outra assinatura.',
+      );
+    }
+    if (quote.expiresAt.getTime() <= Date.now()) {
+      blockers.push(
+        `A validade deste orçamento venceu em ${this.deadlineLabel(quote.expiresAt)}. Prorrogue a ` +
+          'validade antes de pedir a assinatura — prorrogar não afeta as assinaturas já colhidas.',
+      );
+    }
+
+    // ── O NOVO SIGNATÁRIO ASSINA O MESMO CONTRATO, OU NÃO ASSINA ─────────────
+    //
+    // A complementar congela o orçamento de HOJE. Se as condições comerciais de
+    // hoje não forem as que a coleta concluída congelou, o novo responsável
+    // assinaria outro contrato — dois representantes do mesmo cliente
+    // aceitando coisas diferentes sob o mesmo número.
+    //
+    // Isso é possível mesmo sem a coleta ter caído: `lastSeenSnapshotSha256`
+    // perdoa a divergência que já existia quando a marca foi criada (nº 973),
+    // então um contrato concluído pode estar com o layout ou o preço já
+    // diferentes do cadastro. As tolerâncias de sempre valem (cadastro tardio do
+    // veículo, validade prorrogada, elenco); só a diferença material barra.
+    if (candidates > 0 && blockers.length === 0) {
+      const frozen = base.quoteSnapshot as unknown as QuoteSnapshot;
+      const termsHash = base.quoteTermsSha256 ?? this.snapshots.materialHash(frozen);
+      const loaded = await this.snapshots.buildForQuote(quoteId);
+      if (
+        !loaded ||
+        this.snapshots.matchesFrozenTerms(loaded.snapshot, termsHash, frozen, []) === null
+      ) {
+        const what = loaded
+          ? this.snapshots.describeMaterial(
+              this.snapshots.changes(frozen, loaded.snapshot, { pendingSignerIds: [] }),
+            )
+          : '';
+        blockers.push(
+          'O orçamento mudou desde a assinatura concluída' +
+            (what ? ` (${what.replace(/^Alteração em:\s*/, '')})` : '') +
+            '. O novo responsável assinaria condições diferentes das que os demais aceitaram, ' +
+            'então a assinatura complementar não pode ser emitida sobre este contrato.',
+        );
+      }
+    }
+
+    return {
+      baseEnvelopeId: base.id,
+      baseVersion: base.version,
+      responsibles: rows,
+      missing,
+      candidates,
+      blockers,
+      canIssue: blockers.length === 0 && candidates > 0,
+    };
+  }
+
   async createEnvelope(args: {
     quoteId: string;
     actorUserId: string;
@@ -966,6 +1441,15 @@ export class SignatureEnvelopeService {
      * mensagem certa.
      */
     signers?: Array<{ responsibleId?: string; sections?: string[] }> | null;
+    /**
+     * COLETA COMPLEMENTAR: pedir a assinatura de quem entrou na tarefa depois de
+     * a coleta principal concluir, sem anular quem já assinou.
+     *
+     * Aqui `signers` deixa de ser mapa de exceções e passa a ser a LISTA de quem
+     * assina: só os escolhidos no modal, e nenhum outro. Cada um com o recorte
+     * que vier (vazio = o padrão das funções dele). Ver `getSupplementCoverage`.
+     */
+    supplement?: boolean;
   }): Promise<{
     envelopeId: string;
     verificationCode: string;
@@ -1046,13 +1530,34 @@ export class SignatureEnvelopeService {
     //
     // Depois de selado, o caminho é o ADITIVO (identificação do veículo) ou um
     // orçamento novo. Nunca uma segunda coleta sobre o mesmo número.
-    const existing = await this.prisma.signatureEnvelope.findFirst({
-      where: {
-        quoteId: args.quoteId,
-        status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-      },
-      select: { id: true, status: true, version: true },
-    });
+    //
+    // A COLETA COMPLEMENTAR é a exceção — e não é uma segunda coleta do mesmo
+    // contrato: é o MESMO contrato ganhando um assinante. Ela não substitui o
+    // documento selado, não entra na corrente de versões e só é emitida quando
+    // as condições de hoje são as que a base congelou (`getSupplementCoverage`).
+    let supplementCoverage: SupplementCoverage | null = null;
+    if (args.supplement) {
+      supplementCoverage = await this.getSupplementCoverage(args.quoteId);
+      if (!supplementCoverage) {
+        throw new BadRequestException(
+          'Este orçamento não tem coleta de assinaturas concluída para complementar. ' +
+            'Envie-o para assinatura normalmente.',
+        );
+      }
+      if (supplementCoverage.blockers.length) {
+        throw new BadRequestException(supplementCoverage.blockers.join(' '));
+      }
+    }
+
+    const existing = args.supplement
+      ? null
+      : await this.prisma.signatureEnvelope.findFirst({
+          where: {
+            quoteId: args.quoteId,
+            status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+          },
+          select: { id: true, status: true, version: true },
+        });
     if (existing?.status === EnvelopeStatus.RUNNING) {
       throw new BadRequestException(
         'Já existe uma coleta de assinaturas em andamento para este orçamento. ' +
@@ -1062,8 +1567,10 @@ export class SignatureEnvelopeService {
     if (existing) {
       throw new BadRequestException(
         `Este orçamento já tem uma coleta CONCLUÍDA e assinada (versão ${existing.version}). ` +
-          'Reemitir criaria um segundo contrato selado para o mesmo número. Para acrescentar a ' +
-          'identificação do veículo use o aditivo; para mudar as condições, abra um orçamento novo.',
+          'Reemitir criaria um segundo contrato selado para o mesmo número. Para colher a ' +
+          'assinatura de um responsável acrescentado depois, use a assinatura complementar; para ' +
+          'acrescentar a identificação do veículo use o aditivo; para mudar as condições, abra ' +
+          'um orçamento novo.',
       );
     }
 
@@ -1177,11 +1684,57 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const roster = responsibles.map(r => ({
-      responsible: r,
-      sections: overrides.has(r.id) ? overrides.get(r.id)! : sectionsForRoles(r.roles),
-    }));
+    // Na COMPLEMENTAR o elenco é só quem o operador escolheu — e só quem ainda
+    // não assinou. Os demais responsáveis da tarefa já estão no contrato (ou
+    // foram deixados de fora de propósito) e não são tocados.
+    const supplementState = new Map(
+      (supplementCoverage?.responsibles ?? []).map(r => [r.id, r] as const),
+    );
+    if (args.supplement) {
+      const already = [...overrides.keys()]
+        .map(id => supplementState.get(id))
+        .filter(r => r && (r.state === 'SIGNED' || r.state === 'PENDING'));
+      if (already.length) {
+        throw new BadRequestException(
+          `${already.map(r => r!.name).join(', ')} já ${
+            already.length > 1 ? 'assinaram ou estão' : 'assinou ou está'
+          } numa coleta em andamento. Recarregue a página e confira quem ainda falta.`,
+        );
+      }
+    }
+    const roster = args.supplement
+      ? responsibles
+          .filter(r => overrides.has(r.id))
+          .map(r => {
+            const chosen = overrides.get(r.id)!;
+            return {
+              responsible: r,
+              // Vazio vindo da tela é "o padrão das funções" — o modal da
+              // complementar lista só quem vai assinar, então não há "tirar" a
+              // expressar com lista vazia.
+              sections: chosen.length ? chosen : sectionsForRoles(r.roles),
+            };
+          })
+      : responsibles.map(r => ({
+          responsible: r,
+          sections: overrides.has(r.id) ? overrides.get(r.id)! : sectionsForRoles(r.roles),
+        }));
     const signing = roster.filter(entry => entry.sections.length > 0);
+
+    if (args.supplement) {
+      if (roster.length === 0) {
+        throw new BadRequestException(
+          'Selecione ao menos um responsável para a assinatura complementar.',
+        );
+      }
+      const semRecorte = roster.filter(e => e.sections.length === 0);
+      if (semRecorte.length) {
+        throw new BadRequestException(
+          `Marque os campos que ${semRecorte.map(e => e.responsible.name).join(', ')} deve ` +
+            'receber: pela função cadastrada, ele não assina por padrão.',
+        );
+      }
+    }
 
     if (signing.length === 0) {
       const semInteresse = roster
@@ -1242,11 +1795,19 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const previous = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId: args.quoteId },
-      orderBy: { version: 'desc' },
-      select: { id: true, version: true },
-    });
+    // A complementar fica FORA da corrente de versões: repete o número da base
+    // e não ocupa o `previousEnvelopeId` dela (que é único). Se ocupasse, a
+    // tela mostraria o contrato como "versão anterior, substituída", e uma
+    // reemissão futura ficaria encadeada à complementar em vez de ao contrato.
+    const previous = args.supplement
+      ? null
+      : await this.prisma.signatureEnvelope.findFirst({
+          // Só as PRINCIPAIS formam a corrente: a complementar repete o número
+          // da base, e empatar com ela poria a reemissão encadeada a um anexo.
+          where: { quoteId: args.quoteId, kind: EnvelopeKind.PRIMARY },
+          orderBy: { version: 'desc' },
+          select: { id: true, version: true },
+        });
 
     const verificationCode = formatVerificationCode(randomBytes(24));
 
@@ -1295,8 +1856,16 @@ export class SignatureEnvelopeService {
       );
     }
 
-    const customerCompany =
-      primaryTask(quote)?.customer?.corporateName ?? primaryTask(quote)?.customer?.fantasyName ?? '';
+    // A empresa sob a linha de cada contato. Com vários pagadores, a DELE (o
+    // contato da RKO assina como RKO, o da Ibiporã como Ibiporã); com um só, o
+    // pagador — ver `documentCustomerOf`.
+    const documentCustomer = documentCustomerOf<any>(quote as any, null);
+    const customerCompany: string =
+      documentCustomer?.corporateName ?? documentCustomer?.fantasyName ?? '';
+    const companyOfContact = (companyId: string | null | undefined): string => {
+      const payer = quote.customerConfigs.find(c => c.customerId === companyId)?.customer as any;
+      return payer?.corporateName ?? payer?.fantasyName ?? customerCompany;
+    };
 
     interface VariantPlan {
       sections: QuoteSection[];
@@ -1379,7 +1948,7 @@ export class SignatureEnvelopeService {
             email: entry.responsible.email,
             orderGroup: 0,
             side: 'CUSTOMER',
-            subtitle: customerCompany,
+            subtitle: companyOfContact((entry.responsible as any).companyId),
           },
         ],
       });
@@ -1473,13 +2042,25 @@ export class SignatureEnvelopeService {
       // portão estaria obsoleta. Repetir aqui é o que impede que a corrida
       // produza exatamente o que o portão existe para impedir: dois envelopes
       // concluídos para o mesmo orçamento.
-      const live = await tx.signatureEnvelope.findFirst({
-        where: {
-          quoteId: args.quoteId,
-          status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
-        },
-        select: { version: true, status: true },
-      });
+      // Na complementar a pergunta é outra: nenhuma coleta viva, e a base ainda
+      // CONCLUÍDA (não foi invalidada nesse intervalo).
+      const live = args.supplement
+        ? ((await tx.signatureEnvelope.findFirst({
+            where: { quoteId: args.quoteId, status: EnvelopeStatus.RUNNING },
+            select: { version: true, status: true },
+          })) ??
+          ((await tx.signatureEnvelope.count({
+            where: { id: supplementCoverage!.baseEnvelopeId, status: EnvelopeStatus.COMPLETED },
+          }))
+            ? null
+            : { version: supplementCoverage!.baseVersion, status: EnvelopeStatus.INVALIDATED }))
+        : await tx.signatureEnvelope.findFirst({
+            where: {
+              quoteId: args.quoteId,
+              status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+            },
+            select: { version: true, status: true },
+          });
       if (live) {
         throw new BadRequestException(
           `Outra coleta deste orçamento (versão ${live.version}) mudou de estado durante a ` +
@@ -1495,17 +2076,23 @@ export class SignatureEnvelopeService {
       // cliente precisa saber dela também. Sem esta limpeza, o segundo
       // vencimento passaria em silêncio: o carimbo do primeiro continuaria lá, a
       // varredura leria "já avisei" e ninguém receberia nada.
-      await tx.budget.update({
-        where: { id: args.quoteId },
-        data: { expiryNoticeSentAt: null },
-      });
+      // A complementar não é proposta nova: o aviso de vencimento é do
+      // contrato, e ela nem dispara aviso ao cliente quando vence.
+      if (!args.supplement) {
+        await tx.budget.update({
+          where: { id: args.quoteId },
+          data: { expiryNoticeSentAt: null },
+        });
+      }
 
       const created = await tx.signatureEnvelope.create({
         data: {
           quoteId: args.quoteId,
           status: EnvelopeStatus.RUNNING,
-          version: (previous?.version ?? 0) + 1,
+          version: args.supplement ? supplementCoverage!.baseVersion : (previous?.version ?? 0) + 1,
           previousEnvelopeId: previous?.id ?? null,
+          kind: args.supplement ? EnvelopeKind.SUPPLEMENT : EnvelopeKind.PRIMARY,
+          baseEnvelopeId: args.supplement ? supplementCoverage!.baseEnvelopeId : null,
           sequential: true,
           deadlineAt,
           // ESPELHO do recorte completo — ver a nota no schema. Escrito aqui e no
@@ -1603,6 +2190,10 @@ export class SignatureEnvelopeService {
       userAgent: args.ctx.userAgent,
       payload: {
         version: envelope.version,
+        kind: envelope.kind,
+        // A coleta concluída que esta complementa — o elo, na trilha, entre o
+        // contrato selado e o assinante que chegou depois.
+        baseEnvelopeId: envelope.baseEnvelopeId ?? undefined,
         signers: signing.length + 1,
         contentPages: full.render.contentPages,
         snapshotHash: hash,
@@ -1622,9 +2213,13 @@ export class SignatureEnvelopeService {
         })),
         // Quem ficou de fora e por quê — o registro do que o operador decidiu
         // NÃO enviar, que é tão auditável quanto o que ele enviou.
+        //
+        // Com o `responsibleId` desde 02/10/2026: é por ele que a cobertura da
+        // coleta complementar distingue "tirado de propósito" de "entrou depois".
         excluded: roster
           .filter(e => e.sections.length === 0)
           .map(e => ({
+            responsibleId: e.responsible.id,
             name: e.responsible.name,
             roles: e.responsible.roles,
             overridden: overrides.has(e.responsible.id),
@@ -1657,6 +2252,27 @@ export class SignatureEnvelopeService {
         }`,
       ),
     );
+
+    // ── FALTA ASSINATURA: O ORÇAMENTO VOLTA PARA PENDENTE ───────────────────
+    //
+    // AWAIT: é estado do orçamento, e a resposta deste POST tem de sair com ele.
+    // Envolvido porque a coleta já existe e os convites já estão saindo —
+    // falhar aqui deixa o status atrasado, não desfaz a coleta.
+    if (args.supplement && this.onSupplementIssued) {
+      try {
+        await this.onSupplementIssued(
+          args.quoteId,
+          envelope.id,
+          signing.map(e => e.responsible.name),
+          args.actorUserId,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Coleta complementar ${envelope.id} emitida, mas o orçamento ${args.quoteId} não ` +
+            `voltou para pendente: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
 
     return {
       envelopeId: envelope.id,
@@ -2380,7 +2996,7 @@ export class SignatureEnvelopeService {
     // Quem o documento identifica como cliente: no recorte é o cliente da
     // configuração, e não o da tarefa — são diferentes justamente no faturamento
     // dividido, que é o único caso em que isto roda.
-    const customer = segment?.customer ?? primaryTask(quote)?.customer ?? null;
+    const customer = documentCustomerOf(quote, segment);
 
     return {
       sections,
@@ -2413,8 +3029,15 @@ export class SignatureEnvelopeService {
         formatContactList(signers.filter(x => x.side === 'CUSTOMER').map(x => x.name)) ??
         pickPrimaryResponsible(
           // O responsável PRINCIPAL sai da união das tarefas, não da primeira:
-          // é o mesmo conjunto que assina o documento.
-          dedupeResponsibles(vehicleTasks.flatMap(t => t.responsibles ?? [])),
+          // é o mesmo conjunto que assina o documento. No recorte de um cliente
+          // do faturamento dividido, só os contatos DELE — ver
+          // `contactsForSegment`: sem nenhum, o documento não cumprimenta
+          // ninguém em vez de cumprimentar o contato do outro pagador.
+          contactsForSegment(
+            dedupeResponsibles(vehicleTasks.flatMap(t => t.responsibles ?? [])),
+            quote.customerConfigs,
+            segment,
+          ),
         )?.name ??
         null,
       // A TABELA DE IDENTIFICAÇÃO. Uma linha por tarefa, na ordem canônica — a
@@ -3877,7 +4500,13 @@ export class SignatureEnvelopeService {
     // deriva cosmética é registrada lá dentro e a cerimônia continua.
     const fresh = await this.snapshots.buildForQuote(env.quoteId);
     if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
-      const invalidated = await this.onQuoteContentChanged(env.quoteId, null);
+      // A pergunta é sobre ESTA coleta. Com a complementar, o gancho julga
+      // todas as vivas do orçamento, e "alguma caiu" não é "a sua caiu".
+      const invalidated =
+        (await this.onQuoteContentChanged(env.quoteId, null)) &&
+        (await this.prisma.signatureEnvelope.count({
+          where: { id: env.id, status: EnvelopeStatus.INVALIDATED },
+        })) > 0;
       if (invalidated) {
         throw new BadRequestException(
           'O orçamento foi alterado desde o envio. Uma nova versão será enviada para sua revisão.',
@@ -4267,7 +4896,18 @@ export class SignatureEnvelopeService {
     // dele já está persistida e gravada na trilha encadeada; o rótulo da nossa
     // lista interna não é motivo para segurar a resposta dele — nem para
     // devolver erro se o domínio de orçamento recusar a transição.
-    if (envelopeRefused) {
+    if (envelopeRefused && env.kind === EnvelopeKind.SUPPLEMENT) {
+      // A recusa de quem foi chamado a COMPLEMENTAR não derruba a proposta: o
+      // contrato segue assinado por quem assinou. O orçamento continua
+      // pendente e o comercial é avisado — ver `onSupplementEnded`.
+      void this.notifySupplementEnded(env.quoteId, env.id, 'REFUSED', reason).catch(error =>
+        this.logger.error(
+          `Coleta complementar ${env.id} recusada, mas o aviso falhou: ${
+            error instanceof Error ? error.message : error
+          }`,
+        ),
+      );
+    } else if (envelopeRefused) {
       if (this.onEnvelopeRefused) {
         void this.onEnvelopeRefused(env.quoteId, env.id, reason).catch(error =>
           this.logger.error(
@@ -4627,7 +5267,13 @@ export class SignatureEnvelopeService {
     // certificado da empresa, algo que deixou de ser verdade.
     const fresh = await this.snapshots.buildForQuote(env.quoteId);
     if (fresh && fresh.hash !== env.quoteSnapshotSha256) {
-      const invalidated = await this.onQuoteContentChanged(env.quoteId, args.actorUserId);
+      // A pergunta é sobre ESTA coleta. Com a complementar, o gancho julga
+      // todas as vivas do orçamento, e "alguma caiu" não é "a sua caiu".
+      const invalidated =
+        (await this.onQuoteContentChanged(env.quoteId, args.actorUserId)) &&
+        (await this.prisma.signatureEnvelope.count({
+          where: { id: env.id, status: EnvelopeStatus.INVALIDATED },
+        })) > 0;
       if (invalidated) {
         throw new BadRequestException(
           'O orçamento foi alterado desde o envio e a coleta foi invalidada. ' +
@@ -6191,27 +6837,80 @@ export class SignatureEnvelopeService {
     // tardio do veículo (chassi e placa que chegam depois — é para isso que
     // existe o aditivo) e o elenco de signatários já resolvido. Só a divergência
     // MATERIAL chega ao ponto de invalidar.
-    const running =
-      (await this.prisma.signatureEnvelope.findFirst({
-        where: { quoteId, status: EnvelopeStatus.RUNNING },
-        // `quote` entra aqui porque o aviso de invalidação identifica o orçamento
-        // pelo número; sem o include ele sairia com um travessão no lugar.
-        include: { signers: true, quote: true },
-      })) ??
-      (await this.prisma.signatureEnvelope.findFirst({
-        where: { quoteId, status: EnvelopeStatus.COMPLETED },
-        orderBy: { version: 'desc' },
-        include: { signers: true, quote: true },
-      }));
-    if (!running) return false;
+    //
+    // ── COM A COLETA COMPLEMENTAR, SÃO TODAS AS VIVAS (02/10/2026) ───────────
+    //
+    // A busca era "a RUNNING, senão a COMPLETED" — uma só, porque só podia
+    // haver uma. Agora o contrato concluído convive com a complementar que
+    // colhe o assinante novo, e avaliar só uma delas é o padrão do nº 973 de
+    // novo: uma troca de layout com a complementar em andamento derrubaria só
+    // ela, e o contrato principal ficaria com a divergência armada para a
+    // próxima gravação inocente.
+    //
+    // A ordem é a do contrato: a PRINCIPAL primeiro. Se ela cai, as
+    // complementares caem junto — assinam o mesmo contrato, e um assinante a
+    // mais não sustenta um contrato que deixou de existir. Se ela fica de pé,
+    // cada complementar é julgada pelos SEUS pendentes: tirar da tarefa o
+    // responsável que ainda vai assinar derruba só a complementar dele.
+    const live = await this.prisma.signatureEnvelope.findMany({
+      where: { quoteId, status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] } },
+      orderBy: [{ version: 'desc' }, { createdAt: 'asc' }],
+      // `quote` entra aqui porque o aviso de invalidação identifica o orçamento
+      // pelo número; sem o include ele sairia com um travessão no lugar.
+      include: { signers: true, quote: true },
+    });
+    if (!live.length) return false;
+
+    const primary =
+      live.find(e => e.kind === EnvelopeKind.PRIMARY && e.status === EnvelopeStatus.RUNNING) ??
+      live.find(e => e.kind === EnvelopeKind.PRIMARY) ??
+      null;
+    const supplements = live.filter(
+      e => e.kind === EnvelopeKind.SUPPLEMENT && (!primary || e.baseEnvelopeId === primary.id),
+    );
 
     const loaded = await this.snapshots.buildForQuote(quoteId);
     if (!loaded) return false;
 
+    let any = false;
+    let primaryReason: string | null = null;
+    if (primary) {
+      primaryReason = await this.evaluateLiveEnvelope(quoteId, primary, loaded, actorUserId, null);
+      any = primaryReason !== null;
+    }
+    for (const sup of supplements) {
+      const reason = await this.evaluateLiveEnvelope(
+        quoteId,
+        sup,
+        loaded,
+        actorUserId,
+        primaryReason ? `Contrato principal invalidado — ${primaryReason}` : null,
+      );
+      if (reason !== null) any = true;
+    }
+    return any;
+  }
+
+  /**
+   * Julga UMA coleta viva contra o orçamento atual e a invalida se for o caso.
+   *
+   * Devolve o MOTIVO quando invalidou, `null` quando a coleta segue de pé.
+   *
+   * `forcedReason` é a cascata: a coleta principal caiu, e a complementar cai
+   * com ela sem ser julgada — sem atalho de hash e sem tolerância, porque o
+   * que ela complementava não existe mais.
+   */
+  private async evaluateLiveEnvelope(
+    quoteId: string,
+    running: Prisma.SignatureEnvelopeGetPayload<{ include: { signers: true; quote: true } }>,
+    loaded: NonNullable<Awaited<ReturnType<QuoteSnapshotService['buildForQuote']>>>,
+    actorUserId: string | null,
+    forcedReason: string | null,
+  ): Promise<string | null> {
     // Atalho barato: nada no documento mudou, nem cosmético nem material.
-    if (loaded.hash === running.quoteSnapshotSha256) {
+    if (!forcedReason && loaded.hash === running.quoteSnapshotSha256) {
       await this.rememberSeenSnapshot(running.id, loaded.hash);
-      return false;
+      return null;
     }
 
     // ── SÓ A DERIVA QUE ESTA GRAVAÇÃO INTRODUZIU ────────────────────────────
@@ -6238,13 +6937,17 @@ export class SignatureEnvelopeService {
     // comparando contra o CONGELADO, então a tela e a rota de alterações seguem
     // mostrando tudo que divergiu desde a assinatura. O que muda é só quem tem
     // autoridade para INVALIDAR, e a partir de quando.
-    if (running.lastSeenSnapshotSha256 && running.lastSeenSnapshotSha256 === loaded.hash) {
+    if (
+      !forcedReason &&
+      running.lastSeenSnapshotSha256 &&
+      running.lastSeenSnapshotSha256 === loaded.hash
+    ) {
       this.logger.log(
         `Orçamento ${quoteId}: esta gravação não mexeu no documento (a divergência com o ` +
           `congelado é anterior e já foi avaliada). Envelope ${running.id} segue em ` +
           `${running.status}.`,
       );
-      return false;
+      return null;
     }
 
     const before = running.quoteSnapshot as any;
@@ -6270,18 +6973,20 @@ export class SignatureEnvelopeService {
     // congelado sob a v1 contra a projeção v2 daria diferença sempre — e todos
     // os envelopes vivos seriam invalidados no deploy por uma mudança que, para
     // eles, nunca foi material.
-    const matchedVersion = this.snapshots.matchesFrozenTerms(
-      loaded.snapshot,
-      frozenTermsHash,
-      // O congelado entra por causa do cadastro tardio do veículo: chassi e
-      // placa preenchidos DEPOIS da emissão não podem derrubar a coleta. Ver
-      // `tolerateLateRegistration`.
-      before as QuoteSnapshot,
-      // E o elenco PENDENTE, por causa de quem já resolveu: acrescentar um
-      // responsável à tarefa não pode anular a assinatura que o comercial do
-      // cliente já deu. Ver `tolerateSettledRoster`.
-      pendingSignerIds,
-    );
+    const matchedVersion = forcedReason
+      ? null
+      : this.snapshots.matchesFrozenTerms(
+          loaded.snapshot,
+          frozenTermsHash,
+          // O congelado entra por causa do cadastro tardio do veículo: chassi e
+          // placa preenchidos DEPOIS da emissão não podem derrubar a coleta. Ver
+          // `tolerateLateRegistration`.
+          before as QuoteSnapshot,
+          // E o elenco PENDENTE, por causa de quem já resolveu: acrescentar um
+          // responsável à tarefa não pode anular a assinatura que o comercial do
+          // cliente já deu. Ver `tolerateSettledRoster`.
+          pendingSignerIds,
+        );
 
     if (matchedVersion !== null) {
       // DERIVA COSMÉTICA — o documento congelado em disco não mudou uma vírgula,
@@ -6301,14 +7006,14 @@ export class SignatureEnvelopeService {
       // Avaliado e aprovado: este estado não precisa ser julgado de novo pela
       // próxima gravação que passar por aqui.
       await this.rememberSeenSnapshot(running.id, loaded.hash);
-      return false;
+      return null;
     }
 
     const materialEntries = changes.entries.filter(c => c.severity === 'MATERIAL');
     // Uma frase, com no máximo quatro itens — cabe no aviso de uma linha da tela
     // e no parágrafo do e-mail. A lista inteira e detalhada é servida pelas
     // rotas de leitura (`changes`), que é onde há espaço para ela.
-    const reason = this.snapshots.describeMaterial(changes.entries);
+    const reason = forcedReason ?? this.snapshots.describeMaterial(changes.entries);
 
     await this.prisma.$transaction(async tx => {
       await tx.envelopeSigner.updateMany({
@@ -6408,7 +7113,7 @@ export class SignatureEnvelopeService {
     );
 
     this.logger.warn(`Envelope ${running.id} invalidado — ${reason}`);
-    return true;
+    return reason;
   }
 
   /**
@@ -6944,7 +7649,8 @@ export class SignatureEnvelopeService {
     const envelope = await this.prisma.signatureEnvelope.findFirst({
       // A chave é `finalFileId`, não o status: é o artefato SELADO que o aditivo
       // referencia, e ele sobrevive ao envelope virar SUPERSEDED numa reemissão.
-      where: { quoteId, finalFileId: { not: null } },
+      // O aditivo acompanha o CONTRATO (coleta principal), não a complementar.
+      where: { quoteId, kind: EnvelopeKind.PRIMARY, finalFileId: { not: null } },
       orderBy: { version: 'desc' },
       include: {
         documents: { select: { lateSlots: true } },
@@ -7374,8 +8080,10 @@ export class SignatureEnvelopeService {
    * quem de fato assinou — num slot pendente não há ato a descrever.
    */
   async getPublicQuoteSummary(quoteId: string) {
+    // A coleta PRINCIPAL é o contrato. A complementar não é "a versão atual" —
+    // só acrescenta assinantes a ela, e por isso entra abaixo, na lista.
     const env = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId },
+      where: { quoteId, kind: EnvelopeKind.PRIMARY },
       orderBy: { version: 'desc' },
       include: {
         signers: {
@@ -7400,6 +8108,38 @@ export class SignatureEnvelopeService {
       },
     });
     if (!env) return { hasEnvelope: false as const };
+
+    // Os assinantes COMPLEMENTARES do contrato, quando ele está de pé: os que
+    // já assinaram (complementar concluída) e os que estão sendo chamados agora.
+    // Só o lado do cliente — a contra-assinatura da Ankaa já está na lista.
+    const supplementSigners =
+      env.status === EnvelopeStatus.COMPLETED
+        ? (
+            await this.prisma.signatureEnvelope.findMany({
+              where: {
+                baseEnvelopeId: env.id,
+                status: { in: [EnvelopeStatus.RUNNING, EnvelopeStatus.COMPLETED] },
+              },
+              orderBy: { createdAt: 'asc' },
+              include: {
+                signers: {
+                  where: { orderGroup: 0 },
+                  orderBy: { createdAt: 'asc' },
+                  include: {
+                    responsible: { select: { roles: true } },
+                    user: {
+                      select: {
+                        position: { select: { name: true } },
+                        sector: { select: { name: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+          ).flatMap(sp => sp.signers)
+        : [];
+    const supplementRunning = supplementSigners.some(s => s.status !== EnvelopeSignerStatus.SIGNED);
 
     // A linha "empresa" do selo: razão social do cliente do lado CUSTOMER, a
     // Ankaa do lado ANKAA. Idêntico ao que `renderServedDocument` monta.
@@ -7442,7 +8182,13 @@ export class SignatureEnvelopeService {
        * cerimônia inteira.
        */
       changes,
-      signers: env.signers.map(s => {
+      /** Há uma assinatura complementar sendo colhida sobre este contrato. */
+      supplementRunning,
+      signers: [
+        ...env.signers.filter(s => s.orderGroup === 0),
+        ...supplementSigners,
+        ...env.signers.filter(s => s.orderGroup !== 0),
+      ].map(s => {
         // Os dados do ATO só existem depois dele. Antes disso o slot está em
         // branco no PDF, e descrevê-lo na tela seria descrever o que não houve.
         const acted = !!s.signedAt;
@@ -7484,7 +8230,9 @@ export class SignatureEnvelopeService {
     // reemissão é aberta —, e chavear por ele faria o documento assinado sumir
     // da vista do cliente no momento em que uma v2 fosse emitida.
     const completed = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, finalFileId: { not: null } },
+      // Sempre o CONTRATO (coleta principal): a complementar só tem a folha do
+      // assinante novo, e servi-la aqui trocaria o contrato por um anexo.
+      where: { quoteId, kind: EnvelopeKind.PRIMARY, finalFileId: { not: null } },
       orderBy: { version: 'desc' },
       select: { id: true },
     });
@@ -7495,7 +8243,7 @@ export class SignatureEnvelopeService {
     // porque a coleta não está ativa deixava o cliente sem NADA para ver — o
     // orçamento em si continua visível na mesma página, com a mesma capability.
     const env = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId },
+      where: { quoteId, kind: EnvelopeKind.PRIMARY },
       orderBy: { version: 'desc' },
       select: { id: true },
     });
@@ -7568,10 +8316,9 @@ export class SignatureEnvelopeService {
     // No recorte, a linha de assinatura é subtitulada com o cliente DAQUELA
     // fatia. Manter o cliente da tarefa poria o nome do outro pagador embaixo da
     // assinatura de um documento que não é dele.
-    const signatureSubtitle =
-      (segment?.customer ?? primaryTask(quote)?.customer)?.corporateName ??
-      (segment?.customer ?? primaryTask(quote)?.customer)?.fantasyName ??
-      '';
+    const documentCustomer = documentCustomerOf<any>(quote as any, segment);
+    const signatureSubtitle: string =
+      documentCustomer?.corporateName ?? documentCustomer?.fantasyName ?? '';
 
     // No recorte, quem assina pelo cliente são os contatos DAQUELE cliente —
     // não todos os responsáveis da tarefa. Repetir a lista inteira poria o
@@ -7582,27 +8329,36 @@ export class SignatureEnvelopeService {
     // contatos mostrava uma linha de assinatura onde deveria haver duas — e
     // mantê-lo em dia era trabalho manual que ninguém fazia.
     //
-    // Sem nenhum contato vinculado àquele cliente, segue a regra de sempre (a
-    // lista inteira): é o que já acontecia quando o campo eleito estava vazio, e
-    // um documento sem linha de assinatura nenhuma seria pior.
+    // ⚠️ SEM CONTATO DAQUELE CLIENTE, NÃO HÁ LINHA DO CLIENTE. A regra antiga
+    // caía na lista inteira, e com dois pagadores isso é pôr o contato de UM
+    // assinando pelo OUTRO: no nº 0269 (RKO + Ibiporã) o recorte da Ibiporã saía
+    // com "À Robert Leme" e a linha do Robert — que é da RKO — sob a razão
+    // social da Ibiporã. Medido em 30/09/2026: 6 dos 16 recortes de orçamentos
+    // com dois pagadores estavam assim. Com UM pagador só o recorte é o próprio
+    // documento e a lista inteira continua valendo, como sempre.
     const todosOsContatos = dedupeResponsibles(
       quoteTasks(quote as any).flatMap((t: any) => t.responsibles ?? []),
     );
-    const contatosDoSegmento = segment
-      ? todosOsContatos.filter((r: any) => r.companyId === segment.customerId)
-      : [];
-    const responsibles = contatosDoSegmento.length ? contatosDoSegmento : todosOsContatos;
+    const responsibles = contactsForSegment(todosOsContatos, quote.customerConfigs, segment);
     const seeds: Array<{
       id: string;
       name: string;
       subtitle: string;
       side: 'ANKAA' | 'CUSTOMER';
-    }> = responsibles.map(r => ({
-      id: `unsigned-${r.id}`,
-      name: r.name,
-      subtitle: signatureSubtitle,
-      side: 'CUSTOMER' as const,
-    }));
+    }> = responsibles.map(r => {
+      // No documento completo de um faturamento dividido, cada contato sob a
+      // empresa DELE, quando ela é um dos pagadores — o Robert assina como RKO,
+      // não como a razão social de quem quer que seja o cliente da tarefa.
+      const payer = segment
+        ? null
+        : (quote.customerConfigs.find(c => c.customerId === (r as any).companyId)?.customer as any);
+      return {
+        id: `unsigned-${r.id}`,
+        name: r.name,
+        subtitle: payer?.corporateName ?? payer?.fantasyName ?? signatureSubtitle,
+        side: 'CUSTOMER' as const,
+      };
+    });
 
     // Best-effort: orçamento antigo pode não ter representante comercial nem
     // diretor cadastrado, e isso não pode impedir a renderização.
@@ -7620,8 +8376,10 @@ export class SignatureEnvelopeService {
 
     // Código vazio: sem envelope não há o que verificar, e imprimir um código
     // inexistente no rodapé convidaria o cliente a consultar algo que não existe.
-    // `withPaymentSchedule: true` — este é o CORPO LEGÍVEL, montado agora e
-    // nunca selado. É o único caminho que imprime as parcelas e a chave Pix.
+    // `withPaymentSchedule: false` — o dossiê termina na cláusula ("Pagamento à
+    // vista no valor de R$ X via Pix, com vencimento em DD/MM/AAAA"). A tabela
+    // de parcelas e o quadro da chave Pix saíram a pedido (30/09/2026); a
+    // página pública (web/src/pages/public/service-report/[id].tsx) idem.
     const rendered = await this.renderQuoteDocument(
       quote,
       seeds,
@@ -7629,7 +8387,7 @@ export class SignatureEnvelopeService {
       customerId,
       undefined,
       undefined,
-      true,
+      false,
       hideSignatureBlock,
     );
     // SEM faixa de rodapé. Ela existia para dar número de página ao orçamento
@@ -7843,10 +8601,13 @@ export class SignatureEnvelopeService {
       : null;
     const viewerEhAdmin = viewer?.sector?.privileges === 'ADMIN';
 
-    return envelopes.map(env => ({
+    const mapped = envelopes.map(env => ({
       id: env.id,
       version: env.version,
       status: env.status,
+      /** PRIMARY (o contrato) ou SUPPLEMENT (assinante que chegou depois). */
+      kind: env.kind,
+      baseEnvelopeId: env.baseEnvelopeId,
       verificationCode: env.verificationCode,
       deadlineAt: env.deadlineAt,
       sentAt: env.sentAt,
@@ -8043,6 +8804,34 @@ export class SignatureEnvelopeService {
         inviteState: inviteBySigner.get(s.id) ?? null,
       })),
     }));
+
+    // ── O CONTRATO E QUEM CHEGOU DEPOIS ─────────────────────────────────────
+    //
+    // A lista de primeiro nível continua sendo a das COLETAS PRINCIPAIS (a mais
+    // recente primeiro, as demais são histórico) — é o contrato e as versões
+    // dele. As complementares vêm DENTRO da coleta que complementam: não são
+    // versão nova de nada, e soltá-las na lista faria a tela mostrar o contrato
+    // assinado como "versão anterior".
+    //
+    // `coverage` sai só na coleta principal CONCLUÍDA mais recente: é ali que a
+    // tela pergunta "falta alguém?". Ver `getSupplementCoverage`.
+    const coverage = await this.getSupplementCoverage(quoteId).catch(error => {
+      this.logger.warn(
+        `Cobertura de assinaturas do orçamento ${quoteId} indisponível: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+      return null;
+    });
+    return mapped
+      .filter(env => env.kind === EnvelopeKind.PRIMARY)
+      .map(env => ({
+        ...env,
+        supplements: mapped
+          .filter(sp => sp.baseEnvelopeId === env.id)
+          .sort((a, b) => +new Date(b.sentAt ?? 0) - +new Date(a.sentAt ?? 0)),
+        coverage: coverage && coverage.baseEnvelopeId === env.id ? coverage : null,
+      }));
   }
 
   /**

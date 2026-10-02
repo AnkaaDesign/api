@@ -12,6 +12,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
 import { hasLiveInvoice } from '@utils/billing-invoice';
+import type { Prisma } from '@prisma/client';
 
 /**
  * O ORÇAMENTO ESTÁ TRAVADO PELO DINHEIRO?
@@ -184,6 +185,73 @@ export const BILLING_FROZEN_WHERE: {
   OR: Array<{ approvedAt?: { not: null } } | { status?: { in: BILLING_STATUS[] } }>;
 } = {
   OR: [{ approvedAt: { not: null } }, { status: { in: [...POST_APPROVAL_BILLING_STATUSES] } }],
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A APROVAÇÃO POR PAGADOR
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Uma cobrança pode ter dois pagadores sobre os mesmos veículos (RKO paga a
+// logomarca, Ibiporã paga a pintura) e eles deixaram de ser faturados sempre
+// juntos. Daí duas perguntas diferentes:
+//
+//   · "a COBRANÇA tem aprovação?" — `isBillingApproved`, acima. É o que as
+//     TRAVAS leem (cobertura, preço, divisão): basta UM pagador faturado para
+//     existir nota citando aqueles veículos.
+//   · "ESTE PAGADOR já foi faturado?" — `isPayerApproved`, abaixo. É o que
+//     decide quem ainda é aprovável e o que os gates de EMISSÃO deixam passar.
+//     Um gate que perguntasse pela cobrança emitiria a nota do resíduo de uma
+//     aprovação que falhou no meio para o pagador B só porque o A já estava
+//     faturado.
+
+/** O mínimo que `isPayerApproved` precisa do faturamento do pagador. */
+export type PayerApprovalBilling = {
+  approvedAt: Date | string | null;
+  status?: string | null;
+  /** Os pagadores do faturamento — para saber se ALGUM tem carimbo próprio. */
+  customerConfigs?: ReadonlyArray<{ approvedAt?: Date | string | null }> | null;
+};
+
+/**
+ * ESTE PAGADOR JÁ FOI FATURADO?
+ *
+ * O carimbo próprio responde. Sem ele, o pagador de uma cobrança aprovada em que
+ * NENHUM pagador tem carimbo também conta como faturado: é a cobrança anterior à
+ * aprovação por pagador que o backfill não alcançou, ou a que a conciliação
+ * bancária cria já aprovada — em ambas a aprovação sempre foi de todos. Basta um
+ * pagador carimbado para a cobrança passar a responder pagador a pagador.
+ *
+ * ⚠️ Quem chama e não traz `billing.customerConfigs` recebe a leitura estrita
+ * (só o carimbo próprio) — nunca "aprovado por tabela".
+ */
+export function isPayerApproved(
+  payer: { approvedAt?: Date | string | null },
+  billing: PayerApprovalBilling | null | undefined,
+): boolean {
+  if (payer.approvedAt) return true;
+  if (!billing || !billing.customerConfigs) return false;
+  if (!isBillingApproved(billing)) return false;
+  return !billing.customerConfigs.some(c => !!c.approvedAt);
+}
+
+/**
+ * `isPayerApproved` em `where` do Prisma, sobre um `BudgetPayer`.
+ *
+ * É o que os gates de emissão encaixam em `customerConfig: { is: ... }`. Os dois
+ * braços são os mesmos da função: o carimbo próprio, ou a cobrança aprovada sem
+ * nenhum pagador carimbado.
+ */
+export const PAYER_APPROVED_WHERE: Prisma.BudgetPayerWhereInput = {
+  OR: [
+    { approvedAt: { not: null } },
+    {
+      billing: {
+        is: {
+          AND: [BILLING_FROZEN_WHERE, { customerConfigs: { none: { approvedAt: { not: null } } } }],
+        },
+      },
+    },
+  ],
 };
 
 /** O include mínimo que `isQuoteMoneyLocked` exige. */

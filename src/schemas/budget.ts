@@ -1165,3 +1165,49 @@ export type BudgetPayerCreateNestedFormData = z.infer<
   typeof budgetPayerCreateNestedSchema
 >;
 export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema>;
+
+// =====================
+// Faturamento por pagador
+// =====================
+
+/**
+ * `PUT /billings/:id/approve` — o corpo é OPCIONAL.
+ *
+ * Sem `customerConfigIds` a aprovação fatura todos os pagadores ainda não
+ * faturados da cobrança (o comportamento de sempre, e o que o app manda). Com a
+ * lista, só aqueles: RKO hoje, Ibiporã quando o pedido dela chegar.
+ */
+export const billingApproveSchema = z
+  .object({
+    customerConfigIds: z
+      .array(z.string().uuid('Pagador invalido'))
+      .min(1, 'Informe ao menos um pagador')
+      .max(50, 'Maximo de 50 pagadores')
+      .optional(),
+  })
+  .optional()
+  .nullable();
+
+export type BillingApproveFormData = z.infer<typeof billingApproveSchema>;
+
+/**
+ * `PUT /billings/:id/payers/:payerId` — os termos de COBRANÇA de um pagador
+ * ainda não faturado, aceitos mesmo com o orçamento travado pelo dinheiro.
+ *
+ * Só estes cinco: são os que decidem O QUE sai (nota? boleto? em quantas
+ * parcelas, com que vencimento?) sem mexer no valor que a nota já emitida de
+ * outro pagador declara. `.strict()` de propósito — ao contrário do objeto do
+ * orçamento, aqui um campo de preço no corpo é engano do chamador e tem de voltar
+ * como 400, não sumir.
+ */
+export const billingPayerTermsSchema = z
+  .object({
+    paymentCondition: paymentConditionSchema.optional().nullable(),
+    paymentConfig: paymentConfigSchema.optional().nullable(),
+    customPaymentText: z.string().max(2000).optional().nullable(),
+    generateInvoice: z.boolean().optional(),
+    generateBankSlip: z.boolean().optional(),
+  })
+  .strict();
+
+export type BillingPayerTermsFormData = z.infer<typeof billingPayerTermsSchema>;

@@ -135,6 +135,7 @@ import { resolve } from 'path';
 import { PDFDocument, PDFName, PDFDict, PDFArray, StandardFonts, rgb } from 'pdf-lib';
 import PDFKitDocument from 'pdfkit';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { COMPANY, BRAND_COLORS } from '@/config/company';
 import { winAnsi } from '../document/quote-assembler.service';
@@ -247,6 +248,12 @@ interface SealedArtifact {
   certCnpj: string | null;
   tsaGenTime: Date | null;
   signers: DossierSignerRow[];
+  /**
+   * Veio de uma COLETA COMPLEMENTAR — o responsável que entrou depois de o
+   * contrato concluir assinou o seu documento numa coleta própria. Muda o
+   * rótulo e o código de verificação citado no anexo.
+   */
+  supplement?: { verificationCode: string } | null;
 }
 
 export interface DossierComponent {
@@ -370,59 +377,75 @@ export class DossierAssemblerService {
     // o dossiê perder o orçamento assinado EM SILÊNCIO, caindo no render não
     // assinado e entregando ao cliente um "SEM assinatura eletrônica" de um
     // documento que foi assinado e selado.
-    const envelope = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId, finalFileId: { not: null } },
-      orderBy: { version: 'desc' },
-      select: {
-        id: true,
-        version: true,
-        status: true,
-        verificationCode: true,
-        originalSha256: true,
-        finalSha256: true,
-        sealedAt: true,
-        padesLevel: true,
-        certSubject: true,
-        certCnpj: true,
-        tsaGenTime: true,
-        finalFile: { select: { path: true, filename: true } },
-        originalFile: { select: { path: true } },
-        // O ADITIVO de identificação do veículo, quando já emitido.
-        addendumSha256: true,
-        addendumSealedAt: true,
-        addendumFile: { select: { path: true } },
-        // Os SIGNATÁRIOS do envelope. Servem ao RECUO dos envelopes anteriores
-        // à assinatura diversificada, que não têm linha em `EnvelopeDocument` e
-        // por isso também não têm signatários pendurados num recorte.
-        signers: {
-          orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
-          select: DOSSIER_SIGNER_SELECT,
-        },
-        // Os RECORTES selados — uma seção de páginas, um anexo e um bloco de
-        // trilha cada. Ver as decisões 1 e 3 no cabeçalho.
-        documents: {
-          where: { finalFileId: { not: null } },
-          orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
-          select: {
-            isFull: true,
-            sections: true,
-            finalSha256: true,
-            sealedAt: true,
-            padesLevel: true,
-            certSubject: true,
-            certCnpj: true,
-            tsaGenTime: true,
-            finalFile: { select: { path: true } },
-            // Onde o CORPO deste recorte termina — ver `SealedArtifact.originalPath`.
-            originalFile: { select: { path: true } },
-            signers: {
-              orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
-              select: DOSSIER_SIGNER_SELECT,
-            },
+    // O CONTRATO é a coleta PRINCIPAL. As complementares (assinantes que
+    // entraram depois) vêm logo abaixo e se somam a ele — nunca o substituem.
+    const sealedSelect = {
+      id: true,
+      version: true,
+      status: true,
+      verificationCode: true,
+      originalSha256: true,
+      finalSha256: true,
+      sealedAt: true,
+      padesLevel: true,
+      certSubject: true,
+      certCnpj: true,
+      tsaGenTime: true,
+      finalFile: { select: { path: true, filename: true } },
+      originalFile: { select: { path: true } },
+      // O ADITIVO de identificação do veículo, quando já emitido.
+      addendumSha256: true,
+      addendumSealedAt: true,
+      addendumFile: { select: { path: true } },
+      // Os SIGNATÁRIOS do envelope. Servem ao RECUO dos envelopes anteriores
+      // à assinatura diversificada, que não têm linha em `EnvelopeDocument` e
+      // por isso também não têm signatários pendurados num recorte.
+      signers: {
+        orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+        select: DOSSIER_SIGNER_SELECT,
+      },
+      // Os RECORTES selados — uma seção de páginas, um anexo e um bloco de
+      // trilha cada. Ver as decisões 1 e 3 no cabeçalho.
+      documents: {
+        where: { finalFileId: { not: null } },
+        orderBy: [{ isFull: 'desc' }, { variantKey: 'asc' }],
+        select: {
+          isFull: true,
+          sections: true,
+          finalSha256: true,
+          sealedAt: true,
+          padesLevel: true,
+          certSubject: true,
+          certCnpj: true,
+          tsaGenTime: true,
+          finalFile: { select: { path: true } },
+          // Onde o CORPO deste recorte termina — ver `SealedArtifact.originalPath`.
+          originalFile: { select: { path: true } },
+          signers: {
+            orderBy: [{ orderGroup: 'asc' }, { createdAt: 'asc' }],
+            select: DOSSIER_SIGNER_SELECT,
           },
         },
       },
+    } satisfies Prisma.SignatureEnvelopeSelect;
+    const envelope = await this.prisma.signatureEnvelope.findFirst({
+      where: { quoteId, kind: 'PRIMARY', finalFileId: { not: null } },
+      orderBy: { version: 'desc' },
+      select: sealedSelect,
     });
+    // Complementares CONCLUÍDAS do contrato. Uma complementar anulada sozinha
+    // (o assinante dela saiu, ou o cadastro dele mudou) não é parte do contrato.
+    const supplementEnvelopes = envelope
+      ? await this.prisma.signatureEnvelope.findMany({
+          where: {
+            baseEnvelopeId: envelope.id,
+            status: 'COMPLETED',
+            finalFileId: { not: null },
+          },
+          orderBy: { completedAt: 'asc' },
+          select: sealedSelect,
+        })
+      : [];
     // SEM envelope concluído o dossiê continua existindo, com o orçamento
     // renderizado sob demanda e as linhas de assinatura em branco. Recusar aqui
     // deixaria sem documento justamente as tarefas antigas, que nunca passaram
@@ -433,7 +456,7 @@ export class DossierAssemblerService {
     // Os artefatos selados, normalizados. Um por recorte; o completo primeiro.
     // Recuo para envelopes anteriores ao recurso, que não têm linha em
     // `EnvelopeDocument`: ali o próprio envelope é o recorte completo.
-    const signedArtifacts: SealedArtifact[] = assinado
+    const primaryArtifacts: SealedArtifact[] = assinado
       ? (envelope!.documents.length
           ? envelope!.documents.map(d => ({
               isFull: d.isFull,
@@ -465,6 +488,35 @@ export class DossierAssemblerService {
             ]
         ).filter(a => !!a.path)
       : [];
+
+    // OS ASSINANTES QUE CHEGARAM DEPOIS — um artefato por documento selado de
+    // cada coleta complementar concluída. Só os documentos que têm assinante do
+    // cliente: quando o novo responsável recebe um recorte parcial, a
+    // complementar congela também um instrumento só com a Ankaa, e repeti-lo
+    // aqui seria pôr no dossiê uma segunda cópia do contrato que ninguém do
+    // cliente assinou.
+    const supplementArtifacts: SealedArtifact[] = assinado
+      ? supplementEnvelopes.flatMap(sp =>
+          sp.documents
+            .filter(d => d.signers.some(x => x.orderGroup === 0))
+            .map(d => ({
+              isFull: d.isFull,
+              sections: d.sections,
+              path: d.finalFile?.path ?? '',
+              originalPath: d.originalFile?.path ?? '',
+              finalSha256: d.finalSha256,
+              sealedAt: d.sealedAt,
+              padesLevel: d.padesLevel,
+              certSubject: d.certSubject,
+              certCnpj: d.certCnpj,
+              tsaGenTime: d.tsaGenTime,
+              signers: d.signers,
+              supplement: { verificationCode: sp.verificationCode },
+            }))
+            .filter(a => !!a.path),
+        )
+      : [];
+    const signedArtifacts: SealedArtifact[] = [...primaryArtifacts, ...supplementArtifacts];
 
     // ── AS PÁGINAS DO DOCUMENTO ASSINADO ENTRAM NO DOSSIÊ ────────────────────
     //
@@ -547,9 +599,13 @@ export class DossierAssemblerService {
     let anySignedPage = false;
     if (showSignedPages) {
       for (const artifact of signedArtifacts) {
-        const variante = artifact.isFull
-          ? 'documento completo'
-          : describeSections(canonicalSections(artifact.sections));
+        const variante = artifact.supplement
+          ? `assinatura complementar de ${
+              artifact.signers.find(x => x.orderGroup === 0)?.declaredName ?? 'responsável'
+            }`
+          : artifact.isFull
+            ? 'documento completo'
+            : describeSections(canonicalSections(artifact.sections));
         const component: DossierComponent = {
           kind: 'ORCAMENTO_ASSINADO',
           label: `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ${variante}`,
@@ -694,7 +750,7 @@ export class DossierAssemblerService {
     // FORA do recorte por cliente, pelo mesmo motivo das páginas: a trilha lista
     // as partes de TODOS os recortes, e o contato do cliente B não é assunto do
     // cliente A. Ali o dossiê segue exatamente como era.
-    if (assinado && !segmentado && signedArtifacts.length) {
+    if (assinado && !segmentado && primaryArtifacts.length) {
       const events = await this.prisma.signatureAuditEvent.findMany({
         where: { envelopeId: envelope!.id },
         orderBy: { sequence: 'asc' },
@@ -722,7 +778,7 @@ export class DossierAssemblerService {
           version: envelope!.version,
           verificationCode: envelope!.verificationCode,
           originalSha256: envelope!.originalSha256,
-          artifacts: signedArtifacts,
+          artifacts: primaryArtifacts,
           events,
           /**
            * O documento assinado veio junto? Muda uma frase, e a frase importa:
@@ -740,6 +796,58 @@ export class DossierAssemblerService {
         this.logger.warn(
           `Trilha do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`,
         );
+      }
+    }
+
+    // A trilha de cada COMPLEMENTAR, logo depois da do contrato: é outra coleta,
+    // com o seu próprio log encadeado, e misturar os eventos dela no log do
+    // contrato quebraria a cadeia de hashes que o leitor pode conferir.
+    if (assinado && !segmentado) {
+      for (const sp of supplementEnvelopes) {
+        const artifacts = supplementArtifacts.filter(
+          a => a.supplement?.verificationCode === sp.verificationCode,
+        );
+        if (!artifacts.length) continue;
+        const events = await this.prisma.signatureAuditEvent.findMany({
+          where: { envelopeId: sp.id },
+          orderBy: { sequence: 'asc' },
+          select: {
+            sequence: true,
+            occurredAt: true,
+            eventType: true,
+            actorLabel: true,
+            ipAddress: true,
+            hash: true,
+          },
+        });
+        const component: DossierComponent = {
+          kind: 'TRILHA',
+          label: `Trilha de auditoria — assinatura complementar ${sp.verificationCode}`,
+          sha256: null,
+          pages: 0,
+          included: false,
+        };
+        components.push(component);
+        try {
+          const bytes = await this.renderAuditTrail({
+            budgetNumber: quote.budgetNumber,
+            envelopeId: sp.id,
+            version: sp.version,
+            verificationCode: sp.verificationCode,
+            originalSha256: sp.originalSha256,
+            artifacts,
+            events,
+            signedPagesIncluded: anySignedPage,
+          });
+          component.sha256 = sha256(bytes);
+          component.included = true;
+          bodies.push({ bytes, component });
+        } catch (error) {
+          component.note = `não foi possível montar a trilha (${msg(error)})`;
+          this.logger.warn(
+            `Trilha complementar do orçamento ${quote.budgetNumber} fora do dossiê: ${msg(error)}`,
+          );
+        }
       }
     }
 
@@ -856,7 +964,8 @@ export class DossierAssemblerService {
           mimeType: 'application/pdf',
           description:
             `Orçamento nº ${quote.budgetNumber} assinado eletronicamente — ` +
-            `envelope ${envelope!.verificationCode}` +
+            `envelope ${artifact.supplement?.verificationCode ?? envelope!.verificationCode}` +
+            (artifact.supplement ? ' (assinatura complementar)' : '') +
             (artifact.isFull
               ? ''
               : ` (${describeSections(canonicalSections(artifact.sections))})`) +
@@ -878,8 +987,14 @@ export class DossierAssemblerService {
       // modo segmentado quem nomeia é o cliente do RECORTE, não o da tarefa:
       // baixar os dois dossiês de um faturamento com dois clientes gravava dois
       // arquivos de mesmo nome, e o segundo sobrescrevia o primeiro.
+      // Com UM pagador só, é ele quem nomeia, mesmo sem recorte — é a empresa
+      // que o próprio documento identifica (`documentCustomerOf`).
       filename: dossierPdfFilename(
-        selectedConfig?.customer ?? quote.tasks?.[0]?.customer,
+        selectedConfig?.customer ??
+          (new Set(quote.customerConfigs.map((c: any) => c.customerId)).size === 1
+            ? quote.customerConfigs[0]?.customer
+            : null) ??
+          quote.tasks?.[0]?.customer,
         quote.budgetNumber,
       ),
       components,

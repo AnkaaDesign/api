@@ -44,7 +44,7 @@ import { formatDueDateYMD, parseDueDateYMD, todayInSaoPauloAtNoonUtc } from '@ut
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
 import { sliceTask } from '../../../utils/quote-tasks';
 import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
-import { isBillingApproved } from '../../production/budget/budget.guards';
+import { isPayerApproved } from '../../production/budget/budget.guards';
 
 /**
  * Controller for Invoice endpoints.
@@ -1829,9 +1829,14 @@ export class InvoiceController {
         customerConfig: {
           select: {
             generateInvoice: true,
-            // A COBRANÇA — para responder "isto foi aprovado?" com uma mensagem,
-            // em vez de deixar a emissão direcionada engolir o pedido em silêncio.
-            billing: { select: { approvedAt: true, status: true } },
+            // O PAGADOR e a COBRANÇA — para responder "isto foi aprovado?" com uma
+            // mensagem, em vez de deixar a emissão direcionada engolir o pedido em
+            // silêncio. A pergunta é do pagador: com dois sobre o mesmo recorte,
+            // a cobrança aprovada pela RKO não aprova a Ibiporã.
+            approvedAt: true,
+            billing: {
+              select: { approvedAt: true, status: true, customerConfigs: { select: { approvedAt: true } } },
+            },
           },
         },
         externalOperation: { select: { generateInvoice: true } },
@@ -1872,8 +1877,8 @@ export class InvoiceController {
     // A "Operação Externa" não tem `Billing` e não passa por aqui — a aprovação
     // dela é o próprio ato de retirar.
     if (!invoice.externalOperationId) {
-      const billing = (invoice as any).customerConfig?.billing ?? null;
-      if (!billing || !isBillingApproved(billing)) {
+      const payer = (invoice as any).customerConfig ?? null;
+      if (!payer || !isPayerApproved(payer, payer.billing ?? null)) {
         throw new BadRequestException(
           'O faturamento desta fatura não está aprovado — não é possível emitir NFS-e. ' +
             'Aprove o faturamento (a nota é emitida junto) ou verifique se a aprovação ' +

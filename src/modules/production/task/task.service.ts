@@ -2434,6 +2434,15 @@ export class TaskService {
       // (set it CANCELLED + tear down invoices/boletos/NFS-e). The teardown does
       // external Sicredi/Elotech calls and must run AFTER the tx commits.
       let taskOldStatusForQuoteCancel: TASK_STATUS | null = null;
+      // Nº de série ANTES desta gravação. Série é do documento assinado: TROCAR
+      // (havia uma, agora é outra ou nenhuma) é material e anula a assinatura;
+      // PREENCHER a partir do vazio é cadastro tardio e não anula — quem decide é
+      // `matchesFrozenTerms` (`serialNumberReplaced`). Só que o veto só roda
+      // dentro de `onQuoteContentChanged`, e este caminho não o chamava: em
+      // 30/09/2026 o nº 999 (Bortoloto, 35111 → 39111) continuou CONCLUÍDO
+      // depois da troca, com a anulação armada para a próxima pessoa que
+      // salvasse o orçamento — o padrão do nº 973.
+      let serialNumberBefore: string | null = null;
 
       // Aerografias que ESTA atualização concluiu. A intenção da NFS-e é gravada
       // dentro da transação; a emissão é rede e roda depois do commit, pelo mesmo
@@ -2527,6 +2536,7 @@ export class TaskService {
         }
 
         taskOldStatusForQuoteCancel = existingTask.status as TASK_STATUS;
+        serialNumberBefore = existingTask.serialNumber ?? null;
 
         // ───────────────────────────────────────────────────────────────────
         // Strip a no-op nested `quote` block before any side-effect runs.
@@ -7439,6 +7449,17 @@ export class TaskService {
         }
       }
 
+      // Troca de nº de série → reavalia a assinatura do orçamento AGORA, cobrando
+      // de quem trocou. Pós-commit: `onQuoteContentChanged` remonta o recorte por
+      // outra conexão e, de dentro da `tx`, veria a série antiga.
+      await this.reevaluateSignatureOnSerialSwap(
+        id,
+        serialNumberBefore,
+        (updatedTask as any)?.serialNumber ?? null,
+        (updatedTask as any)?.quoteId ?? null,
+        userId,
+      );
+
       // Emit events for created service orders AFTER transaction commits
       if (createdServiceOrders && createdServiceOrders.length > 0) {
         this.logger.log(
@@ -7580,6 +7601,42 @@ export class TaskService {
   }
 
   /**
+   * Série TROCADA (havia uma e mudou, inclusive para vazio) numa tarefa com
+   * orçamento → `onQuoteContentChanged`. Preencher a partir do vazio não chama:
+   * seria cosmético de qualquer jeito, e não vale executar deriva alheia.
+   * Falha aqui não desfaz a gravação da tarefa, que já foi commitada.
+   */
+  private async reevaluateSignatureOnSerialSwap(
+    taskId: string,
+    before: string | null,
+    after: string | null,
+    quoteId: string | null,
+    userId?: string,
+  ): Promise<void> {
+    const prev = (before ?? '').trim();
+    const next = (after ?? '').trim();
+    if (!quoteId || !prev || prev === next) return;
+    try {
+      const invalidated = await this.signatureEnvelopes.onQuoteContentChanged(
+        quoteId,
+        userId || null,
+      );
+      if (invalidated) {
+        this.logger.warn(
+          `[Task Update] Nº de série da tarefa ${taskId} trocado (${prev} → ${next || 'vazio'}): ` +
+            `assinatura do orçamento ${quoteId} invalidada.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[Task Update] Falha ao reavaliar a assinatura do orçamento ${quoteId} após a troca ` +
+          `de série da tarefa ${taskId} (a tarefa JÁ foi gravada):`,
+        error,
+      );
+    }
+  }
+
+  /**
    * Batch update tasks
    */
   async batchUpdate(
@@ -7620,6 +7677,18 @@ export class TaskService {
     const existingTaskStates: Map<string, any> = new Map();
 
     try {
+      // Séries ANTES do lote, para a mesma reavaliação de assinatura do
+      // `update()` — ver `reevaluateSignatureOnSerialSwap`.
+      const serialTouchedIds = (data.tasks ?? [])
+        .filter(t => (t.data as any)?.serialNumber !== undefined)
+        .map(t => t.id);
+      const serialsBefore = serialTouchedIds.length
+        ? await this.prisma.task.findMany({
+            where: { id: { in: serialTouchedIds } },
+            select: { id: true, serialNumber: true },
+          })
+        : [];
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         this.logger.log('[batchUpdate] Inside transaction');
 
@@ -9787,6 +9856,23 @@ export class TaskService {
         );
         return { ...result, fieldChangesForEvents, cutsCreatedByTask };
       });
+
+      if (serialsBefore.length) {
+        const after = await this.prisma.task.findMany({
+          where: { id: { in: serialsBefore.map(t => t.id) } },
+          select: { id: true, serialNumber: true, quoteId: true },
+        });
+        for (const t of after) {
+          const before = serialsBefore.find(b => b.id === t.id)?.serialNumber ?? null;
+          await this.reevaluateSignatureOnSerialSwap(
+            t.id,
+            before,
+            t.serialNumber,
+            t.quoteId,
+            userId,
+          );
+        }
+      }
 
       // After transaction: Emit field change events for notifications.
       // Instead of hand-rolling raw 'task.field.changed' emits (which bypassed the
@@ -12386,6 +12472,11 @@ export class TaskService {
         },
         userId,
       );
+
+      // Desfazer a série também é trocar a série: o gancho decide se anula.
+      if (fieldToRevert === 'serialNumber' && (updatedTask as any)?.quoteId) {
+        quotesContentChanged.add((updatedTask as any).quoteId);
+      }
 
       // 8. Log the rollback action
       const fieldNamePt = translateFieldName(fieldToRevert);

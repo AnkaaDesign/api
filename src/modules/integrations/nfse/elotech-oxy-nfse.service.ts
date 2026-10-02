@@ -229,6 +229,17 @@ export class ElotechOxyNfseService {
       return { skipped: true, reason: 'ALREADY_PROCESSING' };
     }
 
+    // Any document that existed before this call may already have minted a note whose
+    // response never arrived — so every pre-existing document is checked against the
+    // prefeitura below, before anything is sent. Status alone cannot tell: the "Emitir NFS-e"
+    // route resets ERROR → PENDING with errorCount 0 before calling here (that is how nº 3292
+    // slipped through on 30/09), but it keeps `errorMessage`, which is why it counts as
+    // evidence of an earlier attempt.
+    const preExisting = !!nfseDoc;
+    const hadPriorAttempt =
+      !!nfseDoc &&
+      (nfseDoc.status === NfseStatus.ERROR || nfseDoc.errorCount > 0 || !!nfseDoc.errorMessage);
+
     // Atomic claim for processing: PENDING/ERROR → PROCESSING, proceed only when count === 1
     if (nfseDoc) {
       const claimed = await this.prisma.nfseDocument.updateMany({
@@ -302,6 +313,67 @@ export class ElotechOxyNfseService {
         `[MUNICIPAL] NFS-e emission skipped for invoice ${invoice.id}: ${errorMessage}`,
       );
       return { status: 'ERROR', errorMessage };
+    }
+
+    // ── A RETRY NEVER EMITS BLIND ────────────────────────────────────────────
+    //
+    // 30/09/2026: `salvar-nota-fiscal` took longer than our timeout because the Elotech
+    // shares each note with the ADN synchronously and the ADN was slow. The note was
+    // minted, our side gave up and parked ERROR, and "Emitir NFS-e" minted a second one
+    // (3278/3279, 3284/3285, 3287/3288, 3290/3291). Same on 28/08 and 02/09.
+    // So before re-sending, ask the prefeitura whether the earlier attempt landed.
+    if (preExisting) {
+      let live: Array<{ elotechNfseId: number; nfseNumber: number }>;
+      try {
+        live = await this.findLiveNotesForDocument(nfseDoc.id);
+      } catch (lookupErr) {
+        // No trace of an earlier attempt: an unreadable listing is not a reason to hold up a
+        // first emission.
+        if (!hadPriorAttempt) {
+          this.logger.warn(
+            `[MUNICIPAL] Pre-emission lookup failed for first attempt of invoice ${invoice.id} — ` +
+              `emitting anyway: ${lookupErr instanceof Error ? lookupErr.message : lookupErr}`,
+          );
+          live = [];
+        } else {
+          const errorMessage =
+            'Não foi possível consultar a prefeitura para confirmar se a tentativa anterior já ' +
+            'emitiu esta nota — a emissão não foi reenviada para não duplicar. Tente de novo em ' +
+            `alguns minutos. (${lookupErr instanceof Error ? lookupErr.message : lookupErr})`;
+          await this.prisma.nfseDocument.update({
+            where: { id: nfseDoc.id },
+            data: { status: NfseStatus.ERROR, errorMessage, retryAfter: null },
+          });
+          this.logger.warn(`[MUNICIPAL] ${errorMessage}`);
+          return { status: 'ERROR', errorMessage };
+        }
+      }
+
+      if (live.length === 1) {
+        await this.linkDocumentToLiveNote(nfseDoc.id, live[0]);
+        this.logger.warn(
+          `[MUNICIPAL] Retry of invoice ${invoice.id} found NFS-e nº ${live[0].nfseNumber} already ` +
+            `live from the earlier attempt — linked, nothing re-emitted`,
+        );
+        return {
+          nfseId: live[0].elotechNfseId,
+          nfseNumber: live[0].nfseNumber,
+          status: 'AUTHORIZED',
+          recovered: true,
+        };
+      }
+      if (live.length > 1) {
+        const errorMessage =
+          `Já existem ${live.length} notas emitidas na prefeitura para esta fatura ` +
+          `(nº ${live.map(c => c.nfseNumber).join(', ')}) — nenhuma nova foi emitida. ` +
+          'Vincule uma e cancele a(s) outra(s) citando a vinculada como substituta.';
+        await this.prisma.nfseDocument.update({
+          where: { id: nfseDoc.id },
+          data: { status: NfseStatus.ERROR, errorMessage, retryAfter: null },
+        });
+        this.logger.warn(`[MUNICIPAL] ${errorMessage}`);
+        return { status: 'ERROR', errorMessage };
+      }
     }
 
     try {
@@ -420,7 +492,9 @@ export class ElotechOxyNfseService {
       try {
         saveRes = await axios.post(`${baseUrl}/emissao-nfse/salvar-nota-fiscal`, payload, {
           headers,
-          timeout: 30000,
+          // The Elotech shares the note with the ADN inside this same request; when the ADN
+          // is slow the response takes well over 30s even though the note is already minted.
+          timeout: 90000,
         });
       } catch (saveErr: any) {
         const saveErrData = saveErr?.response?.data;
@@ -428,6 +502,15 @@ export class ElotechOxyNfseService {
         this.logger.error(
           `[MUNICIPAL] salvar-nota-fiscal failed: status=${saveErrStatus}, data=${JSON.stringify(saveErrData ?? null).slice(0, 2000)}`,
         );
+
+        // No response (timeout, connection reset) or a gateway/server error means we do NOT
+        // know whether the note was minted. Parking ERROR here is what let "Emitir NFS-e"
+        // mint duplicates. Keep the document PROCESSING — which blocks every re-emission
+        // path — and check the prefeitura. If the note is not visible yet, the
+        // `nfse-stuck-recovery` cron settles it within ~10 minutes (link or back to PENDING).
+        if (!saveErrStatus || saveErrStatus >= 500) {
+          return this.settleUnconfirmedEmission(nfseDoc!.id, invoice.id, saveErr);
+        }
         throw saveErr;
       }
 
@@ -571,63 +654,12 @@ export class ElotechOxyNfseService {
     }
 
     const invoice = doc.invoice;
-    const cnpj = invoice?.customer?.cnpj ?? null;
     const target = Number(invoice?.totalAmount ?? 0);
-
-    // A day either side of the attempt — enough for a prefeitura timestamp that
-    // disagrees slightly with our clock, without widening into unrelated notes.
-    const ymd = (d: Date): string => d.toISOString().slice(0, 10);
-    const from = new Date(doc.createdAt.getTime() - 24 * 60 * 60 * 1000);
-    const to = new Date(doc.createdAt.getTime() + 24 * 60 * 60 * 1000);
-
-    const listed = await this.listNfses({
-      dataEmissaoInicial: ymd(from),
-      dataEmissaoFinal: ymd(to),
-      cpfCnpj: cnpj,
-      maxResult: 100,
-    });
-
-    const byId = new Map<number, any>();
-    for (const n of listed.data) {
-      const id = Number(n.id ?? n.idNotaFiscal);
-      if (Number.isFinite(id) && id > 0 && !byId.has(id)) byId.set(id, n);
-    }
-
-    // Exclude notes already claimed by another local document.
-    const claimed = await this.prisma.nfseDocument.findMany({
-      where: { elotechNfseId: { in: [...byId.keys()] }, id: { not: doc.id } },
-      select: { elotechNfseId: true },
-    });
-    const claimedIds = new Set(claimed.map(c => Number(c.elotechNfseId)));
-
-    const candidates: Array<{ elotechNfseId: number; nfseNumber: number; valorLiquido: number }> = [];
-    for (const [id, n] of byId) {
-      if (claimedIds.has(id)) continue;
-      if (n.cancelada === true) continue;
-      // NET value — `valorDoc` is gross (pre-discount) and would never match the invoice.
-      const net = Number(n.valorLiquidoNota ?? n.valorServico ?? NaN);
-      if (!Number.isFinite(net)) continue;
-      if (Math.abs(net - target) >= 0.01) continue;
-      candidates.push({
-        elotechNfseId: id,
-        nfseNumber: Number(n.numeroNotaFiscal ?? 0),
-        valorLiquido: net,
-      });
-    }
+    const candidates = await this.findLiveNotesForDocument(doc.id);
 
     if (candidates.length === 1) {
       const hit = candidates[0];
-      await this.prisma.nfseDocument.update({
-        where: { id: doc.id },
-        data: {
-          elotechNfseId: hit.elotechNfseId,
-          nfseNumber: hit.nfseNumber,
-          status: NfseStatus.AUTHORIZED,
-          errorMessage: null,
-          errorCount: 0,
-          retryAfter: null,
-        },
-      });
+      await this.linkDocumentToLiveNote(doc.id, hit);
       this.logger.log(
         `[MUNICIPAL] Reconciled stuck doc ${doc.id} → live NFS-e nº ${hit.nfseNumber} (id=${hit.elotechNfseId})`,
       );
@@ -673,6 +705,182 @@ export class ElotechOxyNfseService {
         `e não estão vinculadas: nº ${candidates.map(c => c.nfseNumber).join(', ')}. ` +
         'A vinculação precisa ser feita manualmente para não associar a nota de outra tarefa.',
     };
+  }
+
+  /**
+   * Live, unclaimed notes at the prefeitura that could be the one this document emitted.
+   *
+   * Same customer CNPJ, a day either side of the document's creation, not cancelled, not
+   * referenced by any other NfseDocument, and the same NET value (`valorLiquidoNota` —
+   * `valorDoc` is gross and never matches the invoice). Whenever the task has a vehicle —
+   * even for a single match — the discriminação then decides: a candidate is kept only if it
+   * cites this task's série, placa or chassi. That is what separates two trucks of the same customer billed at the same
+   * price on the same morning (the RKO/Ibiporã batches), which the value alone cannot.
+   * Invoices with no single vehicle (joint notes) fall back to value only.
+   *
+   * Throws when the prefeitura cannot be read — callers must treat that as "unknown", never
+   * as "nothing was emitted".
+   */
+  private async findLiveNotesForDocument(
+    nfseDocumentId: string,
+  ): Promise<Array<{ elotechNfseId: number; nfseNumber: number; valorLiquido: number }>> {
+    const doc = await this.prisma.nfseDocument.findUnique({
+      where: { id: nfseDocumentId },
+      include: {
+        invoice: { include: { customer: { select: { cnpj: true, cpf: true } } } },
+        task: {
+          select: {
+            serialNumber: true,
+            truck: { select: { plate: true, chassisNumber: true } },
+          },
+        },
+      },
+    });
+    if (!doc) return [];
+
+    const cnpj = doc.invoice?.customer?.cnpj ?? doc.invoice?.customer?.cpf ?? null;
+    const target = Number(doc.invoice?.totalAmount ?? 0);
+
+    // A day either side of the attempt — enough for a prefeitura timestamp that
+    // disagrees slightly with our clock, without widening into unrelated notes.
+    const ymd = (d: Date): string => d.toISOString().slice(0, 10);
+    const from = new Date(doc.createdAt.getTime() - 24 * 60 * 60 * 1000);
+    const to = new Date(doc.createdAt.getTime() + 24 * 60 * 60 * 1000);
+
+    const listed = await this.listNfses({
+      dataEmissaoInicial: ymd(from),
+      dataEmissaoFinal: ymd(to),
+      cpfCnpj: cnpj,
+      maxResult: 100,
+    });
+
+    const byId = new Map<number, any>();
+    for (const n of listed.data) {
+      const id = Number(n.id ?? n.idNotaFiscal);
+      if (Number.isFinite(id) && id > 0 && !byId.has(id)) byId.set(id, n);
+    }
+
+    // Exclude notes already claimed by another local document.
+    const claimed = await this.prisma.nfseDocument.findMany({
+      where: { elotechNfseId: { in: [...byId.keys()] }, id: { not: doc.id } },
+      select: { elotechNfseId: true },
+    });
+    const claimedIds = new Set(claimed.map(c => Number(c.elotechNfseId)));
+
+    let candidates: Array<{ elotechNfseId: number; nfseNumber: number; valorLiquido: number }> =
+      [];
+    for (const [id, n] of byId) {
+      if (claimedIds.has(id)) continue;
+      if (n.cancelada === true) continue;
+      // NET value — `valorDoc` is gross (pre-discount) and would never match the invoice.
+      const net = Number(n.valorLiquidoNota ?? n.valorServico ?? NaN);
+      if (!Number.isFinite(net)) continue;
+      if (Math.abs(net - target) >= 0.01) continue;
+      candidates.push({
+        elotechNfseId: id,
+        nfseNumber: Number(n.numeroNotaFiscal ?? 0),
+        valorLiquido: net,
+      });
+    }
+
+    const vehicleKeys = [
+      doc.task?.serialNumber ? `série: ${doc.task.serialNumber}` : null,
+      doc.task?.truck?.plate,
+      doc.task?.truck?.chassisNumber,
+    ]
+      .filter((k): k is string => !!k && k.trim().length >= 4)
+      .map(k => k.trim().toUpperCase());
+
+    // Always, not only on a tie: a lone candidate of the right value can still be ANOTHER
+    // truck's note (same customer, same price), and linking it would be silently wrong.
+    if (candidates.length > 0 && vehicleKeys.length > 0) {
+      const narrowed: typeof candidates = [];
+      for (const c of candidates) {
+        const detail = await this.getNfseDetail(c.elotechNfseId);
+        const text = String(detail?.formDadosNFSe?.discriminacaoServico ?? '').toUpperCase();
+        // Whole-token match: série 3844 must not match a note that cites série 38442.
+        const cites = (k: string): boolean =>
+          new RegExp(`${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9A-Z])`).test(text);
+        if (vehicleKeys.some(cites)) narrowed.push(c);
+      }
+      candidates = narrowed;
+    }
+
+    return candidates;
+  }
+
+  /**
+   * `salvar-nota-fiscal` failed without a definitive answer. Look for the note a few times
+   * (the prefeitura may still be finishing the request we abandoned); link it when exactly
+   * one matches, otherwise leave the document PROCESSING for `nfse-stuck-recovery`.
+   * Never ERROR: ERROR is re-emittable, and a re-emission here is a duplicate live note.
+   */
+  private async settleUnconfirmedEmission(
+    nfseDocumentId: string,
+    invoiceId: string,
+    cause: unknown,
+  ): Promise<Record<string, any>> {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    const pendingMessage =
+      `A prefeitura não confirmou a emissão (${reason}). A nota pode ter sido emitida — ` +
+      'o sistema está conferindo na prefeitura e vincula sozinho em até 10 minutos. ' +
+      'NÃO emita de novo.';
+
+    await this.prisma.nfseDocument.update({
+      where: { id: nfseDocumentId },
+      data: { status: NfseStatus.PROCESSING, errorMessage: pendingMessage },
+    });
+
+    for (const waitMs of [5000, 15000]) {
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      try {
+        const live = await this.findLiveNotesForDocument(nfseDocumentId);
+        if (live.length === 1) {
+          await this.linkDocumentToLiveNote(nfseDocumentId, live[0]);
+          this.logger.warn(
+            `[MUNICIPAL] Unconfirmed emission for invoice ${invoiceId} found live as NFS-e ` +
+              `nº ${live[0].nfseNumber} (id=${live[0].elotechNfseId}) — linked`,
+          );
+          return {
+            nfseId: live[0].elotechNfseId,
+            nfseNumber: live[0].nfseNumber,
+            status: 'AUTHORIZED',
+            recovered: true,
+          };
+        }
+        if (live.length > 1) break; // ambiguous — the recovery cron parks it for a human
+      } catch (lookupErr) {
+        this.logger.warn(
+          `[MUNICIPAL] Lookup after unconfirmed emission failed: ${
+            lookupErr instanceof Error ? lookupErr.message : lookupErr
+          }`,
+        );
+      }
+    }
+
+    this.logger.warn(
+      `[MUNICIPAL] Emission for invoice ${invoiceId} unconfirmed — doc ${nfseDocumentId} left ` +
+        'PROCESSING for nfse-stuck-recovery',
+    );
+    return { status: 'UNCONFIRMED', errorMessage: pendingMessage };
+  }
+
+  /** Attach a live prefeitura note to a local document and mark it AUTHORIZED. */
+  private async linkDocumentToLiveNote(
+    nfseDocumentId: string,
+    hit: { elotechNfseId: number; nfseNumber: number },
+  ): Promise<void> {
+    await this.prisma.nfseDocument.update({
+      where: { id: nfseDocumentId },
+      data: {
+        elotechNfseId: hit.elotechNfseId,
+        nfseNumber: hit.nfseNumber,
+        status: NfseStatus.AUTHORIZED,
+        errorMessage: null,
+        errorCount: 0,
+        retryAfter: null,
+      },
+    });
   }
 
   async cancelNfse(

@@ -44,14 +44,16 @@ async function main() {
     const candidates = await prisma.budget.findMany({
       where: {
         status: { in: ['APPROVED', 'SIGNED'] },
-        signatureEnvelopes: { some: { status: 'INVALIDATED' } },
+        // Só a coleta PRINCIPAL: uma complementar anulada sozinha não derruba o
+        // contrato, e o gancho já deixa o orçamento pendente nesse caso.
+        signatureEnvelopes: { some: { status: 'INVALIDATED', kind: 'PRIMARY' } },
       },
       select: {
         id: true,
         budgetNumber: true,
         status: true,
         signatureEnvelopes: {
-          where: { status: 'INVALIDATED' },
+          where: { status: 'INVALIDATED', kind: 'PRIMARY' },
           orderBy: { updatedAt: 'desc' },
           take: 1,
           select: { updatedAt: true, invalidatedReason: true },

@@ -257,6 +257,8 @@ export class BillingService {
         id: true,
         billingId: true,
         customerId: true,
+        // Faturado ESTE pagador? A lista mostra "1 de 2 clientes" com isto.
+        approvedAt: true,
         subtotal: true,
         total: true,
         paymentCondition: true,
@@ -362,7 +364,7 @@ export class BillingService {
         },
         customerConfigs: {
           orderBy: { createdAt: 'asc' },
-          select: { id: true, customer: { select: { id: true, fantasyName: true } } },
+          select: { id: true, approvedAt: true, customer: { select: { id: true, fantasyName: true } } },
         },
       },
     });
@@ -490,7 +492,20 @@ export class BillingService {
 
     if (params.quoteId) where.quoteId = params.quoteId;
     if (params.approved === true) where.approvedAt = { not: null };
-    if (params.approved === false) where.approvedAt = null;
+    // "A FATURAR" É TER PAGADOR NÃO FATURADO — não "a cobrança não tem carimbo".
+    // Com RKO e Ibiporã na mesma cobrança, faturar a RKO grava o carimbo e a
+    // cobrança sumia da fila com a Ibiporã ainda por sair. Pagador de cobrança
+    // aprovada no acervo tem carimbo próprio (backfill de 30/09), então o braço
+    // novo não traz de volta o que já foi faturado. A lente vale aqui também:
+    // filtrando pela RKO, pergunta-se só pela RKO.
+    if (params.approved === false) {
+      and.push({
+        OR: [
+          { approvedAt: null },
+          { customerConfigs: { some: { ...payerScope, approvedAt: null } } },
+        ],
+      });
+    }
     if (lens.length > 0) where.customerConfigs = { some: payerScope };
     // "Entregue" é do VEÍCULO, e a cobrança só está pronta quando TODOS os seus
     // estão: cobrar um lote de vinte com dezenove prontos é cobrar trabalho que

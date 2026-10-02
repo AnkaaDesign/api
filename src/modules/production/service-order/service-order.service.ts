@@ -1975,6 +1975,20 @@ export class ServiceOrderService {
       // budget/billing-approved quote, and never touch a cancelled one.
       if (!quote || quote.status !== TASK_QUOTE_STATUS.PENDING) return;
 
+      // ASSINATURA COMPLEMENTAR EM ANDAMENTO: o orçamento está pendente porque
+      // falta a assinatura de quem entrou depois, e é a conclusão dela que o
+      // aprova. Fechar a Em Negociação não pode passar por cima.
+      const complementar = await this.prisma.signatureEnvelope.count({
+        where: { quoteId: quote.id, kind: 'SUPPLEMENT', status: 'RUNNING' },
+      });
+      if (complementar > 0) {
+        this.logger.log(
+          `[EM NEGOCIAÇÃO → QUOTE] Task ${taskId}: aprovação automática ignorada — há ` +
+            `assinatura complementar em andamento no orçamento ${quote.id}.`,
+        );
+        return;
+      }
+
       // Required-layout gate: the budget cannot be approved (here, by completing
       // the commercial "Em Negociação" step) until an approved layout
       // (Budget.layoutFiles) has been selected in Step 2. Skip the auto-

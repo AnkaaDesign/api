@@ -92,8 +92,52 @@ export class SignatureController {
    */
   @Get('quote/:quoteId/delivery-preflight')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
-  async deliveryPreflight(@Param('quoteId', ParseUUIDPipe) quoteId: string) {
-    return { success: true, data: await this.envelopes.getDeliveryPreflight(quoteId) };
+  async deliveryPreflight(
+    @Param('quoteId', ParseUUIDPipe) quoteId: string,
+    @Query('complementar') complementar?: string,
+  ) {
+    return {
+      success: true,
+      data: await this.envelopes.getDeliveryPreflight(
+        quoteId,
+        complementar === 'true' || complementar === '1',
+      ),
+    };
+  }
+
+  /**
+   * COLETA COMPLEMENTAR — a assinatura de quem entrou na tarefa depois de a
+   * coleta concluir, sem anular quem já assinou. O orçamento volta para
+   * pendente até ela concluir. Ver `getSupplementCoverage`.
+   *
+   * `signers` aqui é a LISTA de quem assina (não um mapa de exceções como na
+   * emissão normal): só os escolhidos no modal.
+   */
+  @Post('quote/:quoteId/complementar')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL)
+  async createSupplement(
+    @Param('quoteId', ParseUUIDPipe) quoteId: string,
+    @UserId() userId: string,
+    @Req() req: Request,
+    @Body(new ZodValidationPipe(signatureCreateEnvelopeSchema))
+    body: SignatureCreateEnvelopeFormData,
+  ) {
+    const result = await this.envelopes.createEnvelope({
+      quoteId,
+      actorUserId: userId,
+      ctx: ctxOf(req),
+      channel: body?.channel ?? null,
+      signers: body?.signers ?? null,
+      supplement: true,
+    });
+    const via = result.channel === 'WHATSAPP' ? 'por WhatsApp' : 'por e-mail';
+    return {
+      success: true,
+      message:
+        `Assinatura complementar enviada ${via}. O orçamento fica pendente até ` +
+        'a assinatura ser concluída.',
+      data: result,
+    };
   }
 
   /** Congela o documento e dispara os convites. */
@@ -282,6 +326,29 @@ export class SignatureController {
         ? 'Orçamento aprovado a partir da coleta já concluída.'
         : (data.motivo ?? 'Nada a reexecutar.'),
       data,
+    };
+  }
+
+  /**
+   * Reavalia a assinatura do orçamento contra o cadastro ATUAL — a mesma
+   * pergunta que `BudgetService.update` faz ao final de uma gravação.
+   *
+   * Existe para o que mudou por um caminho sem gancho (e o PUT do orçamento sem
+   * alteração retorna antes de perguntar). Roda no processo da API de
+   * propósito: o aviso de anulação sai pela sessão de WhatsApp daqui. Só anula
+   * o que `onQuoteContentChanged` anularia; deriva cosmética só é registrada.
+   */
+  @Post('quote/:quoteId/reavaliar')
+  @HttpCode(200)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async reevaluate(@Param('quoteId', ParseUUIDPipe) quoteId: string, @UserId() userId: string) {
+    const invalidated = await this.envelopes.onQuoteContentChanged(quoteId, userId);
+    return {
+      success: true,
+      message: invalidated
+        ? 'Assinatura invalidada: o orçamento mudou de forma material.'
+        : 'Nada material mudou; a assinatura segue válida.',
+      data: { invalidated },
     };
   }
 

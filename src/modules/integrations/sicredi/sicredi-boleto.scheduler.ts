@@ -25,7 +25,7 @@ import {
   todayInSaoPauloAtNoonUtc,
 } from '@utils/due-date.util';
 import { rebuildBoletoCodesForDueDate } from '@utils/boleto-barcode.util';
-import { BILLING_FROZEN_WHERE } from '../../production/budget/budget.guards';
+import { PAYER_APPROVED_WHERE } from '../../production/budget/budget.guards';
 import { billingDeepLinkForInvoice } from '@utils/billing-links';
 
 const MAX_WEBHOOK_RETRIES = 3;
@@ -288,7 +288,9 @@ export class SicrediBoletoScheduler implements OnModuleInit {
               // A retirada externa não tem `Billing` e continua passando pelo ramo
               // dela — daí o OR, e não um AND direto.
               OR: [
-                { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+                // POR PAGADOR: a cobrança aprovada pela RKO não aprova a Ibiporã do
+                // mesmo recorte — ver `isPayerApproved`.
+                { customerConfig: { is: PAYER_APPROVED_WHERE } },
                 { externalOperationId: { not: null } },
               ],
             },

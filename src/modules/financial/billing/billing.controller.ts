@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Put,
@@ -16,6 +17,13 @@ import { BudgetService } from '@modules/production/budget/budget.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { BILLING_STATUS, SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
+import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
+import {
+  billingApproveSchema,
+  billingPayerTermsSchema,
+  type BillingApproveFormData,
+  type BillingPayerTermsFormData,
+} from '@schemas/budget';
 
 /**
  * OS ÚNICOS `orderBy` QUE ESTA ROTA ACEITA — a lista vem do serviço
@@ -354,9 +362,44 @@ export class BillingController {
    */
   @Put(':id/approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
-  async approve(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+  async approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    /**
+     * OS PAGADORES a faturar. Ausente = todos os que faltam nesta cobrança.
+     * Com RKO e Ibiporã sobre o mesmo caminhão, a tela manda um só quando o
+     * operador escolhe um cliente no seletor, e nenhum quando escolhe "Completo".
+     */
+    @Body(new ZodValidationPipe(billingApproveSchema, { coerceFormData: false })) body: BillingApproveFormData,
+    @UserId() userId: string,
+  ) {
     const quoteId = await this.billingService.quoteIdOf(id);
-    return this.budgetService.internalApprove(quoteId, userId, null, id);
+    return this.budgetService.internalApprove(
+      quoteId,
+      userId,
+      null,
+      id,
+      body?.customerConfigIds ?? null,
+    );
+  }
+
+  /**
+   * PUT /billings/:id/payers/:payerId
+   * Os termos de cobrança (condição de pagamento, gerar NF, gerar boleto) de UM
+   * pagador desta cobrança que ainda NÃO foi faturado.
+   *
+   * Existe porque `PUT /budgets/:id` trava todo campo de dinheiro assim que
+   * qualquer pagador do orçamento é faturado — e, com a aprovação por pagador, o
+   * que ficou para trás ainda precisa poder trocar boleto por PIX antes de sair.
+   */
+  @Put(':id/payers/:payerId')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
+  async updatePayerTerms(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('payerId', ParseUUIDPipe) payerId: string,
+    @Body(new ZodValidationPipe(billingPayerTermsSchema, { coerceFormData: false })) body: BillingPayerTermsFormData,
+    @UserId() userId: string,
+  ) {
+    return this.budgetService.updatePendingPayerTerms(id, payerId, body as any, userId);
   }
 
   /**

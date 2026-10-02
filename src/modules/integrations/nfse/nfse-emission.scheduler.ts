@@ -9,7 +9,7 @@ import { NfseStatus } from '@prisma/client';
 import { NFSE_LIVE_STATUSES } from '@constants';
 import { orderNumberLabel } from '../../../utils/quote-tasks';
 import { missingCoverageError, resolveCoveredVehicles } from '../../../utils/nfse-coverage';
-import { BILLING_FROZEN_WHERE } from '../../../modules/production/budget/budget.guards';
+import { PAYER_APPROVED_WHERE } from '../../../modules/production/budget/budget.guards';
 import { billingDeepLinkForInvoice } from '../../../utils/billing-links';
 
 /**
@@ -339,7 +339,9 @@ export class NfseEmissionScheduler {
               // A retirada externa não tem `Billing` e continua passando pelo
               // ramo dela — daí o OR, e não um AND direto.
               OR: [
-                { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+                // POR PAGADOR: a cobrança aprovada pela RKO não aprova a Ibiporã do
+                // mesmo recorte — ver `isPayerApproved`.
+                { customerConfig: { is: PAYER_APPROVED_WHERE } },
                 { externalOperationId: { not: null } },
               ],
             },
@@ -770,7 +772,9 @@ export class NfseEmissionScheduler {
         invoice: {
           is: {
             OR: [
-              { customerConfig: { is: { billing: { is: BILLING_FROZEN_WHERE } } } },
+              // POR PAGADOR: a cobrança aprovada pela RKO não aprova a Ibiporã do
+              // mesmo recorte — ver `isPayerApproved`.
+              { customerConfig: { is: PAYER_APPROVED_WHERE } },
               { externalOperationId: { not: null } },
             ],
           },

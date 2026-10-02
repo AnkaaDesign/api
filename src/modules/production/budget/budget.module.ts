@@ -2,6 +2,7 @@
 
 import { Module, forwardRef, Inject, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureModule } from '@modules/common/signature/signature.module';
 import { SignatureEnvelopeService } from '@modules/common/signature/services/signature-envelope.service';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
@@ -76,11 +77,32 @@ export class BudgetModule implements OnModuleInit {
     @Inject(forwardRef(() => SignatureEnvelopeService))
     private readonly signatureEnvelopes: SignatureEnvelopeService,
     private readonly budgetService: BudgetService,
+    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit(): void {
     this.signatureEnvelopes.setOnEnvelopeCompleted(async (quoteId, _envelopeId, actorUserId) => {
+      // Já aprovado não reaprova: `APPROVED → APPROVED` não é transição, e a
+      // conclusão de uma coleta COMPLEMENTAR sobre um orçamento que alguém
+      // aprovou à mão no meio do caminho só registraria um erro no log.
+      const atual = await this.prisma.budget.findUnique({
+        where: { id: quoteId },
+        select: { status: true },
+      });
+      if (atual?.status === 'APPROVED') return;
       await this.budgetService.budgetApprove(quoteId, actorUserId ?? '');
+    });
+
+    // COLETA COMPLEMENTAR: falta a assinatura de quem entrou depois, e o
+    // orçamento volta para pendente até ela concluir (decisão de 02/10/2026).
+    this.signatureEnvelopes.setOnSupplementIssued(async (quoteId, _envelopeId, names, actorUserId) => {
+      await this.budgetService.markPendingForSupplement(quoteId, names, actorUserId);
+    });
+
+    // A complementar venceu ou foi recusada: o orçamento CONTINUA pendente e o
+    // comercial é avisado. Não é reanálise de valor — o contrato está de pé.
+    this.signatureEnvelopes.setOnSupplementEnded(async (quoteId, _envelopeId, outcome, reason) => {
+      await this.budgetService.notifySupplementEnded(quoteId, outcome, reason);
     });
 
     // O cliente fechou o lado dele; falta a nossa caneta. Momento distinto da

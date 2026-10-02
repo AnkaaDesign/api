@@ -44,6 +44,9 @@ export class SignatureAddendumScheduler {
       // decide caso a caso se há algo de fato a declarar.
       const rows = await this.prisma.signatureEnvelope.findMany({
         where: {
+          // Só o contrato: `issueVehicleAddendum` resolve pela coleta PRINCIPAL,
+          // e uma complementar candidata ocuparia o `take` para sempre.
+          kind: 'PRIMARY',
           finalFileId: { not: null },
           addendumFileId: null,
           // `some`, não `every`: o aditivo declara o que o cadastro tardio

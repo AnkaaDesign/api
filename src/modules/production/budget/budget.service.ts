@@ -113,6 +113,7 @@ import {
   BILLING_FROZEN_WHERE,
   isBillingApproved,
   isBillingFrozen,
+  isPayerApproved,
   isQuoteMoneyLocked,
   QUOTE_VALUE_REVERTABLE_STATUSES,
   QUOTE_MONEY_LOCK_INCLUDE,
@@ -159,6 +160,15 @@ function computeConfigDiscount(
   if (discountType === 'FIXED_VALUE') return Math.min(discountValue, subtotal);
   return 0;
 }
+
+/** Um faturamento como a aprovação por pagador o lê. */
+type ApprovalBillingRow = {
+  id: string;
+  approvedAt: Date | null;
+  status: string | null;
+  tasks: Array<{ taskId: string }>;
+  customerConfigs: Array<{ id: string; customerId: string; approvedAt: Date | null }>;
+};
 
 /**
  * Service for managing Budget entities
@@ -1998,6 +2008,15 @@ export class BudgetService {
           // (`BillingStatusCascadeService.resolve`) responde PENDENTE — é esse
           // valor que se grava, não um inventado.
           if (cancelledInvoices && cancelledInvoiceBillingIds.length > 0) {
+            // O pagador que ficou sem fatura viva deixa de estar faturado.
+            await tx.budgetPayer.updateMany({
+              where: {
+                billingId: { in: cancelledInvoiceBillingIds },
+                approvedAt: { not: null },
+                invoices: { none: LIVE_INVOICE_WHERE as any },
+              },
+              data: { approvedAt: null },
+            });
             const desaprovadas = await (tx as any).billing.updateMany({
               where: { id: { in: cancelledInvoiceBillingIds }, approvedAt: { not: null } },
               data: {
@@ -3909,6 +3928,114 @@ export class BudgetService {
   }
 
   /**
+   * FALTA UMA ASSINATURA: a coleta complementar foi emitida e o orçamento volta
+   * para pendente.
+   *
+   * O contrato principal continua assinado e selado — nada é anulado. Mas o
+   * dono decidiu (02/10/2026) que orçamento com assinatura faltando é
+   * orçamento pendente: a Em Negociação reabre, ele sai da fila do financeiro
+   * e só volta a aprovado quando a complementar concluir (`budgetApprove`, pelo
+   * gancho de conclusão de sempre).
+   *
+   * SÓ DE APROVADO. Pendente já está; cancelado ou em reanálise a cobertura
+   * nem deixa emitir. E nunca com dinheiro travado: a emissão já recusa (não
+   * se pede assinatura complementar depois do faturamento), e a guarda aqui é a
+   * segunda linha, pelo mesmo motivo de `markInvalidatedBySignature`.
+   */
+  async markPendingForSupplement(
+    quoteId: string,
+    signerNames: string[],
+    userId: string = 'system',
+  ): Promise<void> {
+    const existing = await this.prisma.budget.findUnique({
+      where: { id: quoteId },
+      select: { status: true, ...QUOTE_MONEY_LOCK_INCLUDE },
+    });
+    if (!existing) return;
+
+    const currentStatus = existing.status as TASK_QUOTE_STATUS;
+    if (currentStatus !== TASK_QUOTE_STATUS.APPROVED && currentStatus !== TASK_QUOTE_STATUS.SIGNED) {
+      return;
+    }
+    if (isQuoteMoneyLocked(existing.billings)) {
+      this.logger.warn(
+        `Orçamento ${quoteId}: assinatura complementar emitida com cobrança aprovada — ` +
+          `segue em ${currentStatus}.`,
+      );
+      return;
+    }
+
+    await this.update(quoteId, { status: TASK_QUOTE_STATUS.PENDING }, userId, true);
+    await syncEmNegociacaoForQuote(this.prisma, quoteId, userId);
+
+    const quem = signerNames.length ? signerNames.join(', ') : 'novo responsável';
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TASK_QUOTE,
+      entityId: quoteId,
+      action: CHANGE_ACTION.ROLLBACK,
+      field: 'status',
+      oldValue: currentStatus,
+      newValue: TASK_QUOTE_STATUS.PENDING,
+      reason: `Assinatura complementar solicitada a ${quem} — o orçamento fica pendente até ela ser concluída`,
+      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+      triggeredById: userId,
+      userId,
+    });
+  }
+
+  /**
+   * A COLETA COMPLEMENTAR TERMINOU SEM A ASSINATURA (venceu ou foi recusada).
+   *
+   * O orçamento CONTINUA PENDENTE — decisão do dono: falta assinatura. Não vai
+   * para "Aguardando Reanálise" como na coleta principal, porque a proposta não
+   * morreu: o contrato segue assinado por quem assinou. O que muda é que o
+   * comercial precisa saber, para pedir de novo, conversar com o cliente ou
+   * aprovar sem ela.
+   */
+  async notifySupplementEnded(
+    quoteId: string,
+    outcome: 'EXPIRED' | 'REFUSED',
+    reason: string | null,
+    userId: string = 'system',
+  ): Promise<void> {
+    try {
+      const { label: quoteLabel, taskId } = await this.buildQuoteLabel(quoteId);
+      const motivo = reason?.trim() || 'sem motivo informado';
+      const recusou = outcome === 'REFUSED';
+      await this.dispatchService.dispatchByConfiguration(
+        recusou ? 'task_quote.refused' : 'task_quote.expired',
+        userId,
+        {
+          entityType: 'Budget',
+          entityId: taskId ?? quoteId,
+          action: recusou ? 'refused' : 'expired',
+          data: recusou ? { quoteLabel, reason: motivo } : { quoteLabel, expiredOn: '' },
+          overrides: {
+            title: recusou
+              ? 'Assinatura Complementar Recusada'
+              : 'Assinatura Complementar Vencida',
+            body: recusou
+              ? `O responsável chamado a assinar o orçamento ${quoteLabel} recusou. Motivo: ${motivo}. ` +
+                'O contrato segue assinado pelos demais; o orçamento continua pendente.'
+              : `A assinatura complementar do orçamento ${quoteLabel} venceu sem ser concluída. ` +
+                'O contrato segue assinado pelos demais; o orçamento continua pendente — ' +
+                'prorrogue a validade e peça de novo, ou aprove sem ela.',
+            relatedEntityType: 'TASK_QUOTE',
+            ...(taskId
+              ? {
+                  webUrl: `/financeiro/orcamento/detalhes/${taskId}`,
+                  mobileUrl: `/(tabs)/financeiro/orcamento/detalhes/${taskId}`,
+                }
+              : {}),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Falha ao avisar o fim da assinatura complementar:', error);
+    }
+  }
+
+  /**
    * Commercial approves the budget.
    *
    * This is the single commercial approval gate. Once the budget is approved
@@ -4070,17 +4197,147 @@ export class BudgetService {
    * pendente, aprovar tudo e aprovar aquela são o mesmo ato.
    */
   async countPendingBillings(quoteId: string): Promise<number> {
-    // ⚠️ PENDENTE É O QUE NÃO ESTÁ CONGELADO — e congelado não é só ter carimbo.
+    // ⚠️ PENDENTE É A COBRANÇA COM ALGUM PAGADOR AINDA NÃO FATURADO.
     //
-    // `approvedAt: null` sozinho conta como pendente a cobrança LIQUIDADA POR
-    // CONCILIAÇÃO, que nunca teve fatura de onde derivar a data (orçamentos 34,
-    // 216, 287, 347, 351 e 309 do acervo). O contador alimenta o "aprovar tudo",
-    // então a conta mentia e a aprovação tentava refaturar dinheiro já recebido.
-    // `BILLING_FROZEN_WHERE` é `isBillingApproved` em SQL — os dois braços que a
-    // linha do `Billing` responde, que é o que "pendente para aprovar" quer dizer.
-    return (this.prisma as any).billing.count({
-      where: { quoteId, NOT: BILLING_FROZEN_WHERE },
+    // Era `NOT: BILLING_FROZEN_WHERE` — "a cobrança não tem aprovação". Com a
+    // aprovação por pagador, uma cobrança em que a RKO já foi faturada e a
+    // Ibiporã não TEM aprovação e continua pendente. A pergunta é feita a cada
+    // pagador com `isPayerApproved`, que também cobre a cobrança LIQUIDADA POR
+    // CONCILIAÇÃO sem carimbo nenhum (orçamentos 34, 216, 287, 347, 351 e 309 do
+    // acervo): aprovada, sem pagador carimbado, lê como "todos faturados".
+    const billings = await this.loadBillingsForApproval(quoteId);
+    return billings.filter(b => this.pendingPayersOf(b).length > 0).length;
+  }
+
+  /** Os faturamentos do orçamento com o que a aprovação por pagador precisa. */
+  private async loadBillingsForApproval(quoteId: string): Promise<ApprovalBillingRow[]> {
+    return (await (this.prisma as any).billing.findMany({
+      where: { quoteId },
+      select: {
+        id: true,
+        approvedAt: true,
+        // ⚠️ O ESTADO VEM JUNTO, e não é enfeite: há cobrança LIQUIDADA sem
+        // carimbo (conciliação bancária, sem fatura de onde derivar a data). Sem
+        // `status` no select, `isBillingApproved` responderia pelo carimbo apenas —
+        // que é exatamente a cegueira que fazia "Aprovar" emitir NFS-e e boleto
+        // novos sobre dinheiro já recebido.
+        status: true,
+        tasks: { select: { taskId: true } },
+        customerConfigs: {
+          select: { id: true, customerId: true, approvedAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    })) as ApprovalBillingRow[];
+  }
+
+  /** Os pagadores deste faturamento que AINDA NÃO foram faturados. */
+  private pendingPayersOf(billing: ApprovalBillingRow): ApprovalBillingRow['customerConfigs'] {
+    return billing.customerConfigs.filter(c => !isPayerApproved(c, billing));
+  }
+
+  /**
+   * AS CONDIÇÕES DE UM PAGADOR AINDA NÃO FATURADO — com o orçamento travado.
+   *
+   * `PUT /budgets/:id` recusa qualquer campo de dinheiro assim que ALGUMA
+   * cobrança do orçamento tem aprovação (`isQuoteMoneyLocked`). Era certo quando a
+   * cobrança saía inteira; com a aprovação por pagador deixou um beco: a RKO
+   * faturada trava o orçamento, e a Ibiporã — que ainda não foi faturada, sobre
+   * o mesmo caminhão — não tinha mais como trocar boleto por PIX antes de sair.
+   *
+   * Esta é a porta estreita: só os termos de COBRANÇA de UM pagador (condição de
+   * pagamento, texto livre, gerar NF, gerar boleto), só enquanto ele não tiver
+   * sido faturado. Preço, desconto, serviços e cobertura continuam travados —
+   * eles são o que a nota que já saiu declara.
+   *
+   * Não passa pela conferência de assinatura de `update()`, e de propósito: é
+   * escrita de COBRANÇA, e escrita de cobrança não derruba contrato (ver o caso
+   * do nº 973 em `onQuoteContentChanged`). Fica registrada no histórico do
+   * orçamento, como as demais alterações de faturamento.
+   */
+  async updatePendingPayerTerms(
+    billingId: string,
+    payerId: string,
+    data: {
+      paymentCondition?: string | null;
+      paymentConfig?: Record<string, unknown> | null;
+      customPaymentText?: string | null;
+      generateInvoice?: boolean;
+      generateBankSlip?: boolean;
+    },
+    userId: string,
+  ) {
+    const payer = await this.prisma.budgetPayer.findUnique({
+      where: { id: payerId },
+      include: {
+        customer: { select: { fantasyName: true, corporateName: true } },
+        quote: { select: { status: true } },
+        billing: {
+          select: {
+            id: true,
+            approvedAt: true,
+            status: true,
+            customerConfigs: { select: { approvedAt: true } },
+          },
+        },
+        invoices: { where: LIVE_INVOICE_WHERE as any, select: { id: true } },
+      },
     });
+    if (!payer || payer.billingId !== billingId) {
+      throw new NotFoundException('Pagador não encontrado neste faturamento.');
+    }
+    if ((payer as any).quote?.status === TASK_QUOTE_STATUS.CANCELLED) {
+      throw new BadRequestException('O orçamento está cancelado — não há o que faturar.');
+    }
+    if (isPayerApproved(payer, (payer as any).billing) || (payer as any).invoices.length > 0) {
+      throw new BadRequestException(
+        'Este cliente já foi faturado: a fatura, a nota e os boletos saíram com estas condições. ' +
+          'Para mudá-las, reverta o faturamento desta cobrança primeiro.',
+      );
+    }
+
+    const campos = [
+      'paymentCondition',
+      'paymentConfig',
+      'customPaymentText',
+      'generateInvoice',
+      'generateBankSlip',
+    ] as const;
+    const mudou: Record<string, unknown> = {};
+    for (const campo of campos) {
+      if (!(campo in data) || (data as any)[campo] === undefined) continue;
+      const antes = (payer as any)[campo];
+      const depois = (data as any)[campo];
+      if (JSON.stringify(antes ?? null) !== JSON.stringify(depois ?? null)) mudou[campo] = depois;
+    }
+    if (Object.keys(mudou).length === 0) {
+      return { success: true, message: 'Nada a alterar.', data: payer };
+    }
+
+    const who = payer.customer?.fantasyName || payer.customer?.corporateName || payer.customerId;
+    const updated = await this.prisma.$transaction(async tx => {
+      const row = await tx.budgetPayer.update({ where: { id: payerId }, data: mudou as any });
+      for (const [campo, depois] of Object.entries(mudou)) {
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_QUOTE_CUSTOMER_CONFIG,
+          entityId: payer.quoteId,
+          action: CHANGE_LOG_ACTION.UPDATE as any,
+          field: campo,
+          oldValue: (payer as any)[campo] ?? null,
+          newValue: depois ?? null,
+          reason: `Faturamento '${who}' — ${campo} alterado (cliente ainda não faturado)`,
+          metadata: { customerId: payer.customerId, customerName: who, billingId },
+          userId,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId,
+          transaction: tx,
+        });
+      }
+      return row;
+    });
+
+    return { success: true, message: 'Condições do cliente atualizadas.', data: updated };
   }
 
   async internalApprove(
@@ -4096,9 +4353,21 @@ export class BudgetService {
      * o app e os links antigos ainda endereçam por veículo.
      */
     billingId?: string | null,
+    /**
+     * OS PAGADORES a faturar, dentro do(s) faturamento(s) endereçado(s).
+     *
+     * Ausente = todos os que ainda não foram faturados — o comportamento de
+     * sempre. Presente = só estes: com RKO e Ibiporã sobre o mesmo caminhão, o
+     * financeiro fatura a RKO hoje e a Ibiporã quando o pedido dela chegar, e
+     * cada um desses atos emite só a nota e os boletos do seu pagador.
+     */
+    customerConfigIds?: readonly string[] | null,
   ): Promise<BudgetUpdateResponse> {
     this.logger.log(
       `[INTERNAL_APPROVE] Starting internal approval for quote ${id} by user ${userId}` +
+        (customerConfigIds && customerConfigIds.length > 0
+          ? ` (pagadores ${customerConfigIds.join(', ')})`
+          : '') +
         (billingId
           ? ` (faturamento ${billingId})`
           : sliceTaskId
@@ -4112,40 +4381,24 @@ export class BudgetService {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
 
-    // ── OS FATURAMENTOS DESTE ORÇAMENTO ───────────────────────────────────────
+    // ── OS FATURAMENTOS DESTE ORÇAMENTO, E QUEM DENTRO DELES AINDA NÃO FOI FATURADO
     //
-    // A pergunta é feita ao FATURAMENTO, não ao pagador. Antes eram os pagadores
-    // que carregavam `billingApprovedAt`, e com dois pagadores do mesmo recorte
-    // havia duas datas para um evento só — sempre escritas juntas pelo mesmo
-    // `updateMany`, porque o evento sempre foi um.
-    const quoteBillings = (await (this.prisma as any).billing.findMany({
-      where: { quoteId: id },
-      select: {
-        id: true,
-        approvedAt: true,
-        // ⚠️ O ESTADO VEM JUNTO, e não é enfeite: há cobrança LIQUIDADA sem
-        // carimbo (conciliação bancária, sem fatura de onde derivar a data). Sem
-        // `status` no select, `isBillingApproved` responderia pelo carimbo apenas —
-        // que é exatamente a cegueira que fazia "Aprovar" emitir NFS-e e boleto
-        // novos sobre dinheiro já recebido.
-        status: true,
-        tasks: { select: { taskId: true } },
-        customerConfigs: { select: { id: true }, orderBy: { createdAt: 'asc' } },
-      },
-      orderBy: { createdAt: 'asc' },
-    })) as Array<{
-      id: string;
-      approvedAt: Date | null;
-      status: string | null;
-      tasks: Array<{ taskId: string }>;
-      customerConfigs: Array<{ id: string }>;
-    }>;
+    // A pergunta "já foi faturado?" é feita a cada PAGADOR (`isPayerApproved`).
+    // Era feita ao faturamento inteiro, e isso obrigava RKO e Ibiporã sobre o
+    // mesmo caminhão a sair juntas: aprovar a cobrança emitia as duas notas, e
+    // depois de aprovada não restava como faturar só a que tinha ficado para trás.
+    const quoteBillings = await this.loadBillingsForApproval(id);
 
-    // Alvo desta aprovação, em três endereçamentos possíveis:
+    const requestedPayers =
+      customerConfigIds && customerConfigIds.length > 0 ? new Set(customerConfigIds) : null;
+
+    // Alvo desta aprovação, em quatro endereçamentos possíveis:
     //
     //   · POR FATURAMENTO (`billingId`) — o endereço próprio, e o que a tela nova
     //     usa: `/financeiro/faturamento/:billingId` aprova aquela cobrança e
     //     nenhuma outra, sem ambiguidade nenhuma.
+    //   · POR PAGADOR (`customerConfigIds`) — dentro do faturamento, só os
+    //     pagadores pedidos. Combina com o anterior: a tela manda os dois.
     //   · POR VEÍCULO (`sliceTaskId`) — o endereçamento anterior, mantido porque
     //     o app e os links antigos ainda o usam. A pergunta é de COBERTURA, não
     //     de igualdade: aprovar o caminhão 37 fecha o faturamento do lote 21–60,
@@ -4153,16 +4406,15 @@ export class BudgetService {
     //     que o lote significa.
     //   · SEM ENDEREÇO — todos os faturamentos ainda pendentes. É o "faturar os
     //     sessenta de uma vez".
+    //
+    // Faturamento sem pagador pendente não entra — nem por carimbo, nem por
+    // ESTADO pós-aprovação (`isPayerApproved` herda os dois braços de
+    // `isBillingApproved` para a cobrança sem pagador carimbado). É o que impede
+    // reaprovar uma cobrança liquidada por conciliação.
     const targetBillings = quoteBillings.filter(b => {
-      // Já aprovada não entra — nem por carimbo, nem por ESTADO pós-aprovação. É
-      // `isBillingApproved`, os dois braços que a linha do `Billing` responde, e
-      // usá-lo aqui é o que impede reaprovar uma cobrança liquidada por
-      // conciliação. NÃO é `isBillingFrozen`: o terceiro braço daquele ("tem
-      // fatura viva") transformaria o resíduo de uma aprovação que falhou no meio
-      // — fatura viva, carimbo levantado — em cobrança inaprovável, que é
-      // exatamente o beco que a pessoa precisa sair clicando "Aprovar" de novo.
-      if (isBillingApproved(b)) return false;
+      if (this.pendingPayersOf(b).length === 0) return false;
       if (billingId) return b.id === billingId;
+      if (requestedPayers) return b.customerConfigs.some(c => requestedPayers.has(c.id));
       if (!sliceTaskId) return true;
       // Faturamento sem cobertura é o orçamento que nasceu antes do vínculo das
       // tarefas: não há o que restringir, e recusá-lo deixaria a aprovação sem
@@ -4171,12 +4423,45 @@ export class BudgetService {
       return b.tasks.some(row => row.taskId === sliceTaskId);
     });
 
-    const targetConfigs = targetBillings.flatMap(b => b.customerConfigs);
+    // O RECORTE DE PAGADORES tem de ser inteiro ou nada. Um pagador que não é
+    // deste faturamento, ou que já foi faturado, é recusado com nome em vez de
+    // silenciosamente ignorado: "aprovei a Ibiporã" e nada acontecer é pior do
+    // que um erro.
+    if (requestedPayers) {
+      const dono = new Map<string, ApprovalBillingRow>();
+      for (const b of quoteBillings) for (const c of b.customerConfigs) dono.set(c.id, b);
+      const estranhos = [...requestedPayers].filter(pid => {
+        const b = dono.get(pid);
+        return !b || (!!billingId && b.id !== billingId);
+      });
+      if (estranhos.length > 0) {
+        throw new BadRequestException(
+          `${estranhos.length === 1 ? 'O pagador informado não pertence' : 'Os pagadores informados não pertencem'} ` +
+            'a este faturamento.',
+        );
+      }
+      const jaFaturados = [...requestedPayers].filter(pid => {
+        const b = dono.get(pid)!;
+        return isPayerApproved(b.customerConfigs.find(c => c.id === pid)!, b);
+      });
+      if (jaFaturados.length > 0) {
+        throw new BadRequestException(
+          jaFaturados.length === requestedPayers.size
+            ? requestedPayers.size === 1
+              ? 'Este cliente já teve o faturamento aprovado.'
+              : 'Estes clientes já tiveram o faturamento aprovado.'
+            : 'Parte dos clientes selecionados já teve o faturamento aprovado — atualize a tela e aprove só os que faltam.',
+        );
+      }
+    }
+
+    const targetConfigs = targetBillings.flatMap(b =>
+      this.pendingPayersOf(b).filter(c => !requestedPayers || requestedPayers.has(c.id)),
+    );
 
     if (targetBillings.length === 0) {
-      const jaAprovado =
-        billingId && quoteBillings.some(b => b.id === billingId && isBillingApproved(b));
-      if (billingId && !jaAprovado) {
+      const existe = billingId ? quoteBillings.some(b => b.id === billingId) : true;
+      if (!existe) {
         throw new NotFoundException(`Faturamento ${billingId} não pertence ao orçamento ${id}.`);
       }
       throw new BadRequestException(
@@ -4242,8 +4527,11 @@ export class BudgetService {
     //
     // SÓ MORDE QUEM TEVE COLETA. Orçamento que nunca foi à assinatura — a maioria
     // — não tem envelope nenhum e continua faturável como hoje.
+    // A coleta PRINCIPAL é o contrato. Uma complementar recusada ou vencida não
+    // tira a aceitação de quem assinou — e a complementar em andamento já deixa
+    // o orçamento pendente, que a guarda de status acima recusa.
     const ultimoEnvelope = await this.prisma.signatureEnvelope.findFirst({
-      where: { quoteId: id },
+      where: { quoteId: id, kind: 'PRIMARY' },
       orderBy: { createdAt: 'desc' },
       select: { status: true, invalidatedReason: true },
     });
@@ -4308,68 +4596,71 @@ export class BudgetService {
     // A pergunta é respondida DEPOIS do claim, contando quem sobrou — e aí a
     // resposta é a mesma independentemente da ordem em que as duas terminem.
     const fechaOOrcamento = async (): Promise<boolean> =>
-      (await (this.prisma as any).billing.count({
-        where: { quoteId: id, approvedAt: null },
-      })) === 0;
+      (await this.loadBillingsForApproval(id)).every(b =>
+        // Faturamento sem pagador nenhum não "fecha" por vacuidade: responde o
+        // carimbo dele, como sempre respondeu.
+        b.customerConfigs.length === 0
+          ? isBillingApproved(b)
+          : this.pendingPayersOf(b).length === 0,
+      );
 
-    const pedidos = targetBillings.map(b => b.id);
-
-    // 2. Claim ATÔMICO da transição.
+    // 2. Claim ATÔMICO da transição — POR PAGADOR.
     //
-    // O CLAIM É DA COBRANÇA, sempre — inclusive na primeira. Antes a primeira
-    // aprovação reivindicava o STATUS DO ORÇAMENTO e as seguintes reivindicavam o
-    // carimbo da fatia: duas condições de corrida diferentes para o mesmo evento,
-    // e a primeira protegia a coisa errada (duas requisições aprovando
-    // faturamentos DIFERENTES do mesmo orçamento disputavam um campo que não era
-    // de nenhuma das duas).
+    // ⚠️ UM PAGADOR POR VEZ, e o resultado É a lista do que se ganhou.
     //
-    // ⚠️ UMA COBRANÇA POR VEZ, e o resultado É a lista do que se ganhou.
+    // O claim era da COBRANÇA (`Billing.approvedAt`), porque a cobrança era
+    // aprovada inteira. Com a aprovação por pagador, duas requisições podem
+    // legitimamente aprovar pagadores DIFERENTES da mesma cobrança ao mesmo
+    // tempo — e o que não pode acontecer é o MESMO pagador ser faturado duas
+    // vezes. Por isso a posse é do pagador: `count === 1` prova que esta chamada
+    // ganhou aquela linha, e a LISTA das ganhas — não um timestamp, que duas
+    // chamadas simultâneas compartilham — é o token do desfazer.
     //
-    // Era um `updateMany` sobre todos os alvos que só recusava `count === 0`.
-    // Com alvos SOBREPOSTOS (duas chamadas sem endereço, ou uma sem endereço e
-    // outra por veículo) o claim PARCIAL passava: a chamada seguia adiante
-    // gerando fatura, nota e boleto para `targetBillingIds` INTEIROS — inclusive
-    // a cobrança que a outra requisição acabara de reivindicar. E o desfazer
-    // identificava "o que esta tentativa carimbou" por `approvedAt: approvalDate`
-    // — um instante de milissegundo que duas chamadas simultâneas compartilham,
-    // de modo que o rollback de uma levantava o carimbo da outra. Provado em 14
-    // rodadas: 2 terminaram com cobrança tendo fatura e boleto VIVOS e
-    // `approvedAt` NULO.
-    //
-    // Reivindicando uma a uma, `count === 1` é prova de posse daquela linha, e a
-    // LISTA das ganhas — não um timestamp — é o token do desfazer. O escopo desta
-    // aprovação passa a ser exatamente o que ela reivindicou: quem perdeu uma
-    // cobrança para outra requisição simplesmente não a fatura, e quem ganhou a
-    // fatura uma vez só.
-    const targetBillingIds: string[] = [];
+    // Quem perdeu um pagador para outra requisição simplesmente não o fatura.
+    const pedidos = targetConfigs.map(c => c.id);
+    const claimedPayerIds: string[] = [];
     for (const candidato of pedidos) {
-      const ganho = await (this.prisma as any).billing.updateMany({
+      const ganho = await this.prisma.budgetPayer.updateMany({
         where: { id: candidato, approvedAt: null },
         data: { approvedAt: approvalDate },
       });
-      if (ganho.count === 1) targetBillingIds.push(candidato);
+      if (ganho.count === 1) claimedPayerIds.push(candidato);
     }
-    if (targetBillingIds.length === 0) {
+    if (claimedPayerIds.length === 0) {
       throw new BadRequestException(
         'Este faturamento já foi aprovado por outra requisição simultânea.',
       );
     }
-    if (targetBillingIds.length < pedidos.length) {
+    if (claimedPayerIds.length < pedidos.length) {
       this.logger.warn(
-        `[INTERNAL_APPROVE] ${pedidos.length - targetBillingIds.length} de ${pedidos.length} ` +
-          `cobrança(s) do orçamento ${id} já haviam sido reivindicadas por outra requisição — ` +
-          'esta aprovação segue apenas com as que ganhou.',
+        `[INTERNAL_APPROVE] ${pedidos.length - claimedPayerIds.length} de ${pedidos.length} ` +
+          `pagador(es) do orçamento ${id} já haviam sido reivindicados por outra requisição — ` +
+          'esta aprovação segue apenas com os que ganhou.',
       );
     }
-    // O escopo da GERAÇÃO segue o claim, não o pedido: faturar um pagador de uma
-    // cobrança que esta chamada não reivindicou emitiria a segunda nota fiscal do
-    // mesmo serviço.
-    const claimedBillings = targetBillings.filter(b => targetBillingIds.includes(b.id));
-    const claimedConfigs = claimedBillings.flatMap(b => b.customerConfigs);
+    // O escopo da GERAÇÃO segue o claim, não o pedido: faturar um pagador que
+    // esta chamada não reivindicou emitiria a segunda nota fiscal do mesmo serviço.
+    const claimedConfigs = targetConfigs.filter(c => claimedPayerIds.includes(c.id));
+    const claimedBillings = targetBillings.filter(b =>
+      b.customerConfigs.some(c => claimedPayerIds.includes(c.id)),
+    );
+    const targetBillingIds = claimedBillings.map(b => b.id);
+
+    // O CARIMBO DA COBRANÇA — gravado na PRIMEIRA aprovação de qualquer pagador
+    // dela. É o que as travas leem (cobertura, preço, divisão): a partir daqui há
+    // nota citando estes veículos. Só se escreve onde está nulo; uma cobrança com
+    // a RKO já faturada mantém a data da RKO quando a Ibiporã sai depois.
+    for (const b of claimedBillings) {
+      await (this.prisma as any).billing.updateMany({
+        where: { id: b.id, approvedAt: null },
+        data: { approvedAt: approvalDate },
+      });
+    }
+
     // `Budget.billingApprovedAt` significa "orçamento INTEIRAMENTE faturado" —
     // e continua sendo do orçamento, porque é sobre o contrato, não sobre uma
     // cobrança. Num orçamento de sessenta caminhões ele é gravado quando o
-    // sexagésimo fecha.
+    // sexagésimo fecha; com dois pagadores, quando o segundo sai.
     if (await fechaOOrcamento()) {
       await this.prisma.budget.update({
         where: { id },
@@ -4587,29 +4878,46 @@ export class BudgetService {
       // ficavam de pé, de modo que a tentativa seguinte respondia "esta fatia já
       // teve o faturamento aprovado" sobre um caminhão que nunca foi faturado.
       //
-      // O desfazer é escopado à tentativa: as cobranças que ELA reivindicou.
+      // O desfazer é escopado à tentativa: os PAGADORES que ELA reivindicou.
       //
       // ⚠️ O TOKEN É A LISTA DO CLAIM, NÃO O TIMESTAMP. Era
       // `approvedAt: approvalDate` — "o que esta chamada carimbou" —, e
       // `approvalDate` é um instante de milissegundo que duas chamadas
       // simultâneas compartilham: o rollback de uma levantava o carimbo da outra,
-      // que tinha acabado de emitir nota e boleto. `targetBillingIds` é o que
+      // que tinha acabado de emitir nota e boleto. `claimedPayerIds` é o que
       // esta chamada ganhou linha a linha, e nenhuma outra pode tê-lo ganhado.
       try {
-        const unclaimed = await (this.prisma as any).billing.updateMany({
-          where: { id: { in: targetBillingIds } },
-          data: {
-            approvedAt: null,
-            // O estado acompanha o carimbo: um rollback que levanta a aprovação e
-            // deixa `status` em APROVADO fabrica a cobrança que se afirma cobrada
-            // sem ter sido — e essa é a forma que nem aprova nem reverte.
-            status: BILLING_STATUS.PENDING as any,
-            statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
-          },
+        // OS PAGADORES que esta tentativa reivindicou voltam a pendentes.
+        await this.prisma.budgetPayer.updateMany({
+          where: { id: { in: claimedPayerIds } },
+          data: { approvedAt: null },
         });
-        if (unclaimed.count > 0) {
+        // E a COBRANÇA só perde o carimbo se nenhum pagador dela restar
+        // faturado: falhar ao aprovar a Ibiporã não pode desaprovar a RKO, que
+        // já tem nota na prefeitura e boleto no Sicredi.
+        let unclaimed = 0;
+        for (const cobrancaId of targetBillingIds) {
+          const aindaFaturados = await this.prisma.budgetPayer.count({
+            where: { billingId: cobrancaId, approvedAt: { not: null } },
+          });
+          if (aindaFaturados > 0) continue;
+          const r = await (this.prisma as any).billing.updateMany({
+            where: { id: cobrancaId },
+            data: {
+              approvedAt: null,
+              // O estado acompanha o carimbo: um rollback que levanta a aprovação e
+              // deixa `status` em APROVADO fabrica a cobrança que se afirma cobrada
+              // sem ter sido — e essa é a forma que nem aprova nem reverte.
+              status: BILLING_STATUS.PENDING as any,
+              statusOrder: BILLING_STATUS_ORDER[BILLING_STATUS.PENDING],
+            },
+          });
+          unclaimed += r.count;
+        }
+        if (claimedPayerIds.length > 0) {
           this.logger.warn(
-            `[INTERNAL_APPROVE] Rollback: ${unclaimed.count} carimbo(s) de faturamento levantado(s).`,
+            `[INTERNAL_APPROVE] Rollback: ${claimedPayerIds.length} pagador(es) de volta a pendente; ` +
+              `${unclaimed} carimbo(s) de faturamento levantado(s).`,
           );
         }
 
@@ -5340,6 +5648,12 @@ export class BudgetService {
       // faturamentos carimbados, não sobrava alvo, e a resposta era "Todas as
       // fatias deste orçamento já tiveram o faturamento aprovado" sobre um
       // orçamento que acabou de voltar para Orçamento Aprovado.
+      // E o de cada PAGADOR — os dois dizem o mesmo evento: sem fatura, nenhum
+      // pagador desta cobrança está faturado, e todos voltam a ser aprováveis.
+      await tx.budgetPayer.updateMany({
+        where: { quoteId: id, ...(billingId ? { billingId } : {}) },
+        data: { approvedAt: null },
+      });
       await (tx as any).billing.updateMany({
         where: { quoteId: id, ...(billingId ? { id: billingId } : {}) },
         data: {
@@ -5588,7 +5902,9 @@ export class BudgetService {
         );
       }
       await tx.invoice.deleteMany({ where: this.invoicesOfQuote(id) });
-      // O carimbo de cada faturamento volta a zero — mesma razão da reversão.
+      // O carimbo de cada faturamento volta a zero — mesma razão da reversão —,
+      // e o de cada pagador junto.
+      await tx.budgetPayer.updateMany({ where: { quoteId: id }, data: { approvedAt: null } });
       await (tx as any).billing.updateMany({
         where: { quoteId: id },
         data: {
@@ -5968,8 +6284,12 @@ export class BudgetService {
               customer: {
                 select: { id: true, corporateName: true, fantasyName: true, cnpj: true, cpf: true },
               },
+              // `companyId`: a página pública recorta por cliente e precisa saber
+              // de QUAL cliente cada contato é, para não pôr o contato de um
+              // pagador assinando pelo outro — a mesma regra do PDF
+              // (`contactsForSegment` na API).
               responsibles: {
-                select: { id: true, name: true, roles: true },
+                select: { id: true, name: true, roles: true, companyId: true },
                 orderBy: { createdAt: 'asc' },
               },
               truck: {
@@ -6284,11 +6604,23 @@ export class BudgetService {
       //
       // Só morde quem TEVE coleta: orçamento aprovado sem nunca ter ido à
       // assinatura (a maioria) não passa por aqui.
+      // A coleta PRINCIPAL — o contrato. Uma complementar que morreu (o
+      // assinante novo recusou, venceu) não anula o contrato e não impede
+      // aprovar sem ela; uma EM ANDAMENTO impede, logo abaixo.
       const ultimoEnvelope = await this.prisma.signatureEnvelope.findFirst({
-        where: { quoteId },
+        where: { quoteId, kind: 'PRIMARY' },
         orderBy: { createdAt: 'desc' },
         select: { status: true, invalidatedReason: true },
       });
+      const complementarEmAndamento = await this.prisma.signatureEnvelope.count({
+        where: { quoteId, kind: 'SUPPLEMENT', status: 'RUNNING' },
+      });
+      if (complementarEmAndamento > 0) {
+        throw new BadRequestException(
+          'Há uma assinatura complementar em andamento para este orçamento. Aguarde a ' +
+            'conclusão — ela aprova o orçamento sozinha — ou cancele a coleta para aprovar sem ela.',
+        );
+      }
       if (ultimoEnvelope?.status === 'INVALIDATED') {
         throw new BadRequestException(
           'As assinaturas deste orçamento foram invalidadas por uma alteração' +

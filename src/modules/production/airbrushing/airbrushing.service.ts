@@ -563,7 +563,10 @@ export class AirbrushingService {
     userId?: string,
   ): Promise<AirbrushingGetManyResponse> {
     try {
-      const result = await this.airbrushingRepository.findMany(query);
+      // O schema funde take/limit em `limit` e APAGA o `take`, mas o repositório só lê
+      // `take` (padrão 20). Sem esta conversão a API ignorava o `limit` e devolvia
+      // sempre 20 linhas, enquanto o meta.totalRecords contava todas.
+      const result = await this.airbrushingRepository.findMany({ ...query, take: query.limit });
 
       // Recorta os layouts ao que este papel pode ver — ver filterLayoutsForRole.
       if (userRole) {

@@ -2075,6 +2075,24 @@ model BudgetPayer {
   paymentCondition    String?
   paymentConfig       Json?
   customerSignatureId String?
+  /// QUANDO O FATURAMENTO DESTE PAGADOR FOI APROVADO.
+  ///
+  /// Voltou a existir por pagador, e agora por um motivo que não havia quando
+  /// saiu: dois pagadores do mesmo recorte (RKO + Ibiporã sobre o mesmo
+  /// caminhão) deixaram de ser aprovados sempre juntos. O financeiro fatura um
+  /// hoje e o outro quando o pedido dele chega — são dois eventos, e cada um
+  /// precisa da sua data.
+  ///
+  /// `Billing.approvedAt` continua existindo e continua sendo o que as travas
+  /// leem: é gravado na PRIMEIRA aprovação de qualquer pagador do recorte (a
+  /// partir dali há documento fiscal citando aqueles veículos) e só cai quando
+  /// nenhum pagador resta aprovado. Esta coluna responde a outra pergunta —
+  /// "ESTE pagador já foi faturado?" — e é ela que decide quem ainda é
+  /// aprovável e quem os gates de emissão (NFS-e, boleto) deixam passar.
+  ///
+  /// Cobrança aprovada sem nenhum pagador carimbado (acervo, conciliação) lê
+  /// como "todos aprovados" — ver `isPayerApproved`.
+  approvedAt          DateTime?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   quote               Budget         @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
@@ -2099,6 +2117,7 @@ model BudgetPayer {
   @@index([billingId])
   @@index([customerId])
   @@index([customerSignatureId])
+  @@index([approvedAt])
 }
 
 /// A COBERTURA DE UM FATURAMENTO — quais veículos ele cobra.
@@ -8235,6 +8254,20 @@ model SignatureEnvelope {
   version            Int     @default(1)
   previousEnvelopeId String? @unique
 
+  /// PRINCIPAL ou COMPLEMENTAR.
+  ///
+  /// A complementar existe para o responsável acrescentado à tarefa DEPOIS de a
+  /// coleta concluir: ele assina o SEU documento, sem anular quem já assinou.
+  /// Ela aponta para a coleta concluída que complementa (`baseEnvelopeId`) e
+  /// fica FORA da corrente de versões — `version` repete o da base e
+  /// `previousEnvelopeId` é nulo, porque ela não substitui nada.
+  ///
+  /// Só é emitida quando as condições comerciais de hoje são as que a base
+  /// congelou: o novo signatário não pode assinar outro contrato. Ver
+  /// `SignatureEnvelopeService.getSupplementCoverage`.
+  kind           EnvelopeKind @default(PRIMARY)
+  baseEnvelopeId String?
+
   /// Ordem: grupo 0 (cliente) assina em paralelo; grupo 1 (Ankaa) só libera
   /// depois que todos do grupo 0 assinaram.
   sequential Boolean  @default(true)
@@ -8369,6 +8402,8 @@ model SignatureEnvelope {
   addendumFile     File?                 @relation("ENVELOPE_ADDENDUM_FILE", fields: [addendumFileId], references: [id])
   previousEnvelope SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN", fields: [previousEnvelopeId], references: [id], onDelete: SetNull)
   nextEnvelope     SignatureEnvelope?    @relation("ENVELOPE_VERSION_CHAIN")
+  baseEnvelope     SignatureEnvelope?    @relation("ENVELOPE_SUPPLEMENTS", fields: [baseEnvelopeId], references: [id], onDelete: Cascade)
+  supplements      SignatureEnvelope[]   @relation("ENVELOPE_SUPPLEMENTS")
   signers          EnvelopeSigner[]      @relation("ENVELOPE_SIGNERS")
   documents        EnvelopeDocument[]    @relation("ENVELOPE_DOCUMENTS")
   events           SignatureAuditEvent[] @relation("ENVELOPE_AUDIT_EVENTS")
@@ -8376,6 +8411,7 @@ model SignatureEnvelope {
   @@index([quoteId])
   @@index([status])
   @@index([deadlineAt])
+  @@index([baseEnvelopeId])
 }
 
 /// UM RECORTE do orçamento, congelado — o PDF que um grupo de signatários recebe.
@@ -8635,6 +8671,12 @@ enum EnvelopeStatus {
   CANCELLED
   INVALIDATED
   SUPERSEDED
+}
+
+/// Ver `SignatureEnvelope.kind`.
+enum EnvelopeKind {
+  PRIMARY
+  SUPPLEMENT
 }
 
 enum EnvelopeSignerStatus {

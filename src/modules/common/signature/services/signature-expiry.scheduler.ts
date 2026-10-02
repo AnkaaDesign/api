@@ -18,7 +18,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { EnvelopeSignerStatus, EnvelopeStatus } from '@prisma/client';
+import { EnvelopeKind, EnvelopeSignerStatus, EnvelopeStatus } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SignatureAuditService } from './signature-audit.service';
 import { SignatureEnvelopeService } from './signature-envelope.service';
@@ -45,6 +45,7 @@ export class SignatureExpiryScheduler {
         id: true,
         quoteId: true,
         verificationCode: true,
+        kind: true,
         quote: { select: { budgetNumber: true, expiryNoticeSentAt: true } },
         signers: { select: { orderGroup: true, status: true } },
       },
@@ -118,6 +119,17 @@ export class SignatureExpiryScheduler {
         // sempre — e ele nunca mais entraria nesta varredura, porque o envelope
         // já saiu de RUNNING na reivindicação acima. O envio é best-effort; a
         // mudança de estado, não.
+        // ── COLETA COMPLEMENTAR VENCIDA ─────────────────────────────────────
+        //
+        // Não é a proposta que venceu: o contrato segue assinado por quem
+        // assinou. Nada de aviso ao cliente ("o comercial vai reanalisar o
+        // valor" seria falso) e nada de `EXPIRED` no orçamento — ele continua
+        // PENDENTE, porque falta a assinatura, e o comercial é avisado.
+        if (env.kind === EnvelopeKind.SUPPLEMENT) {
+          await this.envelopes.notifySupplementEnded(env.quoteId, env.id, 'EXPIRED');
+          continue;
+        }
+
         if (!env.quote?.expiryNoticeSentAt) {
           try {
             const outcome = await this.envelopes.notifyExpiry(env.id);

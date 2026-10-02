@@ -1006,6 +1006,8 @@ export class ReceivableTaskMatchService {
               subtotal: amount,
               total: amount,
               discountType: 'NONE',
+              // Faturado junto com a cobrança: o pagador também nasce aprovado.
+              approvedAt: now,
               // No fiscal document, no charge — see the doc block above.
               generateInvoice: false,
               generateBankSlip: false,
@@ -1389,6 +1391,12 @@ export class ReceivableTaskMatchService {
     if (toStamp.length > 0) {
       await db.billing.updateMany({
         where: { id: { in: toStamp.map(b => b.id) } },
+        data: { approvedAt: now },
+      });
+      // E cada pagador dela: o dinheiro caiu pelo veículo, e a cobrança toda
+      // passa a responder como faturada — pagador a pagador, como a aprovação.
+      await db.budgetPayer.updateMany({
+        where: { billingId: { in: toStamp.map(b => b.id) }, approvedAt: null },
         data: { approvedAt: now },
       });
       this.logger.log(

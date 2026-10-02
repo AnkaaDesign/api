@@ -315,6 +315,23 @@ export class InvoiceService {
       // "esta fatia ficou sem fatura?" com dois pagadores respondia sim para
       // metade de um faturamento inteiro, e levantava o carimbo dos dois.
       const billingId = invoiceWithConfig?.customerConfig?.billingId ?? null;
+      // O PAGADOR desta fatura, se ficou sem fatura viva, deixa de estar
+      // faturado — e volta a ser aprovável sozinho. Com a aprovação por pagador,
+      // cancelar a fatura da Ibiporã não pode exigir desfazer a RKO para
+      // refaturar a Ibiporã; e a cobrança só perde o carimbo (abaixo) quando
+      // nenhum pagador dela restar com fatura.
+      const payerId = invoiceWithConfig?.customerConfigId ?? null;
+      if (payerId) {
+        const liveOnPayer = await this.prisma.invoice.count({
+          where: { customerConfigId: payerId, status: { not: 'CANCELLED' } },
+        });
+        if (liveOnPayer === 0) {
+          await this.prisma.budgetPayer.updateMany({
+            where: { id: payerId, approvedAt: { not: null } },
+            data: { approvedAt: null },
+          });
+        }
+      }
       if (billingId) {
         const liveOnBilling = await this.prisma.invoice.count({
           where: {
