@@ -37,8 +37,8 @@ import {
 
 /** As chaves de config destes avisos. Viajam no metadata e nomeiam a origem. */
 export const PORTAL_NOTIFICATION_KEYS = {
-  /** O vendedor do cliente PRÉ-APROVOU. Vai para o comercial da Ankaa. */
-  PRE_APPROVED: 'budget.portal_pre_approved',
+  /** O contato do cliente APROVOU O VALOR (Modelo C). Vai para o comercial da Ankaa. */
+  VALUE_APPROVED: 'budget.portal_value_approved',
   /** O vendedor do cliente RECUSOU. Vai para o comercial da Ankaa, com o motivo. */
   REFUSED: 'budget.portal_refused',
   /** A Ankaa precificou: os valores já aparecem no portal. Vai para o contato. */
@@ -181,7 +181,7 @@ export class PortalNotificationService {
         title: 'Seu orçamento já tem valores',
         body:
           `O orçamento ${args.quoteLabel} foi precificado e já pode ser conferido no portal. ` +
-          'Depois de analisar, você pode pré-aprovar ou pedir revisão.',
+          'Depois de analisar, você pode aprovar o valor ou pedir revisão.',
         configKey: PORTAL_NOTIFICATION_KEYS.VALUES_VISIBLE,
         budgetId: args.budgetId,
         taskId: args.taskId ?? null,

@@ -632,7 +632,7 @@ visíveis para quem a abriu.
 `BudgetValueApproval{PORTAL}` (o contato em `responsibleId`, nunca em FK de `User`) na
 mesma transação do status; `APPROVED` é "valor aprovado" e **não** libera a cobrança
 sozinho (DD7: a cobrança espera o eixo `signatureStatus`). Se o orçamento tem requisição,
-carimba também `BudgetRequest.preApprovedAt/preApprovedByResponsibleId/decisionNote`
+carimba também `BudgetRequest.valueApprovedAt/valueApprovedByResponsibleId/decisionNote`
 (a tela e o changelog o leem); orçamento nascido por dentro **não** ganha requisição
 fabricada.
 `PUT …/recusar` → move `IN_NEGOTIATION → PENDING` (a Ankaa refaz) com o motivo na

@@ -308,7 +308,7 @@ export interface PortalBudgetRow {
     briefing?: string | null;
     logoName?: string | null;
     requestedAt?: Date | null;
-    preApprovedAt?: Date | null;
+    valueApprovedAt?: Date | null;
     refusedAt?: Date | null;
     decisionNote?: string | null;
   } | null;
@@ -695,7 +695,7 @@ export interface PortalBudgetView {
     briefing: string | null;
     logoName: string | null;
     requestedAt: Date | null;
-    preApprovedAt: Date | null;
+    valueApprovedAt: Date | null;
     refusedAt: Date | null;
     /**
      * O MOTIVO DA DECISÃO — a nota da pré-aprovação ou o motivo da recusa.
@@ -1147,7 +1147,7 @@ export class PortalProjectionService {
         briefing: row.request.briefing ?? null,
         logoName: row.request.logoName ?? null,
         requestedAt: row.request.requestedAt ?? null,
-        preApprovedAt: row.request.preApprovedAt ?? null,
+        valueApprovedAt: row.request.valueApprovedAt ?? null,
         refusedAt: row.request.refusedAt ?? null,
         decisionNote: row.request.decisionNote ?? null,
       };

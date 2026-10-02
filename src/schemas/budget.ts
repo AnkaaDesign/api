@@ -160,7 +160,7 @@ export const budgetIncludeSchema = z
           include: z
             .object({
               requestedBy: z.boolean().optional(),
-              preApprovedBy: z.boolean().optional(),
+              valueApprovedBy: z.boolean().optional(),
               refusedBy: z.boolean().optional(),
             })
             .optional(),

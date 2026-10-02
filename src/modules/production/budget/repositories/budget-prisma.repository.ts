@@ -602,7 +602,7 @@ export class BudgetPrismaRepository
         request: {
           include: {
             requestedBy: { select: { id: true, name: true, roles: true } },
-            preApprovedBy: { select: { id: true, name: true, roles: true } },
+            valueApprovedBy: { select: { id: true, name: true, roles: true } },
             refusedBy: { select: { id: true, name: true, roles: true } },
           },
         },

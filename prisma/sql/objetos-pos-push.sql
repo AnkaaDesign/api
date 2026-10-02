@@ -626,7 +626,7 @@ ALTER TABLE "AirbrushingNfse" ADD CONSTRAINT "AirbrushingNfse_environment_range"
 ALTER TABLE "BudgetOfflineSignature" DROP CONSTRAINT IF EXISTS "BudgetOfflineSignature_note_check";
 ALTER TABLE "BudgetOfflineSignature" ADD CONSTRAINT "BudgetOfflineSignature_note_check" CHECK ((length(btrim(note)) > 0));
 ALTER TABLE "BudgetRequest" DROP CONSTRAINT IF EXISTS "BudgetRequest_decisao_unica";
-ALTER TABLE "BudgetRequest" ADD CONSTRAINT "BudgetRequest_decisao_unica" CHECK ((("preApprovedAt" IS NULL) OR ("refusedAt" IS NULL)));
+ALTER TABLE "BudgetRequest" ADD CONSTRAINT "BudgetRequest_decisao_unica" CHECK ((("valueApprovedAt" IS NULL) OR ("refusedAt" IS NULL)));
 ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_actor_check";
 ALTER TABLE "BudgetValueApproval" ADD CONSTRAINT "BudgetValueApproval_actor_check" CHECK ((NOT (("responsibleId" IS NOT NULL) AND ("userId" IS NOT NULL))));
 ALTER TABLE "BudgetValueApproval" DROP CONSTRAINT IF EXISTS "BudgetValueApproval_note_check";

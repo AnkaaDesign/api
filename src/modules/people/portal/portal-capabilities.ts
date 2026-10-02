@@ -54,7 +54,7 @@ import {
 export enum PORTAL_CAPABILITY {
   /** Abrir uma requisição de orçamento (`POST /cliente/me/orcamentos`). */
   REQUEST_BUDGET = 'REQUEST_BUDGET',
-  /** Pré-aprovar ou recusar o orçamento precificado pela Ankaa. */
+  /** Aprovar o valor ou recusar o orçamento precificado pela Ankaa. */
   APPROVE_VALUE = 'APPROVE_VALUE',
   /** Informar o número do pedido de compra do cliente. */
   WRITE_PURCHASE_ORDER = 'WRITE_PURCHASE_ORDER',

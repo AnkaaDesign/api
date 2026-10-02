@@ -74,7 +74,7 @@ export class PortalDecisionService {
   ) {}
 
   /** `PUT /cliente/me/orcamentos/:id/aprovar-valor` */
-  async preApprove(principal: ResponsiblePrincipal, budgetId: string, nota?: string | null) {
+  async approveValue(principal: ResponsiblePrincipal, budgetId: string, nota?: string | null) {
     return this.decide(principal, budgetId, 'APPROVE_VALUE', nota ?? null);
   }
 
@@ -171,7 +171,7 @@ export class PortalDecisionService {
         budgetId,
         taskId,
         quoteLabel,
-        configKey: PORTAL_NOTIFICATION_KEYS.PRE_APPROVED,
+        configKey: PORTAL_NOTIFICATION_KEYS.VALUE_APPROVED,
         title: 'Valor aprovado pelo cliente',
         body:
           `${principal.name} aprovou o valor do orçamento ${quoteLabel}` +
@@ -224,7 +224,7 @@ export class PortalDecisionService {
    *
    * ⛔ AS DUAS DECISÕES SÃO ESCRITAS NA MESMA INSTRUÇÃO, uma preenchida e a
    * outra APAGADA. É isto que impede o CHECK `BudgetRequest_decisao_unica`
-   * (`preApprovedAt IS NULL OR refusedAt IS NULL`) de virar 500 na cara do
+   * (`valueApprovedAt IS NULL OR refusedAt IS NULL`) de virar 500 na cara do
    * cliente: pré-aprovar depois de ter recusado, ou recusar depois de ter
    * pré-aprovado, são caminhos LEGAIS da máquina de estados
    * (PRE_APPROVED → IN_NEGOTIATION → REQUESTED e a volta), e sem o apagamento a
@@ -247,8 +247,8 @@ export class PortalDecisionService {
     const anterior = await this.prisma.budgetRequest.findUnique({
       where: { budgetId },
       select: {
-        preApprovedAt: true,
-        preApprovedByResponsibleId: true,
+        valueApprovedAt: true,
+        valueApprovedByResponsibleId: true,
         refusedAt: true,
         refusedByResponsibleId: true,
         decisionNote: true,
@@ -258,8 +258,8 @@ export class PortalDecisionService {
     const campos =
       decision === 'APPROVE_VALUE'
         ? {
-            preApprovedAt: at,
-            preApprovedByResponsibleId: responsibleId,
+            valueApprovedAt: at,
+            valueApprovedByResponsibleId: responsibleId,
             refusedAt: null,
             refusedByResponsibleId: null,
             decisionNote: note,
@@ -267,8 +267,8 @@ export class PortalDecisionService {
         : {
             refusedAt: at,
             refusedByResponsibleId: responsibleId,
-            preApprovedAt: null,
-            preApprovedByResponsibleId: null,
+            valueApprovedAt: null,
+            valueApprovedByResponsibleId: null,
             decisionNote: note,
           };
 
@@ -288,8 +288,8 @@ export class PortalDecisionService {
     await this.prisma.budgetRequest.update({
       where: { budgetId },
       data: {
-        preApprovedAt: previous.preApprovedAt ?? null,
-        preApprovedByResponsibleId: previous.preApprovedByResponsibleId ?? null,
+        valueApprovedAt: previous.valueApprovedAt ?? null,
+        valueApprovedByResponsibleId: previous.valueApprovedByResponsibleId ?? null,
         refusedAt: previous.refusedAt ?? null,
         refusedByResponsibleId: previous.refusedByResponsibleId ?? null,
         decisionNote: previous.decisionNote ?? null,
@@ -300,8 +300,8 @@ export class PortalDecisionService {
 
 
 interface DecisionSnapshotFields {
-  preApprovedAt?: Date | null;
-  preApprovedByResponsibleId?: string | null;
+  valueApprovedAt?: Date | null;
+  valueApprovedByResponsibleId?: string | null;
   refusedAt?: Date | null;
   refusedByResponsibleId?: string | null;
   decisionNote?: string | null;

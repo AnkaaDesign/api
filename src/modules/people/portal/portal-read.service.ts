@@ -959,15 +959,15 @@ export class PortalReadService {
       total += linha._count._all;
     }
 
-    const preApprovalWhere: Prisma.BudgetWhereInput = {
+    const valueApprovalWhere: Prisma.BudgetWhereInput = {
       AND: [budgetWhere, { status: TASK_QUOTE_STATUS.IN_NEGOTIATION as any }],
     };
 
     const [valueApprovalTotal, valueApprovalRows] = podeAprovarValor
       ? await Promise.all([
-          this.prisma.budget.count({ where: preApprovalWhere }),
+          this.prisma.budget.count({ where: valueApprovalWhere }),
           this.prisma.budget.findMany({
-            where: preApprovalWhere,
+            where: valueApprovalWhere,
             orderBy: [{ createdAt: 'asc' }],
             take: 10,
             select: {
@@ -1330,13 +1330,13 @@ export class PortalReadService {
           briefing: true,
           logoName: true,
           requestedAt: true,
-          preApprovedAt: true,
+          valueApprovedAt: true,
           refusedAt: true,
           decisionNote: true,
           ...(opts.detail
             ? {
                 requestedBy: { select: { id: true, name: true } },
-                preApprovedBy: { select: { id: true, name: true } },
+                valueApprovedBy: { select: { id: true, name: true } },
                 refusedBy: { select: { id: true, name: true } },
               }
             : {}),
@@ -1620,7 +1620,7 @@ export class PortalReadService {
           ? {
               ...view.request,
               requestedBy: row.request?.requestedBy ?? null,
-              preApprovedBy: row.request?.preApprovedBy ?? null,
+              valueApprovedBy: row.request?.valueApprovedBy ?? null,
               refusedBy: row.request?.refusedBy ?? null,
             }
           : undefined,

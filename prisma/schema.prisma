@@ -2185,12 +2185,13 @@ model BudgetRequest {
   /// `Task.baseFiles`, que é onde o resto do sistema já procura imagem de origem.
   logoName String?
 
-  /// PRÉ-APROVAÇÃO: o vendedor do cliente clicou em Aprovar. Carimbo + autor.
-  preApprovedAt              DateTime?
-  preApprovedByResponsibleId String?
-  preApprovedBy              Responsible? @relation("BudgetRequestsPreApproved", fields: [preApprovedByResponsibleId], references: [id], onDelete: SetNull)
+  /// APROVAÇÃO DO VALOR pelo portal (Modelo C): o contato do cliente clicou em
+  /// "Aprovar o valor". Carimbo + autor (o ato em si é `BudgetValueApproval`).
+  valueApprovedAt              DateTime?
+  valueApprovedByResponsibleId String?
+  valueApprovedBy              Responsible? @relation("BudgetRequestsValueApproved", fields: [valueApprovedByResponsibleId], references: [id], onDelete: SetNull)
 
-  /// RECUSA na pré-aprovação. Não é cancelamento: o orçamento volta para o
+  /// RECUSA do valor. Não é cancelamento: o orçamento volta para o
   /// comercial refazer, e o motivo é o que ele precisa ler.
   refusedAt              DateTime?
   refusedByResponsibleId String?
@@ -3851,11 +3852,11 @@ model Responsible {
 
   /// O que este contato fez no PORTAL. Três relações separadas e não uma coluna
   /// de "ator" porque os três atos são distintos e auditáveis em separado.
-  budgetRequestsOpened     BudgetRequest[] @relation("BudgetRequestsOpened")
-  budgetRequestsPreApprove BudgetRequest[] @relation("BudgetRequestsPreApproved")
-  budgetRequestsRefused    BudgetRequest[] @relation("BudgetRequestsRefused")
-  purchaseOrdersIssued     PurchaseOrder[] @relation("PurchaseOrdersIssued")
-  notifications            Notification[]  @relation("RESPONSIBLE_NOTIFICATIONS")
+  budgetRequestsOpened        BudgetRequest[] @relation("BudgetRequestsOpened")
+  budgetRequestsValueApproved BudgetRequest[] @relation("BudgetRequestsValueApproved")
+  budgetRequestsRefused       BudgetRequest[] @relation("BudgetRequestsRefused")
+  purchaseOrdersIssued        PurchaseOrder[] @relation("PurchaseOrdersIssued")
+  notifications               Notification[]  @relation("RESPONSIBLE_NOTIFICATIONS")
 
   cpfNormalized   String? /// accent-insensitive search (generated column, see migration)
   emailNormalized String? /// accent-insensitive search (generated column, see migration)

@@ -603,7 +603,7 @@ const LINHA_CRUA: any = {
     briefing: 'Baú de 14 metros, pintura branca.',
     logoName: 'RKO Alimentos',
     requestedAt: new Date('2026-08-30T12:00:00Z'),
-    preApprovedAt: null,
+    valueApprovedAt: null,
     refusedAt: null,
     decisionNote: null,
   },

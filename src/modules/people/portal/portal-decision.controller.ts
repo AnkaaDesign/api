@@ -41,7 +41,7 @@ import type { ResponsiblePrincipal } from '../responsible-auth/responsible-auth.
  * campo que o cliente jurou ter preenchido. Com `.strict()` a resposta nomeia a
  * chave errada.
  */
-const preApproveSchema = z
+const approveValueSchema = z
   .object({
     nota: z.string().trim().max(2000).optional(),
   })
@@ -65,8 +65,8 @@ export class PortalDecisionController {
   /**
    * `PUT /cliente/me/orcamentos/:id/aprovar-valor` · corpo `{ nota? }`
    *
-   * `IN_NEGOTIATION → PRE_APPROVED`. Grava `BudgetRequest.preApprovedAt`,
-   * `preApprovedByResponsibleId` e `decisionNote`, apaga a recusa anterior se
+   * `IN_NEGOTIATION → APPROVED` (a aprovação do valor, Modelo C). Grava `BudgetRequest.valueApprovedAt`,
+   * `valueApprovedByResponsibleId` e `decisionNote`, apaga a recusa anterior se
    * houver, e avisa o comercial da Ankaa.
    *
    * ⚠️ `orcamentos`, no PLURAL. `/cliente/:customerId/orcamento/:id` — a página
@@ -76,12 +76,12 @@ export class PortalDecisionController {
    */
   @Put('orcamentos/:id/aprovar-valor')
   @PortalCapability(PORTAL_CAPABILITY.APPROVE_VALUE)
-  async preAprovar(
+  async aprovarValor(
     @CurrentResponsible() principal: ResponsiblePrincipal,
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body(new ZodValidationPipe(preApproveSchema)) body: { nota?: string },
+    @Body(new ZodValidationPipe(approveValueSchema)) body: { nota?: string },
   ) {
-    return this.decisions.preApprove(principal, id, body?.nota ?? null);
+    return this.decisions.approveValue(principal, id, body?.nota ?? null);
   }
 
   /**

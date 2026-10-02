@@ -56,7 +56,7 @@ export type PortalDecision = keyof typeof PORTAL_DECISION_TRANSITIONS;
  * As quatro colunas de decisão de `BudgetRequest`, por ato.
  *
  * ⛔ A LISTA "APAGA" É A QUE IMPEDE O 500. O CHECK
- * `BudgetRequest_decisao_unica` (`preApprovedAt IS NULL OR refusedAt IS NULL`)
+ * `BudgetRequest_decisao_unica` (`valueApprovedAt IS NULL OR refusedAt IS NULL`)
  * dispara no banco se as duas decisões coexistirem, e a máquina de estados
  * PERMITE a reversão: recusar, a Ankaa reenviar e o cliente aprovar (ou o
  * contrário) passa duas vezes pela mesma linha. Sem apagar a
@@ -65,11 +65,11 @@ export type PortalDecision = keyof typeof PORTAL_DECISION_TRANSITIONS;
  */
 export const PORTAL_DECISION_STAMPS = {
   APPROVE_VALUE: {
-    escreve: ['preApprovedAt', 'preApprovedByResponsibleId'] as const,
+    escreve: ['valueApprovedAt', 'valueApprovedByResponsibleId'] as const,
     apaga: ['refusedAt', 'refusedByResponsibleId'] as const,
   },
   REFUSE: {
     escreve: ['refusedAt', 'refusedByResponsibleId'] as const,
-    apaga: ['preApprovedAt', 'preApprovedByResponsibleId'] as const,
+    apaga: ['valueApprovedAt', 'valueApprovedByResponsibleId'] as const,
   },
 } as const;

@@ -14,7 +14,7 @@
  *      orçamento terminal onde deveria haver um pedido de revisão.
  *
  *   2. OS DOIS CARIMBOS DE PÉ AO MESMO TEMPO. O banco tem
- *      `BudgetRequest_decisao_unica` (`preApprovedAt IS NULL OR refusedAt IS
+ *      `BudgetRequest_decisao_unica` (`valueApprovedAt IS NULL OR refusedAt IS
  *      NULL`), e a máquina de estados PERMITE a reversão: pré-aprovado volta a
  *      `IN_NEGOTIATION` e pode ser recusado, e vice-versa. Uma gravação que só
  *      preenchesse a decisão nova deixaria a antiga de pé, e o CHECK viraria 500
@@ -268,7 +268,7 @@ console.log('\nO CHECK `BudgetRequest_decisao_unica` NUNCA é consultado com os 
 
   check(
     'as quatro colunas aparecem nos DOIS ramos',
-    ['preApprovedAt', 'preApprovedByResponsibleId', 'refusedAt', 'refusedByResponsibleId'].every(
+    ['valueApprovedAt', 'valueApprovedByResponsibleId', 'refusedAt', 'refusedByResponsibleId'].every(
       c => (campos.match(new RegExp(`${c}:`, 'g')) ?? []).length === 2,
     ),
     'uma coluna citada uma vez só significa que um dos ramos a deixa de pé',
@@ -437,7 +437,7 @@ console.log('\nOS DOIS SUJEITOS NÃO SE MISTURAM no código do portal');
 
   check(
     'o carimbo vai para FKs de Responsible, nunca de User',
-    /preApprovedByResponsibleId:\s*responsibleId/.test(decisionService) &&
+    /valueApprovedByResponsibleId:\s*responsibleId/.test(decisionService) &&
       /refusedByResponsibleId:\s*responsibleId/.test(decisionService),
   );
 
@@ -513,7 +513,7 @@ console.log('\nOS DOIS AVISOS nascem num lugar só, com destinatário de tipo ce
   );
   check(
     'a aprovação do valor avisa o comercial (com o que falta para emitir)',
-    decisionService.includes('PORTAL_NOTIFICATION_KEYS.PRE_APPROVED'),
+    decisionService.includes('PORTAL_NOTIFICATION_KEYS.VALUE_APPROVED'),
   );
   check(
     'a recusa avisa o comercial',
