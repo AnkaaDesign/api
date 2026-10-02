@@ -32,7 +32,7 @@ import { createHash } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
-import { artworkGateFailure, quoteArtworkOf } from '../src/utils/quote-artwork';
+import { artworkGateFailure, quoteArtworkOf, quoteArtworkPlates } from '../src/utils/quote-artwork';
 import { describeVehicleList } from '../src/utils/quote-tasks';
 import { QuoteSnapshotService } from '../src/modules/common/signature/services/quote-snapshot.service';
 import { buildQuoteHtml } from '../src/modules/common/signature/document/quote-html.builder';
@@ -213,6 +213,51 @@ function pureChecks() {
     'lista longa tem teto',
     describeVehicleList(Array.from({ length: 13 }, (_, i) => String(i))).endsWith('e mais 3'),
   );
+
+  console.log('\nquoteArtworkPlates — de qual veículo é cada arte no documento (decisão 5 de 02/10)');
+  {
+    const file = (id: string, at: string) => ({ id, createdAt: new Date(at) });
+    const art = (...ids: string[]) =>
+      ids.map(id => ({ fileId: id, status: 'APPROVED', file: file(id, id === 'X' ? '2026-09-01' : '2026-09-02') }));
+    const v = (id: string, serial: string, layouts: any[]) => ({ id, implement: { serialNumber: serial, layouts } });
+    // Três baús: dois com a mesma arte (X), um com outra (Y). Y foi criada DEPOIS
+    // de X, mas o veículo dela vem PRIMEIRO na tabela.
+    const tasks = [v('t1', '39088', art('Y')), v('t2', '39089', art('X')), v('t3', '39090', art('X'))];
+    const plates = quoteArtworkPlates(quoteArtworkOf<any>({ layoutScope: 'SHARED', tasks }), tasks as any);
+    check(
+      'artes diferentes: uma imagem por arte, artes iguais AGRUPADAS',
+      plates.length === 2,
+      JSON.stringify(plates.map(p => p.file.id)),
+    );
+    check(
+      'cada imagem com a legenda dos SEUS veículos, na ordem da tabela',
+      JSON.stringify(plates.map(p => [p.file.id, p.caption])) ===
+        JSON.stringify([
+          ['Y', 'Veículo 39088'],
+          ['X', 'Veículos 39089, 39090'],
+        ]),
+      JSON.stringify(plates.map(p => [p.file.id, p.caption])),
+    );
+    const same = [v('t1', '39088', art('X')), v('t2', '39089', art('X'))];
+    const uniform = quoteArtworkPlates(quoteArtworkOf<any>({ layoutScope: 'SHARED', tasks: same }), same as any);
+    check(
+      'arte IGUAL em todos: uma imagem, SEM legenda (forma dos envelopes de antes)',
+      uniform.length === 1 && uniform[0].caption === null,
+      JSON.stringify(uniform),
+    );
+    const pv = quoteArtworkPlates(quoteArtworkOf<any>({ layoutScope: 'PER_VEHICLE', tasks: same }), same as any);
+    check(
+      'PER_VEHICLE com a mesma arte: a legenda diz que vale para todos',
+      pv.length === 1 && pv[0].caption === 'Todos os 2 veículos',
+      JSON.stringify(pv),
+    );
+    const missing = [v('t1', '39088', art('X')), v('t2', '39089', [])];
+    check(
+      'veículo sem arte aprovada: a emissão recusa nomeando o veículo (E2)',
+      artworkGateFailure({ tasks: missing })?.message === 'Falta a arte aprovada do veículo 39089.',
+      JSON.stringify(artworkGateFailure({ tasks: missing })),
+    );
+  }
 
   console.log('\nArte igual em todos: snapshot, hash material e HTML iguais aos de antes (main 2bc5eccf)');
   const snapshots = new QuoteSnapshotService(null as never);

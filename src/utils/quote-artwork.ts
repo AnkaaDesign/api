@@ -23,6 +23,7 @@
  */
 
 import {
+  coverageSummary,
   describeVehicleList,
   sortQuoteTasks,
   vehicleLabel,
@@ -119,6 +120,61 @@ export function quoteArtworkOf<F = unknown>(quote: {
     byTask,
     tasksByFile,
   };
+}
+
+/**
+ * AS ARTES DO DOCUMENTO, E DE QUAL VEÍCULO É CADA UMA (decisão 5 de 02/10).
+ *
+ * Um orçamento pode ter várias artes — cada veículo carrega a sua. O documento
+ * assinado tem de dizer qual imagem vai em qual implemento, para ninguém pintar
+ * o layout de um no outro:
+ *
+ *  · arte IGUAL em todos os veículos (`coverage === null`): as imagens na ordem
+ *    de criação do arquivo, SEM legenda — não há o que confundir, e é a forma
+ *    byte a byte dos envelopes de antes (G11);
+ *  · artes DIFERENTES (ou `PER_VEHICLE`): cada imagem com a legenda dos
+ *    veículos que ela cobre — artes idênticas (o mesmo arquivo) AGRUPADAS numa
+ *    imagem só ("Veículos 39088, 39089") —, na ordem do PRIMEIRO veículo que
+ *    ela cobre, que é a ordem da tabela de identificação.
+ *
+ * Veículo sem arte aprovada não chega aqui: a emissão o recusa antes (E2,
+ * `artworkGateFailure`). `vehicleTasks` vem na ordem do documento
+ * (`sortQuoteTasks`).
+ */
+export function quoteArtworkPlates<F extends { id: string; createdAt?: Date | string | null }>(
+  artwork: QuoteArtwork<F>,
+  vehicleTasks: readonly (QuoteTaskLike & { implement?: { plate?: string | null } | null })[],
+): Array<{ file: F; caption: string | null }> {
+  const perVehicle = artwork.coverage !== null;
+  const vehicleIndex = new Map(vehicleTasks.map((t, i) => [t.id, i] as const));
+  const firstCovered = (fileId: string): number =>
+    Math.min(
+      Number.POSITIVE_INFINITY,
+      ...(artwork.tasksByFile.get(fileId) ?? []).map(
+        id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
+      ),
+    );
+  const byCreation = [...artwork.files].sort(
+    (a, b) =>
+      new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime() ||
+      String(a.id).localeCompare(String(b.id)),
+  );
+  const ordered = perVehicle
+    ? byCreation
+        .map((f, position) => ({ f, position, first: firstCovered(f.id) }))
+        .sort((a, b) => a.first - b.first || a.position - b.position)
+        .map(x => x.f)
+    : byCreation;
+  return ordered.map(file => ({
+    file,
+    caption: perVehicle
+      ? coverageSummary(
+          { tasks: (artwork.tasksByFile.get(file.id) ?? []).map(taskId => ({ taskId })) } as any,
+          vehicleTasks.length,
+          vehicleTasks as any,
+        )
+      : null,
+  }));
 }
 
 export interface ArtworkGateFailure {

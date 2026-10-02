@@ -66,7 +66,7 @@ import {
   orderNumberLabel,
 } from '@utils/quote-tasks';
 import { computeQuoteMoney } from '@utils/quote-money';
-import { quoteArtworkOf } from '@utils/quote-artwork';
+import { quoteArtworkOf, quoteArtworkPlates } from '@utils/quote-artwork';
 import {
   assertEmissionReady,
   emissionGatesOf,
@@ -2477,36 +2477,8 @@ export class SignatureEnvelopeService {
       tasks: vehicleTasks as any,
     });
     const perVehicleLayout = artwork.coverage !== null;
-    const vehicleIndex = new Map(vehicleTasks.map((t, i) => [t.id, i] as const));
-    const firstCovered = (fileId: string): number =>
-      Math.min(
-        Number.POSITIVE_INFINITY,
-        ...(artwork.tasksByFile.get(fileId) ?? []).map(
-          id => vehicleIndex.get(id) ?? Number.POSITIVE_INFINITY,
-        ),
-      );
-    const byCreation = [...artwork.files].sort(
-      (a, b) =>
-        new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime() ||
-        String(a.id).localeCompare(String(b.id)),
-    );
-    const orderedLayoutFiles = perVehicleLayout
-      ? byCreation
-          .map((f, position) => ({ f, position, first: firstCovered(f.id) }))
-          .sort((a, b) => a.first - b.first || a.position - b.position)
-          .map(x => x.f)
-      : byCreation;
-    const layoutPairs = orderedLayoutFiles
-      .map(f => ({
-        src: this.renderer.resolveLayoutImageDataUri(f),
-        caption: perVehicleLayout
-          ? coverageSummary(
-              { tasks: (artwork.tasksByFile.get(f.id) ?? []).map(taskId => ({ taskId })) } as any,
-              vehicleTasks.length,
-              vehicleTasks as any,
-            )
-          : null,
-      }))
+    const layoutPairs = quoteArtworkPlates(artwork, vehicleTasks as any)
+      .map(({ file, caption }) => ({ src: this.renderer.resolveLayoutImageDataUri(file), caption }))
       .filter((p): p is { src: string; caption: string | null } => Boolean(p.src));
     const layoutImages = layoutPairs.map(p => p.src);
     const layoutCaptions = perVehicleLayout ? layoutPairs.map(p => p.caption) : undefined;
